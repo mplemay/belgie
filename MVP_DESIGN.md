@@ -7,54 +7,91 @@ This MVP implements Google OAuth authentication with a flexible database adapter
 
 1. **User brings their own models** - Define SQLAlchemy models in your app
 2. **Protocols define requirements** - We specify what fields are needed
-3. **Auth as dependency** - Use `Depends(auth)` to get an `AuthClient` in routes
-4. **Type-safe and flexible** - Full type hints, works with any SQLAlchemy setup
+3. **Configure, don't implement** - Belgie provides adapters, you just configure them
+4. **Auth as dependency** - Use `Depends(auth)` to get an `AuthClient` in routes
+5. **Router-based integration** - Include auth routes with `app.include_router(auth.router)`
 
 ---
 
 ## Core Components
 
-### 1. Configuration (pydantic_settings)
+### 1. Configuration (pydantic_settings with Nested Models)
 
 ```python
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+
+
+class SessionConfig(BaseModel):
+    """Session configuration"""
+    cookie_name: str = Field(default="belgie_session")
+    max_age: int = Field(default=604800, description="Session duration in seconds (7 days)")
+    update_age: int = Field(default=86400, description="Update session after this many seconds (1 day)")
+
+
+class CookieConfig(BaseModel):
+    """Cookie configuration"""
+    secure: bool = Field(default=True, description="Set Secure flag")
+    http_only: bool = Field(default=True, description="Set HttpOnly flag")
+    same_site: str = Field(default="lax", description="SameSite attribute (strict/lax/none)")
+    domain: str | None = Field(default=None, description="Cookie domain")
+
+
+class GoogleOAuthConfig(BaseModel):
+    """Google OAuth configuration"""
+    client_id: str = Field(..., description="Google OAuth client ID")
+    client_secret: str = Field(..., description="Google OAuth client secret")
+    redirect_uri: str = Field(..., description="OAuth redirect URI")
+    scopes: list[str] = Field(
+        default=["openid", "email", "profile"],
+        description="OAuth scopes to request"
+    )
+
+
+class URLConfig(BaseModel):
+    """URL configuration"""
+    signin_redirect: str = Field(default="/dashboard", description="Redirect after sign in")
+    signout_redirect: str = Field(default="/", description="Redirect after sign out")
 
 
 class AuthSettings(BaseSettings):
-    """Main authentication configuration using pydantic_settings"""
+    """
+    Main authentication configuration using pydantic_settings with nested models.
+
+    All nested configuration models are Pydantic BaseModel instances that can
+    be configured via environment variables using the BELGIE_ prefix.
+    """
 
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_",
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        env_nested_delimiter="__",  # Allows BELGIE_SESSION__MAX_AGE=3600
     )
 
-    # App settings
+    # Core settings
     secret: str = Field(..., description="Secret key for signing cookies and tokens")
     base_url: str = Field(..., description="Base URL of your application")
 
-    # Session settings
-    session_cookie_name: str = Field(default="belgie_session")
-    session_max_age: int = Field(default=604800)  # 7 days
-    session_update_age: int = Field(default=86400)  # 1 day
+    # Nested configuration models
+    session: SessionConfig = Field(default_factory=SessionConfig)
+    cookie: CookieConfig = Field(default_factory=CookieConfig)
+    google: GoogleOAuthConfig
+    urls: URLConfig = Field(default_factory=URLConfig)
 
-    # Cookie settings
-    cookie_secure: bool = Field(default=True)
-    cookie_http_only: bool = Field(default=True)
-    cookie_same_site: str = Field(default="lax")
-    cookie_domain: str | None = Field(default=None)
 
-    # Google OAuth
-    google_client_id: str
-    google_client_secret: str
-    google_redirect_uri: str
-    google_scopes: list[str] = Field(default=["openid", "email", "profile"])
-
-    # URLs
-    signin_redirect_url: str = Field(default="/dashboard")
-    signout_redirect_url: str = Field(default="/")
+# Example .env file:
+"""
+BELGIE_SECRET=your-secret-key
+BELGIE_BASE_URL=http://localhost:8000
+BELGIE_GOOGLE__CLIENT_ID=your-client-id
+BELGIE_GOOGLE__CLIENT_SECRET=your-client-secret
+BELGIE_GOOGLE__REDIRECT_URI=http://localhost:8000/auth/callback/google
+BELGIE_SESSION__MAX_AGE=604800
+BELGIE_COOKIE__SECURE=true
+BELGIE_URLS__SIGNIN_REDIRECT=/dashboard
+"""
 ```
 
 ---
@@ -123,25 +160,55 @@ class OAuthStateProtocol(Protocol):
 
 ---
 
-### 3. Database Adapter Protocol
+### 3. AlchemyAdapter (Provided by Belgie)
+
+Belgie provides the `AlchemyAdapter` - users just configure it with their models and database dependency:
 
 ```python
-from typing import Protocol, TypeVar, Generic, Any
-from uuid import UUID
-from datetime import datetime
+from typing import Callable, Type, Generic, TypeVar
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# Type variables for user's models
 UserT = TypeVar("UserT", bound=UserProtocol)
 AccountT = TypeVar("AccountT", bound=AccountProtocol)
 SessionT = TypeVar("SessionT", bound=SessionProtocol)
 OAuthStateT = TypeVar("OAuthStateT", bound=OAuthStateProtocol)
 
 
-class DatabaseAdapter(Protocol, Generic[UserT, AccountT, SessionT, OAuthStateT]):
-    """Protocol defining the database adapter interface"""
+class AlchemyAdapter(Generic[UserT, AccountT, SessionT, OAuthStateT]):
+    """
+    SQLAlchemy adapter for Belgie - provided by the library.
+
+    Users configure it with their models and database dependency.
+    """
+
+    def __init__(
+        self,
+        *,
+        dependency: Callable[..., AsyncSession],
+        user: Type[UserT],
+        account: Type[AccountT],
+        session: Type[SessionT],
+        oauth_state: Type[OAuthStateT],
+    ):
+        """
+        Initialize the adapter with user's models and database dependency.
+
+        Args:
+            dependency: FastAPI dependency that yields AsyncSession (e.g., get_db)
+            user: User model class conforming to UserProtocol
+            account: Account model class conforming to AccountProtocol
+            session: Session model class conforming to SessionProtocol
+            oauth_state: OAuthState model class conforming to OAuthStateProtocol
+        """
+        self.dependency = dependency
+        self.user_model = user
+        self.account_model = account
+        self.session_model = session
+        self.oauth_state_model = oauth_state
 
     async def create_user(
         self,
+        db: AsyncSession,
         email: str,
         name: str | None = None,
         image: str | None = None,
@@ -150,20 +217,26 @@ class DatabaseAdapter(Protocol, Generic[UserT, AccountT, SessionT, OAuthStateT])
         """Create a new user"""
         ...
 
-    async def get_user_by_id(self, user_id: UUID) -> UserT | None:
+    async def get_user_by_id(self, db: AsyncSession, user_id: UUID) -> UserT | None:
         """Get user by ID"""
         ...
 
-    async def get_user_by_email(self, email: str) -> UserT | None:
+    async def get_user_by_email(self, db: AsyncSession, email: str) -> UserT | None:
         """Get user by email"""
         ...
 
-    async def update_user(self, user_id: UUID, **updates: Any) -> UserT | None:
+    async def update_user(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        **updates: Any
+    ) -> UserT | None:
         """Update user fields"""
         ...
 
     async def create_account(
         self,
+        db: AsyncSession,
         user_id: UUID,
         provider: str,
         provider_account_id: str,
@@ -174,6 +247,7 @@ class DatabaseAdapter(Protocol, Generic[UserT, AccountT, SessionT, OAuthStateT])
 
     async def get_account(
         self,
+        db: AsyncSession,
         provider: str,
         provider_account_id: str
     ) -> AccountT | None:
@@ -182,6 +256,7 @@ class DatabaseAdapter(Protocol, Generic[UserT, AccountT, SessionT, OAuthStateT])
 
     async def create_session(
         self,
+        db: AsyncSession,
         user_id: UUID,
         expires_at: datetime,
         ip_address: str | None = None,
@@ -190,24 +265,34 @@ class DatabaseAdapter(Protocol, Generic[UserT, AccountT, SessionT, OAuthStateT])
         """Create a session"""
         ...
 
-    async def get_session(self, session_id: UUID) -> SessionT | None:
+    async def get_session(
+        self,
+        db: AsyncSession,
+        session_id: UUID
+    ) -> SessionT | None:
         """Get session by ID"""
         ...
 
-    async def update_session(self, session_id: UUID, **updates: Any) -> SessionT | None:
+    async def update_session(
+        self,
+        db: AsyncSession,
+        session_id: UUID,
+        **updates: Any
+    ) -> SessionT | None:
         """Update session"""
         ...
 
-    async def delete_session(self, session_id: UUID) -> bool:
+    async def delete_session(self, db: AsyncSession, session_id: UUID) -> bool:
         """Delete session"""
         ...
 
-    async def delete_expired_sessions(self) -> int:
+    async def delete_expired_sessions(self, db: AsyncSession) -> int:
         """Delete all expired sessions"""
         ...
 
     async def create_oauth_state(
         self,
+        db: AsyncSession,
         state: str,
         expires_at: datetime,
         code_verifier: str | None = None,
@@ -216,11 +301,15 @@ class DatabaseAdapter(Protocol, Generic[UserT, AccountT, SessionT, OAuthStateT])
         """Create OAuth state"""
         ...
 
-    async def get_oauth_state(self, state: str) -> OAuthStateT | None:
+    async def get_oauth_state(
+        self,
+        db: AsyncSession,
+        state: str
+    ) -> OAuthStateT | None:
         """Get OAuth state"""
         ...
 
-    async def delete_oauth_state(self, state: str) -> bool:
+    async def delete_oauth_state(self, db: AsyncSession, state: str) -> bool:
         """Delete OAuth state"""
         ...
 ```
@@ -287,12 +376,12 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 
-class SessionManager(Generic[UserT, SessionT]):
+class SessionManager(Generic[SessionT]):
     """Manages session creation, validation, and lifecycle"""
 
     def __init__(
         self,
-        adapter: DatabaseAdapter[UserT, AccountT, SessionT, OAuthStateT],
+        adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
         max_age: int,
         update_age: int
     ):
@@ -302,6 +391,7 @@ class SessionManager(Generic[UserT, SessionT]):
 
     async def create_session(
         self,
+        db: AsyncSession,
         user_id: UUID,
         ip_address: str | None = None,
         user_agent: str | None = None
@@ -309,15 +399,19 @@ class SessionManager(Generic[UserT, SessionT]):
         """Create a new session"""
         ...
 
-    async def get_session(self, session_id: UUID) -> SessionT | None:
+    async def get_session(
+        self,
+        db: AsyncSession,
+        session_id: UUID
+    ) -> SessionT | None:
         """Get and validate session (with sliding window expiry update)"""
         ...
 
-    async def delete_session(self, session_id: UUID) -> bool:
+    async def delete_session(self, db: AsyncSession, session_id: UUID) -> bool:
         """Delete a session (sign out)"""
         ...
 
-    async def cleanup_expired_sessions(self) -> int:
+    async def cleanup_expired_sessions(self, db: AsyncSession) -> int:
         """Clean up expired sessions"""
         ...
 ```
@@ -346,7 +440,8 @@ from typing import Generic
 from uuid import UUID
 from datetime import datetime, timedelta
 import secrets
-from fastapi import Request, HTTPException, Cookie
+from fastapi import Request, HTTPException, Cookie, APIRouter, Response, Depends
+from fastapi.responses import RedirectResponse
 
 
 class Auth(Generic[UserT, AccountT, SessionT, OAuthStateT]):
@@ -355,30 +450,81 @@ class Auth(Generic[UserT, AccountT, SessionT, OAuthStateT]):
     def __init__(
         self,
         settings: AuthSettings,
-        adapter: DatabaseAdapter[UserT, AccountT, SessionT, OAuthStateT]
+        adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT]
     ):
         self.settings = settings
         self.adapter = adapter
 
-        # Initialize components
+        # Initialize components using nested settings
         self.session_manager = SessionManager(
             adapter=adapter,
-            max_age=settings.session_max_age,
-            update_age=settings.session_update_age
+            max_age=settings.session.max_age,
+            update_age=settings.session.update_age
         )
 
         self.google_provider = GoogleOAuthProvider(
-            client_id=settings.google_client_id,
-            client_secret=settings.google_client_secret,
-            redirect_uri=settings.google_redirect_uri,
-            scopes=settings.google_scopes
+            client_id=settings.google.client_id,
+            client_secret=settings.google.client_secret,
+            redirect_uri=settings.google.redirect_uri,
+            scopes=settings.google.scopes
         )
+
+        # Create FastAPI router with OAuth routes
+        self._router = self._create_router()
+
+    @property
+    def router(self) -> APIRouter:
+        """
+        FastAPI router with authentication endpoints.
+
+        Include in your app with: app.include_router(auth.router)
+
+        Provides routes:
+        - GET /auth/signin/google - Redirect to Google OAuth
+        - GET /auth/callback/google - Handle Google OAuth callback
+        - POST /auth/signout - Sign out current user
+        """
+        return self._router
+
+    def _create_router(self) -> APIRouter:
+        """Create and configure the FastAPI router"""
+        router = APIRouter(prefix="/auth", tags=["auth"])
+
+        @router.get("/signin/google")
+        async def signin_google(
+            db: AsyncSession = Depends(self.adapter.dependency)
+        ):
+            """Redirect to Google OAuth"""
+            ...
+
+        @router.get("/callback/google")
+        async def callback_google(
+            code: str,
+            state: str,
+            request: Request,
+            response: Response,
+            db: AsyncSession = Depends(self.adapter.dependency)
+        ):
+            """Handle Google OAuth callback"""
+            ...
+
+        @router.post("/signout")
+        async def signout(
+            client: AuthClient[UserT, SessionT] = Depends(self),
+            response: Response = Response(),
+            db: AsyncSession = Depends(self.adapter.dependency)
+        ):
+            """Sign out current user"""
+            ...
+
+        return router
 
     # Used as FastAPI Depends() - validates session and returns AuthClient
     async def __call__(
         self,
         request: Request,
-        session_id: str | None = Cookie(None, alias="belgie_session")
+        session_id: str | None = Cookie(None, alias="belgie_session"),
+        db: AsyncSession = Depends(self.adapter.dependency)
     ) -> AuthClient[UserT, SessionT]:
         """
         Make Auth callable as a FastAPI dependency.
@@ -390,14 +536,19 @@ class Auth(Generic[UserT, AccountT, SessionT, OAuthStateT]):
         """
         ...
 
-    # OAuth Flow Methods
+    # OAuth Flow Methods (used internally by router)
 
-    async def get_google_signin_url(self, redirect_url: str | None = None) -> str:
+    async def get_google_signin_url(
+        self,
+        db: AsyncSession,
+        redirect_url: str | None = None
+    ) -> str:
         """Generate Google OAuth sign-in URL"""
         ...
 
     async def handle_google_callback(
         self,
+        db: AsyncSession,
         code: str,
         state: str,
         ip_address: str | None = None,
@@ -408,15 +559,23 @@ class Auth(Generic[UserT, AccountT, SessionT, OAuthStateT]):
 
     # Session Methods
 
-    async def get_session(self, session_id: UUID) -> SessionT | None:
+    async def get_session(
+        self,
+        db: AsyncSession,
+        session_id: UUID
+    ) -> SessionT | None:
         """Get and validate session"""
         ...
 
-    async def get_user_from_session(self, session_id: UUID) -> UserT | None:
+    async def get_user_from_session(
+        self,
+        db: AsyncSession,
+        session_id: UUID
+    ) -> UserT | None:
         """Get user from session ID"""
         ...
 
-    async def sign_out(self, session_id: UUID) -> bool:
+    async def sign_out(self, db: AsyncSession, session_id: UUID) -> bool:
         """Sign out (delete session)"""
         ...
 ```
@@ -446,10 +605,11 @@ def create_optional_auth(
     """
     async def optional(
         request: Request,
-        session_id: str | None = Cookie(None, alias="belgie_session")
+        session_id: str | None = Cookie(None, alias="belgie_session"),
+        db: AsyncSession = Depends(auth.adapter.dependency)
     ) -> AuthClient[UserT, SessionT] | None:
         try:
-            return await auth(request, session_id)
+            return await auth(request, session_id, db)
         except HTTPException:
             return None
 
@@ -487,8 +647,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # User can add custom fields
+    # User can add custom fields!
     custom_field: Mapped[str | None] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(50), default="user")
 
 
 class Account(Base):
@@ -535,116 +696,56 @@ class OAuthState(Base):
 ```
 
 ```python
-# adapter.py - User implements adapter for their models
-from belgie import DatabaseAdapter
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from uuid import UUID
-from datetime import datetime
-from typing import Any
-from .models import User, Account, Session, OAuthState
+# database.py - Standard database setup
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from typing import AsyncGenerator
+
+engine = create_async_engine("postgresql+asyncpg://user:pass@localhost/db")
+async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 
-class MyDatabaseAdapter:
-    """User's database adapter implementation"""
-
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
-        self.session_factory = session_factory
-
-    async def create_user(
-        self,
-        email: str,
-        name: str | None = None,
-        image: str | None = None,
-        email_verified: bool = False
-    ) -> User:
-        """Create a new user"""
-        ...  # Implementation using user's models
-
-    async def get_user_by_id(self, user_id: UUID) -> User | None:
-        """Get user by ID"""
-        ...
-
-    # ... implement all other methods from DatabaseAdapter protocol
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency for database sessions"""
+    async with async_session_maker() as session:
+        yield session
 ```
 
 ```python
 # main.py - FastAPI application
-from fastapi import FastAPI, Depends, Request, Response
-from fastapi.responses import RedirectResponse
-from belgie import Auth, AuthSettings, AuthClient, create_optional_auth
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from .models import User, Account, Session, OAuthState, Base
-from .adapter import MyDatabaseAdapter
+from fastapi import FastAPI, Depends
+from belgie import Auth, AuthSettings, AuthClient, AlchemyAdapter, create_optional_auth
+from .models import User, Account, Session, OAuthState
+from .database import get_db
 
 # Initialize FastAPI
 app = FastAPI()
 
-# Setup database
-engine = create_async_engine("postgresql+asyncpg://...")
-session_factory = async_sessionmaker(engine, expire_on_commit=False)
+# Load settings
+settings = AuthSettings()
 
-# Initialize adapter with user's models
-adapter = MyDatabaseAdapter(session_factory)
+# Configure adapter with user's models and database dependency
+adapter = AlchemyAdapter(
+    dependency=get_db,
+    user=User,
+    account=Account,
+    session=Session,
+    oauth_state=OAuthState,
+)
 
 # Initialize auth
-settings = AuthSettings()
 auth = Auth[User, Account, Session, OAuthState](
     settings=settings,
     adapter=adapter
 )
 
+# Include authentication routes (provides /auth/signin/google, /auth/callback/google, /auth/signout)
+app.include_router(auth.router)
+
 # Create optional auth dependency
 optional_auth = create_optional_auth(auth)
 
 
-# OAuth Routes
-@app.get("/auth/signin/google")
-async def signin_google():
-    """Redirect to Google OAuth"""
-    url = await auth.get_google_signin_url()
-    return RedirectResponse(url)
-
-
-@app.get("/auth/callback/google")
-async def callback_google(
-    code: str,
-    state: str,
-    request: Request,
-    response: Response
-):
-    """Handle Google OAuth callback"""
-    session, user = await auth.handle_google_callback(
-        code=code,
-        state=state,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent")
-    )
-
-    # Set cookie and redirect
-    response = RedirectResponse(url=settings.signin_redirect_url)
-    response.set_cookie(
-        key=settings.session_cookie_name,
-        value=str(session.id),
-        max_age=settings.session_max_age,
-        secure=settings.cookie_secure,
-        httponly=settings.cookie_http_only,
-        samesite=settings.cookie_same_site
-    )
-    return response
-
-
-@app.post("/auth/signout")
-async def signout(
-    client: AuthClient[User, Session] = Depends(auth),
-    response: Response = Response()
-):
-    """Sign out"""
-    await auth.sign_out(client.session.id)
-    response.delete_cookie(key=settings.session_cookie_name)
-    return RedirectResponse(url=settings.signout_redirect_url)
-
-
-# Protected Routes
+# Protected Routes - Require Authentication
 @app.get("/api/me")
 async def get_me(client: AuthClient[User, Session] = Depends(auth)):
     """Get current user - PROTECTED (Auth required)"""
@@ -652,17 +753,63 @@ async def get_me(client: AuthClient[User, Session] = Depends(auth)):
         "id": str(client.user.id),
         "email": client.user.email,
         "name": client.user.name,
-        "custom_field": client.user.custom_field  # User's custom field!
+        "custom_field": client.user.custom_field,  # User's custom field!
+        "role": client.user.role,  # Another custom field!
     }
 
 
-# Optional Auth Routes
+@app.get("/api/protected")
+async def protected_route(client: AuthClient[User, Session] = Depends(auth)):
+    """A protected route - requires authentication"""
+    return {"message": f"Hello, {client.user.name}! You are authenticated."}
+
+
+# Optional Auth Routes - Auth is optional
 @app.get("/")
 async def index(client: AuthClient[User, Session] | None = Depends(optional_auth)):
     """Home page - OPTIONAL AUTH (returns None if not authenticated)"""
     if client:
         return {"message": f"Hello, {client.user.name}!"}
     return {"message": "Hello, guest!"}
+
+
+@app.get("/api/public")
+async def public_route(client: AuthClient[User, Session] | None = Depends(optional_auth)):
+    """A public route that can show different content for authenticated users"""
+    if client:
+        return {
+            "message": "You are signed in",
+            "user": {"name": client.user.name, "email": client.user.email}
+        }
+    return {"message": "You are not signed in"}
+```
+
+```python
+# .env file
+"""
+# Core settings
+BELGIE_SECRET=your-super-secret-key-here-min-32-chars
+BELGIE_BASE_URL=http://localhost:8000
+
+# Google OAuth (nested with __)
+BELGIE_GOOGLE__CLIENT_ID=your-google-client-id
+BELGIE_GOOGLE__CLIENT_SECRET=your-google-client-secret
+BELGIE_GOOGLE__REDIRECT_URI=http://localhost:8000/auth/callback/google
+
+# Session settings (optional - has defaults)
+BELGIE_SESSION__MAX_AGE=604800
+BELGIE_SESSION__UPDATE_AGE=86400
+BELGIE_SESSION__COOKIE_NAME=belgie_session
+
+# Cookie settings (optional - has defaults)
+BELGIE_COOKIE__SECURE=true
+BELGIE_COOKIE__HTTP_ONLY=true
+BELGIE_COOKIE__SAME_SITE=lax
+
+# URL settings (optional - has defaults)
+BELGIE_URLS__SIGNIN_REDIRECT=/dashboard
+BELGIE_URLS__SIGNOUT_REDIRECT=/
+"""
 ```
 
 ---
@@ -681,7 +828,10 @@ src/belgie/
 ├── protocols/
 │   ├── __init__.py
 │   ├── models.py            # UserProtocol, AccountProtocol, etc.
-│   └── adapter.py           # DatabaseAdapter protocol
+│   └── adapter.py           # DatabaseAdapter protocol (not used directly)
+├── adapters/
+│   ├── __init__.py
+│   └── alchemy.py           # AlchemyAdapter implementation (stub)
 ├── providers/
 │   ├── __init__.py
 │   └── google.py            # GoogleOAuthProvider (stub)
@@ -697,19 +847,105 @@ src/belgie/
 
 ## Key Design Benefits
 
-1. **Flexible** - Users define their own models with custom fields
-2. **Type-Safe** - Full generic typing with user's model types
-3. **Clean API** - `Depends(auth)` returns `AuthClient` with user and session
-4. **Framework-Agnostic Core** - Only FastAPI integration is framework-specific
-5. **Protocol-Based** - No inheritance required, just conform to protocols
-6. **Extensible** - Users can add custom fields, methods, relationships
+1. **Minimal Configuration** - Just configure `AlchemyAdapter` with your models and `get_db` dependency
+2. **No Adapter Implementation** - Belgie provides `AlchemyAdapter`, you don't write database code
+3. **Router-based Integration** - Simple `app.include_router(auth.router)` for OAuth routes
+4. **Type-Safe** - Full generic typing with user's model types
+5. **Clean API** - `Depends(auth)` returns `AuthClient` with user and session
+6. **Framework-Agnostic Core** - Only FastAPI integration is framework-specific
+7. **Protocol-Based** - No inheritance required, just conform to protocols
+8. **Extensible** - Users can add custom fields, methods, relationships to their models
+
+---
+
+## Usage Summary
+
+### Setup (One-time configuration)
+
+```python
+# 1. Define your models (conforming to protocols)
+class User(Base): ...
+class Account(Base): ...
+class Session(Base): ...
+class OAuthState(Base): ...
+
+# 2. Configure adapter
+adapter = AlchemyAdapter(
+    dependency=get_db,
+    user=User,
+    account=Account,
+    session=Session,
+    oauth_state=OAuthState,
+)
+
+# 3. Initialize auth
+auth = Auth(settings=AuthSettings(), adapter=adapter)
+
+# 4. Include router
+app.include_router(auth.router)
+```
+
+### Using Authentication
+
+```python
+# Protected routes
+@app.get("/protected")
+async def protected(client: AuthClient = Depends(auth)):
+    return client.user
+
+# Optional auth
+optional_auth = create_optional_auth(auth)
+
+@app.get("/public")
+async def public(client: AuthClient | None = Depends(optional_auth)):
+    if client:
+        return f"Hello {client.user.name}"
+    return "Hello guest"
+```
 
 ---
 
 ## Next Steps
 
 1. Implement stub classes with proper type signatures
-2. Add comprehensive docstrings
-3. Create example adapter implementation (reference)
-4. Write tests using example models
-5. Add migration guide for creating conforming models
+2. Implement `AlchemyAdapter` to handle SQLAlchemy operations
+3. Implement `Auth.router` creation and OAuth flow
+4. Add comprehensive docstrings
+5. Write tests using example models
+6. Add migration guide for creating conforming models
+
+## Future: Plugins and Rate Limiting
+
+Following the nested Pydantic settings pattern, future features will be configured similarly:
+
+```python
+class RateLimitConfig(BaseModel):
+    """Rate limiting configuration"""
+    enabled: bool = Field(default=True)
+    requests_per_minute: int = Field(default=60)
+    strategy: str = Field(default="fixed-window")
+
+
+class TwoFactorConfig(BaseModel):
+    """Two-factor authentication plugin configuration"""
+    enabled: bool = Field(default=False)
+    issuer: str = Field(default="Belgie")
+    algorithm: str = Field(default="SHA1")
+
+
+class AuthSettings(BaseSettings):
+    # ... existing settings ...
+
+    # Plugin configurations (nested)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    two_factor: TwoFactorConfig = Field(default_factory=TwoFactorConfig)
+
+
+# Environment variables:
+# BELGIE_RATE_LIMIT__ENABLED=true
+# BELGIE_RATE_LIMIT__REQUESTS_PER_MINUTE=100
+# BELGIE_TWO_FACTOR__ENABLED=true
+# BELGIE_TWO_FACTOR__ISSUER=MyApp
+```
+
+This keeps all configuration organized, type-safe, and environment-variable friendly.
