@@ -77,7 +77,7 @@ def client(app: FastAPI) -> TestClient:
     return TestClient(app)
 
 
-def test_signin_google_endpoint_redirects(client: TestClient, db_session: AsyncSession) -> None:
+def test_signin_google_endpoint_redirects(client: TestClient) -> None:
     response = client.get("/auth/signin/google", follow_redirects=False)
 
     assert response.status_code == 302
@@ -91,9 +91,9 @@ def test_signin_google_creates_oauth_state(client: TestClient, auth: Auth, db_se
     response = client.get("/auth/signin/google", follow_redirects=False)
 
     location = response.headers["location"]
-    state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]
+    state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
 
-    import asyncio
+    import asyncio  # noqa: PLC0415
 
     async def check_state() -> None:
         oauth_state = await auth.adapter.get_oauth_state(db_session, state_param)
@@ -105,10 +105,10 @@ def test_signin_google_creates_oauth_state(client: TestClient, auth: Auth, db_se
 
 @respx.mock
 def test_callback_google_endpoint_success(client: TestClient, auth: Auth, db_session: AsyncSession) -> None:
-    import asyncio
+    import asyncio  # noqa: PLC0415
 
     async def setup_state() -> str:
-        state_token = "test-state-callback"
+        state_token = "test-state-callback"  # noqa: S105
         await auth.adapter.create_oauth_state(
             db_session,
             state=state_token,
@@ -154,10 +154,10 @@ def test_callback_google_sets_cookie_with_correct_attributes(
     auth: Auth,
     db_session: AsyncSession,
 ) -> None:
-    import asyncio
+    import asyncio  # noqa: PLC0415
 
     async def setup_state() -> str:
-        state_token = "test-state-cookie"
+        state_token = "test-state-cookie"  # noqa: S105
         await auth.adapter.create_oauth_state(
             db_session,
             state=state_token,
@@ -198,7 +198,9 @@ def test_callback_google_sets_cookie_with_correct_attributes(
 
 
 def test_callback_google_invalid_state(client: TestClient) -> None:
-    with pytest.raises(Exception):
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    with pytest.raises(HTTPException):
         client.get(
             "/auth/callback/google?code=test-code&state=invalid-state",
             follow_redirects=False,
@@ -217,7 +219,7 @@ def test_signout_endpoint_clears_cookie(client: TestClient) -> None:
 
 
 def test_signout_endpoint_deletes_session(client: TestClient, auth: Auth, db_session: AsyncSession) -> None:
-    import asyncio
+    import asyncio  # noqa: PLC0415
 
     async def setup_session() -> str:
         user = await auth.adapter.create_user(db_session, email="signout@example.com")
@@ -233,7 +235,7 @@ def test_signout_endpoint_deletes_session(client: TestClient, auth: Auth, db_ses
     assert response.status_code == 302
 
     async def check_session_deleted() -> None:
-        from uuid import UUID
+        from uuid import UUID  # noqa: PLC0415
 
         session = await auth.session_manager.get_session(db_session, UUID(session_id))
         assert session is None
