@@ -16,6 +16,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pre-commit>=4.4.0",
+    "pytest>=9.0.1",
     "ruff>=0.14.5",
     "ty>=0.0.1a27",
 ]
@@ -35,7 +36,7 @@ ignore = [
 "__init__.py" = [
     "F401", # imported but unused (common in __init__.py to re-export symbols)
 ]
-"src/belgie/__tests__/**/*" = [
+"src/belgie/__test__/**/*" = [
     "S101",    # use of assert (tests typically use assert directly)
     "PLR2004", # magic value used in comparison (fine in test cases)
     "INP001",  # implicit namespace package (tests dir may not need __init__.py)
