@@ -1,0 +1,37 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: uv-lock
+        name: uv lock
+        entry: uv lock
+        language: python
+        files: ^(uv\.lock|pyproject\.toml|uv\.toml)$
+        args: []
+        pass_filenames: false
+        additional_dependencies: []
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --force-exclude
+        args: [--fix]
+        language: python
+        types_or: [python, pyi, jupyter]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: python
+        types_or: [python, pyi, jupyter]
+        require_serial: true
+      - id: ty-check
+        name: ty check
+        entry: uv run ty check
+        language: python
+        types_or: [python, pyi, jupyter]
+        require_serial: true
