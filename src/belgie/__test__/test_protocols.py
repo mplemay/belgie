@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from belgie.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
@@ -55,7 +55,7 @@ class ExampleOAuthState:
 
 
 def test_user_protocol_runtime_check() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     user = ExampleUser(
         id=uuid4(),
         email="test@example.com",
@@ -71,18 +71,18 @@ def test_user_protocol_runtime_check() -> None:
 
 
 def test_account_protocol_runtime_check() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     account = ExampleAccount(
         id=uuid4(),
         user_id=uuid4(),
         provider="google",
         provider_account_id="12345",
-        access_token="token",
-        refresh_token="refresh",
+        access_token="token",  # noqa: S106
+        refresh_token="refresh",  # noqa: S106
         expires_at=now,
-        token_type="Bearer",
+        token_type="Bearer",  # noqa: S106
         scope="openid email",
-        id_token="id_token",
+        id_token="id_token",  # noqa: S106
         created_at=now,
         updated_at=now,
     )
@@ -91,7 +91,7 @@ def test_account_protocol_runtime_check() -> None:
 
 
 def test_session_protocol_runtime_check() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     session = ExampleSession(
         id=uuid4(),
         user_id=uuid4(),
@@ -106,7 +106,7 @@ def test_session_protocol_runtime_check() -> None:
 
 
 def test_oauth_state_protocol_runtime_check() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     oauth_state = ExampleOAuthState(
         id=uuid4(),
         state="random_state",
@@ -120,7 +120,7 @@ def test_oauth_state_protocol_runtime_check() -> None:
 
 
 def test_user_with_custom_fields_satisfies_protocol() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     user = ExampleUser(
         id=uuid4(),
         email="test@example.com",

@@ -1,12 +1,12 @@
-class BelgieException(Exception):
+class BelgieError(Exception):
     pass
 
 
-class AuthenticationError(BelgieException):
+class AuthenticationError(BelgieError):
     pass
 
 
-class AuthorizationError(BelgieException):
+class AuthorizationError(BelgieError):
     pass
 
 
@@ -14,13 +14,13 @@ class SessionExpiredError(AuthenticationError):
     pass
 
 
-class InvalidStateError(BelgieException):
+class InvalidStateError(BelgieError):
     pass
 
 
-class OAuthError(BelgieException):
+class OAuthError(BelgieError):
     pass
 
 
-class ConfigurationError(BelgieException):
+class ConfigurationError(BelgieError):
     pass

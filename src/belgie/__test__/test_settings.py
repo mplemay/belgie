@@ -51,9 +51,9 @@ def test_cookie_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_google_oauth_settings_required_fields() -> None:
     with pytest.raises(ValidationError) as exc_info:
-        GoogleOAuthSettings()
+        GoogleOAuthSettings()  # type: ignore[call-arg]
 
-    errors = exc_info.value.errors()
+    errors = exc_info.value.errors()  # type: ignore[attr-defined]
     field_names = {error["loc"][0] for error in errors}
 
     assert "client_id" in field_names
@@ -66,10 +66,10 @@ def test_google_oauth_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "test-client-secret")
     monkeypatch.setenv("BELGIE_GOOGLE_REDIRECT_URI", "http://localhost:8000/callback")
 
-    settings = GoogleOAuthSettings()
+    settings = GoogleOAuthSettings()  # type: ignore[call-arg]
 
     assert settings.client_id == "test-client-id"
-    assert settings.client_secret == "test-client-secret"
+    assert settings.client_secret == "test-client-secret"  # noqa: S105
     assert settings.redirect_uri == "http://localhost:8000/callback"
     assert settings.scopes == ["openid", "email", "profile"]
 
@@ -97,9 +97,9 @@ def test_auth_settings_required_fields(monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.delenv(key, raising=False)
 
     with pytest.raises(ValidationError) as exc_info:
-        AuthSettings()
+        AuthSettings()  # type: ignore[call-arg]
 
-    errors = exc_info.value.errors()
+    errors = exc_info.value.errors()  # type: ignore[attr-defined]
     assert len(errors) > 0
 
 
@@ -109,7 +109,7 @@ def test_auth_settings_nested_google_required(monkeypatch: pytest.MonkeyPatch) -
             monkeypatch.delenv(key, raising=False)
 
     with pytest.raises(ValidationError):
-        AuthSettings(secret="test-secret", base_url="http://localhost:8000")
+        AuthSettings(secret="test-secret", base_url="http://localhost:8000")  # type: ignore[call-arg]  # noqa: S106
 
 
 def test_auth_settings_full_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,12 +119,12 @@ def test_auth_settings_full_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("BELGIE_GOOGLE_REDIRECT_URI", "http://localhost:8000/callback")
 
-    settings = AuthSettings()
+    settings = AuthSettings()  # type: ignore[call-arg]
 
-    assert settings.secret == "super-secret-key"
+    assert settings.secret == "super-secret-key"  # noqa: S105
     assert settings.base_url == "http://localhost:8000"
     assert settings.google.client_id == "client-id"
-    assert settings.google.client_secret == "client-secret"
+    assert settings.google.client_secret == "client-secret"  # noqa: S105
     assert settings.google.redirect_uri == "http://localhost:8000/callback"
 
 
@@ -135,7 +135,7 @@ def test_auth_settings_nested_defaults_work(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "secret")
     monkeypatch.setenv("BELGIE_GOOGLE_REDIRECT_URI", "http://localhost:8000/callback")
 
-    settings = AuthSettings()
+    settings = AuthSettings()  # type: ignore[call-arg]
 
     assert settings.session.cookie_name == "belgie_session"
     assert settings.session.max_age == 604800
@@ -153,7 +153,7 @@ def test_auth_settings_can_override_nested_defaults(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("BELGIE_COOKIE_SECURE", "false")
     monkeypatch.setenv("BELGIE_URLS_SIGNIN_REDIRECT", "/home")
 
-    settings = AuthSettings()
+    settings = AuthSettings()  # type: ignore[call-arg]
 
     assert settings.session.max_age == 1800
     assert settings.cookie.secure is False
@@ -167,7 +167,7 @@ def test_auth_settings_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "secret")
     monkeypatch.setenv("belgie_google_redirect_uri", "http://localhost:8000/callback")
 
-    settings = AuthSettings()
+    settings = AuthSettings()  # type: ignore[call-arg]
 
-    assert settings.secret == "secret"
+    assert settings.secret == "secret"  # noqa: S105
     assert settings.google.client_id == "id"

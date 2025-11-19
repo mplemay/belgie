@@ -3,7 +3,7 @@ import pytest
 from belgie.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
-    BelgieException,
+    BelgieError,
     ConfigurationError,
     InvalidStateError,
     OAuthError,
@@ -11,51 +11,56 @@ from belgie.core.exceptions import (
 )
 
 
-def test_belgie_exception_is_exception() -> None:
-    assert issubclass(BelgieException, Exception)
+def test_belgie_error_is_exception() -> None:
+    assert issubclass(BelgieError, Exception)
 
 
-def test_authentication_error_is_belgie_exception() -> None:
-    assert issubclass(AuthenticationError, BelgieException)
+def test_authentication_error_is_belgie_error() -> None:
+    assert issubclass(AuthenticationError, BelgieError)
 
 
-def test_authorization_error_is_belgie_exception() -> None:
-    assert issubclass(AuthorizationError, BelgieException)
+def test_authorization_error_is_belgie_error() -> None:
+    assert issubclass(AuthorizationError, BelgieError)
 
 
 def test_session_expired_error_is_authentication_error() -> None:
     assert issubclass(SessionExpiredError, AuthenticationError)
-    assert issubclass(SessionExpiredError, BelgieException)
+    assert issubclass(SessionExpiredError, BelgieError)
 
 
-def test_invalid_state_error_is_belgie_exception() -> None:
-    assert issubclass(InvalidStateError, BelgieException)
+def test_invalid_state_error_is_belgie_error() -> None:
+    assert issubclass(InvalidStateError, BelgieError)
 
 
-def test_oauth_error_is_belgie_exception() -> None:
-    assert issubclass(OAuthError, BelgieException)
+def test_oauth_error_is_belgie_error() -> None:
+    assert issubclass(OAuthError, BelgieError)
 
 
-def test_configuration_error_is_belgie_exception() -> None:
-    assert issubclass(ConfigurationError, BelgieException)
+def test_configuration_error_is_belgie_error() -> None:
+    assert issubclass(ConfigurationError, BelgieError)
 
 
 def test_can_raise_and_catch_authentication_error() -> None:
-    with pytest.raises(AuthenticationError, match="test message"):
-        raise AuthenticationError("test message")
+    msg = "test message"
+    with pytest.raises(AuthenticationError, match=msg):
+        raise AuthenticationError(msg)
 
 
 def test_can_catch_session_expired_as_authentication_error() -> None:
+    msg = "session expired"
     with pytest.raises(AuthenticationError):
-        raise SessionExpiredError("session expired")
+        raise SessionExpiredError(msg)
 
 
-def test_can_catch_all_as_belgie_exception() -> None:
-    with pytest.raises(BelgieException):
-        raise AuthorizationError("insufficient scopes")
+def test_can_catch_all_as_belgie_error() -> None:
+    msg1 = "insufficient scopes"
+    with pytest.raises(BelgieError):
+        raise AuthorizationError(msg1)
 
-    with pytest.raises(BelgieException):
-        raise OAuthError("oauth failed")
+    msg2 = "oauth failed"
+    with pytest.raises(BelgieError):
+        raise OAuthError(msg2)
 
-    with pytest.raises(BelgieException):
-        raise ConfigurationError("invalid config")
+    msg3 = "invalid config"
+    with pytest.raises(BelgieError):
+        raise ConfigurationError(msg3)
