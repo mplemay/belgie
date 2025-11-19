@@ -35,7 +35,7 @@ In general, you **must** follow the following workflow when writing code:
 
 - The project uses `pytest` for testing
 - Test files are located in the `src/belgie/__test__/` directory
-- Test files should follow the naming convention `test_*.py` or `*_test.py`
+- Test files should follow the naming convention `test_*.py` and correspond with the matching python file
 - Test functions should be prefixed with `test_`
 - Run tests using `uv run pytest`
 - The `pytest` settings can be found in the `pyproject.toml`
