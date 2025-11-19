@@ -124,6 +124,39 @@ class AlchemyAdapter[
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_account_by_user_and_provider(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        provider: str,
+    ) -> AccountT | None:
+        stmt = select(self.account_model).where(
+            self.account_model.user_id == user_id,
+            self.account_model.provider == provider,
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update_account(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        provider: str,
+        **tokens: Any,  # noqa: ANN401
+    ) -> AccountT | None:
+        account = await self.get_account_by_user_and_provider(db, user_id, provider)
+        if not account:
+            return None
+
+        for key, value in tokens.items():
+            if hasattr(account, key) and value is not None:
+                setattr(account, key, value)
+
+        account.updated_at = datetime.now(UTC)
+        await db.commit()
+        await db.refresh(account)
+        return account
+
     async def create_session(
         self,
         db: AsyncSession,
