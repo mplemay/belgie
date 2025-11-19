@@ -19,12 +19,62 @@ from belgie.utils.scopes import validate_scopes
 
 
 class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProtocol, OAuthStateT: OAuthStateProtocol]:
+    """Main authentication orchestrator for Belgie.
+
+    The Auth class provides a complete OAuth 2.0 authentication solution with session management,
+    user creation, and FastAPI integration. It automatically creates router endpoints and
+    dependency injection functions for protecting routes.
+
+    Type Parameters:
+        UserT: User model type implementing UserProtocol
+        AccountT: Account model type implementing AccountProtocol
+        SessionT: Session model type implementing SessionProtocol
+        OAuthStateT: OAuth state model type implementing OAuthStateProtocol
+
+    Attributes:
+        settings: Authentication configuration settings
+        adapter: Database adapter for persistence operations
+        session_manager: Session manager instance for session operations
+        google_provider: Google OAuth provider instance
+        router: FastAPI router with authentication endpoints
+
+    Example:
+        >>> from belgie import Auth, AuthSettings, AlchemyAdapter
+        >>> from myapp.models import User, Account, Session, OAuthState
+        >>>
+        >>> settings = AuthSettings(
+        ...     secret="your-secret-key",
+        ...     base_url="http://localhost:8000",
+        ...     google=GoogleOAuthSettings(
+        ...         client_id="your-client-id",
+        ...         client_secret="your-client-secret",
+        ...         redirect_uri="http://localhost:8000/auth/callback/google",
+        ...     ),
+        ... )
+        >>>
+        >>> adapter = AlchemyAdapter(user=User, account=Account, session=Session, oauth_state=OAuthState)
+        >>>
+        >>> auth = Auth(settings=settings, adapter=adapter, db_dependency=get_db)
+        >>> app.include_router(auth.router)
+    """
+
     def __init__(
         self,
         settings: AuthSettings,
         adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
         db_dependency: Callable[[], Any] | None = None,
     ) -> None:
+        """Initialize the Auth instance.
+
+        Args:
+            settings: Authentication configuration including session, cookie, OAuth, and URL settings
+            adapter: Database adapter for user, account, session, and OAuth state persistence
+            db_dependency: Optional database dependency function for FastAPI router endpoints.
+                         Required if you want to use the auto-generated router.
+
+        Raises:
+            RuntimeError: If router endpoints are accessed without providing db_dependency
+        """
         self.settings = settings
         self.adapter = adapter
         self.db_dependency = db_dependency
@@ -115,6 +165,21 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         self,
         db: AsyncSession,
     ) -> str:
+        """Generate Google OAuth signin URL with CSRF protection.
+
+        Creates a state token, stores it in the database with a 10-minute expiration,
+        and returns the Google OAuth authorization URL.
+
+        Args:
+            db: Async database session
+
+        Returns:
+            Google OAuth authorization URL with state parameter
+
+        Example:
+            >>> url = await auth.get_google_signin_url(db)
+            >>> # Redirect user to this URL to start OAuth flow
+        """
         state_token = generate_state_token()
 
         expires_at = datetime.now(UTC) + timedelta(minutes=10)
@@ -132,6 +197,28 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         code: str,
         state: str,
     ) -> tuple[SessionT, UserT]:
+        """Handle Google OAuth callback and create user session.
+
+        Validates the state token, exchanges the authorization code for access tokens,
+        fetches user information from Google, creates or updates the user and their
+        account, and creates a new session.
+
+        Args:
+            db: Async database session
+            code: Authorization code from Google OAuth callback
+            state: State token for CSRF protection
+
+        Returns:
+            Tuple of (session, user) for the authenticated user
+
+        Raises:
+            InvalidStateError: If the state token is invalid or expired
+            OAuthError: If token exchange or user info retrieval fails
+
+        Example:
+            >>> session, user = await auth.handle_google_callback(db, code="...", state="...")
+            >>> print(f"User {user.email} authenticated with session {session.id}")
+        """
         oauth_state = await self.adapter.get_oauth_state(db, state)
         if not oauth_state:
             msg = "invalid oauth state"
@@ -229,6 +316,20 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         db: AsyncSession,
         session_id: UUID,
     ) -> UserT | None:
+        """Retrieve user from a session ID.
+
+        Args:
+            db: Async database session
+            session_id: UUID of the session
+
+        Returns:
+            User object if session is valid and user exists, None otherwise
+
+        Example:
+            >>> user = await auth.get_user_from_session(db, session_id)
+            >>> if user:
+            ...     print(f"Found user: {user.email}")
+        """
         session = await self.session_manager.get_session(db, session_id)
         if not session:
             return None
@@ -240,6 +341,20 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         db: AsyncSession,
         session_id: UUID,
     ) -> bool:
+        """Sign out a user by deleting their session.
+
+        Args:
+            db: Async database session
+            session_id: UUID of the session to delete
+
+        Returns:
+            True if session was deleted, False if session didn't exist
+
+        Example:
+            >>> success = await auth.sign_out(db, session_id)
+            >>> if success:
+            ...     print("User signed out successfully")
+        """
         return await self.session_manager.delete_session(db, session_id)
 
     async def _get_session_from_cookie(
@@ -264,6 +379,34 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         request: Request,
         db: AsyncSession,
     ) -> UserT:
+        """FastAPI dependency for retrieving the authenticated user.
+
+        Extracts the session from cookies, validates it, and returns the authenticated user.
+        Optionally validates OAuth scopes if specified.
+
+        Args:
+            security_scopes: FastAPI SecurityScopes for scope validation
+            request: FastAPI Request object containing cookies
+            db: Async database session
+
+        Returns:
+            Authenticated user object
+
+        Raises:
+            HTTPException: 401 if not authenticated or session invalid
+            HTTPException: 403 if required scopes are not granted
+
+        Example:
+            >>> from fastapi import Depends, Security
+            >>>
+            >>> @app.get("/protected")
+            >>> async def protected_route(user: User = Depends(auth.user)):
+            ...     return {"email": user.email}
+            >>>
+            >>> @app.get("/profile")
+            >>> async def profile_route(user: User = Security(auth.user, scopes=["profile"])):
+            ...     return {"name": user.name, "email": user.email}
+        """
         session = await self._get_session_from_cookie(request, db)
         if not session:
             raise HTTPException(
@@ -300,6 +443,27 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         request: Request,
         db: AsyncSession,
     ) -> SessionT:
+        """FastAPI dependency for retrieving the current session.
+
+        Extracts and validates the session from cookies.
+
+        Args:
+            request: FastAPI Request object containing cookies
+            db: Async database session
+
+        Returns:
+            Active session object
+
+        Raises:
+            HTTPException: 401 if not authenticated or session invalid/expired
+
+        Example:
+            >>> from fastapi import Depends
+            >>>
+            >>> @app.get("/session-info")
+            >>> async def session_info(session: Session = Depends(auth.session)):
+            ...     return {"session_id": str(session.id), "expires_at": session.expires_at.isoformat()}
+        """
         session = await self._get_session_from_cookie(request, db)
         if not session:
             raise HTTPException(
