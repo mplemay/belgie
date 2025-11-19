@@ -61,7 +61,7 @@ def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: Async
 
 
 @pytest.fixture
-def app(auth: Auth, _db_session: AsyncSession) -> FastAPI:
+def app(auth: Auth) -> FastAPI:
     app = FastAPI()
     app.include_router(auth.router)
     return app

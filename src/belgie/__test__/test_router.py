@@ -198,9 +198,9 @@ def test_callback_google_sets_cookie_with_correct_attributes(
 
 
 def test_callback_google_invalid_state(client: TestClient) -> None:
-    from fastapi import HTTPException  # noqa: PLC0415
+    from belgie.core.exceptions import InvalidStateError  # noqa: PLC0415
 
-    with pytest.raises(HTTPException):
+    with pytest.raises(InvalidStateError):
         client.get(
             "/auth/callback/google?code=test-code&state=invalid-state",
             follow_redirects=False,
