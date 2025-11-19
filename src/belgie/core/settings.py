@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,7 +17,7 @@ class CookieSettings(BaseSettings):
 
     secure: bool = Field(default=True)
     http_only: bool = Field(default=True)
-    same_site: str = Field(default="lax")
+    same_site: Literal["lax", "strict", "none"] = Field(default="lax")
     domain: str | None = Field(default=None)
 
 

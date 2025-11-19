@@ -1,11 +1,11 @@
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import httpx
 import pytest
 import respx
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,8 +56,11 @@ def adapter() -> AlchemyAdapter:
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
-    return Auth(settings=auth_settings, adapter=adapter)
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
+    async def get_db() -> AsyncSession:
+        return db_session
+
+    return Auth(settings=auth_settings, adapter=adapter, db_dependency=get_db)
 
 
 def test_auth_initialization(auth: Auth, auth_settings: AuthSettings) -> None:
@@ -98,7 +101,7 @@ async def test_get_google_signin_url(auth: Auth, db_session: AsyncSession) -> No
 async def test_get_google_signin_url_creates_oauth_state(auth: Auth, db_session: AsyncSession) -> None:
     url = await auth.get_google_signin_url(db_session)
 
-    state_param = [param.split("=")[1] for param in url.split("?")[1].split("&") if param.startswith("state=")][0]
+    state_param = next(param.split("=")[1] for param in url.split("?")[1].split("&") if param.startswith("state="))
 
     oauth_state = await auth.adapter.get_oauth_state(db_session, state_param)
     assert oauth_state is not None
@@ -108,7 +111,7 @@ async def test_get_google_signin_url_creates_oauth_state(auth: Auth, db_session:
 @pytest.mark.asyncio
 @respx.mock
 async def test_handle_google_callback_new_user(auth: Auth, db_session: AsyncSession) -> None:
-    state_token = "test-state-123"
+    state_token = "test-state-123"  # noqa: S105
     await auth.adapter.create_oauth_state(
         db_session,
         state=state_token,
@@ -151,7 +154,7 @@ async def test_handle_google_callback_new_user(auth: Auth, db_session: AsyncSess
 async def test_handle_google_callback_existing_user(auth: Auth, db_session: AsyncSession) -> None:
     existing_user = await auth.adapter.create_user(db_session, email="existing@example.com")
 
-    state_token = "test-state-456"
+    state_token = "test-state-456"  # noqa: S105
     await auth.adapter.create_oauth_state(
         db_session,
         state=state_token,
@@ -174,7 +177,7 @@ async def test_handle_google_callback_existing_user(auth: Auth, db_session: Asyn
     respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
     respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
-    session, user = await auth.handle_google_callback(db_session, code="test-code", state=state_token)
+    _session, user = await auth.handle_google_callback(db_session, code="test-code", state=state_token)
 
     assert user.id == existing_user.id
     assert user.email == "existing@example.com"
@@ -189,7 +192,7 @@ async def test_handle_google_callback_invalid_state(auth: Auth, db_session: Asyn
 @pytest.mark.asyncio
 @respx.mock
 async def test_handle_google_callback_token_exchange_error(auth: Auth, db_session: AsyncSession) -> None:
-    state_token = "test-state-error"
+    state_token = "test-state-error"  # noqa: S105
     await auth.adapter.create_oauth_state(
         db_session,
         state=state_token,
@@ -205,7 +208,7 @@ async def test_handle_google_callback_token_exchange_error(auth: Auth, db_sessio
 @pytest.mark.asyncio
 @respx.mock
 async def test_handle_google_callback_user_info_error(auth: Auth, db_session: AsyncSession) -> None:
-    state_token = "test-state-userinfo-error"
+    state_token = "test-state-userinfo-error"  # noqa: S105
     await auth.adapter.create_oauth_state(
         db_session,
         state=state_token,
@@ -298,7 +301,7 @@ async def test_user_dependency_missing_cookie(auth: Auth, db_session: AsyncSessi
 
     security_scopes = SecurityScopes()
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await auth.user(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
@@ -312,7 +315,7 @@ async def test_user_dependency_invalid_session(auth: Auth, db_session: AsyncSess
 
     security_scopes = SecurityScopes()
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await auth.user(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
@@ -332,7 +335,7 @@ async def test_user_dependency_expired_session(auth: Auth, db_session: AsyncSess
 
     security_scopes = SecurityScopes()
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await auth.user(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
@@ -380,7 +383,7 @@ async def test_user_dependency_with_insufficient_scopes(auth: Auth, db_session: 
 
     security_scopes = SecurityScopes(scopes=["admin"])
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await auth.user(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
@@ -397,7 +400,7 @@ async def test_user_dependency_scopes_required_but_no_account(auth: Auth, db_ses
 
     security_scopes = SecurityScopes(scopes=["admin"])
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await auth.user(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
@@ -422,7 +425,7 @@ async def test_session_dependency_missing_cookie(auth: Auth, db_session: AsyncSe
     request = MagicMock(spec=Request)
     request.cookies = {}
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await auth.session(request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
@@ -434,7 +437,7 @@ async def test_session_dependency_invalid_session(auth: Auth, db_session: AsyncS
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.session.cookie_name: str(uuid4())}
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await auth.session(request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
@@ -445,7 +448,7 @@ async def test_session_dependency_invalid_uuid_format(auth: Auth, db_session: As
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.session.cookie_name: "not-a-uuid"}
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HTTPException) as exc_info:
         await auth.session(request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
