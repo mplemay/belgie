@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -10,7 +11,7 @@ from belgie.__test__.fixtures.models import Session
 
 
 @pytest_asyncio.fixture
-async def db_engine() -> AsyncEngine:
+async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
     engine = await get_test_engine()
     yield engine
     await engine.dispose()
@@ -22,15 +23,16 @@ async def db_session_factory(db_engine: AsyncEngine) -> async_sessionmaker[Async
 
 
 @pytest_asyncio.fixture
-async def db_session(db_session_factory: async_sessionmaker[AsyncSession]) -> AsyncSession:
+async def db_session(db_session_factory: async_sessionmaker[AsyncSession]) -> AsyncGenerator[AsyncSession, None]:
     async with db_session_factory() as session:
         yield session
 
 
 @pytest.fixture
-def test_user_factory(db_session: AsyncSession):
+def test_user_factory(db_session: AsyncSession) -> Callable[..., Awaitable[User]]:
     async def _create_user(
         email: str | None = None,
+        *,
         email_verified: bool = True,
         name: str | None = "Test User",
         image: str | None = None,
@@ -55,7 +57,7 @@ def test_user_factory(db_session: AsyncSession):
 
 
 @pytest.fixture
-def test_session_factory(db_session: AsyncSession):
+def test_session_factory(db_session: AsyncSession) -> Callable[..., Awaitable[Session]]:
     async def _create_session(
         user_id: str | None = None,
         expires_at: datetime | None = None,

@@ -13,7 +13,12 @@ type SessionT = SessionProtocol
 type OAuthStateT = OAuthStateProtocol
 
 
-class AlchemyAdapter[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProtocol, OAuthStateT: OAuthStateProtocol]:
+class AlchemyAdapter[
+    UserT: UserProtocol,
+    AccountT: AccountProtocol,
+    SessionT: SessionProtocol,
+    OAuthStateT: OAuthStateProtocol,
+]:
     def __init__(
         self,
         *,
@@ -21,7 +26,7 @@ class AlchemyAdapter[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: S
         account: type[AccountT],
         session: type[SessionT],
         oauth_state: type[OAuthStateT],
-    ):
+    ) -> None:
         self.user_model = user
         self.account_model = account
         self.session_model = session
@@ -33,6 +38,7 @@ class AlchemyAdapter[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: S
         email: str,
         name: str | None = None,
         image: str | None = None,
+        *,
         email_verified: bool = False,
     ) -> UserT:
         user = self.user_model(
@@ -63,7 +69,7 @@ class AlchemyAdapter[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: S
         self,
         db: AsyncSession,
         user_id: UUID,
-        **updates: Any,
+        **updates: Any,  # noqa: ANN401
     ) -> UserT | None:
         user = await self.get_user_by_id(db, user_id)
         if not user:
@@ -84,7 +90,7 @@ class AlchemyAdapter[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: S
         user_id: UUID,
         provider: str,
         provider_account_id: str,
-        **tokens: Any,
+        **tokens: Any,  # noqa: ANN401
     ) -> AccountT:
         account = self.account_model(
             id=uuid4(),
@@ -153,7 +159,7 @@ class AlchemyAdapter[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: S
         self,
         db: AsyncSession,
         session_id: UUID,
-        **updates: Any,
+        **updates: Any,  # noqa: ANN401
     ) -> SessionT | None:
         session = await self.get_session(db, session_id)
         if not session:
@@ -172,13 +178,13 @@ class AlchemyAdapter[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: S
         stmt = delete(self.session_model).where(self.session_model.id == session_id)
         result = await db.execute(stmt)
         await db.commit()
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def delete_expired_sessions(self, db: AsyncSession) -> int:
         stmt = delete(self.session_model).where(self.session_model.expires_at < datetime.now(UTC))
         result = await db.execute(stmt)
         await db.commit()
-        return result.rowcount
+        return result.rowcount  # type: ignore[attr-defined]
 
     async def create_oauth_state(
         self,
@@ -214,4 +220,4 @@ class AlchemyAdapter[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: S
         stmt = delete(self.oauth_state_model).where(self.oauth_state_model.state == state)
         result = await db.execute(stmt)
         await db.commit()
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined]

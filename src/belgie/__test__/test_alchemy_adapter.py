@@ -2,14 +2,14 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie.__test__.fixtures import Account, OAuthState, Session, User
 from belgie.adapters.alchemy import AlchemyAdapter
 
 
 @pytest.fixture
-def adapter(db_session_factory: async_sessionmaker[AsyncSession]) -> AlchemyAdapter:
+def adapter() -> AlchemyAdapter:
     return AlchemyAdapter(
         user=User,
         account=Account,
@@ -128,9 +128,9 @@ async def test_create_account(adapter: AlchemyAdapter, db_session: AsyncSession)
     assert account.user_id == user.id
     assert account.provider == "google"
     assert account.provider_account_id == "12345"
-    assert account.access_token == "token"
-    assert account.refresh_token == "refresh"
-    assert account.token_type == "Bearer"
+    assert account.access_token == "token"  # noqa: S105
+    assert account.refresh_token == "refresh"  # noqa: S105
+    assert account.token_type == "Bearer"  # noqa: S105
 
 
 @pytest.mark.asyncio

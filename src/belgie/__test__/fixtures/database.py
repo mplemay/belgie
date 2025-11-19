@@ -1,13 +1,13 @@
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from belgie.__test__.fixtures.models import Base
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
-async def get_test_engine():
+async def get_test_engine() -> AsyncEngine:
     engine = create_async_engine(
         TEST_DATABASE_URL,
         echo=False,
@@ -18,7 +18,7 @@ async def get_test_engine():
     return engine
 
 
-async def get_test_session_factory(engine):
+async def get_test_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(
         engine,
         class_=AsyncSession,
