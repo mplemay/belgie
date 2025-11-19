@@ -34,7 +34,7 @@ class GoogleUserInfo(BaseModel):
 
 class GoogleOAuthProvider:
     AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-    TOKEN_URL = "https://oauth2.googleapis.com/token"
+    TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
     USER_INFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
     def __init__(
@@ -43,7 +43,7 @@ class GoogleOAuthProvider:
         client_secret: str,
         redirect_uri: str,
         scopes: list[str],
-    ):
+    ) -> None:
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri

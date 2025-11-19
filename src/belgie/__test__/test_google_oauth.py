@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -30,12 +30,12 @@ def test_google_token_response_dataclass() -> None:
         id_token="test_id_token",  # noqa: S106
     )
 
-    assert token.access_token == "test_access"
+    assert token.access_token == "test_access"  # noqa: S105
     assert token.expires_in == 3600
-    assert token.token_type == "Bearer"
+    assert token.token_type == "Bearer"  # noqa: S105
     assert token.scope == "openid email"
-    assert token.refresh_token == "test_refresh"
-    assert token.id_token == "test_id_token"
+    assert token.refresh_token == "test_refresh"  # noqa: S105
+    assert token.id_token == "test_id_token"  # noqa: S105
 
 
 def test_google_user_info_valid() -> None:
@@ -71,7 +71,7 @@ def test_google_user_info_required_fields_only() -> None:
 
 def test_google_user_info_missing_required_field() -> None:
     with pytest.raises(ValidationError):
-        GoogleUserInfo(
+        GoogleUserInfo(  # type: ignore[call-arg]
             id="123456",
             email="test@example.com",
         )
@@ -132,11 +132,11 @@ async def test_exchange_code_for_tokens_success(google_provider: GoogleOAuthProv
 
     result = await google_provider.exchange_code_for_tokens("test-auth-code")
 
-    assert result["access_token"] == "ya29.test_access_token"
-    assert result["refresh_token"] == "1//test_refresh_token"
-    assert result["token_type"] == "Bearer"
+    assert result["access_token"] == "ya29.test_access_token"  # noqa: S105
+    assert result["refresh_token"] == "1//test_refresh_token"  # noqa: S105
+    assert result["token_type"] == "Bearer"  # noqa: S105
     assert result["scope"] == "openid email profile"
-    assert result["id_token"] == "eyJhbGciOi.test_id_token"
+    assert result["id_token"] == "eyJhbGciOi.test_id_token"  # noqa: S105
     assert result["expires_at"] is not None
     assert isinstance(result["expires_at"], datetime)
 
@@ -155,7 +155,7 @@ async def test_exchange_code_for_tokens_without_refresh_token(google_provider: G
 
     result = await google_provider.exchange_code_for_tokens("test-auth-code")
 
-    assert result["access_token"] == "ya29.test_access_token"
+    assert result["access_token"] == "ya29.test_access_token"  # noqa: S105
     assert result["refresh_token"] is None
 
 

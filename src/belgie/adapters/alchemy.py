@@ -181,7 +181,8 @@ class AlchemyAdapter[
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def delete_expired_sessions(self, db: AsyncSession) -> int:
-        stmt = delete(self.session_model).where(self.session_model.expires_at < datetime.now(UTC))
+        now_naive = datetime.now(UTC).replace(tzinfo=None)
+        stmt = delete(self.session_model).where(self.session_model.expires_at < now_naive)
         result = await db.execute(stmt)
         await db.commit()
         return result.rowcount  # type: ignore[attr-defined]
