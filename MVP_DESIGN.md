@@ -344,11 +344,28 @@ class AlchemyAdapter(Generic[UserT, AccountT, SessionT, OAuthStateT]):
 
 ```python
 from typing import Any
+from dataclasses import dataclass
 from pydantic import BaseModel
 
 
+@dataclass
+class GoogleTokenResponse:
+    """Google OAuth token response (parsed from JSON)"""
+    access_token: str
+    expires_in: int
+    token_type: str
+    scope: str
+    refresh_token: str | None = None
+    id_token: str | None = None
+
+
 class GoogleUserInfo(BaseModel):
-    """Google user info from OAuth"""
+    """
+    Google user info from OAuth (uses Pydantic for JSON validation).
+
+    We use Pydantic BaseModel here instead of dataclass because we're
+    parsing untrusted JSON from Google's API and want field validation.
+    """
     id: str
     email: str
     verified_email: bool
