@@ -112,58 +112,32 @@ src/belgie/
 
 #### File: `src/belgie/feature_name/types.py`
 ```python
-# Type definitions for the feature
-
 from typing import TypedDict
 
 class ConfigType(TypedDict):
-    """Configuration for the feature."""
     option1: str
     option2: int
 
 class ResultType(TypedDict):
-    """Result returned by the feature."""
     status: str
     data: dict[str, str]
 ```
 
 #### File: `src/belgie/feature_name/helper.py`
 ```python
-# Helper functions for the feature
-
 from belgie.existing_module import existing_function
 
 def process_input(data: str) -> dict[str, str]:
-    """Process input data and return structured result.
-
-    This function will:
-    1. Validate the input data
-    2. Transform it into the required format
-    3. Return a dictionary with processed data
-    """
-    # Validate input
-    # Transform data
-    # Return result
+    # Validate input, transform to required format, return processed data
     pass
 
 def validate_config(config: dict[str, str]) -> bool:
-    """Validate configuration parameters.
-
-    This function will:
-    1. Check all required keys are present
-    2. Validate value types and ranges
-    3. Return True if valid, False otherwise
-    """
-    # Check required keys
-    # Validate types
-    # Validate ranges
+    # Check required keys, validate types and ranges
     pass
 ```
 
 #### File: `src/belgie/feature_name/main.py`
 ```python
-# Main implementation of the feature
-
 from typing import Self
 
 from belgie.existing_module import BaseClass
@@ -171,52 +145,22 @@ from belgie.feature_name.helper import process_input, validate_config
 from belgie.feature_name.types import ConfigType, ResultType
 
 class NewFeature(BaseClass):
-    """Main class implementing the new feature."""
 
     def __init__(self: Self, config: ConfigType) -> None:
-        """Initialize the feature with configuration.
-
-        This will:
-        1. Validate the config
-        2. Initialize parent class
-        3. Set up internal state
-        """
-        # Validate config using validate_config()
-        # Call parent __init__
-        # Initialize internal state
+        # Validate config, initialize parent class, set up internal state
         pass
 
     def execute(self: Self, input_data: str) -> ResultType:
-        """Execute the main feature logic.
-
-        This will:
-        1. Process input using helper functions
-        2. Perform core business logic
-        3. Return structured result
-        """
-        # Process input using process_input()
-        # Execute core logic
-        # Build and return result
+        # Process input using helper, execute core logic, return result
         pass
 
     def _internal_helper(self: Self, data: dict[str, str]) -> str:
-        """Internal helper method for processing.
-
-        This will:
-        1. Transform dictionary data
-        2. Apply business rules
-        3. Return formatted string
-        """
-        # Transform data
-        # Apply rules
-        # Return formatted result
+        # Transform data, apply business rules, return formatted result
         pass
 ```
 
 #### File: `src/belgie/feature_name/__init__.py`
 ```python
-# Public API exports
-
 from belgie.feature_name.main import NewFeature
 from belgie.feature_name.types import ConfigType, ResultType
 
@@ -233,31 +177,20 @@ __all__ = ["NewFeature", "ConfigType", "ResultType"]
 
 #### Test File: `src/belgie/__test__/test_feature_name.py`
 ```python
-# Tests for the new feature
-
 import pytest
 
 from belgie.feature_name import NewFeature, ConfigType
 
 def test_feature_initialization():
-    """Test that feature initializes correctly with valid config."""
-    # Create valid config
-    # Initialize feature
-    # Assert state is correct
+    # Create valid config, initialize feature, assert state is correct
     pass
 
 def test_feature_execution():
-    """Test main execution path."""
-    # Initialize feature
-    # Call execute with test data
-    # Assert result matches expected output
+    # Initialize feature, call execute with test data, assert result matches expected
     pass
 
 def test_invalid_config():
-    """Test that invalid config raises appropriate error."""
-    # Create invalid config
-    # Attempt to initialize feature
-    # Assert appropriate exception is raised
+    # Create invalid config, attempt to initialize, assert appropriate exception
     pass
 
 @pytest.mark.parametrize("input_data,expected", [
@@ -265,10 +198,7 @@ def test_invalid_config():
     ("test2", {"status": "success"}),
 ])
 def test_parametrized_execution(input_data: str, expected: dict[str, str]):
-    """Test execution with various inputs."""
-    # Initialize feature
-    # Execute with input_data
-    # Assert result matches expected
+    # Initialize feature, execute with input_data, assert result matches expected
     pass
 ```
 

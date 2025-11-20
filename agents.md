@@ -9,8 +9,8 @@ In general, you **must** follow the following workflow when writing code:
    - Think deeply to understand what you have researched, the users input, and write a detailed plan
    - The plan should include all details necessary for a programmer to implement the design.
    - To accomplish this you should act like a system architect and describe the high-level interfaces and functionality
-   - **Use the design document template** (`DESIGN_DOCUMENT_TEMPLATE.md`) to structure your plan
-   - See `DESIGN_DOCUMENT_EXAMPLE.md` for a complete example of a filled-out design document
+   - **Use the design document template** (`design/000-design-template.md`) to structure your plan
+   - See `design/000-design-example.md` for a complete example of a filled-out design document
    - The design document should include:
      - High-level description and goals
      - Workflows with mermaid diagrams (call graphs, sequence diagrams)
