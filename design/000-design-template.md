@@ -1,3 +1,13 @@
+<!--
+When creating a new design document:
+- Increment the number from the previous design (e.g., 001, 002, 003)
+- Use all lowercase with dashes to separate words
+- Use a short description of the feature/project
+- Example: 001-config-validator.md, 002-api-client.md
+
+Note: Sections that are not relevant (e.g., Libraries when only using stdlib) can be omitted
+-->
+
 # Design Document: [Feature/Module Name]
 
 ## Overview
@@ -76,22 +86,6 @@ graph TD
 3. **[NEW] NewHelper** - Implement first (leaf node, only depends on existing code)
 4. **[EXISTING] ExistingModule** - Already exists, no implementation needed
 5. **[NEW] NewFeature** - Implement last (depends on NewHelper and ExistingModule)
-
-## Libraries
-
-### New Libraries
-<!-- List new libraries to be added and their dependency groups -->
-
-| Library | Version | Purpose | Dependency Group | Command |
-|---------|---------|---------|------------------|---------|
-| `library-name` | `>=1.0.0` | [Purpose] | `dev` / `optional-group` / core | `uv add library-name` or `uv add --dev library-name` |
-
-### Existing Libraries
-<!-- List existing libraries that will be leveraged -->
-
-| Library | Current Version | Purpose | Dependency Group |
-|---------|-----------------|---------|------------------|
-| `existing-lib` | `>=1.0.0` | [Purpose] | `dev` / core |
 
 ## Detailed Design
 
@@ -202,7 +196,7 @@ def test_parametrized_execution(input_data: str, expected: dict[str, str]):
     pass
 ```
 
-## Implementation Checklist
+## Tasks
 
 <!-- Track implementation progress -->
 - [ ] Implement helper functions (leaf nodes)
@@ -227,3 +221,21 @@ def test_parametrized_execution(input_data: str, expected: dict[str, str]):
 <!-- Features or improvements to consider after initial implementation -->
 - [Enhancement 1]
 - [Enhancement 2]
+
+## Libraries
+
+<!-- This section can be omitted if only using stdlib or no new libraries are needed -->
+
+### New Libraries
+<!-- List new libraries to be added and their dependency groups -->
+
+| Library | Version | Purpose | Dependency Group | Command |
+|---------|---------|---------|------------------|---------|
+| `library-name` | `>=1.0.0` | [Purpose] | `dev` / `optional-group` / core | `uv add library-name` or `uv add --dev library-name` |
+
+### Existing Libraries
+<!-- List existing libraries that will be leveraged -->
+
+| Library | Current Version | Purpose | Dependency Group |
+|---------|-----------------|---------|------------------|
+| `existing-lib` | `>=1.0.0` | [Purpose] | `dev` / core |

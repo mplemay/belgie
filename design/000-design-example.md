@@ -88,22 +88,6 @@ graph TD
 4. **[NEW] Schema** - Implement fourth (depends on FieldDefinition)
 5. **[NEW] ConfigValidator** - Implement last (depends on all above)
 
-## Libraries
-
-### New Libraries
-
-| Library | Version | Purpose | Dependency Group | Command |
-|---------|---------|---------|------------------|---------|
-| No new libraries required | - | Using Python stdlib only | - | - |
-
-### Existing Libraries
-
-| Library | Current Version | Purpose | Dependency Group |
-|---------|-----------------|---------|------------------|
-| `pytest` | `>=9.0.1` | Testing framework | `dev` |
-| `ruff` | `>=0.14.5` | Linting and formatting | `dev` |
-| `ty` | `>=0.0.1a27` | Type checking | `dev` |
-
 ## Detailed Design
 
 ### Module Structure
@@ -557,7 +541,7 @@ def test_validator_parametrized(config: dict, expected_valid: bool):
     pass
 ```
 
-## Implementation Checklist
+## Tasks
 
 - [ ] Implement `ValidationResult` class (leaf node)
 - [ ] Write tests for `ValidationResult`
