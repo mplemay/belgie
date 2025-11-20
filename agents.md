@@ -20,8 +20,8 @@ In general, you **must** follow the following workflow when writing code:
      - Understand performance, security, and compatibility requirements
 
 2. **Create a design document**
-   - **Use the design document template** (`design/000-design-template.md`) to structure your plan
-   - See `design/000-design-example.md` for a complete example of a filled-out design document
+   - **Use the design document template** ([design/000-design-template.md](design/000-design-template.md)) to structure your plan
+   - See the complete example ([design/000-design-example.md](design/000-design-example.md)) for a filled-out design document
    - Act as a system architect and describe the high-level interfaces and functionality
    - The design document should include:
      - High-level description and goals
@@ -110,6 +110,13 @@ In general, you **must** follow the following workflow when writing code:
   - **Do not** annotate `self` parameters - the type is implicit
   - Use `Self` for return types when returning the instance
   - Example: `def add_item(self, item: str) -> Self: ...` (note: no type on `self`)
+- Classes and data structures:
+  - Use `@dataclass` (from `dataclasses`) instead of manually defining `__init__` for data-holding classes
+  - Consider using `slots=True` for memory efficiency and attribute access protection
+  - Use `kw_only=True` to require keyword arguments for better readability at call sites
+  - Use `frozen=True` for immutable data structures
+  - Example: `@dataclass(slots=True, kw_only=True, frozen=True)`
+  - Only use traditional `__init__` when the class has complex initialization logic that dataclasses cannot handle
 - Prefer importing using `from x import y` instead of `import x`
 - Import local modules using the full path (ex: `from my_project.my_module import MyClass`)
 - **Don't use** docstrings, instead add inline comments only in places where there is complex or easily breakable logic
