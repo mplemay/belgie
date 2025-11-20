@@ -325,7 +325,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 #### `test_validators.py`
 
-**`validators.py` Module Tests:**
+**Validator Functions Tests:**
 - Test `required()` validator with non-None values (should pass)
 - Test `required()` validator with None (should fail)
 - Test `type_validator()` with matching types (str, int, list, dict, custom classes)
@@ -343,10 +343,12 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 #### `test_schema.py`
 
-**`schema.py` Module Tests:**
-- Test `FieldDefinition` creation with various configurations
+**FieldDefinition Class Tests:**
+- Test `FieldDefinition.__init__()` with various configurations
 - Test `FieldDefinition.add_validator()` method (chaining behavior)
-- Test `Schema` initialization with empty and pre-populated fields
+
+**Schema Class Tests:**
+- Test `Schema.__init__()` with empty and pre-populated fields
 - Test `Schema.add_field()` with valid field definitions
 - Test `Schema.field()` fluent API (chaining multiple calls)
 - Test `Schema.get_field()` with existing and non-existing field names
@@ -355,28 +357,28 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 #### `test_validator.py`
 
-**`validator.py` Module Tests:**
+**ConfigValidator Class Tests:**
 - Test `ConfigValidator.__init__()` with valid and invalid schemas
-- Test `validate()` with fully valid configurations
-- Test `validate()` with missing required fields (check error messages)
-- Test `validate()` with wrong field types (check type error messages)
-- Test `validate()` with custom validator failures
-- Test `validate()` accumulates multiple errors correctly
-- Test `validate_and_raise()` raises exception on invalid config
-- Test `validate_and_raise()` succeeds silently on valid config
-- Test `_check_type()` with various type combinations
-- Test `_run_validators()` with multiple validators on same field
-- Test `_get_type_name()` returns readable names for built-in and custom types
+- Test `ConfigValidator.validate()` with fully valid configurations
+- Test `ConfigValidator.validate()` with missing required fields (check error messages)
+- Test `ConfigValidator.validate()` with wrong field types (check type error messages)
+- Test `ConfigValidator.validate()` with custom validator failures
+- Test `ConfigValidator.validate()` accumulates multiple errors correctly
+- Test `ConfigValidator.validate_and_raise()` raises exception on invalid config
+- Test `ConfigValidator.validate_and_raise()` succeeds silently on valid config
+- Test `ConfigValidator._check_type()` with various type combinations
+- Test `ConfigValidator._run_validators()` with multiple validators on same field
+- Test `ConfigValidator._get_type_name()` returns readable names for built-in and custom types
 - Use parametrized tests for comprehensive config scenarios (valid port/host combinations, etc.)
 
 #### `test_result.py` (if separate)
 
-**`result.py` Module Tests:**
-- Test `ValidationResult` initialization
-- Test `add_error()` method (verify error dict structure, is_valid flag updates)
-- Test `merge()` method combines errors from multiple results
-- Test `__bool__()` operator returns correct boolean value
-- Test `__repr__()` produces readable string representation
+**ValidationResult Class Tests:**
+- Test `ValidationResult.__init__()` with various initial states
+- Test `ValidationResult.add_error()` method (verify error dict structure, is_valid flag updates)
+- Test `ValidationResult.merge()` method combines errors from multiple results
+- Test `ValidationResult.__bool__()` operator returns correct boolean value
+- Test `ValidationResult.__repr__()` produces readable string representation
 
 **Integration Tests:**
 - Test [Workflow 1](#workflow-1-configuration-validation) end-to-end: construct schema, create validator, validate valid config, validate invalid config

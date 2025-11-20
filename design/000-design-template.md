@@ -188,7 +188,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `validate_config()` with invalid value types
 - Test `validate_config()` with out-of-range values
 
-**`main.py` Tests:**
+**`main.py` (NewFeature class) Tests:**
 - Test `NewFeature.__init__()` with valid configuration
 - Test `NewFeature.__init__()` with invalid configuration (should raise appropriate exception)
 - Test `NewFeature.execute()` with valid input data
