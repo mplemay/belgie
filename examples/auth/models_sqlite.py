@@ -1,10 +1,18 @@
+"""User models with JSON scope storage for SQLite compatibility.
+
+Use this pattern when:
+- Testing with SQLite (doesn't support ARRAY)
+- Using MySQL (limited ARRAY support)
+- Need maximum database portability
+
+For PostgreSQL production, prefer models.py with ARRAY and SQLEnum.
+"""
+
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, Enum as SQLEnum, ForeignKey, String
+from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-from examples.auth.scopes import Scope
 
 
 class Base(DeclarativeBase):
@@ -22,14 +30,15 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
-    # PostgreSQL ARRAY storage for scopes using SQLAlchemy Enum
-    # values_callable ensures StrEnum values (not names) are stored as strings
-    # Automatic conversion between Scope enum and database strings
-    scopes: Mapped[list[Scope]] = mapped_column(
-        ARRAY(SQLEnum(Scope, values_callable=lambda x: [e.value for e in x])),
+    # JSON storage for scopes (SQLite compatible)
+    # Store scopes as JSON array for database portability
+    # Less efficient than PostgreSQL ARRAY but works everywhere
+    # SQLite, MySQL, PostgreSQL all support JSON type
+    scopes: Mapped[list[str]] = mapped_column(
+        JSON,
         nullable=False,
         default=list,
-        server_default="{}",  # PostgreSQL empty array literal
+        server_default="[]",  # JSON empty array
     )
 
 
