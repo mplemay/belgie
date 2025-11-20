@@ -259,3 +259,28 @@ def test_has_any_scope_mixed_types() -> None:
     user_scopes = [SampleScope.READ, SampleScope.WRITE]
     required_scopes = ["resource:write", "resource:delete"]
     assert has_any_scope(user_scopes, required_scopes) is True
+
+
+# Tests for Sequence support (tuples, etc.)
+def test_validate_scopes_with_tuples() -> None:
+    user_scopes = ("openid", "email", "profile")
+    required_scopes = ("openid", "email")
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+def test_validate_scopes_tuple_and_list() -> None:
+    user_scopes = ("openid", "email", "profile")
+    required_scopes = ["openid", "email"]
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+def test_has_any_scope_with_tuples() -> None:
+    user_scopes = ("openid", "email")
+    required_scopes = ("email", "profile", "admin")
+    assert has_any_scope(user_scopes, required_scopes) is True
+
+
+def test_validate_scopes_strenum_tuple() -> None:
+    user_scopes = (SampleScope.READ, SampleScope.WRITE, SampleScope.ADMIN)
+    required_scopes = (SampleScope.READ, SampleScope.WRITE)
+    assert validate_scopes(user_scopes, required_scopes) is True

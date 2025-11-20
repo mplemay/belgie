@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 
 
 def parse_scopes(scopes_str: str) -> list[str]:
@@ -19,26 +20,28 @@ def parse_scopes(scopes_str: str) -> list[str]:
 
 
 def validate_scopes[S: str](
-    user_scopes: list[S] | set[S],
-    required_scopes: list[S] | set[S],
+    user_scopes: Sequence[S],
+    required_scopes: Sequence[S],
 ) -> bool:
     # Normalize to sets for comparison
     # Generic over any str subclass (including StrEnum)
-    user_scopes_set = set(user_scopes) if isinstance(user_scopes, list) else user_scopes
-    required_scopes_set = set(required_scopes) if isinstance(required_scopes, list) else required_scopes
+    # Accepts any sequence type (list, tuple, set, etc.)
+    user_scopes_set = set(user_scopes)
+    required_scopes_set = set(required_scopes)
 
     # Check if all required scopes are present in user scopes
     return required_scopes_set.issubset(user_scopes_set)
 
 
 def has_any_scope[S: str](
-    user_scopes: list[S] | set[S],
-    required_scopes: list[S] | set[S],
+    user_scopes: Sequence[S],
+    required_scopes: Sequence[S],
 ) -> bool:
     # Normalize to sets for comparison
     # Generic over any str subclass (including StrEnum)
-    user_scopes_set = set(user_scopes) if isinstance(user_scopes, list) else user_scopes
-    required_scopes_set = set(required_scopes) if isinstance(required_scopes, list) else required_scopes
+    # Accepts any sequence type (list, tuple, set, etc.)
+    user_scopes_set = set(user_scopes)
+    required_scopes_set = set(required_scopes)
 
     # Check if user has any of the required scopes
     return bool(user_scopes_set & required_scopes_set)
