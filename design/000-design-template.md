@@ -112,7 +112,10 @@ src/belgie/
 │   ├── helper.py            # NewHelper (see Implementation Order #3)
 │   └── types.py             # Type definitions
 └── __test__/
-    └── test_feature_name.py # Tests for all components
+    └── feature_name/
+        ├── test_main.py              # Unit tests for main.py
+        ├── test_helper.py            # Unit tests for helper.py
+        └── test_feature_integration.py # Integration tests
 ```
 
 ### API Design
@@ -142,11 +145,17 @@ Helper functions for data processing and validation (leaf node, see [Implementat
 from belgie.existing_module import existing_function
 
 def process_input(data: str) -> dict[str, str]: ...
-# Validate input, transform to required format, return processed data
+# 1. Validate input is not empty
+# 2. Call existing_function() to normalize data
+# 3. Parse and transform to dict[str, str] format
+# 4. Return processed dictionary
 # Used in: Workflow 1 (see call graph)
 
 def validate_config(config: dict[str, str]) -> bool: ...
-# Check required keys, validate types and ranges
+# 1. Check all required keys are present
+# 2. Validate value types using isinstance()
+# 3. Check values are within acceptable ranges
+# 4. Return True if valid, False otherwise
 # Used in: Workflow 1, Workflow 2
 ```
 
@@ -164,14 +173,22 @@ class NewFeature(BaseClass):
     # Entry point for Workflow 1 (see sequence diagram)
 
     def __init__(self, config: ConfigType) -> None: ...
-    # Validate config using validate_config(), initialize parent class, set up internal state
+    # 1. Validate config using validate_config()
+    # 2. Call super().__init__() to initialize parent
+    # 3. Store config in instance variable
+    # 4. Initialize internal state
 
     def execute(self, input_data: str) -> ResultType: ...
-    # Main workflow execution - calls process_input() from helper.py
-    # Process input using helper, execute core logic, return result
+    # 1. Call process_input() to validate and transform input
+    # 2. Execute core business logic using _internal_helper()
+    # 3. Build ResultType dict with status and data
+    # 4. Return result
 
     def _internal_helper(self, data: dict[str, str]) -> str: ...
-    # Transform data, apply business rules, return formatted result
+    # 1. Transform dict data to intermediate format
+    # 2. Apply business rules and validations
+    # 3. Format result as string
+    # 4. Return formatted result
 ```
 
 ### Testing Strategy

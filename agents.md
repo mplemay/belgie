@@ -62,7 +62,11 @@ In general, you **must** follow the following workflow when writing code:
 
 - The project uses `pytest` for testing
 - Test files are located in the `src/belgie/__test__/` directory
-- Test files should follow the naming convention `test_*.py` and correspond with the matching python file
+- Test files should mirror the folder structure and use corresponding file names
+  - Test file with matching name contains unit tests
+  - Integration tests use `_integration` suffix
+  - Example: `module_x/test_corresponding_file.py` (unit tests)
+  - Example: `module_x/test_corresponding_file_integration.py` (integration tests)
 - Test functions should be prefixed with `test_`
 - Run tests using `uv run pytest`
 - The `pytest` settings can be found in the `pyproject.toml`

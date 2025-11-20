@@ -116,9 +116,12 @@ src/belgie/
 │   ├── validators.py        # Built-in validators (see Implementation #4)
 │   └── exceptions.py        # Custom exceptions (see Implementation #1)
 └── __test__/
-    ├── test_validator.py
-    ├── test_schema.py
-    └── test_validators.py
+    └── config_validator/
+        ├── test_validator.py            # Unit tests for validator.py
+        ├── test_schema.py               # Unit tests for schema.py
+        ├── test_result.py               # Unit tests for result.py
+        ├── test_validators.py           # Unit tests for validators.py
+        └── test_validator_integration.py # Integration tests
 ```
 
 ### API Design
@@ -128,10 +131,12 @@ Custom exception types for validation and schema errors.
 
 ```python
 class ValidationError(Exception):
-    def __init__(self: "ValidationError", message: str, field_path: str | None = None) -> None: ...
-    # Store field_path and call parent __init__
+    def __init__(self, message: str, field_path: str | None = None) -> None: ...
+    # 1. Store field_path as self.field_path
+    # 2. Call super().__init__(message) to set exception message
 
 class SchemaError(Exception): ...
+# Simple exception, no custom implementation needed
 ```
 
 #### `src/belgie/config_validator/result.py`
@@ -148,20 +153,26 @@ class ValidationError(TypedDict):
 class ValidationResult:
     # Used in: Workflow 1 (see sequence diagram)
 
-    def __init__(self: "ValidationResult", is_valid: bool, errors: list[ValidationError] | None = None) -> None: ...
-    # Store is_valid and errors list
+    def __init__(is_valid: bool, errors: list[ValidationError] | None = None) -> None: ...
+    # 1. Store is_valid flag as self.is_valid
+    # 2. Initialize self.errors with errors if provided, otherwise empty list
+    # 3. Set is_valid to False if errors list is not empty
 
-    def add_error(self: "ValidationResult", field: str, message: str, value: object = None) -> None: ...
-    # Create error dict, append to errors, set is_valid = False
+    def add_error(field: str, message: str, value: object = None) -> None: ...
+    # 1. Create ValidationError dict with field, message, and value keys
+    # 2. Append error dict to self.errors list
+    # 3. Set self.is_valid = False to mark result as invalid
     # Called by ConfigValidator._validate_field()
 
-    def merge(self: "ValidationResult", other: "ValidationResult") -> None: ...
-    # Combine errors from both results, update is_valid
+    def merge(other: "ValidationResult") -> None: ...
+    # 1. Extend self.errors with all errors from other.errors
+    # 2. Update self.is_valid to False if other.is_valid is False
+    # 3. Used to combine validation results from multiple fields
 
-    def __bool__(self: "ValidationResult") -> bool:
+    def __bool__() -> bool:
         return self.is_valid
 
-    def __repr__(self: "ValidationResult") -> str:
+    def __repr__() -> str:
         return f"ValidationResult(is_valid={self.is_valid}, errors={len(self.errors)})"
 ```
 
@@ -177,39 +188,55 @@ ValidatorFunc = Callable[[object], bool]
 def required() -> ValidatorFunc:
     # Used in: Workflow 1 (field validation)
     def validator(value: object) -> bool: ...
-    # Check if value is not None
+    # 1. Return True if value is not None
+    # 2. Return False if value is None
+    # Used to enforce required fields
     return validator
 
 def type_validator(expected_type: type) -> ValidatorFunc:
     # Used in: Workflow 1 (type checking)
     def validator(value: object) -> bool: ...
-    # Use isinstance to check type
+    # 1. Use isinstance(value, expected_type) to check type
+    # 2. Return True if type matches, False otherwise
+    # Supports built-in types (int, str, list, dict) and custom classes
     return validator
 
 def range_validator(min_val: int | float | None = None, max_val: int | float | None = None) -> ValidatorFunc:
     # Used in: Workflow 1 (numeric constraints)
     def validator(value: object) -> bool: ...
-    # Check value is numeric, verify >= min_val and <= max_val
+    # 1. Check value is numeric (int or float) using isinstance
+    # 2. If min_val provided, verify value >= min_val
+    # 3. If max_val provided, verify value <= max_val
+    # 4. Return True if all checks pass, False otherwise
     return validator
 
 def pattern_validator(pattern: str) -> ValidatorFunc:
     # Used in: Workflow 1 (string pattern matching)
     compiled_pattern = re.compile(pattern)
     def validator(value: object) -> bool: ...
-    # Check value is string, test pattern match
+    # 1. Check value is a string using isinstance
+    # 2. Use compiled_pattern.match() or search() to test pattern
+    # 3. Return True if pattern matches, False otherwise
+    # Pattern compiled once at validator creation for efficiency
     return validator
 
 def length_validator(min_length: int | None = None, max_length: int | None = None) -> ValidatorFunc:
     # Used in: Workflow 1 (sequence length validation)
     def validator(value: object) -> bool: ...
-    # Check value has __len__, verify length constraints
+    # 1. Check value has __len__ attribute (strings, lists, tuples, dicts)
+    # 2. Get length using len(value)
+    # 3. If min_length provided, verify len(value) >= min_length
+    # 4. If max_length provided, verify len(value) <= max_length
+    # 5. Return True if all checks pass, False otherwise
     return validator
 
 def oneof_validator(allowed_values: list[object]) -> ValidatorFunc:
     # Used in: Workflow 1 (enum-like validation)
     allowed_set = set(allowed_values)
     def validator(value: object) -> bool: ...
-    # Check if value in allowed_set
+    # 1. Check if value in allowed_set using membership test
+    # 2. Return True if value found, False otherwise
+    # Set created once at validator creation for O(1) lookup
     return validator
 ```
 
@@ -225,29 +252,37 @@ class FieldDefinition:
     # Used in: Workflow 2 (schema construction)
 
     def __init__(
-        self,
         field_type: type,
         required: bool = False,
         default: object = None,
         validators: list[ValidatorFunc] | None = None,
         description: str = "",
     ) -> None: ...
-    # Store all field configuration
+    # 1. Store field_type as self.field_type
+    # 2. Store required flag as self.required
+    # 3. Store default value as self.default
+    # 4. Initialize self.validators with validators list or empty list if None
+    # 5. Store description as self.description
 
-    def add_validator(self, validator: ValidatorFunc) -> Self: ...
-    # Append validator, return self for chaining
+    def add_validator(validator: ValidatorFunc) -> Self: ...
+    # 1. Append validator to self.validators list
+    # 2. Return self for method chaining
+    # Enables fluent API for adding validators dynamically
 
 class Schema:
     # Used in: Workflow 1, Workflow 2 (schema definition)
 
-    def __init__(self, fields: dict[str, FieldDefinition] | None = None) -> None: ...
-    # Initialize empty fields dict
+    def __init__(fields: dict[str, FieldDefinition] | None = None) -> None: ...
+    # 1. Initialize self.fields as empty dict
+    # 2. If fields parameter provided, populate self.fields with it
+    # 3. Store field definitions keyed by field name
 
-    def add_field(self, name: str, field_def: FieldDefinition) -> Self: ...
-    # Add to fields dict, return self for chaining
+    def add_field(name: str, field_def: FieldDefinition) -> Self: ...
+    # 1. Add field_def to self.fields dict with name as key
+    # 2. Return self for method chaining
+    # Enables building schemas programmatically
 
     def field(
-        self,
         name: str,
         field_type: type,
         required: bool = False,
@@ -255,15 +290,19 @@ class Schema:
         validators: list[ValidatorFunc] | None = None,
         description: str = "",
     ) -> Self: ...
-    # Create FieldDefinition, add to schema, return self for chaining
-    # Used in: Workflow 2 (fluent API)
+    # 1. Create new FieldDefinition with all provided parameters
+    # 2. Call self.add_field(name, field_def) to add to schema
+    # 3. Return self for method chaining
+    # Used in: Workflow 2 (fluent API for schema construction)
 
-    def get_field(self, name: str) -> FieldDefinition | None:
+    def get_field(name: str) -> FieldDefinition | None:
         return self.fields.get(name)
 
-    def get_required_fields(self) -> list[str]: ...
-    # Filter fields where required=True, return list of names
-    # Used in: Workflow 1 (validation)
+    def get_required_fields() -> list[str]: ...
+    # 1. Iterate through self.fields items
+    # 2. Filter to only fields where field_def.required is True
+    # 3. Return list of field names (not FieldDefinition objects)
+    # Used in: Workflow 1 (validation to check required fields)
 ```
 
 #### `src/belgie/config_validator/validator.py`
@@ -279,44 +318,63 @@ from belgie.config_validator.schema import FieldDefinition, Schema
 class ConfigValidator:
     # Main entry point for Workflow 1
 
-    def __init__(self, schema: Schema) -> None: ...
-    # Validate schema is well-formed, store schema
+    def __init__(schema: Schema) -> None: ...
+    # 1. Validate that schema is a Schema instance
+    # 2. Check schema has at least one field defined (optional validation)
+    # 3. Store schema as self.schema for later use
     # Used in: Workflow 2 (after schema construction)
 
-    def validate(self, config: dict[str, Any]) -> ValidationResult: ...
-    # Create ValidationResult, check required fields, validate each present field
+    def validate(config: dict[str, Any]) -> ValidationResult: ...
+    # 1. Create new ValidationResult with is_valid=True, errors=[]
+    # 2. Get required fields from self.schema.get_required_fields()
+    # 3. Check all required fields are present in config, add errors if missing
+    # 4. For each field in config, get field_def from schema and call _validate_field()
+    # 5. Return the ValidationResult with accumulated errors
     # Main orchestrator for Workflow 1 (see sequence diagram)
 
-    def validate_and_raise(self, config: dict[str, Any]) -> None: ...
-    # Call validate(), raise ValidationError if invalid
+    def validate_and_raise(config: dict[str, Any]) -> None: ...
+    # 1. Call self.validate(config) to get ValidationResult
+    # 2. If result.is_valid is False, raise ValidationError with error details
+    # 3. If valid, return silently (None)
+    # Convenience method for code that wants exception-based error handling
 
     def _validate_field(
-        self,
         field_name: str,
         value: Any,
         field_def: FieldDefinition,
         result: ValidationResult,
     ) -> None: ...
-    # Check type matches, run all custom validators, add errors if needed
+    # 1. Call self._check_type(value, field_def.field_type) to verify type
+    # 2. If type check fails, call result.add_error() with type mismatch message
+    # 3. If type valid, call self._run_validators() with field_def.validators
+    # 4. All errors are accumulated in result object
     # Called from validate() for each field
 
-    def _check_type(self, value: Any, expected_type: type) -> bool: ...
-    # Use isinstance to check type, handle edge cases
+    def _check_type(value: Any, expected_type: type) -> bool: ...
+    # 1. Use isinstance(value, expected_type) for type checking
+    # 2. Handle special cases (None, union types if needed)
+    # 3. Return True if type matches, False otherwise
     # Called from _validate_field()
 
     def _run_validators(
-        self,
         field_name: str,
         value: Any,
         validators: list,
         result: ValidationResult,
     ) -> None: ...
-    # Loop through validators from validators.py, call each one, add errors for failures
+    # 1. Loop through each validator function in validators list
+    # 2. Call validator(value) to get boolean result
+    # 3. If validator returns False, call result.add_error() with field_name
+    # 4. Continue checking all validators (don't short-circuit)
     # Called from _validate_field()
 
     @staticmethod
     def _get_type_name(value_type: type) -> str: ...
-    # Get human-readable type name, handle built-in and generic types
+    # 1. Check if value_type has __name__ attribute (most types do)
+    # 2. Return value_type.__name__ for built-in types (str, int, etc.)
+    # 3. Handle special cases like typing.Union, typing.Optional if needed
+    # 4. Return str(value_type) as fallback for complex generic types
+    # Used for generating human-readable error messages
 ```
 
 ### Testing Strategy
