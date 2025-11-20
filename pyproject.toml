@@ -1,13 +1,25 @@
 [project]
-name = "belgie"
+name = "brugge"
 version = "0.1.0"
-description = "Add your description here"
+description = "Modern authentication for FastAPI"
 readme = "README.md"
 authors = [
     { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
 ]
 requires-python = ">=3.12,<3.15"
-dependencies = []
+dependencies = [
+    "fastapi>=0.100",
+    "httpx>=0.24",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-multipart>=0.0.20",
+    "sqlalchemy[asyncio]>=2.0",
+]
+
+[project.optional-dependencies]
+examples = [
+    "uvicorn[standard]>=0.38.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]
@@ -15,8 +27,12 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "aiosqlite>=0.21.0",
     "pre-commit>=4.4.0",
     "pytest>=9.0.1",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "respx>=0.22.0",
     "ruff>=0.14.5",
     "ty>=0.0.1a27",
 ]
@@ -36,7 +52,7 @@ ignore = [
 "__init__.py" = [
     "F401", # imported but unused (common in __init__.py to re-export symbols)
 ]
-"src/belgie/__test__/**/*" = [
+"__tests__/**/*" = [
     "S101",    # use of assert (tests typically use assert directly)
     "PLR2004", # magic value used in comparison (fine in test cases)
     "INP001",  # implicit namespace package (tests dir may not need __init__.py)
