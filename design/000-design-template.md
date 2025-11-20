@@ -87,22 +87,16 @@ graph TD
 
 ```mermaid
 graph TD
-    NewFeature[NEW: NewFeature<br/>main.py]
-    NewHelper[NEW: NewHelper<br/>helper.py]
-    ExistingModule[EXISTING: ExistingModule<br/>existing.py]
-    ExistingUtil[EXISTING: ExistingUtil<br/>util.py]
-    ExistingBase[EXISTING: BaseClass<br/>base.py]
+    NewFeature["(NEW)<br/>NewFeature<br/>main.py"]
+    NewHelper["(NEW)<br/>NewHelper<br/>helper.py"]
+    ExistingModule["ExistingModule<br/>existing.py"]
+    ExistingUtil["ExistingUtil<br/>util.py"]
+    ExistingBase["BaseClass<br/>base.py"]
 
     NewFeature --> NewHelper
     NewFeature --> ExistingModule
     NewHelper --> ExistingUtil
     ExistingModule --> ExistingBase
-
-    style NewFeature fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
-    style NewHelper fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
-    style ExistingModule fill:#B0E0E6,stroke:#4682B4,stroke-width:2px
-    style ExistingUtil fill:#B0E0E6,stroke:#4682B4,stroke-width:2px
-    style ExistingBase fill:#B0E0E6,stroke:#4682B4,stroke-width:2px
 ```
 
 ## Detailed Design
@@ -142,7 +136,7 @@ class ResultType(TypedDict):
 ```
 
 #### `src/belgie/feature_name/helper.py`
-Helper functions for data processing and validation (leaf node, see Implementation #3).
+Helper functions for data processing and validation (leaf node, see [Implementation Order](#implementation-order) #3).
 
 ```python
 from belgie.existing_module import existing_function
@@ -157,7 +151,7 @@ def validate_config(config: dict[str, str]) -> bool: ...
 ```
 
 #### `src/belgie/feature_name/main.py`
-Main entry point implementing the core feature logic (see Implementation #5).
+Main entry point implementing the core feature logic (see [Implementation Order](#implementation-order) #5).
 
 ```python
 from typing import Self
@@ -203,8 +197,8 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test edge cases: empty data, boundary values, etc.
 
 **Integration Tests:**
-- Test Workflow 1 end-to-end: create instance, execute with various inputs, verify outputs
-- Test Workflow 2 end-to-end: test the complete fluent API flow
+- Test [Workflow 1](#workflow-1-workflow-name) end-to-end: create instance, execute with various inputs, verify outputs
+- Test [Workflow 2](#workflow-2-another-workflow-name) end-to-end: test the complete fluent API flow
 - Test error handling across module boundaries
 - Test interaction with existing modules (ExistingModule, ExistingUtil)
 
@@ -218,14 +212,14 @@ Tests should be organized by module/file and cover unit tests, integration tests
 ### Implementation Order
 <!-- Based on the dependency graph, list the order to implement (leaf nodes first) -->
 
-1. **[EXISTING] BaseClass** (`base.py`) - Already exists, no implementation needed
-2. **[EXISTING] ExistingUtil** (`util.py`) - Already exists, no implementation needed
-3. **[NEW] NewHelper** (`helper.py`) - Implement first (leaf node, only depends on existing code)
-   - Used in: Workflow 1, Workflow 2
+1. **BaseClass** (`base.py`) - Already exists, no implementation needed
+2. **ExistingUtil** (`util.py`) - Already exists, no implementation needed
+3. **NewHelper** (`helper.py`) - Implement first (leaf node, only depends on existing code)
+   - Used in: [Workflow 1](#workflow-1-workflow-name), [Workflow 2](#workflow-2-another-workflow-name)
    - Dependencies: ExistingUtil
-4. **[EXISTING] ExistingModule** (`existing.py`) - Already exists, no implementation needed
-5. **[NEW] NewFeature** (`main.py`) - Implement last (depends on NewHelper and ExistingModule)
-   - Used in: Workflow 1
+4. **ExistingModule** (`existing.py`) - Already exists, no implementation needed
+5. **NewFeature** (`main.py`) - Implement last (depends on NewHelper and ExistingModule)
+   - Used in: [Workflow 1](#workflow-1-workflow-name)
    - Dependencies: NewHelper, ExistingModule
 
 ### Tasks
@@ -252,8 +246,8 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [ ] Test `execute()` method
 
 - [ ] **Integration and validation**
-  - [ ] Add integration tests for Workflow 1
-  - [ ] Add integration tests for Workflow 2
+  - [ ] Add integration tests for [Workflow 1](#workflow-1-workflow-name)
+  - [ ] Add integration tests for [Workflow 2](#workflow-2-another-workflow-name)
   - [ ] Add type hints and run type checker (`uv run ty`)
   - [ ] Run linter and fix issues (`uv run ruff check`)
   - [ ] Verify all tests pass (`uv run pytest`)

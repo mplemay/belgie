@@ -90,25 +90,18 @@ graph TD
 
 ```mermaid
 graph TD
-    ConfigValidator[NEW: ConfigValidator<br/>validator.py]
-    Schema[NEW: Schema<br/>schema.py]
-    FieldDef[NEW: FieldDefinition<br/>schema.py]
-    ValidationResult[NEW: ValidationResult<br/>result.py]
-    Validators[NEW: Built-in Validators<br/>validators.py]
-    Exceptions[NEW: Custom Exceptions<br/>exceptions.py]
+    ConfigValidator["(NEW)<br/>ConfigValidator<br/>validator.py"]
+    Schema["(NEW)<br/>Schema<br/>schema.py"]
+    FieldDef["(NEW)<br/>FieldDefinition<br/>schema.py"]
+    ValidationResult["(NEW)<br/>ValidationResult<br/>result.py"]
+    Validators["(NEW)<br/>Built-in Validators<br/>validators.py"]
+    Exceptions["(NEW)<br/>Custom Exceptions<br/>exceptions.py"]
 
     ConfigValidator --> Schema
     ConfigValidator --> ValidationResult
     ConfigValidator --> Validators
     ConfigValidator --> Exceptions
     Schema --> FieldDef
-
-    style ConfigValidator fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
-    style Schema fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
-    style FieldDef fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
-    style ValidationResult fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
-    style Validators fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
-    style Exceptions fill:#FFE4B5,stroke:#FF8C00,stroke-width:2px
 ```
 
 ## Detailed Design
@@ -173,7 +166,7 @@ class ValidationResult:
 ```
 
 #### `src/belgie/config_validator/validators.py`
-Built-in validator functions for common validation patterns (leaf node, see Implementation #4).
+Built-in validator functions for common validation patterns (leaf node, see [Implementation Order](#implementation-order) #4).
 
 ```python
 import re
@@ -221,7 +214,7 @@ def oneof_validator(allowed_values: list[object]) -> ValidatorFunc:
 ```
 
 #### `src/belgie/config_validator/schema.py`
-Schema and field definition classes for declarative configuration (see Implementation #3, #5).
+Schema and field definition classes for declarative configuration (see [Implementation Order](#implementation-order) #3, #5).
 
 ```python
 from typing import Self
@@ -274,7 +267,7 @@ class Schema:
 ```
 
 #### `src/belgie/config_validator/validator.py`
-Main validator class that orchestrates validation logic (see Implementation #6).
+Main validator class that orchestrates validation logic (see [Implementation Order](#implementation-order) #6).
 
 ```python
 from typing import Any, Self
@@ -358,7 +351,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `Schema.field()` fluent API (chaining multiple calls)
 - Test `Schema.get_field()` with existing and non-existing field names
 - Test `Schema.get_required_fields()` with mixed required/optional fields
-- Verify Workflow 2 (schema construction) works as expected
+- Verify [Workflow 2](#workflow-2-schema-construction) (schema construction) works as expected
 
 #### `test_validator.py`
 
@@ -386,8 +379,8 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `__repr__()` produces readable string representation
 
 **Integration Tests:**
-- Test Workflow 1 end-to-end: construct schema, create validator, validate valid config, validate invalid config
-- Test Workflow 2 end-to-end: build schema using fluent API, then use it for validation
+- Test [Workflow 1](#workflow-1-configuration-validation) end-to-end: construct schema, create validator, validate valid config, validate invalid config
+- Test [Workflow 2](#workflow-2-schema-construction) end-to-end: build schema using fluent API, then use it for validation
 - Test error handling across module boundaries (exceptions propagate correctly)
 - Test complex schemas with multiple fields, types, and validators
 - Test realistic use cases: server config (host, port, timeout), user profile (name, email, age), etc.
@@ -406,28 +399,28 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 ### Implementation Order
 
-1. **[NEW] Exceptions** (`exceptions.py`) - Implement first (no dependencies)
-   - Used in: Workflow 1 (error handling)
+1. **Exceptions** (`exceptions.py`) - Implement first (no dependencies)
+   - Used in: [Workflow 1](#workflow-1-configuration-validation) (error handling)
    - Dependencies: None
 
-2. **[NEW] ValidationResult** (`result.py`) - Implement second (no dependencies)
-   - Used in: Workflow 1 (return type)
+2. **ValidationResult** (`result.py`) - Implement second (no dependencies)
+   - Used in: [Workflow 1](#workflow-1-configuration-validation) (return type)
    - Dependencies: None
 
-3. **[NEW] FieldDefinition** (`schema.py:FieldDefinition`) - Implement third (no dependencies)
-   - Used in: Workflow 2 (schema construction)
+3. **FieldDefinition** (`schema.py:FieldDefinition`) - Implement third (no dependencies)
+   - Used in: [Workflow 2](#workflow-2-schema-construction) (schema construction)
    - Dependencies: None
 
-4. **[NEW] Built-in Validators** (`validators.py`) - Implement fourth (no dependencies)
-   - Used in: Workflow 1 (field validation)
+4. **Built-in Validators** (`validators.py`) - Implement fourth (no dependencies)
+   - Used in: [Workflow 1](#workflow-1-configuration-validation) (field validation)
    - Dependencies: None
 
-5. **[NEW] Schema** (`schema.py:Schema`) - Implement fifth (depends on FieldDefinition)
-   - Used in: Workflow 1, Workflow 2
+5. **Schema** (`schema.py:Schema`) - Implement fifth (depends on FieldDefinition)
+   - Used in: [Workflow 1](#workflow-1-configuration-validation), [Workflow 2](#workflow-2-schema-construction)
    - Dependencies: FieldDefinition
 
-6. **[NEW] ConfigValidator** (`validator.py:ConfigValidator`) - Implement last (depends on all above)
-   - Used in: Workflow 1 (main orchestrator)
+6. **ConfigValidator** (`validator.py:ConfigValidator`) - Implement last (depends on all above)
+   - Used in: [Workflow 1](#workflow-1-configuration-validation) (main orchestrator)
    - Dependencies: Schema, ValidationResult, Validators, Exceptions
 
 ### Tasks
@@ -438,7 +431,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [ ] Implement `SchemaError` exception
   - [ ] Implement `ValidationResult` class in `result.py` (#2)
     - [ ] Implement `__init__()` method
-    - [ ] Implement `add_error()` method (used in Workflow 1)
+    - [ ] Implement `add_error()` method (used in [Workflow 1](#workflow-1-configuration-validation))
     - [ ] Implement `merge()` method
     - [ ] Implement `__bool__()` and `__repr__()` methods
   - [ ] Write unit tests for `result.py`
@@ -460,17 +453,17 @@ Tests should be organized by module/file and cover unit tests, integration tests
   - [ ] Implement `Schema` class in `schema.py` (#5)
     - [ ] Implement `__init__()` method
     - [ ] Implement `add_field()` method
-    - [ ] Implement `field()` method (Workflow 2 fluent API)
+    - [ ] Implement `field()` method ([Workflow 2](#workflow-2-schema-construction) fluent API)
     - [ ] Implement `get_field()` method
-    - [ ] Implement `get_required_fields()` method (used in Workflow 1)
+    - [ ] Implement `get_required_fields()` method (used in [Workflow 1](#workflow-1-configuration-validation))
   - [ ] Write unit tests for `schema.py`
     - [ ] Test FieldDefinition and Schema classes
-    - [ ] Test fluent API (Workflow 2)
+    - [ ] Test fluent API ([Workflow 2](#workflow-2-schema-construction))
 
 - [ ] **Implement top-level components** (depends on all above)
   - [ ] Implement `ConfigValidator` class in `validator.py` (#6)
     - [ ] Implement `__init__()` method
-    - [ ] Implement `validate()` method (main Workflow 1 orchestrator)
+    - [ ] Implement `validate()` method (main [Workflow 1](#workflow-1-configuration-validation) orchestrator)
     - [ ] Implement `validate_and_raise()` method
     - [ ] Implement `_validate_field()` private method
     - [ ] Implement `_check_type()` private method
@@ -482,8 +475,8 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [ ] Parametrized test scenarios
 
 - [ ] **Integration and validation**
-  - [ ] Add integration tests for Workflow 1 (full validation flow)
-  - [ ] Add integration tests for Workflow 2 (schema construction + usage)
+  - [ ] Add integration tests for [Workflow 1](#workflow-1-configuration-validation) (full validation flow)
+  - [ ] Add integration tests for [Workflow 2](#workflow-2-schema-construction) (schema construction + usage)
   - [ ] Add type hints and run type checker (`uv run ty`)
   - [ ] Run linter and fix issues (`uv run ruff check`)
   - [ ] Verify all tests pass (`uv run pytest`)
