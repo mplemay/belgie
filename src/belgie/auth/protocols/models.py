@@ -4,7 +4,8 @@ from uuid import UUID
 
 
 @runtime_checkable
-class UserProtocol(Protocol):
+class UserProtocol[S: str](Protocol):
+    # Generic over scope type S (must be str or subclass like StrEnum)
     id: UUID
     email: str
     email_verified: bool
@@ -12,6 +13,7 @@ class UserProtocol(Protocol):
     image: str | None
     created_at: datetime
     updated_at: datetime
+    scopes: list[S]  # User's application-level scopes
 
 
 @runtime_checkable
