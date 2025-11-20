@@ -1,4 +1,13 @@
-from belgie.auth.utils.scopes import parse_scopes, validate_scopes
+from enum import StrEnum
+
+from belgie.auth.utils.scopes import has_any_scope, parse_scopes, validate_scopes
+
+
+class SampleScope(StrEnum):
+    READ = "resource:read"
+    WRITE = "resource:write"
+    DELETE = "resource:delete"
+    ADMIN = "admin"
 
 
 def test_parse_scopes_comma_separated() -> None:
@@ -114,3 +123,139 @@ def test_validate_scopes_duplicate_required_scopes() -> None:
     user_scopes = ["openid", "email", "profile"]
     required_scopes = ["openid", "openid", "email"]
     assert validate_scopes(user_scopes, required_scopes) is True
+
+
+# Tests for validate_scopes with sets
+def test_validate_scopes_with_sets() -> None:
+    user_scopes = {"openid", "email", "profile"}
+    required_scopes = {"openid", "email"}
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+def test_validate_scopes_with_sets_missing() -> None:
+    user_scopes = {"openid", "email"}
+    required_scopes = {"openid", "email", "profile"}
+    assert validate_scopes(user_scopes, required_scopes) is False
+
+
+def test_validate_scopes_mixed_list_and_set() -> None:
+    user_scopes = ["openid", "email", "profile"]
+    required_scopes = {"openid", "email"}
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+# Tests for validate_scopes with StrEnum
+def test_validate_scopes_with_strenum_all_present() -> None:
+    user_scopes = [SampleScope.READ, SampleScope.WRITE, SampleScope.ADMIN]
+    required_scopes = [SampleScope.READ, SampleScope.WRITE]
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+def test_validate_scopes_with_strenum_missing() -> None:
+    user_scopes = [SampleScope.READ, SampleScope.WRITE]
+    required_scopes = [SampleScope.READ, SampleScope.WRITE, SampleScope.ADMIN]
+    assert validate_scopes(user_scopes, required_scopes) is False
+
+
+def test_validate_scopes_with_strenum_empty_required() -> None:
+    user_scopes = [SampleScope.READ, SampleScope.WRITE]
+    required_scopes: list[SampleScope] = []
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+def test_validate_scopes_with_strenum_empty_user() -> None:
+    user_scopes: list[SampleScope] = []
+    required_scopes = [SampleScope.READ]
+    assert validate_scopes(user_scopes, required_scopes) is False
+
+
+# Tests for validate_scopes with mixed StrEnum and str
+def test_validate_scopes_strenum_user_str_required() -> None:
+    # User scopes as StrEnum, required as strings
+    # StrEnum members compare equal to their string values
+    user_scopes = [SampleScope.READ, SampleScope.WRITE, SampleScope.ADMIN]
+    required_scopes = ["resource:read", "resource:write"]
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+def test_validate_scopes_str_user_strenum_required() -> None:
+    # User scopes as strings, required as StrEnum
+    # StrEnum members compare equal to their string values
+    user_scopes = ["resource:read", "resource:write", "admin"]
+    required_scopes = [SampleScope.READ, SampleScope.WRITE]
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+def test_validate_scopes_mixed_types() -> None:
+    # Mix of StrEnum and str in same list
+    user_scopes = [SampleScope.READ, "resource:write", SampleScope.ADMIN]
+    required_scopes = ["resource:read", SampleScope.WRITE]
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+# Tests for has_any_scope
+def test_has_any_scope_user_has_one() -> None:
+    user_scopes = ["openid", "email"]
+    required_scopes = ["email", "profile", "admin"]
+    assert has_any_scope(user_scopes, required_scopes) is True
+
+
+def test_has_any_scope_user_has_multiple() -> None:
+    user_scopes = ["openid", "email", "profile"]
+    required_scopes = ["email", "profile", "admin"]
+    assert has_any_scope(user_scopes, required_scopes) is True
+
+
+def test_has_any_scope_user_has_all() -> None:
+    user_scopes = ["openid", "email", "profile", "admin"]
+    required_scopes = ["email", "profile", "admin"]
+    assert has_any_scope(user_scopes, required_scopes) is True
+
+
+def test_has_any_scope_user_has_none() -> None:
+    user_scopes = ["openid"]
+    required_scopes = ["email", "profile", "admin"]
+    assert has_any_scope(user_scopes, required_scopes) is False
+
+
+def test_has_any_scope_empty_user() -> None:
+    user_scopes: list[str] = []
+    required_scopes = ["email", "profile"]
+    assert has_any_scope(user_scopes, required_scopes) is False
+
+
+def test_has_any_scope_empty_required() -> None:
+    user_scopes = ["openid", "email"]
+    required_scopes: list[str] = []
+    assert has_any_scope(user_scopes, required_scopes) is False
+
+
+def test_has_any_scope_both_empty() -> None:
+    user_scopes: list[str] = []
+    required_scopes: list[str] = []
+    assert has_any_scope(user_scopes, required_scopes) is False
+
+
+def test_has_any_scope_with_sets() -> None:
+    user_scopes = {"openid", "email"}
+    required_scopes = {"email", "profile", "admin"}
+    assert has_any_scope(user_scopes, required_scopes) is True
+
+
+def test_has_any_scope_with_strenum() -> None:
+    user_scopes = [SampleScope.READ, SampleScope.WRITE]
+    required_scopes = [SampleScope.WRITE, SampleScope.DELETE, SampleScope.ADMIN]
+    assert has_any_scope(user_scopes, required_scopes) is True
+
+
+def test_has_any_scope_with_strenum_none_match() -> None:
+    user_scopes = [SampleScope.READ]
+    required_scopes = [SampleScope.WRITE, SampleScope.DELETE, SampleScope.ADMIN]
+    assert has_any_scope(user_scopes, required_scopes) is False
+
+
+def test_has_any_scope_mixed_types() -> None:
+    # User scopes as StrEnum, required as strings
+    user_scopes = [SampleScope.READ, SampleScope.WRITE]
+    required_scopes = ["resource:write", "resource:delete"]
+    assert has_any_scope(user_scopes, required_scopes) is True

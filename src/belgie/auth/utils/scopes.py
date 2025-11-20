@@ -1,4 +1,5 @@
 import json
+from enum import StrEnum
 
 
 def parse_scopes(scopes_str: str) -> list[str]:
@@ -18,7 +19,27 @@ def parse_scopes(scopes_str: str) -> list[str]:
     return [scope.strip() for scope in scopes_str.split(",") if scope.strip()]
 
 
-def validate_scopes(user_scopes: list[str], required_scopes: list[str]) -> bool:
-    user_scopes_set = set(user_scopes)
-    required_scopes_set = set(required_scopes)
+def validate_scopes(
+    user_scopes: list[str | StrEnum] | set[str | StrEnum],
+    required_scopes: list[str | StrEnum] | set[str | StrEnum],
+) -> bool:
+    # Normalize to sets for comparison
+    # StrEnum members are strings, so they compare naturally with str
+    user_scopes_set = set(user_scopes) if isinstance(user_scopes, list) else user_scopes
+    required_scopes_set = set(required_scopes) if isinstance(required_scopes, list) else required_scopes
+
+    # Check if all required scopes are present in user scopes
     return required_scopes_set.issubset(user_scopes_set)
+
+
+def has_any_scope(
+    user_scopes: list[str | StrEnum] | set[str | StrEnum],
+    required_scopes: list[str | StrEnum] | set[str | StrEnum],
+) -> bool:
+    # Normalize to sets for comparison
+    # StrEnum members are strings, so they compare naturally with str
+    user_scopes_set = set(user_scopes) if isinstance(user_scopes, list) else user_scopes
+    required_scopes_set = set(required_scopes) if isinstance(required_scopes, list) else required_scopes
+
+    # Check if user has any of the required scopes
+    return bool(user_scopes_set & required_scopes_set)
