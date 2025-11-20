@@ -110,9 +110,24 @@ In general, you **must** follow the following workflow when writing code:
 ### Git
 
 - Before you commit code, **make sure** you have added comprehensive test cases
-- All commit message should be written using the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) format
-- Commit message **must be** relatively short, written in all lowercase characters, and avoid special characters
-- An example message might look like: "feat: added x to y"
+- **Commit messages**:
+  - Follow the [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) format
+  - **Must be a single line** - no multi-line messages or bullet points
+  - Keep it short and concise (under 72 characters when possible)
+  - Use all lowercase characters
+  - Avoid special characters
+  - Focus on **what** changed, not the detailed **how** or **why**
+  - Examples of good commit messages:
+    - `feat: added config validator with schema builder`
+    - `fix: corrected validation error message formatting`
+    - `refactor: simplified schema field definition logic`
+    - `docs: updated design template with usage examples`
+    - `test: added edge case tests for range validator`
+  - Examples of bad commit messages:
+    - ❌ Multi-line messages with detailed explanations
+    - ❌ `feat: added config validator\n\n- Added schema builder\n- Added validators`
+    - ❌ `Fixed stuff` (too vague, no type prefix)
+    - ❌ `FEAT: Added Config Validator` (not lowercase)
 - **Branch naming conventions**:
   - Use descriptive, kebab-case branch names
   - Prefix branches by type: `feature/`, `bugfix/`, `refactor/`, `docs/`, `test/`
