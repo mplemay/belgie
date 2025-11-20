@@ -1,9 +1,9 @@
 import pytest
 
-from brugge.auth.core.exceptions import (
+from belgie.auth.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
-    BruggeError,
+    BelgieError,
     ConfigurationError,
     InvalidStateError,
     OAuthError,
@@ -12,32 +12,32 @@ from brugge.auth.core.exceptions import (
 
 
 def test_belgie_error_is_exception() -> None:
-    assert issubclass(BruggeError, Exception)
+    assert issubclass(BelgieError, Exception)
 
 
 def test_authentication_error_is_belgie_error() -> None:
-    assert issubclass(AuthenticationError, BruggeError)
+    assert issubclass(AuthenticationError, BelgieError)
 
 
 def test_authorization_error_is_belgie_error() -> None:
-    assert issubclass(AuthorizationError, BruggeError)
+    assert issubclass(AuthorizationError, BelgieError)
 
 
 def test_session_expired_error_is_authentication_error() -> None:
     assert issubclass(SessionExpiredError, AuthenticationError)
-    assert issubclass(SessionExpiredError, BruggeError)
+    assert issubclass(SessionExpiredError, BelgieError)
 
 
 def test_invalid_state_error_is_belgie_error() -> None:
-    assert issubclass(InvalidStateError, BruggeError)
+    assert issubclass(InvalidStateError, BelgieError)
 
 
 def test_oauth_error_is_belgie_error() -> None:
-    assert issubclass(OAuthError, BruggeError)
+    assert issubclass(OAuthError, BelgieError)
 
 
 def test_configuration_error_is_belgie_error() -> None:
-    assert issubclass(ConfigurationError, BruggeError)
+    assert issubclass(ConfigurationError, BelgieError)
 
 
 def test_can_raise_and_catch_authentication_error() -> None:
@@ -54,13 +54,13 @@ def test_can_catch_session_expired_as_authentication_error() -> None:
 
 def test_can_catch_all_as_belgie_error() -> None:
     msg1 = "insufficient scopes"
-    with pytest.raises(BruggeError):
+    with pytest.raises(BelgieError):
         raise AuthorizationError(msg1)
 
     msg2 = "oauth failed"
-    with pytest.raises(BruggeError):
+    with pytest.raises(BelgieError):
         raise OAuthError(msg2)
 
     msg3 = "invalid config"
-    with pytest.raises(BruggeError):
+    with pytest.raises(BelgieError):
         raise ConfigurationError(msg3)

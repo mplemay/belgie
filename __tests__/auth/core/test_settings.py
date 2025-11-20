@@ -3,7 +3,7 @@ import os
 import pytest
 from pydantic import ValidationError
 
-from brugge.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
+from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
 
 
 def test_session_settings_defaults() -> None:

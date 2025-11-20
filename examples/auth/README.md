@@ -36,9 +36,9 @@ cp .env.example .env
 ```
 
 Edit `.env` and set:
-- `BRUGGE_GOOGLE_CLIENT_ID` - your Google OAuth client ID
-- `BRUGGE_GOOGLE_CLIENT_SECRET` - your Google OAuth client secret
-- `BRUGGE_SECRET` - a secure random string for session signing
+- `BELGIE_GOOGLE_CLIENT_ID` - your Google OAuth client ID
+- `BELGIE_GOOGLE_CLIENT_SECRET` - your Google OAuth client secret
+- `BELGIE_SECRET` - a secure random string for session signing
 
 ### 3. Install Dependencies
 

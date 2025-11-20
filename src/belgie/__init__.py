@@ -1,16 +1,16 @@
-"""Brugge - Modern authentication for FastAPI."""
+"""Belgie - Modern authentication for FastAPI."""
 
 __version__ = "0.1.0"
 
-# Re-export everything from brugge.auth for convenience
-from brugge.auth import (
+# Re-export everything from belgie.auth for convenience
+from belgie.auth import (
     AccountProtocol,
     AlchemyAdapter,
     Auth,
     AuthenticationError,
     AuthorizationError,
     AuthSettings,
-    BruggeError,
+    BelgieError,
     ConfigurationError,
     CookieSettings,
     GoogleOAuthProvider,
@@ -39,7 +39,7 @@ __all__ = [
     "AuthSettings",
     "AuthenticationError",
     "AuthorizationError",
-    "BruggeError",
+    "BelgieError",
     "ConfigurationError",
     "CookieSettings",
     "GoogleOAuthProvider",

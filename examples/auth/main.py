@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Security
 
-from brugge.auth import (
+from belgie.auth import (
     AlchemyAdapter,
     Auth,
     AuthSettings,
@@ -28,7 +28,7 @@ auth_settings = AuthSettings(
     secret="your-secret-key-here-change-in-production",  # noqa: S106
     base_url="http://localhost:8000",
     session=SessionSettings(
-        cookie_name="brugge_session",
+        cookie_name="belgie_session",
         max_age=3600 * 24 * 7,
         update_age=3600,
     ),

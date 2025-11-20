@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from brugge.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
+from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 
 type UserT = UserProtocol
 type AccountT = AccountProtocol

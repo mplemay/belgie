@@ -5,8 +5,8 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
-from brugge.auth.adapters.alchemy import AlchemyAdapter
-from brugge.auth.session.manager import SessionManager
+from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.session.manager import SessionManager
 
 
 @pytest.fixture

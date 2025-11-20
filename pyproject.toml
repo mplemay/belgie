@@ -1,5 +1,5 @@
 [project]
-name = "brugge"
+name = "belgie"
 version = "0.1.0"
 description = "Modern authentication for FastAPI"
 readme = "README.md"

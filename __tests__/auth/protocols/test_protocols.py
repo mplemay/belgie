@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from brugge.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
+from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 
 
 @dataclass

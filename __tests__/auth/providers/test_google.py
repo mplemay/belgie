@@ -6,8 +6,8 @@ import pytest
 import respx
 from pydantic import ValidationError
 
-from brugge.auth.core.exceptions import OAuthError
-from brugge.auth.providers.google import GoogleOAuthProvider, GoogleTokenResponse, GoogleUserInfo
+from belgie.auth.core.exceptions import OAuthError
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleTokenResponse, GoogleUserInfo
 
 
 @pytest.fixture

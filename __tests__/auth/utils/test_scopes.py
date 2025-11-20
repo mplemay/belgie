@@ -1,4 +1,4 @@
-from brugge.auth.utils.scopes import parse_scopes, validate_scopes
+from belgie.auth.utils.scopes import parse_scopes, validate_scopes
 
 
 def test_parse_scopes_comma_separated() -> None:

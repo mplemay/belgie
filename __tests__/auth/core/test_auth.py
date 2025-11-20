@@ -10,11 +10,11 @@ from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
-from brugge.auth.adapters.alchemy import AlchemyAdapter
-from brugge.auth.core.auth import Auth
-from brugge.auth.core.exceptions import InvalidStateError, OAuthError
-from brugge.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
-from brugge.auth.providers.google import GoogleOAuthProvider
+from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.core.auth import Auth
+from belgie.auth.core.exceptions import InvalidStateError, OAuthError
+from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
+from belgie.auth.providers.google import GoogleOAuthProvider
 
 
 @pytest.fixture
