@@ -79,6 +79,10 @@ def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: Async
 @pytest.fixture
 def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     """Create FastAPI app with auth router and scope-protected endpoints."""
+    from typing import Annotated  # noqa: PLC0415
+
+    from fastapi import Security  # noqa: PLC0415
+
     app = FastAPI()
     app.include_router(auth.router)
 
@@ -86,65 +90,74 @@ def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_test_db() -> AsyncSession:
         return db_session
 
-    # Create custom dependencies for each scope requirement
-    async def require_read(
+    app.dependency_overrides[auth.db_dependency] = get_test_db
+
+    # Create Security dependencies with scopes that delegate to auth.user
+    # These avoid Pydantic validation issues by wrapping the auth.user call
+    async def get_user_with_read_scope(
         security_scopes: SecurityScopes,
         request: Request,
         db: AsyncSession = Depends(get_test_db),  # noqa: B008
     ) -> UserProtocol:
-        security_scopes.scopes = [AppScope.READ]
+        # Merge the READ scope with any parent scopes
+        all_scopes = list(set(security_scopes.scopes) | {AppScope.READ})
+        security_scopes.scopes = all_scopes
         return await auth.user(security_scopes, request, db)
 
-    async def require_write(
+    async def get_user_with_write_scope(
         security_scopes: SecurityScopes,
         request: Request,
         db: AsyncSession = Depends(get_test_db),  # noqa: B008
     ) -> UserProtocol:
-        security_scopes.scopes = [AppScope.WRITE]
+        all_scopes = list(set(security_scopes.scopes) | {AppScope.WRITE})
+        security_scopes.scopes = all_scopes
         return await auth.user(security_scopes, request, db)
 
-    async def require_admin(
+    async def get_user_with_admin_scope(
         security_scopes: SecurityScopes,
         request: Request,
         db: AsyncSession = Depends(get_test_db),  # noqa: B008
     ) -> UserProtocol:
-        security_scopes.scopes = [AppScope.ADMIN]
+        all_scopes = list(set(security_scopes.scopes) | {AppScope.ADMIN})
+        security_scopes.scopes = all_scopes
         return await auth.user(security_scopes, request, db)
 
-    async def require_read_write(
-        security_scopes: SecurityScopes,
-        request: Request,
-        db: AsyncSession = Depends(get_test_db),  # noqa: B008
-    ) -> UserProtocol:
-        security_scopes.scopes = [AppScope.READ, AppScope.WRITE]
-        return await auth.user(security_scopes, request, db)
-
-    async def require_auth(
+    async def get_authenticated_user(
         security_scopes: SecurityScopes,
         request: Request,
         db: AsyncSession = Depends(get_test_db),  # noqa: B008
     ) -> UserProtocol:
         return await auth.user(security_scopes, request, db)
 
-    # Add test endpoints with different scope requirements
+    # Type aliases for Security dependencies
+    ReadUser = Annotated[UserProtocol, Security(get_user_with_read_scope, scopes=[AppScope.READ])]  # noqa: N806
+    WriteUser = Annotated[UserProtocol, Security(get_user_with_write_scope, scopes=[AppScope.WRITE])]  # noqa: N806
+    AdminUser = Annotated[UserProtocol, Security(get_user_with_admin_scope, scopes=[AppScope.ADMIN])]  # noqa: N806
+    ReadWriteUser = Annotated[  # noqa: N806
+        UserProtocol,
+        Security(get_user_with_read_scope, scopes=[AppScope.READ, AppScope.WRITE]),
+    ]
+    AuthenticatedUser = Annotated[UserProtocol, Depends(get_authenticated_user)]  # noqa: N806
+
+    # Add test endpoints using Security with scopes
     @app.get("/api/read")
-    async def read_resource(user: UserProtocol = Depends(require_read)) -> dict:  # noqa: B008, FAST002
+    async def read_resource(user: ReadUser) -> dict:
         return {"message": "read access granted", "user_email": user.email}
 
     @app.get("/api/write")
-    async def write_resource(user: UserProtocol = Depends(require_write)) -> dict:  # noqa: B008, FAST002
+    async def write_resource(user: WriteUser) -> dict:
         return {"message": "write access granted", "user_email": user.email}
 
     @app.get("/api/admin")
-    async def admin_resource(user: UserProtocol = Depends(require_admin)) -> dict:  # noqa: B008, FAST002
+    async def admin_resource(user: AdminUser) -> dict:
         return {"message": "admin access granted", "user_email": user.email}
 
     @app.get("/api/read-write")
-    async def read_write_resource(user: UserProtocol = Depends(require_read_write)) -> dict:  # noqa: B008, FAST002
+    async def read_write_resource(user: ReadWriteUser) -> dict:
         return {"message": "read-write access granted", "user_email": user.email}
 
     @app.get("/api/public")
-    async def public_resource(user: UserProtocol = Depends(require_auth)) -> dict:  # noqa: B008, FAST002
+    async def public_resource(user: AuthenticatedUser) -> dict:
         return {"message": "public access granted", "user_email": user.email}
 
     return app
