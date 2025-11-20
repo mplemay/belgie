@@ -1,7 +1,7 @@
 [project]
-name = "belgie"
+name = "brugge"
 version = "0.1.0"
-description = "Add your description here"
+description = "Modern authentication for FastAPI"
 readme = "README.md"
 authors = [
     { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
@@ -52,7 +52,7 @@ ignore = [
 "__init__.py" = [
     "F401", # imported but unused (common in __init__.py to re-export symbols)
 ]
-"src/belgie/__test__/**/*" = [
+"__tests__/**/*" = [
     "S101",    # use of assert (tests typically use assert directly)
     "PLR2004", # magic value used in comparison (fine in test cases)
     "INP001",  # implicit namespace package (tests dir may not need __init__.py)

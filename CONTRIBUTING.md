@@ -33,8 +33,8 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 1. **Fork the repository** and create your branch from `main`
 2. **Install dependencies**:
    ```bash
-   git clone https://github.com/yourusername/belgie.git
-   cd belgie
+   git clone https://github.com/yourusername/brugge.git
+   cd brugge
    uv venv
    source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
    uv pip install -e ".[dev]"
@@ -52,7 +52,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
    pytest
 
    # Run with coverage
-   pytest --cov=src/belgie --cov-report=term-missing
+   pytest --cov=src/brugge --cov-report=term-missing
 
    # Run linting
    ruff check .
@@ -118,8 +118,8 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 ## Project Structure
 
 ```
-belgie/
-├── src/belgie/          # Main package
+brugge/
+├── src/brugge/          # Main package
 │   ├── __init__.py      # Package exports
 │   ├── core/            # Core authentication logic
 │   ├── adapters/        # Database adapters
@@ -138,7 +138,7 @@ belgie/
 
 To add a new OAuth provider (e.g., GitHub):
 
-1. **Create provider class** in `src/belgie/providers/`:
+1. **Create provider class** in `src/brugge/providers/`:
    ```python
    class GitHubOAuthProvider:
        def __init__(self, client_id, client_secret, redirect_uri, scopes):
@@ -154,7 +154,7 @@ To add a new OAuth provider (e.g., GitHub):
            ...
    ```
 
-2. **Add settings** in `src/belgie/core/settings.py`:
+2. **Add settings** in `src/brugge/core/settings.py`:
    ```python
    class GitHubOAuthSettings(BaseSettings):
        client_id: str
@@ -180,13 +180,13 @@ To add a new OAuth provider (e.g., GitHub):
 pytest
 
 # Specific test file
-pytest src/belgie/__test__/test_auth_core.py
+pytest src/brugge/__test__/test_auth_core.py
 
 # Specific test
-pytest src/belgie/__test__/test_auth_core.py::test_auth_initialization
+pytest src/brugge/__test__/test_auth_core.py::test_auth_initialization
 
 # With coverage
-pytest --cov=src/belgie --cov-report=html
+pytest --cov=src/brugge --cov-report=html
 
 # Verbose output
 pytest -v
@@ -199,7 +199,7 @@ pytest -x
 
 ```python
 import pytest
-from belgie import Auth, AuthSettings
+from brugge import Auth, AuthSettings
 
 async def test_my_feature():
     # Arrange

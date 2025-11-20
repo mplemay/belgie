@@ -18,13 +18,13 @@ Belgie is a batteries-included authentication library for FastAPI applications, 
 ## Installation
 
 ```bash
-pip install belgie
+pip install brugge
 ```
 
 Or with uv:
 
 ```bash
-uv add belgie
+uv add brugge
 ```
 
 ## Quick Start
@@ -85,7 +85,7 @@ class OAuthState(Base):
 ### 2. Configure Belgie
 
 ```python
-from belgie import Auth, AuthSettings, AlchemyAdapter, GoogleOAuthSettings
+from brugge import Auth, AuthSettings, AlchemyAdapter, GoogleOAuthSettings
 
 settings = AuthSettings(
     secret="your-secret-key",
@@ -175,7 +175,7 @@ settings = AuthSettings()  # Loads from environment
 ### Session Configuration
 
 ```python
-from belgie import SessionSettings
+from brugge import SessionSettings
 
 settings = AuthSettings(
     # ...
@@ -190,7 +190,7 @@ settings = AuthSettings(
 ### Cookie Security
 
 ```python
-from belgie import CookieSettings
+from brugge import CookieSettings
 
 settings = AuthSettings(
     # ...
@@ -259,7 +259,7 @@ session, user = await auth.handle_google_callback(db, code, state)
 
 ## Examples
 
-See the [examples/basic_app](examples/basic_app) directory for a complete working application demonstrating:
+See the [examples/auth](examples/auth) directory for a complete working application demonstrating:
 
 - Google OAuth authentication
 - Protected and scoped routes
@@ -279,8 +279,8 @@ See the [examples/basic_app](examples/basic_app) directory for a complete workin
 ### Setup
 
 ```bash
-git clone https://github.com/yourusername/belgie.git
-cd belgie
+git clone https://github.com/yourusername/brugge.git
+cd brugge
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
@@ -343,5 +343,5 @@ Inspired by [Better-Auth](https://www.better-auth.com/) - bringing modern authen
 ## Support
 
 - Documentation: [docs/](docs/)
-- Issues: [GitHub Issues](https://github.com/yourusername/belgie/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/belgie/discussions)
+- Issues: [GitHub Issues](https://github.com/yourusername/brugge/issues)
+- Discussions: [GitHub Discussions](https://github.com/yourusername/brugge/discussions)

@@ -1,6 +1,6 @@
 # Dependencies Guide
 
-Belgie provides FastAPI dependencies for protecting routes and accessing authenticated user information.
+Brugge provides FastAPI dependencies for protecting routes and accessing authenticated user information.
 
 ## auth.user
 

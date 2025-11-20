@@ -1,10 +1,10 @@
 # Models Guide
 
-Belgie uses protocols to define the required structure of your database models, giving you flexibility in implementation while ensuring compatibility.
+Brugge uses protocols to define the required structure of your database models, giving you flexibility in implementation while ensuring compatibility.
 
 ## Required Models
 
-You need to implement four models that satisfy Belgie's protocols:
+You need to implement four models that satisfy Brugge's protocols:
 
 1. **User** - Application users
 2. **Account** - OAuth provider accounts linked to users
@@ -13,7 +13,7 @@ You need to implement four models that satisfy Belgie's protocols:
 
 ## Protocols
 
-Belgie defines protocols that your models must satisfy:
+Brugge defines protocols that your models must satisfy:
 
 ```python
 from typing import Protocol
@@ -283,7 +283,7 @@ class Session(Base):
 
 ## Using Different ORMs
 
-Belgie uses protocols, so you can use any ORM that provides the required fields:
+Brugge uses protocols, so you can use any ORM that provides the required fields:
 
 ### Django ORM Example
 
@@ -323,7 +323,7 @@ class User(Model):
 2. **Index frequently queried fields**: email, user_id, provider, state
 3. **Add timestamps**: created_at and updated_at for auditing
 4. **Use CASCADE delete**: Clean up related records automatically
-5. **Store timezone-naive datetimes**: Belgie handles UTC conversion
+5. **Store timezone-naive datetimes**: Brugge handles UTC conversion
 6. **Validate email format**: Use appropriate constraints
 7. **Set reasonable string lengths**: Prevent excessive storage use
 
@@ -332,7 +332,7 @@ class User(Model):
 Periodically clean up expired sessions and OAuth states:
 
 ```python
-from belgie import Auth
+from brugge.auth import Auth
 from sqlalchemy.ext.asyncio import AsyncSession
 
 async def cleanup_task(auth: Auth, db: AsyncSession):
