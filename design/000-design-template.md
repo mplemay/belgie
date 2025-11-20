@@ -34,10 +34,16 @@ Note: Sections that are not relevant (e.g., Libraries when only using stdlib) ca
 ### Workflow 1: [Workflow Name]
 <!-- Example: "User Configuration Validation" or "Data Processing Pipeline" -->
 
-### Description
+#### Description
 [Brief description of what this workflow accomplishes]
 
-### Call Graph
+#### Usage Example
+```python
+# Show concrete example of how a user would invoke this workflow
+# Include imports, setup, and expected results
+```
+
+#### Call Graph
 ```mermaid
 graph TD
     A[Entry Point] --> B[Function 1]
@@ -47,7 +53,7 @@ graph TD
     D --> E[Return Result]
 ```
 
-### Sequence Diagram
+#### Sequence Diagram
 <!-- Optional, include if the workflow involves complex interactions -->
 ```mermaid
 sequenceDiagram
@@ -61,7 +67,7 @@ sequenceDiagram
     Module-->>User: response
 ```
 
-### Key Components
+#### Key Components
 - **Entry Point** (`main.py:EntryClass`) - [Brief description]
 - **Function 1** (`helper.py:function1`) - [Brief description]
 - **Helper Function** (`helper.py:helper_func`) - [Brief description]
@@ -69,17 +75,23 @@ sequenceDiagram
 ### Workflow 2: [Another Workflow Name]
 <!-- Add additional workflows as needed -->
 
-### Description
+#### Description
 [Brief description of what this workflow accomplishes]
 
-### Call Graph
+#### Usage Example
+```python
+# Show concrete example of how a user would invoke this workflow
+# Include imports, setup, and expected results
+```
+
+#### Call Graph
 ```mermaid
 graph TD
     X[Another Entry] --> Y[Another Function]
     Y --> Z[Result]
 ```
 
-### Key Components
+#### Key Components
 - **Another Entry** (`main.py:AnotherClass`) - [Brief description]
 - **Another Function** (`helper.py:another_func`) - [Brief description]
 
@@ -296,3 +308,34 @@ Tests should be organized by module/file and cover unit tests, integration tests
 | Library | Current Version | Purpose | Dependency Group |
 |---------|-----------------|---------|------------------|
 | `existing-lib` | `>=1.0.0` | [Purpose] | `dev` / core |
+
+## Alternative Approaches
+
+<!-- Document approaches that were considered but not chosen -->
+<!-- This helps future maintainers understand why certain decisions were made -->
+
+### Approach 1: [Alternative Name]
+
+**Description**: [Brief description of the alternative approach]
+
+**Pros**:
+- [Advantage 1]
+- [Advantage 2]
+
+**Cons**:
+- [Disadvantage 1]
+- [Disadvantage 2]
+
+**Why not chosen**: [Explanation of why this approach wasn't selected]
+
+### Approach 2: [Another Alternative]
+
+**Description**: [Brief description]
+
+**Pros**:
+- [Advantage 1]
+
+**Cons**:
+- [Disadvantage 1]
+
+**Why not chosen**: [Explanation]

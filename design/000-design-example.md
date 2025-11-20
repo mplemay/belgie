@@ -24,10 +24,37 @@ The problem this solves: Currently, there's no centralized way to validate confi
 
 ### Workflow 1: Configuration Validation
 
-### Description
+#### Description
 User creates a schema, passes a config dict to validator, and receives validation results with detailed error messages if validation fails.
 
-### Call Graph
+#### Usage Example
+```python
+from belgie.config_validator import ConfigValidator, Schema
+from belgie.config_validator.validators import range_validator
+
+# Create schema (typically done once at module initialization)
+schema = (
+    Schema()
+    .field("host", str, required=True, default="localhost")
+    .field("port", int, required=True, validators=[range_validator(1, 65535)])
+    .field("timeout", int, default=30, validators=[range_validator(1, 300)])
+)
+
+# Create validator
+validator = ConfigValidator(schema)
+
+# Validate configuration
+config = {"host": "example.com", "port": 8080, "timeout": 60}
+result = validator.validate(config)
+
+if result:
+    print("Configuration is valid!")
+else:
+    for error in result.errors:
+        print(f"Error in {error['field']}: {error['message']}")
+```
+
+#### Call Graph
 ```mermaid
 graph TD
     A[User Code] --> B[ConfigValidator.validate]
@@ -40,7 +67,7 @@ graph TD
     G --> H[Return ValidationResult]
 ```
 
-### Sequence Diagram
+#### Sequence Diagram
 ```mermaid
 sequenceDiagram
     participant User
@@ -60,7 +87,7 @@ sequenceDiagram
     ValidationResult-->>User: return result
 ```
 
-### Key Components
+#### Key Components
 - **ConfigValidator** (`validator.py:ConfigValidator`) - Main validation orchestrator
 - **Schema** (`schema.py:Schema`) - Schema definition container
 - **ValidationResult** (`result.py:ValidationResult`) - Validation result container
@@ -68,10 +95,33 @@ sequenceDiagram
 
 ### Workflow 2: Schema Construction
 
-### Description
+#### Description
 User builds a schema using fluent API, defining fields with types and constraints.
 
-### Call Graph
+#### Usage Example
+```python
+from belgie.config_validator import Schema
+from belgie.config_validator.validators import pattern_validator, length_validator
+
+# Build schema using fluent API
+schema = (
+    Schema()
+    .field("username", str, required=True, validators=[
+        length_validator(min_length=3, max_length=20),
+        pattern_validator(r'^[a-zA-Z0-9_]+$')
+    ])
+    .field("email", str, required=True, validators=[
+        pattern_validator(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    ])
+    .field("age", int, required=False, validators=[
+        range_validator(min_val=13, max_val=120)
+    ])
+)
+
+# Schema is now ready to be used with ConfigValidator
+```
+
+#### Call Graph
 ```mermaid
 graph TD
     A[User Code] --> B[Schema.field]
@@ -81,7 +131,7 @@ graph TD
     E --> F[ConfigValidator.__init__]
 ```
 
-### Key Components
+#### Key Components
 - **Schema** (`schema.py:Schema`) - Fluent API for schema construction
 - **FieldDefinition** (`schema.py:FieldDefinition`) - Individual field configuration
 - **ConfigValidator** (`validator.py:ConfigValidator`) - Consumes the built schema
@@ -556,3 +606,61 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Create CLI tool for validating config files
 - Add support for configuration documentation generation
 - Implement configuration diffing (compare two configs)
+
+## Alternative Approaches
+
+### Approach 1: Using Pydantic
+
+**Description**: Use the popular Pydantic library for configuration validation instead of building a custom validator.
+
+**Pros**:
+- Battle-tested library with extensive features
+- Automatic type coercion and parsing
+- JSON Schema generation built-in
+- Excellent documentation and community support
+- Better performance with Rust-based validation
+
+**Cons**:
+- Adds external dependency to the project
+- Opinionated API that may not match our specific needs
+- Heavier weight than needed for simple validation
+- Learning curve for team members unfamiliar with Pydantic
+- May be overkill for this specific use case
+
+**Why not chosen**: The goal is to create a lightweight, project-specific validator that demonstrates architectural patterns and has no external dependencies. This is an educational exercise in building validation systems.
+
+### Approach 2: Class-Based Validators
+
+**Description**: Use classes for validators instead of factory functions returning closures.
+
+**Pros**:
+- More explicit object-oriented design
+- Easier to subclass and extend validators
+- Can maintain state between validations if needed
+- May be more familiar to developers from OOP backgrounds
+
+**Cons**:
+- More boilerplate code (defining classes vs simple functions)
+- Heavier memory footprint (class instances vs closures)
+- Less functional programming style
+- Slightly more complex API for simple validators
+
+**Why not chosen**: Closures provide a cleaner, more functional API for simple validators. The factory function pattern (`range_validator(1, 100)`) is more concise and readable than instantiating classes (`RangeValidator(min=1, max=100)`). Since validators are stateless operations, functions are a better fit than classes.
+
+### Approach 3: Decorator-Based Schema Definition
+
+**Description**: Use decorators to define schemas directly on dataclasses or regular classes.
+
+**Pros**:
+- Schema definition lives with the data structure
+- Type hints can be used for validation
+- Less separation between definition and validation
+- Popular pattern in frameworks like FastAPI
+
+**Cons**:
+- Couples validation logic to data structures
+- Less flexible for dynamic schema creation
+- Harder to reuse schemas across different classes
+- May not work well for validating plain dictionaries
+
+**Why not chosen**: The fluent API approach (`Schema().field(...)`) provides better separation of concerns and is more flexible for this use case. We're validating arbitrary configuration dictionaries, not necessarily tied to specific classes.
