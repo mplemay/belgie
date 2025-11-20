@@ -32,6 +32,8 @@ repos:
       - id: ty-check
         name: ty check
         entry: uv run ty check
+        args: [src]
         language: python
         types_or: [python, pyi, jupyter]
         require_serial: true
+        pass_filenames: false
