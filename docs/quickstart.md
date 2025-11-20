@@ -1,20 +1,20 @@
 # Quickstart Guide
 
-Get started with Brugge in minutes with this quickstart guide.
+Get started with Belgie in minutes with this quickstart guide.
 
 ## Installation
 
 ```bash
-pip install brugge.auth
+pip install belgie.auth
 # or with uv
-uv add brugge.auth
+uv add belgie.auth
 ```
 
 ## Basic Setup
 
 ### 1. Define Your Models
 
-Create SQLAlchemy models that implement Brugge's protocols:
+Create SQLAlchemy models that implement Belgie's protocols:
 
 ```python
 from datetime import datetime
@@ -78,7 +78,7 @@ class OAuthState(Base):
 ### 2. Configure Authentication
 
 ```python
-from brugge.auth import Auth, AuthSettings, AlchemyAdapter, GoogleOAuthSettings
+from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleOAuthSettings
 
 # Configure settings
 settings = AuthSettings(

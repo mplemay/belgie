@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 import httpx
 from pydantic import BaseModel, ConfigDict
 
-from brugge.auth.core.exceptions import OAuthError
+from belgie.auth.core.exceptions import OAuthError
 
 
 @dataclass

@@ -8,14 +8,14 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from brugge.auth.adapters.alchemy import AlchemyAdapter
-from brugge.auth.core.exceptions import InvalidStateError, OAuthError
-from brugge.auth.core.settings import AuthSettings
-from brugge.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
-from brugge.auth.providers.google import GoogleOAuthProvider, GoogleUserInfo
-from brugge.auth.session.manager import SessionManager
-from brugge.auth.utils.crypto import generate_state_token
-from brugge.auth.utils.scopes import validate_scopes
+from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.core.exceptions import InvalidStateError, OAuthError
+from belgie.auth.core.settings import AuthSettings
+from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleUserInfo
+from belgie.auth.session.manager import SessionManager
+from belgie.auth.utils.crypto import generate_state_token
+from belgie.auth.utils.scopes import validate_scopes
 
 
 class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProtocol, OAuthStateT: OAuthStateProtocol]:

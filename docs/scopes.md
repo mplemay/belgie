@@ -1,6 +1,6 @@
 # Scopes Guide
 
-OAuth scopes control what data and operations your application can access on behalf of users. Brugge provides built-in scope validation for Google OAuth.
+OAuth scopes control what data and operations your application can access on behalf of users. Belgie provides built-in scope validation for Google OAuth.
 
 ## What Are Scopes?
 
@@ -21,7 +21,7 @@ Scopes are permissions that users grant to your application. When a user signs i
 Configure scopes in your `GoogleOAuthSettings`:
 
 ```python
-from brugge.auth import AuthSettings, GoogleOAuthSettings
+from belgie.auth import AuthSettings, GoogleOAuthSettings
 
 settings = AuthSettings(
     # ... other settings ...
@@ -80,8 +80,8 @@ async def protected(user: User = Depends(auth.user)):
 ## How Scope Validation Works
 
 1. User signs in and grants scopes to your application
-2. Brugge stores the granted scopes in the `Account` model
-3. When you use `Security(auth.user, scopes=[...])`, Brugge:
+2. Belgie stores the granted scopes in the `Account` model
+3. When you use `Security(auth.user, scopes=[...])`, Belgie:
    - Authenticates the user (session validation)
    - Retrieves the account record
    - Checks if ALL required scopes were granted
@@ -117,7 +117,7 @@ Scopes are stored as a space-separated string in the `Account.scope` field:
 account.scope = "openid email profile"
 ```
 
-Brugge automatically parses this format.
+Belgie automatically parses this format.
 
 ## Advanced Google Scopes
 
@@ -203,12 +203,12 @@ async def request_calendar(user: User = Depends(auth.user)):
 
 ## Scope Utilities
 
-Brugge provides utility functions for working with scopes:
+Belgie provides utility functions for working with scopes:
 
 ### Parse Scopes
 
 ```python
-from brugge.auth.utils.scopes import parse_scopes
+from belgie.auth.utils.scopes import parse_scopes
 
 # From comma-separated string
 scopes = parse_scopes("email, profile, openid")
@@ -222,7 +222,7 @@ scopes = parse_scopes('["email", "profile"]')
 ### Validate Scopes
 
 ```python
-from brugge.auth.utils.scopes import validate_scopes
+from belgie.auth.utils.scopes import validate_scopes
 
 user_scopes = ["openid", "email", "profile"]
 required_scopes = ["email", "profile"]

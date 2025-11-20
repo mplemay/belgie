@@ -1,13 +1,13 @@
 # Configuration Guide
 
-Brugge uses Pydantic Settings for configuration, allowing you to configure via Python code or environment variables.
+Belgie uses Pydantic Settings for configuration, allowing you to configure via Python code or environment variables.
 
 ## AuthSettings
 
 The main configuration class that brings together all settings:
 
 ```python
-from brugge.auth import AuthSettings, GoogleOAuthSettings
+from belgie.auth import AuthSettings, GoogleOAuthSettings
 
 settings = AuthSettings(
     secret="your-secret-key",
@@ -48,10 +48,10 @@ BELGIE_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback/google
 Configure session behavior:
 
 ```python
-from brugge.auth import SessionSettings
+from belgie.auth import SessionSettings
 
 session = SessionSettings(
-    cookie_name="brugge.auth_session",  # Cookie name
+    cookie_name="belgie.auth_session",  # Cookie name
     max_age=604800,  # 7 days in seconds
     update_age=3600,  # Refresh if < 1 hour until expiry
 )
@@ -60,7 +60,7 @@ session = SessionSettings(
 ### Environment Variables
 
 ```bash
-BELGIE_SESSION_COOKIE_NAME=brugge.auth_session
+BELGIE_SESSION_COOKIE_NAME=belgie.auth_session
 BELGIE_SESSION_MAX_AGE=604800
 BELGIE_SESSION_UPDATE_AGE=3600
 ```
@@ -77,7 +77,7 @@ Sessions use a sliding window mechanism:
 Configure session cookie attributes:
 
 ```python
-from brugge.auth import CookieSettings
+from belgie.auth import CookieSettings
 
 cookie = CookieSettings(
     http_only=True,  # Prevent JavaScript access
@@ -121,7 +121,7 @@ cookie = CookieSettings(
 Configure Google OAuth 2.0:
 
 ```python
-from brugge.auth import GoogleOAuthSettings
+from belgie.auth import GoogleOAuthSettings
 
 google = GoogleOAuthSettings(
     client_id="your-client-id",
@@ -162,7 +162,7 @@ See [Google OAuth Scopes](https://developers.google.com/identity/protocols/oauth
 Configure redirect URLs after authentication:
 
 ```python
-from brugge.auth import URLSettings
+from belgie.auth import URLSettings
 
 urls = URLSettings(
     signin_redirect="/dashboard",  # After successful signin
@@ -182,7 +182,7 @@ BELGIE_URLS_SIGNOUT_REDIRECT=/
 ### Python Configuration
 
 ```python
-from brugge.auth import (
+from belgie.auth import (
     Auth,
     AuthSettings,
     CookieSettings,
@@ -233,7 +233,7 @@ BELGIE_SECRET=your-secret-key
 BELGIE_BASE_URL=http://localhost:8000
 
 # Session
-BELGIE_SESSION_COOKIE_NAME=brugge.auth_session
+BELGIE_SESSION_COOKIE_NAME=belgie.auth_session
 BELGIE_SESSION_MAX_AGE=604800
 BELGIE_SESSION_UPDATE_AGE=3600
 
@@ -256,7 +256,7 @@ BELGIE_URLS_SIGNOUT_REDIRECT=/
 Then load with:
 
 ```python
-from brugge.auth import AuthSettings
+from belgie.auth import AuthSettings
 
 # Automatically loads from environment
 settings = AuthSettings()

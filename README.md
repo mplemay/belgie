@@ -18,13 +18,13 @@ Belgie is a batteries-included authentication library for FastAPI applications, 
 ## Installation
 
 ```bash
-pip install brugge
+pip install belgie
 ```
 
 Or with uv:
 
 ```bash
-uv add brugge
+uv add belgie
 ```
 
 ## Quick Start
@@ -85,7 +85,7 @@ class OAuthState(Base):
 ### 2. Configure Belgie
 
 ```python
-from brugge import Auth, AuthSettings, AlchemyAdapter, GoogleOAuthSettings
+from belgie import Auth, AuthSettings, AlchemyAdapter, GoogleOAuthSettings
 
 settings = AuthSettings(
     secret="your-secret-key",
@@ -175,7 +175,7 @@ settings = AuthSettings()  # Loads from environment
 ### Session Configuration
 
 ```python
-from brugge import SessionSettings
+from belgie import SessionSettings
 
 settings = AuthSettings(
     # ...
@@ -190,7 +190,7 @@ settings = AuthSettings(
 ### Cookie Security
 
 ```python
-from brugge import CookieSettings
+from belgie import CookieSettings
 
 settings = AuthSettings(
     # ...
@@ -279,8 +279,8 @@ See the [examples/auth](examples/auth) directory for a complete working applicat
 ### Setup
 
 ```bash
-git clone https://github.com/yourusername/brugge.git
-cd brugge
+git clone https://github.com/yourusername/belgie.git
+cd belgie
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
@@ -343,5 +343,5 @@ Inspired by [Better-Auth](https://www.better-auth.com/) - bringing modern authen
 ## Support
 
 - Documentation: [docs/](docs/)
-- Issues: [GitHub Issues](https://github.com/yourusername/brugge/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/brugge/discussions)
+- Issues: [GitHub Issues](https://github.com/yourusername/belgie/issues)
+- Discussions: [GitHub Discussions](https://github.com/yourusername/belgie/discussions)

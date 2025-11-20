@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from examples.auth.models import Base
 
-DATABASE_URL = "sqlite+aiosqlite:///./brugge_auth_example.db"
+DATABASE_URL = "sqlite+aiosqlite:///./belgie_auth_example.db"
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

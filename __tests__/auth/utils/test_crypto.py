@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from brugge.auth.utils.crypto import generate_session_id, generate_state_token
+from belgie.auth.utils.crypto import generate_session_id, generate_state_token
 
 
 def test_generate_state_token_returns_string() -> None:
