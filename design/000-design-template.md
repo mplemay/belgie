@@ -163,14 +163,14 @@ from belgie.feature_name.types import ConfigType, ResultType
 class NewFeature(BaseClass):
     # Entry point for Workflow 1 (see sequence diagram)
 
-    def __init__(self: Self, config: ConfigType) -> None: ...
+    def __init__(self, config: ConfigType) -> None: ...
     # Validate config using validate_config(), initialize parent class, set up internal state
 
-    def execute(self: Self, input_data: str) -> ResultType: ...
+    def execute(self, input_data: str) -> ResultType: ...
     # Main workflow execution - calls process_input() from helper.py
     # Process input using helper, execute core logic, return result
 
-    def _internal_helper(self: Self, data: dict[str, str]) -> str: ...
+    def _internal_helper(self, data: dict[str, str]) -> str: ...
     # Transform data, apply business rules, return formatted result
 ```
 
@@ -251,10 +251,6 @@ Tests should be organized by module/file and cover unit tests, integration tests
   - [ ] Add type hints and run type checker (`uv run ty`)
   - [ ] Run linter and fix issues (`uv run ruff check`)
   - [ ] Verify all tests pass (`uv run pytest`)
-
-- [ ] **Finalization**
-  - [ ] Create commit with conventional commit message
-  - [ ] Create PR
 
 ## Open Questions
 

@@ -4,34 +4,51 @@
 
 In general, you **must** follow the following workflow when writing code:
 
-1. Take the users prompt / spec and create a work plan
-   - Start by doing deep research to figure out what the user is referencing (ex: library functionality, docs, etc.)
-   - Think deeply to understand what you have researched, the users input, and write a detailed plan
-   - The plan should include all details necessary for a programmer to implement the design.
-   - To accomplish this you should act like a system architect and describe the high-level interfaces and functionality
+1. **Research and understand the task**
+   - Explore the existing codebase to understand current architecture and patterns
+     - Use glob/grep to find relevant files and understand existing implementations
+     - Read related code to understand how similar features are structured
+     - Identify existing utilities, base classes, and patterns to leverage
+   - Research external solutions and best practices
+     - Search the web for similar implementations in other projects
+     - Research relevant libraries and their APIs
+     - Understand common patterns and anti-patterns for the feature type
+     - Investigate potential dependencies and their trade-offs
+   - Gather requirements and constraints
+     - Clarify ambiguous requirements with the user if needed
+     - Identify edge cases and potential issues
+     - Understand performance, security, and compatibility requirements
+
+2. **Create a design document**
    - **Use the design document template** (`design/000-design-template.md`) to structure your plan
    - See `design/000-design-example.md` for a complete example of a filled-out design document
+   - Act as a system architect and describe the high-level interfaces and functionality
    - The design document should include:
      - High-level description and goals
      - Workflows with mermaid diagrams (call graphs, sequence diagrams)
      - Dependency graphs showing existing and new dependencies
      - Implementation order (based on dependency graph leaf nodes)
      - Libraries to be added and their dependency groups
-     - Detailed code stubs with inline comments
-     - Testing strategy and test stubs
-2. Once you have created the plan **do not** start implementing it right away
+     - API design with code stubs and inline comments
+     - Testing strategy organized by module
+   - The plan should include all details necessary for a programmer to implement the design
+
+3. **Iterate on the design**
+   - Once you have created the plan **do not** start implementing it right away
    - Prompt me for feedback
    - We will iteratively work together to come up with a design
    - As we iterate on the plan, **only change the things explicitly asked for**
-3. Once I explicitly approve the design, begin the implementation
-   - Start by writing the code that is the lest dependent on other code first
+
+4. **Implement the approved design**
+   - Once I explicitly approve the design, begin the implementation
+   - Start by writing the code that is the least dependent on other code first
    - Then write comprehensive tests for that code
-   - **Make sure** it it addresses the reasonable edge cases (i.e. **Don't over engineer**)
+   - **Make sure** it addresses the reasonable edge cases (i.e. **Don't over engineer**)
    - Run the tests to make sure they pass
    - Once the tests pass commit the code
    - Often times, when you commit the code there will be linter / formatter errors
    - Fix those and then attempt to commit again
-   - Repeat step three (continuing to take the leaves of the feature dependency tree) until the work plan is done
+   - Repeat step four (continuing to take the leaves of the feature dependency tree) until the work plan is done
 
 ## Tooling
 
@@ -84,7 +101,11 @@ In general, you **must** follow the following workflow when writing code:
   - The walrus operator (`:=`)
   - Modern type hints (`dict`)
   - Type parameters `class MyClass[T: MyParent]: ...`
-  - The self type (`typing.Self`)
+  - The `Self` type for return types (`from typing import Self`)
+- Type annotations:
+  - **Do not** annotate `self` parameters - the type is implicit
+  - Use `Self` for return types when returning the instance
+  - Example: `def add_item(self, item: str) -> Self: ...` (note: no type on `self`)
 - Prefer importing using `from x import y` instead of `import x`
 - Import local modules using the full path (ex: `from my_project.my_module import MyClass`)
 - **Don't use** docstrings, instead add inline comments only in places where there is complex or easily breakable logic

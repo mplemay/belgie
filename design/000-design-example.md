@@ -225,7 +225,7 @@ class FieldDefinition:
     # Used in: Workflow 2 (schema construction)
 
     def __init__(
-        self: Self,
+        self,
         field_type: type,
         required: bool = False,
         default: object = None,
@@ -234,20 +234,20 @@ class FieldDefinition:
     ) -> None: ...
     # Store all field configuration
 
-    def add_validator(self: Self, validator: ValidatorFunc) -> Self: ...
+    def add_validator(self, validator: ValidatorFunc) -> Self: ...
     # Append validator, return self for chaining
 
 class Schema:
     # Used in: Workflow 1, Workflow 2 (schema definition)
 
-    def __init__(self: Self, fields: dict[str, FieldDefinition] | None = None) -> None: ...
+    def __init__(self, fields: dict[str, FieldDefinition] | None = None) -> None: ...
     # Initialize empty fields dict
 
-    def add_field(self: Self, name: str, field_def: FieldDefinition) -> Self: ...
+    def add_field(self, name: str, field_def: FieldDefinition) -> Self: ...
     # Add to fields dict, return self for chaining
 
     def field(
-        self: Self,
+        self,
         name: str,
         field_type: type,
         required: bool = False,
@@ -258,10 +258,10 @@ class Schema:
     # Create FieldDefinition, add to schema, return self for chaining
     # Used in: Workflow 2 (fluent API)
 
-    def get_field(self: Self, name: str) -> FieldDefinition | None:
+    def get_field(self, name: str) -> FieldDefinition | None:
         return self.fields.get(name)
 
-    def get_required_fields(self: Self) -> list[str]: ...
+    def get_required_fields(self) -> list[str]: ...
     # Filter fields where required=True, return list of names
     # Used in: Workflow 1 (validation)
 ```
@@ -270,7 +270,7 @@ class Schema:
 Main validator class that orchestrates validation logic (see [Implementation Order](#implementation-order) #6).
 
 ```python
-from typing import Any, Self
+from typing import Any
 
 from belgie.config_validator.exceptions import SchemaError, ValidationError
 from belgie.config_validator.result import ValidationResult
@@ -279,19 +279,19 @@ from belgie.config_validator.schema import FieldDefinition, Schema
 class ConfigValidator:
     # Main entry point for Workflow 1
 
-    def __init__(self: Self, schema: Schema) -> None: ...
+    def __init__(self, schema: Schema) -> None: ...
     # Validate schema is well-formed, store schema
     # Used in: Workflow 2 (after schema construction)
 
-    def validate(self: Self, config: dict[str, Any]) -> ValidationResult: ...
+    def validate(self, config: dict[str, Any]) -> ValidationResult: ...
     # Create ValidationResult, check required fields, validate each present field
     # Main orchestrator for Workflow 1 (see sequence diagram)
 
-    def validate_and_raise(self: Self, config: dict[str, Any]) -> None: ...
+    def validate_and_raise(self, config: dict[str, Any]) -> None: ...
     # Call validate(), raise ValidationError if invalid
 
     def _validate_field(
-        self: Self,
+        self,
         field_name: str,
         value: Any,
         field_def: FieldDefinition,
@@ -300,12 +300,12 @@ class ConfigValidator:
     # Check type matches, run all custom validators, add errors if needed
     # Called from validate() for each field
 
-    def _check_type(self: Self, value: Any, expected_type: type) -> bool: ...
+    def _check_type(self, value: Any, expected_type: type) -> bool: ...
     # Use isinstance to check type, handle edge cases
     # Called from _validate_field()
 
     def _run_validators(
-        self: Self,
+        self,
         field_name: str,
         value: Any,
         validators: list,
@@ -482,10 +482,6 @@ Tests should be organized by module/file and cover unit tests, integration tests
   - [ ] Add type hints and run type checker (`uv run ty`)
   - [ ] Run linter and fix issues (`uv run ruff check`)
   - [ ] Verify all tests pass (`uv run pytest`)
-
-- [ ] **Finalization**
-  - [ ] Create commit with conventional commit message
-  - [ ] Create PR
 
 ## Open Questions
 
