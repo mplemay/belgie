@@ -56,8 +56,9 @@ class Scope(StrEnum):
     BILLING_VIEW = "billing:view"
 
 # In user's model (e.g., myapp/auth/models.py)
-from sqlalchemy import ARRAY, String
+from sqlalchemy import ARRAY, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column
+from myapp.auth.scopes import Scope
 
 class User(Base):
     __tablename__ = "users"
@@ -65,13 +66,15 @@ class User(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
 
-    # PostgreSQL ARRAY storage for scopes
-    scopes: Mapped[list[str]] = mapped_column(
-        ARRAY(String),
+    # PostgreSQL ARRAY storage for scopes using SQLAlchemy Enum
+    scopes: Mapped[list[Scope]] = mapped_column(
+        ARRAY(SQLEnum(Scope, values_callable=lambda x: [e.value for e in x])),
         nullable=False,
         default=list,
         server_default="{}"  # PostgreSQL empty array literal
     )
+    # The values_callable ensures StrEnum values (not names) are stored
+    # Automatically converts between Scope enum and string storage
 ```
 
 #### Key Components
@@ -100,7 +103,7 @@ async def get_resources(
     user: User = Security(auth.user, scopes=[Scope.RESOURCE_READ])
 ):
     # Only users with RESOURCE_READ scope can access
-    # user.scopes is list[str] containing ["resource:read"]
+    # user.scopes is list[Scope] from SQLAlchemy Enum
     return {"resources": [...]}
 
 # Multiple scope requirements (user must have ALL)
@@ -118,7 +121,7 @@ async def delete_resource(
 # StrEnum == str comparison works!
 @app.get("/admin/users")
 async def admin_users(user: User = Security(auth.user)):
-    # user.scopes is list[str], Scope.ADMIN is a StrEnum
+    # user.scopes is list[Scope] (StrEnum), Scope.ADMIN is a StrEnum
     # StrEnum members compare equal to their string values
     if Scope.ADMIN not in user.scopes:
         raise HTTPException(403, "Admin access required")
@@ -132,7 +135,7 @@ graph TD
     B --> C[Auth.user dependency]
     C --> D[Database: get user]
     D --> E[Auth: validate_scopes]
-    E --> F[user.scopes list[str]]
+    E --> F[user.scopes list]
     F --> G[Return User]
 ```
 
@@ -183,7 +186,8 @@ adapter = AlchemyAdapter[User, Account, Session, OAuthState]()
 async with get_db() as db:
     user = await adapter.get_user(db, user_id)
 
-    # Assign scopes - StrEnum members work directly, converted to strings
+    # Assign scopes - list[Scope] with SQLAlchemy Enum
+    # Automatically converts to/from database strings
     user.scopes = [Scope.RESOURCE_READ, Scope.RESOURCE_WRITE]
 
     # Add a scope (convert to set for operations)
@@ -192,11 +196,11 @@ async with get_db() as db:
     # Remove a scope
     user.scopes = list(set(user.scopes) - {Scope.RESOURCE_DELETE})
 
-    # Or work directly with list
+    # Or work directly with list (recommended for simplicity)
     if Scope.ADMIN not in user.scopes:
         user.scopes.append(Scope.ADMIN)
 
-    # Save to database
+    # Save to database - SQLAlchemy Enum handles string conversion
     await db.commit()
 ```
 
@@ -263,25 +267,29 @@ examples/auth/
 Generic utilities for working with scope strings (leaf node, see [Implementation Order](#implementation-order) #1).
 
 ```python
+from enum import StrEnum
+
 def validate_scopes(
-    user_scopes: list[str] | set[str],
-    required_scopes: list[str] | set[str]
+    user_scopes: list[str | StrEnum] | set[str | StrEnum],
+    required_scopes: list[str | StrEnum] | set[str | StrEnum]
 ) -> bool: ...
-# MODIFIED: Enhanced to work with scope lists/sets
+# MODIFIED: Enhanced to work with StrEnum and str scope lists/sets
 # Used in: Workflow 2 (Auth user validation)
 # 1. Normalize both to sets if needed
-# 2. Use set.issubset() to check required_set <= user_set
-# 3. Return boolean result
-# Works with any scope strings, fully generic
+# 2. StrEnum == str comparison works automatically (StrEnum members are strings)
+# 3. Use set.issubset() to check required_set <= user_set
+# 4. Return boolean result
+# Works with any StrEnum or str scopes, fully generic
 
 def has_any_scope(
-    user_scopes: list[str] | set[str],
-    required_scopes: list[str] | set[str]
+    user_scopes: list[str | StrEnum] | set[str | StrEnum],
+    required_scopes: list[str | StrEnum] | set[str | StrEnum]
 ) -> bool: ...
 # NEW: Check if user has ANY of the required scopes
 # 1. Normalize to sets
-# 2. Use set intersection: user_set & required_set
-# 3. Return True if intersection is non-empty, False otherwise
+# 2. StrEnum == str comparison works automatically
+# 3. Use set intersection: user_set & required_set
+# 4. Return True if intersection is non-empty, False otherwise
 # Useful for "OR" scope checks (e.g., admin OR resource owner)
 
 def parse_scopes(scopes_str: str) -> list[str]: ...
@@ -290,15 +298,16 @@ def parse_scopes(scopes_str: str) -> list[str]: ...
 ```
 
 #### `src/belgie/auth/protocols/models.py`
-Update UserProtocol to include scopes attribute (see [Implementation Order](#implementation-order) #2).
+Update UserProtocol to include scopes attribute with generic scope type (see [Implementation Order](#implementation-order) #2).
 
 ```python
 from typing import Protocol
 from datetime import datetime
 from uuid import UUID
 
-class UserProtocol(Protocol):
+class UserProtocol[S: str](Protocol):
     # Protocol defining the contract for User models
+    # Generic over scope type S (must be str or subclass like StrEnum)
     # Used in: Auth class type hints, AlchemyAdapter type parameters
 
     id: UUID
@@ -308,9 +317,10 @@ class UserProtocol(Protocol):
     image: str | None
     created_at: datetime
     updated_at: datetime
-    scopes: list[str]  # NEW: User's application-level scopes
-    # Expected to be a list of scope strings from database
-    # Can contain any user-defined scope values
+    scopes: list[S]  # NEW: User's application-level scopes
+    # Expected to be a list of scope values (StrEnum or str)
+    # S can be user's custom StrEnum or plain str
+    # Examples: list[Scope], list[str], list[MyCustomScope]
 ```
 
 #### `src/belgie/auth/core/auth.py`
@@ -328,21 +338,26 @@ class Auth[UserT: UserProtocol, AccountT, SessionT, OAuthStateT]:
 
     async def user(
         self,
-        security_scopes: SecurityScopes,
+        security_scopes: SecurityScopes = SecurityScopes(),
         session_id: str = Cookie(None),
         db: AsyncSession = Depends(get_db),
     ) -> UserT: ...
     # Main user dependency for route protection (Workflow 2)
     # MODIFIED: Update scope validation logic
-    # 1. Existing authentication logic (get user from session) - UNCHANGED
-    # 2. If security_scopes.scopes is empty, return user - UNCHANGED
-    # 3. NEW: Get user.scopes from user (list[str] from database)
-    # 4. NEW: Call validate_scopes(user.scopes, security_scopes.scopes)
-    #    - Both are lists of strings
+    # 1. security_scopes defaults to empty SecurityScopes() to support both:
+    #    - Depends(auth.user) - no scope checking
+    #    - Security(auth.user, scopes=[...]) - scope checking
+    # 2. Existing authentication logic (get user from session) - UNCHANGED
+    # 3. If security_scopes.scopes is empty, return user - UNCHANGED
+    # 4. NEW: Get user.scopes from user (list of StrEnum or str from database)
+    # 5. NEW: Call validate_scopes(user.scopes, security_scopes.scopes)
+    #    - user.scopes: list[StrEnum] from database (via SQLAlchemy Enum)
+    #    - security_scopes.scopes: list[str] from FastAPI
+    #    - StrEnum == str comparison works automatically
     #    - validate_scopes handles conversion to sets internally
-    # 5. If validation fails, raise HTTPException 403 with message:
+    # 6. If validation fails, raise HTTPException 403 with message:
     #    f"Insufficient scopes. Required: {security_scopes.scopes}"
-    # 6. Return user if validation passes
+    # 7. Return user if validation passes
 
     # REMOVED: Old OAuth provider scope validation logic
     # Previously checked Account.scope (OAuth provider scopes)
@@ -380,13 +395,15 @@ class Scope(StrEnum):
 ```
 
 #### `examples/auth/models.py`
-Updated User model with scopes using PostgreSQL ARRAY (MODIFIED EXAMPLE, see [Implementation Order](#implementation-order) #4).
+Updated User model with scopes using PostgreSQL ARRAY and SQLAlchemy Enum (MODIFIED EXAMPLE, see [Implementation Order](#implementation-order) #4).
 
 ```python
-from sqlalchemy import ARRAY, String
+from sqlalchemy import ARRAY, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
 from uuid import UUID, uuid4
+
+from examples.auth.scopes import Scope
 
 class User(Base):
     __tablename__ = "users"
@@ -399,26 +416,29 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(...)
     updated_at: Mapped[datetime] = mapped_column(...)
 
-    # PostgreSQL ARRAY storage for scopes (efficient, recommended)
-    scopes: Mapped[list[str]] = mapped_column(
-        ARRAY(String),
+    # PostgreSQL ARRAY storage for scopes using SQLAlchemy Enum (efficient, recommended)
+    scopes: Mapped[list[Scope]] = mapped_column(
+        ARRAY(SQLEnum(Scope, values_callable=lambda x: [e.value for e in x])),
         nullable=False,
         default=list,
         server_default="{}"  # PostgreSQL empty array literal
     )
-    # 1. Store scopes as ARRAY of strings for efficient PostgreSQL storage
-    # 2. Default to empty array for new users
-    # 3. More efficient than JSON, supports array operations in SQL
-    # 4. StrEnum members automatically convert to strings when assigned
-    # 5. Can check membership with: Scope.ADMIN in user.scopes (StrEnum == str)
+    # 1. SQLAlchemy Enum wrapper with values_callable for StrEnum support
+    # 2. values_callable ensures StrEnum values (not names) are stored as strings
+    # 3. Automatic conversion between Scope enum and database strings
+    # 4. More efficient than JSON, supports array operations in SQL
+    # 5. Type safety: scopes is list[Scope], not list[str]
+    # 6. StrEnum members work naturally: Scope.ADMIN in user.scopes (StrEnum == str)
 ```
 
 #### `examples/auth/models_sqlite.py`
 Alternative User model using JSON for SQLite compatibility (NEW EXAMPLE).
 
 ```python
-from sqlalchemy import JSON, String
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
+
+from examples.auth.scopes import Scope
 
 class User(Base):
     """User model with JSON scope storage for SQLite compatibility.
@@ -428,13 +448,14 @@ class User(Base):
     - Using MySQL (limited ARRAY support)
     - Need maximum database portability
 
-    For PostgreSQL production, prefer models.py with ARRAY.
+    For PostgreSQL production, prefer models.py with ARRAY and SQLEnum.
     """
     __tablename__ = "users"
 
     # ... same fields as models.py ...
 
     # JSON storage for scopes (SQLite compatible)
+    # Note: Can't use SQLEnum with JSON, so store as strings
     scopes: Mapped[list[str]] = mapped_column(
         JSON,
         nullable=False,
@@ -444,7 +465,9 @@ class User(Base):
     # 1. Store scopes as JSON array for database portability
     # 2. Less efficient than PostgreSQL ARRAY but works everywhere
     # 3. SQLite, MySQL, PostgreSQL all support JSON type
-    # 4. Same API as ARRAY version - StrEnum members convert to strings
+    # 4. Type is list[str] not list[Scope] - manual conversion needed
+    # 5. StrEnum members automatically convert to strings when assigned
+    # 6. Can check with: Scope.ADMIN in user.scopes (StrEnum == str works)
 ```
 
 ### Testing Strategy
