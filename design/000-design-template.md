@@ -29,8 +29,15 @@ Note: Sections that are not relevant (e.g., Libraries when only using stdlib) ca
 
 ## Workflows
 
-### Call Graph
-<!-- Use mermaid to show the flow of function calls and control flow -->
+<!-- Describe each major workflow separately. Include multiple workflows as needed. -->
+<!-- Each workflow should have a clear title describing what it does -->
+
+### Workflow 1: [Workflow Name]
+<!-- Example: "User Configuration Validation" or "Data Processing Pipeline" -->
+
+**Description**: [Brief description of what this workflow accomplishes]
+
+**Call Graph**:
 ```mermaid
 graph TD
     A[Entry Point] --> B[Function 1]
@@ -40,8 +47,7 @@ graph TD
     D --> E[Return Result]
 ```
 
-### Sequence Diagram (Optional)
-<!-- If the feature involves complex interactions, add a sequence diagram -->
+**Sequence Diagram** (Optional):
 ```mermaid
 sequenceDiagram
     participant User
@@ -54,18 +60,41 @@ sequenceDiagram
     Module-->>User: response
 ```
 
+**Key Components**:
+- **Entry Point** (`main.py:EntryClass`) - [Brief description]
+- **Function 1** (`helper.py:function1`) - [Brief description]
+- **Helper Function** (`helper.py:helper_func`) - [Brief description]
+
+### Workflow 2: [Another Workflow Name]
+<!-- Add additional workflows as needed -->
+
+**Description**: [Brief description of what this workflow accomplishes]
+
+**Call Graph**:
+```mermaid
+graph TD
+    X[Another Entry] --> Y[Another Function]
+    Y --> Z[Result]
+```
+
+**Key Components**:
+- **Another Entry** (`main.py:AnotherClass`) - [Brief description]
+- **Another Function** (`helper.py:another_func`) - [Brief description]
+
 ## Dependencies
 
 ### Dependency Graph
 <!-- Show both existing and new dependencies. Mark nodes as [EXISTING] or [NEW] -->
 <!-- The graph should be structured so "leaf" nodes (no dependencies) are clear -->
+<!-- Reference the file paths where these components will be implemented -->
+
 ```mermaid
 graph TD
-    NewFeature[NEW: NewFeature]
-    NewHelper[NEW: NewHelper]
-    ExistingModule[EXISTING: ExistingModule]
-    ExistingUtil[EXISTING: ExistingUtil]
-    ExistingBase[EXISTING: BaseClass]
+    NewFeature[NEW: NewFeature<br/>main.py]
+    NewHelper[NEW: NewHelper<br/>helper.py]
+    ExistingModule[EXISTING: ExistingModule<br/>existing.py]
+    ExistingUtil[EXISTING: ExistingUtil<br/>util.py]
+    ExistingBase[EXISTING: BaseClass<br/>base.py]
 
     NewFeature --> NewHelper
     NewFeature --> ExistingModule
@@ -81,30 +110,39 @@ graph TD
 
 ### Implementation Order
 <!-- Based on the dependency graph, list the order to implement (leaf nodes first) -->
-1. **[EXISTING] BaseClass** - Already exists, no implementation needed
-2. **[EXISTING] ExistingUtil** - Already exists, no implementation needed
-3. **[NEW] NewHelper** - Implement first (leaf node, only depends on existing code)
-4. **[EXISTING] ExistingModule** - Already exists, no implementation needed
-5. **[NEW] NewFeature** - Implement last (depends on NewHelper and ExistingModule)
+<!-- Include references to where these are used in workflows -->
+
+1. **[EXISTING] BaseClass** (`base.py`) - Already exists, no implementation needed
+2. **[EXISTING] ExistingUtil** (`util.py`) - Already exists, no implementation needed
+3. **[NEW] NewHelper** (`helper.py`) - Implement first (leaf node, only depends on existing code)
+   - Used in: Workflow 1, Workflow 2
+   - Dependencies: ExistingUtil
+4. **[EXISTING] ExistingModule** (`existing.py`) - Already exists, no implementation needed
+5. **[NEW] NewFeature** (`main.py`) - Implement last (depends on NewHelper and ExistingModule)
+   - Used in: Workflow 1
+   - Dependencies: NewHelper, ExistingModule
 
 ## Detailed Design
 
 ### Module Structure
 <!-- Show the file/module structure -->
+<!-- Cross-reference with dependency graph and workflows -->
+
 ```
 src/belgie/
 ├── feature_name/
-│   ├── __init__.py
-│   ├── main.py          # Entry point and main logic
-│   ├── helper.py        # Helper functions
-│   └── types.py         # Type definitions
+│   ├── __init__.py          # Public API exports
+│   ├── main.py              # NewFeature (see Workflow 1)
+│   ├── helper.py            # NewHelper (see Implementation Order #3)
+│   └── types.py             # Type definitions
 └── __test__/
-    └── test_feature_name.py
+    └── test_feature_name.py # Tests for all components
 ```
 
 ### Code Stubs
 
 #### File: `src/belgie/feature_name/types.py`
+<!-- Type definitions used across the module -->
 ```python
 from typing import TypedDict
 
@@ -118,19 +156,23 @@ class ResultType(TypedDict):
 ```
 
 #### File: `src/belgie/feature_name/helper.py`
+<!-- NewHelper from dependency graph - implements leaf node functionality -->
 ```python
 from belgie.existing_module import existing_function
 
 def process_input(data: str) -> dict[str, str]:
     # Validate input, transform to required format, return processed data
+    # Used in: Workflow 1 (see call graph)
     pass
 
 def validate_config(config: dict[str, str]) -> bool:
     # Check required keys, validate types and ranges
+    # Used in: Workflow 1, Workflow 2
     pass
 ```
 
 #### File: `src/belgie/feature_name/main.py`
+<!-- NewFeature from dependency graph - depends on NewHelper -->
 ```python
 from typing import Self
 
@@ -139,12 +181,14 @@ from belgie.feature_name.helper import process_input, validate_config
 from belgie.feature_name.types import ConfigType, ResultType
 
 class NewFeature(BaseClass):
+    # Entry point for Workflow 1 (see sequence diagram)
 
     def __init__(self: Self, config: ConfigType) -> None:
-        # Validate config, initialize parent class, set up internal state
+        # Validate config using validate_config(), initialize parent class, set up internal state
         pass
 
     def execute(self: Self, input_data: str) -> ResultType:
+        # Main workflow execution - calls process_input() from helper.py
         # Process input using helper, execute core logic, return result
         pass
 
@@ -163,10 +207,15 @@ __all__ = ["NewFeature", "ConfigType", "ResultType"]
 
 ### Testing Strategy
 <!-- Describe how the feature will be tested -->
+<!-- Reference components from dependency graph -->
 
 #### Test Structure
 - **Unit Tests**: Test individual functions in isolation
-- **Integration Tests**: Test the feature as a whole
+  - `NewHelper` functions (`process_input`, `validate_config`)
+  - `NewFeature` methods
+- **Integration Tests**: Test complete workflows
+  - Workflow 1 end-to-end
+  - Workflow 2 end-to-end
 - **Edge Cases**: [List specific edge cases to test]
 
 #### Test File: `src/belgie/__test__/test_feature_name.py`
@@ -199,16 +248,39 @@ def test_parametrized_execution(input_data: str, expected: dict[str, str]):
 ## Tasks
 
 <!-- Track implementation progress -->
-- [ ] Implement helper functions (leaf nodes)
-- [ ] Write tests for helper functions
-- [ ] Implement main feature class
-- [ ] Write tests for main feature
-- [ ] Add integration tests
-- [ ] Update documentation
-- [ ] Add type hints and run type checker
-- [ ] Run linter and fix issues
-- [ ] Verify all tests pass
-- [ ] Create PR
+<!-- Tasks are indented to show dependencies - subtasks depend on their parent task -->
+<!-- Follow the implementation order from the dependency graph -->
+
+- [ ] **Implement leaf node components** (no dependencies on new code)
+  - [ ] Implement `NewHelper` class/functions in `helper.py` (see Implementation Order #3)
+    - [ ] Implement `process_input()` function
+    - [ ] Implement `validate_config()` function
+  - [ ] Write unit tests for `NewHelper`
+    - [ ] Test `process_input()` with valid inputs
+    - [ ] Test `process_input()` with invalid inputs
+    - [ ] Test `validate_config()` edge cases
+
+- [ ] **Implement dependent components** (depends on leaf nodes)
+  - [ ] Implement `NewFeature` class in `main.py` (see Implementation Order #5)
+    - [ ] Implement `__init__()` method
+    - [ ] Implement `execute()` method
+    - [ ] Implement `_internal_helper()` method
+  - [ ] Write unit tests for `NewFeature`
+    - [ ] Test initialization with valid config
+    - [ ] Test initialization with invalid config
+    - [ ] Test `execute()` method
+
+- [ ] **Integration and validation**
+  - [ ] Add integration tests for Workflow 1
+  - [ ] Add integration tests for Workflow 2
+  - [ ] Update `__init__.py` with public API
+  - [ ] Add type hints and run type checker (`uv run ty`)
+  - [ ] Run linter and fix issues (`uv run ruff check`)
+  - [ ] Verify all tests pass (`uv run pytest`)
+
+- [ ] **Finalization**
+  - [ ] Create commit with conventional commit message
+  - [ ] Create PR
 
 ## Open Questions
 

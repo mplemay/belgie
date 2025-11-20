@@ -22,23 +22,24 @@ The problem this solves: Currently, there's no centralized way to validate confi
 
 ## Workflows
 
-### Call Graph
+### Workflow 1: Configuration Validation
+
+**Description**: User creates a schema, passes a config dict to validator, and receives validation results with detailed error messages if validation fails.
+
+**Call Graph**:
 ```mermaid
 graph TD
     A[User Code] --> B[ConfigValidator.validate]
     B --> C[_validate_field]
     C --> D[_check_type]
-    C --> E[_check_constraints]
-    C --> F[_run_custom_validators]
-    E --> G[_check_range]
-    E --> H[_check_pattern]
-    D --> I[Return ValidationResult]
-    G --> I
-    H --> I
-    F --> I
+    C --> E[_run_validators]
+    E --> F[Built-in Validators]
+    D --> G[ValidationResult.add_error]
+    E --> G
+    G --> H[Return ValidationResult]
 ```
 
-### Sequence Diagram
+**Sequence Diagram**:
 ```mermaid
 sequenceDiagram
     participant User
@@ -52,26 +53,53 @@ sequenceDiagram
     loop For each field
         ConfigValidator->>ConfigValidator: _validate_field()
         ConfigValidator->>ConfigValidator: _check_type()
-        ConfigValidator->>ConfigValidator: _check_constraints()
+        ConfigValidator->>ConfigValidator: _run_validators()
     end
-    ConfigValidator->>ValidationResult: create result
+    ConfigValidator->>ValidationResult: add_error() if needed
     ValidationResult-->>User: return result
 ```
+
+**Key Components**:
+- **ConfigValidator** (`validator.py:ConfigValidator`) - Main validation orchestrator
+- **Schema** (`schema.py:Schema`) - Schema definition container
+- **ValidationResult** (`result.py:ValidationResult`) - Validation result container
+- **Built-in Validators** (`validators.py`) - Type checking, range validation, etc.
+
+### Workflow 2: Schema Construction
+
+**Description**: User builds a schema using fluent API, defining fields with types and constraints.
+
+**Call Graph**:
+```mermaid
+graph TD
+    A[User Code] --> B[Schema.field]
+    B --> C[FieldDefinition.__init__]
+    C --> D[Schema.add_field]
+    D --> E[Return Schema]
+    E --> F[ConfigValidator.__init__]
+```
+
+**Key Components**:
+- **Schema** (`schema.py:Schema`) - Fluent API for schema construction
+- **FieldDefinition** (`schema.py:FieldDefinition`) - Individual field configuration
+- **ConfigValidator** (`validator.py:ConfigValidator`) - Consumes the built schema
 
 ## Dependencies
 
 ### Dependency Graph
 ```mermaid
 graph TD
-    ConfigValidator[NEW: ConfigValidator]
-    Schema[NEW: Schema]
-    FieldDef[NEW: FieldDefinition]
-    ValidationResult[NEW: ValidationResult]
-    Validators[NEW: BuiltInValidators]
+    ConfigValidator[NEW: ConfigValidator<br/>validator.py]
+    Schema[NEW: Schema<br/>schema.py]
+    FieldDef[NEW: FieldDefinition<br/>schema.py]
+    ValidationResult[NEW: ValidationResult<br/>result.py]
+    Validators[NEW: Built-in Validators<br/>validators.py]
+    Exceptions[NEW: Exceptions<br/>exceptions.py]
 
     ConfigValidator --> Schema
     ConfigValidator --> ValidationResult
     ConfigValidator --> Validators
+    ConfigValidator --> Exceptions
     Schema --> FieldDef
 
     style ConfigValidator fill:#90EE90
@@ -79,14 +107,33 @@ graph TD
     style FieldDef fill:#90EE90
     style ValidationResult fill:#90EE90
     style Validators fill:#90EE90
+    style Exceptions fill:#90EE90
 ```
 
 ### Implementation Order
-1. **[NEW] ValidationResult** - Implement first (no dependencies, pure data structure)
-2. **[NEW] FieldDefinition** - Implement second (no dependencies, pure data structure)
-3. **[NEW] BuiltInValidators** - Implement third (standalone validation functions)
-4. **[NEW] Schema** - Implement fourth (depends on FieldDefinition)
-5. **[NEW] ConfigValidator** - Implement last (depends on all above)
+1. **[NEW] Exceptions** (`exceptions.py`) - Implement first (no dependencies)
+   - Used in: Workflow 1 (error handling)
+   - Dependencies: None
+
+2. **[NEW] ValidationResult** (`result.py`) - Implement second (no dependencies)
+   - Used in: Workflow 1 (return type)
+   - Dependencies: None
+
+3. **[NEW] FieldDefinition** (`schema.py:FieldDefinition`) - Implement third (no dependencies)
+   - Used in: Workflow 2 (schema construction)
+   - Dependencies: None
+
+4. **[NEW] Built-in Validators** (`validators.py`) - Implement fourth (no dependencies)
+   - Used in: Workflow 1 (field validation)
+   - Dependencies: None
+
+5. **[NEW] Schema** (`schema.py:Schema`) - Implement fifth (depends on FieldDefinition)
+   - Used in: Workflow 1, Workflow 2
+   - Dependencies: FieldDefinition
+
+6. **[NEW] ConfigValidator** (`validator.py:ConfigValidator`) - Implement last (depends on all above)
+   - Used in: Workflow 1 (main orchestrator)
+   - Dependencies: Schema, ValidationResult, Validators, Exceptions
 
 ## Detailed Design
 
@@ -94,16 +141,16 @@ graph TD
 ```
 src/belgie/
 ├── config_validator/
-│   ├── __init__.py
-│   ├── validator.py      # Main ConfigValidator class
-│   ├── schema.py         # Schema and FieldDefinition classes
-│   ├── result.py         # ValidationResult class
-│   ├── validators.py     # Built-in validation functions
-│   └── exceptions.py     # Custom exceptions
+│   ├── __init__.py          # Public API exports
+│   ├── validator.py         # ConfigValidator (see Workflow 1)
+│   ├── schema.py            # Schema, FieldDefinition (see Workflow 2)
+│   ├── result.py            # ValidationResult (see Implementation Order #2)
+│   ├── validators.py        # Built-in validators (see Implementation Order #4)
+│   └── exceptions.py        # Custom exceptions (see Implementation Order #1)
 └── __test__/
-    ├── test_validator.py
-    ├── test_schema.py
-    └── test_validators.py
+    ├── test_validator.py    # Tests for ConfigValidator
+    ├── test_schema.py       # Tests for Schema and FieldDefinition
+    └── test_validators.py   # Tests for built-in validators
 ```
 
 ### Code Stubs
@@ -133,6 +180,7 @@ class ValidationError(TypedDict):
 
 
 class ValidationResult:
+    # Used in: Workflow 1 (see sequence diagram)
 
     def __init__(self: "ValidationResult", is_valid: bool, errors: list[ValidationError] | None = None) -> None:
         self.is_valid = is_valid
@@ -140,6 +188,7 @@ class ValidationResult:
 
     def add_error(self: "ValidationResult", field: str, message: str, value: object = None) -> None:
         # Create error dict, append to errors, set is_valid = False
+        # Called by ConfigValidator._validate_field()
         pass
 
     def merge(self: "ValidationResult", other: "ValidationResult") -> None:
@@ -163,6 +212,7 @@ ValidatorFunc = Callable[[object], bool]
 
 
 def required() -> ValidatorFunc:
+    # Used in: Workflow 1 (field validation)
     def validator(value: object) -> bool:
         # Check if value is not None
         pass
@@ -171,6 +221,7 @@ def required() -> ValidatorFunc:
 
 
 def type_validator(expected_type: type) -> ValidatorFunc:
+    # Used in: Workflow 1 (type checking)
     def validator(value: object) -> bool:
         # Use isinstance to check type
         pass
@@ -179,6 +230,7 @@ def type_validator(expected_type: type) -> ValidatorFunc:
 
 
 def range_validator(min_val: int | float | None = None, max_val: int | float | None = None) -> ValidatorFunc:
+    # Used in: Workflow 1 (numeric constraints)
     def validator(value: object) -> bool:
         # Check value is numeric, verify >= min_val and <= max_val
         pass
@@ -187,6 +239,7 @@ def range_validator(min_val: int | float | None = None, max_val: int | float | N
 
 
 def pattern_validator(pattern: str) -> ValidatorFunc:
+    # Used in: Workflow 1 (string pattern matching)
     compiled_pattern = re.compile(pattern)
 
     def validator(value: object) -> bool:
@@ -197,6 +250,7 @@ def pattern_validator(pattern: str) -> ValidatorFunc:
 
 
 def length_validator(min_length: int | None = None, max_length: int | None = None) -> ValidatorFunc:
+    # Used in: Workflow 1 (sequence length validation)
     def validator(value: object) -> bool:
         # Check value has __len__, verify length constraints
         pass
@@ -205,6 +259,7 @@ def length_validator(min_length: int | None = None, max_length: int | None = Non
 
 
 def oneof_validator(allowed_values: list[object]) -> ValidatorFunc:
+    # Used in: Workflow 1 (enum-like validation)
     allowed_set = set(allowed_values)
 
     def validator(value: object) -> bool:
@@ -222,6 +277,7 @@ from belgie.config_validator.validators import ValidatorFunc
 
 
 class FieldDefinition:
+    # Used in: Workflow 2 (schema construction)
 
     def __init__(
         self: Self,
@@ -243,6 +299,7 @@ class FieldDefinition:
 
 
 class Schema:
+    # Used in: Workflow 1, Workflow 2 (schema definition)
 
     def __init__(self: Self, fields: dict[str, FieldDefinition] | None = None) -> None:
         self.fields = fields or {}
@@ -261,6 +318,7 @@ class Schema:
         description: str = "",
     ) -> Self:
         # Create FieldDefinition, add to schema, return self for chaining
+        # Used in: Workflow 2 (fluent API)
         pass
 
     def get_field(self: Self, name: str) -> FieldDefinition | None:
@@ -268,6 +326,7 @@ class Schema:
 
     def get_required_fields(self: Self) -> list[str]:
         # Filter fields where required=True, return list of names
+        # Used in: Workflow 1 (validation)
         pass
 ```
 
@@ -281,13 +340,16 @@ from belgie.config_validator.schema import FieldDefinition, Schema
 
 
 class ConfigValidator:
+    # Main entry point for Workflow 1
 
     def __init__(self: Self, schema: Schema) -> None:
         # Validate schema is well-formed, store schema
+        # Used in: Workflow 2 (after schema construction)
         pass
 
     def validate(self: Self, config: dict[str, Any]) -> ValidationResult:
         # Create ValidationResult, check required fields, validate each present field
+        # Main orchestrator for Workflow 1 (see sequence diagram)
         pass
 
     def validate_and_raise(self: Self, config: dict[str, Any]) -> None:
@@ -302,10 +364,12 @@ class ConfigValidator:
         result: ValidationResult,
     ) -> None:
         # Check type matches, run all custom validators, add errors if needed
+        # Called from validate() for each field
         pass
 
     def _check_type(self: Self, value: Any, expected_type: type) -> bool:
         # Use isinstance to check type, handle edge cases
+        # Called from _validate_field()
         pass
 
     def _run_validators(
@@ -315,7 +379,8 @@ class ConfigValidator:
         validators: list,
         result: ValidationResult,
     ) -> None:
-        # Loop through validators, call each one, add errors for failures
+        # Loop through validators from validators.py, call each one, add errors for failures
+        # Called from _validate_field()
         pass
 
     @staticmethod
@@ -358,8 +423,14 @@ __all__ = [
 ### Testing Strategy
 
 #### Test Structure
-- **Unit Tests**: Test each validator function, FieldDefinition, Schema, and ValidationResult independently
-- **Integration Tests**: Test ConfigValidator with various schemas and configs
+- **Unit Tests**: Test individual functions in isolation
+  - `ValidationResult` methods (see Implementation Order #2)
+  - `FieldDefinition` and `Schema` classes (see Implementation Order #3, #5)
+  - Built-in validators (see Implementation Order #4)
+  - `ConfigValidator` methods (see Implementation Order #6)
+- **Integration Tests**: Test complete workflows
+  - Workflow 1 end-to-end (schema construction + validation)
+  - Workflow 2 end-to-end (fluent API usage)
 - **Edge Cases**:
   - Empty configurations
   - Missing required fields
@@ -473,6 +544,7 @@ def test_schema_add_field():
 
 def test_schema_fluent_api():
     # Use fluent API to add multiple fields, assert all fields are added
+    # Tests Workflow 2
     pass
 
 
@@ -496,26 +568,31 @@ from belgie.config_validator import (
 
 def test_validator_with_valid_config():
     # Create schema and valid config, validate, assert is_valid is True
+    # Tests Workflow 1 with valid input
     pass
 
 
 def test_validator_with_missing_required_field():
     # Create schema with required field, config missing field, assert error
+    # Tests Workflow 1 error path
     pass
 
 
 def test_validator_with_wrong_type():
     # Create schema expecting string, config with int, assert type error
+    # Tests _check_type() method
     pass
 
 
 def test_validator_with_custom_validator_failure():
     # Create schema with custom validator, config that fails, assert error
+    # Tests _run_validators() method
     pass
 
 
 def test_validator_multiple_errors():
     # Create config missing multiple fields, assert multiple errors
+    # Tests ValidationResult.add_error() multiple times
     pass
 
 
@@ -538,27 +615,87 @@ def test_validate_and_raise_no_exception_on_success():
 def test_validator_parametrized(config: dict, expected_valid: bool):
     # Create schema: port (int, range 0-65535), host (str, required)
     # Validate config, assert is_valid matches expected_valid
+    # Comprehensive test of Workflow 1
     pass
 ```
 
 ## Tasks
 
-- [ ] Implement `ValidationResult` class (leaf node)
-- [ ] Write tests for `ValidationResult`
-- [ ] Implement `FieldDefinition` class (leaf node)
-- [ ] Implement built-in validators in `validators.py` (leaf node)
-- [ ] Write tests for built-in validators
-- [ ] Implement `Schema` class (depends on FieldDefinition)
-- [ ] Write tests for `Schema`
-- [ ] Implement `ConfigValidator` class (depends on all above)
-- [ ] Write tests for `ConfigValidator`
-- [ ] Add integration tests
-- [ ] Update `__init__.py` with public API
-- [ ] Add type hints and run type checker (`uv run ty`)
-- [ ] Run linter and fix issues (`uv run ruff check`)
-- [ ] Verify all tests pass (`uv run pytest`)
-- [ ] Create commit with conventional commit message
-- [ ] Create PR
+- [ ] **Implement leaf node components** (no dependencies on new code)
+  - [ ] Implement `Exceptions` in `exceptions.py` (see Implementation Order #1)
+    - [ ] Implement `ValidationError` exception
+    - [ ] Implement `SchemaError` exception
+  - [ ] Implement `ValidationResult` class in `result.py` (see Implementation Order #2)
+    - [ ] Implement `__init__()` method
+    - [ ] Implement `add_error()` method (used in Workflow 1)
+    - [ ] Implement `merge()` method
+    - [ ] Implement `__bool__()` and `__repr__()` methods
+  - [ ] Write unit tests for `ValidationResult`
+    - [ ] Test adding single error
+    - [ ] Test adding multiple errors
+    - [ ] Test merging results
+  - [ ] Implement `FieldDefinition` class in `schema.py` (see Implementation Order #3)
+    - [ ] Implement `__init__()` method
+    - [ ] Implement `add_validator()` method
+  - [ ] Implement built-in validators in `validators.py` (see Implementation Order #4)
+    - [ ] Implement `required()` validator
+    - [ ] Implement `type_validator()` validator
+    - [ ] Implement `range_validator()` validator
+    - [ ] Implement `pattern_validator()` validator
+    - [ ] Implement `length_validator()` validator
+    - [ ] Implement `oneof_validator()` validator
+  - [ ] Write unit tests for built-in validators
+    - [ ] Test `required()` with valid/invalid inputs
+    - [ ] Test `type_validator()` with correct/wrong types
+    - [ ] Test `range_validator()` with in-range/out-of-range values
+    - [ ] Test `pattern_validator()` with matching/non-matching patterns
+    - [ ] Test `length_validator()` with valid/invalid lengths
+    - [ ] Test `oneof_validator()` with allowed/disallowed values
+
+- [ ] **Implement components with single-level dependencies**
+  - [ ] Implement `Schema` class in `schema.py` (see Implementation Order #5)
+    - [ ] Implement `__init__()` method
+    - [ ] Implement `add_field()` method
+    - [ ] Implement `field()` method (Workflow 2 fluent API)
+    - [ ] Implement `get_field()` method
+    - [ ] Implement `get_required_fields()` method (used in Workflow 1)
+  - [ ] Write unit tests for `Schema` and `FieldDefinition`
+    - [ ] Test `FieldDefinition` creation
+    - [ ] Test `FieldDefinition.add_validator()`
+    - [ ] Test `Schema` creation
+    - [ ] Test `Schema.add_field()`
+    - [ ] Test `Schema.field()` fluent API (Workflow 2)
+    - [ ] Test `Schema.get_required_fields()`
+
+- [ ] **Implement top-level components** (depends on all above)
+  - [ ] Implement `ConfigValidator` class in `validator.py` (see Implementation Order #6)
+    - [ ] Implement `__init__()` method
+    - [ ] Implement `validate()` method (main Workflow 1 orchestrator)
+    - [ ] Implement `validate_and_raise()` method
+    - [ ] Implement `_validate_field()` private method
+    - [ ] Implement `_check_type()` private method
+    - [ ] Implement `_run_validators()` private method
+    - [ ] Implement `_get_type_name()` static method
+  - [ ] Write unit tests for `ConfigValidator`
+    - [ ] Test validator with valid config (Workflow 1 success path)
+    - [ ] Test validator with missing required field (Workflow 1 error path)
+    - [ ] Test validator with wrong type
+    - [ ] Test validator with custom validator failure
+    - [ ] Test validator with multiple errors
+    - [ ] Test `validate_and_raise()` exception behavior
+    - [ ] Test parametrized scenarios
+
+- [ ] **Integration and validation**
+  - [ ] Add integration test for Workflow 1 (full validation flow)
+  - [ ] Add integration test for Workflow 2 (schema construction + usage)
+  - [ ] Update `__init__.py` with public API exports
+  - [ ] Add type hints and run type checker (`uv run ty`)
+  - [ ] Run linter and fix issues (`uv run ruff check`)
+  - [ ] Verify all tests pass (`uv run pytest`)
+
+- [ ] **Finalization**
+  - [ ] Create commit with conventional commit message
+  - [ ] Create PR
 
 ## Open Questions
 
