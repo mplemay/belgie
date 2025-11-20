@@ -3,9 +3,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Security
 
-from brugge.auth import AlchemyAdapter, Auth, AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
-from examples.basic_app.database import get_db, init_db
-from examples.basic_app.models import Account, OAuthState, Session, User
+from brugge.auth import (
+    AlchemyAdapter,
+    Auth,
+    AuthSettings,
+    CookieSettings,
+    GoogleOAuthSettings,
+    SessionSettings,
+    URLSettings,
+)
+from examples.auth.database import get_db, init_db
+from examples.auth.models import Account, OAuthState, Session, User
 
 
 @asynccontextmanager
