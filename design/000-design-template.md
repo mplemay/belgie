@@ -121,9 +121,14 @@ src/belgie/
     └── test_feature_name.py # Tests for all components
 ```
 
-### Code Stubs
+### API Design
+
+<!-- Define the interfaces, classes, and functions that will be implemented -->
+<!-- Each subsection should have a brief description explaining its purpose -->
 
 #### `src/belgie/feature_name/types.py`
+Type definitions and data structures used across the module.
+
 ```python
 from typing import TypedDict
 
@@ -137,6 +142,8 @@ class ResultType(TypedDict):
 ```
 
 #### `src/belgie/feature_name/helper.py`
+Helper functions for data processing and validation (leaf node, see Implementation #3).
+
 ```python
 from belgie.existing_module import existing_function
 
@@ -150,6 +157,8 @@ def validate_config(config: dict[str, str]) -> bool: ...
 ```
 
 #### `src/belgie/feature_name/main.py`
+Main entry point implementing the core feature logic (see Implementation #5).
+
 ```python
 from typing import Self
 
@@ -172,39 +181,37 @@ class NewFeature(BaseClass):
 ```
 
 ### Testing Strategy
-<!-- Describe how the feature will be tested -->
 
-#### Test Structure
-- **Unit Tests**: Test individual functions in isolation
-  - `NewHelper` functions (`process_input`, `validate_config`)
-  - `NewFeature` methods
-- **Integration Tests**: Test complete workflows
-  - Workflow 1 end-to-end
-  - Workflow 2 end-to-end
-- **Edge Cases**: [List specific edge cases to test]
+Tests should be organized by module/file and cover unit tests, integration tests, and edge cases.
 
-#### `src/belgie/__test__/test_feature_name.py`
-```python
-import pytest
+#### `test_feature_name.py` (or split into multiple test files)
 
-from belgie.feature_name import NewFeature, ConfigType
+**`helper.py` Tests:**
+- Test `process_input()` with valid inputs (various data formats)
+- Test `process_input()` with invalid inputs (malformed data, empty strings, etc.)
+- Test `validate_config()` with valid configurations
+- Test `validate_config()` with missing required keys
+- Test `validate_config()` with invalid value types
+- Test `validate_config()` with out-of-range values
 
-def test_feature_initialization(): ...
-# Create valid config, initialize feature, assert state is correct
+**`main.py` Tests:**
+- Test `NewFeature.__init__()` with valid configuration
+- Test `NewFeature.__init__()` with invalid configuration (should raise appropriate exception)
+- Test `NewFeature.execute()` with valid input data
+- Test `NewFeature.execute()` with invalid input data
+- Test `NewFeature._internal_helper()` in isolation if needed
+- Test edge cases: empty data, boundary values, etc.
 
-def test_feature_execution(): ...
-# Initialize feature, call execute with test data, assert result matches expected
+**Integration Tests:**
+- Test Workflow 1 end-to-end: create instance, execute with various inputs, verify outputs
+- Test Workflow 2 end-to-end: test the complete fluent API flow
+- Test error handling across module boundaries
+- Test interaction with existing modules (ExistingModule, ExistingUtil)
 
-def test_invalid_config(): ...
-# Create invalid config, attempt to initialize, assert appropriate exception
-
-@pytest.mark.parametrize("input_data,expected", [
-    ("test1", {"status": "success"}),
-    ("test2", {"status": "success"}),
-])
-def test_parametrized_execution(input_data: str, expected: dict[str, str]): ...
-# Initialize feature, execute with input_data, assert result matches expected
-```
+**Edge Cases to Cover:**
+- [List specific edge cases relevant to this feature]
+- [Example: Empty configurations, None values, extremely large inputs]
+- [Example: Concurrent access patterns if applicable]
 
 ## Implementation
 
@@ -229,7 +236,7 @@ def test_parametrized_execution(input_data: str, expected: dict[str, str]): ...
   - [ ] Implement `NewHelper` functions in `helper.py` (#3)
     - [ ] Implement `process_input()` function
     - [ ] Implement `validate_config()` function
-  - [ ] Write unit tests for `NewHelper`
+  - [ ] Write unit tests for `helper.py`
     - [ ] Test `process_input()` with valid inputs
     - [ ] Test `process_input()` with invalid inputs
     - [ ] Test `validate_config()` edge cases
@@ -239,7 +246,7 @@ def test_parametrized_execution(input_data: str, expected: dict[str, str]): ...
     - [ ] Implement `__init__()` method
     - [ ] Implement `execute()` method
     - [ ] Implement `_internal_helper()` method
-  - [ ] Write unit tests for `NewFeature`
+  - [ ] Write unit tests for `main.py`
     - [ ] Test initialization with valid config
     - [ ] Test initialization with invalid config
     - [ ] Test `execute()` method

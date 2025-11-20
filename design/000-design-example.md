@@ -128,9 +128,11 @@ src/belgie/
     └── test_validators.py
 ```
 
-### Code Stubs
+### API Design
 
 #### `src/belgie/config_validator/exceptions.py`
+Custom exception types for validation and schema errors.
+
 ```python
 class ValidationError(Exception):
     def __init__(self: "ValidationError", message: str, field_path: str | None = None) -> None: ...
@@ -140,6 +142,8 @@ class SchemaError(Exception): ...
 ```
 
 #### `src/belgie/config_validator/result.py`
+Data structures for validation results and error tracking.
+
 ```python
 from typing import TypedDict
 
@@ -169,6 +173,8 @@ class ValidationResult:
 ```
 
 #### `src/belgie/config_validator/validators.py`
+Built-in validator functions for common validation patterns (leaf node, see Implementation #4).
+
 ```python
 import re
 from typing import Callable
@@ -215,6 +221,8 @@ def oneof_validator(allowed_values: list[object]) -> ValidatorFunc:
 ```
 
 #### `src/belgie/config_validator/schema.py`
+Schema and field definition classes for declarative configuration (see Implementation #3, #5).
+
 ```python
 from typing import Self
 
@@ -266,6 +274,8 @@ class Schema:
 ```
 
 #### `src/belgie/config_validator/validator.py`
+Main validator class that orchestrates validation logic (see Implementation #6).
+
 ```python
 from typing import Any, Self
 
@@ -318,152 +328,79 @@ class ConfigValidator:
 
 ### Testing Strategy
 
-#### Test Structure
-- **Unit Tests**: Test individual functions in isolation
-  - `ValidationResult` methods (see Implementation #2)
-  - `FieldDefinition` and `Schema` classes (see Implementation #3, #5)
-  - Built-in validators (see Implementation #4)
-  - `ConfigValidator` methods (see Implementation #6)
-- **Integration Tests**: Test complete workflows
-  - Workflow 1 end-to-end (schema construction + validation)
-  - Workflow 2 end-to-end (fluent API usage)
-- **Edge Cases**:
-  - Empty configurations
-  - Missing required fields
-  - Wrong types
-  - Nested structures
-  - Custom validator failures
-  - Multiple simultaneous errors
+Tests should be organized by module/file and cover unit tests, integration tests, and edge cases.
 
-#### `src/belgie/__test__/test_validators.py`
-```python
-import pytest
+#### `test_validators.py`
 
-from belgie.config_validator.validators import (
-    length_validator,
-    oneof_validator,
-    pattern_validator,
-    range_validator,
-    required,
-    type_validator,
-)
+**`validators.py` Module Tests:**
+- Test `required()` validator with non-None values (should pass)
+- Test `required()` validator with None (should fail)
+- Test `type_validator()` with matching types (str, int, list, dict, custom classes)
+- Test `type_validator()` with mismatched types
+- Test `range_validator()` with values in range, at boundaries, and outside range
+- Test `range_validator()` with non-numeric types (should handle gracefully)
+- Test `pattern_validator()` with strings matching regex patterns
+- Test `pattern_validator()` with non-matching strings
+- Test `pattern_validator()` with non-string types
+- Test `length_validator()` with sequences of various lengths (strings, lists, tuples)
+- Test `length_validator()` with objects without `__len__` (should handle gracefully)
+- Test `oneof_validator()` with values in allowed set
+- Test `oneof_validator()` with values not in allowed set
+- Use parametrized tests for comprehensive coverage of boundary conditions
 
-def test_required_validator(): ...
-# Test with various non-None values, assert validator returns True
+#### `test_schema.py`
 
-def test_required_validator_fails_on_none(): ...
-# Test with None, assert validator returns False
+**`schema.py` Module Tests:**
+- Test `FieldDefinition` creation with various configurations
+- Test `FieldDefinition.add_validator()` method (chaining behavior)
+- Test `Schema` initialization with empty and pre-populated fields
+- Test `Schema.add_field()` with valid field definitions
+- Test `Schema.field()` fluent API (chaining multiple calls)
+- Test `Schema.get_field()` with existing and non-existing field names
+- Test `Schema.get_required_fields()` with mixed required/optional fields
+- Verify Workflow 2 (schema construction) works as expected
 
-def test_type_validator_with_correct_type(): ...
-# Test with string value, assert validator returns True
+#### `test_validator.py`
 
-def test_type_validator_with_wrong_type(): ...
-# Test with non-string value, assert validator returns False
+**`validator.py` Module Tests:**
+- Test `ConfigValidator.__init__()` with valid and invalid schemas
+- Test `validate()` with fully valid configurations
+- Test `validate()` with missing required fields (check error messages)
+- Test `validate()` with wrong field types (check type error messages)
+- Test `validate()` with custom validator failures
+- Test `validate()` accumulates multiple errors correctly
+- Test `validate_and_raise()` raises exception on invalid config
+- Test `validate_and_raise()` succeeds silently on valid config
+- Test `_check_type()` with various type combinations
+- Test `_run_validators()` with multiple validators on same field
+- Test `_get_type_name()` returns readable names for built-in and custom types
+- Use parametrized tests for comprehensive config scenarios (valid port/host combinations, etc.)
 
-def test_range_validator_within_range(): ...
-# Test with value in range, assert validator returns True
+#### `test_result.py` (if separate)
 
-def test_range_validator_outside_range(): ...
-# Test with value outside range, assert validator returns False
+**`result.py` Module Tests:**
+- Test `ValidationResult` initialization
+- Test `add_error()` method (verify error dict structure, is_valid flag updates)
+- Test `merge()` method combines errors from multiple results
+- Test `__bool__()` operator returns correct boolean value
+- Test `__repr__()` produces readable string representation
 
-@pytest.mark.parametrize("pattern,test_value,expected", [
-    (r"^\d{3}-\d{4}$", "123-4567", True),
-    (r"^\d{3}-\d{4}$", "invalid", False),
-    (r"^[a-z]+$", "hello", True),
-    (r"^[a-z]+$", "Hello", False),
-])
-def test_pattern_validator(pattern: str, test_value: str, expected: bool): ...
-# Test validator with test_value, assert result matches expected
+**Integration Tests:**
+- Test Workflow 1 end-to-end: construct schema, create validator, validate valid config, validate invalid config
+- Test Workflow 2 end-to-end: build schema using fluent API, then use it for validation
+- Test error handling across module boundaries (exceptions propagate correctly)
+- Test complex schemas with multiple fields, types, and validators
+- Test realistic use cases: server config (host, port, timeout), user profile (name, email, age), etc.
 
-def test_length_validator_valid_length(): ...
-# Test with list of valid length, assert validator returns True
-
-def test_length_validator_invalid_length(): ...
-# Test with list of invalid length, assert validator returns False
-
-def test_oneof_validator_valid_value(): ...
-# Test with allowed value, assert validator returns True
-
-def test_oneof_validator_invalid_value(): ...
-# Test with disallowed value, assert validator returns False
-```
-
-#### `src/belgie/__test__/test_schema.py`
-```python
-import pytest
-
-from belgie.config_validator.schema import FieldDefinition, Schema
-from belgie.config_validator.validators import required, type_validator
-
-def test_field_definition_creation(): ...
-# Create FieldDefinition, assert properties are set correctly
-
-def test_field_definition_add_validator(): ...
-# Create FieldDefinition, add validator, assert validator is in list
-
-def test_schema_creation(): ...
-# Create Schema, assert fields dict is empty
-
-def test_schema_add_field(): ...
-# Create Schema and FieldDefinition, add field, assert field exists
-
-def test_schema_fluent_api(): ...
-# Use fluent API to add multiple fields, assert all fields are added
-# Tests Workflow 2
-
-def test_schema_get_required_fields(): ...
-# Create Schema with mix of required/optional, assert only required returned
-```
-
-#### `src/belgie/__test__/test_validator.py`
-```python
-import pytest
-
-from belgie.config_validator import (
-    ConfigValidator,
-    Schema,
-    ValidationError,
-    range_validator,
-    required,
-)
-
-def test_validator_with_valid_config(): ...
-# Create schema and valid config, validate, assert is_valid is True
-# Tests Workflow 1 with valid input
-
-def test_validator_with_missing_required_field(): ...
-# Create schema with required field, config missing field, assert error
-# Tests Workflow 1 error path
-
-def test_validator_with_wrong_type(): ...
-# Create schema expecting string, config with int, assert type error
-# Tests _check_type() method
-
-def test_validator_with_custom_validator_failure(): ...
-# Create schema with custom validator, config that fails, assert error
-# Tests _run_validators() method
-
-def test_validator_multiple_errors(): ...
-# Create config missing multiple fields, assert multiple errors
-# Tests ValidationResult.add_error() multiple times
-
-def test_validate_and_raise(): ...
-# Create invalid config, assert validate_and_raise raises ValidationError
-
-def test_validate_and_raise_no_exception_on_success(): ...
-# Create valid config, call validate_and_raise (should not raise)
-
-@pytest.mark.parametrize("config,expected_valid", [
-    ({"port": 8080, "host": "localhost"}, True),
-    ({"port": 8080}, False),  # missing required host
-    ({"port": "8080", "host": "localhost"}, False),  # wrong type for port
-    ({"port": 99999, "host": "localhost"}, False),  # port out of range
-])
-def test_validator_parametrized(config: dict, expected_valid: bool): ...
-# Create schema: port (int, range 0-65535), host (str, required)
-# Validate config, assert is_valid matches expected_valid
-# Comprehensive test of Workflow 1
-```
+**Edge Cases to Cover:**
+- Empty configurations vs. empty schemas
+- None values in various contexts
+- Extremely large configuration dictionaries
+- Deeply nested data structures (if supported in future)
+- Unicode and special characters in string fields
+- Float vs int type checking edge cases
+- Empty strings, empty lists, zero values
+- Circular reference scenarios (if applicable)
 
 ## Implementation
 
@@ -504,10 +441,8 @@ def test_validator_parametrized(config: dict, expected_valid: bool): ...
     - [ ] Implement `add_error()` method (used in Workflow 1)
     - [ ] Implement `merge()` method
     - [ ] Implement `__bool__()` and `__repr__()` methods
-  - [ ] Write unit tests for `ValidationResult`
-    - [ ] Test adding single error
-    - [ ] Test adding multiple errors
-    - [ ] Test merging results
+  - [ ] Write unit tests for `result.py`
+    - [ ] Test initialization, add_error, merge, boolean conversion
   - [ ] Implement `FieldDefinition` class in `schema.py` (#3)
     - [ ] Implement `__init__()` method
     - [ ] Implement `add_validator()` method
@@ -518,13 +453,8 @@ def test_validator_parametrized(config: dict, expected_valid: bool): ...
     - [ ] Implement `pattern_validator()` validator
     - [ ] Implement `length_validator()` validator
     - [ ] Implement `oneof_validator()` validator
-  - [ ] Write unit tests for built-in validators
-    - [ ] Test `required()` with valid/invalid inputs
-    - [ ] Test `type_validator()` with correct/wrong types
-    - [ ] Test `range_validator()` with in-range/out-of-range values
-    - [ ] Test `pattern_validator()` with matching/non-matching patterns
-    - [ ] Test `length_validator()` with valid/invalid lengths
-    - [ ] Test `oneof_validator()` with allowed/disallowed values
+  - [ ] Write unit tests for `validators.py`
+    - [ ] Comprehensive tests for each validator function
 
 - [ ] **Implement components with single-level dependencies**
   - [ ] Implement `Schema` class in `schema.py` (#5)
@@ -533,13 +463,9 @@ def test_validator_parametrized(config: dict, expected_valid: bool): ...
     - [ ] Implement `field()` method (Workflow 2 fluent API)
     - [ ] Implement `get_field()` method
     - [ ] Implement `get_required_fields()` method (used in Workflow 1)
-  - [ ] Write unit tests for `Schema` and `FieldDefinition`
-    - [ ] Test `FieldDefinition` creation
-    - [ ] Test `FieldDefinition.add_validator()`
-    - [ ] Test `Schema` creation
-    - [ ] Test `Schema.add_field()`
-    - [ ] Test `Schema.field()` fluent API (Workflow 2)
-    - [ ] Test `Schema.get_required_fields()`
+  - [ ] Write unit tests for `schema.py`
+    - [ ] Test FieldDefinition and Schema classes
+    - [ ] Test fluent API (Workflow 2)
 
 - [ ] **Implement top-level components** (depends on all above)
   - [ ] Implement `ConfigValidator` class in `validator.py` (#6)
@@ -550,18 +476,14 @@ def test_validator_parametrized(config: dict, expected_valid: bool): ...
     - [ ] Implement `_check_type()` private method
     - [ ] Implement `_run_validators()` private method
     - [ ] Implement `_get_type_name()` static method
-  - [ ] Write unit tests for `ConfigValidator`
-    - [ ] Test validator with valid config (Workflow 1 success path)
-    - [ ] Test validator with missing required field (Workflow 1 error path)
-    - [ ] Test validator with wrong type
-    - [ ] Test validator with custom validator failure
-    - [ ] Test validator with multiple errors
-    - [ ] Test `validate_and_raise()` exception behavior
-    - [ ] Test parametrized scenarios
+  - [ ] Write unit tests for `validator.py`
+    - [ ] Comprehensive validation tests
+    - [ ] Error handling tests
+    - [ ] Parametrized test scenarios
 
 - [ ] **Integration and validation**
-  - [ ] Add integration test for Workflow 1 (full validation flow)
-  - [ ] Add integration test for Workflow 2 (schema construction + usage)
+  - [ ] Add integration tests for Workflow 1 (full validation flow)
+  - [ ] Add integration tests for Workflow 2 (schema construction + usage)
   - [ ] Add type hints and run type checker (`uv run ty`)
   - [ ] Run linter and fix issues (`uv run ruff check`)
   - [ ] Verify all tests pass (`uv run pytest`)
