@@ -45,9 +45,10 @@ Developers configure OAuth providers declaratively in settings, and the system a
 
 ```python
 from belgie.auth import Auth, AuthSettings
-from belgie.auth.providers import GoogleOAuthProvider, GitHubOAuthProvider
+from belgie.auth.core.settings import GoogleProviderSettings, GitHubProviderSettings
 
 # Settings configuration (from environment or code)
+# Dicts match the TypedDict structure for type safety
 settings = AuthSettings(
     providers={
         "google": {
@@ -55,15 +56,28 @@ settings = AuthSettings(
             "client_secret": "google_secret",
             "redirect_uri": "http://localhost:8000/auth/callback/google",
             "scopes": ["openid", "email", "profile"],
+            "access_type": "offline",  # Google-specific (GoogleProviderSettings)
+            "prompt": "consent",        # Google-specific (GoogleProviderSettings)
         },
         "github": {
             "client_id": "github_client_id",
             "client_secret": "github_secret",
             "redirect_uri": "http://localhost:8000/auth/callback/github",
             "scopes": ["user:email", "read:user"],
+            "allow_signup": True,  # GitHub-specific (GitHubProviderSettings)
         }
     }
 )
+
+# For explicit type checking, you can use TypedDict:
+google_config: GoogleProviderSettings = {
+    "client_id": "google_client_id",
+    "client_secret": "google_secret",
+    "redirect_uri": "http://localhost:8000/auth/callback/google",
+    "scopes": ["openid", "email", "profile"],
+    "access_type": "offline",
+    "prompt": "consent",
+}
 
 # Auth automatically registers providers and generates routes
 auth = Auth(settings=settings, adapter=adapter)
@@ -77,14 +91,14 @@ auth = Auth(settings=settings, adapter=adapter)
 
 ```mermaid
 graph TD
-    A[AuthSettings] --> B[Auth.__init__]
-    B --> C[Auth._register_providers]
-    C --> D[ProviderRegistry.register]
-    D --> E[Provider instances created]
-    B --> F[Auth._create_routes]
-    F --> G[Dynamic route generation]
-    G --> H[Routes: /auth/signin/{provider_id}]
-    G --> I[Routes: /auth/callback/{provider_id}]
+    A[AuthSettings] --> B["Auth.__init__"]
+    B --> C["Auth._register_providers"]
+    C --> D["ProviderRegistry.register"]
+    D --> E["Provider instances created"]
+    B --> F["Auth._create_routes"]
+    F --> G["Dynamic route generation"]
+    G --> H["Routes: /auth/signin/provider_id"]
+    G --> I["Routes: /auth/callback/provider_id"]
 ```
 
 #### Sequence Diagram
@@ -96,13 +110,13 @@ sequenceDiagram
     participant Registry as ProviderRegistry
     participant Provider as OAuthProvider
 
-    Settings->>Auth: __init__(settings)
+    Settings->>Auth: init with settings
     Auth->>Registry: create registry
     loop For each provider config
         Auth->>Provider: instantiate provider
-        Auth->>Registry: register(provider_id, provider)
+        Auth->>Registry: register provider
     end
-    Auth->>Auth: _create_routes()
+    Auth->>Auth: create routes
     Auth-->>Auth: Routes created dynamically
 ```
 
@@ -142,21 +156,21 @@ session, user = await auth.handle_oauth_callback(
 
 ```mermaid
 graph TD
-    A[GET /auth/signin/{provider_id}] --> B[Auth.get_signin_url]
-    B --> C[ProviderRegistry.get_provider]
-    C --> D[Provider.generate_authorization_url]
-    B --> E[Crypto.generate_state_token]
-    B --> F[Adapter.create_oauth_state]
+    A["GET /auth/signin/provider_id"] --> B["Auth.get_signin_url"]
+    B --> C["ProviderRegistry.get_provider"]
+    C --> D["Provider.generate_authorization_url"]
+    B --> E["Crypto.generate_state_token"]
+    B --> F["Adapter.create_oauth_state"]
 
-    G[GET /auth/callback/{provider_id}] --> H[Auth.handle_oauth_callback]
-    H --> I[ProviderRegistry.get_provider]
-    H --> J[Adapter.get_oauth_state]
-    H --> K[Provider.exchange_code_for_tokens]
-    H --> L[Provider.get_user_info]
-    L --> M[Provider.map_user_info]
-    H --> N[Auth._get_or_create_user]
-    H --> O[Auth._create_or_update_account]
-    H --> P[SessionManager.create_session]
+    G["GET /auth/callback/provider_id"] --> H["Auth.handle_oauth_callback"]
+    H --> I["ProviderRegistry.get_provider"]
+    H --> J["Adapter.get_oauth_state"]
+    H --> K["Provider.exchange_code_for_tokens"]
+    H --> L["Provider.get_user_info"]
+    L --> M["Provider.map_user_info"]
+    H --> N["Auth._get_or_create_user"]
+    H --> O["Auth._create_or_update_account"]
+    H --> P["SessionManager.create_session"]
 ```
 
 #### Sequence Diagram
@@ -170,31 +184,31 @@ sequenceDiagram
     participant Adapter
     participant External as OAuth Provider
 
-    User->>Auth: GET /auth/signin/{provider_id}
-    Auth->>Registry: get_provider(provider_id)
+    User->>Auth: GET /auth/signin/provider_id
+    Auth->>Registry: get_provider
     Registry-->>Auth: provider instance
-    Auth->>Adapter: create_oauth_state(state_token)
-    Auth->>Provider: generate_authorization_url(state)
+    Auth->>Adapter: create_oauth_state
+    Auth->>Provider: generate_authorization_url
     Provider-->>Auth: authorization_url
     Auth-->>User: redirect to authorization_url
 
     User->>External: Authenticate
-    External->>Auth: GET /auth/callback/{provider_id}?code=xyz&state=abc
-    Auth->>Registry: get_provider(provider_id)
+    External->>Auth: GET /auth/callback with code and state
+    Auth->>Registry: get_provider
     Registry-->>Auth: provider instance
-    Auth->>Adapter: get_oauth_state(state)
+    Auth->>Adapter: get_oauth_state
     Adapter-->>Auth: valid state
-    Auth->>Provider: exchange_code_for_tokens(code)
+    Auth->>Provider: exchange_code_for_tokens
     Provider->>External: POST /token
     External-->>Provider: tokens
-    Auth->>Provider: get_user_info(access_token)
+    Auth->>Provider: get_user_info
     Provider->>External: GET /userinfo
     External-->>Provider: user data
-    Provider->>Provider: map_user_info()
+    Provider->>Provider: map_user_info
     Provider-->>Auth: UserInfo
-    Auth->>Adapter: create_user / create_account
+    Auth->>Adapter: create user and account
     Auth->>Auth: create_session
-    Auth-->>User: session cookie + redirect
+    Auth-->>User: session cookie and redirect
 ```
 
 #### Key Components
@@ -254,12 +268,12 @@ settings = AuthSettings(
 
 ```mermaid
 graph TD
-    A[Create MicrosoftOAuthProvider] --> B[Inherit from OAuthProvider]
-    B --> C[Override map_user_info]
-    D[Add to settings.providers] --> E[Auth registers automatically]
-    E --> F[Routes generated automatically]
-    F --> G[/auth/signin/microsoft]
-    F --> H[/auth/callback/microsoft]
+    A["Create MicrosoftOAuthProvider"] --> B["Inherit from OAuthProvider"]
+    B --> C["Override map_user_info"]
+    D["Add to settings.providers"] --> E["Auth registers automatically"]
+    E --> F["Routes generated automatically"]
+    F --> G["/auth/signin/microsoft"]
+    F --> H["/auth/callback/microsoft"]
 ```
 
 #### Key Components
@@ -341,6 +355,7 @@ import httpx
 @dataclass(slots=True, kw_only=True)
 class ProviderConfig:
     # Used in: Workflow 1, 3 (provider configuration)
+    # Runtime dataclass created from BaseProviderSettings TypedDict
 
     client_id: str
     # OAuth client ID from provider
@@ -352,10 +367,11 @@ class ProviderConfig:
     # Callback URL for OAuth flow
 
     scopes: list[str]
-    # OAuth scopes to request
+    # OAuth scopes to request (defaults to empty list if not provided)
 
     extra_params: dict[str, str] | None = None
     # Provider-specific extra parameters (e.g., prompt, access_type)
+    # Populated from provider-specific TypedDict fields (GoogleProviderSettings, GitHubProviderSettings)
 
 @dataclass(slots=True, kw_only=True)
 class StandardUserInfo:
@@ -515,17 +531,19 @@ class ProviderNotFoundError(Exception):
 
 #### `src/belgie/auth/core/settings.py`
 
-Modified settings to support multiple providers generically (see [Implementation Order](#implementation-order) #4).
+Modified settings to support multiple providers generically using TypedDict (see [Implementation Order](#implementation-order) #4).
 
 ```python
+from typing import Any, NotRequired, TypedDict
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Remove GoogleOAuthSettings class
 
-@dataclass(slots=True, kw_only=True)
-class OAuthProviderSettings:
-    # Generic provider settings (replaces GoogleOAuthSettings)
+class BaseProviderSettings(TypedDict):
+    # Base TypedDict for OAuth provider configuration
+    # All providers must have these fields
 
     client_id: str
     # OAuth client ID
@@ -536,11 +554,25 @@ class OAuthProviderSettings:
     redirect_uri: str
     # OAuth redirect/callback URI
 
-    scopes: list[str] = Field(default_factory=list)
-    # OAuth scopes to request
+    scopes: NotRequired[list[str]]
+    # OAuth scopes to request (optional, defaults to empty list)
 
-    extra_params: dict[str, str] = Field(default_factory=dict)
-    # Provider-specific extra parameters
+class GoogleProviderSettings(BaseProviderSettings):
+    # Google-specific provider settings
+    # Inherits all fields from BaseProviderSettings
+
+    access_type: NotRequired[str]
+    # Google-specific: "offline" for refresh tokens
+
+    prompt: NotRequired[str]
+    # Google-specific: "consent" to force re-consent
+
+class GitHubProviderSettings(BaseProviderSettings):
+    # GitHub-specific provider settings
+    # Inherits all fields from BaseProviderSettings
+
+    allow_signup: NotRequired[bool]
+    # GitHub-specific: allow new user signups
 
 class AuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BELGIE_")
@@ -548,11 +580,15 @@ class AuthSettings(BaseSettings):
     # Remove: google: GoogleOAuthSettings = Field(...)
 
     # Add generic providers dict
-    providers: dict[str, OAuthProviderSettings] = Field(default_factory=dict)
+    # Using dict[str, dict[str, Any]] for flexibility to support any provider
+    # Runtime validation ensures required fields are present
+    providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     # 1. Key is provider_id (e.g., "google", "github")
-    # 2. Value is OAuthProviderSettings with provider config
+    # 2. Value is a dict matching BaseProviderSettings structure (or provider-specific)
     # 3. Can be populated from environment variables:
     #    BELGIE_PROVIDERS='{"google": {"client_id": "...", ...}}'
+    # 4. Type checkers can use GoogleProviderSettings, GitHubProviderSettings for specific contexts
+    # 5. Pydantic validates the structure at runtime
     # Used in: Workflow 1 (provider registration)
 
     # ... rest of existing settings fields remain unchanged
@@ -668,7 +704,10 @@ class Auth[UserT, AccountT, SessionT, OAuthStateT]:
     # NEW METHOD
     # 1. Loop through self.settings.providers.items()
     # 2. For each (provider_id, provider_settings):
-    #    - Create ProviderConfig from provider_settings
+    #    - Extract base fields (client_id, client_secret, redirect_uri, scopes)
+    #    - Extract provider-specific fields into extra_params dict
+    #      (e.g., for Google: access_type, prompt; for GitHub: allow_signup)
+    #    - Create ProviderConfig from extracted fields
     #    - Match provider_id to provider class (google -> GoogleOAuthProvider, github -> GitHubOAuthProvider)
     #    - Instantiate provider class with config
     #    - Register with self.provider_registry.register(provider_id, provider)
