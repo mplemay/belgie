@@ -425,7 +425,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         if security_scopes.scopes and not validate_scopes(user.scopes, security_scopes.scopes):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"insufficient scopes. required: {security_scopes.scopes}",
+                detail="Insufficient permissions",
             )
 
         return user

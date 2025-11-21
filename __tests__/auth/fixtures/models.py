@@ -22,7 +22,7 @@ class User(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
-    scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    scopes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=None)
     custom_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 

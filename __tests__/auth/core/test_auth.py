@@ -379,14 +379,14 @@ async def test_user_dependency_with_insufficient_scopes(auth: Auth, db_session: 
         await auth.user(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
-    assert "insufficient scopes" in str(exc_info.value.detail)  # type: ignore[attr-defined]
+    assert exc_info.value.detail == "Insufficient permissions"  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
 async def test_user_dependency_scopes_required_but_user_has_no_scopes(auth: Auth, db_session: AsyncSession) -> None:
     user = await auth.adapter.create_user(db_session, email="test@example.com")
-    # User has empty scopes list (default)
-    assert user.scopes == []
+    # User has no scopes (None by default)
+    assert user.scopes is None
 
     session = await auth.session_manager.create_session(db_session, user_id=user.id)
 

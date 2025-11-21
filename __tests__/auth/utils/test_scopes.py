@@ -107,6 +107,26 @@ def test_validate_scopes_both_empty() -> None:
     assert validate_scopes(user_scopes, required_scopes) is True
 
 
+def test_validate_scopes_none_user_scopes_with_required() -> None:
+    user_scopes = None
+    required_scopes = ["openid", "email"]
+    assert validate_scopes(user_scopes, required_scopes) is False
+
+
+def test_validate_scopes_none_user_scopes_with_empty_required() -> None:
+    user_scopes = None
+    required_scopes = []  # type: ignore[var-annotated]
+    assert validate_scopes(user_scopes, required_scopes) is True
+
+
+def test_validate_scopes_none_equivalent_to_empty_list() -> None:
+    # None and empty list should behave identically
+    required_scopes = ["openid", "email"]
+    result_none = validate_scopes(None, required_scopes)
+    result_empty = validate_scopes([], required_scopes)
+    assert result_none == result_empty
+
+
 def test_validate_scopes_case_sensitive() -> None:
     user_scopes = ["OpenID", "Email"]
     required_scopes = ["openid", "email"]
@@ -234,6 +254,26 @@ def test_has_any_scope_both_empty() -> None:
     user_scopes: list[str] = []
     required_scopes: list[str] = []
     assert has_any_scope(user_scopes, required_scopes) is False
+
+
+def test_has_any_scope_none_user_scopes() -> None:
+    user_scopes = None
+    required_scopes = ["email", "profile"]
+    assert has_any_scope(user_scopes, required_scopes) is False
+
+
+def test_has_any_scope_none_user_scopes_empty_required() -> None:
+    user_scopes = None
+    required_scopes: list[str] = []
+    assert has_any_scope(user_scopes, required_scopes) is False
+
+
+def test_has_any_scope_none_equivalent_to_empty_list() -> None:
+    # None and empty list should behave identically
+    required_scopes = ["openid", "email"]
+    result_none = has_any_scope(None, required_scopes)
+    result_empty = has_any_scope([], required_scopes)
+    assert result_none == result_empty
 
 
 def test_has_any_scope_with_sets() -> None:

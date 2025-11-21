@@ -13,7 +13,7 @@ class UserProtocol[S: str](Protocol):
     image: str | None
     created_at: datetime
     updated_at: datetime
-    scopes: list[S]  # User's application-level scopes
+    scopes: list[S] | None  # User's application-level scopes (None means no scopes)
 
 
 @runtime_checkable

@@ -25,11 +25,12 @@ class User(Base):
     # PostgreSQL ARRAY storage for scopes using SQLAlchemy Enum
     # values_callable ensures StrEnum values (not names) are stored as strings
     # Automatic conversion between Scope enum and database strings
-    scopes: Mapped[list[Scope]] = mapped_column(
+    # None indicates no scopes assigned (default)
+    scopes: Mapped[list[Scope] | None] = mapped_column(
         ARRAY(SQLEnum(Scope, values_callable=lambda x: [e.value for e in x])),
-        nullable=False,
-        default=list,
-        server_default="{}",  # PostgreSQL empty array literal
+        nullable=True,
+        default=None,
+        server_default=None,
     )
 
 

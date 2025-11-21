@@ -20,13 +20,14 @@ def parse_scopes(scopes_str: str) -> list[str]:
 
 
 def validate_scopes[S: str](
-    user_scopes: Sequence[S],
+    user_scopes: Sequence[S] | None,
     required_scopes: Sequence[S],
 ) -> bool:
     # Normalize to sets for comparison
     # Generic over any str subclass (including StrEnum)
     # Accepts any sequence type (list, tuple, set, etc.)
-    user_scopes_set = set(user_scopes)
+    # None is treated as empty set (no scopes)
+    user_scopes_set = set(user_scopes) if user_scopes is not None else set()
     required_scopes_set = set(required_scopes)
 
     # Check if all required scopes are present in user scopes
@@ -34,13 +35,14 @@ def validate_scopes[S: str](
 
 
 def has_any_scope[S: str](
-    user_scopes: Sequence[S],
+    user_scopes: Sequence[S] | None,
     required_scopes: Sequence[S],
 ) -> bool:
     # Normalize to sets for comparison
     # Generic over any str subclass (including StrEnum)
     # Accepts any sequence type (list, tuple, set, etc.)
-    user_scopes_set = set(user_scopes)
+    # None is treated as empty set (no scopes)
+    user_scopes_set = set(user_scopes) if user_scopes is not None else set()
     required_scopes_set = set(required_scopes)
 
     # Check if user has any of the required scopes

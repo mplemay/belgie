@@ -14,7 +14,7 @@ class ExampleUser:
     image: str | None
     created_at: datetime
     updated_at: datetime
-    scopes: list[str]
+    scopes: list[str] | None = None
     custom_field: str | None = None
 
 

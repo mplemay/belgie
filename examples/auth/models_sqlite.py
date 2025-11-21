@@ -34,11 +34,12 @@ class User(Base):
     # Store scopes as JSON array for database portability
     # Less efficient than PostgreSQL ARRAY but works everywhere
     # SQLite, MySQL, PostgreSQL all support JSON type
-    scopes: Mapped[list[str]] = mapped_column(
+    # None indicates no scopes assigned (default)
+    scopes: Mapped[list[str] | None] = mapped_column(
         JSON,
-        nullable=False,
-        default=list,
-        server_default="[]",  # JSON empty array
+        nullable=True,
+        default=None,
+        server_default=None,
     )
 
 
