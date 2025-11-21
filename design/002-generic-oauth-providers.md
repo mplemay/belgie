@@ -45,24 +45,37 @@ This design introduces:
 
 #### Description
 
-The Auth class loads provider settings from environment, instantiates providers, and includes their routers in the application.
+Users load provider settings from environment, instantiate providers, and pass them to Auth which includes their routers in the application.
 
 #### Usage Example
 
 ```python
-from belgie.auth import Auth
+from belgie.auth import Auth, AuthSettings
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 
-# Create adapter
-adapter = AlchemyAdapter(...)
+# Load provider settings from environment
+google_settings = GoogleProviderSettings()  # Loads from BELGIE_GOOGLE_* env vars
+google_provider = GoogleOAuthProvider(google_settings)
 
-# Create Auth instance
-auth = Auth(adapter=adapter)
+# Create adapter with db_dependency
+adapter = AlchemyAdapter(
+    user=User,
+    account=Account,
+    session=Session,
+    oauth_state=OAuthState,
+    db_dependency=get_db,
+)
 
-# Providers are automatically loaded from environment via _load_providers()
-# Each provider with valid settings is instantiated and registered
-# BELGIE_GOOGLE_* env vars -> GoogleOAuthProvider
+# Load auth settings
+auth_settings = AuthSettings()  # Loads from BELGIE_* env vars
+
+# Create Auth instance with providers
+auth = Auth(
+    settings=auth_settings,
+    adapter=adapter,
+    providers={"google": google_provider},
+)
 
 # Create FastAPI app with all provider routes
 from fastapi import FastAPI
@@ -72,20 +85,20 @@ app.include_router(auth.router)
 # Result:
 # GET /auth/provider/google/signin
 # GET /auth/provider/google/callback
-# Additional providers (GitHub, Microsoft, etc.) can be added later
+# Additional providers can be added by including them in the providers dict
 ```
 
 #### Call Graph
 
 ```mermaid
 graph TD
-    A["Auth.__init__"] --> B["Auth._load_providers"]
-    B --> C["Load GoogleProviderSettings from env"]
-    C --> E["Instantiate GoogleOAuthProvider"]
-    E --> G["Register in providers dict"]
-    H["Auth.router (cached_property)"] --> I["For each provider"]
-    I --> J["provider.get_router with adapter and settings"]
-    J --> K["Include provider router"]
+    A["User: Load GoogleProviderSettings from env"] --> B["User: Instantiate GoogleOAuthProvider"]
+    B --> C["User: Pass to Auth.__init__ with settings and adapter"]
+    C --> D["Auth.__init__: Store providers dict"]
+    D --> E["Auth._create_router: Create main router"]
+    E --> F["For each provider in providers.values()"]
+    F --> G["provider.get_router adapter"]
+    G --> H["Include provider router in main router"]
 ```
 
 #### Key Components
@@ -183,6 +196,18 @@ class MicrosoftProviderSettings(BaseSettings):
     redirect_uri: str
     scopes: list[str] = Field(default=["openid", "email", "profile"])
 
+    # Session and cookie configuration
+    session_max_age: int = Field(default=604800)  # 7 days
+    cookie_name: str = Field(default="belgie_session")
+    cookie_httponly: bool = Field(default=True)
+    cookie_secure: bool = Field(default=True)
+    cookie_samesite: str = Field(default="lax")
+    cookie_domain: str | None = Field(default=None)
+
+    # Redirect URLs
+    signin_redirect: str = Field(default="/")
+    signout_redirect: str = Field(default="/")
+
 
 # Step 2: Implement provider protocol
 from fastapi import APIRouter, Depends, RedirectResponse
@@ -202,7 +227,7 @@ class MicrosoftOAuthProvider:
 
     def get_router(self, adapter: AdapterProtocol) -> APIRouter:
         """Create router with Microsoft OAuth endpoints"""
-        router = APIRouter(prefix="/auth", tags=["auth"])
+        router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
         @router.get("/signin")
         async def signin_microsoft(db=Depends(adapter.get_db)):
@@ -261,26 +286,42 @@ class MicrosoftOAuthProvider:
                     name=user_data.get("displayName"),
                 )
 
-            # Create session
-            session = await adapter.create_session(db, user_id=user.id)
+            # Create session with proper expiration
+            from datetime import UTC, datetime, timedelta
+            expires_at = datetime.now(UTC) + timedelta(seconds=self.settings.session_max_age)
+            session = await adapter.create_session(
+                db,
+                user_id=user.id,
+                expires_at=expires_at.replace(tzinfo=None),
+            )
 
-            # Return response with session cookie
-            response = RedirectResponse(url="/dashboard")
-            response.set_cookie(key="session", value=session.token)
+            # Return response with session cookie using provider settings
+            response = RedirectResponse(url=self.settings.signin_redirect)
+            response.set_cookie(
+                key=self.settings.cookie_name,
+                value=str(session.id),
+                max_age=self.settings.session_max_age,
+                httponly=self.settings.cookie_httponly,
+                secure=self.settings.cookie_secure,
+                samesite=self.settings.cookie_samesite,
+                domain=self.settings.cookie_domain,
+            )
             return response
 
         return router
 
 
-# Step 3: Add to Auth.model_post_init to auto-load
-# In auth.py, add Microsoft to the provider loading logic:
-try:
-    microsoft_settings = MicrosoftProviderSettings()
-    if microsoft_settings.client_id:
-        microsoft = MicrosoftOAuthProvider(microsoft_settings)
-        self.providers[microsoft.provider_id] = microsoft
-except Exception:
-    pass  # Provider not configured
+# Step 3: Instantiate provider and pass to Auth
+# Load settings from environment
+microsoft_settings = MicrosoftProviderSettings()
+microsoft_provider = MicrosoftOAuthProvider(microsoft_settings)
+
+# Pass to Auth with other providers
+auth = Auth(
+    settings=auth_settings,
+    adapter=adapter,
+    providers={"microsoft": microsoft_provider},
+)
 
 # Step 4: Add environment variables
 # BELGIE_MICROSOFT_CLIENT_ID="..."
@@ -557,12 +598,32 @@ class GoogleOAuthProvider:
 
 Before:
 ```python
+from belgie.auth import Auth, AuthSettings
+
+settings = AuthSettings(
+    google=GoogleOAuthSettings(
+        client_id="...",
+        client_secret="...",
+        redirect_uri="...",
+    )
+)
 adapter = AlchemyAdapter(user=User, account=Account, session=Session, oauth_state=OAuthState)
 auth = Auth(settings=settings, adapter=adapter, db_dependency=get_db)
 ```
 
 After:
 ```python
+from belgie.auth import Auth, AuthSettings
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+
+# Load settings from environment
+auth_settings = AuthSettings()  # BELGIE_* env vars
+google_settings = GoogleProviderSettings()  # BELGIE_GOOGLE_* env vars
+
+# Instantiate provider
+google_provider = GoogleOAuthProvider(google_settings)
+
+# Create adapter with db_dependency (moved from Auth)
 adapter = AlchemyAdapter(
     user=User,
     account=Account,
@@ -570,7 +631,13 @@ adapter = AlchemyAdapter(
     oauth_state=OAuthState,
     db_dependency=get_db,  # ← Moved here
 )
-auth = Auth(adapter=adapter)  # ← Simplified
+
+# Create Auth with settings, adapter, and providers
+auth = Auth(
+    settings=auth_settings,
+    adapter=adapter,
+    providers={"google": google_provider},  # ← Providers passed explicitly
+)
 ```
 
 ### Module Structure
@@ -602,12 +669,17 @@ src/belgie/auth/
 Protocol definition for OAuth providers (see [Implementation Order](#implementation-order) #1).
 
 ```python
-from typing import Literal, Protocol
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from fastapi import APIRouter
 from pydantic_settings import BaseSettings
 
 from belgie.auth.protocols.adapter import AdapterProtocol
+
+if TYPE_CHECKING:
+    from belgie.auth.core.settings import AuthSettings
 
 
 class OAuthProviderProtocol[S: BaseSettings](Protocol):
@@ -629,7 +701,7 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         """
         ...
 
-    def get_router(self, adapter: AdapterProtocol, auth_settings: AuthSettings) -> APIRouter:
+    def get_router(self, adapter: AdapterProtocol) -> APIRouter:
         """
         Create and return FastAPI router with OAuth endpoints.
 
@@ -639,24 +711,25 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
 
         Args:
             adapter: Database adapter for persistence operations
-            auth_settings: Auth configuration for cookies, sessions, and URLs
 
         The adapter provides database access via dependency injection:
         - db = Depends(adapter.get_db)
 
-        The auth_settings provide configuration for:
-        - Cookie settings (httponly, secure, samesite, domain)
-        - Session settings (cookie_name, max_age)
-        - URL settings (signin_redirect, signout_redirect)
-
         The provider has complete control over:
         - OAuth flow implementation
         - User data mapping
-        - Session management
+        - Session management (duration, cookie configuration from provider settings)
         - Error handling
+        - Redirect URLs
+
+        Provider settings should include:
+        - OAuth credentials (client_id, client_secret, redirect_uri, scopes)
+        - Cookie configuration (httponly, secure, samesite, domain, cookie_name)
+        - Session configuration (max_age)
+        - Redirect URLs (signin_redirect, signout_redirect)
 
         Implementation style:
-        - Use private methods (e.g., __signin_google) for route handlers
+        - Use closures that capture self for route handlers
         - Register routes with router.add_api_route()
         - Use walrus operator where appropriate
         - Use dict.get() for safe dictionary access
@@ -706,6 +779,19 @@ class AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT](Protocol):
         provider: str,
         provider_account_id: str,
     ) -> AccountT | None: ...
+    async def get_account_by_user_and_provider(
+        self,
+        db: AsyncSession,
+        user_id: Any,
+        provider: str,
+    ) -> AccountT | None: ...
+    async def update_account(
+        self,
+        db: AsyncSession,
+        user_id: Any,
+        provider: str,
+        **tokens: Any,
+    ) -> AccountT | None: ...
     async def create_session(
         self,
         db: AsyncSession,
@@ -713,6 +799,18 @@ class AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT](Protocol):
         expires_at: Any,
         **kwargs: Any,
     ) -> SessionT: ...
+    async def get_session(
+        self,
+        db: AsyncSession,
+        session_id: Any,
+    ) -> SessionT | None: ...
+    async def update_session(
+        self,
+        db: AsyncSession,
+        session_id: Any,
+        **updates: Any,
+    ) -> SessionT | None: ...
+    async def delete_session(self, db: AsyncSession, session_id: Any) -> bool: ...
     async def create_oauth_state(
         self,
         db: AsyncSession,
@@ -791,35 +889,47 @@ class GoogleProviderSettings(BaseSettings):
     client_secret: str
     redirect_uri: str
     scopes: list[str] = Field(default=["openid", "email", "profile"])
-    access_type: str = "offline"
-    prompt: str = "consent"
+    access_type: str = Field(default="offline")
+    prompt: str = Field(default="consent")
+
+    # Session and cookie configuration
+    session_max_age: int = Field(default=604800)  # 7 days
+    cookie_name: str = Field(default="belgie_session")
+    cookie_httponly: bool = Field(default=True)
+    cookie_secure: bool = Field(default=True)
+    cookie_samesite: str = Field(default="lax")
+    cookie_domain: str | None = Field(default=None)
+
+    # Redirect URLs
+    signin_redirect: str = Field(default="/")
+    signout_redirect: str = Field(default="/")
 
 
-@dataclass(slots=True, kw_only=True)
 class GoogleOAuthProvider:
     """
     Google OAuth provider implementation.
     Self-contained - manages own router and OAuth flow.
     """
 
-    settings: GoogleProviderSettings
-
     AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     TOKEN_URL = "https://oauth2.googleapis.com/token"
     USER_INFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+
+    def __init__(self, settings: GoogleProviderSettings) -> None:
+        self.settings = settings
 
     @property
     def provider_id(self) -> Literal["google"]:
         return "google"
 
-    @staticmethod
-    def _build_signin_handler(
-        settings: GoogleProviderSettings,
-        adapter: AdapterProtocol,
-    ):
-        """Build signin route handler with captured settings and adapter"""
+    def get_router(self, adapter: AdapterProtocol) -> APIRouter:
+        """Create router with Google OAuth endpoints"""
         from datetime import UTC, datetime, timedelta
-        from urllib.parse import urlencode
+        from urllib.parse import urlencode, urlparse, urlunparse
+
+        from belgie.auth.core.exceptions import InvalidStateError
+
+        router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
         async def signin(db=Depends(adapter.get_db)):
             """Initiate Google OAuth flow"""
@@ -834,16 +944,15 @@ class GoogleOAuthProvider:
 
             # Build authorization URL using urllib
             params = {
-                "client_id": settings.client_id,
-                "redirect_uri": settings.redirect_uri,
+                "client_id": self.settings.client_id,
+                "redirect_uri": self.settings.redirect_uri,
                 "response_type": "code",
-                "scope": " ".join(settings.scopes),
+                "scope": " ".join(self.settings.scopes),
                 "state": state,
-                "access_type": settings.access_type,
-                "prompt": settings.prompt,
+                "access_type": self.settings.access_type,
+                "prompt": self.settings.prompt,
             }
-            from urllib.parse import urlparse, urlunparse
-            parsed = urlparse(GoogleOAuthProvider.AUTHORIZATION_URL)
+            parsed = urlparse(self.AUTHORIZATION_URL)
             auth_url = urlunparse((
                 parsed.scheme,
                 parsed.netloc,
@@ -853,20 +962,6 @@ class GoogleOAuthProvider:
                 ""
             ))
             return RedirectResponse(url=auth_url)
-
-        return signin
-
-    @staticmethod
-    def _build_callback_handler(
-        settings: GoogleProviderSettings,
-        adapter: AdapterProtocol,
-        auth_settings: AuthSettings,
-        provider_id: str,
-    ):
-        """Build callback route handler with captured settings and adapter"""
-        from datetime import UTC, datetime, timedelta
-
-        from belgie.auth.core.exceptions import InvalidStateError
 
         async def callback(code: str, state: str, db=Depends(adapter.get_db)):
             """Handle Google OAuth callback"""
@@ -878,12 +973,12 @@ class GoogleOAuthProvider:
             # Exchange code for tokens
             async with httpx.AsyncClient() as client:
                 token_response = await client.post(
-                    GoogleOAuthProvider.TOKEN_URL,
+                    self.TOKEN_URL,
                     data={
-                        "client_id": settings.client_id,
-                        "client_secret": settings.client_secret,
+                        "client_id": self.settings.client_id,
+                        "client_secret": self.settings.client_secret,
                         "code": code,
-                        "redirect_uri": settings.redirect_uri,
+                        "redirect_uri": self.settings.redirect_uri,
                         "grant_type": "authorization_code",
                     },
                 )
@@ -893,7 +988,7 @@ class GoogleOAuthProvider:
             # Fetch user info
             async with httpx.AsyncClient() as client:
                 user_response = await client.get(
-                    GoogleOAuthProvider.USER_INFO_URL,
+                    self.USER_INFO_URL,
                     headers={"Authorization": f"Bearer {tokens['access_token']}"},
                 )
                 user_response.raise_for_status()
@@ -910,14 +1005,13 @@ class GoogleOAuthProvider:
                 )
 
             # Create or update OAuth account (use dict.get for optional tokens)
-            existing_account = await adapter.get_account_by_user_and_provider(
-                db, user.id, provider_id
-            )
-            if existing_account:
+            if existing_account := await adapter.get_account_by_user_and_provider(
+                db, user.id, self.provider_id
+            ):
                 await adapter.update_account(
                     db,
                     user_id=user.id,
-                    provider=provider_id,
+                    provider=self.provider_id,
                     access_token=tokens["access_token"],
                     refresh_token=tokens.get("refresh_token"),
                     expires_at=tokens.get("expires_at"),
@@ -927,7 +1021,7 @@ class GoogleOAuthProvider:
                 await adapter.create_account(
                     db,
                     user_id=user.id,
-                    provider=provider_id,
+                    provider=self.provider_id,
                     provider_account_id=user_data["id"],
                     access_token=tokens["access_token"],
                     refresh_token=tokens.get("refresh_token"),
@@ -936,48 +1030,66 @@ class GoogleOAuthProvider:
                 )
 
             # Create session with proper expiration
-            expires_at = datetime.now(UTC) + timedelta(seconds=auth_settings.session.max_age)
+            expires_at = datetime.now(UTC) + timedelta(seconds=self.settings.session_max_age)
             session = await adapter.create_session(
                 db,
                 user_id=user.id,
                 expires_at=expires_at.replace(tzinfo=None),
             )
 
-            # Set session cookie with settings from auth and redirect
-            response = RedirectResponse(url=auth_settings.urls.signin_redirect)
+            # Set session cookie using provider settings and redirect
+            response = RedirectResponse(url=self.settings.signin_redirect)
             response.set_cookie(
-                key=auth_settings.session.cookie_name,
+                key=self.settings.cookie_name,
                 value=str(session.id),
-                max_age=auth_settings.session.max_age,
-                httponly=auth_settings.cookie.http_only,
-                secure=auth_settings.cookie.secure,
-                samesite=auth_settings.cookie.same_site,
-                domain=auth_settings.cookie.domain,
+                max_age=self.settings.session_max_age,
+                httponly=self.settings.cookie_httponly,
+                secure=self.settings.cookie_secure,
+                samesite=self.settings.cookie_samesite,
+                domain=self.settings.cookie_domain,
             )
             return response
 
-        return callback
-
-    def get_router(self, adapter: AdapterProtocol, auth_settings: AuthSettings) -> APIRouter:
-        """Create router with Google OAuth endpoints"""
-        router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
-
-        # Build route handlers with captured context
-        signin_handler = self._build_signin_handler(self.settings, adapter)
-        callback_handler = self._build_callback_handler(
-            self.settings, adapter, auth_settings, self.provider_id
-        )
-
         # Register routes
-        router.add_api_route("/signin", signin_handler, methods=["GET"])
-        router.add_api_route("/callback", callback_handler, methods=["GET"])
+        router.add_api_route("/signin", signin, methods=["GET"])
+        router.add_api_route("/callback", callback, methods=["GET"])
 
         return router
 ```
 
+#### `src/belgie/auth/protocols/provider.py` - ProviderRegistry TypedDict
+
+Type-safe provider registry pattern for Auth class initialization:
+
+```python
+from typing import NotRequired, TypedDict
+
+from belgie.auth.protocols.provider import OAuthProviderProtocol
+
+
+class ProviderRegistry(TypedDict, total=False):
+    """
+    Type-safe provider registry for Auth initialization.
+
+    Built-in providers (google, github, microsoft) are defined for IDE support.
+    Custom providers can be added as additional keys.
+
+    Example:
+        providers: ProviderRegistry = {
+            "google": google_provider,
+            "github": github_provider,
+            "custom_oauth": my_custom_provider,  # Custom providers allowed
+        }
+    """
+    google: NotRequired[OAuthProviderProtocol]
+    github: NotRequired[OAuthProviderProtocol]
+    microsoft: NotRequired[OAuthProviderProtocol]
+    # TypedDict with total=False allows additional provider keys
+```
+
 #### `src/belgie/auth/core/auth.py`
 
-Simplified Auth class that loads and registers providers (see [Implementation Order](#implementation-order) #5).
+Auth class accepts settings, adapter, and providers (see [Implementation Order](#implementation-order) #5).
 
 ```python
 from typing import Any
@@ -987,8 +1099,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
-from belgie.auth.protocols.provider import OAuthProviderProtocol
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+from belgie.auth.protocols.provider import OAuthProviderProtocol, ProviderRegistry
 
 
 class AuthSettings(BaseSettings):
@@ -1000,58 +1111,50 @@ class AuthSettings(BaseSettings):
         extra="ignore",
     )
 
-    secret_key: str = "change-me"
-    # Other auth settings...
+    secret_key: str = Field(default="change-me")
+    base_url: str = Field(default="http://localhost:8000")
+    # Other auth-level settings (not provider-specific)
 
 
 class Auth:
     """
     Main auth class that coordinates OAuth providers.
-    Providers are loaded from environment and registered automatically.
+    Providers are passed in at initialization.
     """
 
-    def __init__(self, adapter: AlchemyAdapter):
+    def __init__(
+        self,
+        settings: AuthSettings,
+        adapter: AlchemyAdapter,
+        providers: ProviderRegistry | dict[str, OAuthProviderProtocol],
+    ):
+        """
+        Initialize Auth with settings, adapter, and providers.
+
+        Args:
+            settings: Authentication configuration
+            adapter: Database adapter for persistence
+            providers: Dictionary of OAuth providers keyed by provider_id
+        """
+        self.settings = settings
         self.adapter = adapter
-        self.settings = AuthSettings()
-        self.providers: dict[str, OAuthProviderProtocol] = {}
-        self._load_providers()
+        self.providers = dict(providers)  # Convert TypedDict to regular dict
+        self.router = self._create_router()
 
-    def _load_providers(self) -> None:
+    def _create_router(self) -> APIRouter:
         """
-        Load and register OAuth providers from environment.
-        Providers with missing required settings are silently skipped.
-        Uses dict.get() to avoid duplicate registrations.
-        """
-        # Load Google provider (skip if already registered)
-        if not self.providers.get("google"):
-            try:
-                google_settings = GoogleProviderSettings()
-                if google_settings.client_id:  # Only register if configured
-                    google = GoogleOAuthProvider(settings=google_settings)
-                    self.providers[google.provider_id] = google
-            except Exception:
-                pass  # Provider not configured
+        Create FastAPI router with all provider routes.
 
-        # Add more providers here as they're implemented (GitHub, Microsoft, etc.)
-
-    def register_provider(self, provider: OAuthProviderProtocol) -> None:
-        """Register an OAuth provider (or update if already exists)"""
-        self.providers[provider.provider_id] = provider
-
-    @cached_property
-    def router(self) -> APIRouter:
-        """
-        FastAPI router with all provider routes (cached).
-        Structure: /auth/provider/{provider_id}/...
+        Route structure: /auth/provider/{provider_id}/{signin,callback}
+        Example: /auth/provider/google/signin
         """
         main_router = APIRouter(prefix="/auth")
         provider_router = APIRouter(prefix="/provider")
 
         for provider in self.providers.values():
-            # Pass adapter and settings to provider
             # Each provider's router has prefix /{provider_id}
-            # Combined: /auth/provider/{provider_id}/signin and /callback
-            provider_specific_router = provider.get_router(self.adapter, self.settings)
+            # Combined with provider_router prefix: /auth/provider/{provider_id}/signin
+            provider_specific_router = provider.get_router(self.adapter)
             provider_router.include_router(provider_specific_router)
 
         main_router.include_router(provider_router)
@@ -1062,9 +1165,34 @@ class Auth:
         return list(self.providers.keys())
 
     def get_provider(self, provider_id: str) -> OAuthProviderProtocol | None:
-        """Get provider by ID (returns None if not found)"""
+        """Get provider by ID using dict.get() (returns None if not found)"""
         return self.providers.get(provider_id)
 ```
+
+**Route Structure Clarification:**
+
+The route URLs are built from nested router prefixes:
+
+```
+Auth creates:
+    main_router = APIRouter(prefix="/auth")
+        provider_router = APIRouter(prefix="/provider")
+            provider.get_router() returns APIRouter(prefix="/google")
+                Route: "/signin"
+                Route: "/callback"
+
+Combined URL structure:
+    /auth                     ← main_router prefix
+        /provider             ← provider_router prefix
+            /google           ← GoogleOAuthProvider router prefix
+                /signin       → Final: GET /auth/provider/google/signin
+                /callback     → Final: GET /auth/provider/google/callback
+```
+
+This nesting allows:
+- Clean separation of auth routes from other app routes (`/auth/*`)
+- Multiple providers under same namespace (`/auth/provider/{provider_id}/*`)
+- Provider-specific routes managed by each provider
 
 #### Example `.env` File
 
@@ -1073,6 +1201,7 @@ Environment variables for configuring OAuth providers:
 ```bash
 # Main auth settings
 BELGIE_SECRET_KEY="your-secret-key-here"
+BELGIE_BASE_URL="http://localhost:8000"
 
 # Google OAuth Provider
 BELGIE_GOOGLE_CLIENT_ID="google-client-id.apps.googleusercontent.com"
@@ -1082,13 +1211,25 @@ BELGIE_GOOGLE_SCOPES='["openid", "email", "profile"]'
 BELGIE_GOOGLE_ACCESS_TYPE="offline"
 BELGIE_GOOGLE_PROMPT="consent"
 
+# Google provider cookie/session configuration
+BELGIE_GOOGLE_SESSION_MAX_AGE="604800"  # 7 days in seconds
+BELGIE_GOOGLE_COOKIE_NAME="belgie_session"
+BELGIE_GOOGLE_COOKIE_HTTPONLY="true"
+BELGIE_GOOGLE_COOKIE_SECURE="true"
+BELGIE_GOOGLE_COOKIE_SAMESITE="lax"
+# BELGIE_GOOGLE_COOKIE_DOMAIN=""  # Optional, defaults to None
+
+# Google provider redirects
+BELGIE_GOOGLE_SIGNIN_REDIRECT="/"
+BELGIE_GOOGLE_SIGNOUT_REDIRECT="/"
+
 # Add more providers by following the pattern: BELGIE_{PROVIDER}_{FIELD}
-# Example for GitHub:
+# Example for GitHub (would have same cookie/session/redirect settings):
 # BELGIE_GITHUB_CLIENT_ID="github-client-id"
 # BELGIE_GITHUB_CLIENT_SECRET="github-client-secret"
 # BELGIE_GITHUB_REDIRECT_URI="http://localhost:8000/auth/provider/github/callback"
-
-# Providers missing required fields (client_id) are automatically skipped
+# BELGIE_GITHUB_SESSION_MAX_AGE="604800"
+# ...etc
 ```
 
 ### Testing Strategy
