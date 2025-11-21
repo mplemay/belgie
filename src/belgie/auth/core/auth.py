@@ -382,7 +382,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         """FastAPI dependency for retrieving the authenticated user.
 
         Extracts the session from cookies, validates it, and returns the authenticated user.
-        Optionally validates OAuth scopes if specified.
+        Optionally validates user-level scopes if specified.
 
         Args:
             security_scopes: FastAPI SecurityScopes for scope validation
@@ -403,9 +403,9 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> async def protected_route(user: User = Depends(auth.user)):
             ...     return {"email": user.email}
             >>>
-            >>> @app.get("/profile")
-            >>> async def profile_route(user: User = Security(auth.user, scopes=["profile"])):
-            ...     return {"name": user.name, "email": user.email}
+            >>> @app.get("/resource")
+            >>> async def resource_route(user: User = Security(auth.user, scopes=[Scope.READ])):
+            ...     return {"data": "..."}
         """
         session = await self._get_session_from_cookie(request, db)
         if not session:
@@ -421,20 +421,12 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
                 detail="user not found",
             )
 
-        if security_scopes.scopes:
-            account = await self.adapter.get_account_by_user_and_provider(db, user.id, "google")
-            if not account or not account.scope:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="insufficient scopes",
-                )
-
-            user_scopes = account.scope.split(" ") if isinstance(account.scope, str) else []
-            if not validate_scopes(user_scopes, security_scopes.scopes):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="insufficient scopes",
-                )
+        # Validate user-level scopes if required
+        if security_scopes.scopes and not validate_scopes(user.scopes, security_scopes.scopes):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
 
         return user
 

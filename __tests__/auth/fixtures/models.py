@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import String
+from sqlalchemy import JSON, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -22,6 +22,7 @@ class User(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+    scopes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=None)
     custom_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 

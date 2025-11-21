@@ -14,6 +14,7 @@ class ExampleUser:
     image: str | None
     created_at: datetime
     updated_at: datetime
+    scopes: list[str] | None = None
     custom_field: str | None = None
 
 
@@ -64,6 +65,7 @@ def test_user_protocol_runtime_check() -> None:
         image="https://example.com/image.jpg",
         created_at=now,
         updated_at=now,
+        scopes=[],
         custom_field="custom value",
     )
 
@@ -129,6 +131,7 @@ def test_user_with_custom_fields_satisfies_protocol() -> None:
         image=None,
         created_at=now,
         updated_at=now,
+        scopes=[],
         custom_field="this is a custom field not in the protocol",
     )
 

@@ -344,16 +344,12 @@ async def test_user_dependency_expired_session(auth: Auth, db_session: AsyncSess
 @pytest.mark.asyncio
 async def test_user_dependency_with_valid_scopes(auth: Auth, db_session: AsyncSession) -> None:
     user = await auth.adapter.create_user(db_session, email="test@example.com")
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+    # Assign user-level scopes
+    user.scopes = ["openid", "email", "profile", "admin"]
+    await db_session.commit()
+    await db_session.refresh(user)
 
-    await auth.adapter.create_account(
-        db_session,
-        user_id=user.id,
-        provider="google",
-        provider_account_id="google-123",
-        access_token="test-token",  # noqa: S106
-        scope="openid email profile admin",
-    )
+    session = await auth.session_manager.create_session(db_session, user_id=user.id)
 
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.session.cookie_name: str(session.id)}
@@ -367,16 +363,12 @@ async def test_user_dependency_with_valid_scopes(auth: Auth, db_session: AsyncSe
 @pytest.mark.asyncio
 async def test_user_dependency_with_insufficient_scopes(auth: Auth, db_session: AsyncSession) -> None:
     user = await auth.adapter.create_user(db_session, email="test@example.com")
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+    # Assign user-level scopes (missing 'admin')
+    user.scopes = ["openid", "email"]
+    await db_session.commit()
+    await db_session.refresh(user)
 
-    await auth.adapter.create_account(
-        db_session,
-        user_id=user.id,
-        provider="google",
-        provider_account_id="google-123",
-        access_token="test-token",  # noqa: S106
-        scope="openid email",
-    )
+    session = await auth.session_manager.create_session(db_session, user_id=user.id)
 
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.session.cookie_name: str(session.id)}
@@ -387,12 +379,15 @@ async def test_user_dependency_with_insufficient_scopes(auth: Auth, db_session: 
         await auth.user(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
-    assert "insufficient scopes" in str(exc_info.value.detail)  # type: ignore[attr-defined]
+    assert exc_info.value.detail == "Insufficient permissions"  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_scopes_required_but_no_account(auth: Auth, db_session: AsyncSession) -> None:
+async def test_user_dependency_scopes_required_but_user_has_no_scopes(auth: Auth, db_session: AsyncSession) -> None:
     user = await auth.adapter.create_user(db_session, email="test@example.com")
+    # User has no scopes (None by default)
+    assert user.scopes is None
+
     session = await auth.session_manager.create_session(db_session, user_id=user.id)
 
     request = MagicMock(spec=Request)
