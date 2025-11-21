@@ -12,18 +12,23 @@ This design introduces:
 - **Provider Protocol**: Minimal interface that providers must implement (`provider_id`, `get_router`)
 - **Self-Contained Providers**: Each provider manages its own FastAPI router and OAuth flow
 - **Adapter Injection**: Database adapter passed to providers via `get_router()` method
-- **Type Safety**: Provider IDs use Literal types for compile-time safety
+- **Database Dependency in Adapter**: `db_dependency` moved from Auth to adapter for better cohesion
+- **Type Safety**: Provider IDs use Literal types, provider settings use TypedDict for extensibility
 - **Environment Config**: Each provider loads settings from environment with `env_prefix`
+- **Resource Management**: httpx context managers handle cleanup (no `close()` method needed)
 
 ### Goals
 
-- Define a minimal provider protocol for self-contained OAuth providers
+- Define a minimal provider protocol for self-contained OAuth providers (3 methods only)
 - Each provider creates and manages its own FastAPI router with OAuth endpoints
 - Providers are completely independent and testable in isolation
 - Type-safe provider identification using Literal types
+- Type-safe provider settings using TypedDict (typed for built-in providers, extensible for custom ones)
+- Move `db_dependency` from Auth to adapter for better cohesion
 - Adapter protocol includes `get_db()` method for FastAPI dependency injection
+- Use httpx context managers for resource cleanup (no `close()` method in protocol)
 - Support provider-specific customizations (scopes, parameters, workflows)
-- Enable adding new providers by implementing a 3-method protocol
+- Enable adding new providers by implementing a simple protocol
 - Eliminate need for central OAuth flow orchestration
 
 ### Non-Goals
@@ -322,6 +327,265 @@ graph TD
 ```
 
 ## Detailed Design
+
+### Settings Architecture with TypedDict
+
+To provide type-safe provider configuration while allowing extensibility, we use a TypedDict pattern for provider settings. This gives us:
+- **Type safety** for built-in providers (Google, GitHub) that ship with belgie
+- **Extensibility** for users to add custom providers
+- **Auto-completion** in IDEs for known providers
+- **Flexible configuration** through environment variables
+
+```python
+from typing import TypedDict, NotRequired
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Individual provider settings (inherit from BaseSettings for env loading)
+class GoogleProviderSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_GOOGLE_",
+        env_file=".env",
+        extra="ignore"
+    )
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+    scopes: list[str] = ["openid", "email", "profile"]
+
+class GitHubProviderSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_GITHUB_",
+        env_file=".env",
+        extra="ignore"
+    )
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+    scopes: list[str] = ["user:email", "read:user"]
+
+# TypedDict for provider settings - allows extras for custom providers
+class ProviderSettingsDict(TypedDict, total=False):
+    """
+    Type-safe provider settings dictionary.
+    Built-in providers (google, github) are typed for IDE support.
+    Additional providers can be added dynamically.
+    """
+    google: NotRequired[GoogleProviderSettings]
+    github: NotRequired[GitHubProviderSettings]
+    # Users can add custom providers - TypedDict with total=False allows extras
+
+# Main auth settings
+class AuthSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_",
+        env_file=".env",
+        extra="ignore"
+    )
+
+    secret_key: str = "change-me"
+    base_url: str = "http://localhost:8000"
+
+    # Provider settings loaded individually from environment
+    # We don't use ProviderSettingsDict directly in BaseSettings
+    # Instead, each provider loads its own settings in Auth._load_providers()
+
+# Usage in Auth class
+class Auth:
+    def __init__(self, adapter: AlchemyAdapter):
+        self.adapter = adapter
+        self.settings = AuthSettings()
+        self.providers: dict[str, OAuthProviderProtocol] = {}
+        self._load_providers()
+
+    def _load_providers(self) -> None:
+        """Load providers from environment - each provider loads its own settings"""
+        try:
+            google_settings = GoogleProviderSettings()
+            if google_settings.client_id:
+                google = GoogleOAuthProvider(google_settings)
+                self.register_provider(google)
+        except Exception:
+            pass  # Silently skip if not configured
+```
+
+**Why this approach:**
+- Each provider loads settings independently using Pydantic's BaseSettings
+- TypedDict documents the expected provider structure for type checkers
+- No need for complex nested BaseSettings (which can have env prefix conflicts)
+- Providers with missing required fields are silently skipped
+- Users can add custom providers by following the same pattern
+
+### Resource Management and httpx
+
+OAuth providers make HTTP requests to exchange tokens and fetch user info. We use httpx's async context manager for automatic resource cleanup:
+
+```python
+# In provider's get_router() method:
+@router.get("/callback")
+async def callback(code: str, state: str, db=Depends(adapter.get_db)):
+    # Context manager handles connection cleanup automatically
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(TOKEN_URL, data={...})
+        tokens = token_response.json()
+
+    async with httpx.AsyncClient() as client:
+        user_response = await client.get(USER_INFO_URL, headers={...})
+        user_data = user_response.json()
+
+    # No need for explicit cleanup - context manager handles it
+```
+
+**Design Decision: No `close()` method needed on providers**
+
+We do NOT add a `close()` or cleanup method to the OAuthProviderProtocol because:
+1. **httpx context managers** handle resource cleanup automatically
+2. **Providers are stateless** - they don't maintain persistent connections
+3. **Routes are closures** - cleanup happens within each request
+4. **Simpler protocol** - fewer methods means easier implementation
+
+If a provider needs persistent connection pooling (rare), it can manage an internal client:
+```python
+class CustomProvider:
+    def __init__(self, settings):
+        self.settings = settings
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient()
+        return self._client
+
+    async def close(self):
+        """Optional cleanup - not required by protocol"""
+        if self._client:
+            await self._client.aclose()
+```
+
+But for the standard use case, context managers in routes are sufficient.
+
+### Database Dependency: Moving `get_db` to Adapter
+
+**Key Architecture Change:** The database dependency moves from `Auth.__init__` to the adapter.
+
+#### Current Architecture (Before)
+
+```python
+# Current: db_dependency passed to Auth
+class Auth:
+    def __init__(
+        self,
+        settings: AuthSettings,
+        adapter: AlchemyAdapter,
+        db_dependency: Callable[[], Any] | None = None,  # ← Here
+    ):
+        self.adapter = adapter
+        self.db_dependency = db_dependency
+
+    def _create_router(self):
+        router = APIRouter()
+
+        async def _get_db():
+            if self.db_dependency is None:
+                raise RuntimeError("db not configured")
+            return await self.db_dependency()
+
+        @router.get("/signin/google")
+        async def signin(db = Depends(_get_db)):  # ← Internal function
+            ...
+```
+
+**Problems:**
+- Database dependency is disconnected from the adapter that uses it
+- Auth class has to manage both adapter AND database sessions
+- Providers can't access database dependency (need to pass through Auth)
+
+#### New Architecture (After)
+
+```python
+# New: db_dependency is part of the adapter
+class AlchemyAdapter:
+    def __init__(
+        self,
+        *,
+        user: type[UserT],
+        account: type[AccountT],
+        session: type[SessionT],
+        oauth_state: type[OAuthStateT],
+        db_dependency: Callable[[], Any],  # ← Moved here
+    ):
+        self.user_model = user
+        self.account_model = account
+        self.session_model = session
+        self.oauth_state_model = oauth_state
+        self.db_dependency = db_dependency  # ← Store it
+
+    def get_db(self) -> Callable[[], Any] | None:
+        """Return the database dependency for FastAPI"""
+        return self.db_dependency
+
+
+class AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT](Protocol):
+    # ... all existing methods ...
+
+    def get_db(self) -> Callable[[], Any] | None:
+        """
+        Return FastAPI dependency for database sessions.
+        Used by providers in route definitions.
+        """
+        ...
+
+
+class Auth:
+    def __init__(self, adapter: AlchemyAdapter):  # ← No db_dependency parameter
+        self.adapter = adapter
+        self.providers: dict[str, OAuthProviderProtocol] = {}
+        self._load_providers()
+
+    def create_router(self):
+        router = APIRouter()
+        for provider in self.providers.values():
+            # Provider gets adapter, uses adapter.get_db() internally
+            provider_router = provider.get_router(self.adapter)
+            router.include_router(provider_router)
+        return router
+
+
+# In provider implementation:
+class GoogleOAuthProvider:
+    def get_router(self, adapter: AdapterProtocol) -> APIRouter:
+        router = APIRouter()
+
+        @router.get("/signin")
+        async def signin(db = Depends(adapter.get_db)):  # ← Direct access
+            # Provider uses adapter methods with db
+            await adapter.create_oauth_state(db, ...)
+```
+
+**Benefits:**
+- **Cohesion**: Database dependency is co-located with database operations
+- **Simplicity**: Auth class has one less responsibility
+- **Flexibility**: Providers access database through adapter interface
+- **Testing**: Easier to mock - adapter.get_db() can return test fixtures
+
+**Migration Guide:**
+
+Before:
+```python
+adapter = AlchemyAdapter(user=User, account=Account, session=Session, oauth_state=OAuthState)
+auth = Auth(settings=settings, adapter=adapter, db_dependency=get_db)
+```
+
+After:
+```python
+adapter = AlchemyAdapter(
+    user=User,
+    account=Account,
+    session=Session,
+    oauth_state=OAuthState,
+    db_dependency=get_db,  # ← Moved here
+)
+auth = Auth(adapter=adapter)  # ← Simplified
+```
 
 ### Module Structure
 
@@ -1249,9 +1513,49 @@ Tests should be organized by module/file and cover unit tests, integration tests
 ## Open Questions
 
 1. Should we provide shared utility functions for common OAuth operations (token exchange, user info fetching)? Or keep each provider completely independent?
+   - Current approach: Keep providers independent to avoid coupling
+   - If duplication becomes significant, can add optional utility functions later
+   - Providers can choose to use utilities or implement custom logic
+
 2. Should we support OIDC discovery (auto-fetching endpoints from .well-known/openid-configuration)?
+   - Not in initial implementation (added to Non-Goals)
+   - Can be added per-provider or as shared utility
+   - Most providers have stable endpoints anyway
+
 3. How should we handle providers that don't follow standard OAuth 2.0 (e.g., Twitter OAuth 1.0)?
+   - Out of scope for this design (OAuth 2.0 only)
+   - Could be separate protocol if needed in future
+   - OAuth 1.0 is rare for new implementations
+
 4. Should provider loading be more dynamic (plugin system) or keep explicit imports in Auth class?
+   - Current: Explicit imports in `Auth._load_providers()`
+   - Simple and clear for built-in providers
+   - Users can subclass Auth to add custom providers
+   - Plugin system can be added later if needed
+
+## Answered Design Questions
+
+These questions were resolved during the design process:
+
+**Q: Should providers have a `close()` method for resource cleanup?**
+- **Answer**: No. Use httpx context managers (`async with`) in route handlers for automatic cleanup.
+- Providers are stateless and don't maintain persistent connections
+- Simpler protocol with fewer methods
+- If a provider needs connection pooling, it can manage internally (optional, not required by protocol)
+
+**Q: How should provider settings be structured?**
+- **Answer**: TypedDict with individual BaseSettings classes per provider
+- Built-in providers (google, github) get type-safe configuration
+- Each provider loads its own settings using Pydantic BaseSettings with `env_prefix`
+- TypedDict documents expected structure for type checkers
+- Allows custom providers to follow same pattern
+
+**Q: Where should database dependency live - Auth or Adapter?**
+- **Answer**: Adapter. `db_dependency` moved from `Auth.__init__` to adapter.
+- Better cohesion - database dependency is with database operations
+- Providers access via `adapter.get_db()` in routes
+- Simpler Auth class - one less responsibility
+- Easier testing and mocking
 
 ## Future Enhancements
 
