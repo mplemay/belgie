@@ -69,7 +69,7 @@ auth = Auth(adapter=adapter)
 # Create FastAPI app with all provider routes
 from fastapi import FastAPI
 app = FastAPI()
-app.include_router(auth.create_router())
+app.include_router(auth.router)
 
 # Result:
 # GET /auth/provider/google/signin
@@ -538,16 +538,24 @@ class AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT](Protocol):
 class Auth:
     def __init__(self, adapter: AlchemyAdapter):  # ← No db_dependency parameter
         self.adapter = adapter
+        self.settings = AuthSettings()
         self.providers: dict[str, OAuthProviderProtocol] = {}
         self._load_providers()
 
-    def create_router(self):
-        router = APIRouter()
+    @cached_property
+    def router(self) -> APIRouter:
+        """FastAPI router with all provider routes (cached)"""
+        main_router = APIRouter(prefix="/auth")
+        provider_router = APIRouter(prefix="/provider")
+
         for provider in self.providers.values():
-            # Provider gets adapter, uses adapter.get_db() internally
-            provider_router = provider.get_router(self.adapter)
-            router.include_router(provider_router)
-        return router
+            # Provider gets adapter and auth settings
+            provider_router.include_router(
+                provider.get_router(self.adapter, self.settings)
+            )
+
+        main_router.include_router(provider_router)
+        return main_router
 
 
 # In provider implementation:
@@ -593,8 +601,7 @@ auth = Auth(adapter=adapter)  # ← Simplified
 src/belgie/auth/
 ├── core/
 │   ├── auth.py                 # (MODIFIED) Auth class - loads and registers providers
-│   ├── exceptions.py           # (MODIFIED) Add ProviderNotFoundError
-│   └── helpers.py              # (NEW) Helper functions for provider URLs and config
+│   └── exceptions.py           # (MODIFIED) Add ProviderNotFoundError
 ├── protocols/
 │   ├── provider.py             # (NEW) OAuthProviderProtocol definition
 │   └── adapter.py              # (MODIFIED) Add get_db() method to protocol
@@ -605,8 +612,7 @@ src/belgie/auth/
 └── __test__/
     └── auth/
         ├── core/
-        │   ├── test_auth.py                    # Tests for Auth class
-        │   └── test_helpers.py                 # Tests for helper functions
+        │   └── test_auth.py                    # Tests for Auth class
         └── providers/
             ├── test_google.py                  # Unit tests for Google provider
             ├── test_github.py                  # Unit tests for GitHub provider
@@ -647,22 +653,37 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         """
         ...
 
-    def get_router(self, adapter: AdapterProtocol) -> APIRouter:
+    def get_router(self, adapter: AdapterProtocol, auth_settings: AuthSettings) -> APIRouter:
         """
         Create and return FastAPI router with OAuth endpoints.
 
         The router should include:
-        - GET /auth/signin/{provider_id} - Initiates OAuth flow
-        - GET /auth/callback/{provider_id} - Handles OAuth callback
+        - GET /{provider_id}/signin - Initiates OAuth flow
+        - GET /{provider_id}/callback - Handles OAuth callback
+
+        Args:
+            adapter: Database adapter for persistence operations
+            auth_settings: Auth configuration for cookies, sessions, and URLs
 
         The adapter provides database access via dependency injection:
         - db = Depends(adapter.get_db)
+
+        The auth_settings provide configuration for:
+        - Cookie settings (httponly, secure, samesite, domain)
+        - Session settings (cookie_name, max_age)
+        - URL settings (signin_redirect, signout_redirect)
 
         The provider has complete control over:
         - OAuth flow implementation
         - User data mapping
         - Session management
         - Error handling
+
+        Implementation style:
+        - Use private methods (e.g., __signin_google) for route handlers
+        - Register routes with router.add_api_route()
+        - Use walrus operator where appropriate
+        - Use dict.get() for safe dictionary access
         """
         ...
 ```
@@ -815,18 +836,27 @@ class GoogleOAuthProvider:
     def provider_id(self) -> Literal["google"]:
         return "google"
 
-    def get_router(self, adapter: AdapterProtocol) -> APIRouter:
+    def get_router(self, adapter: AdapterProtocol, auth_settings: AuthSettings) -> APIRouter:
         """Create router with Google OAuth endpoints"""
+        from datetime import UTC, datetime, timedelta
+        from urllib.parse import urlencode
+
+        from belgie.auth.core.exceptions import InvalidStateError
+
         router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
-        @router.get("/signin")
-        async def signin_google(db=Depends(adapter.get_db)):
+        async def __signin_google(db=Depends(adapter.get_db)):
             """Initiate Google OAuth flow"""
-            # 1. Generate and store state token for CSRF protection
+            # Generate and store state token with expiration
             state = generate_state_token()
-            await adapter.create_oauth_state(db, state, self.provider_id)
+            expires_at = datetime.now(UTC) + timedelta(minutes=10)
+            await adapter.create_oauth_state(
+                db,
+                state=state,
+                expires_at=expires_at.replace(tzinfo=None),
+            )
 
-            # 2. Build authorization URL with all parameters
+            # Build authorization URL
             params = {
                 "client_id": self.settings.client_id,
                 "redirect_uri": self.settings.redirect_uri,
@@ -836,25 +866,17 @@ class GoogleOAuthProvider:
                 "access_type": self.settings.access_type,
                 "prompt": self.settings.prompt,
             }
-            from urllib.parse import urlencode
             auth_url = f"{self.AUTHORIZATION_URL}?{urlencode(params)}"
-
-            # 3. Redirect user to Google
             return RedirectResponse(url=auth_url)
 
-        @router.get("/callback")
-        async def callback_google(
-            code: str, state: str, db=Depends(adapter.get_db)
-        ):
+        async def __callback_google(code: str, state: str, db=Depends(adapter.get_db)):
             """Handle Google OAuth callback"""
-            # 1. Validate state token
-            oauth_state = await adapter.get_oauth_state(db, state)
-            if not oauth_state:
-                from belgie.auth.core.exceptions import InvalidStateError
+            # Validate and delete state token (use walrus operator)
+            if not (oauth_state := await adapter.get_oauth_state(db, state)):
                 raise InvalidStateError("Invalid OAuth state")
             await adapter.delete_oauth_state(db, state)
 
-            # 2. Exchange code for tokens
+            # Exchange code for tokens
             async with httpx.AsyncClient() as client:
                 token_response = await client.post(
                     self.TOKEN_URL,
@@ -869,7 +891,7 @@ class GoogleOAuthProvider:
                 token_response.raise_for_status()
                 tokens = token_response.json()
 
-            # 3. Fetch user info from Google
+            # Fetch user info
             async with httpx.AsyncClient() as client:
                 user_response = await client.get(
                     self.USER_INFO_URL,
@@ -878,9 +900,8 @@ class GoogleOAuthProvider:
                 user_response.raise_for_status()
                 user_data = user_response.json()
 
-            # 4. Create or get user
-            user = await adapter.get_user_by_email(db, user_data["email"])
-            if not user:
+            # Get or create user (use walrus operator)
+            if not (user := await adapter.get_user_by_email(db, user_data["email"])):
                 user = await adapter.create_user(
                     db,
                     email=user_data["email"],
@@ -889,30 +910,56 @@ class GoogleOAuthProvider:
                     image=user_data.get("picture"),
                 )
 
-            # 5. Store or update OAuth account
-            await adapter.create_or_update_account(
+            # Create or update OAuth account (use dict.get for optional tokens)
+            existing_account = await adapter.get_account_by_user_and_provider(
+                db, user.id, self.provider_id
+            )
+            if existing_account:
+                await adapter.update_account(
+                    db,
+                    user_id=user.id,
+                    provider=self.provider_id,
+                    access_token=tokens["access_token"],
+                    refresh_token=tokens.get("refresh_token"),
+                    expires_at=tokens.get("expires_at"),
+                    scope=tokens.get("scope"),
+                )
+            else:
+                await adapter.create_account(
+                    db,
+                    user_id=user.id,
+                    provider=self.provider_id,
+                    provider_account_id=user_data["id"],
+                    access_token=tokens["access_token"],
+                    refresh_token=tokens.get("refresh_token"),
+                    expires_at=tokens.get("expires_at"),
+                    scope=tokens.get("scope"),
+                )
+
+            # Create session with proper expiration
+            expires_at = datetime.now(UTC) + timedelta(seconds=auth_settings.session.max_age)
+            session = await adapter.create_session(
                 db,
                 user_id=user.id,
-                provider=self.provider_id,
-                provider_account_id=user_data["id"],
-                access_token=tokens["access_token"],
-                refresh_token=tokens.get("refresh_token"),
-                expires_at=None,  # Calculate from expires_in if needed
+                expires_at=expires_at.replace(tzinfo=None),
             )
 
-            # 6. Create session
-            session = await adapter.create_session(db, user_id=user.id)
-
-            # 7. Set session cookie and redirect
-            response = RedirectResponse(url="/dashboard")
+            # Set session cookie with settings from auth and redirect
+            response = RedirectResponse(url=auth_settings.urls.signin_redirect)
             response.set_cookie(
-                key="session",
-                value=session.token,
-                httponly=True,
-                secure=True,
-                samesite="lax",
+                key=auth_settings.session.cookie_name,
+                value=str(session.id),
+                max_age=auth_settings.session.max_age,
+                httponly=auth_settings.cookie.http_only,
+                secure=auth_settings.cookie.secure,
+                samesite=auth_settings.cookie.same_site,
+                domain=auth_settings.cookie.domain,
             )
             return response
+
+        # Register routes using add_api_route
+        router.add_api_route("/signin", __signin_google, methods=["GET"])
+        router.add_api_route("/callback", __callback_google, methods=["GET"])
 
         return router
 ```
@@ -967,17 +1014,27 @@ class GitHubOAuthProvider:
     def provider_id(self) -> Literal["github"]:
         return "github"
 
-    def get_router(self, adapter: AdapterProtocol) -> APIRouter:
+    def get_router(self, adapter: AdapterProtocol, auth_settings: AuthSettings) -> APIRouter:
         """Create router with GitHub OAuth endpoints"""
-        router = APIRouter(prefix="/auth", tags=["auth"])
+        from datetime import UTC, datetime, timedelta
+        from urllib.parse import urlencode
 
-        @router.get("/signin")
-        async def signin_github(db=Depends(adapter.get_db)):
+        from belgie.auth.core.exceptions import InvalidStateError
+
+        router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
+
+        async def __signin_github(db=Depends(adapter.get_db)):
             """Initiate GitHub OAuth flow"""
+            # Generate and store state token
             state = generate_state_token()
-            await adapter.create_oauth_state(db, state, self.provider_id)
+            expires_at = datetime.now(UTC) + timedelta(minutes=10)
+            await adapter.create_oauth_state(
+                db,
+                state=state,
+                expires_at=expires_at.replace(tzinfo=None),
+            )
 
-            from urllib.parse import urlencode
+            # Build authorization URL with GitHub-specific params
             params = {
                 "client_id": self.settings.client_id,
                 "redirect_uri": self.settings.redirect_uri,
@@ -988,15 +1045,10 @@ class GitHubOAuthProvider:
             auth_url = f"{self.AUTHORIZATION_URL}?{urlencode(params)}"
             return RedirectResponse(url=auth_url)
 
-        @router.get("/callback")
-        async def callback_github(
-            code: str, state: str, db=Depends(adapter.get_db)
-        ):
+        async def __callback_github(code: str, state: str, db=Depends(adapter.get_db)):
             """Handle GitHub OAuth callback"""
-            # Validate state
-            oauth_state = await adapter.get_oauth_state(db, state)
-            if not oauth_state:
-                from belgie.auth.core.exceptions import InvalidStateError
+            # Validate and delete state token (use walrus operator)
+            if not (oauth_state := await adapter.get_oauth_state(db, state)):
                 raise InvalidStateError("Invalid OAuth state")
             await adapter.delete_oauth_state(db, state)
 
@@ -1027,9 +1079,8 @@ class GitHubOAuthProvider:
                 user_response.raise_for_status()
                 user_data = user_response.json()
 
-            # Fetch email if not public
-            email = user_data.get("email")
-            if not email:
+            # Fetch email if not public (use walrus operator)
+            if not (email := user_data.get("email")):
                 async with httpx.AsyncClient() as client:
                     emails_response = await client.get(
                         self.USER_EMAILS_URL,
@@ -1040,15 +1091,14 @@ class GitHubOAuthProvider:
                     )
                     emails_response.raise_for_status()
                     emails = emails_response.json()
-                    # Get primary verified email
-                    for email_data in emails:
-                        if email_data.get("primary") and email_data.get("verified"):
-                            email = email_data["email"]
-                            break
+                    # Get primary verified email (use walrus in comprehension)
+                    email = next(
+                        (e["email"] for e in emails if e.get("primary") and e.get("verified")),
+                        None
+                    )
 
-            # Create or get user
-            user = await adapter.get_user_by_email(db, email)
-            if not user:
+            # Get or create user (use walrus operator)
+            if not (user := await adapter.get_user_by_email(db, email)):
                 user = await adapter.create_user(
                     db,
                     email=email,
@@ -1057,30 +1107,53 @@ class GitHubOAuthProvider:
                     image=user_data.get("avatar_url"),
                 )
 
-            # Store account
-            await adapter.create_or_update_account(
+            # Create or update OAuth account
+            if existing_account := await adapter.get_account_by_user_and_provider(
+                db, user.id, self.provider_id
+            ):
+                await adapter.update_account(
+                    db,
+                    user_id=user.id,
+                    provider=self.provider_id,
+                    access_token=tokens["access_token"],
+                    refresh_token=tokens.get("refresh_token"),
+                    expires_at=tokens.get("expires_at"),
+                )
+            else:
+                await adapter.create_account(
+                    db,
+                    user_id=user.id,
+                    provider=self.provider_id,
+                    provider_account_id=str(user_data["id"]),
+                    access_token=tokens["access_token"],
+                    refresh_token=tokens.get("refresh_token"),
+                    expires_at=tokens.get("expires_at"),
+                )
+
+            # Create session with proper expiration
+            expires_at = datetime.now(UTC) + timedelta(seconds=auth_settings.session.max_age)
+            session = await adapter.create_session(
                 db,
                 user_id=user.id,
-                provider=self.provider_id,
-                provider_account_id=str(user_data["id"]),
-                access_token=tokens["access_token"],
-                refresh_token=None,
-                expires_at=None,
+                expires_at=expires_at.replace(tzinfo=None),
             )
 
-            # Create session
-            session = await adapter.create_session(db, user_id=user.id)
-
-            # Set cookie and redirect
-            response = RedirectResponse(url="/dashboard")
+            # Set session cookie with settings from auth and redirect
+            response = RedirectResponse(url=auth_settings.urls.signin_redirect)
             response.set_cookie(
-                key="session",
-                value=session.token,
-                httponly=True,
-                secure=True,
-                samesite="lax",
+                key=auth_settings.session.cookie_name,
+                value=str(session.id),
+                max_age=auth_settings.session.max_age,
+                httponly=auth_settings.cookie.http_only,
+                secure=auth_settings.cookie.secure,
+                samesite=auth_settings.cookie.same_site,
+                domain=auth_settings.cookie.domain,
             )
             return response
+
+        # Register routes using add_api_route
+        router.add_api_route("/signin", __signin_github, methods=["GET"])
+        router.add_api_route("/callback", __callback_github, methods=["GET"])
 
         return router
 ```
@@ -1125,54 +1198,54 @@ class Auth:
         self.adapter = adapter
         self.settings = AuthSettings()
         self.providers: dict[str, OAuthProviderProtocol] = {}
-
-        # Auto-load providers from environment
         self._load_providers()
 
     def _load_providers(self) -> None:
         """
         Load and register OAuth providers from environment.
         Providers with missing required settings are silently skipped.
+        Uses dict.get() to avoid duplicate registrations.
         """
-        # Load Google provider
-        try:
-            google_settings = GoogleProviderSettings()
-            if google_settings.client_id:  # Only register if configured
-                google = GoogleOAuthProvider(google_settings)
-                self.register_provider(google)
-        except Exception:
-            pass  # Provider not configured
+        # Load Google provider (skip if already registered)
+        if not self.providers.get("google"):
+            try:
+                google_settings = GoogleProviderSettings()
+                if google_settings.client_id:  # Only register if configured
+                    google = GoogleOAuthProvider(google_settings)
+                    self.providers[google.provider_id] = google
+            except Exception:
+                pass  # Provider not configured
 
-        # Load GitHub provider
-        try:
-            github_settings = GitHubProviderSettings()
-            if github_settings.client_id:
-                github = GitHubOAuthProvider(github_settings)
-                self.register_provider(github)
-        except Exception:
-            pass  # Provider not configured
+        # Load GitHub provider (skip if already registered)
+        if not self.providers.get("github"):
+            try:
+                github_settings = GitHubProviderSettings()
+                if github_settings.client_id:
+                    github = GitHubOAuthProvider(github_settings)
+                    self.providers[github.provider_id] = github
+            except Exception:
+                pass  # Provider not configured
 
         # Add more providers here as they're implemented
 
     def register_provider(self, provider: OAuthProviderProtocol) -> None:
-        """Register an OAuth provider"""
+        """Register an OAuth provider (or update if already exists)"""
         self.providers[provider.provider_id] = provider
 
-    def create_router(self) -> APIRouter:
+    @cached_property
+    def router(self) -> APIRouter:
         """
-        Create main router including all provider routers.
+        FastAPI router with all provider routes (cached).
         Structure: /auth/provider/{provider_id}/...
         """
         main_router = APIRouter(prefix="/auth")
-
-        # Create provider sub-router
         provider_router = APIRouter(prefix="/provider")
 
         for provider in self.providers.values():
-            # Pass adapter to provider when getting router
+            # Pass adapter and settings to provider
             # Each provider's router has prefix /{provider_id}
-            # Combined with /auth/provider prefix: /auth/provider/{provider_id}/...
-            provider_specific_router = provider.get_router(self.adapter)
+            # Combined: /auth/provider/{provider_id}/signin and /callback
+            provider_specific_router = provider.get_router(self.adapter, self.settings)
             provider_router.include_router(provider_specific_router)
 
         main_router.include_router(provider_router)
@@ -1182,121 +1255,9 @@ class Auth:
         """Return list of registered provider IDs"""
         return list(self.providers.keys())
 
-    def get_provider(self, provider_id: str) -> OAuthProviderProtocol:
-        """Get provider by ID"""
-        if provider_id not in self.providers:
-            from belgie.auth.core.exceptions import ProviderNotFoundError
-            raise ProviderNotFoundError(f"Provider '{provider_id}' not found")
-        return self.providers[provider_id]
-```
-
-#### `src/belgie/auth/core/helpers.py`
-
-Helper functions for working with providers (see [Implementation Order](#implementation-order) #6).
-
-```python
-from typing import Any
-
-from belgie.auth.core.auth import Auth
-
-
-def get_provider_urls(auth: Auth, provider_id: str, base_url: str = "") -> dict[str, str]:
-    """
-    Get OAuth endpoint URLs for a specific provider.
-
-    Args:
-        auth: Auth instance
-        provider_id: Provider identifier (e.g., "google", "github")
-        base_url: Base URL for the application (e.g., "http://localhost:8000")
-
-    Returns:
-        Dict with signin_url and callback_url
-
-    Example:
-        urls = get_provider_urls(auth, "google", "http://localhost:8000")
-        # {"signin_url": "http://localhost:8000/auth/provider/google/signin",
-        #  "callback_url": "http://localhost:8000/auth/provider/google/callback"}
-    """
-    # Validate provider exists
-    auth.get_provider(provider_id)  # Raises ProviderNotFoundError if not found
-
-    return {
-        "signin_url": f"{base_url}/auth/provider/{provider_id}/signin",
-        "callback_url": f"{base_url}/auth/provider/{provider_id}/callback",
-    }
-
-
-def get_all_provider_urls(auth: Auth, base_url: str = "") -> dict[str, dict[str, str]]:
-    """
-    Get OAuth endpoint URLs for all registered providers.
-
-    Args:
-        auth: Auth instance
-        base_url: Base URL for the application
-
-    Returns:
-        Dict mapping provider_id to URLs dict
-
-    Example:
-        urls = get_all_provider_urls(auth, "http://localhost:8000")
-        # {
-        #   "google": {"signin_url": "...", "callback_url": "..."},
-        #   "github": {"signin_url": "...", "callback_url": "..."}
-        # }
-    """
-    return {
-        provider_id: get_provider_urls(auth, provider_id, base_url)
-        for provider_id in auth.list_providers()
-    }
-
-
-def get_provider_config(auth: Auth, provider_id: str) -> dict[str, Any]:
-    """
-    Get non-sensitive provider configuration details.
-
-    Args:
-        auth: Auth instance
-        provider_id: Provider identifier
-
-    Returns:
-        Dict with non-sensitive config (never includes secrets)
-
-    Example:
-        config = get_provider_config(auth, "google")
-        # {
-        #   "provider_id": "google",
-        #   "scopes": ["openid", "email", "profile"]
-        # }
-    """
-    provider = auth.get_provider(provider_id)
-
-    # Only return non-sensitive information
-    config = {
-        "provider_id": provider.provider_id,
-    }
-
-    # Add scopes if available
-    if hasattr(provider, "settings") and hasattr(provider.settings, "scopes"):
-        config["scopes"] = provider.settings.scopes
-
-    return config
-
-
-def list_available_providers(auth: Auth) -> list[str]:
-    """
-    List all registered and available providers.
-
-    Args:
-        auth: Auth instance
-
-    Returns:
-        List of provider IDs
-
-    Example:
-        providers = list_available_providers(auth)
-        # ["google", "github"]
-    """
-    return auth.list_providers()
+    def get_provider(self, provider_id: str) -> OAuthProviderProtocol | None:
+        """Get provider by ID (returns None if not found)"""
+        return self.providers.get(provider_id)
 ```
 
 #### Example `.env` File
@@ -1369,21 +1330,9 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `create_router()` includes all provider routers
 - Test `list_providers()` returns all registered provider IDs
 - Test `get_provider()` returns correct provider
-- Test `get_provider()` raises ProviderNotFoundError for invalid ID
+- Test `get_provider()` returns None for invalid provider ID (uses dict.get())
+- Test `@cached_property router` is cached and only created once
 - Use mock environment variables for testing
-
-#### `test_helpers.py`
-
-**Helper Function Tests:**
-- Test `get_provider_urls()` returns correct URLs for valid provider
-- Test `get_provider_urls()` raises ProviderNotFoundError for invalid provider
-- Test `get_provider_urls()` with and without base_url parameter
-- Test `get_all_provider_urls()` returns URLs for all providers
-- Test `get_all_provider_urls()` handles empty provider registry
-- Test `get_provider_config()` returns non-sensitive config
-- Test `get_provider_config()` never exposes client_secret
-- Test `list_available_providers()` returns all provider IDs
-- Use mock Auth instance with registered providers
 
 **Integration Tests:**
 - Test [Workflow 1](#workflow-1-provider-registration-and-initialization): providers loaded from env and routes created
@@ -1426,10 +1375,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 5. **Auth Class** (`core/auth.py`) - Simplified provider loading and registration
    - Used in: All workflows
    - Dependencies: Provider protocol, Adapter, Provider implementations
-
-6. **Helper Functions** (`core/helpers.py`) - Utility functions for provider URLs
-   - Used in: UI integration, API documentation
-   - Dependencies: Auth class
+   - Includes cached_property router for FastAPI integration
 
 ### Tasks
 
@@ -1438,7 +1384,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [ ] Define generic type parameter for settings
     - [ ] Define `__init__(settings)` method
     - [ ] Define `provider_id` property returning str
-    - [ ] Define `get_router(adapter)` method returning APIRouter
+    - [ ] Define `get_router(adapter, auth_settings)` method returning APIRouter
   - [ ] Add `get_db()` to `AdapterProtocol` in `protocols/adapter.py` (#2)
     - [ ] Define method signature
     - [ ] Add documentation about FastAPI dependency
@@ -1451,10 +1397,13 @@ Tests should be organized by module/file and cover unit tests, integration tests
   - [ ] Implement `GoogleOAuthProvider` class
     - [ ] Implement `__init__(settings)` storing settings
     - [ ] Implement `provider_id` property returning Literal["google"]
-    - [ ] Implement `get_router(adapter)` method
+    - [ ] Implement `get_router(adapter, auth_settings)` method
       - [ ] Create APIRouter with prefix and tags
-      - [ ] Implement signin endpoint (generate URL, create state)
-      - [ ] Implement callback endpoint (validate, exchange, create user/session)
+      - [ ] Define private `__signin_google` method (generate URL, create state)
+      - [ ] Define private `__callback_google` method (validate, exchange, create user/session)
+      - [ ] Use auth_settings for cookie configuration
+      - [ ] Register routes with router.add_api_route()
+      - [ ] Use walrus operator and dict.get() where appropriate
       - [ ] Return router
   - [ ] Write unit tests for `providers/google.py`
     - [ ] Test settings loading from env
@@ -1468,37 +1417,38 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [ ] Configure env_prefix="BELGIE_GITHUB_"
   - [ ] Implement `GitHubOAuthProvider` class
     - [ ] Implement protocol methods (same structure as Google)
+    - [ ] Use private methods `__signin_github` and `__callback_github`
     - [ ] Handle GitHub-specific requirements (Accept header, email fetching)
+    - [ ] Use walrus operator for email fallback logic
   - [ ] Write unit tests for `providers/github.py`
     - [ ] Test GitHub-specific logic
     - [ ] Test email fetching fallback
 
 - [ ] **Implement Auth class** (depends on provider implementations)
   - [ ] Modify `core/auth.py` (#5)
-    - [ ] Update `__init__()` to accept adapter
+    - [ ] Update `__init__()` to accept adapter only (no db_dependency)
+    - [ ] Initialize AuthSettings
     - [ ] Implement `_load_providers()` method
+      - [ ] Use dict.get() to check if provider already registered
       - [ ] Try loading GoogleProviderSettings and instantiate provider
       - [ ] Try loading GitHubProviderSettings and instantiate provider
       - [ ] Silently skip providers with errors
     - [ ] Implement `register_provider()` method
-    - [ ] Implement `create_router()` method
+    - [ ] Implement `@cached_property router` (not create_router method)
+      - [ ] Create nested router structure: /auth/provider/{provider_id}/...
       - [ ] Loop through providers
-      - [ ] Call `provider.get_router(adapter)` for each
+      - [ ] Call `provider.get_router(adapter, settings)` for each
       - [ ] Include all routers in main router
     - [ ] Implement `list_providers()` and `get_provider()` methods
-  - [ ] Update `adapters/alchemy.py` to add `get_db()` method
+      - [ ] Use dict.get() in get_provider (return None if not found)
+  - [ ] Update `adapters/alchemy.py` to implement `get_db()` method
+    - [ ] Accept db_dependency in __init__
+    - [ ] Store as self.db_dependency
+    - [ ] Return it from get_db()
   - [ ] Write unit tests for `core/auth.py`
     - [ ] Test provider loading from env
-    - [ ] Test router creation with multiple providers
+    - [ ] Test cached_property router with multiple providers
     - [ ] Test provider registration and lookup
-
-- [ ] **Implement helper functions** (depends on Auth class)
-  - [ ] Implement `core/helpers.py` (#6)
-    - [ ] Implement `get_provider_urls()`
-    - [ ] Implement `get_all_provider_urls()`
-    - [ ] Implement `get_provider_config()`
-    - [ ] Implement `list_available_providers()`
-  - [ ] Write unit tests for `core/helpers.py`
 
 - [ ] **Integration and validation**
   - [ ] Add integration tests for [Workflow 1](#workflow-1-provider-registration-and-initialization)
