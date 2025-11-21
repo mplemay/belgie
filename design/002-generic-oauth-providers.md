@@ -67,10 +67,10 @@ app = FastAPI()
 app.include_router(auth.create_router())
 
 # Result:
-# GET /auth/signin/google
-# GET /auth/callback/google
-# GET /auth/signin/github
-# GET /auth/callback/github
+# GET /auth/provider/google/signin
+# GET /auth/provider/google/callback
+# GET /auth/provider/github/signin
+# GET /auth/provider/github/callback
 ```
 
 #### Call Graph
@@ -105,7 +105,7 @@ User initiates sign-in with a provider. The provider's router handles the entire
 
 ```python
 # User clicks "Sign in with Google"
-# GET /auth/signin/google
+# GET /auth/provider/google/signin
 
 # Provider generates authorization URL:
 # 1. Creates state token and stores in database
@@ -113,7 +113,7 @@ User initiates sign-in with a provider. The provider's router handles the entire
 # 3. Redirects user to Google
 
 # Google authenticates user and redirects back:
-# GET /auth/callback/google?code=xyz&state=abc
+# GET /auth/provider/google/callback?code=xyz&state=abc
 
 # Provider handles callback:
 # 1. Validates state token
@@ -135,13 +135,13 @@ sequenceDiagram
     participant Adapter
     participant GoogleAPI as Google OAuth
 
-    User->>GoogleProvider: GET /auth/signin/google
+    User->>GoogleProvider: GET /auth/provider/google/signin
     GoogleProvider->>Adapter: create_oauth_state
     GoogleProvider->>GoogleProvider: generate authorization URL
     GoogleProvider-->>User: redirect to Google
 
     User->>GoogleAPI: Authenticate
-    GoogleAPI->>GoogleProvider: GET /auth/callback/google
+    GoogleAPI->>GoogleProvider: GET /auth/provider/google/callback
     GoogleProvider->>Adapter: validate oauth state
     GoogleProvider->>GoogleAPI: exchange code for tokens
     GoogleAPI-->>GoogleProvider: access token
@@ -205,7 +205,7 @@ class MicrosoftOAuthProvider:
         """Create router with Microsoft OAuth endpoints"""
         router = APIRouter(prefix="/auth", tags=["auth"])
 
-        @router.get(f"/signin/{self.provider_id}")
+        @router.get("/signin")
         async def signin_microsoft(db=Depends(adapter.get_db)):
             # Generate state token
             state = generate_state_token()
@@ -222,7 +222,7 @@ class MicrosoftOAuthProvider:
             )
             return RedirectResponse(url=auth_url)
 
-        @router.get(f"/callback/{self.provider_id}")
+        @router.get("/callback")
         async def callback_microsoft(
             code: str, state: str, db=Depends(adapter.get_db)
         ):
@@ -286,7 +286,7 @@ except Exception:
 # Step 4: Add environment variables
 # BELGIE_MICROSOFT_CLIENT_ID="..."
 # BELGIE_MICROSOFT_CLIENT_SECRET="..."
-# BELGIE_MICROSOFT_REDIRECT_URI="http://localhost:8000/auth/callback/microsoft"
+# BELGIE_MICROSOFT_REDIRECT_URI="http://localhost:8000/auth/provider/microsoft/callback"
 
 # That's it! Provider is fully integrated.
 ```
@@ -340,13 +340,13 @@ src/belgie/auth/
 │   └── github.py               # (NEW) Self-contained GitHub OAuth provider
 └── __test__/
     └── auth/
-        ├── providers/
-        │   ├── test_google.py                  # Unit tests for Google provider
-        │   ├── test_github.py                  # Unit tests for GitHub provider
-        │   └── test_providers_integration.py   # Integration tests
-        └── core/
-            ├── test_auth.py                    # Tests for Auth class
-            └── test_helpers.py                 # Tests for helper functions
+        ├── core/
+        │   ├── test_auth.py                    # Tests for Auth class
+        │   └── test_helpers.py                 # Tests for helper functions
+        └── providers/
+            ├── test_google.py                  # Unit tests for Google provider
+            ├── test_github.py                  # Unit tests for GitHub provider
+            └── test_providers_integration.py   # Integration tests
 ```
 
 ### API Design
@@ -407,24 +407,71 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
 
 Modified adapter protocol with `get_db()` method (see [Implementation Order](#implementation-order) #2).
 
-```python
-from typing import Protocol
+**This replaces the current pattern** where `db_dependency` is passed to `Auth.__init__`. The database dependency is now part of the adapter, making it more cohesive.
 
-# Add to existing AdapterProtocol:
+```python
+from collections.abc import Callable
+from typing import Any, Protocol
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 class AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT](Protocol):
     """Protocol for database adapters"""
 
     # EXISTING METHODS (unchanged):
-    async def get_user_by_email(self, db, email: str) -> UserT | None: ...
-    async def create_user(self, db, email: str, **kwargs) -> UserT: ...
-    async def get_user_by_id(self, db, user_id: str) -> UserT | None: ...
+    async def get_user_by_email(self, db: AsyncSession, email: str) -> UserT | None: ...
+    async def create_user(
+        self,
+        db: AsyncSession,
+        email: str,
+        *,
+        email_verified: bool = False,
+        name: str | None = None,
+        image: str | None = None,
+    ) -> UserT: ...
+    async def get_user_by_id(self, db: AsyncSession, user_id: Any) -> UserT | None: ...
+    async def create_account(
+        self,
+        db: AsyncSession,
+        user_id: Any,
+        provider: str,
+        provider_account_id: str,
+        **tokens: Any,
+    ) -> AccountT: ...
+    async def get_account(
+        self,
+        db: AsyncSession,
+        provider: str,
+        provider_account_id: str,
+    ) -> AccountT | None: ...
+    async def create_session(
+        self,
+        db: AsyncSession,
+        user_id: Any,
+        expires_at: Any,
+        **kwargs: Any,
+    ) -> SessionT: ...
+    async def create_oauth_state(
+        self,
+        db: AsyncSession,
+        state: str,
+        expires_at: Any,
+        **kwargs: Any,
+    ) -> OAuthStateT: ...
+    async def get_oauth_state(
+        self,
+        db: AsyncSession,
+        state: str,
+    ) -> OAuthStateT | None: ...
+    async def delete_oauth_state(self, db: AsyncSession, state: str) -> bool: ...
     # ... other existing methods
 
-    # NEW METHOD:
-    def get_db(self):
+    # NEW METHOD (moved from Auth.__init__ parameter):
+    def get_db(self) -> Callable[[], Any] | None:
         """
         Return FastAPI dependency for database sessions.
+        This replaces the db_dependency parameter previously passed to Auth.__init__.
 
         Used by providers in route definitions:
 
@@ -432,16 +479,27 @@ class AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT](Protocol):
         async def signin(db = Depends(adapter.get_db)):
             ...
 
-        Should return a callable that yields database sessions:
+        Should return a callable that provides database sessions:
 
-        async def _get_db():
-            async with self.session_maker() as session:
-                yield session
+        def get_db(self):
+            async def _get_db():
+                # Get session from your session maker
+                async with self.session_maker() as session:
+                    yield session
+            return _get_db
 
-        return _get_db
+        Returns None if database dependency is not configured (optional for some use cases).
+        Providers should handle None case appropriately or raise error.
         """
         ...
 ```
+
+**Changes to `AlchemyAdapter`:**
+
+The adapter will need to be updated to:
+1. Accept `db_dependency` parameter in `__init__` (moved from Auth)
+2. Store it as `self.db_dependency`
+3. Implement `get_db()` method that returns the dependency callable
 
 #### `src/belgie/auth/providers/google.py`
 
@@ -495,9 +553,9 @@ class GoogleOAuthProvider:
 
     def get_router(self, adapter: AdapterProtocol) -> APIRouter:
         """Create router with Google OAuth endpoints"""
-        router = APIRouter(prefix="/auth", tags=["auth"])
+        router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
-        @router.get(f"/signin/{self.provider_id}")
+        @router.get("/signin")
         async def signin_google(db=Depends(adapter.get_db)):
             """Initiate Google OAuth flow"""
             # 1. Generate and store state token for CSRF protection
@@ -520,7 +578,7 @@ class GoogleOAuthProvider:
             # 3. Redirect user to Google
             return RedirectResponse(url=auth_url)
 
-        @router.get(f"/callback/{self.provider_id}")
+        @router.get("/callback")
         async def callback_google(
             code: str, state: str, db=Depends(adapter.get_db)
         ):
@@ -649,7 +707,7 @@ class GitHubOAuthProvider:
         """Create router with GitHub OAuth endpoints"""
         router = APIRouter(prefix="/auth", tags=["auth"])
 
-        @router.get(f"/signin/{self.provider_id}")
+        @router.get("/signin")
         async def signin_github(db=Depends(adapter.get_db)):
             """Initiate GitHub OAuth flow"""
             state = generate_state_token()
@@ -666,7 +724,7 @@ class GitHubOAuthProvider:
             auth_url = f"{self.AUTHORIZATION_URL}?{urlencode(params)}"
             return RedirectResponse(url=auth_url)
 
-        @router.get(f"/callback/{self.provider_id}")
+        @router.get("/callback")
         async def callback_github(
             code: str, state: str, db=Depends(adapter.get_db)
         ):
@@ -839,15 +897,21 @@ class Auth:
     def create_router(self) -> APIRouter:
         """
         Create main router including all provider routers.
-        Each provider's router is included with its own routes.
+        Structure: /auth/provider/{provider_id}/...
         """
-        main_router = APIRouter()
+        main_router = APIRouter(prefix="/auth")
+
+        # Create provider sub-router
+        provider_router = APIRouter(prefix="/provider")
 
         for provider in self.providers.values():
             # Pass adapter to provider when getting router
-            provider_router = provider.get_router(self.adapter)
-            main_router.include_router(provider_router)
+            # Each provider's router has prefix /{provider_id}
+            # Combined with /auth/provider prefix: /auth/provider/{provider_id}/...
+            provider_specific_router = provider.get_router(self.adapter)
+            provider_router.include_router(provider_specific_router)
 
+        main_router.include_router(provider_router)
         return main_router
 
     def list_providers(self) -> list[str]:
@@ -886,15 +950,15 @@ def get_provider_urls(auth: Auth, provider_id: str, base_url: str = "") -> dict[
 
     Example:
         urls = get_provider_urls(auth, "google", "http://localhost:8000")
-        # {"signin_url": "http://localhost:8000/auth/signin/google",
-        #  "callback_url": "http://localhost:8000/auth/callback/google"}
+        # {"signin_url": "http://localhost:8000/auth/provider/google/signin",
+        #  "callback_url": "http://localhost:8000/auth/provider/google/callback"}
     """
     # Validate provider exists
     auth.get_provider(provider_id)  # Raises ProviderNotFoundError if not found
 
     return {
-        "signin_url": f"{base_url}/auth/signin/{provider_id}",
-        "callback_url": f"{base_url}/auth/callback/{provider_id}",
+        "signin_url": f"{base_url}/auth/provider/{provider_id}/signin",
+        "callback_url": f"{base_url}/auth/provider/{provider_id}/callback",
     }
 
 
@@ -982,7 +1046,7 @@ BELGIE_SECRET_KEY="your-secret-key-here"
 # Google OAuth Provider
 BELGIE_GOOGLE_CLIENT_ID="google-client-id.apps.googleusercontent.com"
 BELGIE_GOOGLE_CLIENT_SECRET="google-client-secret"
-BELGIE_GOOGLE_REDIRECT_URI="http://localhost:8000/auth/callback/google"
+BELGIE_GOOGLE_REDIRECT_URI="http://localhost:8000/auth/provider/google/callback"
 BELGIE_GOOGLE_SCOPES='["openid", "email", "profile"]'
 BELGIE_GOOGLE_ACCESS_TYPE="offline"
 BELGIE_GOOGLE_PROMPT="consent"
@@ -990,7 +1054,7 @@ BELGIE_GOOGLE_PROMPT="consent"
 # GitHub OAuth Provider
 BELGIE_GITHUB_CLIENT_ID="github-client-id"
 BELGIE_GITHUB_CLIENT_SECRET="github-client-secret"
-BELGIE_GITHUB_REDIRECT_URI="http://localhost:8000/auth/callback/github"
+BELGIE_GITHUB_REDIRECT_URI="http://localhost:8000/auth/provider/github/callback"
 BELGIE_GITHUB_SCOPES='["user:email", "read:user"]'
 BELGIE_GITHUB_ALLOW_SIGNUP="true"
 
