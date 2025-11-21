@@ -319,8 +319,9 @@ graph TD
 src/belgie/auth/
 ├── core/
 │   ├── auth.py                 # (MODIFIED) Auth class - remove Google-specific code
-│   ├── settings.py             # (MODIFIED) Generic provider settings
-│   └── exceptions.py           # (MODIFIED) Add ProviderNotFoundError
+│   ├── settings.py             # (MODIFIED) Generic provider settings with env loading
+│   ├── exceptions.py           # (MODIFIED) Add ProviderNotFoundError
+│   └── helpers.py              # (NEW) Helper functions for provider URLs and config
 ├── providers/
 │   ├── __init__.py             # (MODIFIED) Export new classes
 │   ├── base.py                 # (NEW) OAuthProvider base class and protocols
@@ -336,7 +337,8 @@ src/belgie/auth/
         │   ├── test_github.py                  # Unit tests for GitHub provider
         │   └── test_providers_integration.py   # Integration tests
         └── core/
-            └── test_auth_generic_providers.py  # Integration tests for Auth
+            ├── test_auth_generic_providers.py  # Integration tests for Auth
+            └── test_helpers.py                 # Unit tests for helper functions
 ```
 
 ### API Design
@@ -542,8 +544,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Remove GoogleOAuthSettings class
 
 class BaseProviderSettings(TypedDict):
-    # Base TypedDict for OAuth provider configuration
-    # All providers must have these fields
+    # Base TypedDict documenting required OAuth provider fields
+    # Not used directly - serves as documentation for provider structure
+    # Actual provider classes inherit from BaseSettings, not this TypedDict
 
     client_id: str
     # OAuth client ID
@@ -557,42 +560,112 @@ class BaseProviderSettings(TypedDict):
     scopes: NotRequired[list[str]]
     # OAuth scopes to request (optional, defaults to empty list)
 
-class GoogleProviderSettings(BaseProviderSettings):
+class GoogleProviderSettings(BaseSettings):
     # Google-specific provider settings
-    # Inherits all fields from BaseProviderSettings
+    # Uses Pydantic BaseSettings for validation and env loading
 
-    access_type: NotRequired[str]
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_GOOGLE_",
+        env_file=".env",
+        extra="ignore"
+    )
+
+    # Required fields (from BaseProviderSettings)
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+    scopes: list[str] = Field(default=["openid", "email", "profile"])
+
+    # Google-specific fields
+    access_type: str = "offline"
     # Google-specific: "offline" for refresh tokens
 
-    prompt: NotRequired[str]
+    prompt: str = "consent"
     # Google-specific: "consent" to force re-consent
 
-class GitHubProviderSettings(BaseProviderSettings):
+class GitHubProviderSettings(BaseSettings):
     # GitHub-specific provider settings
-    # Inherits all fields from BaseProviderSettings
+    # Uses Pydantic BaseSettings for validation and env loading
 
-    allow_signup: NotRequired[bool]
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_GITHUB_",
+        env_file=".env",
+        extra="ignore"
+    )
+
+    # Required fields (from BaseProviderSettings)
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+    scopes: list[str] = Field(default=["user:email", "read:user"])
+
+    # GitHub-specific fields
+    allow_signup: bool = True
     # GitHub-specific: allow new user signups
 
 class AuthSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_")
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_",
+        env_file=".env",
+        extra="ignore"  # Ignore provider-specific env vars (they're loaded separately)
+    )
 
     # Remove: google: GoogleOAuthSettings = Field(...)
 
     # Add generic providers dict
-    # Using dict[str, dict[str, Any]] for flexibility to support any provider
-    # Runtime validation ensures required fields are present
-    providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    # 1. Key is provider_id (e.g., "google", "github")
-    # 2. Value is a dict matching BaseProviderSettings structure (or provider-specific)
-    # 3. Can be populated from environment variables:
-    #    BELGIE_PROVIDERS='{"google": {"client_id": "...", ...}}'
-    # 4. Type checkers can use GoogleProviderSettings, GitHubProviderSettings for specific contexts
-    # 5. Pydantic validates the structure at runtime
+    providers: ProviderSettings = Field(default_factory=dict)
+    # 1. ProviderSettings is TypedDict with NotRequired provider keys
+    # 2. Each provider (google, github, etc.) is loaded from its own env vars
+    # 3. Populated automatically via model_post_init from environment
     # Used in: Workflow 1 (provider registration)
 
     # ... rest of existing settings fields remain unchanged
+
+    def model_post_init(self, __context) -> None: ...
+    # 1. Called automatically after __init__ by Pydantic
+    # 2. Load each provider's settings from environment:
+    #    - Try to instantiate GoogleProviderSettings()
+    #    - If successful and has client_id, add to self.providers["google"]
+    #    - Repeat for GitHub, Microsoft, etc.
+    # 3. Providers are loaded from env vars like:
+    #    BELGIE_GOOGLE_CLIENT_ID="..."
+    #    BELGIE_GITHUB_CLIENT_ID="..."
+    # 4. Silently skip providers that aren't configured (missing required fields)
+    # Used in: Workflow 1 (automatic provider loading)
 ```
+
+#### Example `.env` File
+
+Environment variables for configuring OAuth providers:
+
+```bash
+# Main auth settings
+BELGIE_SECRET_KEY="your-secret-key-here"
+
+# Google OAuth Provider
+BELGIE_GOOGLE_CLIENT_ID="google-client-id.apps.googleusercontent.com"
+BELGIE_GOOGLE_CLIENT_SECRET="google-client-secret"
+BELGIE_GOOGLE_REDIRECT_URI="http://localhost:8000/auth/callback/google"
+BELGIE_GOOGLE_SCOPES='["openid", "email", "profile"]'
+BELGIE_GOOGLE_ACCESS_TYPE="offline"
+BELGIE_GOOGLE_PROMPT="consent"
+
+# GitHub OAuth Provider
+BELGIE_GITHUB_CLIENT_ID="github-client-id"
+BELGIE_GITHUB_CLIENT_SECRET="github-client-secret"
+BELGIE_GITHUB_REDIRECT_URI="http://localhost:8000/auth/callback/github"
+BELGIE_GITHUB_SCOPES='["user:email", "read:user"]'
+BELGIE_GITHUB_ALLOW_SIGNUP="true"
+
+# To add a new provider, just add BELGIE_{PROVIDER}_ prefixed variables
+# The provider will be automatically loaded if all required fields are present
+```
+
+**Notes:**
+- Each provider uses its own `env_prefix` (e.g., `BELGIE_GOOGLE_`, `BELGIE_GITHUB_`)
+- Providers are automatically loaded via `model_post_init`
+- Providers missing required fields are silently skipped
+- List fields (like `scopes`) use JSON format in environment variables
 
 #### `src/belgie/auth/providers/google.py`
 
@@ -791,6 +864,68 @@ class Auth[UserT, AccountT, SessionT, OAuthStateT]:
     # REMOVE: handle_google_callback() - replaced by handle_oauth_callback()
 ```
 
+#### `src/belgie/auth/helpers.py`
+
+Helper functions for working with OAuth providers (see [Implementation Order](#implementation-order) #8).
+
+```python
+from belgie.auth.core.auth import Auth
+
+def get_provider_urls(auth: Auth, provider_id: str, base_url: str = "") -> dict[str, str]:
+    # Get OAuth endpoint URLs for a specific provider
+    # Used for: Generating links in UI, API documentation, testing
+
+    # 1. Validate provider exists: auth.provider_registry.has_provider(provider_id)
+    # 2. If not found, raise ProviderNotFoundError
+    # 3. Build URLs using base_url + path:
+    #    signin_url = f"{base_url}/auth/signin/{provider_id}"
+    #    callback_url = f"{base_url}/auth/callback/{provider_id}"
+    # 4. Return dict with signin_url and callback_url
+    # Example: get_provider_urls(auth, "google", "http://localhost:8000")
+    #   -> {"signin_url": "http://localhost:8000/auth/signin/google",
+    #       "callback_url": "http://localhost:8000/auth/callback/google"}
+
+def get_all_provider_urls(auth: Auth, base_url: str = "") -> dict[str, dict[str, str]]:
+    # Get OAuth endpoint URLs for all registered providers
+    # Used for: API documentation, frontend configuration
+
+    # 1. Get all provider IDs from auth.provider_registry.list_providers()
+    # 2. For each provider_id, call get_provider_urls()
+    # 3. Return dict mapping provider_id to URLs
+    # Example: get_all_provider_urls(auth, "http://localhost:8000")
+    #   -> {
+    #        "google": {"signin_url": "...", "callback_url": "..."},
+    #        "github": {"signin_url": "...", "callback_url": "..."}
+    #      }
+
+def get_provider_config(auth: Auth, provider_id: str) -> dict[str, Any]:
+    # Get provider configuration details (non-sensitive info only)
+    # Used for: Debugging, API introspection
+
+    # 1. Get provider from auth.provider_registry.get_provider(provider_id)
+    # 2. Extract non-sensitive info:
+    #    - provider_id
+    #    - scopes (from provider.config.scopes)
+    #    - authorization_url, token_url (but not secrets)
+    # 3. Return dict with configuration
+    # Example: get_provider_config(auth, "google")
+    #   -> {
+    #        "provider_id": "google",
+    #        "scopes": ["openid", "email", "profile"],
+    #        "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth"
+    #      }
+    # NOTE: Never expose client_secret or tokens
+
+def list_available_providers(auth: Auth) -> list[str]:
+    # List all registered and available providers
+    # Used for: UI rendering, API discovery
+
+    # 1. Return auth.provider_registry.list_providers()
+    # Simple wrapper for convenience
+    # Example: list_available_providers(auth)
+    #   -> ["google", "github"]
+```
+
 ### Testing Strategy
 
 Tests should be organized by module/file and cover unit tests, integration tests, and edge cases.
@@ -886,6 +1021,21 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Network errors during token exchange or user info fetch
 - Provider returning unexpected user data format
 
+#### `test_helpers.py`
+
+**Helper Function Tests:**
+- Test `get_provider_urls()` returns correct URLs for valid provider
+- Test `get_provider_urls()` raises ProviderNotFoundError for invalid provider
+- Test `get_provider_urls()` with and without base_url parameter
+- Test `get_all_provider_urls()` returns URLs for all registered providers
+- Test `get_all_provider_urls()` handles empty provider registry
+- Test `get_provider_config()` returns non-sensitive config details
+- Test `get_provider_config()` never exposes client_secret or tokens
+- Test `get_provider_config()` includes scopes and endpoint URLs
+- Test `list_available_providers()` returns all registered provider IDs
+- Test `list_available_providers()` returns empty list when no providers
+- Use mock Auth instance with registered providers for testing
+
 ## Implementation
 
 ### Implementation Order
@@ -917,6 +1067,10 @@ Tests should be organized by module/file and cover unit tests, integration tests
 7. **Auth Class Refactor** (`core/auth.py`) - Remove Google-specific code, add generic provider support
    - Used in: All workflows
    - Dependencies: ProviderRegistry, OAuthProvider, Settings
+
+8. **Helper Functions** (`core/helpers.py`) - Utility functions for getting provider URLs and config
+   - Used in: UI integration, API documentation, testing
+   - Dependencies: Auth, ProviderRegistry
 
 ### Tasks
 
@@ -996,12 +1150,24 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [ ] Test route generation
     - [ ] Test generic OAuth flow methods
 
+- [ ] **Implement helper functions** (depends on Auth class)
+  - [ ] Implement `core/helpers.py` (#8)
+    - [ ] Implement `get_provider_urls()` function
+    - [ ] Implement `get_all_provider_urls()` function
+    - [ ] Implement `get_provider_config()` function
+    - [ ] Implement `list_available_providers()` function
+  - [ ] Write unit tests for `core/helpers.py`
+    - [ ] Test URL generation for all helpers
+    - [ ] Test error handling (invalid provider_id)
+    - [ ] Test non-sensitive config exposure
+
 - [ ] **Integration and validation**
   - [ ] Add integration tests for [Workflow 1](#workflow-1-provider-registration-and-configuration) (provider registration)
   - [ ] Add integration tests for [Workflow 2](#workflow-2-oauth-sign-in-flow) (OAuth flow with Google)
   - [ ] Add integration tests for [Workflow 2](#workflow-2-oauth-sign-in-flow) (OAuth flow with GitHub)
   - [ ] Add integration tests for [Workflow 3](#workflow-3-adding-a-new-oauth-provider) (new provider)
   - [ ] Test backwards compatibility (existing Google OAuth still works)
+  - [ ] Test helper functions with real Auth instance
   - [ ] Add type hints and run type checker (`uv run ty`)
   - [ ] Run linter and fix issues (`uv run ruff check`)
   - [ ] Verify all tests pass (`uv run pytest`)
@@ -1011,7 +1177,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 1. Should we support OIDC discovery (auto-fetching endpoints from .well-known/openid-configuration)?
 2. How should we handle providers that don't follow standard OAuth 2.0 (e.g., Twitter OAuth 1.0)?
 3. Should provider classes be registered automatically via a plugin system or explicitly in Auth class?
-4. Should we support provider-specific settings from separate env prefixes (e.g., BELGIE_GOOGLE_*, BELGIE_GITHUB_*)?
+4. ~~Should we support provider-specific settings from separate env prefixes (e.g., BELGIE_GOOGLE_*, BELGIE_GITHUB_*)?~~ ✅ **ANSWERED:** Yes, implemented via BaseSettings with `env_prefix` and `model_post_init` for automatic loading
 5. How should we handle token refresh in the future? Add to OAuthProvider protocol or separate concern?
 
 ## Future Enhancements
