@@ -87,7 +87,7 @@ def test_google_provider_settings() -> None:
     )
 
     assert settings.client_id == "test-client-id"
-    assert settings.client_secret == "test-secret"  # noqa: S105
+    assert settings.client_secret.get_secret_value() == "test-secret"
     assert settings.redirect_uri == "http://localhost:8000/auth/callback/google"
     assert settings.scopes == ["openid", "email", "profile"]
     assert settings.access_type == "offline"
@@ -158,7 +158,7 @@ def test_google_provider_settings_trims_whitespace() -> None:
     )
 
     assert settings.client_id == "test-client-id"
-    assert settings.client_secret == "test-secret"  # noqa: S105
+    assert settings.client_secret.get_secret_value() == "test-secret"
     assert settings.redirect_uri == "http://localhost:8000/callback"
 
 

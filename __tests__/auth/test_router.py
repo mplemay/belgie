@@ -11,7 +11,7 @@ from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
-from belgie.auth.providers.google import GoogleOAuthProvider
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 
 
 @pytest.fixture
@@ -58,7 +58,16 @@ def adapter(db_session: AsyncSession) -> AlchemyAdapter:
 
 @pytest.fixture
 def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
-    return Auth(settings=auth_settings, adapter=adapter)
+    # Include Google provider for router testing
+    providers = {
+        "google": GoogleProviderSettings(
+            client_id="test-client-id",
+            client_secret="test-client-secret",  # noqa: S106
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
+            scopes=["openid", "email", "profile"],
+        ),
+    }
+    return Auth(settings=auth_settings, adapter=adapter, providers=providers)
 
 
 @pytest.fixture

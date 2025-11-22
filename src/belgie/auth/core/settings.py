@@ -1,7 +1,54 @@
-from typing import Literal
+from abc import abstractmethod
+from typing import TYPE_CHECKING, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from belgie.auth.protocols.provider import OAuthProviderProtocol
+
+
+class ProviderSettings(BaseSettings):
+    """Base settings class for OAuth providers.
+
+    All provider-specific settings should inherit from this class
+    to ensure consistent configuration structure.
+
+    Subclasses must implement __call__ to construct their provider instance.
+    """
+
+    client_id: str
+    client_secret: SecretStr
+    redirect_uri: str
+
+    @field_validator("client_id", "redirect_uri")
+    @classmethod
+    def validate_non_empty(cls, v: str, info) -> str:  # noqa: ANN001
+        """Ensure required OAuth fields are non-empty."""
+        if not v or not v.strip():
+            msg = f"{info.field_name} must be a non-empty string"
+            raise ValueError(msg)
+        return v.strip()
+
+    @field_validator("client_secret")
+    @classmethod
+    def validate_client_secret(cls, v: SecretStr) -> SecretStr:
+        """Ensure client_secret is non-empty and trim whitespace."""
+        secret_value = v.get_secret_value()
+        if not secret_value or not secret_value.strip():
+            msg = "client_secret must be a non-empty string"
+            raise ValueError(msg)
+        # Return a new SecretStr with trimmed value
+        return SecretStr(secret_value.strip())
+
+    @abstractmethod
+    def __call__(self) -> "OAuthProviderProtocol":
+        """Create and return the OAuth provider instance.
+
+        Returns:
+            OAuth provider configured with these settings
+        """
+        ...
 
 
 class SessionSettings(BaseSettings):

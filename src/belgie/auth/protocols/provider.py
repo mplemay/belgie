@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict
 
 from pydantic_settings import BaseSettings
 
@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
     from belgie.auth.core.settings import CookieSettings
     from belgie.auth.protocols.adapter import AdapterProtocol
+    from belgie.auth.providers.google import GoogleProviderSettings
 
 
 class OAuthProviderProtocol[S: BaseSettings](Protocol):
@@ -91,3 +92,29 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
             - Use dict.get() for safe dictionary access
         """
         ...
+
+
+class Providers(TypedDict, total=False):
+    """Type-safe provider registry for Auth initialization.
+
+    Contains provider settings that implement __call__ to construct their providers.
+    Built-in providers are defined for IDE support. Custom providers can be added
+    as additional keys since TypedDict with total=False allows extras.
+
+    Example:
+        from belgie.auth.providers.google import GoogleProviderSettings
+        from belgie.auth.core.settings import ProviderSettings
+
+        providers: Providers = {
+            "google": GoogleProviderSettings(
+                client_id="...",
+                client_secret="...",
+                redirect_uri="...",
+            ),
+        }
+
+        # Settings are callable and return the provider instance:
+        google_provider = providers["google"]()  # Returns GoogleOAuthProvider
+    """
+
+    google: NotRequired[GoogleProviderSettings]

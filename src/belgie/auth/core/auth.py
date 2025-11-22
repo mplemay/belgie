@@ -4,14 +4,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes
-from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.settings import AuthSettings
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
-from belgie.auth.protocols.provider import OAuthProviderProtocol
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+from belgie.auth.protocols.provider import OAuthProviderProtocol, Providers
 from belgie.auth.session.manager import SessionManager
 from belgie.auth.utils.scopes import validate_scopes
 
@@ -38,6 +36,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
     Example:
         >>> from belgie import Auth, AuthSettings, AlchemyAdapter
+        >>> from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
         >>> from myapp.models import User, Account, Session, OAuthState
         >>>
         >>> settings = AuthSettings(
@@ -53,8 +52,15 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         ...     db_dependency=get_db,
         ... )
         >>>
-        >>> # Providers are automatically loaded from environment variables
-        >>> auth = Auth(settings=settings, adapter=adapter)
+        >>> # Explicitly pass provider settings
+        >>> providers: Providers = {
+        ...     "google": GoogleProviderSettings(
+        ...         client_id="your-client-id",
+        ...         client_secret="your-client-secret",
+        ...         redirect_uri="http://localhost:8000/auth/provider/google/callback",
+        ...     ),
+        ... }
+        >>> auth = Auth(settings=settings, adapter=adapter, providers=providers)
         >>> app.include_router(auth.router)
     """
 
@@ -62,12 +68,15 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         self,
         settings: AuthSettings,
         adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
+        providers: Providers | None = None,
     ) -> None:
         """Initialize the Auth instance.
 
         Args:
             settings: Authentication configuration including session, cookie, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
+            providers: Dictionary of provider settings. Each setting is callable and returns its provider.
+                      If None, no providers are registered.
 
         Raises:
             RuntimeError: If router endpoints are accessed without adapter.dependency configured
@@ -81,90 +90,12 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             update_age=settings.session.update_age,
         )
 
-        self.providers: dict[str, OAuthProviderProtocol] = {}
-        self._load_providers()
-
-    def _load_providers(self) -> None:
-        """Load OAuth providers from environment variables.
-
-        Attempts to load provider settings from environment and register them.
-        Providers with missing required fields are silently skipped.
-
-        Currently supports:
-        - Google OAuth (BELGIE_GOOGLE_*)
-
-        Future providers can be added here:
-        - GitHub OAuth (BELGIE_GITHUB_*)
-        - Microsoft OAuth (BELGIE_MICROSOFT_*)
-        - Custom providers via register_provider()
-        """
-        # Try to load Google provider from environment
-        try:
-            google_settings = GoogleProviderSettings(
-                client_id=self.settings.google.client_id,
-                client_secret=self.settings.google.client_secret,
-                redirect_uri=self.settings.google.redirect_uri,
-                scopes=self.settings.google.scopes,
-            )
-            # Only register if client_id is configured
-            if google_settings.client_id:
-                google_provider = GoogleOAuthProvider(settings=google_settings)
-                self.register_provider(google_provider)
-        except (ValidationError, AttributeError):
-            # Silently skip if Google provider is not configured
-            pass
-
-    def register_provider(self, provider: OAuthProviderProtocol) -> None:
-        """Register an OAuth provider.
-
-        Args:
-            provider: OAuth provider instance implementing OAuthProviderProtocol
-
-        Note:
-            If a provider with the same provider_id is already registered,
-            it will be replaced with the new provider. This allows for
-            runtime provider customization and testing.
-
-            If the router has already been created (cached), it will be
-            invalidated and recreated on next access to include the new provider.
-
-        Example:
-            >>> # Register or replace Google provider with custom settings
-            >>> from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
-            >>>
-            >>> custom_settings = GoogleProviderSettings(
-            ...     client_id="custom-client-id",
-            ...     client_secret="custom-secret",
-            ...     redirect_uri="https://myapp.com/auth/callback/google",
-            ...     scopes=["openid", "email"],
-            ... )
-            >>> custom_google = GoogleOAuthProvider(settings=custom_settings)
-            >>> auth.register_provider(custom_google)
-        """
-        self.providers[provider.provider_id] = provider
-
-        # Clear cached router to force recreation with new provider
-        if "router" in self.__dict__:
-            del self.__dict__["router"]
-
-    def list_providers(self) -> list[str]:
-        """Return list of registered provider IDs.
-
-        Returns:
-            List of provider IDs (e.g., ["google", "github"])
-        """
-        return list(self.providers.keys())
-
-    def get_provider(self, provider_id: str) -> OAuthProviderProtocol | None:
-        """Get provider by ID.
-
-        Args:
-            provider_id: The provider ID (e.g., "google")
-
-        Returns:
-            Provider instance if found, None otherwise
-        """
-        return self.providers.get(provider_id)
+        # Instantiate providers by calling the settings
+        self.providers: dict[str, OAuthProviderProtocol] = (
+            {provider_id: provider_settings() for provider_id, provider_settings in providers.items()}  # ty: ignore[call-non-callable]
+            if providers
+            else {}
+        )
 
     @cached_property
     def router(self) -> APIRouter:

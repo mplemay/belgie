@@ -5,16 +5,16 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import httpx
 from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_settings import SettingsConfigDict
 
 from belgie.auth.core.exceptions import InvalidStateError, OAuthError
-from belgie.auth.core.settings import CookieSettings
+from belgie.auth.core.settings import CookieSettings, ProviderSettings
 from belgie.auth.protocols.adapter import AdapterProtocol
 from belgie.auth.utils.crypto import generate_state_token
 
 
-class GoogleProviderSettings(BaseSettings):
+class GoogleProviderSettings(ProviderSettings):
     """Google OAuth provider settings loaded from environment.
 
     Contains only Google-specific OAuth configuration.
@@ -27,21 +27,17 @@ class GoogleProviderSettings(BaseSettings):
         extra="ignore",
     )
 
-    client_id: str
-    client_secret: str
-    redirect_uri: str
     scopes: list[str] = Field(default=["openid", "email", "profile"])
     access_type: str = Field(default="offline")
     prompt: str = Field(default="consent")
 
-    @field_validator("client_id", "client_secret", "redirect_uri")
-    @classmethod
-    def validate_non_empty(cls, v: str, info) -> str:  # noqa: ANN001
-        """Ensure required OAuth fields are non-empty."""
-        if not v or not v.strip():
-            msg = f"{info.field_name} must be a non-empty string"
-            raise ValueError(msg)
-        return v.strip()
+    def __call__(self) -> "GoogleOAuthProvider":
+        """Create and return Google OAuth provider instance.
+
+        Returns:
+            GoogleOAuthProvider configured with these settings
+        """
+        return GoogleOAuthProvider(settings=self)
 
 
 class GoogleUserInfo(BaseModel):
@@ -102,7 +98,7 @@ class GoogleOAuthProvider:
                     self.TOKEN_URL,
                     data={
                         "client_id": self.settings.client_id,
-                        "client_secret": self.settings.client_secret,
+                        "client_secret": self.settings.client_secret.get_secret_value(),
                         "code": code,
                         "redirect_uri": self.settings.redirect_uri,
                         "grant_type": "authorization_code",

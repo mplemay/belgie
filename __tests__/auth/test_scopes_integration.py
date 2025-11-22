@@ -80,7 +80,8 @@ def adapter(db_session: AsyncSession) -> AlchemyAdapter:
 
 @pytest.fixture
 def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
-    return Auth(settings=auth_settings, adapter=adapter)
+    # No providers needed for scope testing
+    return Auth(settings=auth_settings, adapter=adapter, providers=None)
 
 
 @pytest.fixture

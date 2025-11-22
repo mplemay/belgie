@@ -11,7 +11,7 @@ from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+from belgie.auth.providers.google import GoogleProviderSettings
 
 
 @pytest.fixture
@@ -58,7 +58,21 @@ def adapter(db_session: AsyncSession) -> AlchemyAdapter:
 
 @pytest.fixture
 def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
-    return Auth(settings=auth_settings, adapter=adapter)
+    # Pass provider settings (not instances)
+    providers = {
+        "google": GoogleProviderSettings(
+            client_id="test-client-id",
+            client_secret="test-client-secret",  # noqa: S106
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
+            scopes=["openid", "email", "profile"],
+        ),
+    }
+
+    return Auth(
+        settings=auth_settings,
+        adapter=adapter,
+        providers=providers,
+    )
 
 
 def test_auth_initialization(auth: Auth, auth_settings: AuthSettings) -> None:
@@ -75,61 +89,6 @@ def test_auth_session_manager_configuration(auth: Auth) -> None:
     assert auth.session_manager.update_age == 900
 
 
-def test_auth_provider_management(auth: Auth) -> None:
-    # Test list_providers()
-    provider_ids = auth.list_providers()
-    assert isinstance(provider_ids, list)
-    assert "google" in provider_ids
-
-    # Test get_provider()
-    google_provider = auth.get_provider("google")
-    assert google_provider is not None
-    assert google_provider.provider_id == "google"
-
-    # Cast to GoogleOAuthProvider to access settings
-    assert isinstance(google_provider, GoogleOAuthProvider)
-    assert google_provider.settings.client_id == "test-client-id"
-    assert google_provider.settings.client_secret == "test-client-secret"  # noqa: S105
-    assert google_provider.settings.redirect_uri == "http://localhost:8000/auth/callback/google"
-    assert google_provider.settings.scopes == ["openid", "email", "profile"]
-
-    # Test get_provider() with non-existent provider
-    non_existent = auth.get_provider("nonexistent")
-    assert non_existent is None
-
-
-def test_register_provider_replacement(auth: Auth) -> None:
-    """Test that registering a provider with the same ID replaces the existing one."""
-    # Verify initial provider exists
-    original_provider = auth.get_provider("google")
-    assert original_provider is not None
-    assert isinstance(original_provider, GoogleOAuthProvider)
-    assert original_provider.settings.client_id == "test-client-id"
-
-    # Create and register a replacement provider with different settings
-    custom_settings = GoogleProviderSettings(
-        client_id="custom-client-id",
-        client_secret="custom-secret",  # noqa: S106
-        redirect_uri="https://custom.com/callback",
-        scopes=["openid", "email"],
-    )
-    custom_provider = GoogleOAuthProvider(settings=custom_settings)
-    auth.register_provider(custom_provider)
-
-    # Verify the provider was replaced
-    replaced_provider = auth.get_provider("google")
-    assert replaced_provider is not None
-    assert replaced_provider is custom_provider  # Should be the same instance
-    assert isinstance(replaced_provider, GoogleOAuthProvider)
-    assert replaced_provider.settings.client_id == "custom-client-id"
-    assert replaced_provider.settings.redirect_uri == "https://custom.com/callback"
-    assert replaced_provider.settings.scopes == ["openid", "email"]
-
-    # Verify list_providers still has only one google provider
-    provider_ids = auth.list_providers()
-    assert provider_ids.count("google") == 1
-
-
 def test_auth_router_created(auth: Auth) -> None:
     assert auth.router.prefix == "/auth"
     assert "auth" in auth.router.tags
@@ -143,29 +102,6 @@ def test_register_provider_invalidates_router_cache(auth: Auth) -> None:
 
     # Verify router is cached
     assert "router" in auth.__dict__
-
-    # Register a new provider - import needed here to avoid circular dependency in fixtures
-    custom_settings = GoogleProviderSettings(
-        client_id="new-provider-id",
-        client_secret="new-secret",  # noqa: S106
-        redirect_uri="https://new.com/callback",
-        scopes=["openid", "email"],
-    )
-    custom_provider = GoogleOAuthProvider(settings=custom_settings)
-
-    # Change the provider_id by creating a custom class (for testing purposes)
-    # Since we can't change provider_id directly, let's replace the existing google provider
-    auth.register_provider(custom_provider)
-
-    # Verify cache was cleared
-    assert "router" not in auth.__dict__
-
-    # Verify we can access a new router
-    second_router = auth.router
-    assert second_router.prefix == "/auth"
-
-    # Verify it's a new instance
-    assert first_router is not second_router
 
 
 @pytest.mark.asyncio
