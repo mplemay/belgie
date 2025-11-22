@@ -10,7 +10,7 @@ from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.exceptions import InvalidStateError, OAuthError
 from belgie.auth.core.settings import AuthSettings
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleUserInfo
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings, GoogleUserInfo
 from belgie.auth.session.manager import SessionManager
 from belgie.auth.utils.crypto import generate_state_token
 from belgie.auth.utils.scopes import validate_scopes
@@ -85,12 +85,19 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             update_age=settings.session.update_age,
         )
 
-        self.google_provider = GoogleOAuthProvider(
+        # Create GoogleProviderSettings from AuthSettings
+        google_provider_settings = GoogleProviderSettings(
             client_id=settings.google.client_id,
             client_secret=settings.google.client_secret,
             redirect_uri=settings.google.redirect_uri,
             scopes=settings.google.scopes,
+            session_max_age=settings.session.max_age,
+            cookie_name=settings.session.cookie_name,
+            signin_redirect=settings.urls.signin_redirect,
+            signout_redirect=settings.urls.signout_redirect,
         )
+
+        self.google_provider = GoogleOAuthProvider(settings=google_provider_settings)
 
         self.router = self._create_router()
 

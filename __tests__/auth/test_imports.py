@@ -21,7 +21,7 @@ def test_session_exports() -> None:
 
 def test_provider_exports() -> None:
     assert hasattr(belgie, "GoogleOAuthProvider")
-    assert hasattr(belgie, "GoogleTokenResponse")
+    assert hasattr(belgie, "GoogleProviderSettings")
     assert hasattr(belgie, "GoogleUserInfo")
 
 

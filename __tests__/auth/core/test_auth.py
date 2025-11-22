@@ -78,10 +78,10 @@ def test_auth_session_manager_configuration(auth: Auth) -> None:
 
 
 def test_auth_google_provider_configuration(auth: Auth) -> None:
-    assert auth.google_provider.client_id == "test-client-id"
-    assert auth.google_provider.client_secret == "test-client-secret"  # noqa: S105
-    assert auth.google_provider.redirect_uri == "http://localhost:8000/auth/callback/google"
-    assert auth.google_provider.scopes == ["openid", "email", "profile"]
+    assert auth.google_provider.settings.client_id == "test-client-id"
+    assert auth.google_provider.settings.client_secret == "test-client-secret"  # noqa: S105
+    assert auth.google_provider.settings.redirect_uri == "http://localhost:8000/auth/callback/google"
+    assert auth.google_provider.settings.scopes == ["openid", "email", "profile"]
 
 
 def test_auth_router_created(auth: Auth) -> None:

@@ -1322,26 +1322,25 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [x] Add documentation about FastAPI dependency
   - [x] Write unit tests for protocols (type checking)
 
-- [ ] **Implement Google provider** (depends on protocols)
-  - [ ] Create `GoogleProviderSettings` in `providers/google.py` (#3)
-    - [ ] Define all settings fields with defaults
-    - [ ] Configure env_prefix="BELGIE_GOOGLE_"
-  - [ ] Implement `GoogleOAuthProvider` class
-    - [ ] Implement `__init__(settings)` storing settings
-    - [ ] Implement `provider_id` property returning Literal["google"]
-    - [ ] Implement `get_router(adapter, cookie_settings)` method
-      - [ ] Create APIRouter with prefix and tags
-      - [ ] Define private `__signin_google` method (generate URL, create state)
-      - [ ] Define private `__callback_google` method (validate, exchange, create user/session)
-      - [ ] Use auth_settings for cookie configuration
-      - [ ] Register routes with router.add_api_route()
-      - [ ] Use walrus operator and dict.get() where appropriate
-      - [ ] Return router
-  - [ ] Write unit tests for `providers/google.py`
-    - [ ] Test settings loading from env
-    - [ ] Test router creation
-    - [ ] Test signin endpoint logic (mock DB)
-    - [ ] Test callback endpoint logic (mock HTTP and DB)
+- [x] **Implement Google provider** (depends on protocols)
+  - [x] Create `GoogleProviderSettings` in `providers/google.py` (#3)
+    - [x] Define all settings fields with defaults
+    - [x] Configure env_prefix="BELGIE_GOOGLE_"
+  - [x] Implement `GoogleOAuthProvider` class
+    - [x] Implement `__init__(settings)` storing settings
+    - [x] Implement `provider_id` property returning Literal["google"]
+    - [x] Implement `get_router(adapter, cookie_settings)` method
+      - [x] Create APIRouter with prefix and tags
+      - [x] Define private signin method (generate URL, create state)
+      - [x] Define private callback method (validate, exchange, create user/session)
+      - [x] Use cookie_settings for cookie configuration
+      - [x] Register routes with router.add_api_route()
+      - [x] Use walrus operator and dict.get() where appropriate
+      - [x] Return router
+  - [x] Write unit tests for `providers/google.py`
+    - [x] Test settings loading with defaults and custom values
+    - [x] Test GoogleUserInfo model validation
+    - [x] Test provider_id property
 
 - [ ] **Implement Auth class** (depends on provider implementations)
   - [ ] Modify `core/auth.py` (#5)
