@@ -5,6 +5,8 @@
 ### High-Level Description
 This feature adds an event hook system to the authentication library, allowing users to register callbacks that execute when specific auth events occur. The initial implementation focuses on user lifecycle events: signup and deletion.
 
+Hooks are invoked transparently via an adapter wrapper pattern, ensuring providers remain decoupled from hook logic. The system is fully generic over both user types and database session types, making it adapter-agnostic.
+
 The problem this solves: Applications often need to perform additional actions when users sign up or are deleted (e.g., sending welcome emails, creating related records, cleaning up user data, notifying external services). Currently, there's no built-in mechanism to hook into these events.
 
 ### Goals
@@ -12,6 +14,8 @@ The problem this solves: Applications often need to perform additional actions w
 - Support user signup and deletion events
 - Allow async callback functions for I/O operations (email sending, API calls)
 - Ensure hooks are executed reliably within the auth flow
+- Keep providers decoupled from hook implementation details
+- Support any adapter type (not just SQLAlchemy) via generic session types
 - Pass relevant context to hooks (user data, database session, etc.)
 
 ### Non-Goals
@@ -26,7 +30,7 @@ The problem this solves: Applications often need to perform additional actions w
 ### Workflow 1: User Signup with Hook
 
 #### Description
-When a new user signs up via OAuth, the system creates the user record and then invokes the `on_signup` hook if configured. The hook receives user data and can perform additional operations.
+When a new user signs up via OAuth, the provider calls `adapter.create_user()`. The HookAdapter wrapper intercepts this call, creates the user via the underlying adapter, then invokes the `on_signup` hook if configured. The hook receives user data and can perform additional operations.
 
 #### Usage Example
 ```python
@@ -52,6 +56,7 @@ auth = Auth(
     providers=providers,
     hooks=hooks,
 )
+# Auth wraps adapter with HookAdapter internally - transparent to providers
 ```
 
 #### Call Graph
@@ -59,13 +64,15 @@ auth = Auth(
 graph TD
     A[OAuth Callback] --> B[Provider.callback]
     B --> C[adapter.create_user]
-    C --> D[User Created]
-    D --> E{hooks.on_signup exists?}
-    E -->|Yes| F[Execute hooks.on_signup]
-    E -->|No| G[Continue]
-    F --> H[Create Session]
-    G --> H
-    H --> I[Redirect User]
+    C --> D[HookAdapter.create_user]
+    D --> E[base_adapter.create_user]
+    E --> F[User Created]
+    F --> G{hooks.on_signup exists?}
+    G -->|Yes| H[Execute hooks.on_signup]
+    G -->|No| I[Return User]
+    H --> I
+    I --> J[Provider: Create Session]
+    J --> K[Redirect User]
 ```
 
 #### Sequence Diagram
@@ -73,46 +80,48 @@ graph TD
 sequenceDiagram
     participant User
     participant Provider
-    participant Adapter
-    participant Hooks
+    participant HookAdapter
+    participant BaseAdapter
+    participant Hook
     participant EmailService
 
     User->>Provider: OAuth callback
-    Provider->>Adapter: create_user()
-    Adapter-->>Provider: user
-    Provider->>Provider: Check if on_signup hook exists
+    Provider->>HookAdapter: create_user()
+    HookAdapter->>BaseAdapter: create_user()
+    BaseAdapter-->>HookAdapter: user
     alt on_signup hook configured
-        Provider->>Hooks: on_signup(user, db)
-        Hooks->>EmailService: send_welcome_email()
-        EmailService-->>Hooks: email sent
-        Hooks-->>Provider: hook completed
+        HookAdapter->>Hook: on_signup(user, db)
+        Hook->>EmailService: send_welcome_email()
+        EmailService-->>Hook: email sent
+        Hook-->>HookAdapter: hook completed
     end
-    Provider->>Adapter: create_session()
+    HookAdapter-->>Provider: user
+    Provider->>HookAdapter: create_session()
     Provider-->>User: redirect with session cookie
 ```
 
 #### Key Components
 - **Hooks** (`hooks.py:Hooks`) - Container for hook callbacks
-- **Provider.callback** (`providers/google.py:callback`) - Trigger point for on_signup
-- **adapter.create_user** (`adapters/alchemy.py:create_user`) - Creates user record
+- **HookAdapter** (`hooks.py:HookAdapter`) - Wrapper that intercepts adapter calls
+- **Provider.callback** (`providers/google.py:callback`) - Uses adapter transparently
+- **base_adapter.create_user** (`adapters/alchemy.py:create_user`) - Creates user record
 
 ### Workflow 2: User Deletion with Hook
 
 #### Description
-When a user is deleted, the system invokes the `on_user_delete` hook before deleting the user record. The hook can perform cleanup operations like deleting related data or notifying external services.
+When a user is deleted via `Auth.delete_user()`, the method passes the call to `adapter.delete_user()`. The HookAdapter wrapper invokes the `on_user_delete` hook before delegating to the underlying adapter. The hook can perform cleanup operations like deleting related data or notifying external services.
 
 #### Usage Example
 ```python
 from belgie import Auth
 from belgie.auth.hooks import Hooks
-from uuid import UUID
 
-async def cleanup_user_data(user_id: UUID, db: AsyncSession) -> None:
+async def cleanup_user_data(user: User, db: AsyncSession) -> None:
     # Delete user's related data
-    await delete_user_files(user_id)
-    await delete_user_preferences(user_id)
+    await delete_user_files(user.id)
+    await delete_user_preferences(user.id)
     # Notify external services
-    await analytics_service.track_user_deletion(user_id)
+    await analytics_service.track_user_deletion(user.id)
 
 hooks = Hooks(
     on_user_delete=cleanup_user_data,
@@ -125,18 +134,23 @@ auth = Auth(
     hooks=hooks,
 )
 
-# Delete user (new method)
-await auth.delete_user(db, user_id)
+# Get user first, then delete
+user = await auth.adapter.get_user_by_id(db, user_id)
+if user:
+    await auth.delete_user(db, user)
 ```
 
 #### Call Graph
 ```mermaid
 graph TD
-    A[auth.delete_user] --> B{hooks.on_user_delete exists?}
-    B -->|Yes| C[Execute hooks.on_user_delete]
-    B -->|No| D[adapter.delete_user]
-    C --> E[adapter.delete_user]
-    E --> F[User Deleted]
+    A[auth.delete_user] --> B[adapter.delete_user]
+    B --> C[HookAdapter.delete_user]
+    C --> D{hooks.on_user_delete exists?}
+    D -->|Yes| E[Execute hooks.on_user_delete]
+    D -->|No| F[base_adapter.delete_user]
+    E --> F
+    F --> G[User Deleted]
+    G --> H[Return True]
 ```
 
 #### Sequence Diagram
@@ -144,25 +158,28 @@ graph TD
 sequenceDiagram
     participant App
     participant Auth
-    participant Hooks
-    participant Adapter
+    participant HookAdapter
+    participant Hook
+    participant BaseAdapter
     participant ExternalService
 
-    App->>Auth: delete_user(db, user_id)
-    Auth->>Auth: Check if on_user_delete hook exists
+    App->>Auth: delete_user(db, user)
+    Auth->>HookAdapter: delete_user(db, user)
     alt on_user_delete hook configured
-        Auth->>Hooks: on_user_delete(user_id, db)
-        Hooks->>ExternalService: cleanup_user_data()
-        ExternalService-->>Hooks: cleanup completed
-        Hooks-->>Auth: hook completed
+        HookAdapter->>Hook: on_user_delete(user, db)
+        Hook->>ExternalService: cleanup_user_data()
+        ExternalService-->>Hook: cleanup completed
+        Hook-->>HookAdapter: hook completed
     end
-    Auth->>Adapter: delete_user(db, user_id)
-    Adapter-->>Auth: deletion result
+    HookAdapter->>BaseAdapter: delete_user(db, user)
+    BaseAdapter-->>HookAdapter: deletion result
+    HookAdapter-->>Auth: deletion result
     Auth-->>App: user deleted
 ```
 
 #### Key Components
 - **Hooks** (`hooks.py:Hooks`) - Container for hook callbacks
+- **HookAdapter** (`hooks.py:HookAdapter`) - Wrapper that intercepts delete_user
 - **Auth.delete_user** (`core/auth.py:delete_user`) - New method to delete users
 - **adapter.delete_user** (`protocols/adapter.py:delete_user`) - New protocol method
 - **AlchemyAdapter.delete_user** (`adapters/alchemy.py:delete_user`) - Implementation
@@ -172,15 +189,18 @@ sequenceDiagram
 ```mermaid
 graph TD
     Hooks["(NEW)<br/>Hooks<br/>hooks.py"]
+    HookAdapter["(NEW)<br/>HookAdapter<br/>hooks.py"]
     Auth["Auth<br/>core/auth.py"]
     Provider["GoogleOAuthProvider<br/>providers/google.py"]
     Adapter["AlchemyAdapter<br/>adapters/alchemy.py"]
     AdapterProtocol["AdapterProtocol<br/>protocols/adapter.py"]
 
+    HookAdapter --> Hooks
+    HookAdapter --> AdapterProtocol
+    Auth --> HookAdapter
     Auth --> Hooks
-    Provider --> Hooks
+    Provider --> AdapterProtocol
     Adapter --> AdapterProtocol
-    Auth --> AdapterProtocol
 ```
 
 ## Detailed Design
@@ -189,18 +209,18 @@ graph TD
 ```
 src/belgie/
 ├── auth/
-│   ├── hooks.py                # New: Hooks dataclass
+│   ├── hooks.py                # New: Hooks dataclass + HookAdapter wrapper
 │   ├── core/
-│   │   └── auth.py            # Modified: Add hooks parameter and delete_user method
+│   │   └── auth.py            # Modified: Add hooks parameter, wrap adapter, add delete_user
 │   ├── protocols/
-│   │   └── adapter.py         # Modified: Add delete_user method
+│   │   └── adapter.py         # Modified: Add DBSessionT type param, add delete_user method
 │   ├── adapters/
 │   │   └── alchemy.py         # Modified: Implement delete_user
 │   └── providers/
-│       └── google.py          # Modified: Call on_signup hook
+│       └── google.py          # No changes - uses adapter transparently
 └── __tests__/
     └── auth/
-        ├── test_hooks.py               # New: Unit tests for hooks
+        ├── test_hooks.py               # New: Unit tests for hooks and HookAdapter
         ├── test_hooks_integration.py   # New: Integration tests
         └── core/
             └── test_auth.py            # Modified: Add delete_user tests
@@ -209,157 +229,270 @@ src/belgie/
 ### API Design
 
 #### `src/belgie/auth/hooks.py`
-Hook callback definitions and container class.
+Hook callback definitions, container class, and adapter wrapper.
 
 ```python
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-from uuid import UUID
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from belgie.auth.protocols.adapter import AdapterProtocol
     from belgie.auth.protocols.models import UserProtocol
 
-# Type aliases for hook signatures
-OnSignupHook = Callable[["UserProtocol", AsyncSession], Awaitable[None]]
+# Type aliases for hook signatures (generic over user and session types)
+OnSignupHook[UserT, DBSessionT] = Callable[[UserT, DBSessionT], Awaitable[None]]
 # 1. Receives newly created user object
 # 2. Receives database session for additional operations
 # 3. Returns None (async)
-# Called after user is created but before session creation
+# Called after user is created but before returning to provider
 
-OnUserDeleteHook = Callable[[UUID, AsyncSession], Awaitable[None]]
-# 1. Receives user_id of user being deleted
+OnUserDeleteHook[UserT, DBSessionT] = Callable[[UserT, DBSessionT], Awaitable[None]]
+# 1. Receives user object being deleted
 # 2. Receives database session for cleanup operations
 # 3. Returns None (async)
 # Called before user is actually deleted from database
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class Hooks:
+class Hooks[UserT, DBSessionT]:
     # Container for auth event hooks (see Implementation Order #1)
+    # Generic over user type and database session type
     # All hooks are optional (None by default)
 
-    on_signup: OnSignupHook | None = None
+    on_signup: OnSignupHook[UserT, DBSessionT] | None = None
     # Hook called after user creation during OAuth flow
     # Used for: sending welcome emails, creating user profiles, analytics tracking
     # Called in: Workflow 1 (see sequence diagram)
 
-    on_user_delete: OnUserDeleteHook | None = None
+    on_user_delete: OnUserDeleteHook[UserT, DBSessionT] | None = None
     # Hook called before user deletion
     # Used for: cleanup operations, external service notifications, audit logging
     # Called in: Workflow 2 (see sequence diagram)
+
+
+class HookAdapter[UserT: "UserProtocol", AccountT, SessionT, OAuthStateT, DBSessionT]:
+    # Adapter wrapper that intercepts create_user and delete_user calls
+    # Implements AdapterProtocol and delegates to underlying adapter
+    # Generic over all adapter type parameters plus DBSessionT
+
+    def __init__(
+        self,
+        adapter: "AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT, DBSessionT]",
+        hooks: Hooks[UserT, DBSessionT] | None = None,
+    ) -> None: ...
+    # 1. Store adapter as self._adapter
+    # 2. Store hooks as self._hooks (None if not provided)
+    # Used in: Auth.__init__ to wrap base adapter
+
+    async def create_user(
+        self,
+        db: DBSessionT,
+        email: str,
+        name: str | None = None,
+        image: str | None = None,
+        *,
+        email_verified: bool = False,
+    ) -> UserT: ...
+    # 1. Call self._adapter.create_user(...) to create user
+    # 2. If self._hooks and self._hooks.on_signup exist, await on_signup(user, db)
+    # 3. Return user object
+    # Entry point for Workflow 1 hook invocation
+
+    async def delete_user(self, db: DBSessionT, user: UserT) -> bool: ...
+    # 1. If self._hooks and self._hooks.on_user_delete exist, await on_user_delete(user, db)
+    # 2. Call self._adapter.delete_user(db, user)
+    # 3. Return result from adapter
+    # Entry point for Workflow 2 hook invocation
+
+    # All other AdapterProtocol methods delegate directly to self._adapter
+    async def get_user_by_id(self, db: DBSessionT, user_id: UUID) -> UserT | None: ...
+    async def get_user_by_email(self, db: DBSessionT, email: str) -> UserT | None: ...
+    async def update_user(self, db: DBSessionT, user_id: UUID, **updates: Any) -> UserT | None: ...
+    async def create_account(self, db: DBSessionT, user_id: UUID, provider: str, provider_account_id: str, **tokens: Any) -> AccountT: ...
+    async def get_account(self, db: DBSessionT, provider: str, provider_account_id: str) -> AccountT | None: ...
+    async def get_account_by_user_and_provider(self, db: DBSessionT, user_id: UUID, provider: str) -> AccountT | None: ...
+    async def update_account(self, db: DBSessionT, user_id: UUID, provider: str, **tokens: Any) -> AccountT | None: ...
+    async def create_session(self, db: DBSessionT, user_id: UUID, expires_at: datetime, ip_address: str | None = None, user_agent: str | None = None) -> SessionT: ...
+    async def get_session(self, db: DBSessionT, session_id: UUID) -> SessionT | None: ...
+    async def update_session(self, db: DBSessionT, session_id: UUID, **updates: Any) -> SessionT | None: ...
+    async def delete_session(self, db: DBSessionT, session_id: UUID) -> bool: ...
+    async def delete_expired_sessions(self, db: DBSessionT) -> int: ...
+    async def create_oauth_state(self, db: DBSessionT, state: str, expires_at: datetime, code_verifier: str | None = None, redirect_url: str | None = None) -> OAuthStateT: ...
+    async def get_oauth_state(self, db: DBSessionT, state: str) -> OAuthStateT | None: ...
+    async def delete_oauth_state(self, db: DBSessionT, state: str) -> bool: ...
+
+    @property
+    def dependency(self) -> Callable[[], Any]: ...
+    # Delegate to self._adapter.dependency
 ```
 
 #### `src/belgie/auth/protocols/adapter.py`
-Add delete_user method to adapter protocol.
+Add DBSessionT type parameter and delete_user method to adapter protocol.
 
 ```python
-# Add to AdapterProtocol class
+# Modify AdapterProtocol to add DBSessionT type parameter
 
-async def delete_user(self, db: AsyncSession, user_id: UUID) -> bool:
-    """Delete a user and all related data.
+class AdapterProtocol[
+    UserT: UserProtocol,
+    AccountT: AccountProtocol,
+    SessionT: SessionProtocol,
+    OAuthStateT: OAuthStateProtocol,
+    DBSessionT,  # NEW: database session type parameter
+](Protocol):
+    """Protocol for database adapters.
 
-    Args:
-        db: Async database session
-        user_id: UUID of the user to delete
+    Defines the interface that all database adapters must implement
+    to support authentication operations including user management,
+    OAuth account linking, session management, and OAuth state handling.
 
-    Returns:
-        True if user was deleted, False if user not found
-
-    Implementation Notes:
-        Should delete:
-        - User record
-        - All associated accounts (OAuth connections)
-        - All associated sessions
-        Does NOT need to delete OAuth state (temporary, auto-expires)
+    Type Parameters:
+        UserT: User model type implementing UserProtocol
+        AccountT: Account model type implementing AccountProtocol
+        SessionT: Session model type implementing SessionProtocol
+        OAuthStateT: OAuth state model type implementing OAuthStateProtocol
+        DBSessionT: Database session type (e.g., AsyncSession for SQLAlchemy)
     """
-    ...
+
+    # Update all method signatures to use DBSessionT instead of AsyncSession
+    async def create_user(
+        self,
+        db: DBSessionT,  # Changed from AsyncSession
+        email: str,
+        name: str | None = None,
+        image: str | None = None,
+        *,
+        email_verified: bool = False,
+    ) -> UserT: ...
+
+    # ... (update all other methods similarly)
+
+    # NEW method
+    async def delete_user(self, db: DBSessionT, user: UserT) -> bool:
+        """Delete a user and all related data.
+
+        Args:
+            db: Database session
+            user: User object to delete
+
+        Returns:
+            True if user was deleted, False if user not found
+
+        Implementation Notes:
+            Should delete:
+            - User record
+            - All associated accounts (OAuth connections)
+            - All associated sessions
+            Does NOT need to delete OAuth state (temporary, auto-expires)
+        """
+        ...
+
+    @property
+    def dependency(self) -> Callable[[], Any]:
+        """FastAPI dependency for database sessions."""
+        ...
 ```
 
 #### `src/belgie/auth/adapters/alchemy.py`
-Implement delete_user method.
+Update type parameters and implement delete_user method.
 
 ```python
-# Add to AlchemyAdapter class
+from sqlalchemy.ext.asyncio import AsyncSession
 
-async def delete_user(self, db: AsyncSession, user_id: UUID) -> bool:
-    # 1. Query for user by user_id
-    # 2. If user not found, return False
-    # 3. Delete all sessions for user: DELETE FROM session WHERE user_id = ?
-    # 4. Delete all accounts for user: DELETE FROM account WHERE user_id = ?
-    # 5. Delete user record: DELETE FROM user WHERE id = ?
-    # 6. Commit transaction
-    # 7. Return True
-    # Used in: Workflow 2 (see call graph)
-    ...
+# Update AlchemyAdapter to add DBSessionT = AsyncSession
+
+class AlchemyAdapter[
+    UserT: UserProtocol,
+    AccountT: AccountProtocol,
+    SessionT: SessionProtocol,
+    OAuthStateT: OAuthStateProtocol,
+    DBSessionT = AsyncSession,  # NEW: default to AsyncSession for SQLAlchemy
+]:
+    # Implementation for delete_user
+
+    async def delete_user(self, db: AsyncSession, user: UserT) -> bool:
+        # 1. Delete all sessions for user: DELETE FROM session WHERE user_id = ?
+        # 2. Delete all accounts for user: DELETE FROM account WHERE user_id = ?
+        # 3. Delete user record: DELETE FROM user WHERE id = ?
+        # 4. Commit transaction (db.commit())
+        # 5. Return True
+        # Note: If user doesn't exist, SQLAlchemy will still succeed (idempotent)
+        # Used in: Workflow 2 (see call graph)
+        ...
 ```
 
 #### `src/belgie/auth/core/auth.py`
-Modify Auth class to accept hooks and add delete_user method.
+Modify Auth class to accept hooks, wrap adapter, and add delete_user method.
 
 ```python
+from belgie.auth.hooks import HookAdapter, Hooks
+
 # Modify Auth.__init__ signature
 
 def __init__(
     self,
     settings: AuthSettings,
-    adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
+    adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT, DBSessionT],
     providers: Providers | None = None,
-    hooks: Hooks | None = None,  # NEW parameter
+    hooks: Hooks[UserT, DBSessionT] | None = None,  # NEW parameter
 ) -> None:
-    # 1. Store existing parameters (settings, adapter, session_manager, providers)
-    # 2. Store hooks parameter as self.hooks (default to None if not provided)
-    # Used in: Workflow 1, Workflow 2
+    """Initialize the Auth instance.
+
+    Args:
+        settings: Authentication configuration including session, cookie, and URL settings
+        adapter: Database adapter for user, account, session, and OAuth state persistence
+        providers: Dictionary of provider settings. Each setting is callable and returns its provider.
+                  If None, no providers are registered.
+        hooks: Optional hooks for auth events (signup, deletion). If provided, adapter is wrapped
+              with HookAdapter to invoke hooks transparently.
+
+    Raises:
+        RuntimeError: If router endpoints are accessed without adapter.dependency configured
+    """
+    # 1. Store settings
+    self.settings = settings
+
+    # 2. Wrap adapter with HookAdapter if hooks provided
+    self.adapter = HookAdapter(adapter, hooks) if hooks else adapter
+
+    # 3. Create session_manager using wrapped adapter
+    self.session_manager = SessionManager(
+        adapter=self.adapter,
+        max_age=settings.session.max_age,
+        update_age=settings.session.update_age,
+    )
+
+    # 4. Instantiate providers (same as before)
+    self.providers: dict[str, OAuthProviderProtocol] = (
+        {provider_id: provider_settings() for provider_id, provider_settings in providers.items()}
+        if providers
+        else {}
+    )
+    # Providers use self.adapter - transparently get hooks via HookAdapter
 
 
 # Add new method
 
-async def delete_user(self, db: AsyncSession, user_id: UUID) -> bool:
+async def delete_user(self, db: DBSessionT, user: UserT) -> bool:
     """Delete a user and invoke on_user_delete hook.
 
     Args:
-        db: Async database session
-        user_id: UUID of the user to delete
+        db: Database session
+        user: User object to delete
 
     Returns:
         True if user was deleted, False if user didn't exist
 
     Example:
-        >>> success = await auth.delete_user(db, user_id)
-        >>> if success:
-        ...     print("User deleted successfully")
+        >>> user = await auth.adapter.get_user_by_id(db, user_id)
+        >>> if user:
+        ...     success = await auth.delete_user(db, user)
+        ...     if success:
+        ...         print("User deleted successfully")
     """
-    # 1. Check if self.hooks exists and has on_user_delete callback
-    # 2. If hook exists, await self.hooks.on_user_delete(user_id, db)
-    # 3. Call await self.adapter.delete_user(db, user_id)
-    # 4. Return the result from adapter.delete_user
-    # Entry point for Workflow 2 (see sequence diagram)
-    ...
-```
-
-#### `src/belgie/auth/providers/google.py`
-Modify callback to invoke on_signup hook.
-
-```python
-# In GoogleOAuthProvider.get_router() -> callback function
-# After line 216 where user is created
-
-# Get or create user (use walrus operator)
-if not (user := await adapter.get_user_by_email(db, user_info.email)):
-    user = await adapter.create_user(
-        db,
-        email=user_info.email,
-        email_verified=user_info.verified_email,
-        name=user_info.name,
-        image=user_info.picture,
-    )
-    # NEW: Invoke on_signup hook if configured
-    # 1. Get hooks from closure (passed via get_router)
-    # 2. Check if hooks and hooks.on_signup exist
-    # 3. If exists, await hooks.on_signup(user, db)
-
-# Continue with account creation...
+    # 1. Call self.adapter.delete_user(db, user)
+    # 2. Return the result
+    # HookAdapter handles hook invocation transparently
+    return await self.adapter.delete_user(db, user)
 ```
 
 ### Testing Strategy
@@ -375,11 +508,22 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `Hooks` instantiation with both hooks configured
 - Test `Hooks` is frozen (immutable)
 - Test `Hooks` requires keyword arguments only
+- Test `Hooks` is generic over user and session types
 
 **Hook Signature Tests:**
 - Verify `OnSignupHook` type accepts correct signature
 - Verify `OnUserDeleteHook` type accepts correct signature
 - Test that hooks must be async functions
+
+**HookAdapter Tests:**
+- Test `HookAdapter` wraps base adapter correctly
+- Test `HookAdapter.create_user()` calls on_signup hook when configured
+- Test `HookAdapter.create_user()` works without hooks
+- Test `HookAdapter.delete_user()` calls on_user_delete hook when configured
+- Test `HookAdapter.delete_user()` works without hooks
+- Test `HookAdapter` delegates all other methods to base adapter
+- Test `HookAdapter.dependency` property delegates to base adapter
+- Test hook errors are propagated (not swallowed)
 
 #### `test_hooks_integration.py`
 
@@ -394,11 +538,10 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 **Delete Hook Integration:**
 - Test delete hook is called before user deletion
-- Test delete hook receives correct user_id
+- Test delete hook receives correct user object
 - Test delete hook receives valid database session
 - Test delete hook can perform cleanup operations
 - Test user is deleted even if no hook configured
-- Test user deletion returns False if user doesn't exist
 - Test hook errors are propagated
 
 **Error Handling:**
@@ -407,19 +550,18 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test database transaction behavior when hooks fail
 
 **Edge Cases:**
-- Test hooks with None database session (should not happen, but validate)
-- Test hooks with invalid user_id
+- Test HookAdapter with various adapter implementations
 - Test concurrent hook executions (if applicable)
+- Test hook with database operations that modify same tables
 
 #### `test_auth.py` (modifications)
 
 **Auth Class Tests:**
 - Test `Auth.__init__()` accepts hooks parameter
-- Test `Auth.__init__()` works without hooks (backwards compatibility)
+- Test `Auth.__init__()` wraps adapter with HookAdapter when hooks provided
+- Test `Auth.__init__()` uses adapter directly when no hooks
 - Test `Auth.delete_user()` deletes user successfully
-- Test `Auth.delete_user()` returns False for non-existent user
-- Test `Auth.delete_user()` calls on_user_delete hook if configured
-- Test `Auth.delete_user()` works without hooks configured
+- Test `Auth.delete_user()` delegates to adapter.delete_user
 
 #### `adapters/test_alchemy.py` (modifications)
 
@@ -428,7 +570,6 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `delete_user()` deletes all user sessions
 - Test `delete_user()` deletes all user accounts (OAuth connections)
 - Test `delete_user()` returns True on successful deletion
-- Test `delete_user()` returns False when user doesn't exist
 - Test `delete_user()` handles cascade deletes correctly
 - Test `delete_user()` with user that has multiple sessions and accounts
 
@@ -436,19 +577,19 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Deleting user with no sessions or accounts
 - Deleting user with many sessions and accounts
 - Hook receives correct user object immediately after creation
-- Hook exceptions don't prevent user deletion (or do they? - design decision)
-- Multiple OAuth providers calling signup hook
-- Race conditions if multiple requests try to create same user
+- Hook exceptions prevent user creation (transaction rollback)
+- Multiple OAuth providers all trigger hooks correctly
+- HookAdapter type compatibility with different session types
 
 ## Implementation
 
 ### Implementation Order
 
-1. **Hooks** (`hooks.py`) - Implement first (leaf node, no dependencies)
+1. **Hooks + HookAdapter** (`hooks.py`) - Implement first (leaf node, minimal dependencies)
    - Used in: [Workflow 1](#workflow-1-user-signup-with-hook), [Workflow 2](#workflow-2-user-deletion-with-hook)
-   - Dependencies: None (only type imports)
+   - Dependencies: AdapterProtocol (type-only import)
 
-2. **AdapterProtocol.delete_user** (`protocols/adapter.py`) - Add protocol method
+2. **AdapterProtocol updates** (`protocols/adapter.py`) - Add DBSessionT and delete_user
    - Used in: [Workflow 2](#workflow-2-user-deletion-with-hook)
    - Dependencies: None (protocol definition)
 
@@ -456,49 +597,50 @@ Tests should be organized by module/file and cover unit tests, integration tests
    - Used in: [Workflow 2](#workflow-2-user-deletion-with-hook) (see call graph)
    - Dependencies: AdapterProtocol
 
-4. **Auth.__init__ + Auth.delete_user** (`core/auth.py`) - Add hooks support and delete method
+4. **Auth modifications** (`core/auth.py`) - Wrap adapter and add delete_user
    - Used in: [Workflow 1](#workflow-1-user-signup-with-hook), [Workflow 2](#workflow-2-user-deletion-with-hook)
-   - Dependencies: Hooks, AdapterProtocol
-
-5. **Provider modifications** (`providers/google.py`) - Add on_signup hook call
-   - Used in: [Workflow 1](#workflow-1-user-signup-with-hook) (see sequence diagram)
-   - Dependencies: Hooks, Auth (for accessing hooks)
+   - Dependencies: Hooks, HookAdapter, AdapterProtocol
 
 ### Tasks
 
 - [ ] **Implement leaf node components** (no dependencies on new code)
+  - [ ] Add `DBSessionT` type parameter to `AdapterProtocol` (#2)
+  - [ ] Update all `AdapterProtocol` method signatures to use `DBSessionT`
+  - [ ] Add `delete_user()` method to `AdapterProtocol`
   - [ ] Implement `Hooks` dataclass in `hooks.py` (#1)
-    - [ ] Define `OnSignupHook` type alias
-    - [ ] Define `OnUserDeleteHook` type alias
-    - [ ] Implement `Hooks` dataclass with frozen, slots, kw_only
+    - [ ] Define `OnSignupHook[UserT, DBSessionT]` type alias
+    - [ ] Define `OnUserDeleteHook[UserT, DBSessionT]` type alias
+    - [ ] Implement `Hooks` dataclass with frozen, slots, kw_only, generic
+  - [ ] Implement `HookAdapter` wrapper class in `hooks.py` (#1)
+    - [ ] Implement `__init__` to store adapter and hooks
+    - [ ] Implement `create_user` with on_signup hook invocation
+    - [ ] Implement `delete_user` with on_user_delete hook invocation
+    - [ ] Implement delegation for all other AdapterProtocol methods
   - [ ] Write unit tests for `hooks.py`
     - [ ] Test Hooks instantiation with various configurations
-    - [ ] Test Hooks immutability
-    - [ ] Test type signatures
+    - [ ] Test Hooks immutability and generics
+    - [ ] Test HookAdapter wrapping and delegation
+    - [ ] Test hook invocation logic
 
-- [ ] **Implement protocol and adapter changes**
-  - [ ] Add `delete_user()` method to `AdapterProtocol` (#2)
+- [ ] **Implement adapter changes**
+  - [ ] Update `AlchemyAdapter` type parameters to include `DBSessionT = AsyncSession` (#3)
+  - [ ] Update all `AlchemyAdapter` method signatures to use `AsyncSession` (explicit, not DBSessionT)
   - [ ] Implement `delete_user()` in `AlchemyAdapter` (#3)
     - [ ] Delete user sessions
     - [ ] Delete user accounts
     - [ ] Delete user record
   - [ ] Write unit tests for `AlchemyAdapter.delete_user()`
     - [ ] Test successful deletion
-    - [ ] Test deletion returns False for non-existent user
     - [ ] Test cascade deletes (sessions, accounts)
 
 - [ ] **Integrate hooks into Auth class**
   - [ ] Modify `Auth.__init__()` to accept hooks parameter (#4)
-  - [ ] Implement `Auth.delete_user()` method with hook support (#4)
+  - [ ] Wrap adapter with `HookAdapter` when hooks provided (#4)
+  - [ ] Implement `Auth.delete_user()` method (#4)
   - [ ] Write unit tests for Auth with hooks
     - [ ] Test Auth initialization with/without hooks
+    - [ ] Test adapter wrapping behavior
     - [ ] Test delete_user method
-
-- [ ] **Integrate hooks into providers**
-  - [ ] Modify `GoogleOAuthProvider.get_router()` to accept hooks (#5)
-  - [ ] Update `Auth.router` property to pass hooks to providers
-  - [ ] Add on_signup hook call in provider callback (#5)
-  - [ ] Test provider integration with hooks
 
 - [ ] **Integration and validation**
   - [ ] Add integration tests for [Workflow 1](#workflow-1-user-signup-with-hook) (signup hook)
@@ -512,13 +654,13 @@ Tests should be organized by module/file and cover unit tests, integration tests
 ## Open Questions
 
 1. Should hook errors prevent the auth operation (signup/deletion) or just be logged?
-   - **Recommendation**: Propagate errors - let application decide how to handle
-2. Should we pass the entire user object or just user_id to on_user_delete?
-   - **Recommendation**: Just user_id - user might already be soft-deleted or modified
-3. Do we need a hook for user updates (profile changes)?
-   - **Recommendation**: Out of scope for now, add in future enhancement
-4. Should hooks be optional parameters or required with None defaults?
-   - **Recommendation**: Optional parameter with None default for backwards compatibility
+   - **Decision**: Propagate errors - let application decide how to handle. Hooks execute within same transaction.
+
+2. Should HookAdapter implement all AdapterProtocol methods or use `__getattr__` for delegation?
+   - **Decision**: Implement explicitly for type safety and IDE support
+
+3. Should we support hook priority/ordering for future multi-hook support?
+   - **Decision**: Out of scope for now, single callback is sufficient
 
 ## Future Enhancements
 
@@ -527,14 +669,32 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Add `on_session_expired` hook for expired session handling
 - Add `on_account_linked` hook when OAuth provider is connected
 - Add `on_account_unlinked` hook when OAuth provider is removed
-- Add hook priority/ordering system for multiple hooks
+- Add hook priority/ordering system for multiple hooks per event
 - Add hook retry mechanism for transient failures
 - Add async event queue for decoupling hooks from auth flow
 - Add built-in hooks for common operations (email sending templates)
+- Support callback lists instead of single callbacks
 
 ## Alternative Approaches
 
-### Approach 1: Callback Lists Instead of Single Callbacks
+### Approach 1: Hooks in Providers
+
+**Description**: Have each provider directly invoke hooks instead of using adapter wrapper.
+
+**Pros**:
+- Direct control over when hooks are called
+- No wrapper layer needed
+- Simpler type hierarchy
+
+**Cons**:
+- Couples providers to hook implementation
+- Requires modifying every provider when adding hooks
+- Breaks separation of concerns
+- Providers need to know about hooks
+
+**Why not chosen**: Adapter wrapper pattern keeps providers decoupled from hook logic. Providers just call adapter methods normally - hooks are invoked transparently via HookAdapter.
+
+### Approach 2: Callback Lists Instead of Single Callbacks
 
 **Description**: Allow multiple callbacks per event instead of single callback.
 
@@ -557,7 +717,7 @@ hooks = Hooks(
 
 **Why not chosen**: YAGNI (You Ain't Gonna Need It). Single callback is simpler and users can compose multiple operations within one callback. Can add this later if needed without breaking changes.
 
-### Approach 2: Event Emitter Pattern
+### Approach 3: Event Emitter Pattern
 
 **Description**: Use event emitter pattern like Node.js EventEmitter.
 
@@ -581,7 +741,7 @@ await auth.emit('user:signup', user, db)
 
 **Why not chosen**: Too complex for the current use case. Type-safe callback approach with explicit fields (`on_signup`, `on_user_delete`) provides better IDE support and type safety.
 
-### Approach 3: Abstract Base Class for Hooks
+### Approach 4: Abstract Base Class for Hooks
 
 **Description**: Define hooks as abstract base class that users subclass.
 
@@ -590,8 +750,8 @@ class MyHooks(AuthHooks):
     async def on_signup(self, user: User, db: AsyncSession) -> None:
         await send_welcome_email(user)
 
-    async def on_user_delete(self, user_id: UUID, db: AsyncSession) -> None:
-        await cleanup_data(user_id)
+    async def on_user_delete(self, user: User, db: AsyncSession) -> None:
+        await cleanup_data(user)
 
 auth = Auth(settings, adapter, providers, hooks=MyHooks())
 ```
