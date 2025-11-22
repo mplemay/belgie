@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +28,15 @@ class GoogleOAuthSettings(BaseSettings):
     client_secret: str
     redirect_uri: str
     scopes: list[str] = Field(default=["openid", "email", "profile"])
+
+    @field_validator("client_id", "client_secret", "redirect_uri")
+    @classmethod
+    def validate_non_empty(cls, v: str, info) -> str:  # noqa: ANN001
+        """Ensure required OAuth fields are non-empty."""
+        if not v or not v.strip():
+            msg = f"{info.field_name} must be a non-empty string"
+            raise ValueError(msg)
+        return v.strip()
 
 
 class URLSettings(BaseSettings):

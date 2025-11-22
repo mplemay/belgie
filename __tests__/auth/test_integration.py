@@ -11,7 +11,7 @@ from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
-from belgie.auth.providers.google import GoogleOAuthProvider
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 
 
 @pytest.fixture
@@ -309,3 +309,107 @@ def test_multiple_concurrent_sessions(client: TestClient, auth: Auth, db_session
         assert session1.user_id == session2.user_id
 
     asyncio.run(verify_both_sessions_same_user())
+
+
+@respx.mock
+def test_provider_replacement_router_integration(
+    auth_settings: AuthSettings,
+    db_session: AsyncSession,
+) -> None:
+    """Test that replacing a provider after router creation works correctly."""
+    import asyncio  # noqa: PLC0415
+
+    # Create adapter
+    async def get_db() -> AsyncSession:
+        return db_session
+
+    adapter = AlchemyAdapter(
+        user=User,
+        account=Account,
+        session=Session,
+        oauth_state=OAuthState,
+        db_dependency=get_db,
+    )
+
+    # Create Auth instance with initial provider
+    auth = Auth(settings=auth_settings, adapter=adapter)
+
+    # Create app and client with initial router
+    app1 = FastAPI()
+    app1.include_router(auth.router)
+    client1 = TestClient(app1)
+
+    # Test initial provider works
+    signin1 = client1.get("/auth/provider/google/signin", follow_redirects=False)
+    assert signin1.status_code == 302
+    assert "accounts.google.com" in signin1.headers["location"]
+    assert "client_id=integration-test-client-id" in signin1.headers["location"]
+
+    # Replace provider with new settings
+    new_settings = GoogleProviderSettings(
+        client_id="replaced-client-id",
+        client_secret="replaced-secret",  # noqa: S106
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
+        scopes=["openid", "email"],
+    )
+    new_provider = GoogleOAuthProvider(settings=new_settings)
+    auth.register_provider(new_provider)
+
+    # Create new app with recreated router
+    app2 = FastAPI()
+    app2.include_router(auth.router)
+    client2 = TestClient(app2)
+
+    # Test that new provider settings are used
+    signin2 = client2.get("/auth/provider/google/signin", follow_redirects=False)
+    assert signin2.status_code == 302
+    assert "accounts.google.com" in signin2.headers["location"]
+    # Verify new client_id is used
+    assert "client_id=replaced-client-id" in signin2.headers["location"]
+    # Verify new scopes are used
+    assert "scope=openid+email" in signin2.headers["location"]
+
+    # Extract state and test full callback with new provider
+    state_param = [  # noqa: RUF015
+        param.split("=")[1]
+        for param in signin2.headers["location"].split("?")[1].split("&")
+        if param.startswith("state=")
+    ][0]
+
+    mock_token_response = {
+        "access_token": "replaced-provider-token",
+        "expires_in": 3600,
+        "token_type": "Bearer",
+        "scope": "openid email",
+    }
+
+    mock_user_info = {
+        "id": "google-replaced-999",
+        "email": "replaced@example.com",
+        "verified_email": True,
+    }
+
+    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+
+    # Complete OAuth flow with replaced provider
+    callback = client2.get(
+        f"/auth/provider/google/callback?code=replaced-code&state={state_param}",
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/dashboard"
+    assert "belgie_session" in callback.cookies
+
+    # Verify user was created successfully
+    async def verify_user_created() -> None:
+        user = await auth.adapter.get_user_by_email(db_session, "replaced@example.com")
+        assert user is not None
+        assert user.email == "replaced@example.com"
+
+        account = await auth.adapter.get_account_by_user_and_provider(db_session, user.id, "google")
+        assert account is not None
+        assert account.provider_account_id == "google-replaced-999"
+
+    asyncio.run(verify_user_created())

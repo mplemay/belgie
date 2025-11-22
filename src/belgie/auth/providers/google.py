@@ -5,7 +5,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import httpx
 from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from belgie.auth.core.exceptions import InvalidStateError, OAuthError
@@ -33,6 +33,15 @@ class GoogleProviderSettings(BaseSettings):
     scopes: list[str] = Field(default=["openid", "email", "profile"])
     access_type: str = Field(default="offline")
     prompt: str = Field(default="consent")
+
+    @field_validator("client_id", "client_secret", "redirect_uri")
+    @classmethod
+    def validate_non_empty(cls, v: str, info) -> str:  # noqa: ANN001
+        """Ensure required OAuth fields are non-empty."""
+        if not v or not v.strip():
+            msg = f"{info.field_name} must be a non-empty string"
+            raise ValueError(msg)
+        return v.strip()
 
 
 class GoogleUserInfo(BaseModel):
@@ -118,7 +127,16 @@ class GoogleOAuthProvider:
                     ),
                 }
         except httpx.HTTPStatusError as e:
-            msg = f"oauth token exchange failed: {e.response.status_code}"
+            # Safely extract error code from response without exposing sensitive details
+            error_detail = ""
+            try:
+                error_data = e.response.json()
+                if isinstance(error_data, dict) and "error" in error_data:
+                    error_detail = f" ({error_data['error']})"
+            except (ValueError, KeyError, TypeError):
+                # Ignore JSON parsing errors or missing fields
+                pass
+            msg = f"oauth token exchange failed: {e.response.status_code}{error_detail}"
             raise OAuthError(msg) from e
         except httpx.RequestError as e:
             msg = "oauth token exchange request failed"
@@ -136,7 +154,16 @@ class GoogleOAuthProvider:
                 user_data = response.json()
                 return GoogleUserInfo(**user_data)
         except httpx.HTTPStatusError as e:
-            msg = f"failed to fetch user info: {e.response.status_code}"
+            # Safely extract error code from response without exposing sensitive details
+            error_detail = ""
+            try:
+                error_data = e.response.json()
+                if isinstance(error_data, dict) and "error" in error_data:
+                    error_detail = f" ({error_data['error']})"
+            except (ValueError, KeyError, TypeError):
+                # Ignore JSON parsing errors or missing fields
+                pass
+            msg = f"failed to fetch user info: {e.response.status_code}{error_detail}"
             raise OAuthError(msg) from e
         except httpx.RequestError as e:
             msg = "user info request failed"

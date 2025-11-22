@@ -61,6 +61,32 @@ def test_google_oauth_settings_required_fields() -> None:
     assert "redirect_uri" in field_names
 
 
+def test_google_oauth_settings_rejects_empty_strings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that empty strings are rejected for required OAuth fields."""
+    monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_ID", "")
+    monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "test-secret")
+    monkeypatch.setenv("BELGIE_GOOGLE_REDIRECT_URI", "http://localhost:8000/callback")
+
+    with pytest.raises(ValidationError) as exc_info:
+        GoogleOAuthSettings()  # type: ignore[call-arg]
+
+    errors = exc_info.value.errors()  # type: ignore[attr-defined]
+    assert any(error["loc"][0] == "client_id" for error in errors)
+
+
+def test_google_oauth_settings_rejects_whitespace_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that whitespace-only strings are rejected for required OAuth fields."""
+    monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "   ")
+    monkeypatch.setenv("BELGIE_GOOGLE_REDIRECT_URI", "http://localhost:8000/callback")
+
+    with pytest.raises(ValidationError) as exc_info:
+        GoogleOAuthSettings()  # type: ignore[call-arg]
+
+    errors = exc_info.value.errors()  # type: ignore[attr-defined]
+    assert any(error["loc"][0] == "client_secret" for error in errors)
+
+
 def test_google_oauth_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_ID", "test-client-id")
     monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "test-client-secret")

@@ -135,6 +135,39 @@ def test_auth_router_created(auth: Auth) -> None:
     assert "auth" in auth.router.tags
 
 
+def test_register_provider_invalidates_router_cache(auth: Auth) -> None:
+    """Test that registering a provider after router creation invalidates the cache."""
+    # Access the router to cache it
+    first_router = auth.router
+    assert first_router.prefix == "/auth"
+
+    # Verify router is cached
+    assert "router" in auth.__dict__
+
+    # Register a new provider - import needed here to avoid circular dependency in fixtures
+    custom_settings = GoogleProviderSettings(
+        client_id="new-provider-id",
+        client_secret="new-secret",  # noqa: S106
+        redirect_uri="https://new.com/callback",
+        scopes=["openid", "email"],
+    )
+    custom_provider = GoogleOAuthProvider(settings=custom_settings)
+
+    # Change the provider_id by creating a custom class (for testing purposes)
+    # Since we can't change provider_id directly, let's replace the existing google provider
+    auth.register_provider(custom_provider)
+
+    # Verify cache was cleared
+    assert "router" not in auth.__dict__
+
+    # Verify we can access a new router
+    second_router = auth.router
+    assert second_router.prefix == "/auth"
+
+    # Verify it's a new instance
+    assert first_router is not second_router
+
+
 @pytest.mark.asyncio
 async def test_get_user_from_session_valid(auth: Auth, db_session: AsyncSession) -> None:
     user = await auth.adapter.create_user(db_session, email="test@example.com")

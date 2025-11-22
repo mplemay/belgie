@@ -125,6 +125,9 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             it will be replaced with the new provider. This allows for
             runtime provider customization and testing.
 
+            If the router has already been created (cached), it will be
+            invalidated and recreated on next access to include the new provider.
+
         Example:
             >>> # Register or replace Google provider with custom settings
             >>> from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
@@ -139,6 +142,10 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> auth.register_provider(custom_google)
         """
         self.providers[provider.provider_id] = provider
+
+        # Clear cached router to force recreation with new provider
+        if "router" in self.__dict__:
+            del self.__dict__["router"]
 
     def list_providers(self) -> list[str]:
         """Return list of registered provider IDs.
