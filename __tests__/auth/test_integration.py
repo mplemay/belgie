@@ -187,7 +187,8 @@ def test_signout_flow(client: TestClient, auth: Auth, db_session: AsyncSession) 
 
     asyncio.run(verify_session_exists())
 
-    signout_response = client.post("/auth/signout", cookies={"belgie_session": session_id}, follow_redirects=False)
+    client.cookies.set("belgie_session", session_id)
+    signout_response = client.post("/auth/signout", follow_redirects=False)
 
     assert signout_response.status_code == 302
     assert signout_response.headers["location"] == "/"

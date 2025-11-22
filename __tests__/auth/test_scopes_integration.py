@@ -535,7 +535,8 @@ async def test_http_endpoint_with_valid_scope(
     """Test that HTTP request with valid scope can access protected endpoint."""
     session_id = await create_user_with_session("reader@example.com", [AppScope.READ, AppScope.WRITE])
 
-    response = client.get("/api/read", cookies={auth_settings.cookie.name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/read")
 
     assert response.status_code == 200
     assert response.json()["message"] == "read access granted"
@@ -551,7 +552,8 @@ async def test_http_endpoint_without_required_scope(
     """Test that HTTP request without required scope is denied access."""
     session_id = await create_user_with_session("limited@example.com", [AppScope.READ])
 
-    response = client.get("/api/admin", cookies={auth_settings.cookie.name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/admin")
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Insufficient permissions"
@@ -569,7 +571,8 @@ async def test_http_endpoint_with_multiple_required_scopes(
         [AppScope.READ, AppScope.WRITE, AppScope.DELETE],
     )
 
-    response = client.get("/api/read-write", cookies={auth_settings.cookie.name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/read-write")
 
     assert response.status_code == 200
     assert response.json()["message"] == "read-write access granted"
@@ -584,7 +587,8 @@ async def test_http_endpoint_missing_one_of_multiple_scopes(
     """Test that missing one of multiple required scopes denies access."""
     session_id = await create_user_with_session("readonly@example.com", [AppScope.READ])
 
-    response = client.get("/api/read-write", cookies={auth_settings.cookie.name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/read-write")
 
     assert response.status_code == 403
 
@@ -604,7 +608,8 @@ async def test_http_public_endpoint_with_authentication(
     """Test public endpoint (no scope requirements) with authenticated user."""
     session_id = await create_user_with_session("anyuser@example.com", None)
 
-    response = client.get("/api/public", cookies={auth_settings.cookie.name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/public")
 
     assert response.status_code == 200
     assert response.json()["message"] == "public access granted"
@@ -624,15 +629,17 @@ async def test_http_different_users_different_access(
     regular_session_id = await create_user_with_session("regular@example.com", [AppScope.READ])
 
     # Admin can access admin endpoint
-    admin_response = client.get("/api/admin", cookies={auth_settings.cookie.name: admin_session_id})
+    client.cookies.set(auth_settings.cookie.name, admin_session_id)
+    admin_response = client.get("/api/admin")
     assert admin_response.status_code == 200
     assert admin_response.json()["user_email"] == "admin@example.com"
 
     # Regular user cannot access admin endpoint
-    regular_response = client.get("/api/admin", cookies={auth_settings.cookie.name: regular_session_id})
+    client.cookies.set(auth_settings.cookie.name, regular_session_id)
+    regular_response = client.get("/api/admin")
     assert regular_response.status_code == 403
 
     # Regular user can access read endpoint
-    regular_read_response = client.get("/api/read", cookies={auth_settings.cookie.name: regular_session_id})
+    regular_read_response = client.get("/api/read")
     assert regular_read_response.status_code == 200
     assert regular_read_response.json()["user_email"] == "regular@example.com"
