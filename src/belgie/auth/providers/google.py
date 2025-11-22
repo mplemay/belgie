@@ -15,7 +15,11 @@ from belgie.auth.utils.crypto import generate_state_token
 
 
 class GoogleProviderSettings(BaseSettings):
-    """Google OAuth provider settings loaded from environment."""
+    """Google OAuth provider settings loaded from environment.
+
+    Contains only Google-specific OAuth configuration.
+    Session and redirect settings are passed via get_router() parameters.
+    """
 
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_GOOGLE_",
@@ -29,14 +33,6 @@ class GoogleProviderSettings(BaseSettings):
     scopes: list[str] = Field(default=["openid", "email", "profile"])
     access_type: str = Field(default="offline")
     prompt: str = Field(default="consent")
-
-    # Session configuration
-    session_max_age: int = Field(default=604800)  # 7 days
-    cookie_name: str = Field(default="belgie_session")
-
-    # Redirect URLs
-    signin_redirect: str = Field(default="/dashboard")
-    signout_redirect: str = Field(default="/")
 
 
 class GoogleUserInfo(BaseModel):
@@ -146,19 +142,18 @@ class GoogleOAuthProvider:
             msg = "user info request failed"
             raise OAuthError(msg) from e
 
-    def get_router(self, adapter: AdapterProtocol, cookie_settings: CookieSettings) -> APIRouter:
+    def get_router(
+        self,
+        adapter: AdapterProtocol,
+        cookie_settings: CookieSettings,
+        session_max_age: int,
+        signin_redirect: str,
+        signout_redirect: str,  # noqa: ARG002
+    ) -> APIRouter:
         """Create router with Google OAuth endpoints."""
         router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
-        # Create database dependency wrapper
-        async def _get_db():  # type: ignore[no-untyped-def]  # noqa: ANN202
-            db_dependency = adapter.get_db()
-            if db_dependency is None:
-                msg = "database dependency not configured"
-                raise RuntimeError(msg)
-            return await db_dependency()  # type: ignore[misc]
-
-        async def signin(db=Depends(_get_db)) -> RedirectResponse:  # noqa: B008, ANN001
+        async def signin(db=Depends(adapter.dependency)) -> RedirectResponse:  # noqa: B008, ANN001
             """Initiate Google OAuth flow."""
             # Generate and store state token with expiration
             state = generate_state_token()
@@ -173,7 +168,7 @@ class GoogleOAuthProvider:
             auth_url = self.generate_authorization_url(state)
             return RedirectResponse(url=auth_url, status_code=302)
 
-        async def callback(code: str, state: str, db=Depends(_get_db)) -> RedirectResponse:  # noqa: B008, ANN001
+        async def callback(code: str, state: str, db=Depends(adapter.dependency)) -> RedirectResponse:  # noqa: B008, ANN001
             """Handle Google OAuth callback."""
             # Validate and delete state token (use walrus operator)
             if not await adapter.get_oauth_state(db, state):
@@ -225,19 +220,19 @@ class GoogleOAuthProvider:
                 )
 
             # Create session with proper expiration
-            expires_at = datetime.now(UTC) + timedelta(seconds=self.settings.session_max_age)
+            expires_at = datetime.now(UTC) + timedelta(seconds=session_max_age)
             session = await adapter.create_session(
                 db,
                 user_id=user.id,
                 expires_at=expires_at.replace(tzinfo=None),
             )
 
-            # Set session cookie using centralized cookie settings and provider settings
-            response = RedirectResponse(url=self.settings.signin_redirect, status_code=302)
+            # Set session cookie using centralized cookie settings
+            response = RedirectResponse(url=signin_redirect, status_code=302)
             response.set_cookie(
-                key=self.settings.cookie_name,
+                key=cookie_settings.name,
                 value=str(session.id),
-                max_age=self.settings.session_max_age,
+                max_age=session_max_age,
                 httponly=cookie_settings.http_only,
                 secure=cookie_settings.secure,
                 samesite=cookie_settings.same_site,

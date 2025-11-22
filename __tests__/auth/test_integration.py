@@ -20,11 +20,11 @@ def auth_settings() -> AuthSettings:
         secret="integration-test-secret-key",  # noqa: S106
         base_url="http://localhost:8000",
         session=SessionSettings(
-            cookie_name="belgie_session",
             max_age=3600,
             update_age=900,
         ),
         cookie=CookieSettings(
+            name="belgie_session",
             secure=False,
             http_only=True,
             same_site="lax",

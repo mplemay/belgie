@@ -293,22 +293,24 @@ class AdapterProtocol[
         """
         ...
 
-    def get_db(self) -> Callable[[], Any] | None:
-        """Return FastAPI dependency for database sessions.
+    @property
+    def dependency(self) -> Callable[[], Any]:
+        """FastAPI dependency for database sessions.
 
         This replaces the db_dependency parameter previously passed to Auth.__init__.
         Used by providers in route definitions for dependency injection.
 
         Returns:
-            Callable that provides database sessions, or None if not configured
+            Callable that provides database sessions
 
         Example:
             @router.get("/signin")
-            async def signin(db = Depends(adapter.get_db)):
+            async def signin(db = Depends(adapter.dependency)):
                 ...
 
         Implementation:
-            def get_db(self):
+            @property
+            def dependency(self):
                 async def _get_db():
                     async with self.session_maker() as session:
                         yield session

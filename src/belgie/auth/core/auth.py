@@ -70,7 +70,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             adapter: Database adapter for user, account, session, and OAuth state persistence
 
         Raises:
-            RuntimeError: If router endpoints are accessed without adapter.get_db() configured
+            RuntimeError: If router endpoints are accessed without adapter.dependency configured
         """
         self.settings = settings
         self.adapter = adapter
@@ -105,10 +105,6 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
                 client_secret=self.settings.google.client_secret,
                 redirect_uri=self.settings.google.redirect_uri,
                 scopes=self.settings.google.scopes,
-                session_max_age=self.settings.session.max_age,
-                cookie_name=self.settings.session.cookie_name,
-                signin_redirect=self.settings.urls.signin_redirect,
-                signout_redirect=self.settings.urls.signout_redirect,
             )
             # Only register if client_id is configured
             if google_settings.client_id:
@@ -126,12 +122,22 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
         Note:
             If a provider with the same provider_id is already registered,
-            it will be replaced with the new provider.
+            it will be replaced with the new provider. This allows for
+            runtime provider customization and testing.
+
+        Example:
+            >>> # Register or replace Google provider with custom settings
+            >>> from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+            >>>
+            >>> custom_settings = GoogleProviderSettings(
+            ...     client_id="custom-client-id",
+            ...     client_secret="custom-secret",
+            ...     redirect_uri="https://myapp.com/auth/callback/google",
+            ...     scopes=["openid", "email"],
+            ... )
+            >>> custom_google = GoogleOAuthProvider(settings=custom_settings)
+            >>> auth.register_provider(custom_google)
         """
-        # Use dict.get() to check if provider already exists (though we replace it anyway)
-        if self.providers.get(provider.provider_id):
-            # Provider already registered - replacing it
-            pass
         self.providers[provider.provider_id] = provider
 
     def list_providers(self) -> list[str]:
@@ -172,23 +178,25 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         for provider in self.providers.values():
             # Provider's router has prefix /{provider_id}
             # Combined with provider_router prefix: /auth/provider/{provider_id}/...
-            provider_specific_router = provider.get_router(self.adapter, self.settings.cookie)
+            provider_specific_router = provider.get_router(
+                self.adapter,
+                self.settings.cookie,
+                session_max_age=self.settings.session.max_age,
+                signin_redirect=self.settings.urls.signin_redirect,
+                signout_redirect=self.settings.urls.signout_redirect,
+            )
             provider_router.include_router(provider_specific_router)
 
         # Add signout endpoint to main router (not provider-specific)
         async def _get_db() -> AsyncSession:
-            db_dependency = self.adapter.get_db()
-            if db_dependency is None:
-                msg = "database dependency not configured. pass db_dependency to adapter constructor"
-                raise RuntimeError(msg)
-            return await db_dependency()  # type: ignore[misc]
+            return await self.adapter.dependency()  # type: ignore[misc]
 
         @main_router.post("/signout")
         async def signout(
             request: Request,
             db: AsyncSession = Depends(_get_db),  # noqa: B008, FAST002
         ) -> RedirectResponse:
-            session_id_str = request.cookies.get(self.settings.session.cookie_name)
+            session_id_str = request.cookies.get(self.settings.cookie.name)
 
             if session_id_str:
                 try:
@@ -203,7 +211,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             )
 
             response.delete_cookie(
-                key=self.settings.session.cookie_name,
+                key=self.settings.cookie.name,
                 domain=self.settings.cookie.domain,
             )
 
@@ -264,7 +272,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         request: Request,
         db: AsyncSession,
     ) -> SessionT | None:
-        session_id_str = request.cookies.get(self.settings.session.cookie_name)
+        session_id_str = request.cookies.get(self.settings.cookie.name)
         if not session_id_str:
             return None
 

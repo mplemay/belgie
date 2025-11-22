@@ -39,7 +39,14 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         """
         ...
 
-    def get_router(self, adapter: AdapterProtocol, cookie_settings: CookieSettings) -> APIRouter:
+    def get_router(
+        self,
+        adapter: AdapterProtocol,
+        cookie_settings: CookieSettings,
+        session_max_age: int,
+        signin_redirect: str,
+        signout_redirect: str,
+    ) -> APIRouter:
         """Create and return FastAPI router with OAuth endpoints.
 
         The router should include:
@@ -48,29 +55,34 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
 
         Args:
             adapter: Database adapter for persistence operations
-            cookie_settings: Cookie configuration (secure, httponly, samesite, domain)
+            cookie_settings: Cookie configuration (secure, httponly, samesite, domain, name)
+            session_max_age: Session duration in seconds
+            signin_redirect: URL to redirect to after successful sign-in
+            signout_redirect: URL to redirect to after sign-out
 
         Returns:
             FastAPI router with OAuth endpoints configured
 
         Implementation Notes:
             The adapter provides database access via dependency injection:
-            - db = Depends(adapter.get_db)
+            - db = Depends(adapter.dependency)
 
             The provider has complete control over:
             - OAuth flow implementation
             - User data mapping
-            - Session management (duration from provider settings)
             - Error handling
-            - Redirect URLs
 
             Provider settings should include:
             - OAuth credentials (client_id, client_secret, redirect_uri, scopes)
-            - Session configuration (max_age, cookie_name)
-            - Redirect URLs (signin_redirect, signout_redirect)
+            - Provider-specific OAuth parameters (access_type, prompt, etc.)
+
+            Session and redirect configuration is provided via parameters:
+            - session_max_age: Duration for session cookies
+            - signin_redirect: Where to redirect after successful OAuth
+            - signout_redirect: Where to redirect after sign-out (if applicable)
 
             Cookie configuration is provided via cookie_settings parameter:
-            - secure, httponly, samesite, domain
+            - name, secure, httponly, samesite, domain
 
             Implementation style:
             - Use closures that capture self for route handlers

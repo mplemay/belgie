@@ -11,7 +11,7 @@ from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
-from belgie.auth.providers.google import GoogleOAuthProvider
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 
 
 @pytest.fixture
@@ -20,11 +20,11 @@ def auth_settings() -> AuthSettings:
         secret="test-secret-key",  # noqa: S106
         base_url="http://localhost:8000",
         session=SessionSettings(
-            cookie_name="belgie_session",
             max_age=3600,
             update_age=900,
         ),
         cookie=CookieSettings(
+            name="belgie_session",
             secure=False,
             http_only=True,
             same_site="lax",
@@ -98,6 +98,38 @@ def test_auth_provider_management(auth: Auth) -> None:
     assert non_existent is None
 
 
+def test_register_provider_replacement(auth: Auth) -> None:
+    """Test that registering a provider with the same ID replaces the existing one."""
+    # Verify initial provider exists
+    original_provider = auth.get_provider("google")
+    assert original_provider is not None
+    assert isinstance(original_provider, GoogleOAuthProvider)
+    assert original_provider.settings.client_id == "test-client-id"
+
+    # Create and register a replacement provider with different settings
+    custom_settings = GoogleProviderSettings(
+        client_id="custom-client-id",
+        client_secret="custom-secret",  # noqa: S106
+        redirect_uri="https://custom.com/callback",
+        scopes=["openid", "email"],
+    )
+    custom_provider = GoogleOAuthProvider(settings=custom_settings)
+    auth.register_provider(custom_provider)
+
+    # Verify the provider was replaced
+    replaced_provider = auth.get_provider("google")
+    assert replaced_provider is not None
+    assert replaced_provider is custom_provider  # Should be the same instance
+    assert isinstance(replaced_provider, GoogleOAuthProvider)
+    assert replaced_provider.settings.client_id == "custom-client-id"
+    assert replaced_provider.settings.redirect_uri == "https://custom.com/callback"
+    assert replaced_provider.settings.scopes == ["openid", "email"]
+
+    # Verify list_providers still has only one google provider
+    provider_ids = auth.list_providers()
+    assert provider_ids.count("google") == 1
+
+
 def test_auth_router_created(auth: Auth) -> None:
     assert auth.router.prefix == "/auth"
     assert "auth" in auth.router.tags
@@ -158,7 +190,7 @@ async def test_user_dependency_authenticated(auth: Auth, db_session: AsyncSessio
     session = await auth.session_manager.create_session(db_session, user_id=user.id)
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth.settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes()
 
@@ -185,7 +217,7 @@ async def test_user_dependency_missing_cookie(auth: Auth, db_session: AsyncSessi
 @pytest.mark.asyncio
 async def test_user_dependency_invalid_session(auth: Auth, db_session: AsyncSession) -> None:
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: str(uuid4())}
+    request.cookies = {auth.settings.cookie.name: str(uuid4())}
 
     security_scopes = SecurityScopes()
 
@@ -205,7 +237,7 @@ async def test_user_dependency_expired_session(auth: Auth, db_session: AsyncSess
     )
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: str(expired_session.id)}
+    request.cookies = {auth.settings.cookie.name: str(expired_session.id)}
 
     security_scopes = SecurityScopes()
 
@@ -226,7 +258,7 @@ async def test_user_dependency_with_valid_scopes(auth: Auth, db_session: AsyncSe
     session = await auth.session_manager.create_session(db_session, user_id=user.id)
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth.settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes(scopes=["email", "profile"])
 
@@ -245,7 +277,7 @@ async def test_user_dependency_with_insufficient_scopes(auth: Auth, db_session: 
     session = await auth.session_manager.create_session(db_session, user_id=user.id)
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth.settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes(scopes=["admin"])
 
@@ -265,7 +297,7 @@ async def test_user_dependency_scopes_required_but_user_has_no_scopes(auth: Auth
     session = await auth.session_manager.create_session(db_session, user_id=user.id)
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth.settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes(scopes=["admin"])
 
@@ -281,7 +313,7 @@ async def test_session_dependency_valid(auth: Auth, db_session: AsyncSession) ->
     session = await auth.session_manager.create_session(db_session, user_id=user.id)
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth.settings.cookie.name: str(session.id)}
 
     retrieved_session = await auth.session(request, db_session)
 
@@ -304,7 +336,7 @@ async def test_session_dependency_missing_cookie(auth: Auth, db_session: AsyncSe
 @pytest.mark.asyncio
 async def test_session_dependency_invalid_session(auth: Auth, db_session: AsyncSession) -> None:
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: str(uuid4())}
+    request.cookies = {auth.settings.cookie.name: str(uuid4())}
 
     with pytest.raises(HTTPException) as exc_info:
         await auth.session(request, db_session)
@@ -315,7 +347,7 @@ async def test_session_dependency_invalid_session(auth: Auth, db_session: AsyncS
 @pytest.mark.asyncio
 async def test_session_dependency_invalid_uuid_format(auth: Auth, db_session: AsyncSession) -> None:
     request = MagicMock(spec=Request)
-    request.cookies = {auth.settings.session.cookie_name: "not-a-uuid"}
+    request.cookies = {auth.settings.cookie.name: "not-a-uuid"}
 
     with pytest.raises(HTTPException) as exc_info:
         await auth.session(request, db_session)

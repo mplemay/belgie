@@ -27,7 +27,7 @@ class AlchemyAdapter[
         account: type[AccountT],
         session: type[SessionT],
         oauth_state: type[OAuthStateT],
-        db_dependency: Callable[[], Any] | None = None,
+        db_dependency: Callable[[], Any],
     ) -> None:
         self.user_model = user
         self.account_model = account
@@ -259,10 +259,11 @@ class AlchemyAdapter[
         await db.commit()
         return result.rowcount > 0  # type: ignore[attr-defined]
 
-    def get_db(self) -> Callable[[], Any] | None:
-        """Return FastAPI dependency for database sessions.
+    @property
+    def dependency(self) -> Callable[[], Any]:
+        """FastAPI dependency for database sessions.
 
         Returns:
-            Database dependency callable or None if not configured
+            Database dependency callable
         """
         return self.db_dependency

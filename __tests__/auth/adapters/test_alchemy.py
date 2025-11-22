@@ -9,12 +9,16 @@ from belgie.auth.adapters.alchemy import AlchemyAdapter
 
 
 @pytest.fixture
-def adapter() -> AlchemyAdapter:
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:
+    async def get_db() -> AsyncSession:
+        return db_session
+
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        db_dependency=get_db,
     )
 
 
