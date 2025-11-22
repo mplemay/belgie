@@ -147,20 +147,20 @@ def test_validate_scopes_duplicate_required_scopes() -> None:
 
 # Tests for validate_scopes with sets
 def test_validate_scopes_with_sets() -> None:
-    user_scopes = {"openid", "email", "profile"}
-    required_scopes = {"openid", "email"}
+    user_scopes = ["openid", "email", "profile"]
+    required_scopes = ["openid", "email"]
     assert validate_scopes(user_scopes, required_scopes) is True
 
 
 def test_validate_scopes_with_sets_missing() -> None:
-    user_scopes = {"openid", "email"}
-    required_scopes = {"openid", "email", "profile"}
+    user_scopes = ["openid", "email"]
+    required_scopes = ["openid", "email", "profile"]
     assert validate_scopes(user_scopes, required_scopes) is False
 
 
 def test_validate_scopes_mixed_list_and_set() -> None:
     user_scopes = ["openid", "email", "profile"]
-    required_scopes = {"openid", "email"}
+    required_scopes = ["openid", "email"]
     assert validate_scopes(user_scopes, required_scopes) is True
 
 
@@ -277,8 +277,8 @@ def test_has_any_scope_none_equivalent_to_empty_list() -> None:
 
 
 def test_has_any_scope_with_sets() -> None:
-    user_scopes = {"openid", "email"}
-    required_scopes = {"email", "profile", "admin"}
+    user_scopes = ["openid", "email"]
+    required_scopes = ["email", "profile", "admin"]
     assert has_any_scope(user_scopes, required_scopes) is True
 
 

@@ -1,18 +1,18 @@
-from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
-from belgie.auth.core.exceptions import InvalidStateError, OAuthError
 from belgie.auth.core.settings import AuthSettings
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings, GoogleUserInfo
+from belgie.auth.protocols.provider import OAuthProviderProtocol
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 from belgie.auth.session.manager import SessionManager
-from belgie.auth.utils.crypto import generate_state_token
 from belgie.auth.utils.scopes import validate_scopes
 
 
@@ -20,8 +20,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
     """Main authentication orchestrator for Belgie.
 
     The Auth class provides a complete OAuth 2.0 authentication solution with session management,
-    user creation, and FastAPI integration. It automatically creates router endpoints and
-    dependency injection functions for protecting routes.
+    user creation, and FastAPI integration. It automatically loads OAuth providers from environment
+    variables and creates router endpoints for authentication.
 
     Type Parameters:
         UserT: User model type implementing UserProtocol
@@ -33,8 +33,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         settings: Authentication configuration settings
         adapter: Database adapter for persistence operations
         session_manager: Session manager instance for session operations
-        google_provider: Google OAuth provider instance
-        router: FastAPI router with authentication endpoints
+        providers: Dictionary of registered OAuth providers keyed by provider_id
+        router: FastAPI router with authentication endpoints (cached property)
 
     Example:
         >>> from belgie import Auth, AuthSettings, AlchemyAdapter
@@ -43,11 +43,6 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         >>> settings = AuthSettings(
         ...     secret="your-secret-key",
         ...     base_url="http://localhost:8000",
-        ...     google=GoogleOAuthSettings(
-        ...         client_id="your-client-id",
-        ...         client_secret="your-client-secret",
-        ...         redirect_uri="http://localhost:8000/auth/callback/google",
-        ...     ),
         ... )
         >>>
         >>> adapter = AlchemyAdapter(
@@ -58,6 +53,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         ...     db_dependency=get_db,
         ... )
         >>>
+        >>> # Providers are automatically loaded from environment variables
         >>> auth = Auth(settings=settings, adapter=adapter)
         >>> app.include_router(auth.router)
     """
@@ -70,7 +66,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         """Initialize the Auth instance.
 
         Args:
-            settings: Authentication configuration including session, cookie, OAuth, and URL settings
+            settings: Authentication configuration including session, cookie, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
 
         Raises:
@@ -85,25 +81,101 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             update_age=settings.session.update_age,
         )
 
-        # Create GoogleProviderSettings from AuthSettings
-        google_provider_settings = GoogleProviderSettings(
-            client_id=settings.google.client_id,
-            client_secret=settings.google.client_secret,
-            redirect_uri=settings.google.redirect_uri,
-            scopes=settings.google.scopes,
-            session_max_age=settings.session.max_age,
-            cookie_name=settings.session.cookie_name,
-            signin_redirect=settings.urls.signin_redirect,
-            signout_redirect=settings.urls.signout_redirect,
-        )
+        self.providers: dict[str, OAuthProviderProtocol] = {}
+        self._load_providers()
 
-        self.google_provider = GoogleOAuthProvider(settings=google_provider_settings)
+    def _load_providers(self) -> None:
+        """Load OAuth providers from environment variables.
 
-        self.router = self._create_router()
+        Attempts to load provider settings from environment and register them.
+        Providers with missing required fields are silently skipped.
 
-    def _create_router(self) -> APIRouter:
-        router = APIRouter(prefix="/auth", tags=["auth"])
+        Currently supports:
+        - Google OAuth (BELGIE_GOOGLE_*)
 
+        Future providers can be added here:
+        - GitHub OAuth (BELGIE_GITHUB_*)
+        - Microsoft OAuth (BELGIE_MICROSOFT_*)
+        - Custom providers via register_provider()
+        """
+        # Try to load Google provider from environment
+        try:
+            google_settings = GoogleProviderSettings(
+                client_id=self.settings.google.client_id,
+                client_secret=self.settings.google.client_secret,
+                redirect_uri=self.settings.google.redirect_uri,
+                scopes=self.settings.google.scopes,
+                session_max_age=self.settings.session.max_age,
+                cookie_name=self.settings.session.cookie_name,
+                signin_redirect=self.settings.urls.signin_redirect,
+                signout_redirect=self.settings.urls.signout_redirect,
+            )
+            # Only register if client_id is configured
+            if google_settings.client_id:
+                google_provider = GoogleOAuthProvider(settings=google_settings)
+                self.register_provider(google_provider)
+        except (ValidationError, AttributeError):
+            # Silently skip if Google provider is not configured
+            pass
+
+    def register_provider(self, provider: OAuthProviderProtocol) -> None:
+        """Register an OAuth provider.
+
+        Args:
+            provider: OAuth provider instance implementing OAuthProviderProtocol
+
+        Note:
+            If a provider with the same provider_id is already registered,
+            it will be replaced with the new provider.
+        """
+        # Use dict.get() to check if provider already exists (though we replace it anyway)
+        if self.providers.get(provider.provider_id):
+            # Provider already registered - replacing it
+            pass
+        self.providers[provider.provider_id] = provider
+
+    def list_providers(self) -> list[str]:
+        """Return list of registered provider IDs.
+
+        Returns:
+            List of provider IDs (e.g., ["google", "github"])
+        """
+        return list(self.providers.keys())
+
+    def get_provider(self, provider_id: str) -> OAuthProviderProtocol | None:
+        """Get provider by ID.
+
+        Args:
+            provider_id: The provider ID (e.g., "google")
+
+        Returns:
+            Provider instance if found, None otherwise
+        """
+        return self.providers.get(provider_id)
+
+    @cached_property
+    def router(self) -> APIRouter:
+        """FastAPI router with all provider routes (cached).
+
+        Creates a router with the following structure:
+        - /auth/provider/{provider_id}/signin - Provider signin endpoints
+        - /auth/provider/{provider_id}/callback - Provider callback endpoints
+        - /auth/signout - Global signout endpoint
+
+        Returns:
+            APIRouter with all authentication endpoints
+        """
+        main_router = APIRouter(prefix="/auth", tags=["auth"])
+        provider_router = APIRouter(prefix="/provider")
+
+        # Include all registered provider routers
+        for provider in self.providers.values():
+            # Provider's router has prefix /{provider_id}
+            # Combined with provider_router prefix: /auth/provider/{provider_id}/...
+            provider_specific_router = provider.get_router(self.adapter, self.settings.cookie)
+            provider_router.include_router(provider_specific_router)
+
+        # Add signout endpoint to main router (not provider-specific)
         async def _get_db() -> AsyncSession:
             db_dependency = self.adapter.get_db()
             if db_dependency is None:
@@ -111,37 +183,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
                 raise RuntimeError(msg)
             return await db_dependency()  # type: ignore[misc]
 
-        @router.get("/signin/google")
-        async def signin_google(db: AsyncSession = Depends(_get_db)) -> RedirectResponse:  # noqa: B008, FAST002
-            url = await self.get_google_signin_url(db)
-            return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
-
-        @router.get("/callback/google")
-        async def callback_google(
-            code: str,
-            state: str,
-            db: AsyncSession = Depends(_get_db),  # noqa: B008, FAST002
-        ) -> RedirectResponse:
-            session, _user = await self.handle_google_callback(db, code, state)
-
-            response = RedirectResponse(
-                url=self.settings.urls.signin_redirect,
-                status_code=status.HTTP_302_FOUND,
-            )
-
-            response.set_cookie(
-                key=self.settings.session.cookie_name,
-                value=str(session.id),
-                max_age=self.settings.session.max_age,
-                httponly=self.settings.cookie.http_only,
-                secure=self.settings.cookie.secure,
-                samesite=self.settings.cookie.same_site,
-                domain=self.settings.cookie.domain,
-            )
-
-            return response
-
-        @router.post("/signout")
+        @main_router.post("/signout")
         async def signout(
             request: Request,
             db: AsyncSession = Depends(_get_db),  # noqa: B008, FAST002
@@ -167,157 +209,9 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
             return response
 
-        return router
-
-    async def get_google_signin_url(
-        self,
-        db: AsyncSession,
-    ) -> str:
-        """Generate Google OAuth signin URL with CSRF protection.
-
-        Creates a state token, stores it in the database with a 10-minute expiration,
-        and returns the Google OAuth authorization URL.
-
-        Args:
-            db: Async database session
-
-        Returns:
-            Google OAuth authorization URL with state parameter
-
-        Example:
-            >>> url = await auth.get_google_signin_url(db)
-            >>> # Redirect user to this URL to start OAuth flow
-        """
-        state_token = generate_state_token()
-
-        expires_at = datetime.now(UTC) + timedelta(minutes=10)
-        await self.adapter.create_oauth_state(
-            db,
-            state=state_token,
-            expires_at=expires_at.replace(tzinfo=None),
-        )
-
-        return self.google_provider.generate_authorization_url(state_token)
-
-    async def handle_google_callback(
-        self,
-        db: AsyncSession,
-        code: str,
-        state: str,
-    ) -> tuple[SessionT, UserT]:
-        """Handle Google OAuth callback and create user session.
-
-        Validates the state token, exchanges the authorization code for access tokens,
-        fetches user information from Google, creates or updates the user and their
-        account, and creates a new session.
-
-        Args:
-            db: Async database session
-            code: Authorization code from Google OAuth callback
-            state: State token for CSRF protection
-
-        Returns:
-            Tuple of (session, user) for the authenticated user
-
-        Raises:
-            InvalidStateError: If the state token is invalid or expired
-            OAuthError: If token exchange or user info retrieval fails
-
-        Example:
-            >>> session, user = await auth.handle_google_callback(db, code="...", state="...")
-            >>> print(f"User {user.email} authenticated with session {session.id}")
-        """
-        oauth_state = await self.adapter.get_oauth_state(db, state)
-        if not oauth_state:
-            msg = "invalid oauth state"
-            raise InvalidStateError(msg)
-
-        await self.adapter.delete_oauth_state(db, state)
-
-        try:
-            token_data = await self.google_provider.exchange_code_for_tokens(code)
-        except OAuthError as e:
-            msg = f"failed to exchange code for tokens: {e}"
-            raise OAuthError(msg) from e
-
-        try:
-            user_info = await self.google_provider.get_user_info(token_data["access_token"])
-        except OAuthError as e:
-            msg = f"failed to get user info: {e}"
-            raise OAuthError(msg) from e
-
-        user = await self._get_or_create_user(db, user_info)
-
-        await self._create_or_update_account(
-            db,
-            user_id=user.id,
-            provider="google",
-            provider_account_id=user_info.id,
-            access_token=token_data["access_token"],
-            refresh_token=token_data.get("refresh_token"),
-            expires_at=token_data.get("expires_at"),
-            scope=token_data.get("scope"),
-        )
-
-        session = await self.session_manager.create_session(db, user_id=user.id)
-
-        return session, user
-
-    async def _get_or_create_user(
-        self,
-        db: AsyncSession,
-        user_info: GoogleUserInfo,
-    ) -> UserT:
-        user = await self.adapter.get_user_by_email(db, user_info.email)
-        if user:
-            return user
-
-        return await self.adapter.create_user(
-            db,
-            email=user_info.email,
-            email_verified=user_info.verified_email,
-            name=user_info.name,
-            image=user_info.picture,
-        )
-
-    async def _create_or_update_account(  # noqa: PLR0913
-        self,
-        db: AsyncSession,
-        user_id: UUID,
-        provider: str,
-        provider_account_id: str,
-        access_token: str,
-        refresh_token: str | None,
-        expires_at: datetime | None,
-        scope: str | None,
-    ) -> AccountT:
-        account = await self.adapter.get_account_by_user_and_provider(db, user_id, provider)
-
-        if account:
-            updated = await self.adapter.update_account(
-                db,
-                user_id=user_id,
-                provider=provider,
-                access_token=access_token,
-                refresh_token=refresh_token,
-                expires_at=expires_at,
-                scope=scope,
-            )
-            if updated is None:
-                msg = "failed to update account"
-                raise OAuthError(msg)
-            return updated
-
-        return await self.adapter.create_account(
-            db,
-            user_id=user_id,
-            provider=provider,
-            provider_account_id=provider_account_id,
-            access_token=access_token,
-            refresh_token=refresh_token,
-            expires_at=expires_at,
-            scope=scope,
-        )
+        # Include provider router in main router
+        main_router.include_router(provider_router)
+        return main_router
 
     async def get_user_from_session(
         self,

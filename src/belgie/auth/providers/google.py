@@ -150,7 +150,15 @@ class GoogleOAuthProvider:
         """Create router with Google OAuth endpoints."""
         router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
-        async def signin(db=Depends(adapter.get_db)) -> RedirectResponse:  # noqa: B008, ANN001
+        # Create database dependency wrapper
+        async def _get_db():  # type: ignore[no-untyped-def]  # noqa: ANN202
+            db_dependency = adapter.get_db()
+            if db_dependency is None:
+                msg = "database dependency not configured"
+                raise RuntimeError(msg)
+            return await db_dependency()  # type: ignore[misc]
+
+        async def signin(db=Depends(_get_db)) -> RedirectResponse:  # noqa: B008, ANN001
             """Initiate Google OAuth flow."""
             # Generate and store state token with expiration
             state = generate_state_token()
@@ -163,9 +171,9 @@ class GoogleOAuthProvider:
 
             # Generate authorization URL using helper method
             auth_url = self.generate_authorization_url(state)
-            return RedirectResponse(url=auth_url)
+            return RedirectResponse(url=auth_url, status_code=302)
 
-        async def callback(code: str, state: str, db=Depends(adapter.get_db)) -> RedirectResponse:  # noqa: B008, ANN001
+        async def callback(code: str, state: str, db=Depends(_get_db)) -> RedirectResponse:  # noqa: B008, ANN001
             """Handle Google OAuth callback."""
             # Validate and delete state token (use walrus operator)
             if not await adapter.get_oauth_state(db, state):
@@ -225,7 +233,7 @@ class GoogleOAuthProvider:
             )
 
             # Set session cookie using centralized cookie settings and provider settings
-            response = RedirectResponse(url=self.settings.signin_redirect)
+            response = RedirectResponse(url=self.settings.signin_redirect, status_code=302)
             response.set_cookie(
                 key=self.settings.cookie_name,
                 value=str(session.id),

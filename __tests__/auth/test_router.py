@@ -32,7 +32,7 @@ def auth_settings() -> AuthSettings:
         google=GoogleOAuthSettings(
             client_id="test-client-id",
             client_secret="test-client-secret",  # noqa: S106
-            redirect_uri="http://localhost:8000/auth/callback/google",
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=["openid", "email", "profile"],
         ),
         urls=URLSettings(
@@ -79,7 +79,7 @@ def client(app: FastAPI) -> TestClient:
 
 
 def test_signin_google_endpoint_redirects(client: TestClient) -> None:
-    response = client.get("/auth/signin/google", follow_redirects=False)
+    response = client.get("/auth/provider/google/signin", follow_redirects=False)
 
     assert response.status_code == 302
     assert "location" in response.headers
@@ -89,7 +89,7 @@ def test_signin_google_endpoint_redirects(client: TestClient) -> None:
 
 
 def test_signin_google_creates_oauth_state(client: TestClient, auth: Auth, db_session: AsyncSession) -> None:
-    response = client.get("/auth/signin/google", follow_redirects=False)
+    response = client.get("/auth/provider/google/signin", follow_redirects=False)
 
     location = response.headers["location"]
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
@@ -139,7 +139,7 @@ def test_callback_google_endpoint_success(client: TestClient, auth: Auth, db_ses
     respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     response = client.get(
-        f"/auth/callback/google?code=test-code&state={state_token}",
+        f"/auth/provider/google/callback?code=test-code&state={state_token}",
         follow_redirects=False,
     )
 
@@ -185,7 +185,7 @@ def test_callback_google_sets_cookie_with_correct_attributes(
     respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     response = client.get(
-        f"/auth/callback/google?code=test-code&state={state_token}",
+        f"/auth/provider/google/callback?code=test-code&state={state_token}",
         follow_redirects=False,
     )
 
@@ -203,7 +203,7 @@ def test_callback_google_invalid_state(client: TestClient) -> None:
 
     with pytest.raises(InvalidStateError):
         client.get(
-            "/auth/callback/google?code=test-code&state=invalid-state",
+            "/auth/provider/google/callback?code=test-code&state=invalid-state",
             follow_redirects=False,
         )
 

@@ -2,9 +2,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-import httpx
 import pytest
-import respx
 from fastapi import HTTPException, Request
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.auth import Auth
-from belgie.auth.core.exceptions import InvalidStateError, OAuthError
 from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
 from belgie.auth.providers.google import GoogleOAuthProvider
 
@@ -68,7 +65,8 @@ def test_auth_initialization(auth: Auth, auth_settings: AuthSettings) -> None:
     assert auth.settings == auth_settings
     assert auth.adapter is not None
     assert auth.session_manager is not None
-    assert auth.google_provider is not None
+    assert auth.providers is not None
+    assert isinstance(auth.providers, dict)
     assert auth.router is not None
 
 
@@ -77,157 +75,32 @@ def test_auth_session_manager_configuration(auth: Auth) -> None:
     assert auth.session_manager.update_age == 900
 
 
-def test_auth_google_provider_configuration(auth: Auth) -> None:
-    assert auth.google_provider.settings.client_id == "test-client-id"
-    assert auth.google_provider.settings.client_secret == "test-client-secret"  # noqa: S105
-    assert auth.google_provider.settings.redirect_uri == "http://localhost:8000/auth/callback/google"
-    assert auth.google_provider.settings.scopes == ["openid", "email", "profile"]
+def test_auth_provider_management(auth: Auth) -> None:
+    # Test list_providers()
+    provider_ids = auth.list_providers()
+    assert isinstance(provider_ids, list)
+    assert "google" in provider_ids
+
+    # Test get_provider()
+    google_provider = auth.get_provider("google")
+    assert google_provider is not None
+    assert google_provider.provider_id == "google"
+
+    # Cast to GoogleOAuthProvider to access settings
+    assert isinstance(google_provider, GoogleOAuthProvider)
+    assert google_provider.settings.client_id == "test-client-id"
+    assert google_provider.settings.client_secret == "test-client-secret"  # noqa: S105
+    assert google_provider.settings.redirect_uri == "http://localhost:8000/auth/callback/google"
+    assert google_provider.settings.scopes == ["openid", "email", "profile"]
+
+    # Test get_provider() with non-existent provider
+    non_existent = auth.get_provider("nonexistent")
+    assert non_existent is None
 
 
 def test_auth_router_created(auth: Auth) -> None:
     assert auth.router.prefix == "/auth"
     assert "auth" in auth.router.tags
-
-
-@pytest.mark.asyncio
-async def test_get_google_signin_url(auth: Auth, db_session: AsyncSession) -> None:
-    url = await auth.get_google_signin_url(db_session)
-
-    assert url.startswith("https://accounts.google.com/o/oauth2/v2/auth")
-    assert "client_id=test-client-id" in url
-    assert "state=" in url
-
-
-@pytest.mark.asyncio
-async def test_get_google_signin_url_creates_oauth_state(auth: Auth, db_session: AsyncSession) -> None:
-    url = await auth.get_google_signin_url(db_session)
-
-    state_param = next(param.split("=")[1] for param in url.split("?")[1].split("&") if param.startswith("state="))
-
-    oauth_state = await auth.adapter.get_oauth_state(db_session, state_param)
-    assert oauth_state is not None
-    assert oauth_state.state == state_param
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_handle_google_callback_new_user(auth: Auth, db_session: AsyncSession) -> None:
-    state_token = "test-state-123"  # noqa: S105
-    await auth.adapter.create_oauth_state(
-        db_session,
-        state=state_token,
-        expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
-    )
-
-    mock_token_response = {
-        "access_token": "test-access-token",
-        "expires_in": 3600,
-        "token_type": "Bearer",
-        "scope": "openid email profile",
-        "refresh_token": "test-refresh-token",
-    }
-
-    mock_user_info = {
-        "id": "google-123",
-        "email": "newuser@example.com",
-        "verified_email": True,
-        "name": "New User",
-        "picture": "https://example.com/photo.jpg",
-    }
-
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
-
-    session, user = await auth.handle_google_callback(db_session, code="test-code", state=state_token)
-
-    assert user.email == "newuser@example.com"
-    assert user.name == "New User"
-    assert session.user_id == user.id
-
-    account = await auth.adapter.get_account_by_user_and_provider(db_session, user.id, "google")
-    assert account is not None
-    assert account.provider == "google"
-    assert account.provider_account_id == "google-123"
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_handle_google_callback_existing_user(auth: Auth, db_session: AsyncSession) -> None:
-    existing_user = await auth.adapter.create_user(db_session, email="existing@example.com")
-
-    state_token = "test-state-456"  # noqa: S105
-    await auth.adapter.create_oauth_state(
-        db_session,
-        state=state_token,
-        expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
-    )
-
-    mock_token_response = {
-        "access_token": "test-access-token",
-        "expires_in": 3600,
-        "token_type": "Bearer",
-        "scope": "openid email profile",
-    }
-
-    mock_user_info = {
-        "id": "google-456",
-        "email": "existing@example.com",
-        "verified_email": True,
-    }
-
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
-
-    _session, user = await auth.handle_google_callback(db_session, code="test-code", state=state_token)
-
-    assert user.id == existing_user.id
-    assert user.email == "existing@example.com"
-
-
-@pytest.mark.asyncio
-async def test_handle_google_callback_invalid_state(auth: Auth, db_session: AsyncSession) -> None:
-    with pytest.raises(InvalidStateError, match="invalid oauth state"):
-        await auth.handle_google_callback(db_session, code="test-code", state="invalid-state")
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_handle_google_callback_token_exchange_error(auth: Auth, db_session: AsyncSession) -> None:
-    state_token = "test-state-error"  # noqa: S105
-    await auth.adapter.create_oauth_state(
-        db_session,
-        state=state_token,
-        expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
-    )
-
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(400, json={"error": "invalid_grant"}))
-
-    with pytest.raises(OAuthError, match="failed to exchange code for tokens"):
-        await auth.handle_google_callback(db_session, code="invalid-code", state=state_token)
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_handle_google_callback_user_info_error(auth: Auth, db_session: AsyncSession) -> None:
-    state_token = "test-state-userinfo-error"  # noqa: S105
-    await auth.adapter.create_oauth_state(
-        db_session,
-        state=state_token,
-        expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
-    )
-
-    mock_token_response = {
-        "access_token": "test-access-token",
-        "expires_in": 3600,
-        "token_type": "Bearer",
-        "scope": "openid email profile",
-    }
-
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(401, json={"error": "invalid_token"}))
-
-    with pytest.raises(OAuthError, match="failed to get user info"):
-        await auth.handle_google_callback(db_session, code="test-code", state=state_token)
 
 
 @pytest.mark.asyncio
