@@ -54,12 +54,12 @@ adapter = AlchemyAdapter(
     account=Account,
     session=Session,
     oauth_state=OAuthState,
+    db_dependency=get_db,
 )
 
 auth = Auth(
     settings=auth_settings,
     adapter=adapter,
-    db_dependency=get_db,
 )
 
 app.include_router(auth.router)

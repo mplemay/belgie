@@ -24,7 +24,7 @@ from belgie.auth.protocols.models import (
     SessionProtocol,
     UserProtocol,
 )
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleTokenResponse, GoogleUserInfo
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings, GoogleUserInfo
 from belgie.auth.session.manager import SessionManager
 from belgie.auth.utils.crypto import generate_session_id, generate_state_token
 from belgie.auth.utils.scopes import parse_scopes, validate_scopes
@@ -39,7 +39,7 @@ __all__ = [  # noqa: RUF022
     "SessionManager",
     # Providers
     "GoogleOAuthProvider",
-    "GoogleTokenResponse",
+    "GoogleProviderSettings",
     "GoogleUserInfo",
     # Settings
     "SessionSettings",

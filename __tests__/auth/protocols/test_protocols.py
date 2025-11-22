@@ -1,8 +1,17 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
+from fastapi import APIRouter
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.core.settings import CookieSettings
+from belgie.auth.protocols.adapter import AdapterProtocol
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
+from belgie.auth.protocols.provider import OAuthProviderProtocol  # noqa: TC001
 
 
 @dataclass
@@ -136,3 +145,124 @@ def test_user_with_custom_fields_satisfies_protocol() -> None:
     )
 
     assert isinstance(user, UserProtocol)
+
+
+def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
+    """Verify AlchemyAdapter implements AdapterProtocol."""
+
+    async def mock_db_dependency() -> None:
+        pass
+
+    adapter: AdapterProtocol = AlchemyAdapter(
+        user=ExampleUser,
+        account=ExampleAccount,
+        session=ExampleSession,
+        oauth_state=ExampleOAuthState,
+        db_dependency=mock_db_dependency,
+    )
+
+    # Check that dependency property exists and returns correct type
+    assert hasattr(adapter, "dependency")
+    db_func = adapter.dependency
+    assert db_func is mock_db_dependency
+    assert callable(db_func)
+
+
+def test_alchemy_adapter_dependency_property() -> None:
+    """Verify AlchemyAdapter.dependency returns the provided dependency."""
+
+    async def mock_db_dependency() -> None:
+        pass
+
+    adapter = AlchemyAdapter(
+        user=ExampleUser,
+        account=ExampleAccount,
+        session=ExampleSession,
+        oauth_state=ExampleOAuthState,
+        db_dependency=mock_db_dependency,
+    )
+
+    db_func = adapter.dependency
+    assert db_func is mock_db_dependency
+
+
+class MockProviderSettings(BaseSettings):
+    """Mock provider settings for testing."""
+
+    client_id: str = Field(default="test_client_id")
+    client_secret: str = Field(default="test_secret")
+
+
+class MockOAuthProvider:
+    """Mock OAuth provider for testing protocol compliance."""
+
+    def __init__(self, settings: MockProviderSettings) -> None:
+        self.settings = settings
+
+    @property
+    def provider_id(self) -> Literal["mock"]:
+        return "mock"
+
+    def get_router(
+        self,
+        adapter: AdapterProtocol,
+        cookie_settings: CookieSettings,
+        session_max_age: int,
+        signin_redirect: str,
+        signout_redirect: str,  # noqa: ARG002
+    ) -> APIRouter:
+        router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
+
+        @router.get("/signin")
+        async def signin() -> dict[str, str]:
+            return {"message": "signin", "redirect": signin_redirect}
+
+        @router.get("/callback")
+        async def callback() -> dict[str, str]:
+            # Use adapter and cookie_settings to verify they're accessible
+            db_func = adapter.dependency
+            return {
+                "message": "callback",
+                "secure": str(cookie_settings.secure),
+                "has_db": str(callable(db_func)),
+                "session_max_age": str(session_max_age),
+            }
+
+        return router
+
+
+def test_mock_provider_satisfies_oauth_provider_protocol() -> None:
+    """Verify MockOAuthProvider implements OAuthProviderProtocol."""
+    settings = MockProviderSettings()
+    provider: OAuthProviderProtocol = MockOAuthProvider(settings)
+
+    # Check provider_id
+    assert hasattr(provider, "provider_id")
+    assert provider.provider_id == "mock"
+
+    # Check get_router method
+    assert hasattr(provider, "get_router")
+    assert callable(provider.get_router)
+
+    # Create a mock adapter and cookie settings
+    async def mock_db_dependency() -> None:
+        pass
+
+    adapter = AlchemyAdapter(
+        user=ExampleUser,
+        account=ExampleAccount,
+        session=ExampleSession,
+        oauth_state=ExampleOAuthState,
+        db_dependency=mock_db_dependency,
+    )
+    cookie_settings = CookieSettings()
+
+    router = provider.get_router(
+        adapter,
+        cookie_settings,
+        session_max_age=3600,
+        signin_redirect="/dashboard",
+        signout_redirect="/",
+    )
+    assert isinstance(router, APIRouter)
+    assert router.prefix == "/mock"

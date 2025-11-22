@@ -9,19 +9,16 @@ from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthS
 def test_session_settings_defaults() -> None:
     settings = SessionSettings()
 
-    assert settings.cookie_name == "belgie_session"
     assert settings.max_age == 604800
     assert settings.update_age == 86400
 
 
 def test_session_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BELGIE_SESSION_COOKIE_NAME", "custom_session")
     monkeypatch.setenv("BELGIE_SESSION_MAX_AGE", "3600")
     monkeypatch.setenv("BELGIE_SESSION_UPDATE_AGE", "1800")
 
     settings = SessionSettings()
 
-    assert settings.cookie_name == "custom_session"
     assert settings.max_age == 3600
     assert settings.update_age == 1800
 
@@ -29,6 +26,7 @@ def test_session_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_cookie_settings_defaults() -> None:
     settings = CookieSettings()
 
+    assert settings.name == "belgie_session"
     assert settings.secure is True
     assert settings.http_only is True
     assert settings.same_site == "lax"
@@ -36,6 +34,7 @@ def test_cookie_settings_defaults() -> None:
 
 
 def test_cookie_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BELGIE_COOKIE_NAME", "custom_session")
     monkeypatch.setenv("BELGIE_COOKIE_SECURE", "false")
     monkeypatch.setenv("BELGIE_COOKIE_HTTP_ONLY", "false")
     monkeypatch.setenv("BELGIE_COOKIE_SAME_SITE", "strict")
@@ -43,6 +42,7 @@ def test_cookie_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = CookieSettings()
 
+    assert settings.name == "custom_session"
     assert settings.secure is False
     assert settings.http_only is False
     assert settings.same_site == "strict"
@@ -59,6 +59,32 @@ def test_google_oauth_settings_required_fields() -> None:
     assert "client_id" in field_names
     assert "client_secret" in field_names
     assert "redirect_uri" in field_names
+
+
+def test_google_oauth_settings_rejects_empty_strings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that empty strings are rejected for required OAuth fields."""
+    monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_ID", "")
+    monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "test-secret")
+    monkeypatch.setenv("BELGIE_GOOGLE_REDIRECT_URI", "http://localhost:8000/callback")
+
+    with pytest.raises(ValidationError) as exc_info:
+        GoogleOAuthSettings()  # type: ignore[call-arg]
+
+    errors = exc_info.value.errors()  # type: ignore[attr-defined]
+    assert any(error["loc"][0] == "client_id" for error in errors)
+
+
+def test_google_oauth_settings_rejects_whitespace_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that whitespace-only strings are rejected for required OAuth fields."""
+    monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("BELGIE_GOOGLE_CLIENT_SECRET", "   ")
+    monkeypatch.setenv("BELGIE_GOOGLE_REDIRECT_URI", "http://localhost:8000/callback")
+
+    with pytest.raises(ValidationError) as exc_info:
+        GoogleOAuthSettings()  # type: ignore[call-arg]
+
+    errors = exc_info.value.errors()  # type: ignore[attr-defined]
+    assert any(error["loc"][0] == "client_secret" for error in errors)
 
 
 def test_google_oauth_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,7 +163,7 @@ def test_auth_settings_nested_defaults_work(monkeypatch: pytest.MonkeyPatch) -> 
 
     settings = AuthSettings()  # type: ignore[call-arg]
 
-    assert settings.session.cookie_name == "belgie_session"
+    assert settings.cookie.name == "belgie_session"
     assert settings.session.max_age == 604800
     assert settings.cookie.secure is True
     assert settings.urls.signin_redirect == "/dashboard"

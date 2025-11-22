@@ -1,3 +1,3 @@
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleTokenResponse, GoogleUserInfo
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings, GoogleUserInfo
 
-__all__ = ["GoogleOAuthProvider", "GoogleTokenResponse", "GoogleUserInfo"]
+__all__ = ["GoogleOAuthProvider", "GoogleProviderSettings", "GoogleUserInfo"]

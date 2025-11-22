@@ -11,7 +11,7 @@ from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
-from belgie.auth.providers.google import GoogleOAuthProvider
+from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 
 
 @pytest.fixture
@@ -20,11 +20,11 @@ def auth_settings() -> AuthSettings:
         secret="test-secret-key",  # noqa: S106
         base_url="http://localhost:8000",
         session=SessionSettings(
-            cookie_name="belgie_session",
             max_age=3600,
             update_age=900,
         ),
         cookie=CookieSettings(
+            name="belgie_session",
             secure=False,
             http_only=True,
             same_site="lax",
@@ -32,7 +32,7 @@ def auth_settings() -> AuthSettings:
         google=GoogleOAuthSettings(
             client_id="test-client-id",
             client_secret="test-client-secret",  # noqa: S106
-            redirect_uri="http://localhost:8000/auth/callback/google",
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=["openid", "email", "profile"],
         ),
         urls=URLSettings(
@@ -43,21 +43,31 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter() -> AlchemyAdapter:
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:
+    async def get_db() -> AsyncSession:
+        return db_session
+
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        db_dependency=get_db,
     )
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
-    async def get_db() -> AsyncSession:
-        return db_session
-
-    return Auth(settings=auth_settings, adapter=adapter, db_dependency=get_db)
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
+    # Include Google provider for router testing
+    providers = {
+        "google": GoogleProviderSettings(
+            client_id="test-client-id",
+            client_secret="test-client-secret",  # noqa: S106
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
+            scopes=["openid", "email", "profile"],
+        ),
+    }
+    return Auth(settings=auth_settings, adapter=adapter, providers=providers)
 
 
 @pytest.fixture
@@ -78,7 +88,7 @@ def client(app: FastAPI) -> TestClient:
 
 
 def test_signin_google_endpoint_redirects(client: TestClient) -> None:
-    response = client.get("/auth/signin/google", follow_redirects=False)
+    response = client.get("/auth/provider/google/signin", follow_redirects=False)
 
     assert response.status_code == 302
     assert "location" in response.headers
@@ -88,7 +98,7 @@ def test_signin_google_endpoint_redirects(client: TestClient) -> None:
 
 
 def test_signin_google_creates_oauth_state(client: TestClient, auth: Auth, db_session: AsyncSession) -> None:
-    response = client.get("/auth/signin/google", follow_redirects=False)
+    response = client.get("/auth/provider/google/signin", follow_redirects=False)
 
     location = response.headers["location"]
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
@@ -138,7 +148,7 @@ def test_callback_google_endpoint_success(client: TestClient, auth: Auth, db_ses
     respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     response = client.get(
-        f"/auth/callback/google?code=test-code&state={state_token}",
+        f"/auth/provider/google/callback?code=test-code&state={state_token}",
         follow_redirects=False,
     )
 
@@ -184,7 +194,7 @@ def test_callback_google_sets_cookie_with_correct_attributes(
     respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     response = client.get(
-        f"/auth/callback/google?code=test-code&state={state_token}",
+        f"/auth/provider/google/callback?code=test-code&state={state_token}",
         follow_redirects=False,
     )
 
@@ -202,7 +212,7 @@ def test_callback_google_invalid_state(client: TestClient) -> None:
 
     with pytest.raises(InvalidStateError):
         client.get(
-            "/auth/callback/google?code=test-code&state=invalid-state",
+            "/auth/provider/google/callback?code=test-code&state=invalid-state",
             follow_redirects=False,
         )
 

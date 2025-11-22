@@ -42,11 +42,11 @@ def auth_settings() -> AuthSettings:
         secret="test-secret-key",  # noqa: S106
         base_url="http://localhost:8000",
         session=SessionSettings(
-            cookie_name="test_session",
             max_age=3600,
             update_age=900,
         ),
         cookie=CookieSettings(
+            name="test_session",
             secure=False,
             http_only=True,
             same_site="lax",
@@ -65,21 +65,23 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter() -> AlchemyAdapter:
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:
+    async def get_db() -> AsyncSession:
+        return db_session
+
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        db_dependency=get_db,
     )
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
-    async def get_db() -> AsyncSession:
-        return db_session
-
-    return Auth(settings=auth_settings, adapter=adapter, db_dependency=get_db)
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
+    # No providers needed for scope testing
+    return Auth(settings=auth_settings, adapter=adapter, providers=None)
 
 
 @pytest.fixture
@@ -96,7 +98,8 @@ def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_test_db() -> AsyncSession:
         return db_session
 
-    app.dependency_overrides[auth.db_dependency] = get_test_db
+    if db_func := auth.adapter.dependency:
+        app.dependency_overrides[db_func] = get_test_db
 
     # Create Security dependencies with scopes that delegate to auth.user
     # These avoid Pydantic validation issues by wrapping the auth.user call
@@ -210,7 +213,7 @@ async def test_user_with_valid_single_scope(auth: Auth, db_session: AsyncSession
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     # User has READ scope, should succeed
     security_scopes = SecurityScopes(scopes=[AppScope.READ])
@@ -235,7 +238,7 @@ async def test_user_without_required_scope(auth: Auth, db_session: AsyncSession,
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     # User lacks ADMIN scope, should fail
     security_scopes = SecurityScopes(scopes=[AppScope.ADMIN])
@@ -262,7 +265,7 @@ async def test_user_with_all_required_scopes(auth: Auth, db_session: AsyncSessio
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     # User has both READ and WRITE scopes, should succeed
     security_scopes = SecurityScopes(scopes=[AppScope.READ, AppScope.WRITE])
@@ -290,7 +293,7 @@ async def test_user_missing_one_of_multiple_required_scopes(
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     # User has READ but not WRITE, should fail
     security_scopes = SecurityScopes(scopes=[AppScope.READ, AppScope.WRITE])
@@ -317,7 +320,7 @@ async def test_user_with_empty_scopes_list(auth: Auth, db_session: AsyncSession,
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes(scopes=[AppScope.READ])
 
@@ -345,7 +348,7 @@ async def test_user_with_none_scopes(auth: Auth, db_session: AsyncSession, auth_
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes(scopes=[AppScope.READ])
 
@@ -374,7 +377,7 @@ async def test_user_with_none_scopes_no_requirements(
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes(scopes=[])
 
@@ -403,7 +406,7 @@ async def test_user_with_no_scope_requirements(
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     # No scope requirements, should succeed even with no scopes
     security_scopes = SecurityScopes()
@@ -432,7 +435,7 @@ async def test_strenum_scopes_work_as_strings(
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     # Use StrEnum scopes in Security - they work because StrEnum members are strings
     security_scopes = SecurityScopes(scopes=[AppScope.READ, AppScope.WRITE])
@@ -461,7 +464,7 @@ async def test_mixed_strenum_and_string_scopes(
     await db_session.commit()
 
     request = MagicMock(spec=Request)
-    request.cookies = {auth_settings.session.cookie_name: str(session.id)}
+    request.cookies = {auth_settings.cookie.name: str(session.id)}
 
     # Mix of StrEnum and string in requirements
     security_scopes = SecurityScopes(scopes=[AppScope.READ, "resource:write"])
@@ -503,7 +506,7 @@ async def test_multiple_users_with_different_scopes(
 
     # Admin can access ADMIN scope
     admin_request = MagicMock(spec=Request)
-    admin_request.cookies = {auth_settings.session.cookie_name: str(admin_session.id)}
+    admin_request.cookies = {auth_settings.cookie.name: str(admin_session.id)}
 
     admin_security = SecurityScopes(scopes=[AppScope.ADMIN])
     retrieved_admin = await auth.user(admin_security, admin_request, db_session)
@@ -511,7 +514,7 @@ async def test_multiple_users_with_different_scopes(
 
     # Read-only user cannot access ADMIN scope
     readonly_request = MagicMock(spec=Request)
-    readonly_request.cookies = {auth_settings.session.cookie_name: str(readonly_session.id)}
+    readonly_request.cookies = {auth_settings.cookie.name: str(readonly_session.id)}
 
     readonly_security = SecurityScopes(scopes=[AppScope.ADMIN])
 
@@ -533,7 +536,8 @@ async def test_http_endpoint_with_valid_scope(
     """Test that HTTP request with valid scope can access protected endpoint."""
     session_id = await create_user_with_session("reader@example.com", [AppScope.READ, AppScope.WRITE])
 
-    response = client.get("/api/read", cookies={auth_settings.session.cookie_name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/read")
 
     assert response.status_code == 200
     assert response.json()["message"] == "read access granted"
@@ -549,7 +553,8 @@ async def test_http_endpoint_without_required_scope(
     """Test that HTTP request without required scope is denied access."""
     session_id = await create_user_with_session("limited@example.com", [AppScope.READ])
 
-    response = client.get("/api/admin", cookies={auth_settings.session.cookie_name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/admin")
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Insufficient permissions"
@@ -567,7 +572,8 @@ async def test_http_endpoint_with_multiple_required_scopes(
         [AppScope.READ, AppScope.WRITE, AppScope.DELETE],
     )
 
-    response = client.get("/api/read-write", cookies={auth_settings.session.cookie_name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/read-write")
 
     assert response.status_code == 200
     assert response.json()["message"] == "read-write access granted"
@@ -582,7 +588,8 @@ async def test_http_endpoint_missing_one_of_multiple_scopes(
     """Test that missing one of multiple required scopes denies access."""
     session_id = await create_user_with_session("readonly@example.com", [AppScope.READ])
 
-    response = client.get("/api/read-write", cookies={auth_settings.session.cookie_name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/read-write")
 
     assert response.status_code == 403
 
@@ -602,7 +609,8 @@ async def test_http_public_endpoint_with_authentication(
     """Test public endpoint (no scope requirements) with authenticated user."""
     session_id = await create_user_with_session("anyuser@example.com", None)
 
-    response = client.get("/api/public", cookies={auth_settings.session.cookie_name: session_id})
+    client.cookies.set(auth_settings.cookie.name, session_id)
+    response = client.get("/api/public")
 
     assert response.status_code == 200
     assert response.json()["message"] == "public access granted"
@@ -622,15 +630,17 @@ async def test_http_different_users_different_access(
     regular_session_id = await create_user_with_session("regular@example.com", [AppScope.READ])
 
     # Admin can access admin endpoint
-    admin_response = client.get("/api/admin", cookies={auth_settings.session.cookie_name: admin_session_id})
+    client.cookies.set(auth_settings.cookie.name, admin_session_id)
+    admin_response = client.get("/api/admin")
     assert admin_response.status_code == 200
     assert admin_response.json()["user_email"] == "admin@example.com"
 
     # Regular user cannot access admin endpoint
-    regular_response = client.get("/api/admin", cookies={auth_settings.session.cookie_name: regular_session_id})
+    client.cookies.set(auth_settings.cookie.name, regular_session_id)
+    regular_response = client.get("/api/admin")
     assert regular_response.status_code == 403
 
     # Regular user can access read endpoint
-    regular_read_response = client.get("/api/read", cookies={auth_settings.session.cookie_name: regular_session_id})
+    regular_read_response = client.get("/api/read")
     assert regular_read_response.status_code == 200
     assert regular_read_response.json()["user_email"] == "regular@example.com"

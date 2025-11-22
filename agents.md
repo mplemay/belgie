@@ -90,7 +90,8 @@ In general, you **must** follow the following workflow when writing code:
   - Edge cases where adding correct types would make code significantly more complex
 - **Best practices for type ignore comments**:
   - Always use specific error codes: `# ty: ignore[error-code]` (not bare `# ty: ignore`)
-  - Add inline explanation when the reason isn't obvious: `# ty: ignore[attr-defined]  # Dynamic attribute from metaclass`
+  - Add inline explanation when the reason isn't obvious:
+    `# ty: ignore[attr-defined]  # Dynamic attribute from metaclass`
   - Consider if the code can be refactored to avoid the ignore
   - Common error codes:
     - `[attr-defined]` - Attribute doesn't exist on type
@@ -170,3 +171,9 @@ In general, you **must** follow the following workflow when writing code:
 - Prefer importing using `from x import y` instead of `import x`
 - Import local modules using the full path (ex: `from my_project.my_module import MyClass`)
 - **Don't use** docstrings, instead add inline comments only in places where there is complex or easily breakable logic
+- URL construction:
+  - Use `urllib.parse` methods for URL manipulation (don't use string concatenation or f-strings for query params)
+  - Use `urlencode()` for query parameters
+  - Use `urlparse()` and `urlunparse()` for URL composition
+  - Example: `urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", urlencode(params), ""))`
+  - This ensures proper encoding and avoids common URL injection vulnerabilities
