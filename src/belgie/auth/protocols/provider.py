@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings
 if TYPE_CHECKING:
     from fastapi import APIRouter
 
+    from belgie.auth.core.settings import CookieSettings
     from belgie.auth.protocols.adapter import AdapterProtocol
 
 
@@ -38,7 +39,7 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         """
         ...
 
-    def get_router(self, adapter: AdapterProtocol) -> APIRouter:
+    def get_router(self, adapter: AdapterProtocol, cookie_settings: CookieSettings) -> APIRouter:
         """Create and return FastAPI router with OAuth endpoints.
 
         The router should include:
@@ -47,6 +48,7 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
 
         Args:
             adapter: Database adapter for persistence operations
+            cookie_settings: Cookie configuration (secure, httponly, samesite, domain)
 
         Returns:
             FastAPI router with OAuth endpoints configured
@@ -58,15 +60,17 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
             The provider has complete control over:
             - OAuth flow implementation
             - User data mapping
-            - Session management (duration, cookie configuration from provider settings)
+            - Session management (duration from provider settings)
             - Error handling
             - Redirect URLs
 
             Provider settings should include:
             - OAuth credentials (client_id, client_secret, redirect_uri, scopes)
-            - Cookie configuration (httponly, secure, samesite, domain, cookie_name)
-            - Session configuration (max_age)
+            - Session configuration (max_age, cookie_name)
             - Redirect URLs (signin_redirect, signout_redirect)
+
+            Cookie configuration is provided via cookie_settings parameter:
+            - secure, httponly, samesite, domain
 
             Implementation style:
             - Use closures that capture self for route handlers

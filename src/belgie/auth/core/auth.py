@@ -1,6 +1,4 @@
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -52,9 +50,15 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         ...     ),
         ... )
         >>>
-        >>> adapter = AlchemyAdapter(user=User, account=Account, session=Session, oauth_state=OAuthState)
+        >>> adapter = AlchemyAdapter(
+        ...     user=User,
+        ...     account=Account,
+        ...     session=Session,
+        ...     oauth_state=OAuthState,
+        ...     db_dependency=get_db,
+        ... )
         >>>
-        >>> auth = Auth(settings=settings, adapter=adapter, db_dependency=get_db)
+        >>> auth = Auth(settings=settings, adapter=adapter)
         >>> app.include_router(auth.router)
     """
 
@@ -62,22 +66,18 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         self,
         settings: AuthSettings,
         adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
-        db_dependency: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize the Auth instance.
 
         Args:
             settings: Authentication configuration including session, cookie, OAuth, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
-            db_dependency: Optional database dependency function for FastAPI router endpoints.
-                         Required if you want to use the auto-generated router.
 
         Raises:
-            RuntimeError: If router endpoints are accessed without providing db_dependency
+            RuntimeError: If router endpoints are accessed without adapter.get_db() configured
         """
         self.settings = settings
         self.adapter = adapter
-        self.db_dependency = db_dependency
 
         self.session_manager = SessionManager(
             adapter=adapter,
@@ -98,10 +98,11 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         router = APIRouter(prefix="/auth", tags=["auth"])
 
         async def _get_db() -> AsyncSession:
-            if self.db_dependency is None:
-                msg = "database dependency not configured. pass db_dependency to Auth() constructor"
+            db_dependency = self.adapter.get_db()
+            if db_dependency is None:
+                msg = "database dependency not configured. pass db_dependency to adapter constructor"
                 raise RuntimeError(msg)
-            return await self.db_dependency()  # type: ignore[misc]
+            return await db_dependency()  # type: ignore[misc]
 
         @router.get("/signin/google")
         async def signin_google(db: AsyncSession = Depends(_get_db)) -> RedirectResponse:  # noqa: B008, FAST002

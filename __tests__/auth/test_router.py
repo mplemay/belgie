@@ -43,21 +43,22 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter() -> AlchemyAdapter:
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:
+    async def get_db() -> AsyncSession:
+        return db_session
+
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        db_dependency=get_db,
     )
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
-    async def get_db() -> AsyncSession:
-        return db_session
-
-    return Auth(settings=auth_settings, adapter=adapter, db_dependency=get_db)
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
+    return Auth(settings=auth_settings, adapter=adapter)
 
 
 @pytest.fixture

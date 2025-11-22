@@ -8,6 +8,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.core.settings import CookieSettings
 from belgie.auth.protocols.adapter import AdapterProtocol
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 from belgie.auth.protocols.provider import OAuthProviderProtocol  # noqa: TC001
@@ -198,7 +199,7 @@ class MockOAuthProvider:
     def provider_id(self) -> Literal["mock"]:
         return "mock"
 
-    def get_router(self, _adapter: AdapterProtocol) -> APIRouter:
+    def get_router(self, adapter: AdapterProtocol, cookie_settings: CookieSettings) -> APIRouter:
         router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
         @router.get("/signin")
@@ -207,7 +208,12 @@ class MockOAuthProvider:
 
         @router.get("/callback")
         async def callback() -> dict[str, str]:
-            return {"message": "callback"}
+            # Use adapter and cookie_settings to verify they're accessible
+            return {
+                "message": "callback",
+                "secure": str(cookie_settings.secure),
+                "has_db": str(adapter.get_db() is not None),
+            }
 
         return router
 
@@ -225,7 +231,7 @@ def test_mock_provider_satisfies_oauth_provider_protocol() -> None:
     assert hasattr(provider, "get_router")
     assert callable(provider.get_router)
 
-    # Create a mock adapter and get router
+    # Create a mock adapter and cookie settings
     adapter = AlchemyAdapter(
         user=ExampleUser,
         account=ExampleAccount,
@@ -233,7 +239,8 @@ def test_mock_provider_satisfies_oauth_provider_protocol() -> None:
         oauth_state=ExampleOAuthState,
         db_dependency=None,
     )
+    cookie_settings = CookieSettings()
 
-    router = provider.get_router(adapter)
+    router = provider.get_router(adapter, cookie_settings)
     assert isinstance(router, APIRouter)
     assert router.prefix == "/mock"

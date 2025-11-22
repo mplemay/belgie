@@ -65,21 +65,22 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter() -> AlchemyAdapter:
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:
+    async def get_db() -> AsyncSession:
+        return db_session
+
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        db_dependency=get_db,
     )
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
-    async def get_db() -> AsyncSession:
-        return db_session
-
-    return Auth(settings=auth_settings, adapter=adapter, db_dependency=get_db)
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
+    return Auth(settings=auth_settings, adapter=adapter)
 
 
 @pytest.fixture
@@ -96,7 +97,8 @@ def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_test_db() -> AsyncSession:
         return db_session
 
-    app.dependency_overrides[auth.db_dependency] = get_test_db
+    if db_func := auth.adapter.get_db():
+        app.dependency_overrides[db_func] = get_test_db
 
     # Create Security dependencies with scopes that delegate to auth.user
     # These avoid Pydantic validation issues by wrapping the auth.user call

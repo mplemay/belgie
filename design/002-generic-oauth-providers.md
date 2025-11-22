@@ -11,8 +11,9 @@ The problem this solves: Each new OAuth provider currently requires duplicating 
 This design introduces:
 - **Provider Protocol**: Minimal interface that providers must implement (`provider_id`, `get_router`)
 - **Self-Contained Providers**: Each provider manages its own FastAPI router and OAuth flow
-- **Adapter Injection**: Database adapter passed to providers via `get_router()` method
+- **Adapter Injection**: Database adapter and cookie settings passed to providers via `get_router()` method
 - **Database Dependency in Adapter**: `db_dependency` moved from Auth to adapter for better cohesion
+- **Centralized Cookie Configuration**: Cookie settings passed to providers for consistent cookie behavior
 - **Type Safety**: Provider IDs use Literal types, provider settings use TypedDict for extensibility
 - **Environment Config**: Each provider loads settings from environment with `env_prefix`
 - **Resource Management**: httpx context managers handle cleanup (no `close()` method needed)
@@ -97,7 +98,7 @@ graph TD
     C --> D["Auth.__init__: Store providers dict"]
     D --> E["Auth._create_router: Create main router"]
     E --> F["For each provider in providers.values()"]
-    F --> G["provider.get_router adapter"]
+    F --> G["provider.get_router(adapter, cookie_settings)"]
     G --> H["Include provider router in main router"]
 ```
 
@@ -168,6 +169,7 @@ sequenceDiagram
 
 - **Provider Router** (`providers/google.py:get_router`) - Contains signin and callback endpoints
 - **Adapter** (`adapters/alchemy.py:AlchemyAdapter`) - Database operations via dependency injection
+- **Cookie Settings** (`core/settings.py:CookieSettings`) - Centralized cookie configuration
 - **OAuth State** - CSRF protection for OAuth flow
 
 ### Workflow 3: Adding a New OAuth Provider
@@ -295,16 +297,16 @@ class MicrosoftOAuthProvider:
                 expires_at=expires_at.replace(tzinfo=None),
             )
 
-            # Return response with session cookie using provider settings
+            # Return response with session cookie using centralized cookie settings
             response = RedirectResponse(url=self.settings.signin_redirect)
             response.set_cookie(
                 key=self.settings.cookie_name,
                 value=str(session.id),
                 max_age=self.settings.session_max_age,
-                httponly=self.settings.cookie_httponly,
-                secure=self.settings.cookie_secure,
-                samesite=self.settings.cookie_samesite,
-                domain=self.settings.cookie_domain,
+                httponly=cookie_settings.http_only,
+                secure=cookie_settings.secure,
+                samesite=cookie_settings.same_site,
+                domain=cookie_settings.domain,
             )
             return response
 
@@ -1154,7 +1156,7 @@ class Auth:
         for provider in self.providers.values():
             # Each provider's router has prefix /{provider_id}
             # Combined with provider_router prefix: /auth/provider/{provider_id}/signin
-            provider_specific_router = provider.get_router(self.adapter)
+            provider_specific_router = provider.get_router(self.adapter, self.settings.cookie)
             provider_router.include_router(provider_specific_router)
 
         main_router.include_router(provider_router)
@@ -1177,7 +1179,7 @@ The route URLs are built from nested router prefixes:
 Auth creates:
     main_router = APIRouter(prefix="/auth")
         provider_router = APIRouter(prefix="/provider")
-            provider.get_router() returns APIRouter(prefix="/google")
+            provider.get_router(adapter, cookie_settings) returns APIRouter(prefix="/google")
                 Route: "/signin"
                 Route: "/callback"
 
@@ -1309,16 +1311,16 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 ### Tasks
 
-- [ ] **Implement protocols** (leaf nodes, no dependencies)
-  - [ ] Define `OAuthProviderProtocol` in `protocols/provider.py` (#1)
-    - [ ] Define generic type parameter for settings
-    - [ ] Define `__init__(settings)` method
-    - [ ] Define `provider_id` property returning str
-    - [ ] Define `get_router(adapter, auth_settings)` method returning APIRouter
-  - [ ] Add `get_db()` to `AdapterProtocol` in `protocols/adapter.py` (#2)
-    - [ ] Define method signature
-    - [ ] Add documentation about FastAPI dependency
-  - [ ] Write unit tests for protocols (type checking)
+- [x] **Implement protocols** (leaf nodes, no dependencies)
+  - [x] Define `OAuthProviderProtocol` in `protocols/provider.py` (#1)
+    - [x] Define generic type parameter for settings
+    - [x] Define `__init__(settings)` method
+    - [x] Define `provider_id` property returning str
+    - [x] Define `get_router(adapter, cookie_settings)` method returning APIRouter
+  - [x] Add `get_db()` to `AdapterProtocol` in `protocols/adapter.py` (#2)
+    - [x] Define method signature
+    - [x] Add documentation about FastAPI dependency
+  - [x] Write unit tests for protocols (type checking)
 
 - [ ] **Implement Google provider** (depends on protocols)
   - [ ] Create `GoogleProviderSettings` in `providers/google.py` (#3)
@@ -1327,7 +1329,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
   - [ ] Implement `GoogleOAuthProvider` class
     - [ ] Implement `__init__(settings)` storing settings
     - [ ] Implement `provider_id` property returning Literal["google"]
-    - [ ] Implement `get_router(adapter, auth_settings)` method
+    - [ ] Implement `get_router(adapter, cookie_settings)` method
       - [ ] Create APIRouter with prefix and tags
       - [ ] Define private `__signin_google` method (generate URL, create state)
       - [ ] Define private `__callback_google` method (validate, exchange, create user/session)
@@ -1354,14 +1356,14 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [ ] Implement `@cached_property router` (not create_router method)
       - [ ] Create nested router structure: /auth/provider/{provider_id}/...
       - [ ] Loop through providers
-      - [ ] Call `provider.get_router(adapter, settings)` for each
+      - [ ] Call `provider.get_router(adapter, cookie_settings)` for each
       - [ ] Include all routers in main router
     - [ ] Implement `list_providers()` and `get_provider()` methods
       - [ ] Use dict.get() in get_provider (return None if not found)
-  - [ ] Update `adapters/alchemy.py` to implement `get_db()` method
-    - [ ] Accept db_dependency in __init__
-    - [ ] Store as self.db_dependency
-    - [ ] Return it from get_db()
+  - [x] Update `adapters/alchemy.py` to implement `get_db()` method
+    - [x] Accept db_dependency in __init__
+    - [x] Store as self.db_dependency
+    - [x] Return it from get_db()
   - [ ] Write unit tests for `core/auth.py`
     - [ ] Test provider loading from env
     - [ ] Test cached_property router with multiple providers
