@@ -1342,41 +1342,41 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [x] Test GoogleUserInfo model validation
     - [x] Test provider_id property
 
-- [ ] **Implement Auth class** (depends on provider implementations)
-  - [ ] Modify `core/auth.py` (#5)
-    - [ ] Update `__init__()` to accept adapter only (no db_dependency)
-    - [ ] Initialize AuthSettings
-    - [ ] Implement `_load_providers()` method
-      - [ ] Use dict.get() to check if provider already registered
-      - [ ] Try loading GoogleProviderSettings and instantiate provider
-      - [ ] Silently skip providers with errors
-      - [ ] Add comment for future providers (GitHub, Microsoft, etc.)
-    - [ ] Implement `register_provider()` method
-    - [ ] Implement `@cached_property router` (not create_router method)
-      - [ ] Create nested router structure: /auth/provider/{provider_id}/...
-      - [ ] Loop through providers
-      - [ ] Call `provider.get_router(adapter, cookie_settings)` for each
-      - [ ] Include all routers in main router
-    - [ ] Implement `list_providers()` and `get_provider()` methods
-      - [ ] Use dict.get() in get_provider (return None if not found)
+- [x] **Implement Auth class** (depends on provider implementations)
+  - [x] Modify `core/auth.py` (#5)
+    - [x] Update `__init__()` to accept adapter only (no db_dependency)
+    - [x] Initialize AuthSettings
+    - [x] Implement `_load_providers()` method
+      - [x] Use dict.get() to check if provider already registered
+      - [x] Try loading GoogleProviderSettings and instantiate provider
+      - [x] Silently skip providers with errors
+      - [x] Add comment for future providers (GitHub, Microsoft, etc.)
+    - [x] Implement `register_provider()` method
+    - [x] Implement `@cached_property router` (not create_router method)
+      - [x] Create nested router structure: /auth/provider/{provider_id}/...
+      - [x] Loop through providers
+      - [x] Call `provider.get_router(adapter, cookie_settings)` for each
+      - [x] Include all routers in main router
+    - [x] Implement `list_providers()` and `get_provider()` methods
+      - [x] Use dict.get() in get_provider (return None if not found)
   - [x] Update `adapters/alchemy.py` to implement `get_db()` method
     - [x] Accept db_dependency in __init__
     - [x] Store as self.db_dependency
     - [x] Return it from get_db()
-  - [ ] Write unit tests for `core/auth.py`
-    - [ ] Test provider loading from env
-    - [ ] Test cached_property router with multiple providers
-    - [ ] Test provider registration and lookup
+  - [x] Write unit tests for `core/auth.py`
+    - [x] Test provider loading from env
+    - [x] Test cached_property router with multiple providers
+    - [x] Test provider registration and lookup
 
-- [ ] **Integration and validation**
-  - [ ] Add integration tests for [Workflow 1](#workflow-1-provider-registration-and-initialization)
-  - [ ] Add integration tests for [Workflow 2](#workflow-2-oauth-sign-in-flow)
-  - [ ] Add integration tests for [Workflow 3](#workflow-3-adding-a-new-oauth-provider)
-  - [ ] Test with real environment variables
-  - [ ] Test with FastAPI TestClient
-  - [ ] Add type hints and run type checker (`uv run ty`)
-  - [ ] Run linter and fix issues (`uv run ruff check`)
-  - [ ] Verify all tests pass (`uv run pytest`)
+- [x] **Integration and validation**
+  - [x] Add integration tests for [Workflow 1](#workflow-1-provider-registration-and-initialization)
+  - [x] Add integration tests for [Workflow 2](#workflow-2-oauth-sign-in-flow)
+  - [x] Add integration tests for [Workflow 3](#workflow-3-adding-a-new-oauth-provider)
+  - [x] Test with real environment variables
+  - [x] Test with FastAPI TestClient
+  - [x] Add type hints and run type checker (`uv run ty`)
+  - [x] Run linter and fix issues (`uv run ruff check`)
+  - [x] Verify all tests pass (`uv run pytest`) - 231 tests passing with 0 warnings
 
 ## Open Questions
 
