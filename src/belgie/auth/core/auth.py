@@ -97,6 +97,37 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             else {}
         )
 
+        # Create the dependency function for this instance
+        # This captures adapter.dependency in a closure for FastAPI's Depends()
+        async def _get_db_for_call() -> AsyncSession:
+            return await adapter.dependency()  # type: ignore[misc]
+
+        self._get_db_for_call = _get_db_for_call
+
+    async def __call__(
+        self,
+        db: AsyncSession = Depends(lambda: None),  # noqa: B008
+    ) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]":
+        """FastAPI dependency that returns AuthClient with database session bound.
+
+        This method makes Auth usable as a FastAPI dependency: `Depends(auth)`
+
+        Args:
+            db: Database session injected by FastAPI
+
+        Returns:
+            AuthClient instance with database session bound
+
+        Example:
+            >>> @app.delete("/account")
+            >>> async def delete_account(client: AuthClient = Depends(auth)):
+            ...     await client.delete_user(user)
+        """
+        # Get db from instance-specific dependency function
+        if db is None:
+            db = await self._get_db_for_call()
+        return AuthClient(auth=self, db=db)
+
     @cached_property
     def router(self) -> APIRouter:
         """FastAPI router with all provider routes (cached).
@@ -312,3 +343,90 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             )
 
         return session
+
+
+class AuthClient[
+    UserT: UserProtocol,
+    AccountT: AccountProtocol,
+    SessionT: SessionProtocol,
+    OAuthStateT: OAuthStateProtocol,
+]:
+    """Auth client with database session bound for use in FastAPI endpoints.
+
+    This class provides database-bound methods for authentication operations,
+    eliminating the need to manually pass database sessions. It's designed to
+    be used as a FastAPI dependency via `Depends(auth)`.
+
+    The AuthClient should not be instantiated directly - it's created by
+    calling Auth instance as a dependency: `client: AuthClient = Depends(auth)`
+
+    Type Parameters:
+        UserT: User model type implementing UserProtocol
+        AccountT: Account model type implementing AccountProtocol
+        SessionT: Session model type implementing SessionProtocol
+        OAuthStateT: OAuth state model type implementing OAuthStateProtocol
+
+    Attributes:
+        db: Database session bound to this client
+
+    Example:
+        >>> @app.delete("/account")
+        >>> async def delete_account(
+        ...     user: User = Depends(auth.user),
+        ...     client: AuthClient = Depends(auth),
+        ... ):
+        ...     await client.delete_user(user=user)
+        ...     return {"message": "Account deleted"}
+    """
+
+    def __init__(
+        self,
+        auth: Auth[UserT, AccountT, SessionT, OAuthStateT],
+        db: AsyncSession,
+    ) -> None:
+        """Initialize AuthClient with auth instance and database session.
+
+        This should not be called directly - use `Depends(auth)` instead.
+
+        Args:
+            auth: Auth instance providing configuration and hooks
+            db: Database session for this request
+        """
+        self._auth = auth
+        self.db = db
+
+    async def delete_user(self, user: UserT) -> None:
+        """Delete a user account with all related data (cascade).
+
+        This method deletes:
+        1. All user sessions
+        2. All OAuth accounts
+        3. The user record
+
+        Future versions will support deletion hooks for custom cleanup tasks
+        (e.g., deleting user files, sending confirmation emails).
+
+        Args:
+            user: User object to delete (must have an id attribute)
+
+        Raises:
+            ValueError: If user doesn't exist
+
+        Example:
+            >>> @app.delete("/account")
+            >>> async def delete_my_account(
+            ...     user: User = Depends(auth.user),
+            ...     client: AuthClient = Depends(auth),
+            ... ):
+            ...     await client.delete_user(user=user)
+            ...     return {"message": "Your account has been deleted"}
+        """
+        # Hooks integration will be added in future version
+        # This will allow users to perform cleanup tasks like:
+        # - Deleting user files from storage
+        # - Sending deletion confirmation emails
+        # - Notifying external systems
+        # - Logging audit events
+
+        # Perform the actual deletion
+        await self._auth.adapter.delete_user(self.db, user.id)

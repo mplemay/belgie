@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
-from belgie.auth.core.auth import Auth
+from belgie.auth.core.auth import Auth, AuthClient
 from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
 from belgie.auth.providers.google import GoogleProviderSettings
 
@@ -322,3 +322,78 @@ async def test_session_dependency_invalid_uuid_format(auth: Auth, db_session: As
         await auth.session(request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_auth_call_returns_auth_client(auth: Auth, db_session: AsyncSession) -> None:
+    """Test that calling auth returns AuthClient instance."""
+    client = await auth(db=db_session)
+
+    assert isinstance(client, AuthClient)
+    assert client.db is db_session
+    # Verify auth instance is bound (via private attribute)
+    assert client._auth is auth  # noqa: SLF001
+
+
+def test_auth_call_is_dynamically_overridden(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> None:
+    """Test that each Auth instance has its own __call__ method."""
+    auth1 = Auth(settings=auth_settings, adapter=adapter)
+    auth2 = Auth(settings=auth_settings, adapter=adapter)
+
+    # Each instance should have different __call__ methods
+    assert auth1.__call__ is not auth2.__call__
+
+    # But they should both be callables
+    assert callable(auth1)
+    assert callable(auth2)
+
+
+def test_auth_call_is_callable(auth: Auth) -> None:
+    """Test that Auth instance is callable."""
+    assert callable(auth)
+
+
+@pytest.mark.asyncio
+async def test_auth_client_delete_user(auth: Auth, db_session: AsyncSession) -> None:
+    """Test that AuthClient.delete_user removes user from database."""
+    user = await auth.adapter.create_user(
+        db_session,
+        email="delete@example.com",
+        name="Delete Me",
+    )
+
+    client = AuthClient(auth=auth, db=db_session)
+    await client.delete_user(user=user)
+
+    deleted_user = await auth.adapter.get_user_by_id(db_session, user.id)
+    assert deleted_user is None
+
+
+@pytest.mark.asyncio
+async def test_auth_client_delete_user_cascades(auth: Auth, db_session: AsyncSession) -> None:
+    """Test that AuthClient.delete_user removes sessions and accounts."""
+    user = await auth.adapter.create_user(
+        db_session,
+        email="delete@example.com",
+    )
+
+    session = await auth.adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+
+    await auth.adapter.create_account(
+        db_session,
+        user_id=user.id,
+        provider="google",
+        provider_account_id="12345",
+    )
+
+    client = AuthClient(auth=auth, db=db_session)
+    await client.delete_user(user=user)
+
+    # Verify cascade
+    assert await auth.adapter.get_user_by_id(db_session, user.id) is None
+    assert await auth.adapter.get_session(db_session, session.id) is None
+    assert await auth.adapter.get_account(db_session, "google", "12345") is None

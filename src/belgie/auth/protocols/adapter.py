@@ -293,6 +293,23 @@ class AdapterProtocol[
         """
         ...
 
+    async def delete_user(self, db: AsyncSession, user_id: UUID) -> None:
+        """Delete a user and all related data.
+
+        Implementations should delete in this order:
+        1. All user sessions
+        2. All OAuth accounts
+        3. The user record
+
+        Args:
+            db: Async database session
+            user_id: UUID of the user to delete
+
+        Raises:
+            Exception: If user doesn't exist or deletion fails
+        """
+        ...
+
     @property
     def dependency(self) -> Callable[[], Any]:
         """FastAPI dependency for database sessions.

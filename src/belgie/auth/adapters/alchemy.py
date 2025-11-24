@@ -259,6 +259,53 @@ class AlchemyAdapter[
         await db.commit()
         return result.rowcount > 0  # type: ignore[attr-defined]
 
+    async def delete_user(self, db: AsyncSession, user_id: UUID) -> None:
+        """Delete a user and all related data (cascade).
+
+        Deletion order respects foreign key constraints:
+        1. Sessions (references user_id)
+        2. Accounts (references user_id)
+        3. User record
+
+        Args:
+            db: Async database session
+            user_id: UUID of the user to delete
+
+        Raises:
+            ValueError: If user doesn't exist
+        """
+        await self._delete_sessions_by_user_id(db, user_id)
+        await self._delete_accounts_by_user_id(db, user_id)
+
+        # Delete user
+        stmt = delete(self.user_model).where(self.user_model.id == user_id)
+        result = await db.execute(stmt)
+        await db.commit()
+
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            msg = f"User {user_id} not found"
+            raise ValueError(msg)
+
+    async def _delete_sessions_by_user_id(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+    ) -> None:
+        """Delete all sessions for a user (private helper)."""
+        stmt = delete(self.session_model).where(self.session_model.user_id == user_id)
+        await db.execute(stmt)
+        # No commit - part of larger transaction
+
+    async def _delete_accounts_by_user_id(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+    ) -> None:
+        """Delete all OAuth accounts for a user (private helper)."""
+        stmt = delete(self.account_model).where(self.account_model.user_id == user_id)
+        await db.execute(stmt)
+        # No commit - part of larger transaction
+
     @property
     def dependency(self) -> Callable[[], Any]:
         """FastAPI dependency for database sessions.

@@ -372,3 +372,104 @@ async def test_user_with_custom_fields(adapter: AlchemyAdapter, db_session: Asyn
     found = await adapter.get_user_by_email(db_session, "custom@example.com")
     assert found is not None
     assert found.custom_field == "custom value"
+
+
+@pytest.mark.asyncio
+async def test_delete_user(adapter: AlchemyAdapter, db_session: AsyncSession) -> None:
+    user = await adapter.create_user(
+        db_session,
+        email="delete@example.com",
+        name="Delete Me",
+    )
+
+    await adapter.delete_user(db_session, user.id)
+
+    deleted_user = await adapter.get_user_by_id(db_session, user.id)
+    assert deleted_user is None
+
+
+@pytest.mark.asyncio
+async def test_delete_user_not_found(adapter: AlchemyAdapter, db_session: AsyncSession) -> None:
+    with pytest.raises(ValueError, match=r"User .* not found"):
+        await adapter.delete_user(db_session, uuid4())
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascades_sessions(adapter: AlchemyAdapter, db_session: AsyncSession) -> None:
+    user = await adapter.create_user(
+        db_session,
+        email="delete@example.com",
+    )
+
+    session = await adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+
+    await adapter.delete_user(db_session, user.id)
+
+    deleted_session = await adapter.get_session(db_session, session.id)
+    assert deleted_session is None
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascades_accounts(adapter: AlchemyAdapter, db_session: AsyncSession) -> None:
+    user = await adapter.create_user(
+        db_session,
+        email="delete@example.com",
+    )
+
+    await adapter.create_account(
+        db_session,
+        user_id=user.id,
+        provider="google",
+        provider_account_id="12345",
+    )
+
+    await adapter.delete_user(db_session, user.id)
+
+    deleted_account = await adapter.get_account(db_session, "google", "12345")
+    assert deleted_account is None
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascades_all_related_data(adapter: AlchemyAdapter, db_session: AsyncSession) -> None:
+    user = await adapter.create_user(
+        db_session,
+        email="delete@example.com",
+    )
+
+    session1 = await adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+
+    session2 = await adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=14),
+    )
+
+    await adapter.create_account(
+        db_session,
+        user_id=user.id,
+        provider="google",
+        provider_account_id="google123",
+    )
+
+    await adapter.create_account(
+        db_session,
+        user_id=user.id,
+        provider="github",
+        provider_account_id="github456",
+    )
+
+    await adapter.delete_user(db_session, user.id)
+
+    assert await adapter.get_user_by_id(db_session, user.id) is None
+    assert await adapter.get_session(db_session, session1.id) is None
+    assert await adapter.get_session(db_session, session2.id) is None
+    assert await adapter.get_account(db_session, "google", "google123") is None
+    assert await adapter.get_account(db_session, "github", "github456") is None

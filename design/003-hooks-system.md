@@ -55,10 +55,16 @@ async def track_signup_analytics(ctx: SignupContext) -> None:
     # Can use ctx.db for additional queries if needed
     pass
 
+# Define database dependency
+async def get_db():
+    async with AsyncSession(engine) as session:
+        yield session
+
 # Configure auth with hooks - can pass single function or sequence
 auth = Auth(
     settings=auth_settings,
     adapter=adapter,
+    db_dependency=get_db,  # Provide db dependency for Auth.__call__
     hooks=Hooks(
         # Single function
         on_signup=send_welcome_email,
@@ -156,10 +162,16 @@ async def send_deletion_confirmation(ctx: DeletionContext) -> None:
         body="Your account has been successfully deleted."
     )
 
+# Define database dependency
+async def get_db():
+    async with AsyncSession(engine) as session:
+        yield session
+
 # Configure with hooks - executor automatically detects context managers
 auth = Auth(
     settings=auth_settings,
     adapter=adapter,
+    db_dependency=get_db,  # Provide db dependency
     hooks=Hooks(
         # Mix regular functions and context managers
         on_deletion=[cleanup_user_storage, send_deletion_confirmation],
@@ -170,26 +182,34 @@ auth = Auth(
 
 # Usage in application
 @app.delete("/account")
-async def delete_account(user: User = Depends(auth.user), db: AsyncSession = Depends(get_db)):
-    await auth.delete_user(user.id, db)  # Hooks execute automatically
+async def delete_account(
+    user: User = Depends(auth.user),
+    auth_client = Depends(auth)  # Inject auth with db session
+):
+    await auth_client.delete_user(user)  # Hooks execute automatically
     return {"message": "Account deleted"}
 ```
 
 #### Call Graph
 ```mermaid
 graph TD
-    A[auth.delete_user] --> B[HookExecutor.execute_hooks]
-    B --> C[Normalize to list]
-    C --> D[Separate context managers from regular hooks]
-    D --> E[Enter all context managers]
-    E --> F[adapter.delete_user]
-    F --> G[Exit all context managers]
-    G --> H[Execute regular hooks]
-    H --> I[Return]
+    A[FastAPI Endpoint] --> B[Depends: auth.__call__]
+    B --> C[AuthClient created with db]
+    C --> D[auth_client.delete_user]
+    D --> E[HookExecutor.execute_hooks]
+    E --> F[Normalize to list]
+    F --> G[Separate context managers from regular hooks]
+    G --> H[Enter all context managers]
+    H --> I[adapter.delete_user]
+    I --> J[Exit all context managers]
+    J --> K[Execute regular hooks]
+    K --> L[Return]
 ```
 
 #### Key Components
-- **Auth.delete_user()** (`core/auth.py:Auth.delete_user`) - New method for user deletion with hook integration
+- **Auth.__call__()** (`core/auth.py:Auth.__call__`) - Returns AuthClient with db bound, usable as FastAPI dependency
+- **AuthClient** (`core/auth.py:AuthClient`) - Auth client with database session bound
+- **AuthClient.delete_user()** (`core/auth.py:AuthClient.delete_user`) - Deletes user with hooks, accepts user object
 - **DeletionContext** (`hooks/context.py:DeletionContext`) - Context passed to deletion hooks
 - **HookExecutor.execute_hooks()** (`hooks/executor.py:HookExecutor`) - Executes all hooks, automatically detecting context managers
 - **AlchemyAdapter.delete_user()** (`adapters/alchemy.py:AlchemyAdapter.delete_user`) - New adapter method for deletion
@@ -220,6 +240,11 @@ async def my_context_hook(ctx: DeletionContext):
     yield
     print("After deletion")
 
+# Database dependency
+async def get_db():
+    async with AsyncSession(engine) as session:
+        yield session
+
 # Type-safe configuration - single function or sequence
 hooks = Hooks(
     on_signup=my_signup_hook,  # Single function
@@ -229,6 +254,7 @@ hooks = Hooks(
 auth = Auth(
     settings=auth_settings,
     adapter=adapter,
+    db_dependency=get_db,
     hooks=hooks,
 )
 ```
@@ -256,6 +282,7 @@ graph TD
 ```mermaid
 graph TD
     Auth["Auth<br/>core/auth.py"]
+    AuthClient["(NEW)<br/>AuthClient<br/>core/auth.py"]
     Hooks["(NEW)<br/>Hooks<br/>hooks/config.py"]
     Contexts["(NEW)<br/>Context Classes<br/>hooks/context.py"]
     Executor["(NEW)<br/>HookExecutor<br/>hooks/executor.py"]
@@ -266,6 +293,9 @@ graph TD
 
     Auth --> Hooks
     Auth --> Executor
+    Auth --> AuthClient
+    AuthClient --> Auth
+    AuthClient --> Contexts
     GoogleProvider --> Executor
     GoogleProvider --> Contexts
     AlchemyAdapter --> Contexts
@@ -507,28 +537,46 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         settings: AuthSettings,
         adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
         hooks: Hooks | None = None,  # NEW PARAMETER
+        db_dependency: Callable[[], AsyncSession] | None = None,  # NEW PARAMETER
     ) -> None: ...
     # 1. Existing initialization logic remains
     # 2. Store hooks as self.hooks (use Hooks() if None provided)
     # 3. Create self.hook_executor = HookExecutor(continue_on_error=True)
-    # 4. Pass hooks to providers during initialization
+    # 4. Store db_dependency as self._db_dependency for use in __call__
+    # 5. Pass hooks to providers during initialization
 
-    async def delete_user(
+    def __call__(self, db: AsyncSession = Depends(lambda: self._db_dependency)) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]": ...
+    # NEW METHOD - Makes Auth usable as a FastAPI dependency
+    # 1. db parameter uses self._db_dependency (provided at Auth initialization)
+    # 2. Return AuthClient instance with self and db bound
+    # 3. Allows usage like: auth_client = Depends(auth)
+    # 4. If db_dependency not provided, user must pass db explicitly
+    # Used to provide db-bound auth operations in endpoints
+
+class AuthClient[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProtocol, OAuthStateT: OAuthStateProtocol]:
+    """Auth client with database session bound for use in FastAPI endpoints"""
+    # NEW CLASS - Provides db-bound methods for auth operations
+
+    def __init__(
         self,
-        user_id: str,
+        auth: Auth[UserT, AccountT, SessionT, OAuthStateT],
         db: AsyncSession,
     ) -> None: ...
+    # 1. Store auth as self._auth
+    # 2. Store db as self.db
+    # 3. Provides access to auth operations with db already bound
+
+    async def delete_user(self, user: UserT) -> None: ...
     # NEW METHOD - Used in: Workflow 2 (user deletion)
-    # 1. Get user from database using adapter.get_user_by_id()
-    # 2. If not found, raise ValueError
-    # 3. Create DeletionContext with user and db
-    # 4. Execute hooks using hook_executor.execute_hooks()
+    # 1. Extract user_id from user object (user.id)
+    # 2. Create DeletionContext with user and self.db
+    # 3. Execute hooks using self._auth.hook_executor.execute_hooks()
     #    - Executor automatically detects context managers
     #    - Context managers wrap the deletion operation
     #    - Regular hooks execute after deletion
-    # 5. Inside the hook execution (when no context managers wrapping):
-    #    a. Call adapter.delete_user()
-    # 6. Log any hook errors but don't raise (user deletion succeeded)
+    # 4. Inside the hook execution (when no context managers wrapping):
+    #    a. Call self._auth.adapter.delete_user(self.db, user_id)
+    # 5. Log any hook errors but don't raise (user deletion succeeded)
 ```
 
 #### `src/belgie/auth/providers/google.py` (Modifications)
@@ -654,6 +702,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `execute_hooks()` with single context manager hook
 - Test `execute_hooks()` with multiple context managers (enter order, exit reverse order)
 - Test `execute_hooks()` with mixed context managers and regular hooks
+- Test `execute_hooks()` with sequence containing one of each kind (sync, async, context manager)
 - Test `execute_hooks()` with hook that raises exception (continue_on_error=True)
 - Test `execute_hooks()` with hook that raises exception (continue_on_error=False)
 - Test `execute_hooks()` returns list of exceptions
@@ -675,7 +724,8 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test [Workflow 2](#workflow-2-user-deletion-with-hooks) end-to-end:
   - Create Auth with deletion hooks (regular and context managers)
   - Create test user with sessions and accounts
-  - Call auth.delete_user()
+  - Use auth as dependency to get AuthClient
+  - Call auth_client.delete_user(user) with user object
   - Verify context managers wrap deletion operation
   - Verify regular hooks execute after deletion
   - Verify user deleted from database
@@ -697,6 +747,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - User creation when hooks fail (user still created)
 - Single function vs sequence containing single function (same behavior)
 - Empty sequence (should behave like None)
+- Sequence containing one of each kind (sync, async, context manager) executes correctly
 
 ## Implementation
 
@@ -792,14 +843,19 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [ ] Test session deletion by user
   - [ ] Modify Auth class in `core/auth.py` (#6)
     - [ ] Add `hooks` parameter to `__init__()`
+    - [ ] Add `db_dependency` parameter to `__init__()`
     - [ ] Add `hook_executor` initialization
-    - [ ] Implement `delete_user()` method with hooks
+    - [ ] Implement `__call__()` method to return AuthClient (uses db_dependency)
+    - [ ] Implement `AuthClient` class with db-bound operations
+    - [ ] Implement `AuthClient.delete_user()` method with hooks
   - [ ] Modify GoogleOAuthProvider in `providers/google.py` (#7)
     - [ ] Add hooks and executor parameters
     - [ ] Integrate on_signup hooks after user creation
   - [ ] Write unit tests for Auth modifications
-    - [ ] Test Auth initialization with hooks
-    - [ ] Test delete_user() method
+    - [ ] Test Auth initialization with hooks and db_dependency
+    - [ ] Test Auth.__call__() returns AuthClient with db from dependency
+    - [ ] Test Auth.__call__() without db_dependency (user must pass db)
+    - [ ] Test AuthClient.delete_user() method with user object
 
 - [ ] **Integration and validation**
   - [ ] Add integration tests in `test_hooks_integration.py`
