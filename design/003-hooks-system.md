@@ -545,12 +545,13 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
     # 4. Store db_dependency as self._db_dependency for use in __call__
     # 5. Pass hooks to providers during initialization
 
-    def __call__(self, db: AsyncSession = Depends(lambda: self._db_dependency)) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]": ...
+    async def __call__(self, db: AsyncSession = Depends(lambda: None)) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]": ...
     # NEW METHOD - Makes Auth usable as a FastAPI dependency
-    # 1. db parameter uses self._db_dependency (provided at Auth initialization)
-    # 2. Return AuthClient instance with self and db bound
-    # 3. Allows usage like: auth_client = Depends(auth)
-    # 4. If db_dependency not provided, user must pass db explicitly
+    # IMPLEMENTATION NOTE: Uses class-level __call__ method (special methods lookup on class, not instance)
+    # 1. Defined at class level with instance-specific _get_db_for_call helper created in __init__
+    # 2. If db is None, gets db from self._get_db_for_call() closure
+    # 3. Returns AuthClient instance with self and db bound
+    # 4. Allows usage like: auth_client = Depends(auth)
     # Used to provide db-bound auth operations in endpoints
 
 class AuthClient[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProtocol, OAuthStateT: OAuthStateProtocol]:
