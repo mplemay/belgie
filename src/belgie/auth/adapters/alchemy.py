@@ -263,9 +263,10 @@ class AlchemyAdapter[
         """Delete a user and all related data (cascade).
 
         Deletion order respects foreign key constraints:
-        1. Sessions (references user_id)
-        2. Accounts (references user_id)
-        3. User record
+        1. Verify user exists
+        2. Sessions (references user_id)
+        3. Accounts (references user_id)
+        4. User record
 
         Args:
             db: Async database session
@@ -274,17 +275,20 @@ class AlchemyAdapter[
         Raises:
             ValueError: If user doesn't exist
         """
+        # Check if user exists before attempting deletion
+        user = await self.get_user_by_id(db, user_id)
+        if not user:
+            msg = f"User {user_id} not found"
+            raise ValueError(msg)
+
+        # Perform cascade deletion in correct order
         await self._delete_sessions_by_user_id(db, user_id)
         await self._delete_accounts_by_user_id(db, user_id)
 
         # Delete user
         stmt = delete(self.user_model).where(self.user_model.id == user_id)
-        result = await db.execute(stmt)
+        await db.execute(stmt)
         await db.commit()
-
-        if result.rowcount == 0:  # type: ignore[attr-defined]
-            msg = f"User {user_id} not found"
-            raise ValueError(msg)
 
     async def _delete_sessions_by_user_id(
         self,

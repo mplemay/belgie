@@ -106,14 +106,14 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
     async def __call__(
         self,
-        db: AsyncSession = Depends(lambda: None),  # noqa: B008
+        db: AsyncSession | None = Depends(lambda: None),  # noqa: B008
     ) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]":
         """FastAPI dependency that returns AuthClient with database session bound.
 
         This method makes Auth usable as a FastAPI dependency: `Depends(auth)`
 
         Args:
-            db: Database session injected by FastAPI
+            db: Database session injected by FastAPI (None triggers automatic resolution)
 
         Returns:
             AuthClient instance with database session bound
@@ -123,7 +123,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> async def delete_account(client: AuthClient = Depends(auth)):
             ...     await client.delete_user(user)
         """
-        # Get db from instance-specific dependency function
+        # Get db from instance-specific dependency function if not provided
         if db is None:
             db = await self._get_db_for_call()
         return AuthClient(auth=self, db=db)
@@ -157,13 +157,10 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             provider_router.include_router(provider_specific_router)
 
         # Add signout endpoint to main router (not provider-specific)
-        async def _get_db() -> AsyncSession:
-            return await self.adapter.dependency()  # type: ignore[misc]
-
         @main_router.post("/signout")
         async def signout(
             request: Request,
-            db: AsyncSession = Depends(_get_db),  # noqa: B008, FAST002
+            db: AsyncSession = Depends(self._get_db_for_call),  # noqa: B008, FAST002
         ) -> RedirectResponse:
             session_id_str = request.cookies.get(self.settings.cookie.name)
 
@@ -403,9 +400,6 @@ class AuthClient[
         2. All OAuth accounts
         3. The user record
 
-        Future versions will support deletion hooks for custom cleanup tasks
-        (e.g., deleting user files, sending confirmation emails).
-
         Args:
             user: User object to delete (must have an id attribute)
 
@@ -421,12 +415,4 @@ class AuthClient[
             ...     await client.delete_user(user=user)
             ...     return {"message": "Your account has been deleted"}
         """
-        # Hooks integration will be added in future version
-        # This will allow users to perform cleanup tasks like:
-        # - Deleting user files from storage
-        # - Sending deletion confirmation emails
-        # - Notifying external systems
-        # - Logging audit events
-
-        # Perform the actual deletion
         await self._auth.adapter.delete_user(self.db, user.id)
