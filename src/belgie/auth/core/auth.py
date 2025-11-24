@@ -104,16 +104,11 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
         self._get_db_for_call = _get_db_for_call
 
-    async def __call__(
-        self,
-        db: AsyncSession | None = Depends(lambda: None),  # noqa: B008
-    ) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]":
+    async def __call__(self) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]":
         """FastAPI dependency that returns AuthClient with database session bound.
 
         This method makes Auth usable as a FastAPI dependency: `Depends(auth)`
-
-        Args:
-            db: Database session injected by FastAPI (None triggers automatic resolution)
+        The database session is automatically resolved from the adapter's dependency.
 
         Returns:
             AuthClient instance with database session bound
@@ -123,9 +118,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> async def delete_account(client: AuthClient = Depends(auth)):
             ...     await client.delete_user(user)
         """
-        # Get db from instance-specific dependency function if not provided
-        if db is None:
-            db = await self._get_db_for_call()
+        db = await self._get_db_for_call()
         return AuthClient(auth=self, db=db)
 
     @cached_property

@@ -327,7 +327,7 @@ async def test_session_dependency_invalid_uuid_format(auth: Auth, db_session: As
 @pytest.mark.asyncio
 async def test_auth_call_returns_auth_client(auth: Auth, db_session: AsyncSession) -> None:
     """Test that calling auth returns AuthClient instance."""
-    client = await auth(db=db_session)
+    client = await auth()
 
     assert isinstance(client, AuthClient)
     assert client.db is db_session
