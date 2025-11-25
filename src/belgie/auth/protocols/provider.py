@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings
 if TYPE_CHECKING:
     from fastapi import APIRouter
 
+    from belgie.auth.core.hooks import HookRunner
     from belgie.auth.core.settings import CookieSettings
     from belgie.auth.protocols.adapter import AdapterProtocol
     from belgie.auth.providers.google import GoogleProviderSettings
@@ -40,13 +41,14 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         """
         ...
 
-    def get_router(
+    def get_router(  # noqa: PLR0913
         self,
         adapter: AdapterProtocol,
         cookie_settings: CookieSettings,
         session_max_age: int,
         signin_redirect: str,
         signout_redirect: str,
+        hook_runner: HookRunner,
     ) -> APIRouter:
         """Create and return FastAPI router with OAuth endpoints.
 
