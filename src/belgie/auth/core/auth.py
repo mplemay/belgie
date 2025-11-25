@@ -104,22 +104,29 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
         self._get_db_for_call = _get_db_for_call
 
-    async def __call__(self) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]":
-        """FastAPI dependency that returns AuthClient with database session bound.
+    async def __call__(
+        self,
+        request: Request,
+    ) -> "AuthClient[UserT, AccountT, SessionT, OAuthStateT]":
+        """FastAPI dependency that returns AuthClient with request and database session bound.
 
         This method makes Auth usable as a FastAPI dependency: `Depends(auth)`
-        The database session is automatically resolved from the adapter's dependency.
+        The request and database session are automatically resolved by FastAPI.
+
+        Args:
+            request: FastAPI Request object (injected by FastAPI)
 
         Returns:
-            AuthClient instance with database session bound
+            AuthClient instance with request and database session bound
 
         Example:
             >>> @app.delete("/account")
             >>> async def delete_account(client: AuthClient = Depends(auth)):
+            ...     user = await client.user()
             ...     await client.delete_user(user)
         """
         db = await self._get_db_for_call()
-        return AuthClient(auth=self, db=db)
+        return AuthClient(auth=self, db=db, request=request)
 
     @cached_property
     def router(self) -> APIRouter:
@@ -341,11 +348,11 @@ class AuthClient[
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
 ]:
-    """Auth client with database session bound for use in FastAPI endpoints.
+    """Auth client with request and database session bound for use in FastAPI endpoints.
 
-    This class provides database-bound methods for authentication operations,
-    eliminating the need to manually pass database sessions. It's designed to
-    be used as a FastAPI dependency via `Depends(auth)`.
+    This class provides a unified interface for authentication operations within
+    FastAPI endpoints, with automatic access to the current user and database session.
+    It's designed to be used as a FastAPI dependency via `Depends(auth)`.
 
     The AuthClient should not be instantiated directly - it's created by
     calling Auth instance as a dependency: `client: AuthClient = Depends(auth)`
@@ -361,11 +368,9 @@ class AuthClient[
 
     Example:
         >>> @app.delete("/account")
-        >>> async def delete_account(
-        ...     user: User = Depends(auth.user),
-        ...     client: AuthClient = Depends(auth),
-        ... ):
-        ...     await client.delete_user(user=user)
+        >>> async def delete_account(client: AuthClient = Depends(auth)):
+        ...     user = await client.user()
+        ...     await client.delete_user(user)
         ...     return {"message": "Account deleted"}
     """
 
@@ -373,17 +378,42 @@ class AuthClient[
         self,
         auth: Auth[UserT, AccountT, SessionT, OAuthStateT],
         db: AsyncSession,
+        request: Request,
     ) -> None:
-        """Initialize AuthClient with auth instance and database session.
+        """Initialize AuthClient with auth instance, database session, and request.
 
         This should not be called directly - use `Depends(auth)` instead.
 
         Args:
             auth: Auth instance providing configuration and hooks
             db: Database session for this request
+            request: FastAPI Request object for accessing session cookies
         """
         self._auth = auth
         self.db = db
+        self._request = request
+
+    async def user(self, security_scopes: SecurityScopes | None = None) -> UserT:
+        """Get the current authenticated user.
+
+        Args:
+            security_scopes: Optional security scopes for authorization
+
+        Returns:
+            Authenticated user object
+
+        Raises:
+            HTTPException: 401 if not authenticated or session invalid
+            HTTPException: 403 if required scopes are not granted
+
+        Example:
+            >>> @app.get("/profile")
+            >>> async def get_profile(client: AuthClient = Depends(auth)):
+            ...     user = await client.user()
+            ...     return {"email": user.email}
+        """
+        scopes = security_scopes or SecurityScopes()
+        return await self._auth.user(scopes, self._request, self.db)
 
     async def delete_user(self, user: UserT) -> None:
         """Delete a user account with all related data (cascade).

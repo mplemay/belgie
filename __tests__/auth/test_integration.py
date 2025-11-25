@@ -336,18 +336,28 @@ def test_multiple_concurrent_sessions(client: TestClient, auth: Auth, db_session
 
 @pytest.mark.asyncio
 async def test_auth_as_dependency_returns_auth_client(auth: Auth, db_session: AsyncSession) -> None:
-    """Test that using auth as a dependency returns AuthClient with db bound.
+    """Test that using auth as a dependency returns AuthClient with db and request bound.
 
-    This is the core pattern: `auth_client: AuthClient = Depends(auth)`
-    FastAPI will call `await auth()` which returns an AuthClient instance.
+    This is the core pattern: `client: AuthClient = Depends(auth)`
+    FastAPI will call `await auth(request)` which returns an AuthClient instance.
     """
+    from unittest.mock import MagicMock  # noqa: PLC0415
+
+    from fastapi import Request  # noqa: PLC0415
+
+    # Create mock request (FastAPI injects this)
+    request = MagicMock(spec=Request)
+    request.cookies = {}
+
     # Simulate what FastAPI does when resolving Depends(auth)
-    auth_client = await auth()
+    auth_client = await auth(request)
 
     # Verify we get an AuthClient instance
     assert isinstance(auth_client, AuthClient)
     # Verify the database session is bound
     assert auth_client.db is db_session
+    # Verify request is bound
+    assert auth_client._request is request  # noqa: SLF001
     # Verify it has access to the auth instance for operations
     assert auth_client._auth is auth  # noqa: SLF001
 
@@ -359,14 +369,16 @@ async def test_auth_client_delete_user_with_cascades(auth: Auth, db_session: Asy
     Example usage in FastAPI:
     ```python
     @app.delete("/account")
-    async def delete_account(
-        user: User = Depends(auth.user),
-        auth_client: AuthClient = Depends(auth),
-    ):
-        await auth_client.delete_user(user)
+    async def delete_account(client: AuthClient = Depends(auth)):
+        user = await client.user()
+        await client.delete_user(user)
         return {"message": "Account deleted"}
     ```
     """
+    from unittest.mock import MagicMock  # noqa: PLC0415
+
+    from fastapi import Request  # noqa: PLC0415
+
     # Create a user with sessions and accounts
     user = await auth.adapter.create_user(
         db_session,
@@ -387,8 +399,12 @@ async def test_auth_client_delete_user_with_cascades(auth: Auth, db_session: Asy
         provider_account_id="google-123",
     )
 
+    # Create mock request
+    request = MagicMock(spec=Request)
+    request.cookies = {}
+
     # Get AuthClient instance (simulating Depends(auth))
-    auth_client = await auth()
+    auth_client = await auth(request)
 
     # Use AuthClient to delete user
     await auth_client.delete_user(user)
@@ -406,17 +422,19 @@ async def test_auth_client_provides_db_access(auth: Auth, db_session: AsyncSessi
     Example usage in FastAPI:
     ```python
     @app.get("/my-sessions")
-    async def get_sessions(
-        user: User = Depends(auth.user),
-        auth_client: AuthClient = Depends(auth),
-    ):
-        # Use auth_client.db for database queries
+    async def get_sessions(client: AuthClient = Depends(auth)):
+        user = await client.user()
+        # Use client.db for database queries
         stmt = select(Session).where(Session.user_id == user.id)
-        result = await auth_client.db.execute(stmt)
+        result = await client.db.execute(stmt)
         sessions = result.scalars().all()
         return {"sessions": sessions}
     ```
     """
+    from unittest.mock import MagicMock  # noqa: PLC0415
+
+    from fastapi import Request  # noqa: PLC0415
+
     # Create test data
     user = await auth.adapter.create_user(db_session, email="test@example.com")
 
@@ -432,8 +450,12 @@ async def test_auth_client_provides_db_access(auth: Auth, db_session: AsyncSessi
         expires_at=datetime.now(UTC) + timedelta(days=14),
     )
 
+    # Create mock request
+    request = MagicMock(spec=Request)
+    request.cookies = {}
+
     # Get AuthClient (simulating Depends(auth))
-    auth_client = await auth()
+    auth_client = await auth(request)
 
     # Use auth_client.db to query sessions
     from sqlalchemy import select  # noqa: PLC0415
@@ -455,18 +477,20 @@ async def test_auth_client_multiple_operations(auth: Auth, db_session: AsyncSess
 
     Example usage in FastAPI:
     ```python
-    @app.post("/cleanup-account")
-    async def cleanup_account(
-        user: User = Depends(auth.user),
-        auth_client: AuthClient = Depends(auth),
-    ):
-        # Perform multiple database operations using auth_client.db
-        # 1. Delete old sessions
-        # 2. Revoke old tokens
-        # 3. Return updated account info
-        return {"cleaned": True}
+    @app.post("/account/stats")
+    async def account_stats(client: AuthClient = Depends(auth)):
+        user = await client.user()
+        # Perform multiple database operations using client.db
+        # Count sessions
+        stmt = select(func.count()).select_from(Session).where(Session.user_id == user.id)
+        session_count = await client.db.scalar(stmt)
+        return {"sessions": session_count}
     ```
     """
+    from unittest.mock import MagicMock  # noqa: PLC0415
+
+    from fastapi import Request  # noqa: PLC0415
+
     # Create test data
     user = await auth.adapter.create_user(db_session, email="cleanup@example.com")
 
@@ -484,8 +508,12 @@ async def test_auth_client_multiple_operations(auth: Auth, db_session: AsyncSess
         provider_account_id="google-456",
     )
 
+    # Create mock request
+    request = MagicMock(spec=Request)
+    request.cookies = {}
+
     # Get AuthClient
-    auth_client = await auth()
+    auth_client = await auth(request)
 
     # Perform multiple operations using auth_client.db
     from sqlalchemy import func, select  # noqa: PLC0415
@@ -503,3 +531,48 @@ async def test_auth_client_multiple_operations(auth: Auth, db_session: AsyncSess
     # Verify
     assert session_count == 1
     assert account_count == 1
+
+
+@pytest.mark.asyncio
+async def test_auth_client_user_method(auth: Auth, db_session: AsyncSession) -> None:
+    """Showcase using client.user() to get the authenticated user.
+
+    Example usage in FastAPI:
+    ```python
+    @app.get("/profile")
+    async def get_profile(client: AuthClient = Depends(auth)):
+        user = await client.user()
+        return {"email": user.email, "name": user.name}
+    ```
+    """
+    from unittest.mock import MagicMock  # noqa: PLC0415
+
+    from fastapi import Request  # noqa: PLC0415
+
+    # Create a user and session
+    user = await auth.adapter.create_user(
+        db_session,
+        email="user@example.com",
+        name="Test User",
+    )
+
+    session = await auth.adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+
+    # Create mock request with session cookie
+    request = MagicMock(spec=Request)
+    request.cookies = {auth.settings.cookie.name: str(session.id)}
+
+    # Get AuthClient
+    auth_client = await auth(request)
+
+    # Get the authenticated user through the client
+    authenticated_user = await auth_client.user()
+
+    # Verify we got the correct user
+    assert authenticated_user.id == user.id
+    assert authenticated_user.email == "user@example.com"
+    assert authenticated_user.name == "Test User"

@@ -327,12 +327,16 @@ async def test_session_dependency_invalid_uuid_format(auth: Auth, db_session: As
 @pytest.mark.asyncio
 async def test_auth_call_returns_auth_client(auth: Auth, db_session: AsyncSession) -> None:
     """Test that calling auth returns AuthClient instance."""
-    client = await auth()
+    request = MagicMock(spec=Request)
+    request.cookies = {}
+
+    client = await auth(request)
 
     assert isinstance(client, AuthClient)
     assert client.db is db_session
     # Verify auth instance is bound (via private attribute)
     assert client._auth is auth  # noqa: SLF001
+    assert client._request is request  # noqa: SLF001
 
 
 def test_auth_call_is_dynamically_overridden(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> None:
@@ -362,7 +366,10 @@ async def test_auth_client_delete_user(auth: Auth, db_session: AsyncSession) -> 
         name="Delete Me",
     )
 
-    client = AuthClient(auth=auth, db=db_session)
+    request = MagicMock(spec=Request)
+    request.cookies = {}
+
+    client = AuthClient(auth=auth, db=db_session, request=request)
     await client.delete_user(user=user)
 
     deleted_user = await auth.adapter.get_user_by_id(db_session, user.id)
@@ -390,7 +397,10 @@ async def test_auth_client_delete_user_cascades(auth: Auth, db_session: AsyncSes
         provider_account_id="12345",
     )
 
-    client = AuthClient(auth=auth, db=db_session)
+    request = MagicMock(spec=Request)
+    request.cookies = {}
+
+    client = AuthClient(auth=auth, db=db_session, request=request)
     await client.delete_user(user=user)
 
     # Verify cascade
