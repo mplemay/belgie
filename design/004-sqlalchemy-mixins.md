@@ -148,6 +148,7 @@ __tests__/
 └── auth/
     └── adapters/
         └── alchemy/
+            ├── test_alchemy.py       # moved existing adapter tests
             └── test_mixins.py        # NEW tests for mixin-backed models
 examples/auth/
 └── models_mixins.py                  # NEW example using mixins
@@ -168,7 +169,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, declared_attr, declarative_mixin, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -188,8 +189,12 @@ class PrimaryKeyMixin:
 
 @declarative_mixin
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 @declarative_mixin
@@ -218,7 +223,7 @@ class AccountMixin:
     provider_account_id: Mapped[str] = mapped_column(String(255), index=True)
     access_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     token_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     scope: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -233,7 +238,7 @@ class SessionMixin:
     def user_id(cls) -> Mapped[UUID]:
         return mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
 
-    expires_at: Mapped[datetime] = mapped_column(index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -247,7 +252,7 @@ class OAuthStateMixin:
     state: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     code_verifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
     redirect_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 ```
 
 - Relationships are provided for convenience; subclasses can override/remove attributes if they diverge from defaults.
@@ -268,6 +273,9 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 - Validate protocol compliance (type hints + runtime attrs) using `isinstance(..., Protocol)`.
 - Ensure FK cascade works for delete_user.
 
+**Adapter Regression (`__tests__/auth/adapters/alchemy/test_alchemy.py`):**
+- Move existing adapter tests into the `alchemy/` subfolder to align with module relocation; keep coverage intact.
+
 **Docs/examples smoke:**
 - Minimal snippet execution via doctest-style sample? (optional) or ensure example script runs in CI (fast SQLite).
 
@@ -280,7 +288,7 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 2. Add `adapters/alchemy/mixins.py` with mixins + relationships (leaf module).
 3. Create mixin-based example `examples/auth/models_mixins.py`.
 4. Update docs (`README.md`, `docs/quickstart.md`, `docs/models.md`, `examples/auth/README.md`) to feature mixins.
-5. Add tests `__tests__/auth/adapters/alchemy/test_mixins.py`.
+5. Add tests `__tests__/auth/adapters/alchemy/test_mixins.py` and move existing `test_alchemy.py` into the same subfolder.
 6. Run ruff, ty, pytest; adjust per feedback.
 
 ### Tasks
