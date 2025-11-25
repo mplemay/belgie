@@ -95,13 +95,13 @@ sequenceDiagram
 ### Workflow 3: Signout with Hooks
 
 #### Description
-When a user signs out, hooks run with the existing user (if resolvable) and db session. Even if the session has already been deleted, hooks can still observe the attempt.
+When a user signs out, hooks run with the existing user (if resolvable) and db session. Hooks fire *before* the session is deleted so they can still observe user/session data; the exit stack still unwinds if deletion fails.
 
 #### Usage Example
 ```python
 @main_router.post("/signout")
 async def signout(...):
-    await auth.hook_runner.dispatch("on_signout", HookContext(user=user, db=db))
+    await auth.hook_runner.dispatch(HookEvent.ON_SIGNOUT, HookContext(user=user, db=db))
     ...
 ```
 
@@ -115,6 +115,28 @@ graph TD
 
 #### Key Components
 - **Auth.sign_out** (`core/auth.py`) calls the hook runner before deleting the session.
+
+### Workflow 4: Account Deletion with Hooks
+
+#### Description
+When an account is deleted through `AuthClient.delete_user`, `on_delete` hooks fire before persistence deletion so observers can inspect related rows (sessions, accounts) while they still exist.
+
+#### Usage Example
+```python
+user = await client.get_user(SecurityScopes(), request)
+await client.delete_user(user)  # triggers on_delete hooks pre-delete
+```
+
+#### Call Graph
+```mermaid
+graph TD
+    A[Route handler] --> B[AuthClient.delete_user]
+    B --> C[HookRunner.dispatch(on_delete)]
+    C --> D[adapter.delete_user]
+```
+
+#### Key Components
+- **AuthClient.delete_user** dispatches `HookEvent.ON_DELETE` then calls adapter deletion.
 
 ## Dependencies
 
@@ -169,11 +191,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from belgie.auth.protocols.models import UserProtocol
 
 class HookEvent(StrEnum):
-    ON_SIGNUP = "on_signup"
-    ON_SIGNIN = "on_signin"
-    ON_SIGNOUT = "on_signout"
+    ON_SIGNUP = "ON_SIGNUP"
+    ON_SIGNIN = "ON_SIGNIN"
+    ON_SIGNOUT = "ON_SIGNOUT"
+    ON_DELETE = "ON_DELETE"
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class HookContext[UserT: UserProtocol]:
     user: UserT
     db: AsyncSession
@@ -182,11 +205,12 @@ HookFunc = Callable[[HookContext], None | Awaitable[None]]
 HookCtxMgr = Callable[[HookContext], AbstractContextManager[None] | AbstractAsyncContextManager[None]]
 HookHandler = HookFunc | HookCtxMgr
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Hooks:
     on_signup: HookHandler | Sequence[HookHandler] | None = None
     on_signin: HookHandler | Sequence[HookHandler] | None = None
     on_signout: HookHandler | Sequence[HookHandler] | None = None
+    on_delete: HookHandler | Sequence[HookHandler] | None = None
 
 class HookRunner:
     def __init__(self, hooks: Hooks) -> None: ...
@@ -218,14 +242,17 @@ await self.hook_runner.dispatch(HookEvent.ON_SIGNOUT, HookContext(user=user, db=
 ```
 
 #### `src/belgie/auth/core/client.py`
-Expose hook runner for downstream use when sign_out is invoked through the client.
+Expose hook runner so downstream callers (FastAPI dependencies) get hook behavior for signout and deletion.
 
 ```python
 class AuthClient[..., ...]:
     hook_runner: HookRunner
     async def sign_out(self, session_id: UUID) -> bool:
-        # resolve user (if present) to pass into context
+        # resolve user (if present) before deleting session
         await self.hook_runner.dispatch(HookEvent.ON_SIGNOUT, HookContext(user=user, db=self.db))
+    async def delete_user(self, user: UserT) -> bool:
+        # fire before delete so hooks can inspect relations
+        await self.hook_runner.dispatch(HookEvent.ON_DELETE, HookContext(user=user, db=self.db))
 ```
 
 #### `src/belgie/auth/providers/google.py`
@@ -236,8 +263,8 @@ Invoke hooks within callback:
 
 Sequence:
 1. Create or fetch user.
-2. If created, `await hook_runner.dispatch(on_signup, HookContext(user, db))`.
-3. After session creation, `await hook_runner.dispatch(on_signin, HookContext(user, db))`.
+2. If created, `await hook_runner.dispatch(HookEvent.ON_SIGNUP, HookContext(user, db))`.
+3. After session creation, `await hook_runner.dispatch(HookEvent.ON_SIGNIN, HookContext(user, db))`.
 
 #### Exports
 - Add `Hooks`, `HookContext`, `HookEvent` to `belgie.auth.__init__` for public API parity with Auth.
@@ -247,8 +274,9 @@ Sequence:
 2. **Public exports**: Re-export in `auth/__init__.py`.
 3. **Auth wiring**: Accept `hooks` in `Auth.__init__`, instantiate `HookRunner`, thread into `AuthClient`.
 4. **Provider integration**: Update Google provider callback to call signup/signin hooks.
-5. **Signout integration**: Invoke signout hooks in `Auth.sign_out` and `AuthClient.sign_out`.
-6. **Tests**: Add unit tests for runner behavior and integration tests exercising OAuth callback and signout hooks.
+5. **Signout integration**: Invoke signout hooks in `Auth.sign_out` and `AuthClient.sign_out` (pre-delete).
+6. **Deletion integration**: Invoke delete hooks in `AuthClient.delete_user` (before delete) and propagate to adapter-based delete flows.
+7. **Tests**: Add unit tests for runner behavior and integration tests exercising OAuth callback, signout, and delete hooks.
 
 ### Testing Strategy
 - **Unit tests (core/hooks.py)**:
@@ -260,5 +288,6 @@ Sequence:
   - Google callback creating a new user triggers `on_signup` once and `on_signin` once.
   - Existing user login skips `on_signup` but runs `on_signin`.
   - Signout route triggers `on_signout` with the resolved user.
+  - Account deletion via `AuthClient.delete_user` triggers `on_delete` before adapter delete.
   - Hooks receive live `AsyncSession` instance.
 - **Regression**: Re-run existing auth test suite to ensure no behavior changes when hooks are not provided.
