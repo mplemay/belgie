@@ -12,67 +12,39 @@ uv add belgie.auth
 
 ## Basic Setup
 
-### 1. Define Your Models
-
-Create SQLAlchemy models that implement Belgie's protocols:
+### 1. Define Your Models (with mixins)
 
 ```python
-from datetime import datetime
-from uuid import UUID, uuid4
-
-from sqlalchemy import ForeignKey, String
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase
+from belgie.auth.adapters.alchemy.mixins import (
+    AccountMixin,
+    OAuthStateMixin,
+    PrimaryKeyMixin,
+    SessionMixin,
+    TimestampMixin,
+    UserMixin,
+)
 
 
 class Base(DeclarativeBase):
     pass
 
 
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    image: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+class User(PrimaryKeyMixin, UserMixin, TimestampMixin, Base):
+    __tablename__ = "user"
+    # add scopes/custom fields if desired
 
 
-class Account(Base):
-    __tablename__ = "accounts"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    provider: Mapped[str] = mapped_column(String(50))
-    provider_account_id: Mapped[str] = mapped_column(String(255))
-    access_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    refresh_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    token_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    scope: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+class Account(PrimaryKeyMixin, AccountMixin, TimestampMixin, Base):
+    __tablename__ = "account"
 
 
-class Session(Base):
-    __tablename__ = "sessions"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    expires_at: Mapped[datetime] = mapped_column(index=True)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+class Session(PrimaryKeyMixin, SessionMixin, TimestampMixin, Base):
+    __tablename__ = "session"
 
 
-class OAuthState(Base):
-    __tablename__ = "oauth_states"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    state: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    expires_at: Mapped[datetime] = mapped_column(index=True)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+class OAuthState(PrimaryKeyMixin, OAuthStateMixin, TimestampMixin, Base):
+    __tablename__ = "oauth_state"
 ```
 
 ### 2. Configure Authentication

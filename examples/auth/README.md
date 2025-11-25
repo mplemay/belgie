@@ -115,13 +115,11 @@ curl -X POST -b cookies.txt -c cookies.txt http://localhost:8000/auth/signout
 
 ## Code Structure
 
-### Models (`models.py`)
+### Models (`models.py` or `models_mixins.py`)
 
-Defines SQLAlchemy models for:
-- `User` - User account information
-- `Account` - OAuth provider accounts linked to users
-- `Session` - Active user sessions
-- `OAuthState` - OAuth state tokens for CSRF protection
+- `models.py` shows a fully explicit model definition.
+- `models_mixins.py` shows the same schema using Belgie’s mixins (minimal boilerplate).
+- Models cover `User`, `Account`, `Session`, and `OAuthState`.
 
 ### Database (`database.py`)
 

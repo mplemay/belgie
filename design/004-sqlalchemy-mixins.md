@@ -10,7 +10,7 @@ Introduce a set of SQLAlchemy `@declarative_mixin` classes that bundle Belgie’
 - Use SQLAlchemy 2.0 native `Uuid` / `UUID(as_uuid=True)` columns with SQL-side UUID generation (`func.gen_random_uuid()` or dialect equivalent), avoiding raw SQL strings, and mark primary keys as `unique=True` and `index=True` for convenience.
 - Prefer SQL-generated timestamps (`server_default=func.now()`, `onupdate=func.now()`) over Python `datetime.now()`.
 - Default table names are singular (`user`, `account`, `session`, `oauth_state`); FK helpers assume those names. Consumers wanting different names supply their own models that satisfy the protocol.
-- Include convenience relationships between user/accounts/sessions even though not required by protocols; relationships and FKs use the default singular table names (e.g., `ForeignKey("user.id")`, `relationship("User")`).
+- Mixins only supply columns; relationships are left to users to define on their own models if needed.
 - Scopes are not defined in the mixins; users add their own scope field (e.g., ARRAY of Enum) on their models as they see fit.
 - Update README, docs, quickstart, and examples to showcase the mixin-first setup.
 - Add tests proving mixin-based models satisfy adapter protocols and work end-to-end.
@@ -74,7 +74,7 @@ graph TD
 ```
 
 #### Key Components
-- **Mixins** (`adapters/alchemy/mixins.py`) bundle required columns and optional relationships.
+- **Mixins** (`adapters/alchemy/mixins.py`) bundle required columns; relationships are user-defined.
 - **DeclarativeBase** (user app) supplies metadata and engine bindings.
 - **AlchemyAdapter** consumes the concrete mapped classes unchanged.
 
@@ -285,7 +285,7 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 ### Implementation Order
 
 1. Move `AlchemyAdapter` into `adapters/alchemy/alchemy.py` (preserve API surface/import path via `__init__.py` re-export).
-2. Add `adapters/alchemy/mixins.py` with mixins + relationships (leaf module).
+2. Add `adapters/alchemy/mixins.py` with column mixins (no relationships).
 3. Create mixin-based example `examples/auth/models_mixins.py`.
 4. Update docs (`README.md`, `docs/quickstart.md`, `docs/models.md`, `examples/auth/README.md`) to feature mixins.
 5. Add tests `__tests__/auth/adapters/alchemy/test_mixins.py` and move existing `test_alchemy.py` into the same subfolder.

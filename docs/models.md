@@ -50,6 +50,45 @@ class OAuthStateProtocol(Protocol):
 
 ## SQLAlchemy Implementation
 
+### Declarative Mixins (preferred)
+
+You can define models quickly using the built-in mixins. They assume singular table names (`user`, `account`, `session`, `oauth_state`) and leave scopes/custom fields to you.
+
+```python
+from sqlalchemy.orm import DeclarativeBase
+from belgie.auth.adapters.alchemy.mixins import (
+    AccountMixin,
+    OAuthStateMixin,
+    PrimaryKeyMixin,
+    SessionMixin,
+    TimestampMixin,
+    UserMixin,
+)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class User(PrimaryKeyMixin, UserMixin, TimestampMixin, Base):
+    __tablename__ = "user"
+    # define your own scopes/custom fields here
+
+
+class Account(PrimaryKeyMixin, AccountMixin, TimestampMixin, Base):
+    __tablename__ = "account"
+
+
+class Session(PrimaryKeyMixin, SessionMixin, TimestampMixin, Base):
+    __tablename__ = "session"
+
+
+class OAuthState(PrimaryKeyMixin, OAuthStateMixin, TimestampMixin, Base):
+    __tablename__ = "oauth_state"
+```
+
+### Manual Definition (alternative)
+
 ### Complete Example
 
 ```python
