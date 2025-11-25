@@ -1,2 +1,5 @@
+FastAPI
+dataclass
+mixins
 ty
 uv
