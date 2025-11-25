@@ -11,7 +11,7 @@ from belgie.auth.session.manager import SessionManager
 from belgie.auth.utils.scopes import validate_scopes
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class AuthClient[
     UserT: UserProtocol,
     AccountT: AccountProtocol,
