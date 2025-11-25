@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import SettingsConfigDict
 
 from belgie.auth.core.exceptions import InvalidStateError, OAuthError
+from belgie.auth.core.hooks import HookContext, HookRunner
 from belgie.auth.core.settings import CookieSettings, ProviderSettings
 from belgie.auth.protocols.adapter import AdapterProtocol
 from belgie.auth.utils.crypto import generate_state_token
@@ -165,13 +166,14 @@ class GoogleOAuthProvider:
             msg = "user info request failed"
             raise OAuthError(msg) from e
 
-    def get_router(
+    def get_router(  # noqa: PLR0913
         self,
         adapter: AdapterProtocol,
         cookie_settings: CookieSettings,
         session_max_age: int,
         signin_redirect: str,
         signout_redirect: str,  # noqa: ARG002
+        hook_runner: HookRunner,
     ) -> APIRouter:
         """Create router with Google OAuth endpoints."""
         router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
@@ -205,6 +207,7 @@ class GoogleOAuthProvider:
             # Fetch user info using helper method
             user_info = await self.get_user_info(tokens["access_token"])
 
+            created = False
             # Get or create user (use walrus operator)
             if not (user := await adapter.get_user_by_email(db, user_info.email)):
                 user = await adapter.create_user(
@@ -214,6 +217,7 @@ class GoogleOAuthProvider:
                     name=user_info.name,
                     image=user_info.picture,
                 )
+                created = True
 
             # Create or update OAuth account (use dict.get for optional tokens)
             if await adapter.get_account_by_user_and_provider(
@@ -242,6 +246,11 @@ class GoogleOAuthProvider:
                     scope=tokens.get("scope"),
                 )
 
+            # Hooks: signup (only on create)
+            if created:
+                async with hook_runner.dispatch("on_signup", HookContext(user=user, db=db)):
+                    pass
+
             # Create session with proper expiration
             expires_at = datetime.now(UTC) + timedelta(seconds=session_max_age)
             session = await adapter.create_session(
@@ -249,6 +258,9 @@ class GoogleOAuthProvider:
                 user_id=user.id,
                 expires_at=expires_at.replace(tzinfo=None),
             )
+
+            async with hook_runner.dispatch("on_signin", HookContext(user=user, db=db)):
+                pass
 
             # Set session cookie using centralized cookie settings
             response = RedirectResponse(url=signin_redirect, status_code=302)

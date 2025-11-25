@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.client import AuthClient
+from belgie.auth.core.hooks import HookRunner, Hooks
 from belgie.auth.core.settings import AuthSettings
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 from belgie.auth.protocols.provider import OAuthProviderProtocol, Providers
@@ -40,6 +41,7 @@ class _AuthCallable:
                 adapter=obj.adapter,
                 session_manager=obj.session_manager,
                 cookie_name=obj.settings.cookie.name,
+                hook_runner=obj.hook_runner,
             )
 
         return __call__
@@ -103,6 +105,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         settings: AuthSettings,
         adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
         providers: Providers | None = None,
+        hooks: Hooks | None = None,
     ) -> None:
         """Initialize the Auth instance.
 
@@ -123,6 +126,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             max_age=settings.session.max_age,
             update_age=settings.session.update_age,
         )
+
+        self.hook_runner = HookRunner(hooks or Hooks())
 
         # Instantiate providers by calling the settings
         self.providers: dict[str, OAuthProviderProtocol] = (
@@ -156,6 +161,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
                 session_max_age=self.settings.session.max_age,
                 signin_redirect=self.settings.urls.signin_redirect,
                 signout_redirect=self.settings.urls.signout_redirect,
+                hook_runner=self.hook_runner,
             )
             provider_router.include_router(provider_specific_router)
 

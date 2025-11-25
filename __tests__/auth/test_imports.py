@@ -32,6 +32,13 @@ def test_settings_exports() -> None:
     assert hasattr(belgie, "URLSettings")
 
 
+def test_hook_exports() -> None:
+    assert hasattr(belgie, "Hooks")
+    assert hasattr(belgie, "HookContext")
+    assert hasattr(belgie, "HookEvent")
+    assert hasattr(belgie, "HookRunner")
+
+
 def test_protocol_exports() -> None:
     assert hasattr(belgie, "UserProtocol")
     assert hasattr(belgie, "AccountProtocol")

@@ -12,6 +12,7 @@ from belgie.auth.core.exceptions import (
     OAuthError,
     SessionExpiredError,
 )
+from belgie.auth.core.hooks import HookContext, HookEvent, HookRunner, Hooks
 from belgie.auth.core.settings import (
     AuthSettings,
     CookieSettings,
@@ -35,6 +36,10 @@ __all__ = [  # noqa: RUF022
     "Auth",
     "AuthClient",
     "AuthSettings",
+    "Hooks",
+    "HookContext",
+    "HookEvent",
+    "HookRunner",
     # Adapters
     "AlchemyAdapter",
     # Session

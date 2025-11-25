@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from fastapi import HTTPException, Request, status
@@ -6,6 +6,7 @@ from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.core.hooks import HookContext, HookRunner, Hooks
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 from belgie.auth.session.manager import SessionManager
 from belgie.auth.utils.scopes import validate_scopes
@@ -53,6 +54,7 @@ class AuthClient[
     adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT]
     session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
     cookie_name: str
+    hook_runner: HookRunner = field(default_factory=lambda: HookRunner(Hooks()))
 
     async def _get_session_from_cookie(self, request: Request) -> SessionT | None:
         """Extract and validate session from request cookies.
@@ -146,27 +148,9 @@ class AuthClient[
         return session
 
     async def delete_user(self, user: UserT) -> bool:
-        """Delete a user and all associated data.
-
-        Deletes the user and all related records:
-        - All user sessions
-        - All OAuth accounts
-        - User record itself
-
-        Note: OAuth states are not tied to users so they are not deleted.
-        They will expire naturally based on their expires_at timestamp.
-
-        Args:
-            user: User object to delete
-
-        Returns:
-            True if user was deleted, False if user didn't exist
-
-        Example:
-            >>> user = await client.get_user(SecurityScopes(), request)
-            >>> await client.delete_user(user)
-        """
-        return await self.adapter.delete_user(self.db, user.id)
+        """Delete a user and all associated data."""
+        async with self.hook_runner.dispatch("on_delete", HookContext(user=user, db=self.db)):
+            return await self.adapter.delete_user(self.db, user.id)
 
     async def get_user_from_session(self, session_id: UUID) -> UserT | None:
         """Retrieve user from a session ID.
@@ -203,4 +187,13 @@ class AuthClient[
             >>> session = await client.get_session(request)
             >>> await client.sign_out(session.id)
         """
-        return await self.session_manager.delete_session(self.db, session_id)
+        session = await self.session_manager.get_session(self.db, session_id)
+        if not session:
+            return False
+
+        user = await self.adapter.get_user_by_id(self.db, session.user_id)
+        if not user:
+            return False
+
+        async with self.hook_runner.dispatch("on_signout", HookContext(user=user, db=self.db)):
+            return await self.session_manager.delete_session(self.db, session_id)
