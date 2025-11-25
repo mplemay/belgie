@@ -13,7 +13,7 @@ from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSett
 def google_provider_settings() -> GoogleProviderSettings:
     return GoogleProviderSettings(
         client_id="test-client-id",
-        client_secret="test-client-secret",  # noqa: S106
+        client_secret="test-client-secret",
         redirect_uri="http://localhost:8000/callback",
         scopes=["openid", "email", "profile"],
     )
@@ -82,7 +82,7 @@ def test_google_provider_id(google_provider: GoogleOAuthProvider) -> None:
 def test_google_provider_settings() -> None:
     settings = GoogleProviderSettings(
         client_id="test-client-id",
-        client_secret="test-secret",  # noqa: S106
+        client_secret="test-secret",
         redirect_uri="http://localhost:8000/auth/callback/google",
     )
 
@@ -97,7 +97,7 @@ def test_google_provider_settings() -> None:
 def test_google_provider_settings_custom_values() -> None:
     settings = GoogleProviderSettings(
         client_id="custom-client-id",
-        client_secret="custom-secret",  # noqa: S106
+        client_secret="custom-secret",
         redirect_uri="http://example.com/callback",
         scopes=["openid", "email"],
         access_type="online",
@@ -114,7 +114,7 @@ def test_google_provider_settings_rejects_empty_client_id() -> None:
     with pytest.raises(ValidationError) as exc_info:
         GoogleProviderSettings(
             client_id="",
-            client_secret="test-secret",  # noqa: S106
+            client_secret="test-secret",
             redirect_uri="http://localhost:8000/callback",
         )
 
@@ -141,7 +141,7 @@ def test_google_provider_settings_rejects_whitespace_only() -> None:
     with pytest.raises(ValidationError) as exc_info:
         GoogleProviderSettings(
             client_id="test-client-id",
-            client_secret="test-secret",  # noqa: S106
+            client_secret="test-secret",
             redirect_uri="   ",
         )
 
@@ -153,7 +153,7 @@ def test_google_provider_settings_trims_whitespace() -> None:
     """Verify that leading/trailing whitespace is trimmed."""
     settings = GoogleProviderSettings(
         client_id="  test-client-id  ",
-        client_secret="  test-secret  ",  # noqa: S106
+        client_secret="  test-secret  ",
         redirect_uri="  http://localhost:8000/callback  ",
     )
 

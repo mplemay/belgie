@@ -39,7 +39,7 @@ CreateUserWithSession = Callable[[str, list[AppScope] | None], Coroutine[None, N
 @pytest.fixture
 def auth_settings() -> AuthSettings:
     return AuthSettings(
-        secret="test-secret-key",  # noqa: S106
+        secret="test-secret-key",
         base_url="http://localhost:8000",
         session=SessionSettings(
             max_age=3600,
@@ -53,7 +53,7 @@ def auth_settings() -> AuthSettings:
         ),
         google=GoogleOAuthSettings(
             client_id="test-client-id",
-            client_secret="test-client-secret",  # noqa: S106
+            client_secret="test-client-secret",
             redirect_uri="http://localhost:8000/auth/callback/google",
             scopes=["openid", "email", "profile"],
         ),
@@ -106,7 +106,7 @@ def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_user_with_read_scope(
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession = Depends(get_test_db),  # noqa: B008
+        db: AsyncSession = Depends(get_test_db),
     ) -> UserProtocol:
         # Merge the READ scope with any parent scopes
         all_scopes = list(set(security_scopes.scopes) | {AppScope.READ})
@@ -116,7 +116,7 @@ def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_user_with_write_scope(
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession = Depends(get_test_db),  # noqa: B008
+        db: AsyncSession = Depends(get_test_db),
     ) -> UserProtocol:
         all_scopes = list(set(security_scopes.scopes) | {AppScope.WRITE})
         security_scopes.scopes = all_scopes
@@ -125,7 +125,7 @@ def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_user_with_admin_scope(
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession = Depends(get_test_db),  # noqa: B008
+        db: AsyncSession = Depends(get_test_db),
     ) -> UserProtocol:
         all_scopes = list(set(security_scopes.scopes) | {AppScope.ADMIN})
         security_scopes.scopes = all_scopes
@@ -134,7 +134,7 @@ def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_authenticated_user(
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession = Depends(get_test_db),  # noqa: B008
+        db: AsyncSession = Depends(get_test_db),
     ) -> UserProtocol:
         return await auth.user(security_scopes, request, db)
 

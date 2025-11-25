@@ -17,7 +17,7 @@ from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSett
 @pytest.fixture
 def auth_settings() -> AuthSettings:
     return AuthSettings(
-        secret="test-secret-key",  # noqa: S106
+        secret="test-secret-key",
         base_url="http://localhost:8000",
         session=SessionSettings(
             max_age=3600,
@@ -31,7 +31,7 @@ def auth_settings() -> AuthSettings:
         ),
         google=GoogleOAuthSettings(
             client_id="test-client-id",
-            client_secret="test-client-secret",  # noqa: S106
+            client_secret="test-client-secret",
             redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=["openid", "email", "profile"],
         ),
@@ -62,7 +62,7 @@ def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
     providers = {
         "google": GoogleProviderSettings(
             client_id="test-client-id",
-            client_secret="test-client-secret",  # noqa: S106
+            client_secret="test-client-secret",
             redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=["openid", "email", "profile"],
         ),

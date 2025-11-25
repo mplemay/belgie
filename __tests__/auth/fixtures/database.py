@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from __tests__.auth.fixtures.models import Base
@@ -13,6 +14,14 @@ async def get_test_engine() -> AsyncEngine:
         echo=False,
         future=True,
     )
+
+    # Enable foreign key constraints for SQLite
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_foreign_keys(dbapi_conn, _connection_record) -> None:
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     return engine
