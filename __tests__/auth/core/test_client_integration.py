@@ -15,7 +15,6 @@ from belgie.auth.core.client import AuthClient
 from belgie.auth.core.settings import (
     AuthSettings,
     CookieSettings,
-    GoogleOAuthSettings,
     SessionSettings,
     URLSettings,
 )
@@ -37,11 +36,6 @@ def auth_settings() -> AuthSettings:
             same_site="lax",
         ),
         urls=URLSettings(signin_redirect="/dashboard", signout_redirect="/"),
-        google=GoogleOAuthSettings(
-            client_id="test-client-id",
-            client_secret="test-client-secret",
-            redirect_uri="http://testserver/callback",
-        ),
     )
 
 

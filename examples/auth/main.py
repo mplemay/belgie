@@ -8,10 +8,10 @@ from belgie.auth import (
     Auth,
     AuthSettings,
     CookieSettings,
-    GoogleOAuthSettings,
     SessionSettings,
     URLSettings,
 )
+from belgie.auth.providers.google import GoogleProviderSettings
 from examples.auth.database import get_db, init_db
 from examples.auth.models import Account, OAuthState, Session, User
 
@@ -28,7 +28,6 @@ auth_settings = AuthSettings(
     secret="your-secret-key-here-change-in-production",  # noqa: S106
     base_url="http://localhost:8000",
     session=SessionSettings(
-        cookie_name="belgie_session",
         max_age=3600 * 24 * 7,
         update_age=3600,
     ),
@@ -36,12 +35,6 @@ auth_settings = AuthSettings(
         secure=False,
         http_only=True,
         same_site="lax",
-    ),
-    google=GoogleOAuthSettings(
-        client_id="your-google-client-id",
-        client_secret="your-google-client-secret",  # noqa: S106
-        redirect_uri="http://localhost:8000/auth/callback/google",
-        scopes=["openid", "email", "profile"],
     ),
     urls=URLSettings(
         signin_redirect="/dashboard",
@@ -60,6 +53,14 @@ adapter = AlchemyAdapter(
 auth = Auth(
     settings=auth_settings,
     adapter=adapter,
+    providers={
+        "google": GoogleProviderSettings(
+            client_id="your-google-client-id",
+            client_secret="your-google-client-secret",  # noqa: S106
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
+            scopes=["openid", "email", "profile"],
+        ),
+    },
 )
 
 app.include_router(auth.router)

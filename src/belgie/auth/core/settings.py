@@ -68,24 +68,6 @@ class CookieSettings(BaseSettings):
     domain: str | None = Field(default=None)
 
 
-class GoogleOAuthSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_GOOGLE_")
-
-    client_id: str
-    client_secret: str
-    redirect_uri: str
-    scopes: list[str] = Field(default=["openid", "email", "profile"])
-
-    @field_validator("client_id", "client_secret", "redirect_uri")
-    @classmethod
-    def validate_non_empty(cls, v: str, info) -> str:  # noqa: ANN001
-        """Ensure required OAuth fields are non-empty."""
-        if not v or not v.strip():
-            msg = f"{info.field_name} must be a non-empty string"
-            raise ValueError(msg)
-        return v.strip()
-
-
 class URLSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BELGIE_URLS_")
 
@@ -106,5 +88,13 @@ class AuthSettings(BaseSettings):
 
     session: SessionSettings = Field(default_factory=SessionSettings)
     cookie: CookieSettings = Field(default_factory=CookieSettings)
-    google: GoogleOAuthSettings = Field(default_factory=GoogleOAuthSettings)
     urls: URLSettings = Field(default_factory=URLSettings)
+
+    @field_validator("secret", "base_url")
+    @classmethod
+    def validate_non_empty(cls, value: str, info) -> str:  # noqa: ANN001
+        """Ensure required Auth settings are non-empty."""
+        if not value or not value.strip():
+            msg = f"{info.field_name} must be a non-empty string"
+            raise ValueError(msg)
+        return value.strip()

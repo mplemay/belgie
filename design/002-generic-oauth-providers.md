@@ -601,29 +601,28 @@ class GoogleOAuthProvider:
 Before:
 ```python
 from belgie.auth import Auth, AuthSettings
+from belgie.auth.providers.google import GoogleProviderSettings
 
-settings = AuthSettings(
-    google=GoogleOAuthSettings(
+settings = AuthSettings(secret="...", base_url="http://localhost:8000")
+providers = {
+    "google": GoogleProviderSettings(
         client_id="...",
         client_secret="...",
-        redirect_uri="...",
-    )
-)
-adapter = AlchemyAdapter(user=User, account=Account, session=Session, oauth_state=OAuthState)
-auth = Auth(settings=settings, adapter=adapter, db_dependency=get_db)
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
+    ),
+}
+adapter = AlchemyAdapter(user=User, account=Account, session=Session, oauth_state=OAuthState, db_dependency=get_db)
+auth = Auth(settings=settings, adapter=adapter, providers=providers)
 ```
 
 After:
 ```python
 from belgie.auth import Auth, AuthSettings
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+from belgie.auth.providers.google import GoogleProviderSettings
 
 # Load settings from environment
 auth_settings = AuthSettings()  # BELGIE_* env vars
 google_settings = GoogleProviderSettings()  # BELGIE_GOOGLE_* env vars
-
-# Instantiate provider
-google_provider = GoogleOAuthProvider(google_settings)
 
 # Create adapter with db_dependency (moved from Auth)
 adapter = AlchemyAdapter(
@@ -638,7 +637,7 @@ adapter = AlchemyAdapter(
 auth = Auth(
     settings=auth_settings,
     adapter=adapter,
-    providers={"google": google_provider},  # ← Providers passed explicitly
+    providers={"google": google_settings},  # ← Providers passed explicitly
 )
 ```
 

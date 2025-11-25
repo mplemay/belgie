@@ -18,20 +18,21 @@ Scopes are permissions that users grant to your application. When a user signs i
 
 ### Requesting Scopes
 
-Configure scopes in your `GoogleOAuthSettings`:
+Configure scopes in your `GoogleProviderSettings`:
 
 ```python
-from belgie.auth import AuthSettings, GoogleOAuthSettings
+from belgie.auth import AuthSettings
+from belgie.auth.providers.google import GoogleProviderSettings
 
-settings = AuthSettings(
-    # ... other settings ...
-    google=GoogleOAuthSettings(
+settings = AuthSettings(secret="your-secret", base_url="http://localhost:8000")
+providers = {
+    "google": GoogleProviderSettings(
         client_id="your-client-id",
         client_secret="your-client-secret",
-        redirect_uri="http://localhost:8000/auth/callback/google",
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],  # Request these scopes
     ),
-)
+}
 ```
 
 ## Validating Scopes in Routes
@@ -183,16 +184,18 @@ async def request_calendar(user: User = Depends(auth.user)):
     # Redirect user to OAuth with additional scopes
     new_scopes = ["openid", "email", "profile", "calendar.readonly"]
 
-    settings_with_calendar = AuthSettings(
-        # ... copy existing settings ...
-        google=GoogleOAuthSettings(
-            # ... existing config ...
+    settings_with_calendar = AuthSettings(secret=settings.secret, base_url=settings.base_url)
+    calendar_providers = {
+        "google": GoogleProviderSettings(
+            client_id="your-google-client-id",
+            client_secret="your-google-client-secret",
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=new_scopes,
         ),
-    )
+    }
 
     # Create temporary auth instance with new scopes
-    calendar_auth = Auth(settings=settings_with_calendar, adapter=adapter)
+    calendar_auth = Auth(settings=settings_with_calendar, adapter=adapter, providers=calendar_providers)
 
     # Generate new authorization URL
     async with get_db() as db:
