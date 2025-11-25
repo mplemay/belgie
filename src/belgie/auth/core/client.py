@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import HTTPException, Request, status
@@ -10,6 +11,7 @@ from belgie.auth.session.manager import SessionManager
 from belgie.auth.utils.scopes import validate_scopes
 
 
+@dataclass(slots=True, kw_only=True)
 class AuthClient[
     UserT: UserProtocol,
     AccountT: AccountProtocol,
@@ -47,25 +49,10 @@ class AuthClient[
         ...     return {"message": "Account deleted"}
     """
 
-    def __init__(
-        self,
-        db: AsyncSession,
-        adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
-        session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT],
-        cookie_name: str,
-    ) -> None:
-        """Initialize AuthClient with database session and dependencies.
-
-        Args:
-            db: Async database session
-            adapter: Database adapter for persistence operations
-            session_manager: Session manager for session operations
-            cookie_name: Name of the session cookie to read from requests
-        """
-        self.db = db
-        self.adapter = adapter
-        self.session_manager = session_manager
-        self.cookie_name = cookie_name
+    db: AsyncSession
+    adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT]
+    session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
+    cookie_name: str
 
     async def _get_session_from_cookie(self, request: Request) -> SessionT | None:
         """Extract and validate session from request cookies.

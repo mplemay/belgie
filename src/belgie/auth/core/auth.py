@@ -32,7 +32,7 @@ class _AuthCallable:
             return self
 
         # Return a callable with this instance's adapter.dependency
-        async def __call__(  # noqa: N807
+        def __call__(  # noqa: N807
             db: AsyncSession = Depends(obj.adapter.dependency),  # noqa: B008
         ) -> AuthClient:
             return AuthClient(
