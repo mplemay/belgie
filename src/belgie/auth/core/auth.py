@@ -1,17 +1,17 @@
 from functools import cached_property
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.core.client import AuthClient
 from belgie.auth.core.settings import AuthSettings
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 from belgie.auth.protocols.provider import OAuthProviderProtocol, Providers
 from belgie.auth.session.manager import SessionManager
-from belgie.auth.utils.scopes import validate_scopes
 
 
 class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProtocol, OAuthStateT: OAuthStateProtocol]:
@@ -97,6 +97,46 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             else {}
         )
 
+    def __call__(
+        self,
+        db: AsyncSession,
+    ) -> AuthClient[UserT, AccountT, SessionT, OAuthStateT]:
+        """Create an AuthClient instance with database session.
+
+        This method makes Auth instances callable, creating an AuthClient with the
+        provided database session. The db parameter should be injected via FastAPI's
+        dependency injection system.
+
+        Args:
+            db: Async database session (injected via dependency)
+
+        Returns:
+            AuthClient instance with captured database session
+
+        Example:
+            >>> from fastapi import Depends
+            >>>
+            >>> # Get db dependency from adapter
+            >>> async def get_client_db():
+            ...     return await auth.adapter.dependency()
+            >>>
+            >>> @app.delete("/account")
+            >>> async def delete_account(
+            ...     db: AsyncSession = Depends(get_client_db),
+            ...     request: Request,
+            ... ):
+            ...     client = auth(db)
+            ...     user = await client.get_user(SecurityScopes(), request)
+            ...     await client.delete_user(user)
+            ...     return {"message": "Account deleted"}
+        """
+        return AuthClient(
+            db=db,
+            adapter=self.adapter,
+            session_manager=self.session_manager,
+            cookie_name=self.settings.cookie.name,
+        )
+
     @cached_property
     def router(self) -> APIRouter:
         """FastAPI router with all provider routes (cached).
@@ -166,6 +206,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
     ) -> UserT | None:
         """Retrieve user from a session ID.
 
+        This method maintains backward compatibility by delegating to AuthClient internally.
+
         Args:
             db: Async database session
             session_id: UUID of the session
@@ -178,11 +220,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> if user:
             ...     print(f"Found user: {user.email}")
         """
-        session = await self.session_manager.get_session(db, session_id)
-        if not session:
-            return None
-
-        return await self.adapter.get_user_by_id(db, session.user_id)
+        client = self(db)
+        return await client.get_user_from_session(session_id)
 
     async def sign_out(
         self,
@@ -190,6 +229,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         session_id: UUID,
     ) -> bool:
         """Sign out a user by deleting their session.
+
+        This method maintains backward compatibility by delegating to AuthClient internally.
 
         Args:
             db: Async database session
@@ -203,23 +244,27 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> if success:
             ...     print("User signed out successfully")
         """
-        return await self.session_manager.delete_session(db, session_id)
+        client = self(db)
+        return await client.sign_out(session_id)
 
     async def _get_session_from_cookie(
         self,
         request: Request,
         db: AsyncSession,
     ) -> SessionT | None:
-        session_id_str = request.cookies.get(self.settings.cookie.name)
-        if not session_id_str:
-            return None
+        """Extract and validate session from request cookies.
 
-        try:
-            session_id = UUID(session_id_str)
-        except ValueError:
-            return None
+        This method delegates to AuthClient for consistency.
 
-        return await self.session_manager.get_session(db, session_id)
+        Args:
+            request: FastAPI Request object
+            db: Async database session
+
+        Returns:
+            Session if valid, None otherwise
+        """
+        client = self(db)
+        return await client._get_session_from_cookie(request)  # noqa: SLF001
 
     async def user(
         self,
@@ -231,6 +276,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
         Extracts the session from cookies, validates it, and returns the authenticated user.
         Optionally validates user-level scopes if specified.
+
+        This method maintains backward compatibility by delegating to AuthClient internally.
 
         Args:
             security_scopes: FastAPI SecurityScopes for scope validation
@@ -255,28 +302,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> async def resource_route(user: User = Security(auth.user, scopes=[Scope.READ])):
             ...     return {"data": "..."}
         """
-        session = await self._get_session_from_cookie(request, db)
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="not authenticated",
-            )
-
-        user = await self.adapter.get_user_by_id(db, session.user_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="user not found",
-            )
-
-        # Validate user-level scopes if required
-        if security_scopes.scopes and not validate_scopes(user.scopes, security_scopes.scopes):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions",
-            )
-
-        return user
+        client = self(db)
+        return await client.get_user(security_scopes, request)
 
     async def session(
         self,
@@ -286,6 +313,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         """FastAPI dependency for retrieving the current session.
 
         Extracts and validates the session from cookies.
+
+        This method maintains backward compatibility by delegating to AuthClient internally.
 
         Args:
             request: FastAPI Request object containing cookies
@@ -304,11 +333,5 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> async def session_info(session: Session = Depends(auth.session)):
             ...     return {"session_id": str(session.id), "expires_at": session.expires_at.isoformat()}
         """
-        session = await self._get_session_from_cookie(request, db)
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="not authenticated",
-            )
-
-        return session
+        client = self(db)
+        return await client.get_session(request)

@@ -2,6 +2,7 @@
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.auth import Auth
+from belgie.auth.core.client import AuthClient
 from belgie.auth.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -32,6 +33,7 @@ from belgie.auth.utils.scopes import parse_scopes, validate_scopes
 __all__ = [  # noqa: RUF022
     # Core
     "Auth",
+    "AuthClient",
     "AuthSettings",
     # Adapters
     "AlchemyAdapter",

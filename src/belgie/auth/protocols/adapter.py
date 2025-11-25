@@ -293,6 +293,26 @@ class AdapterProtocol[
         """
         ...
 
+    async def delete_user_cascade(self, db: AsyncSession, user_id: UUID) -> bool:
+        """Delete user and all associated data in a cascade.
+
+        Performs cascade deletion of:
+        - All user sessions
+        - All OAuth accounts
+        - The user record itself
+
+        Note: OAuth states are not user-specific and are not deleted.
+        They will expire based on their expires_at timestamp.
+
+        Args:
+            db: Async database session
+            user_id: UUID of the user to delete
+
+        Returns:
+            True if user was deleted, False if user not found
+        """
+        ...
+
     @property
     def dependency(self) -> Callable[[], Any]:
         """FastAPI dependency for database sessions.

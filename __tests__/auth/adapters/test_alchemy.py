@@ -372,3 +372,129 @@ async def test_user_with_custom_fields(adapter: AlchemyAdapter, db_session: Asyn
     found = await adapter.get_user_by_email(db_session, "custom@example.com")
     assert found is not None
     assert found.custom_field == "custom value"
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascade_deletes_user(adapter: AlchemyAdapter, db_session: AsyncSession) -> None:
+    user = await adapter.create_user(db_session, email="delete@example.com", name="Delete User")
+
+    deleted = await adapter.delete_user_cascade(db_session, user.id)
+
+    assert deleted is True
+    assert await adapter.get_user_by_id(db_session, user.id) is None
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascade_deletes_sessions(adapter: AlchemyAdapter, db_session: AsyncSession) -> None:
+    user = await adapter.create_user(db_session, email="delete@example.com", name="Delete User")
+
+    expires_at = datetime.now(UTC) + timedelta(days=1)
+    session1 = await adapter.create_session(db_session, user.id, expires_at.replace(tzinfo=None))
+    session2 = await adapter.create_session(db_session, user.id, expires_at.replace(tzinfo=None))
+
+    await adapter.delete_user_cascade(db_session, user.id)
+
+    assert await adapter.get_session(db_session, session1.id) is None
+    assert await adapter.get_session(db_session, session2.id) is None
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascade_deletes_accounts(adapter: AlchemyAdapter, db_session: AsyncSession) -> None:
+    user = await adapter.create_user(db_session, email="delete@example.com", name="Delete User")
+
+    await adapter.create_account(
+        db_session,
+        user.id,
+        "google",
+        "google-123",
+        access_token="token123",  # noqa: S106
+    )
+
+    await adapter.delete_user_cascade(db_session, user.id)
+
+    assert await adapter.get_account(db_session, "google", "google-123") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascade_deletes_all_related_data(
+    adapter: AlchemyAdapter,
+    db_session: AsyncSession,
+) -> None:
+    user = await adapter.create_user(db_session, email="delete@example.com", name="Delete User")
+
+    expires_at = datetime.now(UTC) + timedelta(days=1)
+    session1 = await adapter.create_session(db_session, user.id, expires_at.replace(tzinfo=None))
+    session2 = await adapter.create_session(db_session, user.id, expires_at.replace(tzinfo=None))
+
+    await adapter.create_account(
+        db_session,
+        user.id,
+        "google",
+        "google-123",
+        access_token="token123",  # noqa: S106
+    )
+    await adapter.create_account(
+        db_session,
+        user.id,
+        "github",
+        "github-456",
+        access_token="token456",  # noqa: S106
+    )
+
+    deleted = await adapter.delete_user_cascade(db_session, user.id)
+
+    assert deleted is True
+    assert await adapter.get_user_by_id(db_session, user.id) is None
+    assert await adapter.get_session(db_session, session1.id) is None
+    assert await adapter.get_session(db_session, session2.id) is None
+    assert await adapter.get_account(db_session, "google", "google-123") is None
+    assert await adapter.get_account(db_session, "github", "github-456") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascade_returns_false_if_user_not_found(
+    adapter: AlchemyAdapter,
+    db_session: AsyncSession,
+) -> None:
+    fake_user_id = uuid4()
+    deleted = await adapter.delete_user_cascade(db_session, fake_user_id)
+
+    assert deleted is False
+
+
+@pytest.mark.asyncio
+async def test_delete_user_cascade_only_deletes_target_users_data(
+    adapter: AlchemyAdapter,
+    db_session: AsyncSession,
+) -> None:
+    user1 = await adapter.create_user(db_session, email="user1@example.com", name="User 1")
+    user2 = await adapter.create_user(db_session, email="user2@example.com", name="User 2")
+
+    expires_at = datetime.now(UTC) + timedelta(days=1)
+    session1 = await adapter.create_session(db_session, user1.id, expires_at.replace(tzinfo=None))
+    session2 = await adapter.create_session(db_session, user2.id, expires_at.replace(tzinfo=None))
+
+    await adapter.create_account(
+        db_session,
+        user1.id,
+        "google",
+        "google-user1",
+        access_token="token1",  # noqa: S106
+    )
+    await adapter.create_account(
+        db_session,
+        user2.id,
+        "google",
+        "google-user2",
+        access_token="token2",  # noqa: S106
+    )
+
+    await adapter.delete_user_cascade(db_session, user1.id)
+
+    assert await adapter.get_user_by_id(db_session, user1.id) is None
+    assert await adapter.get_session(db_session, session1.id) is None
+    assert await adapter.get_account(db_session, "google", "google-user1") is None
+
+    assert await adapter.get_user_by_id(db_session, user2.id) is not None
+    assert await adapter.get_session(db_session, session2.id) is not None
+    assert await adapter.get_account(db_session, "google", "google-user2") is not None
