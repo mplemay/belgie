@@ -3,11 +3,14 @@
 ## Overview
 
 ### High-Level Description
-Introduce a set of SQLAlchemy `@declarative_mixin` classes that bundle Belgie’s required auth columns (user, account, session, OAuth state) so integrators can stand up the `AlchemyAdapter` with minimal boilerplate. Mixins will encapsulate common `mapped_column` definitions, sensible defaults (UUID primary keys, timestamps), and optional relationships while keeping override points for custom schemas and table names. Documentation and examples will shift to the mixin-first path, with legacy explicit model definitions remaining supported. citeturn0search0turn0search1
+Introduce a set of SQLAlchemy `@declarative_mixin` classes that bundle Belgie’s required auth columns (user, account, session, OAuth state) so integrators can stand up the `AlchemyAdapter` with minimal boilerplate. Mixins will encapsulate common `mapped_column` definitions, SQL-driven defaults (UUID primary keys via `func.gen_random_uuid()` where available, timestamps via `func.now()`), and convenience relationships while keeping override points for custom schemas. Documentation and examples will shift to the mixin-first path, with legacy explicit model definitions remaining supported.
 
 ### Goals
 - Provide reusable, typed mixins for all adapter-required models using `mapped_column`.
-- Allow configurable FK targets/table names without sacrificing defaults (CASCADE, indexes).
+- Use SQLAlchemy 2.0 native `Uuid` / `UUID(as_uuid=True)` columns with SQL-side UUID generation (`func.gen_random_uuid()` or dialect equivalent), avoiding raw SQL strings.
+- Prefer SQL-generated timestamps (`server_default=func.now()`, `onupdate=func.now()`) over Python `datetime.now()`.
+- Default table names are singular (`user`, `account`, `session`, `oauth_state`); FK helpers assume those names. Consumers wanting different names supply their own models that satisfy the protocol.
+- Include convenience relationships between user/accounts/sessions even though not required by protocols.
 - Update README, docs, quickstart, and examples to showcase the mixin-first setup.
 - Add tests proving mixin-based models satisfy adapter protocols and work end-to-end.
 
@@ -20,51 +23,50 @@ Introduce a set of SQLAlchemy `@declarative_mixin` classes that bundle Belgie’
 ### Workflow 1: Define Models with Mixins
 
 #### Description
-Developers subclass the provided mixins plus their project’s `DeclarativeBase`, only supplying `__tablename__` (and optional overrides like table name hints for FKs).
+Developers subclass the provided mixins plus their project’s `DeclarativeBase`, only supplying singular `__tablename__` values. FK helpers assume the defaults (`user`, `account`, `session`, `oauth_state`).
 
 #### Usage Example
 ```python
 from sqlalchemy.orm import DeclarativeBase
-from belgie.auth.adapters.alchemy_mixins import (
-    AuthUserMixin,
-    AuthAccountMixin,
-    AuthSessionMixin,
-    AuthOAuthStateMixin,
+from belgie.auth.adapters.alchemy.mixins import (
+    PrimaryKeyMixin,
     TimestampMixin,
+    UserMixin,
+    AccountMixin,
+    SessionMixin,
+    OAuthStateMixin,
 )
 
 class Base(DeclarativeBase):
     pass
 
 
-class User(AuthUserMixin, TimestampMixin, Base):
-    __tablename__ = "users"
+class User(PrimaryKeyMixin, UserMixin, TimestampMixin, Base):
+    __tablename__ = "user"
 
 
-class Account(AuthAccountMixin, TimestampMixin, Base):
-    __tablename__ = "accounts"
-    __user_tablename__ = "users"  # optional override for FK resolution
+class Account(PrimaryKeyMixin, AccountMixin, TimestampMixin, Base):
+    __tablename__ = "account"
 
 
-class Session(AuthSessionMixin, TimestampMixin, Base):
-    __tablename__ = "sessions"
-    __user_tablename__ = "users"
+class Session(PrimaryKeyMixin, SessionMixin, TimestampMixin, Base):
+    __tablename__ = "session"
 
 
-class OAuthState(AuthOAuthStateMixin, TimestampMixin, Base):
-    __tablename__ = "oauth_states"
+class OAuthState(PrimaryKeyMixin, OAuthStateMixin, TimestampMixin, Base):
+    __tablename__ = "oauth_state"
 ```
 
 #### Call Graph
 ```mermaid
 graph TD
-    A[User classes] -->|inherit| B[Auth*Mixin columns]
+    A[User classes] -->|inherit| B[Mixin columns]
     B --> C[SQLAlchemy Declarative mapper]
     C --> D[AlchemyAdapter CRUD]
 ```
 
 #### Key Components
-- **Mixins** (`alchemy_mixins.py`) bundle required columns and optional relationships.
+- **Mixins** (`adapters/alchemy/mixins.py`) bundle required columns and optional relationships.
 - **DeclarativeBase** (user app) supplies metadata and engine bindings.
 - **AlchemyAdapter** consumes the concrete mapped classes unchanged.
 
@@ -106,12 +108,12 @@ graph TD
 
 ```mermaid
 graph TD
-    Mixins["(NEW)<br/>alchemy_mixins.py"]
+    Mixins["(NEW)<br/>adapters/alchemy/mixins.py"]
     Adapter["AlchemyAdapter<br/>adapters/alchemy.py"]
     Protocols["Protocols<br/>adapters/protocols.py"]
     Examples["(NEW)<br/>examples/auth/models_mixins.py"]
     Docs["(UPDATED)<br/>docs/*.md"]
-    Tests["(NEW)<br/>__tests__/auth/adapters/test_alchemy_mixins.py"]
+    Tests["(NEW)<br/>__tests__/auth/adapters/alchemy/test_mixins.py"]
 
     Mixins --> Adapter
     Mixins --> Examples
@@ -130,12 +132,15 @@ src/belgie/
 ├── auth/
 │   ├── adapters/
 │   │   ├── alchemy.py                # unchanged API
-│   │   └── alchemy_mixins.py         # NEW mixins & helpers
+│   │   └── alchemy/
+│   │       ├── __init__.py
+│   │       └── mixins.py             # NEW mixins & helpers
 │   └── core/...
 __tests__/
 └── auth/
     └── adapters/
-        └── test_alchemy_mixins.py    # NEW tests for mixin-backed models
+        └── alchemy/
+            └── test_mixins.py        # NEW tests for mixin-backed models
 examples/auth/
 └── models_mixins.py                  # NEW example using mixins
 docs/
@@ -146,59 +151,58 @@ docs/
 
 ### API Design
 
-#### `src/belgie/auth/adapters/alchemy_mixins.py`
+#### `src/belgie/auth/adapters/alchemy/mixins.py`
 Bundle reusable mixins; keep pure SQLAlchemy surface (no Belgie runtime deps).
 
 ```python
 from __future__ import annotations
-from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, declared_attr, declarative_mixin, mapped_column, relationship
-from sqlalchemy.sql.sqltypes import JSON
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import DeclarativeBase
 
 
 @declarative_mixin
-class UUIDPrimaryKeyMixin:
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-
-
-@declarative_mixin
-class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
-    updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
+class PrimaryKeyMixin:
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid(),  # avoids raw SQL; dialects without support can override default
     )
 
 
 @declarative_mixin
-class AuthUserMixin(UUIDPrimaryKeyMixin):
+class TimestampMixin:
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+@declarative_mixin
+class UserMixin:
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image: Mapped[str | None] = mapped_column(String(500), nullable=True)
     email_verified: Mapped[bool] = mapped_column(default=False)
-    scopes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=None)
-```
-
-- `scopes` uses `JSON` for cross-database compatibility; subclasses can override column to use ENUM/ARRAY if desired.
-
-```python
-@declarative_mixin
-class AuthAccountMixin(UUIDPrimaryKeyMixin):
-    __user_tablename__: str = "users"  # override in subclass as needed
 
     @declared_attr.directive
+    def accounts(cls):
+        return relationship("Account", back_populates="user", cascade="all, delete-orphan")
+
+    @declared_attr.directive
+    def sessions(cls):
+        return relationship("Session", back_populates="user", cascade="all, delete-orphan")
+
+
+@declarative_mixin
+class AccountMixin:
+    @declared_attr.directive
     def user_id(cls) -> Mapped[UUID]:
-        return mapped_column(
-            ForeignKey(f"{cls.__user_tablename__}.id", ondelete="CASCADE"),
-            index=True,
-        )
+        return mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
 
     provider: Mapped[str] = mapped_column(String(50), index=True)
     provider_account_id: Mapped[str] = mapped_column(String(255), index=True)
@@ -210,40 +214,34 @@ class AuthAccountMixin(UUIDPrimaryKeyMixin):
 
     @declared_attr.directive
     def user(cls):
-        return relationship(
-            "User",
-            primaryjoin="foreign(%s.user_id)==remote(User.id)" % cls.__name__,
-            lazy="joined",
-        )
-```
+        return relationship("User", back_populates="accounts")
 
-- `declared_attr.directive` ensures FK columns/relationships are copied per mapped class (SQLAlchemy 2.0 guidance). citeturn0search0turn0search2
 
-```python
 @declarative_mixin
-class AuthSessionMixin(UUIDPrimaryKeyMixin):
-    __user_tablename__: str = "users"
-
+class SessionMixin:
     @declared_attr.directive
     def user_id(cls) -> Mapped[UUID]:
-        return mapped_column(ForeignKey(f"{cls.__user_tablename__}.id", ondelete="CASCADE"), index=True)
+        return mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
 
     expires_at: Mapped[datetime] = mapped_column(index=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
-```
 
-```python
+    @declared_attr.directive
+    def user(cls):
+        return relationship("User", back_populates="sessions")
+
+
 @declarative_mixin
-class AuthOAuthStateMixin(UUIDPrimaryKeyMixin):
+class OAuthStateMixin:
     state: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     code_verifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
     redirect_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
 ```
 
-- Mixins avoid `__tablename__` to let consumer set names; only `__user_tablename__` hint controls FK targets.
-- Relationships are optional; if naming conflicts arise, subclasses can override/remove attributes.
+- Relationships are provided for convenience; subclasses can override/remove attributes if they diverge from defaults.
+- No JSON columns are included by default; consumers can extend with backend-specific scope storage if required.
 
 #### `examples/auth/models_mixins.py`
 Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
@@ -255,7 +253,7 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 
 ### Testing Strategy
 
-**Unit/Adapter Integration (`__tests__/auth/adapters/test_alchemy_mixins.py`):**
+**Unit/Adapter Integration (`__tests__/auth/adapters/alchemy/test_mixins.py`):**
 - Instantiate DeclarativeBase + mixin-backed models; run existing adapter CRUD flows (create/get/update/delete) against async SQLite test DB.
 - Validate protocol compliance (type hints + runtime attrs) using `isinstance(..., Protocol)`.
 - Ensure FK cascade works for delete_user.
@@ -268,10 +266,10 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 
 ### Implementation Order
 
-1. Add `alchemy_mixins.py` with mixins + relationships (leaf module).
+1. Add `adapters/alchemy/mixins.py` with mixins + relationships (leaf module).
 2. Create mixin-based example `examples/auth/models_mixins.py`.
 3. Update docs (`README.md`, `docs/quickstart.md`, `docs/models.md`, `examples/auth/README.md`) to feature mixins.
-4. Add tests `__tests__/auth/adapters/test_alchemy_mixins.py`.
+4. Add tests `__tests__/auth/adapters/alchemy/test_mixins.py`.
 5. Run ruff, ty, pytest; adjust per feedback.
 
 ### Tasks
@@ -283,9 +281,8 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 - [ ] Run lint, type-check, tests.
 
 ## Open Questions
-1. Should relationships be included by default or left for consumers to add? (Design proposes default joined relationship; can be dropped if we want zero relationships.)
-2. Preferred default storage for `scopes`? JSON is portable; Postgres ARRAY/ENUM could be optional helper alias.
-3. Should we ship ready-made concrete classes (`BelgieUser`, etc.) for ultra-quick start, or just mixins?
+1. Preferred default storage for `scopes`? JSON is portable; Postgres ARRAY/ENUM could be optional helper alias.
+2. Should we ship ready-made concrete classes (`BelgieUser`, etc.) for ultra-quick start, or just mixins?
 
 ## Future Enhancements
 - Add optional typed `ScopeType` generic mixin parameter once SQLAlchemy typing stabilizes.
