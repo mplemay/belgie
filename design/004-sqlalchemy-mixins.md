@@ -109,7 +109,7 @@ graph TD
 ```mermaid
 graph TD
     Mixins["(NEW)<br/>adapters/alchemy/mixins.py"]
-    Adapter["AlchemyAdapter<br/>adapters/alchemy.py"]
+    Adapter["AlchemyAdapter<br/>adapters/alchemy/alchemy.py"]
     Protocols["Protocols<br/>adapters/protocols.py"]
     Examples["(NEW)<br/>examples/auth/models_mixins.py"]
     Docs["(UPDATED)<br/>docs/*.md"]
@@ -131,9 +131,9 @@ graph TD
 src/belgie/
 ├── auth/
 │   ├── adapters/
-│   │   ├── alchemy.py                # unchanged API
 │   │   └── alchemy/
 │   │       ├── __init__.py
+│   │       ├── alchemy.py            # moved module, same API surface
 │   │       └── mixins.py             # NEW mixins & helpers
 │   └── core/...
 __tests__/
@@ -190,11 +190,11 @@ class UserMixin:
     email_verified: Mapped[bool] = mapped_column(default=False)
 
     @declared_attr.directive
-    def accounts(cls):
+    def accounts(cls) -> Mapped[list["Account"]]:
         return relationship("Account", back_populates="user", cascade="all, delete-orphan")
 
     @declared_attr.directive
-    def sessions(cls):
+    def sessions(cls) -> Mapped[list["Session"]]:
         return relationship("Session", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -213,7 +213,7 @@ class AccountMixin:
     scope: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     @declared_attr.directive
-    def user(cls):
+    def user(cls) -> Mapped["User"]:
         return relationship("User", back_populates="accounts")
 
 
@@ -228,7 +228,7 @@ class SessionMixin:
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     @declared_attr.directive
-    def user(cls):
+    def user(cls) -> Mapped["User"]:
         return relationship("User", back_populates="sessions")
 
 
@@ -254,7 +254,7 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 ### Testing Strategy
 
 **Unit/Adapter Integration (`__tests__/auth/adapters/alchemy/test_mixins.py`):**
-- Instantiate DeclarativeBase + mixin-backed models; run existing adapter CRUD flows (create/get/update/delete) against async SQLite test DB.
+- Instantiate DeclarativeBase + mixin-backed models; run adapter CRUD flows (create/get/update/delete) against async SQLite test DB.
 - Validate protocol compliance (type hints + runtime attrs) using `isinstance(..., Protocol)`.
 - Ensure FK cascade works for delete_user.
 
@@ -266,11 +266,12 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 
 ### Implementation Order
 
-1. Add `adapters/alchemy/mixins.py` with mixins + relationships (leaf module).
-2. Create mixin-based example `examples/auth/models_mixins.py`.
-3. Update docs (`README.md`, `docs/quickstart.md`, `docs/models.md`, `examples/auth/README.md`) to feature mixins.
-4. Add tests `__tests__/auth/adapters/alchemy/test_mixins.py`.
-5. Run ruff, ty, pytest; adjust per feedback.
+1. Move `AlchemyAdapter` into `adapters/alchemy/alchemy.py` (preserve API surface/import path via `__init__.py` re-export).
+2. Add `adapters/alchemy/mixins.py` with mixins + relationships (leaf module).
+3. Create mixin-based example `examples/auth/models_mixins.py`.
+4. Update docs (`README.md`, `docs/quickstart.md`, `docs/models.md`, `examples/auth/README.md`) to feature mixins.
+5. Add tests `__tests__/auth/adapters/alchemy/test_mixins.py`.
+6. Run ruff, ty, pytest; adjust per feedback.
 
 ### Tasks
 
