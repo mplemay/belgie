@@ -101,15 +101,16 @@ When a user signs out, hooks run with the existing user (if resolvable) and db s
 ```python
 @main_router.post("/signout")
 async def signout(...):
-    await auth.hook_runner.dispatch("on_signout", HookContext(user=user, db=db))
-    ...
+    client = auth(db)  # reuse AuthClient flow
+    async with auth.hook_runner.dispatch("on_signout", HookContext(user=user, db=db)):
+        await client.sign_out(session_id)
 ```
 
 #### Call Graph
 ```mermaid
 graph TD
     A[FastAPI signout route] --> B[Auth.sign_out]
-    B --> C[HookRunner.dispatch(on_signout)]
+    B --> C[HookRunner.dispatch on_signout]
     C --> D[SessionManager.delete_session]
 ```
 
@@ -131,7 +132,7 @@ await client.delete_user(user)  # triggers on_delete hooks pre-delete
 ```mermaid
 graph TD
     A[Route handler] --> B[AuthClient.delete_user]
-    B --> C[HookRunner.dispatch(on_delete)]
+    B --> C[HookRunner.dispatch on_delete]
     C --> D[adapter.delete_user]
 ```
 
@@ -174,7 +175,7 @@ __tests__/
 └── auth/
     └── hooks/
         ├── test_hooks.py              # unit: sync/async/contextmanager handling
-        └── test_integration.py        # integration: google callback and signout
+        └── test_hooks_integration.py  # integration: google callback and signout
 ```
 
 ### API Design
@@ -183,8 +184,8 @@ __tests__/
 Hook types, normalization, and dispatcher.
 
 ```python
-from collections.abc import Awaitable, Callable, Iterable, Sequence
-from contextlib import AbstractAsyncContextManager, AbstractContextManager, AsyncExitStack
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from contextlib import AbstractAsyncContextManager, AbstractContextManager, AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -197,9 +198,9 @@ class HookContext[UserT: UserProtocol]:
     user: UserT
     db: AsyncSession
 
-HookFunc = Callable[[HookContext], None | Awaitable[None]]
-HookCtxMgr = Callable[[HookContext], AbstractContextManager[None] | AbstractAsyncContextManager[None]]
-HookHandler = HookFunc | HookCtxMgr
+type HookFunc = Callable[[HookContext], None | Awaitable[None]]
+type HookCtxMgr = Callable[[HookContext], AbstractContextManager[None] | AbstractAsyncContextManager[None]]
+type HookHandler = HookFunc | HookCtxMgr
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Hooks:
@@ -210,11 +211,13 @@ class Hooks:
 
 class HookRunner:
     def __init__(self, hooks: Hooks) -> None: ...
-    async def dispatch(self, event: HookEvent | str, context: HookContext) -> None: ...
+    @asynccontextmanager
+    async def dispatch(self, event: HookEvent | str, context: HookContext) -> AsyncIterator[None]: ...
     # dispatch rules:
     # - normalize to Sequence[HookHandler]
-    # - execute in provided order
-    # - context managers enter before plain functions, exit after all run
+    # - enter context managers before yielding control
+    # - run plain functions before yielding (pre-action)
+    # - exit context managers after control leaves the with-block
     # - AsyncExitStack handles both sync/async managers
     # - any exception aborts dispatch and propagates (no swallow)
 ```
@@ -234,7 +237,8 @@ class Auth[..., ...]:
 ```
 Usage in router/signout:
 ```python
-await self.hook_runner.dispatch("on_signout", HookContext(user=user, db=db))
+async with self.hook_runner.dispatch("on_signout", HookContext(user=user, db=db)):
+    await client.sign_out(session_id)  # core action inside context
 ```
 
 #### `src/belgie/auth/core/client.py`
@@ -245,10 +249,12 @@ class AuthClient[..., ...]:
     hook_runner: HookRunner
     async def sign_out(self, session_id: UUID) -> bool:
         # resolve user (if present) before deleting session
-        await self.hook_runner.dispatch("on_signout", HookContext(user=user, db=self.db))
+        async with self.hook_runner.dispatch("on_signout", HookContext(user=user, db=self.db)):
+            return await self.session_manager.delete_session(self.db, session_id)
     async def delete_user(self, user: UserT) -> bool:
         # fire before delete so hooks can inspect relations
-        await self.hook_runner.dispatch("on_delete", HookContext(user=user, db=self.db))
+        async with self.hook_runner.dispatch("on_delete", HookContext(user=user, db=self.db)):
+            return await self.adapter.delete_user(self.db, user.id)
 ```
 
 #### `src/belgie/auth/providers/google.py`
@@ -259,8 +265,8 @@ Invoke hooks within callback:
 
 Sequence:
 1. Create or fetch user.
-2. If created, `await hook_runner.dispatch("on_signup", HookContext(user, db))`.
-3. After session creation, `await hook_runner.dispatch("on_signin", HookContext(user, db))`.
+2. If created, `async with hook_runner.dispatch("on_signup", HookContext(user, db)):` (no-op body).
+3. After session creation, `async with hook_runner.dispatch("on_signin", HookContext(user, db)):` (no-op body).
 
 #### Exports
 - Add `Hooks`, `HookContext`, `HookEvent` (Literal alias) to `belgie.auth.__init__` for public API parity with Auth.

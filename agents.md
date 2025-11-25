@@ -171,6 +171,7 @@ In general, you **must** follow the following workflow when writing code:
 - Prefer importing using `from x import y` instead of `import x`
 - Import local modules using the full path (ex: `from my_project.my_module import MyClass`)
 - **Don't use** docstrings, instead add inline comments only in places where there is complex or easily breakable logic
+- For type aliases, prefer Python's modern syntax: `type MyAlias = SomeType` (PEP 695 style), especially in new code.
 - URL construction:
   - Use `urllib.parse` methods for URL manipulation (don't use string concatenation or f-strings for query params)
   - Use `urlencode()` for query parameters
