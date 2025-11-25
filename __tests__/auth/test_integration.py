@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import httpx
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
-from belgie.auth.core.auth import Auth
+from belgie.auth.core.auth import Auth, AuthClient
 from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
 from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 
@@ -324,3 +325,181 @@ def test_multiple_concurrent_sessions(client: TestClient, auth: Auth, db_session
         assert session1.user_id == session2.user_id
 
     asyncio.run(verify_both_sessions_same_user())
+
+
+# ============================================================================
+# Auth as FastAPI Dependency Tests
+# These tests showcase using Depends(auth) to get an AuthClient instance
+# with database session automatically bound for use in FastAPI endpoints
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_auth_as_dependency_returns_auth_client(auth: Auth, db_session: AsyncSession) -> None:
+    """Test that using auth as a dependency returns AuthClient with db bound.
+
+    This is the core pattern: `auth_client: AuthClient = Depends(auth)`
+    FastAPI will call `await auth()` which returns an AuthClient instance.
+    """
+    # Simulate what FastAPI does when resolving Depends(auth)
+    auth_client = await auth()
+
+    # Verify we get an AuthClient instance
+    assert isinstance(auth_client, AuthClient)
+    # Verify the database session is bound
+    assert auth_client.db is db_session
+    # Verify it has access to the auth instance for operations
+    assert auth_client._auth is auth  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_auth_client_delete_user_with_cascades(auth: Auth, db_session: AsyncSession) -> None:
+    """Showcase AuthClient.delete_user() method for use in FastAPI endpoints.
+
+    Example usage in FastAPI:
+    ```python
+    @app.delete("/account")
+    async def delete_account(
+        user: User = Depends(auth.user),
+        auth_client: AuthClient = Depends(auth),
+    ):
+        await auth_client.delete_user(user)
+        return {"message": "Account deleted"}
+    ```
+    """
+    # Create a user with sessions and accounts
+    user = await auth.adapter.create_user(
+        db_session,
+        email="delete@example.com",
+        name="Delete Test",
+    )
+
+    session = await auth.adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+
+    await auth.adapter.create_account(
+        db_session,
+        user_id=user.id,
+        provider="google",
+        provider_account_id="google-123",
+    )
+
+    # Get AuthClient instance (simulating Depends(auth))
+    auth_client = await auth()
+
+    # Use AuthClient to delete user
+    await auth_client.delete_user(user)
+
+    # Verify cascade deletion
+    assert await auth.adapter.get_user_by_id(db_session, user.id) is None
+    assert await auth.adapter.get_session(db_session, session.id) is None
+    assert await auth.adapter.get_account(db_session, "google", "google-123") is None
+
+
+@pytest.mark.asyncio
+async def test_auth_client_provides_db_access(auth: Auth, db_session: AsyncSession) -> None:
+    """Showcase how AuthClient.db provides database access in endpoints.
+
+    Example usage in FastAPI:
+    ```python
+    @app.get("/my-sessions")
+    async def get_sessions(
+        user: User = Depends(auth.user),
+        auth_client: AuthClient = Depends(auth),
+    ):
+        # Use auth_client.db for database queries
+        stmt = select(Session).where(Session.user_id == user.id)
+        result = await auth_client.db.execute(stmt)
+        sessions = result.scalars().all()
+        return {"sessions": sessions}
+    ```
+    """
+    # Create test data
+    user = await auth.adapter.create_user(db_session, email="test@example.com")
+
+    session1 = await auth.adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+
+    session2 = await auth.adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=14),
+    )
+
+    # Get AuthClient (simulating Depends(auth))
+    auth_client = await auth()
+
+    # Use auth_client.db to query sessions
+    from sqlalchemy import select  # noqa: PLC0415
+
+    stmt = select(Session).where(Session.user_id == user.id)
+    result = await auth_client.db.execute(stmt)
+    sessions = result.scalars().all()
+
+    # Verify we can query using auth_client.db
+    assert len(sessions) == 2
+    session_ids = {s.id for s in sessions}
+    assert session1.id in session_ids
+    assert session2.id in session_ids
+
+
+@pytest.mark.asyncio
+async def test_auth_client_multiple_operations(auth: Auth, db_session: AsyncSession) -> None:
+    """Showcase multiple operations using AuthClient in a single endpoint.
+
+    Example usage in FastAPI:
+    ```python
+    @app.post("/cleanup-account")
+    async def cleanup_account(
+        user: User = Depends(auth.user),
+        auth_client: AuthClient = Depends(auth),
+    ):
+        # Perform multiple database operations using auth_client.db
+        # 1. Delete old sessions
+        # 2. Revoke old tokens
+        # 3. Return updated account info
+        return {"cleaned": True}
+    ```
+    """
+    # Create test data
+    user = await auth.adapter.create_user(db_session, email="cleanup@example.com")
+
+    # Create multiple sessions and accounts
+    await auth.adapter.create_session(
+        db_session,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+
+    await auth.adapter.create_account(
+        db_session,
+        user_id=user.id,
+        provider="google",
+        provider_account_id="google-456",
+    )
+
+    # Get AuthClient
+    auth_client = await auth()
+
+    # Perform multiple operations using auth_client.db
+    from sqlalchemy import func, select  # noqa: PLC0415
+
+    # Count sessions
+    stmt = select(func.count()).select_from(Session).where(Session.user_id == user.id)
+    result = await auth_client.db.execute(stmt)
+    session_count = result.scalar()
+
+    # Count accounts
+    stmt = select(func.count()).select_from(Account).where(Account.user_id == user.id)
+    result = await auth_client.db.execute(stmt)
+    account_count = result.scalar()
+
+    # Verify
+    assert session_count == 1
+    assert account_count == 1
