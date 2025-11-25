@@ -7,12 +7,11 @@ Belgie uses Pydantic Settings for configuration, allowing you to configure via P
 The main configuration class that brings together all settings:
 
 ```python
-from belgie.auth import AuthSettings, GoogleOAuthSettings
+from belgie.auth import AuthSettings
 
 settings = AuthSettings(
     secret="your-secret-key",
     base_url="http://localhost:8000",
-    google=GoogleOAuthSettings(...),
     # Optional nested settings
     session=SessionSettings(...),
     cookie=CookieSettings(...),
@@ -26,7 +25,6 @@ settings = AuthSettings(
 |-------|------|-------------|
 | `secret` | `str` | Secret key for session signing and encryption |
 | `base_url` | `str` | Base URL of your application |
-| `google` | `GoogleOAuthSettings` | Google OAuth configuration |
 
 ### Environment Variables
 
@@ -36,11 +34,6 @@ All settings can be configured via environment variables with the `BELGIE_` pref
 # Required
 BELGIE_SECRET=your-secret-key
 BELGIE_BASE_URL=http://localhost:8000
-
-# Google OAuth
-BELGIE_GOOGLE_CLIENT_ID=your-client-id
-BELGIE_GOOGLE_CLIENT_SECRET=your-client-secret
-BELGIE_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback/google
 ```
 
 ## Session Settings
@@ -51,7 +44,6 @@ Configure session behavior:
 from belgie.auth import SessionSettings
 
 session = SessionSettings(
-    cookie_name="belgie.auth_session",  # Cookie name
     max_age=604800,  # 7 days in seconds
     update_age=3600,  # Refresh if < 1 hour until expiry
 )
@@ -60,7 +52,6 @@ session = SessionSettings(
 ### Environment Variables
 
 ```bash
-BELGIE_SESSION_COOKIE_NAME=belgie.auth_session
 BELGIE_SESSION_MAX_AGE=604800
 BELGIE_SESSION_UPDATE_AGE=3600
 ```
@@ -121,12 +112,12 @@ cookie = CookieSettings(
 Configure Google OAuth 2.0:
 
 ```python
-from belgie.auth import GoogleOAuthSettings
+from belgie.auth.providers.google import GoogleProviderSettings
 
-google = GoogleOAuthSettings(
+google = GoogleProviderSettings(
     client_id="your-client-id",
     client_secret="your-client-secret",
-    redirect_uri="http://localhost:8000/auth/callback/google",
+    redirect_uri="http://localhost:8000/auth/provider/google/callback",
     scopes=["openid", "email", "profile"],
 )
 ```
@@ -144,7 +135,7 @@ google = GoogleOAuthSettings(
 ```bash
 BELGIE_GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
 BELGIE_GOOGLE_CLIENT_SECRET=your-secret
-BELGIE_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback/google
+BELGIE_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/provider/google/callback
 BELGIE_GOOGLE_SCOPES=openid,email,profile
 ```
 
@@ -186,7 +177,7 @@ from belgie.auth import (
     Auth,
     AuthSettings,
     CookieSettings,
-    GoogleOAuthSettings,
+    GoogleProviderSettings,
     SessionSettings,
     URLSettings,
     AlchemyAdapter,
@@ -196,7 +187,6 @@ settings = AuthSettings(
     secret="your-secret-key",
     base_url="http://localhost:8000",
     session=SessionSettings(
-        cookie_name="my_session",
         max_age=3600 * 24 * 7,  # 7 days
         update_age=3600,  # 1 hour
     ),
@@ -205,12 +195,6 @@ settings = AuthSettings(
         secure=True,
         same_site="lax",
     ),
-    google=GoogleOAuthSettings(
-        client_id="your-client-id",
-        client_secret="your-client-secret",
-        redirect_uri="http://localhost:8000/auth/callback/google",
-        scopes=["openid", "email", "profile"],
-    ),
     urls=URLSettings(
         signin_redirect="/dashboard",
         signout_redirect="/",
@@ -218,6 +202,15 @@ settings = AuthSettings(
 )
 
 adapter = AlchemyAdapter(...)
+
+providers = {
+    "google": GoogleProviderSettings(
+        client_id="your-client-id",
+        client_secret="your-client-secret",
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
+        scopes=["openid", "email", "profile"],
+    ),
+}
 auth = Auth(settings=settings, adapter=adapter, db_dependency=get_db)
 ```
 

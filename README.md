@@ -89,17 +89,11 @@ class OAuthState(Base):
 
 ### 2) Configure Belgie
 ```python
-from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleOAuthSettings
+from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleProviderSettings
 
 settings = AuthSettings(
     secret="your-secret-key",
     base_url="http://localhost:8000",
-    google=GoogleOAuthSettings(
-        client_id="your-google-client-id",
-        client_secret="your-google-client-secret",
-        redirect_uri="http://localhost:8000/auth/callback/google",
-        scopes=["openid", "email", "profile"],
-    ),
 )
 
 adapter = AlchemyAdapter(
@@ -109,7 +103,18 @@ adapter = AlchemyAdapter(
     oauth_state=OAuthState,
 )
 
-auth = Auth(settings=settings, adapter=adapter, db_dependency=get_db)
+auth = Auth(
+    settings=settings,
+    adapter=adapter,
+    providers={
+        "google": GoogleProviderSettings(
+            client_id="your-google-client-id",
+            client_secret="your-google-client-secret",
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
+            scopes=["openid", "email", "profile"],
+        ),
+    },
+)
 ```
 
 ### 3) Add routes to FastAPI
@@ -122,7 +127,7 @@ app.include_router(auth.router)
 
 @app.get("/")
 async def home():
-    return {"message": "Welcome! Visit /auth/signin/google to sign in"}
+    return {"message": "Welcome! Visit /auth/provider/google/signin to sign in"}
 
 
 @app.get("/protected")

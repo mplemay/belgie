@@ -16,7 +16,6 @@ from belgie.auth.core.hooks import HookContext, HookEvent, HookRunner, Hooks
 from belgie.auth.core.settings import (
     AuthSettings,
     CookieSettings,
-    GoogleOAuthSettings,
     SessionSettings,
     URLSettings,
 )
@@ -51,7 +50,6 @@ __all__ = [  # noqa: RUF022
     # Settings
     "SessionSettings",
     "CookieSettings",
-    "GoogleOAuthSettings",
     "URLSettings",
     # Protocols
     "UserProtocol",

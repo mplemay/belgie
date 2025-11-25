@@ -28,7 +28,6 @@ def test_provider_exports() -> None:
 def test_settings_exports() -> None:
     assert hasattr(belgie, "SessionSettings")
     assert hasattr(belgie, "CookieSettings")
-    assert hasattr(belgie, "GoogleOAuthSettings")
     assert hasattr(belgie, "URLSettings")
 
 

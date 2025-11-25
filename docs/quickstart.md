@@ -78,18 +78,12 @@ class OAuthState(Base):
 ### 2. Configure Authentication
 
 ```python
-from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleOAuthSettings
+from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleProviderSettings
 
 # Configure settings
 settings = AuthSettings(
     secret="your-secret-key-change-in-production",
     base_url="http://localhost:8000",
-    google=GoogleOAuthSettings(
-        client_id="your-google-client-id",
-        client_secret="your-google-client-secret",
-        redirect_uri="http://localhost:8000/auth/callback/google",
-        scopes=["openid", "email", "profile"],
-    ),
 )
 
 # Create adapter
@@ -104,7 +98,14 @@ adapter = AlchemyAdapter(
 auth = Auth(
     settings=settings,
     adapter=adapter,
-    db_dependency=get_db,  # Your database dependency function
+    providers={
+        "google": GoogleProviderSettings(
+            client_id="your-google-client-id",
+            client_secret="your-google-client-secret",
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
+            scopes=["openid", "email", "profile"],
+        ),
+    },
 )
 ```
 
@@ -115,7 +116,7 @@ from fastapi import FastAPI, Depends
 
 app = FastAPI()
 
-# Include auth router (provides /auth/signin/google, /auth/callback/google, /auth/signout)
+# Include auth router (provides /auth/provider/google/signin, /auth/provider/google/callback, /auth/signout)
 app.include_router(auth.router)
 
 # Protect routes with auth.user

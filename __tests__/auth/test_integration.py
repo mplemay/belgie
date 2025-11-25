@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
 from belgie.auth.core.auth import Auth
-from belgie.auth.core.settings import AuthSettings, CookieSettings, GoogleOAuthSettings, SessionSettings, URLSettings
+from belgie.auth.core.settings import AuthSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 
 
@@ -28,12 +28,6 @@ def auth_settings() -> AuthSettings:
             secure=False,
             http_only=True,
             same_site="lax",
-        ),
-        google=GoogleOAuthSettings(
-            client_id="integration-test-client-id",
-            client_secret="integration-test-client-secret",
-            redirect_uri="http://localhost:8000/auth/provider/google/callback",
-            scopes=["openid", "email", "profile"],
         ),
         urls=URLSettings(
             signin_redirect="/dashboard",
