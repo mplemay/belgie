@@ -8,10 +8,15 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.adapters.protocols import (
+    AccountProtocol,
+    AdapterProtocol,
+    OAuthStateProtocol,
+    SessionProtocol,
+    UserProtocol,
+)
 from belgie.auth.core.settings import CookieSettings
-from belgie.auth.protocols.adapter import AdapterProtocol
-from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
-from belgie.auth.protocols.provider import OAuthProviderProtocol  # noqa: TC001
+from belgie.auth.providers.protocols import OAuthProviderProtocol  # noqa: TC001
 
 
 @dataclass

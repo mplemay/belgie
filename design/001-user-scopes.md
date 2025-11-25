@@ -331,7 +331,7 @@ from fastapi import HTTPException, Security, status
 from fastapi.security import SecurityScopes
 
 from belgie.auth.utils.scopes import validate_scopes
-from belgie.auth.protocols.models import UserProtocol
+from belgie.auth.adapters.protocols import UserProtocol
 
 class Auth[UserT: UserProtocol, AccountT, SessionT, OAuthStateT]:
     # Existing Auth class with updated scope validation

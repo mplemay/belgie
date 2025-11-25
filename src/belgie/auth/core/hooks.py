@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 else:  # pragma: no cover
     AsyncSession = object
 
-from belgie.auth.protocols.models import UserProtocol
+from belgie.auth.adapters.protocols import UserProtocol
 
 HookEvent = Literal["on_signup", "on_signin", "on_signout", "on_delete"]
 
