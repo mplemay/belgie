@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 from uuid import UUID
 
 import httpx
 import pytest
 import respx
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -576,3 +577,312 @@ async def test_auth_client_user_method(auth: Auth, db_session: AsyncSession) -> 
     assert authenticated_user.id == user.id
     assert authenticated_user.email == "user@example.com"
     assert authenticated_user.name == "Test User"
+
+
+# ============================================================================
+# Real FastAPI Integration Examples
+# These tests demonstrate actual FastAPI endpoints using the auth dependency
+# ============================================================================
+
+
+@respx.mock
+def test_fastapi_get_profile_endpoint(client: TestClient, auth: Auth) -> None:
+    """Real FastAPI example: GET /profile endpoint using AuthClient."""
+
+    # Create FastAPI app with profile endpoint
+    app = FastAPI()
+
+    @app.get("/profile")
+    async def get_profile(client: Annotated[AuthClient, Depends(auth)]):  # noqa: ANN202
+        """Get current user's profile."""
+        user = await client.user()
+        return {
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "email_verified": user.email_verified,
+        }
+
+    test_client = TestClient(app)
+
+    # Sign in to get session cookie
+    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    location = signin_response.headers["location"]
+    state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
+
+    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "access_token": "test-token",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+                "scope": "openid email profile",
+            },
+        ),
+    )
+    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "google-123",
+                "email": "john@example.com",
+                "verified_email": True,
+                "name": "John Doe",
+            },
+        ),
+    )
+
+    callback_response = client.get(
+        f"/auth/provider/google/callback?code=test-code&state={state_param}",
+        follow_redirects=False,
+    )
+    session_cookie = callback_response.cookies["belgie_session"]
+
+    # Call the profile endpoint with session
+    test_client.cookies.set("belgie_session", session_cookie)
+    profile_response = test_client.get("/profile")
+
+    assert profile_response.status_code == 200
+    profile_data = profile_response.json()
+    assert profile_data["email"] == "john@example.com"
+    assert profile_data["name"] == "John Doe"
+    assert profile_data["email_verified"] is True
+
+
+@respx.mock
+def test_fastapi_delete_account_endpoint(client: TestClient, auth: Auth, db_session: AsyncSession) -> None:
+    """Real FastAPI example: DELETE /account endpoint using AuthClient."""
+    import asyncio  # noqa: PLC0415
+
+    # Create FastAPI app with delete account endpoint
+    app = FastAPI()
+
+    @app.delete("/account")
+    async def delete_account(client: Annotated[AuthClient, Depends(auth)]):  # noqa: ANN202
+        """Delete current user's account."""
+        user = await client.user()
+        await client.delete_user(user)
+        return {"message": "Account deleted successfully"}
+
+    test_client = TestClient(app)
+
+    # Sign in to get session cookie
+    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    location = signin_response.headers["location"]
+    state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
+
+    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "access_token": "test-token",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+                "scope": "openid email profile",
+            },
+        ),
+    )
+    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "google-456",
+                "email": "jane@example.com",
+                "verified_email": True,
+                "name": "Jane Smith",
+            },
+        ),
+    )
+
+    callback_response = client.get(
+        f"/auth/provider/google/callback?code=test-code&state={state_param}",
+        follow_redirects=False,
+    )
+    session_cookie = callback_response.cookies["belgie_session"]
+
+    # Verify user exists
+    async def get_user_id() -> UUID:
+        user = await auth.adapter.get_user_by_email(db_session, "jane@example.com")
+        assert user is not None
+        return user.id
+
+    user_id = asyncio.run(get_user_id())
+
+    # Delete the account
+    test_client.cookies.set("belgie_session", session_cookie)
+    delete_response = test_client.delete("/account")
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["message"] == "Account deleted successfully"
+
+    # Verify user was deleted
+    async def verify_deleted() -> None:
+        user = await auth.adapter.get_user_by_id(db_session, user_id)
+        assert user is None
+
+    asyncio.run(verify_deleted())
+
+
+@respx.mock
+def test_fastapi_get_sessions_endpoint(client: TestClient, auth: Auth) -> None:
+    """Real FastAPI example: GET /sessions endpoint using AuthClient.db."""
+
+    # Create FastAPI app with sessions endpoint
+    app = FastAPI()
+
+    @app.get("/sessions")
+    async def get_sessions(client: Annotated[AuthClient, Depends(auth)]):  # noqa: ANN202
+        """Get current user's active sessions."""
+        from sqlalchemy import func, select  # noqa: PLC0415
+
+        user = await client.user()
+
+        # Use client.db to query sessions
+        stmt = select(func.count()).select_from(Session).where(Session.user_id == user.id)
+        result = await client.db.execute(stmt)
+        session_count = result.scalar()
+
+        return {"user_email": user.email, "session_count": session_count}
+
+    test_client = TestClient(app)
+
+    # Sign in to get session cookie
+    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    location = signin_response.headers["location"]
+    state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
+
+    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "access_token": "test-token",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+                "scope": "openid email profile",
+            },
+        ),
+    )
+    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "google-789",
+                "email": "bob@example.com",
+                "verified_email": True,
+            },
+        ),
+    )
+
+    callback_response = client.get(
+        f"/auth/provider/google/callback?code=test-code&state={state_param}",
+        follow_redirects=False,
+    )
+    session_cookie = callback_response.cookies["belgie_session"]
+
+    # Call the sessions endpoint
+    test_client.cookies.set("belgie_session", session_cookie)
+    sessions_response = test_client.get("/sessions")
+
+    assert sessions_response.status_code == 200
+    data = sessions_response.json()
+    assert data["user_email"] == "bob@example.com"
+    assert data["session_count"] == 1
+
+
+def test_fastapi_unauthorized_access(auth: Auth) -> None:
+    """Real FastAPI example: Testing unauthorized access returns 401."""
+    # Create FastAPI app with protected endpoint
+    app = FastAPI()
+
+    @app.get("/protected")
+    async def protected_endpoint(client: Annotated[AuthClient, Depends(auth)]):  # noqa: ANN202
+        """Protected endpoint requiring authentication."""
+        user = await client.user()
+        return {"message": f"Hello {user.email}"}
+
+    test_client = TestClient(app)
+
+    # Try to access without authentication
+    response = test_client.get("/protected")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "not authenticated"
+
+
+@respx.mock
+def test_fastapi_combined_operations_endpoint(client: TestClient, auth: Auth) -> None:
+    """Real FastAPI example: Complex endpoint with multiple operations."""
+
+    # Create FastAPI app with complex endpoint
+    app = FastAPI()
+
+    @app.post("/account/cleanup")
+    async def cleanup_account(client: Annotated[AuthClient, Depends(auth)]):  # noqa: ANN202
+        """Clean up old data for current user's account."""
+        from sqlalchemy import func, select  # noqa: PLC0415
+
+        user = await client.user()
+
+        # Count sessions
+        stmt = select(func.count()).select_from(Session).where(Session.user_id == user.id)
+        result = await client.db.execute(stmt)
+        session_count = result.scalar()
+
+        # Count accounts
+        stmt = select(func.count()).select_from(Account).where(Account.user_id == user.id)
+        result = await client.db.execute(stmt)
+        account_count = result.scalar()
+
+        return {
+            "user_id": str(user.id),
+            "user_email": user.email,
+            "sessions": session_count,
+            "connected_accounts": account_count,
+        }
+
+    test_client = TestClient(app)
+
+    # Sign in to get session cookie
+    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    location = signin_response.headers["location"]
+    state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
+
+    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "access_token": "test-token",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+                "scope": "openid email profile",
+            },
+        ),
+    )
+    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "google-999",
+                "email": "alice@example.com",
+                "verified_email": True,
+                "name": "Alice Johnson",
+            },
+        ),
+    )
+
+    callback_response = client.get(
+        f"/auth/provider/google/callback?code=test-code&state={state_param}",
+        follow_redirects=False,
+    )
+    session_cookie = callback_response.cookies["belgie_session"]
+
+    # Call the cleanup endpoint
+    test_client.cookies.set("belgie_session", session_cookie)
+    cleanup_response = test_client.post("/account/cleanup")
+
+    assert cleanup_response.status_code == 200
+    data = cleanup_response.json()
+    assert data["user_email"] == "alice@example.com"
+    assert data["sessions"] == 1
+    assert data["connected_accounts"] == 1
