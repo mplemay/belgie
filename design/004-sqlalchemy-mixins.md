@@ -7,10 +7,11 @@ Introduce a set of SQLAlchemy `@declarative_mixin` classes that bundle Belgie’
 
 ### Goals
 - Provide reusable, typed mixins for all adapter-required models using `mapped_column`.
-- Use SQLAlchemy 2.0 native `Uuid` / `UUID(as_uuid=True)` columns with SQL-side UUID generation (`func.gen_random_uuid()` or dialect equivalent), avoiding raw SQL strings.
+- Use SQLAlchemy 2.0 native `Uuid` / `UUID(as_uuid=True)` columns with SQL-side UUID generation (`func.gen_random_uuid()` or dialect equivalent), avoiding raw SQL strings, and mark primary keys as `unique=True` and `index=True` for convenience.
 - Prefer SQL-generated timestamps (`server_default=func.now()`, `onupdate=func.now()`) over Python `datetime.now()`.
 - Default table names are singular (`user`, `account`, `session`, `oauth_state`); FK helpers assume those names. Consumers wanting different names supply their own models that satisfy the protocol.
-- Include convenience relationships between user/accounts/sessions even though not required by protocols.
+- Include convenience relationships between user/accounts/sessions even though not required by protocols; relationships and FKs use the default singular table names (e.g., `ForeignKey("user.id")`, `relationship("User")`).
+- Scopes are not defined in the mixins; users add their own scope field (e.g., ARRAY of Enum) on their models as they see fit.
 - Update README, docs, quickstart, and examples to showcase the mixin-first setup.
 - Add tests proving mixin-based models satisfy adapter protocols and work end-to-end.
 
@@ -36,6 +37,7 @@ from belgie.auth.adapters.alchemy.mixins import (
     SessionMixin,
     OAuthStateMixin,
 )
+from examples.auth.scopes import Scope  # user-defined Enum of scopes
 
 class Base(DeclarativeBase):
     pass
@@ -43,6 +45,12 @@ class Base(DeclarativeBase):
 
 class User(PrimaryKeyMixin, UserMixin, TimestampMixin, Base):
     __tablename__ = "user"
+    # add your own scopes column if desired, e.g.:
+    # scopes: Mapped[list[Scope] | None] = mapped_column(
+    #     ARRAY(SQLEnum(Scope, values_callable=lambda x: [e.value for e in x])),
+    #     nullable=True,
+    #     default=None,
+    # )
 
 
 class Account(PrimaryKeyMixin, AccountMixin, TimestampMixin, Base):
@@ -73,7 +81,7 @@ graph TD
 ### Workflow 2: Plug Models into the Adapter
 
 #### Description
-Adapter is instantiated with mixin-based models and used inside FastAPI/FastAPI-like apps exactly as today.
+Adapter is instantiated with mixin-based models and used inside FastAPI/FastAPI-like apps exactly as today; no concrete classes are shipped—users define their own `DeclarativeBase` and mapped classes.
 
 #### Usage Example
 ```python
@@ -172,6 +180,8 @@ class PrimaryKeyMixin:
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         primary_key=True,
+        unique=True,
+        index=True,
         server_default=func.gen_random_uuid(),  # avoids raw SQL; dialects without support can override default
     )
 
@@ -282,8 +292,7 @@ Show end-to-end minimal setup using mixins, mirroring quickstart but shorter.
 - [ ] Run lint, type-check, tests.
 
 ## Open Questions
-1. Preferred default storage for `scopes`? JSON is portable; Postgres ARRAY/ENUM could be optional helper alias.
-2. Should we ship ready-made concrete classes (`BelgieUser`, etc.) for ultra-quick start, or just mixins?
+1. Should we ship ready-made concrete classes (`BelgieUser`, etc.) for ultra-quick start, or keep mixins only (current plan: mixins only)?
 
 ## Future Enhancements
 - Add optional typed `ScopeType` generic mixin parameter once SQLAlchemy typing stabilizes.
