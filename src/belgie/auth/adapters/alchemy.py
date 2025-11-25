@@ -259,13 +259,11 @@ class AlchemyAdapter[
         await db.commit()
         return result.rowcount > 0  # type: ignore[attr-defined]
 
-    async def delete_user_cascade(self, db: AsyncSession, user_id: UUID) -> bool:
-        """Delete a user and all associated data in a single transaction.
+    async def delete_user(self, db: AsyncSession, user_id: UUID) -> bool:
+        """Delete a user and all associated data.
 
-        Performs cascade deletion of:
-        1. All sessions for the user
-        2. All OAuth accounts for the user
-        3. The user record itself
+        Deletes the user record. Related data (sessions, accounts) are automatically
+        deleted by the database via CASCADE constraints on the foreign keys.
 
         Note: OAuth states are not user-specific and are not deleted.
         They will expire based on their expires_at timestamp.
@@ -277,19 +275,8 @@ class AlchemyAdapter[
         Returns:
             True if user was deleted, False if user didn't exist
         """
-        # Delete all sessions for this user
-        stmt = delete(self.session_model).where(self.session_model.user_id == user_id)
-        await db.execute(stmt)
-
-        # Delete all OAuth accounts for this user
-        stmt = delete(self.account_model).where(self.account_model.user_id == user_id)
-        await db.execute(stmt)
-
-        # Delete the user
         stmt = delete(self.user_model).where(self.user_model.id == user_id)
         result = await db.execute(stmt)
-
-        # Commit the transaction
         await db.commit()
 
         return result.rowcount > 0  # type: ignore[attr-defined]

@@ -293,10 +293,10 @@ class AdapterProtocol[
         """
         ...
 
-    async def delete_user_cascade(self, db: AsyncSession, user_id: UUID) -> bool:
-        """Delete user and all associated data in a cascade.
+    async def delete_user(self, db: AsyncSession, user_id: UUID) -> bool:
+        """Delete user and all associated data.
 
-        Performs cascade deletion of:
+        Deletes the user and all related records:
         - All user sessions
         - All OAuth accounts
         - The user record itself

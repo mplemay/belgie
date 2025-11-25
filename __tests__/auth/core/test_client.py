@@ -1,4 +1,3 @@
-# ruff: noqa: ANN001, ANN201, SLF001
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -212,22 +211,22 @@ async def test_get_session_no_cookie_raises_401(client):
 
 
 @pytest.mark.asyncio
-async def test_delete_user_calls_adapter_cascade_delete(client, mock_adapter):
+async def test_delete_user_calls_adapter_delete(client, mock_adapter):
     user = MagicMock()
     user.id = uuid4()
-    mock_adapter.delete_user_cascade.return_value = True
+    mock_adapter.delete_user.return_value = True
 
     result = await client.delete_user(user)
 
     assert result is True
-    mock_adapter.delete_user_cascade.assert_called_once_with(client.db, user.id)
+    mock_adapter.delete_user.assert_called_once_with(client.db, user.id)
 
 
 @pytest.mark.asyncio
 async def test_delete_user_returns_false_if_not_found(client, mock_adapter):
     user = MagicMock()
     user.id = uuid4()
-    mock_adapter.delete_user_cascade.return_value = False
+    mock_adapter.delete_user.return_value = False
 
     result = await client.delete_user(user)
 

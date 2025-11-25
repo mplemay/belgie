@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, String
+from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -30,7 +30,7 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     provider: Mapped[str] = mapped_column(String(50))
     provider_account_id: Mapped[str] = mapped_column(String(255))
     access_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -50,7 +50,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     expires_at: Mapped[datetime]
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)

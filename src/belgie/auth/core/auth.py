@@ -1,4 +1,5 @@
 from functools import cached_property
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
@@ -12,6 +13,36 @@ from belgie.auth.core.settings import AuthSettings
 from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 from belgie.auth.protocols.provider import OAuthProviderProtocol, Providers
 from belgie.auth.session.manager import SessionManager
+
+if TYPE_CHECKING:
+    from typing import Any
+
+
+class _AuthCallable:
+    """Descriptor that makes Auth instances callable with instance-specific dependencies.
+
+    This allows Depends(auth) to work seamlessly - each Auth instance gets its own
+    callable that has the adapter's database dependency baked into the signature.
+    """
+
+    def __get__(self, obj: "Any | None", objtype: "type | None" = None) -> "Any":  # noqa: ANN401
+        """Return instance-specific callable when accessed through an instance."""
+        if obj is None:
+            # Accessed through class, return descriptor itself
+            return self
+
+        # Return a callable with this instance's adapter.dependency
+        async def __call__(  # noqa: N807
+            db: AsyncSession = Depends(obj.adapter.dependency),  # noqa: B008
+        ) -> AuthClient:
+            return AuthClient(
+                db=db,
+                adapter=obj.adapter,
+                session_manager=obj.session_manager,
+                cookie_name=obj.settings.cookie.name,
+            )
+
+        return __call__
 
 
 class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProtocol, OAuthStateT: OAuthStateProtocol]:
@@ -64,6 +95,9 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         >>> app.include_router(auth.router)
     """
 
+    # Use descriptor to make each instance callable with its own dependency
+    __call__ = _AuthCallable()
+
     def __init__(
         self,
         settings: AuthSettings,
@@ -95,46 +129,6 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             {provider_id: provider_settings() for provider_id, provider_settings in providers.items()}  # ty: ignore[call-non-callable]
             if providers
             else {}
-        )
-
-    def __call__(
-        self,
-        db: AsyncSession,
-    ) -> AuthClient[UserT, AccountT, SessionT, OAuthStateT]:
-        """Create an AuthClient instance with database session.
-
-        This method makes Auth instances callable, creating an AuthClient with the
-        provided database session. The db parameter should be injected via FastAPI's
-        dependency injection system.
-
-        Args:
-            db: Async database session (injected via dependency)
-
-        Returns:
-            AuthClient instance with captured database session
-
-        Example:
-            >>> from fastapi import Depends
-            >>>
-            >>> # Get db dependency from adapter
-            >>> async def get_client_db():
-            ...     return await auth.adapter.dependency()
-            >>>
-            >>> @app.delete("/account")
-            >>> async def delete_account(
-            ...     db: AsyncSession = Depends(get_client_db),
-            ...     request: Request,
-            ... ):
-            ...     client = auth(db)
-            ...     user = await client.get_user(SecurityScopes(), request)
-            ...     await client.delete_user(user)
-            ...     return {"message": "Account deleted"}
-        """
-        return AuthClient(
-            db=db,
-            adapter=self.adapter,
-            session_manager=self.session_manager,
-            cookie_name=self.settings.cookie.name,
         )
 
     @cached_property

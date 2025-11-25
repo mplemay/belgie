@@ -159,7 +159,7 @@ class AuthClient[
         return session
 
     async def delete_user(self, user: UserT) -> bool:
-        """Delete a user and all associated data (cascade delete).
+        """Delete a user and all associated data.
 
         Deletes the user and all related records:
         - All user sessions
@@ -179,7 +179,7 @@ class AuthClient[
             >>> user = await client.get_user(SecurityScopes(), request)
             >>> await client.delete_user(user)
         """
-        return await self.adapter.delete_user_cascade(self.db, user.id)
+        return await self.adapter.delete_user(self.db, user.id)
 
     async def get_user_from_session(self, session_id: UUID) -> UserT | None:
         """Retrieve user from a session ID.
