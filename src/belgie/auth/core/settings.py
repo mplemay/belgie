@@ -5,7 +5,7 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
-    from belgie.auth.protocols.provider import OAuthProviderProtocol
+    from belgie.auth.providers.protocols import OAuthProviderProtocol
 
 
 class ProviderSettings(BaseSettings):

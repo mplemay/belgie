@@ -6,8 +6,13 @@ from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.adapters.protocols import (
+    AccountProtocol,
+    OAuthStateProtocol,
+    SessionProtocol,
+    UserProtocol,
+)
 from belgie.auth.core.hooks import HookContext, HookRunner, Hooks
-from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 from belgie.auth.session.manager import SessionManager
 from belgie.auth.utils.scopes import validate_scopes
 

@@ -1,6 +1,13 @@
 """Belgie Auth - Authentication components."""
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.adapters.protocols import (
+    AccountProtocol,
+    AdapterProtocol,
+    OAuthStateProtocol,
+    SessionProtocol,
+    UserProtocol,
+)
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.client import AuthClient
 from belgie.auth.core.exceptions import (
@@ -19,12 +26,7 @@ from belgie.auth.core.settings import (
     SessionSettings,
     URLSettings,
 )
-from belgie.auth.protocols.models import (
-    AccountProtocol,
-    OAuthStateProtocol,
-    SessionProtocol,
-    UserProtocol,
-)
+from belgie.auth.providers import OAuthProviderProtocol, Providers
 from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings, GoogleUserInfo
 from belgie.auth.session.manager import SessionManager
 from belgie.auth.utils.crypto import generate_session_id, generate_state_token
@@ -47,12 +49,15 @@ __all__ = [  # noqa: RUF022
     "GoogleOAuthProvider",
     "GoogleProviderSettings",
     "GoogleUserInfo",
+    "OAuthProviderProtocol",
+    "Providers",
     # Settings
     "SessionSettings",
     "CookieSettings",
     "URLSettings",
     # Protocols
     "UserProtocol",
+    "AdapterProtocol",
     "AccountProtocol",
     "SessionProtocol",
     "OAuthStateProtocol",

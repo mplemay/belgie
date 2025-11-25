@@ -8,10 +8,10 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import SettingsConfigDict
 
+from belgie.auth.adapters.protocols import AdapterProtocol
 from belgie.auth.core.exceptions import InvalidStateError, OAuthError
 from belgie.auth.core.hooks import HookContext, HookRunner
 from belgie.auth.core.settings import CookieSettings, ProviderSettings
-from belgie.auth.protocols.adapter import AdapterProtocol
 from belgie.auth.utils.crypto import generate_state_token
 
 

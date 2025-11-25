@@ -213,8 +213,8 @@ class MicrosoftProviderSettings(BaseSettings):
 
 # Step 2: Implement provider protocol
 from fastapi import APIRouter, Depends, RedirectResponse
-from belgie.auth.protocols.adapter import AdapterProtocol
-from belgie.auth.protocols.provider import OAuthProviderProtocol
+from belgie.auth.adapters.protocols import AdapterProtocol
+from belgie.auth.providers.protocols import OAuthProviderProtocol
 
 class MicrosoftOAuthProvider:
     """Microsoft OAuth provider - self-contained implementation"""
@@ -335,7 +335,7 @@ auth = Auth(
 
 #### Key Components
 
-- **Provider Protocol** (`protocols/provider.py:OAuthProviderProtocol`) - Interface to implement
+- **Provider Protocol** (`providers/protocols.py:OAuthProviderProtocol`) - Interface to implement
 - **Provider Settings** - BaseSettings with env_prefix
 - **Self-Contained Router** - Provider handles complete OAuth flow
 
@@ -344,8 +344,8 @@ auth = Auth(
 ```mermaid
 graph TD
     Auth["Auth<br/>core/auth.py"]
-    ProviderProtocol["(NEW)<br/>OAuthProviderProtocol<br/>protocols/provider.py"]
-    AdapterProtocol["(MODIFIED)<br/>AdapterProtocol<br/>protocols/adapter.py"]
+    ProviderProtocol["(NEW)<br/>OAuthProviderProtocol<br/>providers/protocols.py"]
+    AdapterProtocol["(MODIFIED)<br/>AdapterProtocol<br/>adapters/protocols.py"]
     GoogleProvider["(MODIFIED)<br/>GoogleOAuthProvider<br/>providers/google.py"]
     GoogleSettings["(NEW)<br/>GoogleProviderSettings<br/>providers/google.py"]
     Adapter["AlchemyAdapter<br/>adapters/alchemy.py"]
@@ -648,10 +648,11 @@ src/belgie/auth/
 ├── core/
 │   ├── auth.py                 # (MODIFIED) Auth class - loads and registers providers
 │   └── exceptions.py           # (MODIFIED) Add ProviderNotFoundError
-├── protocols/
-│   ├── provider.py             # (NEW) OAuthProviderProtocol definition
-│   └── adapter.py              # (MODIFIED) Add get_db() method to protocol
+├── adapters/
+│   ├── protocols.py            # (MODIFIED) Adapter + model protocols
+│   └── alchemy.py              # Adapter implementation
 ├── providers/
+│   ├── protocols.py            # (NEW) OAuthProviderProtocol definition
 │   ├── __init__.py             # (MODIFIED) Export provider classes
 │   └── google.py               # (MODIFIED) Self-contained Google OAuth provider
 └── __test__/
@@ -665,7 +666,7 @@ src/belgie/auth/
 
 ### API Design
 
-#### `src/belgie/auth/protocols/provider.py`
+#### `src/belgie/auth/providers/protocols.py`
 
 Protocol definition for OAuth providers (see [Implementation Order](#implementation-order) #1).
 
@@ -677,7 +678,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from fastapi import APIRouter
 from pydantic_settings import BaseSettings
 
-from belgie.auth.protocols.adapter import AdapterProtocol
+from belgie.auth.adapters.protocols import AdapterProtocol
 
 if TYPE_CHECKING:
     from belgie.auth.core.settings import AuthSettings
@@ -738,7 +739,7 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         ...
 ```
 
-#### `src/belgie/auth/protocols/adapter.py`
+#### `src/belgie/auth/adapters/protocols.py`
 
 Modified adapter protocol with `get_db()` method (see [Implementation Order](#implementation-order) #2).
 
@@ -873,7 +874,7 @@ from fastapi import APIRouter, Depends, RedirectResponse
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from belgie.auth.protocols.adapter import AdapterProtocol
+from belgie.auth.adapters.protocols import AdapterProtocol
 from belgie.auth.utils.crypto import generate_state_token
 
 
@@ -1058,17 +1059,17 @@ class GoogleOAuthProvider:
         return router
 ```
 
-#### `src/belgie/auth/protocols/provider.py` - ProviderRegistry TypedDict
+#### `src/belgie/auth/providers/protocols.py` - Providers TypedDict
 
 Type-safe provider registry pattern for Auth class initialization:
 
 ```python
 from typing import NotRequired, TypedDict
 
-from belgie.auth.protocols.provider import OAuthProviderProtocol
+from belgie.auth.providers.protocols import OAuthProviderProtocol
 
 
-class ProviderRegistry(TypedDict, total=False):
+class Providers(TypedDict, total=False):
     """
     Type-safe provider registry for Auth initialization.
 
@@ -1076,7 +1077,7 @@ class ProviderRegistry(TypedDict, total=False):
     Custom providers can be added as additional keys.
 
     Example:
-        providers: ProviderRegistry = {
+        providers: Providers = {
             "google": google_provider,
             "github": github_provider,
             "custom_oauth": my_custom_provider,  # Custom providers allowed
@@ -1100,7 +1101,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from belgie.auth.adapters.alchemy import AlchemyAdapter
-from belgie.auth.protocols.provider import OAuthProviderProtocol, ProviderRegistry
+from belgie.auth.providers.protocols import OAuthProviderProtocol, Providers
 
 
 class AuthSettings(BaseSettings):
@@ -1127,7 +1128,7 @@ class Auth:
         self,
         settings: AuthSettings,
         adapter: AlchemyAdapter,
-        providers: ProviderRegistry | dict[str, OAuthProviderProtocol],
+        providers: Providers | dict[str, OAuthProviderProtocol],
     ):
         """
         Initialize Auth with settings, adapter, and providers.
@@ -1289,11 +1290,11 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 ### Implementation Order
 
-1. **Provider Protocol** (`protocols/provider.py`) - Define minimal interface (no dependencies)
+1. **Provider Protocol** (`providers/protocols.py`) - Define minimal interface (no dependencies)
    - Used in: All provider implementations
    - Dependencies: None
 
-2. **Adapter Protocol Update** (`protocols/adapter.py`) - Add `get_db()` method
+2. **Adapter Protocol Update** (`adapters/protocols.py`) - Add `get_db()` method
    - Used in: Provider routers for dependency injection
    - Dependencies: None
 
@@ -1311,12 +1312,12 @@ Tests should be organized by module/file and cover unit tests, integration tests
 ### Tasks
 
 - [x] **Implement protocols** (leaf nodes, no dependencies)
-  - [x] Define `OAuthProviderProtocol` in `protocols/provider.py` (#1)
+  - [x] Define `OAuthProviderProtocol` in `providers/protocols.py` (#1)
     - [x] Define generic type parameter for settings
     - [x] Define `__init__(settings)` method
     - [x] Define `provider_id` property returning str
     - [x] Define `get_router(adapter, cookie_settings)` method returning APIRouter
-  - [x] Add `get_db()` to `AdapterProtocol` in `protocols/adapter.py` (#2)
+  - [x] Add `get_db()` to `AdapterProtocol` in `adapters/protocols.py` (#2)
     - [x] Define method signature
     - [x] Add documentation about FastAPI dependency
   - [x] Write unit tests for protocols (type checking)

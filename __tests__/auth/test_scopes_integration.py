@@ -18,9 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.auth.adapters.protocols import UserProtocol
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.settings import AuthSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.auth.protocols.models import UserProtocol
 
 
 class AppScope(StrEnum):

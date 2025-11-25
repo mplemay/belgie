@@ -6,12 +6,13 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie.auth.protocols.models import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
-
-type UserT = UserProtocol
-type AccountT = AccountProtocol
-type SessionT = SessionProtocol
-type OAuthStateT = OAuthStateProtocol
+from belgie.auth.adapters.protocols import (
+    AccountProtocol,
+    AdapterProtocol,
+    OAuthStateProtocol,
+    SessionProtocol,
+    UserProtocol,
+)
 
 
 class AlchemyAdapter[
@@ -19,7 +20,7 @@ class AlchemyAdapter[
     AccountT: AccountProtocol,
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
-]:
+](AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]):
     def __init__(
         self,
         *,
