@@ -88,12 +88,12 @@ def test_account_protocol_runtime_check() -> None:
         user_id=uuid4(),
         provider="google",
         provider_account_id="12345",
-        access_token="token",  # noqa: S106
-        refresh_token="refresh",  # noqa: S106
+        access_token="token",
+        refresh_token="refresh",
         expires_at=now,
-        token_type="Bearer",  # noqa: S106
+        token_type="Bearer",
         scope="openid email",
-        id_token="id_token",  # noqa: S106
+        id_token="id_token",
         created_at=now,
         updated_at=now,
     )

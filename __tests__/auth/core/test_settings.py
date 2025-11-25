@@ -135,7 +135,7 @@ def test_auth_settings_nested_google_required(monkeypatch: pytest.MonkeyPatch) -
             monkeypatch.delenv(key, raising=False)
 
     with pytest.raises(ValidationError):
-        AuthSettings(secret="test-secret", base_url="http://localhost:8000")  # type: ignore[call-arg]  # noqa: S106
+        AuthSettings(secret="test-secret", base_url="http://localhost:8000")  # type: ignore[call-arg]
 
 
 def test_auth_settings_full_config(monkeypatch: pytest.MonkeyPatch) -> None:
