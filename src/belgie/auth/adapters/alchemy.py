@@ -54,8 +54,12 @@ class AlchemyAdapter[
             updated_at=datetime.now(UTC),
         )
         db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        try:
+            await db.commit()
+            await db.refresh(user)
+        except Exception:
+            await db.rollback()
+            raise
         return user
 
     async def get_user_by_id(self, db: AsyncSession, user_id: UUID) -> UserT | None:
@@ -83,8 +87,12 @@ class AlchemyAdapter[
                 setattr(user, key, value)
 
         user.updated_at = datetime.now(UTC)
-        await db.commit()
-        await db.refresh(user)
+        try:
+            await db.commit()
+            await db.refresh(user)
+        except Exception:
+            await db.rollback()
+            raise
         return user
 
     async def create_account(
@@ -110,8 +118,12 @@ class AlchemyAdapter[
             updated_at=datetime.now(UTC),
         )
         db.add(account)
-        await db.commit()
-        await db.refresh(account)
+        try:
+            await db.commit()
+            await db.refresh(account)
+        except Exception:
+            await db.rollback()
+            raise
         return account
 
     async def get_account(
@@ -156,8 +168,12 @@ class AlchemyAdapter[
                 setattr(account, key, value)
 
         account.updated_at = datetime.now(UTC)
-        await db.commit()
-        await db.refresh(account)
+        try:
+            await db.commit()
+            await db.refresh(account)
+        except Exception:
+            await db.rollback()
+            raise
         return account
 
     async def create_session(
@@ -178,8 +194,12 @@ class AlchemyAdapter[
             updated_at=datetime.now(UTC),
         )
         db.add(session)
-        await db.commit()
-        await db.refresh(session)
+        try:
+            await db.commit()
+            await db.refresh(session)
+        except Exception:
+            await db.rollback()
+            raise
         return session
 
     async def get_session(
@@ -206,21 +226,33 @@ class AlchemyAdapter[
                 setattr(session, key, value)
 
         session.updated_at = datetime.now(UTC)
-        await db.commit()
-        await db.refresh(session)
+        try:
+            await db.commit()
+            await db.refresh(session)
+        except Exception:
+            await db.rollback()
+            raise
         return session
 
     async def delete_session(self, db: AsyncSession, session_id: UUID) -> bool:
         stmt = delete(self.session_model).where(self.session_model.id == session_id)
         result = await db.execute(stmt)
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def delete_expired_sessions(self, db: AsyncSession) -> int:
         now_naive = datetime.now(UTC).replace(tzinfo=None)
         stmt = delete(self.session_model).where(self.session_model.expires_at < now_naive)
         result = await db.execute(stmt)
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
         return result.rowcount  # type: ignore[attr-defined]
 
     async def create_oauth_state(
@@ -240,8 +272,12 @@ class AlchemyAdapter[
             expires_at=expires_at,
         )
         db.add(oauth_state)
-        await db.commit()
-        await db.refresh(oauth_state)
+        try:
+            await db.commit()
+            await db.refresh(oauth_state)
+        except Exception:
+            await db.rollback()
+            raise
         return oauth_state
 
     async def get_oauth_state(
@@ -256,7 +292,11 @@ class AlchemyAdapter[
     async def delete_oauth_state(self, db: AsyncSession, state: str) -> bool:
         stmt = delete(self.oauth_state_model).where(self.oauth_state_model.state == state)
         result = await db.execute(stmt)
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def delete_user(self, db: AsyncSession, user_id: UUID) -> bool:
@@ -277,7 +317,11 @@ class AlchemyAdapter[
         """
         stmt = delete(self.user_model).where(self.user_model.id == user_id)
         result = await db.execute(stmt)
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
 
         return result.rowcount > 0  # type: ignore[attr-defined]
 
