@@ -296,3 +296,25 @@ Sequence:
   - Signout endpoint path must call `Auth.__call__()` to obtain `AuthClient` and then call `client.sign_out`, asserting that hooks fire identically to in-code usage.
   - If a delete-user endpoint is added later, it must call `Auth.__call__()` then `client.delete_user` to avoid duplicate flows.
 - **Regression**: Re-run existing auth test suite to ensure no behavior changes when hooks are not provided.
+
+## Tasks
+
+- [ ] **Leaf components (no new deps)**
+  - [ ] Implement `core/hooks.py` with type aliases, normalization, and `HookRunner.dispatch` async context manager.
+  - [ ] Export `Hooks`, `HookContext`, `HookEvent` (Literal) via `belgie.auth.__init__`.
+  - [ ] Unit tests: `__tests__/auth/hooks/test_hooks.py` (sync/async, ctx mgrs, error unwind).
+
+- [ ] **Auth wiring**
+  - [ ] Extend `Auth.__init__` to accept `hooks` and create `hook_runner`.
+  - [ ] Ensure `Auth.__call__` injects `hook_runner` into `AuthClient`.
+  - [ ] Update signout router to obtain `AuthClient` via `Auth.__call__()` and call `client.sign_out` inside `async with dispatch(...)`.
+
+- [ ] **Provider integration**
+  - [ ] Update Google callback: fire `on_signup` (only when created) and `on_signin` using `async with dispatch(...)`.
+
+- [ ] **Deletion flow**
+  - [ ] Update `AuthClient.delete_user` to wrap adapter delete in `async with dispatch("on_delete", ...)`.
+  - [ ] If/when a delete-user endpoint exists, route it through `Auth.__call__()` then `client.delete_user` (no duplicate logic).
+
+- [ ] **Integration tests**
+  - [ ] Add `__tests__/auth/hooks/test_hooks_integration.py` covering signup/signin hooks in Google flow, signout hook via router, and delete hook via `AuthClient`.
