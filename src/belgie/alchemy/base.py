@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, ClassVar, Final
 
-from sqlalchemy import DateTime, MetaData
+from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass
 
 from belgie.alchemy.types import DateTimeUTC
@@ -15,9 +15,7 @@ NAMING_CONVENTION: Final[dict[str, str]] = {
 }
 
 TYPE_ANNOTATION_MAP: Final[dict[type | Any, object]] = {
-    datetime: DateTime(timezone=True),
-    datetime | None: DateTime(timezone=True),
-    DateTimeUTC: DateTimeUTC,
+    datetime: DateTimeUTC,
 }
 
 
