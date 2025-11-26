@@ -17,8 +17,8 @@ class AUser(Base, PrimaryKeyMixin, TimestampMixin):
 
     email: Mapped[str] = mapped_column(unique=True, index=True)
     email_verified: Mapped[bool] = mapped_column(default=False)
-    name: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    image: Mapped[str | None] = mapped_column(nullable=True, default=None)
+    name: Mapped[str | None] = mapped_column(default=None)
+    image: Mapped[str | None] = mapped_column(default=None)
     # scopes intentionally omitted; platform-dependent
 
 
@@ -32,14 +32,14 @@ class Account(Base, PrimaryKeyMixin, TimestampMixin):
         primary_key=False,
         nullable=False,
     )
-    provider: Mapped[str] = mapped_column(Text, nullable=False)
-    provider_account_id: Mapped[str] = mapped_column(Text, nullable=False)
-    access_token: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    refresh_token: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True, default=None)
-    token_type: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    scope: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    id_token: Mapped[str | None] = mapped_column(nullable=True, default=None)
+    provider: Mapped[str] = mapped_column(Text)
+    provider_account_id: Mapped[str] = mapped_column(Text)
+    access_token: Mapped[str | None] = mapped_column(default=None)
+    refresh_token: Mapped[str | None] = mapped_column(default=None)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, default=None)
+    token_type: Mapped[str | None] = mapped_column(default=None)
+    scope: Mapped[str | None] = mapped_column(default=None)
+    id_token: Mapped[str | None] = mapped_column(default=None)
 
     user: Mapped[AUser] = relationship("User", backref="accounts", lazy="selectin", init=False)
 
@@ -60,8 +60,8 @@ class Session(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
     expires_at: Mapped[datetime] = mapped_column(DateTimeUTC)
-    ip_address: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    user_agent: Mapped[str | None] = mapped_column(nullable=True, default=None)
+    ip_address: Mapped[str | None] = mapped_column(default=None)
+    user_agent: Mapped[str | None] = mapped_column(default=None)
 
     user: Mapped[AUser] = relationship("User", backref="sessions", lazy="selectin", init=False)
 
@@ -79,7 +79,7 @@ class OAuthState(Base, PrimaryKeyMixin, TimestampMixin):
         unique=None,
     )
     expires_at: Mapped[datetime] = mapped_column(DateTimeUTC)
-    code_verifier: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    redirect_url: Mapped[str | None] = mapped_column(nullable=True, default=None)
+    code_verifier: Mapped[str | None] = mapped_column(default=None)
+    redirect_url: Mapped[str | None] = mapped_column(default=None)
 
     user: Mapped[AUser] = relationship("User", backref="oauth_states", lazy="selectin", init=False)

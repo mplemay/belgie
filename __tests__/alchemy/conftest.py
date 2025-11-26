@@ -14,6 +14,11 @@ class User(AUser):
 
 @pytest_asyncio.fixture
 async def alchemy_engine() -> AsyncGenerator[AsyncEngine, None]:
+    """Create an isolated in-memory SQLite engine for testing.
+
+    Each test gets its own in-memory database, so Base.metadata.create_all
+    is safe even when tests run in parallel - there's no shared state.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
 
     @event.listens_for(engine.sync_engine, "connect")

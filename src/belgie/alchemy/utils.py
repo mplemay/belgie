@@ -14,6 +14,23 @@ def mapped_foreign_key(  # noqa: PLR0913
     nullable: bool = False,
     unique: bool | None = None,
 ) -> Mapped:
+    """Create a foreign key column with common defaults.
+
+    Args:
+        column: Target column reference (e.g., "users.id" or User.id)
+        ondelete: Action on referenced row deletion
+        onupdate: Action on referenced row update
+        primary_key: Whether this column is part of the primary key
+        nullable: Whether NULL values are allowed
+        unique: Whether values must be unique (None means no constraint)
+
+    Returns:
+        Mapped column configured as a foreign key
+
+    Note:
+        use_existing_column=True allows this column definition to coexist
+        with columns defined in mixins or parent classes without conflicts.
+    """
     return mapped_column(
         ForeignKey(
             column=column,
