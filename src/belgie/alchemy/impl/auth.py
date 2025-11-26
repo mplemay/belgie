@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie.alchemy.base import Base
 from belgie.alchemy.mixins import PrimaryKeyMixin, TimestampMixin
-from belgie.alchemy.types import DateTimeUTC, ScopesJSON
+from belgie.alchemy.types import DateTimeUTC, Scopes
 
 
 class User(Base, PrimaryKeyMixin, TimestampMixin):
@@ -34,7 +34,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     email_verified: Mapped[bool] = mapped_column(default=False)
     name: Mapped[str | None] = mapped_column(default=None)
     image: Mapped[str | None] = mapped_column(default=None)
-    scopes: Mapped[list[str] | None] = mapped_column(ScopesJSON, default=None)
+    scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
 
     # Bidirectional relationships (back_populates pattern)
     accounts: Mapped[list[Account]] = relationship(

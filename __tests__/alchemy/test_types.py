@@ -1,13 +1,14 @@
 from datetime import UTC, datetime
 from enum import StrEnum
+from unittest.mock import Mock
 
 import pytest
-from sqlalchemy import Integer
+from sqlalchemy import ARRAY, Integer, String
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from belgie.alchemy.base import Base
-from belgie.alchemy.types import DateTimeUTC, ScopesJSON
+from belgie.alchemy.types import DateTimeUTC, Scopes, ScopesJSON
 
 
 class Event(Base):
@@ -49,15 +50,15 @@ class ScopeModel(Base):
     __tablename__ = "scope_test"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)
-    scopes: Mapped[list[str] | None] = mapped_column(ScopesJSON, nullable=True)
+    scopes: Mapped[list[str] | None] = mapped_column(Scopes, nullable=True)
 
 
 @pytest.mark.asyncio
-async def test_scopesjson_roundtrip_with_strenum(
+async def test_scopes_roundtrip_with_strenum(
     alchemy_engine: AsyncEngine,
     alchemy_session: AsyncSession,
 ) -> None:
-    """Test that ScopesJSON handles StrEnum values correctly."""
+    """Test that Scopes handles StrEnum values correctly."""
 
     class AppScope(StrEnum):
         READ = "resource:read"
@@ -79,11 +80,11 @@ async def test_scopesjson_roundtrip_with_strenum(
 
 
 @pytest.mark.asyncio
-async def test_scopesjson_handles_none(
+async def test_scopes_handles_none(
     alchemy_engine: AsyncEngine,
     alchemy_session: AsyncSession,
 ) -> None:
-    """Test that ScopesJSON handles None values."""
+    """Test that Scopes handles None values."""
     async with alchemy_engine.begin() as conn:
         await conn.run_sync(ScopeModel.__table__.create, checkfirst=True)
 
@@ -96,20 +97,53 @@ async def test_scopesjson_handles_none(
     assert refreshed.scopes is None
 
 
-def test_scopesjson_converts_enum_to_string() -> None:
-    """Test that ScopesJSON process_bind_param converts StrEnum to strings."""
+def test_scopes_converts_enum_to_string() -> None:
+    """Test that Scopes process_bind_param converts StrEnum to strings."""
 
     class TestScope(StrEnum):
         FOO = "foo"
         BAR = "bar"
 
-    sj = ScopesJSON()
-    result = sj.process_bind_param([TestScope.FOO, TestScope.BAR], None)
+    scopes_type = Scopes()
+    result = scopes_type.process_bind_param([TestScope.FOO, TestScope.BAR], None)
     assert result == ["foo", "bar"]
 
 
-def test_scopesjson_handles_none_in_bind() -> None:
-    """Test that ScopesJSON process_bind_param handles None."""
-    sj = ScopesJSON()
-    result = sj.process_bind_param(None, None)
+def test_scopes_handles_none_in_bind() -> None:
+    """Test that Scopes process_bind_param handles None."""
+    scopes_type = Scopes()
+    result = scopes_type.process_bind_param(None, None)
     assert result is None
+
+
+def test_scopes_uses_array_for_postgresql() -> None:
+    """Test that Scopes uses ARRAY type for PostgreSQL dialect."""
+    scopes_type = Scopes()
+
+    # Mock PostgreSQL dialect
+    pg_dialect = Mock()
+    pg_dialect.name = "postgresql"
+    pg_dialect.type_descriptor.return_value = ARRAY(String)
+
+    result = scopes_type.load_dialect_impl(pg_dialect)
+    pg_dialect.type_descriptor.assert_called_once()
+    # Verify it was called with ARRAY type
+    call_args = pg_dialect.type_descriptor.call_args[0][0]
+    assert isinstance(call_args, ARRAY)
+
+
+def test_scopes_uses_json_for_sqlite() -> None:
+    """Test that Scopes uses JSON type for SQLite dialect."""
+    scopes_type = Scopes()
+
+    # Mock SQLite dialect
+    sqlite_dialect = Mock()
+    sqlite_dialect.name = "sqlite"
+
+    scopes_type.load_dialect_impl(sqlite_dialect)
+    sqlite_dialect.type_descriptor.assert_called_once()
+
+
+def test_scopesjson_is_alias_for_scopes() -> None:
+    """Test that ScopesJSON is an alias for Scopes (backwards compatibility)."""
+    assert ScopesJSON is Scopes
