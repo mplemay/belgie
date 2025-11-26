@@ -4,11 +4,11 @@
 
 ### High-Level Description
 
-Introduce `belgie.alchemy`, a small opinionated layer on top of SQLAlchemy 2.0 that standardizes model definitions and
-persistence patterns across the project. The module supplies a preconfigured `Base`, dataclass-friendly mapping, common
-mixins (primary key, timestamps, soft deletion), reusable column types (UTC-aware datetimes), and shared auth-oriented
-models. This aims to reduce boilerplate, enforce consistent conventions, and make database access predictable for both
-core auth models and future features.
+Introduce `belgie.alchemy`, a small opinionated layer on top of SQLAlchemy 2.0 that provides building blocks for
+database models. The module supplies a preconfigured `Base`, dataclass-friendly mapping, common mixins (primary key,
+timestamps, soft deletion), and reusable column types (UTC-aware datetimes, dialect-specific scopes). Users define
+their own concrete models using these building blocks. This aims to reduce boilerplate, enforce consistent conventions,
+and make database access predictable while giving users full control over their schema.
 
 ### Goals
 
@@ -136,16 +136,18 @@ src/belgie/
 │   ├── __init__.py                  # Re-exports Base, mixins, types
 │   ├── base.py                      # Declarative base & dataclass mapping
 │   ├── mixins.py                    # PrimaryKey and Timestamps helpers
-│   ├── types.py                     # DateTimeUTC and future shared types
-│   ├── impl/
-│   │   └── auth.py                  # Concrete auth models (AUser base, Account, Session, OAuthState)
+│   ├── types.py                     # DateTimeUTC, Scopes, and shared types
 │   └── utils.py                     # UTC helpers, annotation maps, naming conventions
+├── examples/
+│   └── alchemy/
+│       └── auth_models.py           # Reference auth model implementations (copy to use)
 └── __test__/
     └── alchemy/
+        ├── conftest.py              # Test fixtures with example auth models
         ├── test_base.py             # Base / dataclass mapping / metadata
         ├── test_mixins.py           # Column defaults, autoupdate behaviors
-        ├── test_types.py            # DateTimeUTC round-trip
-        └── test_auth_models.py      # Auth model wiring
+        ├── test_types.py            # DateTimeUTC, Scopes round-trip
+        └── test_auth_models.py      # Auth model examples
 ```
 
 ### API Design
@@ -229,21 +231,24 @@ class DateTimeUTC(TypeDecorator[datetime]):
     # normalize DB value to aware UTC datetime
 ```
 
-#### `src/belgie/alchemy/impl/auth.py` (auth model implementations, exported via `auth/adapters/protocols.py`)
+#### `examples/alchemy/auth_models.py` (reference implementation for users to copy)
 
-- Add an abstract SQLAlchemy model `AUser(Base, PrimaryKeyMixin, TimestampMixin, __abstract__=True)` that satisfies
-  `UserProtocol` and is intended for inheritance. Base fields: `id`, `email`, `email_verified`, `name`, `image`,
-  `created_at`, `updated_at`, `deleted_at`. Integrators subclass `AUser` to add scopes/claims while retaining protocol
-  compliance.
-- Provide concrete ORM models for the remaining adapter protocols, each leveraging the user relationship:
-  - `Account(Base, PrimaryKeyMixin, TimestampMixin)` with `user_id` FK to `AUser.id`; uniqueness constraint on
-    `(provider, provider_account_id)`; relationship to `AUser` (lazy="selectin").
-  - `Session(Base, PrimaryKeyMixin, TimestampMixin)` with `user_id` FK; fields `expires_at`, `ip_address`,
-    `user_agent`; uses `deleted_at` for soft delete; relationship to `AUser`.
-  - `OAuthState(Base, PrimaryKeyMixin, TimestampMixin)` storing `state`, `code_verifier`, `redirect_uri`,
-    `expires_at`, optional `user_id` FK; relationship to `AUser` when present.
-- Document relationship loading defaults (selectin) and note `AUser` is abstract to avoid table creation unless
-  subclassed; downstream projects can create `User(AUser)` and add scope/role columns.
+Provides complete, working examples of authentication models that users copy to their projects:
+
+- `User(Base, PrimaryKeyMixin, TimestampMixin)` - Concrete user model with `email`, `email_verified`, `name`, `image`,
+  and `scopes` fields. Demonstrates multiple approaches for the scopes field:
+  - Option 1: Simple `Scopes` type (works with all databases, uses ARRAY for PostgreSQL, JSON for others)
+  - Option 2: PostgreSQL native ENUM array (commented example showing how to use application-specific enums)
+  - Option 3: SQLite/MySQL JSON storage
+- `Account(Base, PrimaryKeyMixin, TimestampMixin)` - OAuth account linkage with `user_id` FK to `users.id`; uniqueness
+  constraint on `(provider, provider_account_id)`; relationship to `User` (lazy="selectin").
+- `Session(Base, PrimaryKeyMixin, TimestampMixin)` - User session with `user_id` FK; fields `expires_at`,
+  `ip_address`, `user_agent`; uses `deleted_at` for soft delete; relationship to `User`.
+- `OAuthState(Base, PrimaryKeyMixin, TimestampMixin)` - OAuth flow state storing `state`, `code_verifier`,
+  `redirect_url`, `expires_at`, optional `user_id` FK; relationship to `User` when present.
+
+These models are **templates** meant to be copied and customized. They are not imported from belgie; users own their
+schema completely.
 
 #### `src/belgie/alchemy/utils.py`
 
@@ -258,8 +263,9 @@ def build_type_annotation_map() -> dict[type, Any]: ...
 
 #### `src/belgie/alchemy/__init__.py`
 
-- Re-export `Base`, `DateTimeUTC`, and core mixins.
-- Keep public API minimal and documented via inline comments in stubs.
+- Re-export `Base`, `DateTimeUTC`, `Scopes`, and core mixins (`PrimaryKeyMixin`, `TimestampMixin`).
+- Keep public API minimal and focused on building blocks only.
+- Do not export concrete auth models - users define their own.
 
 ### Implementation Order
 
@@ -274,18 +280,20 @@ def build_type_annotation_map() -> dict[type, Any]: ...
 
 ### Tasks
 
-- [x] Types & Utils: implement `DateTimeUTC`, `utc_now`, `build_type_annotation_map`; cover naive/aware conversions.
+- [x] Types & Utils: implement `DateTimeUTC`, `Scopes`, `utc_now`, `build_type_annotation_map`; cover naive/aware
+      conversions and dialect-specific storage.
 - [x] Base: create `Base` with naming conventions, dataclass settings, `type_annotation_map`; expose `metadata`,
-  `registry`.
+      `registry`.
 - [x] Mixins: implement `PrimaryKeyMixin`, `TimestampMixin` (with `mark_deleted`); ensure server UUID default and
       index/unique constraints.
 - [ ] Repository: **Deferred** for future iteration; not implemented in current scope.
-- [x] Auth Adapter Models: add `AUser` (abstract) plus concrete `Account`/`Session`/`OAuthState` models satisfying
-      existing adapter protocols with relationships and constraints; implement in `alchemy/impl/auth.py` and re-export
-      via `auth/adapters/protocols.py`.
-- [x] Package Exports: wire `belgie/alchemy/__init__.py` and update any auth exports if needed.
-- [x] Tests: unit + async sqlite integration (types, mixins, base, auth models).
-- [x] Cleanup & Docs: minimal README/design note updates if required by reviewer.
+- [x] Example Auth Models: provide reference implementations in `examples/alchemy/auth_models.py` demonstrating proper
+      model structure with `User`, `Account`, `Session`, `OAuthState`. These are templates for users to copy, not
+      framework exports.
+- [x] Package Exports: export only building blocks (`Base`, `DateTimeUTC`, `Scopes`, `PrimaryKeyMixin`,
+      `TimestampMixin`) from `belgie/alchemy/__init__.py`.
+- [x] Tests: unit + async sqlite integration (types, mixins, base); test fixtures define example auth models locally.
+- [x] Documentation: comprehensive examples showing how to define custom models with application-specific enums.
 
 ### Testing Strategy
 
@@ -300,9 +308,9 @@ def build_type_annotation_map() -> dict[type, Any]: ...
   - `PrimaryKeyMixin` sets server default UUID when not provided; column has index+unique constraints.
   - `TimestampMixin` auto-populates `created_at`/`updated_at`; `mark_deleted` sets `deleted_at`.
 - **test_auth_models.py**
-  - `AUser` satisfies `UserProtocol` attributes and can be subclassed to add scope.
-  - `Account`, `Session`, `OAuthState` enforce FK relationships to user; uniqueness on account
-    provider/provider_account_id; session expiration handling.
+  - Example `User` model demonstrates proper structure with required fields.
+  - Example `Account`, `Session`, `OAuthState` models enforce FK relationships; uniqueness constraints work correctly.
+  - Scopes field supports StrEnum values correctly.
 
 ## Open Questions for Feedback
 

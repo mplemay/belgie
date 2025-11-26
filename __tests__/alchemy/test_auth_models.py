@@ -9,10 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from __tests__.alchemy.conftest import Account, OAuthState, Session, User
 
 
-def test_user_is_concrete() -> None:
-    """Verify User is now concrete with a table."""
+def test_user_model_structure() -> None:
+    """Verify User model demonstrates proper structure."""
     assert User.__tablename__ == "users"
     assert not getattr(User, "__abstract__", False)
+    assert hasattr(User, "email")
+    assert hasattr(User, "scopes")
 
 
 def test_user_has_scopes_field() -> None:

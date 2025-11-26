@@ -1,31 +1,70 @@
+"""Reference implementation of authentication models.
+
+USAGE: Copy these models to your project and customize as needed.
+
+These models demonstrate how to structure authentication with belgie.alchemy:
+- User model with email, verification, and optional scopes
+- Account model for OAuth provider linkage
+- Session model for user sessions
+- OAuthState model for OAuth flow state management
+
+You can:
+- Add custom fields to any model
+- Change the scopes column type (e.g., use PostgreSQL ENUM arrays)
+- Modify relationships or constraints
+- Use different table names
+
+These are templates, not meant to be imported directly from belgie.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003
-from uuid import UUID  # noqa: TC003
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from belgie.alchemy.base import Base
-from belgie.alchemy.mixins import PrimaryKeyMixin, TimestampMixin
-from belgie.alchemy.types import DateTimeUTC, Scopes
+from belgie.alchemy import Base, DateTimeUTC, PrimaryKeyMixin, Scopes, TimestampMixin
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+
+# Example: Define your application-specific scopes
+class AppScope(StrEnum):
+    """Example scope enum - customize for your application."""
+
+    READ = "resource:read"
+    WRITE = "resource:write"
+    ADMIN = "admin"
 
 
 class User(Base, PrimaryKeyMixin, TimestampMixin):
-    """Concrete User model for authentication.
+    """User model for authentication.
 
-    The scopes field supports application-specific scope enums:
+    Customize this model for your application:
+    - Add custom fields (role, department, etc.)
+    - Change scopes implementation (see Scopes Field Options below)
+    - Add relationships to your domain models
 
-    Example:
-        from enum import StrEnum
+    Scopes Field Options:
 
-        class AppScope(StrEnum):
-            READ = "resource:read"
-            ADMIN = "admin"
+    Option 1 (current): Simple string array (works with all databases):
+        scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
 
-        user = User(email="user@example.com")
-        user.scopes = [AppScope.READ, AppScope.ADMIN]
-        # Stored as: ["resource:read", "admin"]
+    Option 2: PostgreSQL native ENUM array (type-safe, PostgreSQL only):
+        from sqlalchemy import ARRAY
+        from sqlalchemy.dialects.postgresql import ENUM
+
+        scopes: Mapped[list[AppScope] | None] = mapped_column(
+            ARRAY(ENUM(AppScope, name="app_scope", create_type=True)),
+            default=None,
+        )
+
+    Option 3: Same as Option 1, explicitly using JSON for non-PostgreSQL:
+        scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
     """
 
     __tablename__ = "users"
@@ -36,7 +75,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     image: Mapped[str | None] = mapped_column(default=None)
     scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
 
-    # Bidirectional relationships (back_populates pattern)
+    # Bidirectional relationships
     accounts: Mapped[list[Account]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -55,6 +94,11 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
 
 
 class Account(Base, PrimaryKeyMixin, TimestampMixin):
+    """OAuth account linkage for users.
+
+    Links a user to their OAuth provider accounts (Google, GitHub, etc.).
+    """
+
     __tablename__ = "accounts"
 
     user_id: Mapped[UUID] = mapped_column(
@@ -86,6 +130,11 @@ class Account(Base, PrimaryKeyMixin, TimestampMixin):
 
 
 class Session(Base, PrimaryKeyMixin, TimestampMixin):
+    """User session storage.
+
+    Tracks active user sessions with expiration and metadata.
+    """
+
     __tablename__ = "sessions"
 
     user_id: Mapped[UUID] = mapped_column(
@@ -104,6 +153,11 @@ class Session(Base, PrimaryKeyMixin, TimestampMixin):
 
 
 class OAuthState(Base, PrimaryKeyMixin, TimestampMixin):
+    """OAuth flow state management.
+
+    Stores PKCE verifiers and state parameters for OAuth flows.
+    """
+
     __tablename__ = "oauth_states"
 
     state: Mapped[str] = mapped_column(unique=True, index=True)
@@ -122,4 +176,4 @@ class OAuthState(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-__all__ = ["Account", "OAuthState", "Session", "User"]
+__all__ = ["Account", "AppScope", "OAuthState", "Session", "User"]
