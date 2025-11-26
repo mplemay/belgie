@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 
 import pytest
 from sqlalchemy import select
@@ -6,12 +7,31 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from __tests__.alchemy.conftest import Account, OAuthState, Session, User
-from belgie.alchemy.impl.auth import AUser
 
 
-def test_abstract_user_flag() -> None:
-    assert AUser.__abstract__ is True
+def test_user_is_concrete() -> None:
+    """Verify User is now concrete with a table."""
     assert User.__tablename__ == "users"
+    assert not getattr(User, "__abstract__", False)
+
+
+def test_user_has_scopes_field() -> None:
+    """Verify User has scopes field that supports StrEnum."""
+
+    class TestScope(StrEnum):
+        READ = "read"
+        WRITE = "write"
+
+    user = User(email="test@example.com")
+    user.scopes = [TestScope.READ, TestScope.WRITE]
+    assert user.scopes == ["read", "write"]
+
+
+def test_user_relationships_defined() -> None:
+    """Verify User has bidirectional relationships defined."""
+    assert hasattr(User, "accounts")
+    assert hasattr(User, "sessions")
+    assert hasattr(User, "oauth_states")
 
 
 @pytest.mark.asyncio

@@ -5,11 +5,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from belgie.alchemy.base import Base
-from belgie.alchemy.impl.auth import Account, AUser, OAuthState, Session
-
-
-class User(AUser):
-    __tablename__ = "users"
+from belgie.alchemy.impl.auth import Account, OAuthState, Session, User
 
 
 @pytest_asyncio.fixture
