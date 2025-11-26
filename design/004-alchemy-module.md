@@ -4,12 +4,11 @@
 
 ### High-Level Description
 
-Introduce `belgie.alchemy` , a small opinionated layer on top of SQLAlchemy 2.0 that standardizes model definitions and
-persistence patterns across the project. The module supplies a preconfigured `Base`, dataclass-friendly
-mapping, common mixins (primary key, timestamps, soft deletion), reusable column types (UTC-aware datetimes), and a
-lightweight async repository pattern inspired by advanced-alchemy and the provided polars snippet. This aims to reduce
-boilerplate, enforce consistent conventions, and make database access predictable for both core auth models and future
-features.
+Introduce `belgie.alchemy`, a small opinionated layer on top of SQLAlchemy 2.0 that standardizes model definitions and
+persistence patterns across the project. The module supplies a preconfigured `Base`, dataclass-friendly mapping, common
+mixins (primary key, timestamps, soft deletion), reusable column types (UTC-aware datetimes), and shared auth-oriented
+models. This aims to reduce boilerplate, enforce consistent conventions, and make database access predictable for both
+core auth models and future features.
 
 ### Goals
 
@@ -17,8 +16,7 @@ features.
   timezone-aware defaults).
 - Ship drop-in mixins for primary keys, timestamps, and soft delete.
 - Offer default column types (e.g., `DateTimeUTC`) that guarantee timezone-aware storage and conversion.
-- Define a composable async repository with pagination, soft-delete helpers, and ID-based access (sorting can be added
-  per-repo as needed).
+- (Deferred) Async repository helpers will be reconsidered in a future iteration.
 - Keep dependencies minimal (SQLAlchemy-only by default) while allowing opt-in integration with advanced-alchemy
   patterns.
 
@@ -76,52 +74,9 @@ graph TD
 - **TimestampMixin** (`mixins.py`) – `created_at`, `updated_at`, `deleted_at` columns with auto-updates.
 - **DateTimeUTC** (`types.py`) – Ensures UTC-aware datetime storage.
 
-### Workflow 2: Querying via Repository
+### Workflow 2: (Deferred) Repository Helpers
 
-#### Description
-
-Code retrieves and mutates models through repositories that encapsulate common query shapes (get by id, paginate, soft
-delete).
-
-#### Usage Example
-
-```python
-from belgie.alchemy.repository import RepositoryBase, RepositoryIDMixin, RepositorySoftDeletionMixin
-from sqlalchemy.ext.asyncio import AsyncSession
-
-
-class UserRepository(
-    RepositorySoftDeletionMixin[User],
-    RepositoryIDMixin[User, UUID],
-    RepositoryBase[User],
-):
-    model = User
-
-
-async def list_recent_users(session: AsyncSession) -> list[User]:
-    repo = UserRepository(session)
-    stmt = repo.base.order_by(User.created_at.desc())
-    users, _ = await repo.paginate(stmt, limit=50, page=1)
-    return users
-```
-
-#### Call Graph
-
-```mermaid
-graph TD
-    A[Caller] --> B[UserRepository.base property]
-    B --> C[RepositorySoftDeletionMixin.filter_not_deleted]
-    C --> D[RepositoryBase.paginate]
-    D --> E[AsyncSession.execute]
-    E --> F[Return list[User], count]
-```
-
-#### Key Components
-
-- **RepositoryBase** (`repository.py`) – Core async CRUD helpers.
-- **RepositorySoftDeletionMixin** (`repository.py`) – Filters `deleted_at` and adds `soft_delete`.
-- **RepositoryIDMixin** (`repository.py`) – Lookup by typed `id`.
-- Sorting helpers can be added ad-hoc per repository; no shared sorting mixin to keep API minimal.
+Repository abstractions were scoped out for this iteration and will be reconsidered later.
 
 ### Workflow 3: Using Default Types
 
@@ -163,16 +118,12 @@ graph TD
     Base["(NEW)<br/>Base<br/>base.py"]
     Mixins["(NEW)<br/>Mixins<br/>mixins.py"]
     Types["(NEW)<br/>Types<br/>types.py"]
-    Repo["(NEW)<br/>Repository<br/>repository.py"]
     Utils["(NEW)<br/>Utilities<br/>utils.py"]
     AuthModels["Auth Models<br/>auth/..."]
 
     Base --> Types
     Mixins --> Base
-    Repo --> Base
-    Repo --> Mixins
     AuthModels --> Base
-    AuthModels --> Repo
 ```
 
 ## Detailed Design
@@ -182,20 +133,19 @@ graph TD
 ```text
 src/belgie/
 ├── alchemy/
-│   ├── __init__.py                  # Re-exports Base, mixins, types, repository
+│   ├── __init__.py                  # Re-exports Base, mixins, types
 │   ├── base.py                      # Declarative base & dataclass mapping
 │   ├── mixins.py                    # PrimaryKey and Timestamps helpers
 │   ├── types.py                     # DateTimeUTC and future shared types
-│   ├── repository.py                # Async repository + mixins (no global sorting mixin)
-│   └── impl/
-│       └── auth.py                  # Concrete auth models (AUser base, Account, Session, OAuthState)
+│   ├── impl/
+│   │   └── auth.py                  # Concrete auth models (AUser base, Account, Session, OAuthState)
 │   └── utils.py                     # UTC helpers, annotation maps, naming conventions
 └── __test__/
     └── alchemy/
         ├── test_base.py             # Base / dataclass mapping / metadata
         ├── test_mixins.py           # Column defaults, autoupdate behaviors
         ├── test_types.py            # DateTimeUTC round-trip
-        └── test_repository.py       # CRUD, pagination, soft-delete
+        └── test_auth_models.py      # Auth model wiring
 ```
 
 ### API Design
@@ -279,64 +229,6 @@ class DateTimeUTC(TypeDecorator[datetime]):
     # normalize DB value to aware UTC datetime
 ```
 
-#### `src/belgie/alchemy/repository.py`
-
-```python
-from collections.abc import AsyncGenerator, Sequence
-from dataclasses import dataclass
-from typing import Any, Protocol, Self, TypeVar
-from sqlalchemy import Select, func, over, select
-from sqlalchemy.orm import Mapped
-from sqlalchemy.sql.expression import ExecutableOption
-
-type Options = Sequence[ExecutableOption]
-M = TypeVar("M", bound=Base)  # Base is the declarative base from base.py
-
-class RepositoryProtocol[M](Protocol):
-    model: type[M]
-    async def one(self, statement: Select[tuple[M]]) -> M: ...
-    async def one_or_none(self, statement: Select[tuple[M]]) -> M | None: ...
-    async def list(self, statement: Select[tuple[M]]) -> Sequence[M]: ...
-    async def paginate(self, statement: Select[tuple[M]], *, limit: int, page: int) -> tuple[list[M], int]: ...
-    @property
-    def base(self) -> Select[tuple[M]]: ...
-    async def create(self, obj: M, *, flush: bool = False) -> M: ...
-    async def update(self, obj: M, *, update_dict: dict[str, Any] | None = None, flush: bool = False) -> M: ...
-
-@dataclass
-class RepositoryBase[M]:
-    session: AsyncSession | AsyncReadSession
-    model: type[M]
-
-    async def one(self, statement: Select[tuple[M]]) -> M: ...
-    async def one_or_none(self, statement: Select[tuple[M]]) -> M | None: ...
-    async def list(self, statement: Select[tuple[M]]) -> Sequence[M]: ...
-    async def stream(self, statement: Select[tuple[M]]) -> AsyncGenerator[M, None]: ...
-    async def paginate(self, statement: Select[tuple[M]], *, limit: int, page: int) -> tuple[list[M], int]: ...
-    @property
-    def base(self) -> Select[tuple[M]]: ...
-    async def create(self, obj: M, *, flush: bool = False) -> M: ...
-    async def update(self, obj: M, *, update_dict: dict[str, Any] | None = None, flush: bool = False) -> M: ...
-    async def count(self, statement: Select[tuple[M]]) -> int: ...
-
-class RepositorySoftDeletionMixin[M: ModelDeletedAtProtocol]:
-    @property
-    def base(self) -> Select[tuple[M]]: ...
-    @property
-    def all(self) -> Select[tuple[M]]: ...
-    async def soft_delete(self, obj: M, *, flush: bool = False) -> M: ...
-
-class RepositoryIDMixin[M: ModelIDProtocol, ID]:
-    async def get_by_id(self, id: ID, *, options: Options = (), include_deleted: bool = False) -> M | None: ...
-```
-
-Notes:
-
-- Mirrors the provided polars-style snippet but lives in-project to avoid extra deps.
-- Soft-delete mixin exposes `base` (excludes deleted) and `all` (includes deleted).
-- `base`/`all` can be cached via `cached_property` to avoid re-building statements.
-- Type parameters follow a consistent convention: `M` (model bound to `Base`), `ID` (identifier type).
-
 #### `src/belgie/alchemy/impl/auth.py` (auth model implementations, exported via `auth/adapters/protocols.py`)
 
 - Add an abstract SQLAlchemy model `AUser(Base, PrimaryKeyMixin, TimestampMixin, __abstract__=True)` that satisfies
@@ -366,7 +258,7 @@ def build_type_annotation_map() -> dict[type, Any]: ...
 
 #### `src/belgie/alchemy/__init__.py`
 
-- Re-export `Base`, `DateTimeUTC`, mixins, repository classes, and `utc_now`.
+- Re-export `Base`, `DateTimeUTC`, and core mixins.
 - Keep public API minimal and documented via inline comments in stubs.
 
 ### Implementation Order
@@ -374,29 +266,26 @@ def build_type_annotation_map() -> dict[type, Any]: ...
 1. **Types & utils (leaf)**: `DateTimeUTC`, `utc_now`, `build_type_annotation_map`, timezone coercion helpers.
 2. **Base**: `Base` class with `type_annotation_map` defined in `base.py`; ensure dataclass kwargs (`kw_only=True`).
 3. **Mixins**: `PrimaryKeyMixin` (server-generated UUID + index + unique), `TimestampMixin` (includes `mark_deleted`).
-4. **Repository layer**: core `RepositoryBase`, ID/soft-delete mixins, `Options` aliases; align with polars snippet
-   semantics.
-5. **Auth adapter models**: add `AUser` (abstract) and concrete `Account`, `Session`, `OAuthState` implementations in
+4. **Auth adapter models**: add `AUser` (abstract) and concrete `Account`, `Session`, `OAuthState` implementations in
    `alchemy/impl/auth.py`, exported via `auth/adapters/protocols.py`.
-6. **Package init**: export alchemy surface (`__init__.py`) and add adapter exports if needed.
-7. **Tests**: add per-file unit tests and async sqlite integration tests.
-8. **Docs/usage notes**: brief README section or docstring comments where relevant.
+5. **Package init**: export alchemy surface (`__init__.py`) and add adapter exports if needed.
+6. **Tests**: add per-file unit tests and async sqlite integration tests.
+7. **Docs/usage notes**: brief README section or docstring comments where relevant.
 
 ### Tasks
 
-- [ ] Types & Utils: implement `DateTimeUTC`, `utc_now`, `build_type_annotation_map`; cover naive/aware conversions.
-- [ ] Base: create `Base` with naming conventions, dataclass settings, `type_annotation_map`; expose `metadata`,
+- [x] Types & Utils: implement `DateTimeUTC`, `utc_now`, `build_type_annotation_map`; cover naive/aware conversions.
+- [x] Base: create `Base` with naming conventions, dataclass settings, `type_annotation_map`; expose `metadata`,
   `registry`.
-- [ ] Mixins: implement `PrimaryKeyMixin`, `TimestampMixin` (with `mark_deleted`); ensure server UUID default and
+- [x] Mixins: implement `PrimaryKeyMixin`, `TimestampMixin` (with `mark_deleted`); ensure server UUID default and
       index/unique constraints.
-- [ ] Repository: port protocol/base/mixins; ensure pagination uses `over(func.count())`; include `stream` helper; expose
-      `base`/`all` properties; make base class a dataclass.
-- [ ] Auth Adapter Models: add `AUser` (abstract) plus concrete `Account`/`Session`/`OAuthState` models satisfying
+- [ ] Repository: **Deferred** for future iteration; not implemented in current scope.
+- [x] Auth Adapter Models: add `AUser` (abstract) plus concrete `Account`/`Session`/`OAuthState` models satisfying
       existing adapter protocols with relationships and constraints; implement in `alchemy/impl/auth.py` and re-export
       via `auth/adapters/protocols.py`.
-- [ ] Package Exports: wire `belgie/alchemy/__init__.py` and update any auth exports if needed.
-- [ ] Tests: unit + async sqlite integration (types, mixins, base, repository, auth models).
-- [ ] Cleanup & Docs: minimal README/design note updates if required by reviewer.
+- [x] Package Exports: wire `belgie/alchemy/__init__.py` and update any auth exports if needed.
+- [x] Tests: unit + async sqlite integration (types, mixins, base, auth models).
+- [x] Cleanup & Docs: minimal README/design note updates if required by reviewer.
 
 ### Testing Strategy
 
@@ -410,16 +299,10 @@ def build_type_annotation_map() -> dict[type, Any]: ...
 - **test_mixins.py**
   - `PrimaryKeyMixin` sets server default UUID when not provided; column has index+unique constraints.
   - `TimestampMixin` auto-populates `created_at`/`updated_at`; `mark_deleted` sets `deleted_at`.
-- **test_repository.py** (async sqlite)
-  - `create/update/one/one_or_none/list` basics; `base`/`all` properties return expected filters.
-  - `paginate` returns `(items, total_count)` and respects offsets.
-  - `soft_delete` hides rows unless `include_deleted=True`; `count` aligns with visibility.
-  - `stream` yields rows incrementally (small fixture).
 - **test_auth_models.py**
   - `AUser` satisfies `UserProtocol` attributes and can be subclassed to add scope.
   - `Account`, `Session`, `OAuthState` enforce FK relationships to user; uniqueness on account
     provider/provider_account_id; session expiration handling.
-  - Repositories operate against these models (smoke CRUD + soft delete).
 
 ## Open Questions for Feedback
 

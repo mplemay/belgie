@@ -9,6 +9,7 @@ def mapped_foreign_key(  # noqa: PLR0913
     column: InstrumentedAttribute[UUID] | str,
     ondelete: Literal["cascade", "set default", "set null"] = "cascade",
     onupdate: Literal["cascade", "set default", "set null"] = "cascade",
+    *,
     primary_key: bool = True,
     nullable: bool = False,
     unique: bool | None = None,
