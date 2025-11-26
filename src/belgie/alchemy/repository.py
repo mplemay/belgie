@@ -2,159 +2,170 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar
 
 from sqlalchemy import Select, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql.base import ExecutableOption
 
-from belgie.alchemy.base import Base
-from belgie.alchemy.utils import utc_now
+from belgie.alchemy.mixins import PrimaryKeyMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 type Options = Sequence[ExecutableOption]
-
-M = TypeVar("M", bound=Base)
-ID = TypeVar("ID")
+M = TypeVar("M", bound=DeclarativeBase)
 
 
-@runtime_checkable
-class ModelIDProtocol(Protocol):
-    id: Any
+class RepositoryProtocol[M: DeclarativeBase](Protocol):
+    model: ClassVar[type[M]]
+    session: AsyncSession
 
+    async def one(self, statement: Select[tuple[M]]) -> M: ...
 
-@runtime_checkable
-class ModelDeletedAtProtocol(Protocol):
-    deleted_at: Any
+    async def one_or_none(self, statement: Select[tuple[M]]) -> M | None: ...
 
-
-class RepositoryProtocol[M_co](Protocol):
-    model: type[M_co]
-
-    async def one(self, statement: Select[tuple[M_co]]) -> M_co: ...
-
-    async def one_or_none(self, statement: Select[tuple[M_co]]) -> M_co | None: ...
-
-    async def list(self, statement: Select[tuple[M_co]]) -> Sequence[M_co]: ...
+    async def list(self, statement: Select[tuple[M]]) -> Sequence[M]: ...
 
     async def paginate(
         self,
-        statement: Select[tuple[M_co]],
+        statement: Select[tuple[M]],
         *,
         limit: int,
         page: int,
-    ) -> tuple[list[M_co], int]: ...
+    ) -> tuple[list[M], int]: ...
 
     @property
-    def base(self) -> Select[tuple[M_co]]: ...
+    def base(self) -> Select[tuple[M]]: ...
 
-    async def create(self, obj: M_co, *, flush: bool = False) -> M_co: ...
+    async def create(self, obj: M, *, flush: bool = False) -> M: ...
 
     async def update(
         self,
-        obj: M_co,
+        obj: M,
         *,
         update_dict: dict[str, Any] | None = None,
         flush: bool = False,
-    ) -> M_co: ...
+    ) -> M: ...
 
 
-@dataclass(kw_only=True)
-class RepositoryBase[M_co: M]:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Repository[M: DeclarativeBase]:
+    model: ClassVar[type[M]]
     session: AsyncSession
-    model: type[M_co] | None = None
 
-    def __post_init__(self) -> None:
-        if self.model is None:
-            self.model = getattr(type(self), "model", None)
-        if self.model is None:
-            msg = "RepositoryBase requires a model"
-            raise ValueError(msg)
-
-    async def one(self, statement: Select[tuple[M_co]]) -> M_co:
+    async def one(self, statement: Select[tuple[M]]) -> M:
         result = await self.session.execute(statement)
         return result.scalar_one()
 
-    async def one_or_none(self, statement: Select[tuple[M_co]]) -> M_co | None:
+    async def one_or_none(self, statement: Select[tuple[M]]) -> M | None:
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
-    async def list(self, statement: Select[tuple[M_co]]) -> Sequence[M_co]:
+    async def list(self, statement: Select[tuple[M]]) -> Sequence[M]:
         result = await self.session.execute(statement)
         return result.scalars().all()
 
-    async def stream(self, statement: Select[tuple[M_co]]) -> AsyncGenerator[M_co, None]:
-        async for row in self.session.stream_scalars(statement):
+    async def stream(self, statement: Select[tuple[M]]) -> AsyncGenerator[M, None]:
+        async for row in await self.session.stream_scalars(statement):
             yield row
 
     async def paginate(
         self,
-        statement: Select[tuple[M_co]],
+        statement: Select[tuple[M]],
         *,
         limit: int,
         page: int,
-    ) -> tuple[list[M_co], int]:
+    ) -> tuple[Sequence[M], int]:
         offset = max(page - 1, 0) * limit
+
         count_stmt = select(func.count()).select_from(statement.order_by(None).subquery())
-        total = (await self.session.execute(count_stmt)).scalar_one()
+        total = await self.session.execute(count_stmt)
+
         page_stmt = statement.limit(limit).offset(offset)
-        items = list(await self.list(page_stmt))
-        return items, int(total)
+        items = await self.list(page_stmt)
+
+        return items, total.scalar_one()
 
     @property
-    def base(self) -> Select[tuple[M_co]]:
+    def base(self) -> Select[tuple[M]]:
         return select(self.model)
 
-    async def create(self, obj: M_co, *, flush: bool = False) -> M_co:
+    async def create(self, obj: M, *, flush: bool = False) -> M:
         self.session.add(obj)
-        if flush:
-            await self.session.flush()
+
+        await self._flush(flush=flush)
+
         return obj
 
     async def update(
         self,
-        obj: M_co,
+        obj: M,
         *,
         update_dict: dict[str, Any] | None = None,
         flush: bool = False,
-    ) -> M_co:
+    ) -> M:
         if update_dict:
             for key, value in update_dict.items():
                 if hasattr(obj, key):
                     setattr(obj, key, value)
-        if flush:
-            await self.session.flush()
+
+        await self._flush(flush=flush)
+
         return obj
 
-    async def count(self, statement: Select[tuple[M_co]]) -> int:
+    async def count(self, statement: Select[tuple[M]]) -> int:
         count_stmt = select(func.count()).select_from(statement.order_by(None).subquery())
-        return int((await self.session.execute(count_stmt)).scalar_one())
+        result = await self.session.execute(count_stmt)
+        return result.scalar_one()
+
+    async def _flush(self, *, flush: bool) -> None:
+        if flush:
+            await self.session.flush()
 
 
-class RepositorySoftDeletionMixin[M_co: ModelDeletedAtProtocol](RepositoryBase[M_co]):
-    @property  # type: ignore[override]
-    def base(self) -> Select[tuple[M_co]]:
-        return select(self.model).where(self.model.deleted_at.is_(None))
+class RepositorySoftDeletionMixin[M: DeclarativeBase, E: TimestampMixin]:
+    async def soft_delete(self: RepositoryProtocol[M], obj: E, *, flush: bool = False) -> E:
+        obj.deleted_at = func.now()
 
-    @property
-    def all(self) -> Select[tuple[M_co]]:
-        return select(self.model)
-
-    async def soft_delete(self, obj: M_co, *, flush: bool = False) -> M_co:
-        obj.deleted_at = utc_now()
         self.session.add(obj)
         if flush:
             await self.session.flush()
+
         return obj
 
 
-class RepositoryIDMixin[M_co: ModelIDProtocol, ID_co](RepositoryBase[M_co]):
+class HasTimestampMixin[M: DeclarativeBase]:
+    async def soft_delete(self: RepositoryProtocol[M], obj: M) -> M:
+        pass
+
+
+class HasPrimaryKeyMixin[M: DeclarativeBase, E: PrimaryKeyMixin]:
+    model: type[E]
+
     async def get_by_id(
-        self,
-        id: ID_co,  # noqa: A002
+        self: RepositoryProtocol[M],
+        id: UUID,
         *,
         options: Options = (),
-        include_deleted: bool = False,
-    ) -> M_co | None:
-        base_stmt = self.all if include_deleted and hasattr(self, "all") else self.base
-        stmt = base_stmt.where(self.model.id == id).options(*options)
+    ) -> M | None:
+        stmt = self.base.where(self.model.id == id).options(*options)
         return await self.one_or_none(stmt)
+
+
+class Thing(DeclarativeBase):
+    pass
+
+
+class ThingRepository(Repository[Thing], HasPrimaryKeyMixin[Thing]):
+    model = Thing
+
+
+async def main() -> None:
+    from uuid import uuid4
+
+    a = ThingRepository(session=AsyncSession())
+
+    result = await a.get_by_id(id=uuid4())

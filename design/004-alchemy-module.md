@@ -252,12 +252,11 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=utc_now, onupdate=utc_now)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, nullable=True)
     def mark_deleted(self) -> None: ...
-    # sets deleted_at=utc_now(); does not persist
+    # sets deleted_at=func.now(); does not persist
 ```
 
 Notes:
 
-- `utc_now` helper lives in `utils.py`.
 - Mixins avoid docstrings; rely on inline comments only where needed.
 - Consider `server_default` compatibility: prefer `gen_random_uuid()` (pgcrypto); fallback to client-generated UUID if
   dialect lacks it (handled in impl).
@@ -360,8 +359,6 @@ Notes:
 from datetime import UTC, datetime
 from sqlalchemy import DateTime
 
-def utc_now() -> datetime: ...
-# returns datetime.now(UTC)
 
 def build_type_annotation_map() -> dict[type, Any]: ...
 # maps datetime -> DateTime(timezone=True) / DateTimeUTC

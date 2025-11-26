@@ -1,18 +1,26 @@
-from datetime import UTC, datetime
+from typing import Literal
+from uuid import UUID
 
-from sqlalchemy import DateTime
-
-
-def utc_now() -> datetime:
-    return datetime.now(UTC)
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import InstrumentedAttribute, Mapped, mapped_column
 
 
-def build_type_annotation_map() -> dict[type, object]:
-    # Lazy import to avoid circular dependency with base.py
-    from belgie.alchemy.types import DateTimeUTC
-
-    return {
-        datetime: DateTime(timezone=True),
-        datetime | None: DateTime(timezone=True),
-        DateTimeUTC: DateTimeUTC,
-    }
+def mapped_foreign_key(  # noqa: PLR0913
+    column: InstrumentedAttribute[UUID] | str,
+    ondelete: Literal["cascade", "set default", "set null"] = "cascade",
+    onupdate: Literal["cascade", "set default", "set null"] = "cascade",
+    primary_key: bool = True,
+    nullable: bool = False,
+    unique: bool | None = None,
+) -> Mapped:
+    return mapped_column(
+        ForeignKey(
+            column=column,
+            ondelete=ondelete,
+            onupdate=onupdate,
+        ),
+        primary_key=primary_key,
+        nullable=nullable,
+        unique=unique,
+        use_existing_column=True,
+    )

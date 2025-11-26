@@ -7,7 +7,6 @@ from belgie.alchemy.repository import (
     RepositorySoftDeletionMixin,
 )
 from belgie.alchemy.types import DateTimeUTC
-from belgie.alchemy.utils import build_type_annotation_map, utc_now
 
 __all__ = [
     "Base",
@@ -18,6 +17,4 @@ __all__ = [
     "RepositoryProtocol",
     "RepositorySoftDeletionMixin",
     "TimestampMixin",
-    "build_type_annotation_map",
-    "utc_now",
 ]

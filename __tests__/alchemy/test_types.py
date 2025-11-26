@@ -24,7 +24,7 @@ async def test_datetimeutc_roundtrip(
     async with alchemy_engine.begin() as conn:
         await conn.run_sync(Event.__table__.create, checkfirst=True)
 
-    naive = datetime(2024, 1, 1, 12, 0, 0)
+    naive = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
     aware = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
     event1 = Event(happened_at=naive)
