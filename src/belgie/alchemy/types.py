@@ -78,7 +78,3 @@ class Scopes(TypeDecorator[list[str] | None]):
         if value is None:
             return None
         return value
-
-
-# Backwards compatibility alias
-ScopesJSON = Scopes

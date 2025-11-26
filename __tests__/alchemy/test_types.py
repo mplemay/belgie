@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from belgie.alchemy.base import Base
-from belgie.alchemy.types import DateTimeUTC, Scopes, ScopesJSON
+from belgie.alchemy.types import DateTimeUTC, Scopes
 
 
 class Event(Base):
@@ -142,8 +142,3 @@ def test_scopes_uses_json_for_sqlite() -> None:
 
     scopes_type.load_dialect_impl(sqlite_dialect)
     sqlite_dialect.type_descriptor.assert_called_once()
-
-
-def test_scopesjson_is_alias_for_scopes() -> None:
-    """Test that ScopesJSON is an alias for Scopes (backwards compatibility)."""
-    assert ScopesJSON is Scopes
