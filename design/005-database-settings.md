@@ -21,7 +21,7 @@ Centralize database configuration behind a reusable `DatabaseSettings` class in 
 ### Workflow 1: Configure DatabaseSettings
 
 #### Description
-Create a `DatabaseSettings` instance (from env or kwargs) to produce an async engine, session factory, and FastAPI dependency with correct pooling/FK behavior per dialect.
+Create a `DatabaseSettings` instance (discriminated union using Pydantic) to produce an async engine, session factory, and FastAPI dependency with correct pooling/FK behavior per dialect.
 
 #### Usage Example
 ```python
@@ -37,10 +37,9 @@ get_db = db.dependency  # async generator yielding AsyncSession
 #### Call Graph
 ```mermaid
 graph TD
-    A[DatabaseSettings __init__] --> B[load settings via pydantic]
-    B --> C{type}
-    C -->|postgres| D[_postgres_url]
-    C -->|sqlite| E[_sqlite_url]
+    A[load DatabaseSettings] --> C{type discriminator}
+    C -->|postgres| D[PostgresSettings]
+    C -->|sqlite| E[SqliteSettings]
     D --> F[_build_engine]
     E --> F
     F --> G[engine: AsyncEngine]
@@ -65,14 +64,14 @@ sequenceDiagram
 ```
 
 #### Key Components
-- **DatabaseSettings** (`alchemy/settings.py:DatabaseSettings`) - validates config, builds engine/session/dependency.
-- **PostgresConfig / SqliteConfig** (`alchemy/settings.py`) - discriminated union for dialect-specific options.
-- **db.dependency** (`alchemy/settings.py:dependency`) - async generator for FastAPI DI.
+- **DatabaseSettings** (`alchemy/settings.py:DatabaseSettings`) - discriminated union (pydantic) that builds engine/session/dependency.
+- **PostgresSettings / SqliteSettings** (`alchemy/settings.py`) - concrete variants keyed by discriminator `type`.
+- **db.dependency** (`alchemy/settings.py:dependency`) - async generator for FastAPI DI (accessed directly from `db`, not via adapter).
 
 ### Workflow 2: Integrate with AlchemyAdapter
 
 #### Description
-Adapters accept `db: DatabaseSettings` instead of a raw dependency function, enabling consistent session creation and engine lifecycle management across auth and examples.
+Adapters carry a `db: DatabaseSettings` (settings object) plus a `db_runtime` (engine/session/dependency holder). They do not re-export the dependency; FastAPI wiring should use `db_runtime.dependency` directly.
 
 #### Usage Example
 ```python
@@ -87,7 +86,7 @@ adapter = AlchemyAdapter(
     account=Account,
     session=Session,
     oauth_state=OAuthState,
-    db=database_settings,
+    db=database_settings,  # stored field, not used to expose dependency
 )
 auth = Auth(settings=..., adapter=adapter, providers=...)
 ```
@@ -126,7 +125,9 @@ graph TD
 
     DatabaseSettings --> AlchemyInit
     DatabaseSettings --> AlchemyAdapter
+    DatabaseRuntime["(NEW)<br/>DatabaseRuntime<br/>alchemy/settings.py"] --> AlchemyAdapter
     DatabaseSettings --> ExampleAuth
+    DatabaseRuntime --> ExampleAuth
     DatabaseSettings --> TestFixtures
     ExampleAuth --> ExampleAuthModels
     ExampleAuth -.-> ExampleModels
@@ -163,23 +164,27 @@ docs/
 ### API Design
 
 #### `src/belgie/alchemy/settings.py`
-New configuration module wrapping SQLAlchemy async setup via Pydantic Settings.
+New configuration module using Pydantic discriminated unions for dialect selection.
 
 ```python
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from functools import cached_property
+from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-class CommonConfig(BaseSettings):
+class CommonSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BELGIE_DATABASE_", extra="ignore")
+    type: Literal["postgres", "sqlite"]
     echo: bool = False
 
-class PostgresConfig(CommonConfig):
-    type: Literal["postgres"]
+class PostgresSettings(CommonSettings):
+    type: Literal["postgres"] = "postgres"
     host: str
     port: int = 5432
     database: str
@@ -191,62 +196,32 @@ class PostgresConfig(CommonConfig):
     pool_recycle: int = 3600
     pool_pre_ping: bool = True
 
-class SqliteConfig(CommonConfig):
-    type: Literal["sqlite"]
+class SqliteSettings(CommonSettings):
+    type: Literal["sqlite"] = "sqlite"
     database: str
     enable_foreign_keys: bool = True
 
-Config = PostgresConfig | SqliteConfig  # discriminated by `type`
+DatabaseSettings = Annotated[PostgresSettings | SqliteSettings, Field(discriminator="type")]
 
-@dataclass(slots=True, kw_only=True)
-class DatabaseSettings:
-    type: Literal["postgres", "sqlite"] | None = None
-    echo: bool | None = None
-    host: str | None = None
-    port: int | None = None
-    database: str | None = None
-    username: str | None = None
-    password: SecretStr | None = None
-    pool_size: int | None = None
-    max_overflow: int | None = None
-    pool_timeout: float | None = None
-    pool_recycle: int | None = None
-    pool_pre_ping: bool | None = None
-    enable_foreign_keys: bool | None = None
-    _config: Config = field(init=False)
+class DatabaseRuntime:
+    def __init__(self, settings: DatabaseSettings) -> None:
+        self.settings = settings
 
-    def __post_init__(self) -> None:
-        payload: dict[str, Any] = {
-            "type": self.type,
-            "echo": self.echo,
-            "host": self.host,
-            "port": self.port,
-            "database": self.database,
-            "username": self.username,
-            "password": self.password,
-            "pool_size": self.pool_size,
-            "max_overflow": self.max_overflow,
-            "pool_timeout": self.pool_timeout,
-            "pool_recycle": self.pool_recycle,
-            "pool_pre_ping": self.pool_pre_ping,
-            "enable_foreign_keys": self.enable_foreign_keys,
-        }
-        self._config = self._build_config(payload)
-
-    def _build_config(self, payload: dict[str, Any]) -> Config: ...
-    @property
+    @cached_property
     def engine(self) -> AsyncEngine: ...
-    @property
+
+    @cached_property
     def session_maker(self) -> async_sessionmaker[AsyncSession]: ...
-    @property
-    def dependency(self) -> AsyncGenerator[AsyncSession, None]: ...
+
+    async def dependency(self) -> AsyncGenerator[AsyncSession, None]: ...
 ```
 
-- Engine creation (uses `self._config` resolved via pydantic, sourcing env defaults when a field is `None`):
+- Instantiate `settings = DatabaseSettings.model_validate({})` to pull from env or pass kwargs; wrap in `DatabaseRuntime` to house engine/session/dependency.
+- Engine creation per discriminator:
   - Postgres: `create_async_engine("postgresql+asyncpg://...")` with pooling params.
-  - SQLite: `create_async_engine("sqlite+aiosqlite:///{path}")`; attach FK pragma via `event.listens_for(engine.sync_engine, "connect")` when `enable_foreign_keys`.
+  - SQLite: `create_async_engine("sqlite+aiosqlite:///{path}")`; add FK pragma when `enable_foreign_keys=True`.
 - `session_maker` uses `expire_on_commit=False`.
-- `dependency` is an async generator yielding `AsyncSession` instances from `session_maker`.
+- `dependency` yields sessions from `session_maker`.
 - All heavy objects (`engine`, `session_maker`) cached via `functools.cached_property`.
 
 #### `src/belgie/alchemy/__init__.py`
@@ -281,14 +256,15 @@ Adopt shared settings and example models.
 from belgie.alchemy import Base, DatabaseSettings
 from examples.alchemy.auth_models import User, Account, Session, OAuthState
 
-database_settings = DatabaseSettings(type="sqlite", database="./belgie_auth_example.db", echo=True)
+db_settings = DatabaseSettings(type="sqlite", database="./belgie_auth_example.db", echo=True)
+db_runtime = DatabaseRuntime(db_settings)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    async with database_settings.engine.begin() as conn:
+    async with db_runtime.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-    await database_settings.engine.dispose()
+    await db_runtime.engine.dispose()
 ```
 
 Remove local `database.py`, `models.py`, `models_sqlite.py`; rely on `auth_models.py`.
