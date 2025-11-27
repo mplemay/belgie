@@ -19,17 +19,14 @@ These are templates, not meant to be imported directly from belgie.
 
 from __future__ import annotations
 
+from datetime import datetime  # noqa: TC003
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from uuid import UUID  # noqa: TC003
 
 from sqlalchemy import ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie.alchemy import Base, DateTimeUTC, PrimaryKeyMixin, Scopes, TimestampMixin
-
-if TYPE_CHECKING:
-    from datetime import datetime
-    from uuid import UUID
 
 
 # Example: Define your application-specific scopes

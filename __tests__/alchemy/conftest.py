@@ -7,7 +7,9 @@ their own models.
 
 from __future__ import annotations
 
+from datetime import datetime  # noqa: TC003
 from typing import TYPE_CHECKING
+from uuid import UUID  # noqa: TC003
 
 import pytest_asyncio
 from sqlalchemy import ForeignKey, Text, UniqueConstraint, event
@@ -18,8 +20,6 @@ from belgie.alchemy import Base, DateTimeUTC, PrimaryKeyMixin, Scopes, Timestamp
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-    from datetime import datetime
-    from uuid import UUID
 
 
 class User(Base, PrimaryKeyMixin, TimestampMixin):
