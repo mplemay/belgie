@@ -350,8 +350,8 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
 - [x] **Settings module**
   - [x] Implement `src/belgie/alchemy/settings.py` (DatabaseSettings with `dialect`, PostgresSettings, SqliteSettings).
   - [x] Add engine/session/dependency helpers with caching and FK pragma.
-- [ ] **Exports**
-  - [ ] Export `DatabaseSettings` in `src/belgie/alchemy/__init__.py`.
+- [x] **Exports**
+  - [x] Export `DatabaseSettings` in `src/belgie/alchemy/__init__.py`.
 - [ ] **Auth core**
   - [ ] Update `src/belgie/auth/core/auth.py` to accept `db: DatabaseSettings`.
   - [ ] Wire FastAPI dependencies to `auth.db.dependency` and ensure error on missing db.
