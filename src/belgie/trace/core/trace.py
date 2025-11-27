@@ -1,23 +1,22 @@
 """Main trace orchestrator."""
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable  # noqa: TC003
+from typing import Any
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from belgie.alchemy import DatabaseSettings
 from belgie.trace.adapters.protocols import TraceAdapterProtocol
 from belgie.trace.core.client import TraceClient
 from belgie.trace.core.settings import TraceSettings
-
-if TYPE_CHECKING:
-    from typing import Any
 
 
 class _TraceCallable:
     """Descriptor that makes Trace instances callable with instance-specific dependencies.
 
     This allows Depends(trace) to work seamlessly - each Trace instance gets its own
-    callable that has the adapter's database dependency baked into the signature.
+    callable that has the instance's database dependency baked into the signature.
     """
 
     def __get__(self, obj: "Any | None", objtype: "type | None" = None) -> "Any":  # noqa: ANN401
@@ -26,9 +25,15 @@ class _TraceCallable:
             # Accessed through class, return descriptor itself
             return self
 
-        # Return a callable with this instance's adapter.dependency
+        dependency: Callable[..., AsyncSession] | None = None
+        if obj.db is not None:
+            dependency = obj.db.dependency
+        elif obj.adapter and hasattr(obj.adapter, "dependency"):
+            dependency = obj.adapter.dependency  # type: ignore[assignment]
+
+        # Return a callable with this instance's preferred dependency
         def __call__(  # noqa: N807
-            db: AsyncSession | None = Depends(obj.adapter.dependency) if obj.adapter else None,  # noqa: B008
+            db: AsyncSession | None = Depends(dependency) if dependency else None,  # noqa: B008
         ) -> TraceClient:
             return TraceClient(
                 db=db,
@@ -65,12 +70,15 @@ class Trace:
         self,
         adapter: TraceAdapterProtocol | None = None,
         settings: TraceSettings | None = None,
+        db: DatabaseSettings | None = None,
     ) -> None:
         """Initialize the Trace instance.
 
         Args:
             adapter: Optional database adapter (will be required when implementing tracking)
             settings: Trace configuration settings
+            db: Optional database settings (preferred dependency source)
         """
         self.adapter = adapter
         self.settings = settings or TraceSettings()
+        self.db = db

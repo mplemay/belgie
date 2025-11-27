@@ -1,13 +1,17 @@
+from __future__ import annotations
+
+from collections.abc import Callable  # noqa: TC003
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
-from fastapi.security import SecurityScopes
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.security import SecurityScopes  # noqa: TC002
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
-from belgie.auth.adapters.alchemy import AlchemyAdapter
+from belgie.alchemy import DatabaseSettings  # noqa: TC001
+from belgie.auth.adapters.alchemy import AlchemyAdapter  # noqa: TC001
 from belgie.auth.adapters.protocols import (
     AccountProtocol,
     OAuthStateProtocol,
@@ -16,30 +20,29 @@ from belgie.auth.adapters.protocols import (
 )
 from belgie.auth.core.client import AuthClient
 from belgie.auth.core.hooks import HookRunner, Hooks
-from belgie.auth.core.settings import AuthSettings
-from belgie.auth.providers.protocols import OAuthProviderProtocol, Providers
+from belgie.auth.core.settings import AuthSettings  # noqa: TC001
+from belgie.auth.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from belgie.auth.session.manager import SessionManager
-
-if TYPE_CHECKING:
-    from typing import Any
 
 
 class _AuthCallable:
     """Descriptor that makes Auth instances callable with instance-specific dependencies.
 
     This allows Depends(auth) to work seamlessly - each Auth instance gets its own
-    callable that has the adapter's database dependency baked into the signature.
+    callable that has the Auth instance's database dependency baked into the signature.
     """
 
-    def __get__(self, obj: "Any | None", objtype: "type | None" = None) -> "Any":  # noqa: ANN401
+    def __get__(self, obj: Auth | None, objtype: type | None = None) -> object:
         """Return instance-specific callable when accessed through an instance."""
         if obj is None:
             # Accessed through class, return descriptor itself
             return self
 
-        # Return a callable with this instance's adapter.dependency
+        # Return a callable with this instance's db.dependency
+        dependency = obj.db.dependency if obj.db else obj.adapter.dependency
+
         def __call__(  # noqa: N807
-            db: AsyncSession = Depends(obj.adapter.dependency),  # noqa: B008
+            db: AsyncSession = Depends(dependency),  # noqa: B008
         ) -> AuthClient:
             return AuthClient(
                 db=db,
@@ -87,8 +90,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         ...     account=Account,
         ...     session=Session,
         ...     oauth_state=OAuthState,
-        ...     db_dependency=get_db,
         ... )
+        >>> db = DatabaseSettings(dialect={"type": "sqlite", "database": ":memory:"})
         >>>
         >>> # Explicitly pass provider settings
         >>> providers: Providers = {
@@ -98,17 +101,18 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         ...         redirect_uri="http://localhost:8000/auth/provider/google/callback",
         ...     ),
         ... }
-        >>> auth = Auth(settings=settings, adapter=adapter, providers=providers)
+        >>> auth = Auth(settings=settings, adapter=adapter, providers=providers, db=db)
         >>> app.include_router(auth.router)
     """
 
     # Use descriptor to make each instance callable with its own dependency
-    __call__ = _AuthCallable()
+    __call__: Callable[..., AuthClient] = cast("Callable[..., AuthClient]", _AuthCallable())
 
     def __init__(
         self,
         settings: AuthSettings,
         adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
+        db: DatabaseSettings | None = None,
         providers: Providers | None = None,
         hooks: Hooks | None = None,
     ) -> None:
@@ -117,14 +121,15 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         Args:
             settings: Authentication configuration including session, cookie, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
+            db: Database settings/dependency owner
             providers: Dictionary of provider settings. Each setting is callable and returns its provider.
                       If None, no providers are registered.
 
         Raises:
-            RuntimeError: If router endpoints are accessed without adapter.dependency configured
         """
         self.settings = settings
         self.adapter = adapter
+        self.db = db
 
         self.session_manager = SessionManager(
             adapter=adapter,
@@ -156,6 +161,8 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         main_router = APIRouter(prefix="/auth", tags=["auth"])
         provider_router = APIRouter(prefix="/provider")
 
+        dependency = self.db.dependency if self.db else self.adapter.dependency
+
         # Include all registered provider routers
         for provider in self.providers.values():
             # Provider's router has prefix /{provider_id}
@@ -167,12 +174,13 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
                 signin_redirect=self.settings.urls.signin_redirect,
                 signout_redirect=self.settings.urls.signout_redirect,
                 hook_runner=self.hook_runner,
+                db_dependency=dependency,
             )
             provider_router.include_router(provider_specific_router)
 
         # Add signout endpoint to main router (not provider-specific)
-        async def _get_db() -> AsyncSession:
-            return await self.adapter.dependency()  # type: ignore[misc]
+        async def _get_db(db: AsyncSession = Depends(dependency)) -> AsyncSession:  # noqa: B008
+            return db
 
         @main_router.post("/signout")
         async def signout(
@@ -225,7 +233,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> if user:
             ...     print(f"Found user: {user.email}")
         """
-        client = self(db)
+        client = self.__call__(db)
         return await client.get_user_from_session(session_id)
 
     async def sign_out(
@@ -249,7 +257,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> if success:
             ...     print("User signed out successfully")
         """
-        client = self(db)
+        client = self.__call__(db)
         return await client.sign_out(session_id)
 
     async def _get_session_from_cookie(
@@ -268,7 +276,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         Returns:
             Session if valid, None otherwise
         """
-        client = self(db)
+        client = self.__call__(db)
         return await client._get_session_from_cookie(request)  # noqa: SLF001
 
     async def user(
@@ -307,7 +315,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> async def resource_route(user: User = Security(auth.user, scopes=[Scope.READ])):
             ...     return {"data": "..."}
         """
-        client = self(db)
+        client = self.__call__(db)
         return await client.get_user(security_scopes, request)
 
     async def session(
@@ -338,5 +346,5 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             >>> async def session_info(session: Session = Depends(auth.session)):
             ...     return {"session_id": str(session.id), "expires_at": session.expires_at.isoformat()}
         """
-        client = self(db)
+        client = self.__call__(db)
         return await client.get_session(request)
