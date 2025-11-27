@@ -27,7 +27,9 @@ Create a `DatabaseSettings` instance where `dialect` is a Pydantic‑discriminat
 ```python
 from belgie.alchemy import DatabaseSettings
 
-db = DatabaseSettings()  # reads BELGIE_DATABASE_* env vars
+# explicit
+db = DatabaseSettings(dialect={"type": "sqlite", "database": "./app.db", "echo": True})
+# or via environment (BELGIE_DATABASE_TYPE=postgres etc.) using pydantic settings loading
 
 engine = db.engine
 session_maker = db.session_maker
@@ -37,7 +39,7 @@ get_db = db.dependency  # async generator yielding AsyncSession
 #### Call Graph
 ```mermaid
 graph TD
-    A[load DatabaseSettings] --> B[dialect (discriminator=type)]
+    A[load DatabaseSettings] --> B[dialect discriminator:type]
     B -->|postgres| C[PostgresSettings]
     B -->|sqlite| D[SqliteSettings]
     C --> E[_build_engine]
@@ -71,7 +73,7 @@ sequenceDiagram
 ### Workflow 2: Integrate with AlchemyAdapter
 
 #### Description
-Adapters carry `db: DatabaseSettings` (includes `dialect` and runtime helpers). They do not re-export the dependency; FastAPI wiring should use `db.dependency` directly.
+`Auth`/`Trace` carry `db: DatabaseSettings` (includes `dialect` and runtime helpers). Adapters no longer expose or accept dependencies; FastAPI wiring uses `auth.db.dependency` (or `trace.db.dependency`) directly. Adapters stay persistence-only.
 
 #### Usage Example
 ```python
@@ -79,31 +81,31 @@ from belgie.alchemy import Base, DatabaseSettings
 from belgie.auth import AlchemyAdapter, Auth
 from examples.alchemy.auth_models import User, Account, Session, OAuthState
 
-database_settings = DatabaseSettings(type="sqlite", database="./belgie_auth_example.db", echo=True)
+database_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_auth_example.db", "echo": True})
 
 adapter = AlchemyAdapter(
     user=User,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
-    db=database_settings,  # stored field, not used to expose dependency
 )
-auth = Auth(settings=..., adapter=adapter, providers=...)
+auth = Auth(settings=..., adapter=adapter, providers=..., db=database_settings)
 ```
 
 #### Call Graph
 ```mermaid
 graph TD
     A[FastAPI router] --> B[Auth.user/Auth.session deps]
-    B --> C[AlchemyAdapter.dependency]
-    C --> D[DatabaseSettings.dependency]
-    D --> E[AsyncSession]
-    E --> F[Adapter CRUD methods]
+    B --> C[DatabaseSettings.dependency]
+    C --> D[AsyncSession]
+    D --> E[Adapter CRUD methods]
 ```
 
 #### Key Components
-- **AlchemyAdapter** (`auth/adapters/alchemy.py:AlchemyAdapter`) - constructor stores `db: DatabaseSettings`; `dependency` delegates to `db.dependency`.
-- **Examples** (`examples/auth/main.py`) - instantiate `DatabaseSettings`, wire lifecycle to `engine.begin()`/`engine.dispose()`.
+- **Auth** (`auth/core/auth.py:Auth`) - owns `db: DatabaseSettings` and exposes `db.dependency` to FastAPI; passes sessions into adapter methods.
+- **Trace** (`trace/core/trace.py:Trace`) - mirrors Auth ownership of `db` for tracing; adapters remain persistence-only.
+- **AlchemyAdapter** (`auth/adapters/alchemy.py:AlchemyAdapter`) - pure persistence layer; no dependency property or db field.
+- **Examples** (`examples/auth/main.py`) - instantiate `DatabaseSettings`, wire lifecycle to `engine.begin()`/`engine.dispose()`, pass `db` into `Auth`.
 - **Tests** (`__tests__/auth/fixtures/database.py`) - use `DatabaseSettings` to produce in-memory engines and session factories.
 
 ## Dependencies
@@ -124,7 +126,10 @@ graph TD
     DocsExample["(MOD)<br/>examples/auth/README.md"]
 
     DatabaseSettings --> AlchemyInit
-    DatabaseSettings --> AlchemyAdapter
+    DatabaseSettings --> Auth
+    DatabaseSettings --> Trace
+    Auth --> AlchemyAdapter
+    Trace --> TraceAdapterProtocol
     DatabaseSettings --> ExampleAuth
     DatabaseSettings --> TestFixtures
     ExampleAuth --> ExampleAuthModels
@@ -143,9 +148,10 @@ design/
 └── 005-database-settings.md
 src/belgie/alchemy/
 ├── __init__.py              # export DatabaseSettings (MOD)
-├── settings.py              # DatabaseSettings + configs (NEW)
-src/belgie/auth/adapters/
-└── alchemy.py               # ctor/dependency signature uses DatabaseSettings (MOD)
+├── settings.py              # DatabaseSettings + configs + helpers (NEW)
+src/belgie/auth/
+├── core/auth.py             # accept db: DatabaseSettings; expose dependency (MOD)
+└── adapters/alchemy.py      # remove dependency property/param; pure persistence (MOD)
 examples/
 ├── alchemy/auth_models.py   # canonical models (reuse) (EXISTING)
 └── auth/
@@ -169,7 +175,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from functools import cached_property
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -177,7 +183,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 class PostgresSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_DATABASE_", extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore")
     type: Literal["postgres"] = "postgres"
     host: str
     port: int = 5432
@@ -192,16 +198,18 @@ class PostgresSettings(BaseSettings):
     echo: bool = False
 
 class SqliteSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_DATABASE_", extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore")
     type: Literal["sqlite"] = "sqlite"
     database: str
     enable_foreign_keys: bool = True
     echo: bool = False
 
-from typing import Annotated
-
 class DatabaseSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_DATABASE_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_DATABASE_",
+        env_nested_delimiter="__",
+        extra="ignore",
+    )
     dialect: Annotated[PostgresSettings | SqliteSettings, Field(discriminator="type")]
 
     @cached_property
@@ -230,21 +238,15 @@ __all__ = ["Base", "DatabaseSettings", "DateTimeUTC", "PrimaryKeyMixin", "Timest
 ```
 
 #### `src/belgie/auth/adapters/alchemy.py`
-Update constructor to accept settings object and delegate dependency.
+Keep constructor focused on model types only; remove `db` argument and `dependency` property. CRUD methods receive `AsyncSession` passed in by `Auth` (sourced from `auth.db.dependency`).
 
-```python
-from belgie.alchemy import DatabaseSettings
+#### `src/belgie/auth/core/auth.py`
+- Accept `db: DatabaseSettings` as a required parameter.
+- Provide `db.dependency` for FastAPI (`Auth.__call__`, routers, providers).
+- Pass `AsyncSession` instances from that dependency into adapter methods.
 
-class AlchemyAdapter(...):
-    def __init__(..., db: DatabaseSettings) -> None:
-        self.db = db
-
-    @property
-    def dependency(self) -> Callable[[], Any]:
-        return self.db.dependency
-```
-
-Internal CRUD logic remains unchanged; only dependency wiring changes.
+#### `src/belgie/trace/core/trace.py` and `trace/adapters/protocols.py`
+- Mirror the Auth change: `Trace` owns `db: DatabaseSettings`; adapters drop dependency exposure and expect `AsyncSession` to be supplied by callers.
 
 #### `examples/auth/main.py`
 Adopt shared settings and example models.
@@ -302,19 +304,22 @@ Run suite with `uv run pytest`; add type checks (`uv run ty`) and lint (`uv run 
 #### Implementation Order
 1. **Settings module**: Implement `alchemy/settings.py` with configs, engine, session, dependency.
 2. **Exports**: Update `alchemy/__init__.py` to include `DatabaseSettings`.
-3. **Adapter wiring**: Modify `auth/adapters/alchemy.py` ctor/property to accept settings object.
+3. **Core wiring**: Update `auth/core/auth.py` and `trace/core/trace.py` to own `db: DatabaseSettings` and expose `db.dependency`; remove adapter dependency plumbing.
 4. **Example alignment**: Refactor `examples/auth/main.py`; delete obsolete example database/models files.
 5. **Tests**: Refactor `__tests__/auth/fixtures/database.py` (and any dependent fixtures); adjust imports if needed.
 6. **Docs**: Update alchemy and example READMEs with new usage/migration guidance.
 
 #### Tasks
-- [ ] Create `src/belgie/alchemy/settings.py` (DatabaseSettings, PostgresConfig, SqliteConfig).
+- [ ] Create `src/belgie/alchemy/settings.py` (DatabaseSettings with `dialect`, PostgresSettings, SqliteSettings).
 - [ ] Export `DatabaseSettings` in `src/belgie/alchemy/__init__.py`.
-- [ ] Update `src/belgie/auth/adapters/alchemy.py` to accept `db: DatabaseSettings` and delegate dependency.
-- [ ] Refactor `examples/auth/main.py` to use `DatabaseSettings` + `examples.alchemy.auth_models`.
+- [ ] Update `src/belgie/auth/core/auth.py` to accept `db: DatabaseSettings`, expose `db.dependency`, and wire FastAPI deps to it.
+- [ ] Update `src/belgie/auth/adapters/alchemy.py` to drop `db`/`dependency` parameters and properties (pure persistence).
+- [ ] Update auth providers/routes to depend on `auth.db.dependency` instead of `adapter.dependency`.
+- [ ] Align `src/belgie/trace/core/trace.py` and `trace` adapters/protocols similarly (db on Trace, no dependency on adapters).
+- [ ] Refactor `examples/auth/main.py` to pass `db` to `Auth` (not adapter); remove local db/models files.
 - [ ] Delete `examples/auth/database.py`, `examples/auth/models.py`, `examples/auth/models_sqlite.py`.
 - [ ] Update test fixtures to use `DatabaseSettings`; ensure FK enforcement for SQLite.
-- [ ] Refresh documentation in `src/belgie/alchemy/README.md` and `examples/auth/README.md`.
+- [ ] Refresh documentation in `src/belgie/alchemy/README.md`, `examples/auth/README.md`, and any trace docs referencing adapter dependencies.
 - [ ] Run lint, type check, and tests.
 
 ## Open Questions
