@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 
 import pytest
 from sqlalchemy import select
@@ -18,14 +17,9 @@ def test_user_model_structure() -> None:
 
 
 def test_user_has_scopes_field() -> None:
-    """Verify User has scopes field that supports StrEnum."""
-
-    class TestScope(StrEnum):
-        READ = "read"
-        WRITE = "write"
-
+    """Verify User has scopes field that accepts list of strings."""
     user = User(email="test@example.com")
-    user.scopes = [TestScope.READ, TestScope.WRITE]
+    user.scopes = ["read", "write"]
     assert user.scopes == ["read", "write"]
 
 

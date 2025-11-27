@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
 import pytest_asyncio
-from sqlalchemy import ForeignKey, Text, UniqueConstraint, event
+from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint, event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from belgie.alchemy import Base, DateTimeUTC, PrimaryKeyMixin, Scopes, TimestampMixin
+from belgie.alchemy import Base, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -31,7 +31,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     email_verified: Mapped[bool] = mapped_column(default=False)
     name: Mapped[str | None] = mapped_column(default=None)
     image: Mapped[str | None] = mapped_column(default=None)
-    scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
+    scopes: Mapped[list[str] | None] = mapped_column(JSON, default=None)
 
     accounts: Mapped[list[Account]] = relationship(
         back_populates="user",

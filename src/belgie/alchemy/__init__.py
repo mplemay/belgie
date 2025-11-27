@@ -3,7 +3,7 @@
 This module provides opinionated defaults and utilities for SQLAlchemy:
 - Base: Declarative base with dataclass mapping and sensible defaults
 - Mixins: PrimaryKeyMixin (UUID), TimestampMixin (created/updated/deleted)
-- Types: DateTimeUTC (timezone-aware), Scopes (dialect-specific array/JSON)
+- Types: DateTimeUTC (timezone-aware datetime storage)
 
 Usage:
     from belgie.alchemy import Base, PrimaryKeyMixin, TimestampMixin, DateTimeUTC
@@ -19,12 +19,11 @@ For complete auth model examples, see examples/alchemy/auth_models.py
 
 from belgie.alchemy.base import Base
 from belgie.alchemy.mixins import PrimaryKeyMixin, TimestampMixin
-from belgie.alchemy.types import DateTimeUTC, Scopes
+from belgie.alchemy.types import DateTimeUTC
 
 __all__ = [
     "Base",
     "DateTimeUTC",
     "PrimaryKeyMixin",
-    "Scopes",
     "TimestampMixin",
 ]

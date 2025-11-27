@@ -20,22 +20,12 @@ These are templates, not meant to be imported directly from belgie.
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
-from enum import StrEnum
 from uuid import UUID  # noqa: TC003
 
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from belgie.alchemy import Base, DateTimeUTC, PrimaryKeyMixin, Scopes, TimestampMixin
-
-
-# Example: Define your application-specific scopes
-class AppScope(StrEnum):
-    """Example scope enum - customize for your application."""
-
-    READ = "resource:read"
-    WRITE = "resource:write"
-    ADMIN = "admin"
+from belgie.alchemy import Base, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
 
 
 class User(Base, PrimaryKeyMixin, TimestampMixin):
@@ -48,20 +38,28 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
 
     Scopes Field Options:
 
-    Option 1 (current): Simple string array (works with all databases):
-        scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
+    Option 1 (current): JSON storage (works with all databases):
+        from sqlalchemy import JSON
+        scopes: Mapped[list[str] | None] = mapped_column(JSON, default=None)
 
-    Option 2: PostgreSQL native ENUM array (type-safe, PostgreSQL only):
+    Option 2: PostgreSQL native ARRAY (better performance, PostgreSQL only):
+        from sqlalchemy import ARRAY, String
+        scopes: Mapped[list[str] | None] = mapped_column(ARRAY(String), default=None)
+
+    Option 3: PostgreSQL native ENUM array (type-safe, PostgreSQL only):
+        from enum import StrEnum
         from sqlalchemy import ARRAY
         from sqlalchemy.dialects.postgresql import ENUM
 
-        scopes: Mapped[list[AppScope] | None] = mapped_column(
+        class AppScope(StrEnum):
+            READ = "resource:read"
+            WRITE = "resource:write"
+            ADMIN = "admin"
+
+        scopes: Mapped[list[str] | None] = mapped_column(
             ARRAY(ENUM(AppScope, name="app_scope", create_type=True)),
             default=None,
         )
-
-    Option 3: Same as Option 1, explicitly using JSON for non-PostgreSQL:
-        scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
     """
 
     __tablename__ = "users"
@@ -70,7 +68,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     email_verified: Mapped[bool] = mapped_column(default=False)
     name: Mapped[str | None] = mapped_column(default=None)
     image: Mapped[str | None] = mapped_column(default=None)
-    scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
+    scopes: Mapped[list[str] | None] = mapped_column(JSON, default=None)
 
     # Bidirectional relationships
     accounts: Mapped[list[Account]] = relationship(
@@ -173,4 +171,4 @@ class OAuthState(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-__all__ = ["Account", "AppScope", "OAuthState", "Session", "User"]
+__all__ = ["Account", "OAuthState", "Session", "User"]
