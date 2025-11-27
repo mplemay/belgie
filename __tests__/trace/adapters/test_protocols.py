@@ -5,21 +5,12 @@ from belgie.trace.adapters.protocols import TraceAdapterProtocol
 
 def test_mock_adapter_satisfies_protocol() -> None:
     mock_adapter = Mock(spec=TraceAdapterProtocol)
-    mock_adapter.dependency = Mock()
-
-    # Protocol check - should have dependency property
-    assert hasattr(mock_adapter, "dependency")
-    assert callable(mock_adapter.dependency) or isinstance(mock_adapter.dependency, property)
+    assert isinstance(mock_adapter, TraceAdapterProtocol)
 
 
-def test_adapter_protocol_requires_dependency_property() -> None:
-    # Create a class that implements the protocol
+def test_adapter_protocol_runtime_check() -> None:
     class TestAdapter:
-        @property
-        def dependency(self):
-            return lambda: None
+        pass
 
     adapter = TestAdapter()
-
-    # Should satisfy protocol
     assert isinstance(adapter, TraceAdapterProtocol)
