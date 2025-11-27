@@ -363,9 +363,9 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
 - [ ] **Trace**
   - [ ] Update `src/belgie/trace/core/trace.py` to own `db: DatabaseSettings`; adjust callable dependency.
   - [ ] Update `trace/adapters/protocols.py` to drop dependency requirement.
-- [ ] **Examples**
-  - [ ] Refactor `examples/auth/main.py` to pass `db` to `Auth`; use `auth_models`; manage engine lifecycle.
-  - [ ] Delete `examples/auth/database.py`, `examples/auth/models.py`, `examples/auth/models_sqlite.py`.
+- [x] **Examples**
+  - [x] Refactor `examples/auth/main.py` to pass `db` to `Auth`; use `auth_models`; manage engine lifecycle.
+  - [x] Delete `examples/auth/database.py`, `examples/auth/models.py`, `examples/auth/models_sqlite.py`.
 - [ ] **Tests**
   - [ ] Update `__tests__/auth/fixtures/database.py` to use `DatabaseSettings`; ensure FK pragma.
   - [ ] Adjust any fixtures/imports broken by adapter signature change.
