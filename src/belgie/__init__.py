@@ -1,4 +1,4 @@
-"""Belgie - Modern authentication for FastAPI."""
+"""Belgie - Modern authentication and analytics for FastAPI."""
 
 __version__ = "0.1.0"
 
@@ -35,6 +35,15 @@ from belgie.auth import (
     validate_scopes,
 )
 
+# Re-export everything from belgie.trace for convenience
+from belgie.trace import (
+    Trace,
+    TraceAdapterProtocol,
+    TraceClient,
+    TraceError,
+    TraceSettings,
+)
+
 __all__ = [
     "AccountProtocol",
     "AlchemyAdapter",
@@ -59,6 +68,11 @@ __all__ = [
     "SessionManager",
     "SessionProtocol",
     "SessionSettings",
+    "Trace",
+    "TraceAdapterProtocol",
+    "TraceClient",
+    "TraceError",
+    "TraceSettings",
     "URLSettings",
     "UserProtocol",
     "__version__",
