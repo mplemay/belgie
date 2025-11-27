@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
 
+@runtime_checkable
 class TraceAdapterProtocol(Protocol):
     """Protocol for trace adapters.
 
