@@ -347,10 +347,9 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
 5. **Tests**: Refactor `__tests__/auth/fixtures/database.py` (and any dependent fixtures); adjust imports if needed.
 6. **Docs**: Update alchemy and example READMEs with new usage/migration guidance.
 
-#### Tasks
-- [ ] **Settings module**
-  - [ ] Implement `src/belgie/alchemy/settings.py` (DatabaseSettings with `dialect`, PostgresSettings, SqliteSettings).
-  - [ ] Add engine/session/dependency helpers with caching and FK pragma.
+- [x] **Settings module**
+  - [x] Implement `src/belgie/alchemy/settings.py` (DatabaseSettings with `dialect`, PostgresSettings, SqliteSettings).
+  - [x] Add engine/session/dependency helpers with caching and FK pragma.
 - [ ] **Exports**
   - [ ] Export `DatabaseSettings` in `src/belgie/alchemy/__init__.py`.
 - [ ] **Auth core**
