@@ -168,7 +168,7 @@ docs/
 ### API Design
 
 #### `src/belgie/alchemy/settings.py`
-Single `DatabaseSettings` model with a discriminated `dialect` field; runtime helpers live on the same class.
+Full pseudocode with discriminated `dialect` and validated numeric fields.
 
 ```python
 from __future__ import annotations
@@ -177,7 +177,7 @@ from collections.abc import AsyncGenerator
 from functools import cached_property
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, PositiveInt, NonNegativeInt, NonNegativeFloat
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -186,14 +186,14 @@ class PostgresSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
     type: Literal["postgres"] = "postgres"
     host: str
-    port: int = 5432
-    database: str
+    port: PositiveInt = 5432
+    database: str  # path or ":memory:"
     username: str
     password: SecretStr
-    pool_size: int = 5
-    max_overflow: int = 10
-    pool_timeout: float = 30.0
-    pool_recycle: int = 3600
+    pool_size: PositiveInt = 5
+    max_overflow: NonNegativeInt = 10
+    pool_timeout: NonNegativeFloat = 30.0
+    pool_recycle: PositiveInt = 3600
     pool_pre_ping: bool = True
     echo: bool = False
 
@@ -213,12 +213,39 @@ class DatabaseSettings(BaseSettings):
     dialect: Annotated[PostgresSettings | SqliteSettings, Field(discriminator="type")]
 
     @cached_property
-    def engine(self) -> AsyncEngine: ...
+    def engine(self) -> AsyncEngine:
+        if self.dialect.type == "postgres":
+            url = (
+                "postgresql+asyncpg://"
+                f"{self.dialect.username}:{self.dialect.password.get_secret_value()}"
+                f"@{self.dialect.host}:{self.dialect.port}/{self.dialect.database}"
+            )
+            return create_async_engine(
+                url,
+                echo=self.dialect.echo,
+                pool_size=self.dialect.pool_size,
+                max_overflow=self.dialect.max_overflow,
+                pool_timeout=self.dialect.pool_timeout,
+                pool_recycle=self.dialect.pool_recycle,
+                pool_pre_ping=self.dialect.pool_pre_ping,
+            )
+        url = f"sqlite+aiosqlite:///{self.dialect.database}"
+        engine = create_async_engine(url, echo=self.dialect.echo)
+        if self.dialect.enable_foreign_keys:
+            @event.listens_for(engine.sync_engine, "connect")
+            def _enable_fk(dbapi_conn, _conn_record) -> None:
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+        return engine
 
     @cached_property
-    def session_maker(self) -> async_sessionmaker[AsyncSession]: ...
+    def session_maker(self) -> async_sessionmaker[AsyncSession]:
+        return async_sessionmaker(self.engine, class_=AsyncSession, expire_on_commit=False)
 
-    async def dependency(self) -> AsyncGenerator[AsyncSession, None]: ...
+    async def dependency(self) -> AsyncGenerator[AsyncSession, None]:
+        async with self.session_maker() as session:
+            yield session
 ```
 
 - Instantiate `db = DatabaseSettings.model_validate({})` to pull from env or supply overrides; `dialect.type` drives branching.
@@ -286,18 +313,29 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
 
 ### Testing Strategy
 
-- **Unit** (`__tests__/auth/fixtures/database.py` or new tests under `__tests__/alchemy`):
-  - `DatabaseSettings` builds correct URLs per dialect.
-  - SQLite FK pragma enabled when `enable_foreign_keys=True`.
-  - Session factory uses `expire_on_commit=False`.
-- **Adapter**:
-  - Verify `AlchemyAdapter.dependency` delegates to `db.dependency`.
-  - CRUD operations still function when sessions come from `DatabaseSettings`.
-- **Examples**:
-  - Smoke test example startup with in-memory SQLite (create_all + dispose).
-- **Docs lint**: Ensure README snippets match API.
-
-Run suite with `uv run pytest`; add type checks (`uv run ty`) and lint (`uv run ruff check`) after code changes.
+- **alchemy/settings.py**
+  - Discriminator validation: `type=postgres` vs `type=sqlite` selects correct subclass.
+  - DSN construction: postgres URL includes host/port/user/password/db; sqlite handles file path and `:memory:`.
+  - Pooling flags honored: `pool_pre_ping`, `pool_timeout`, `pool_recycle`, `pool_size`, `max_overflow`.
+  - SQLite foreign keys enforced when `enable_foreign_keys=True`.
+  - Dependency yields `AsyncSession` with `expire_on_commit=False`; sessions are unique per invocation.
+- **auth/core/auth.py**
+  - `Auth(db=...)` exposes `db.dependency`; FastAPI dependency returns `AsyncSession`.
+  - Routers/providers pull sessions from `auth.db.dependency`, not adapter.
+- **trace/core/trace.py**
+  - Mirrors Auth: dependency available when `db` provided; adapters remain passive.
+- **auth/adapters/alchemy.py**
+  - Constructor only accepts model types.
+  - CRUD operations succeed when provided an injected `AsyncSession`; no reliance on internal db/dependency.
+- **examples/auth/main.py**
+  - Lifespan creates tables and disposes engine without leaks.
+- **fixtures**
+  - `__tests__/auth/fixtures/database.py` builds in-memory sqlite via `DatabaseSettings`; FK pragma active; session factory reusable.
+- **Integration**
+  - End-to-end sign-in/sign-out with sqlite in-memory using new dependency path.
+  - Failure case: constructing Auth without `db` raises clear error.
+- **Quality gates**
+  - Run `uv run pytest`, `uv run ty`, `uv run ruff check`.
 
 ### Implementation
 
@@ -310,17 +348,32 @@ Run suite with `uv run pytest`; add type checks (`uv run ty`) and lint (`uv run 
 6. **Docs**: Update alchemy and example READMEs with new usage/migration guidance.
 
 #### Tasks
-- [ ] Create `src/belgie/alchemy/settings.py` (DatabaseSettings with `dialect`, PostgresSettings, SqliteSettings).
-- [ ] Export `DatabaseSettings` in `src/belgie/alchemy/__init__.py`.
-- [ ] Update `src/belgie/auth/core/auth.py` to accept `db: DatabaseSettings`, expose `db.dependency`, and wire FastAPI deps to it.
-- [ ] Update `src/belgie/auth/adapters/alchemy.py` to drop `db`/`dependency` parameters and properties (pure persistence).
-- [ ] Update auth providers/routes to depend on `auth.db.dependency` instead of `adapter.dependency`.
-- [ ] Align `src/belgie/trace/core/trace.py` and `trace` adapters/protocols similarly (db on Trace, no dependency on adapters).
-- [ ] Refactor `examples/auth/main.py` to pass `db` to `Auth` (not adapter); remove local db/models files.
-- [ ] Delete `examples/auth/database.py`, `examples/auth/models.py`, `examples/auth/models_sqlite.py`.
-- [ ] Update test fixtures to use `DatabaseSettings`; ensure FK enforcement for SQLite.
-- [ ] Refresh documentation in `src/belgie/alchemy/README.md`, `examples/auth/README.md`, and any trace docs referencing adapter dependencies.
-- [ ] Run lint, type check, and tests.
+- [ ] **Settings module**
+  - [ ] Implement `src/belgie/alchemy/settings.py` (DatabaseSettings with `dialect`, PostgresSettings, SqliteSettings).
+  - [ ] Add engine/session/dependency helpers with caching and FK pragma.
+- [ ] **Exports**
+  - [ ] Export `DatabaseSettings` in `src/belgie/alchemy/__init__.py`.
+- [ ] **Auth core**
+  - [ ] Update `src/belgie/auth/core/auth.py` to accept `db: DatabaseSettings`.
+  - [ ] Wire FastAPI dependencies to `auth.db.dependency` and ensure error on missing db.
+- [ ] **Auth providers/routes**
+  - [ ] Replace `adapter.dependency` usage with `auth.db.dependency`.
+- [ ] **Auth adapter**
+  - [ ] Remove `db`/`dependency` parameters and properties from `auth/adapters/alchemy.py`.
+  - [ ] Ensure CRUD methods only take `AsyncSession` parameters.
+- [ ] **Trace**
+  - [ ] Update `src/belgie/trace/core/trace.py` to own `db: DatabaseSettings`; adjust callable dependency.
+  - [ ] Update `trace/adapters/protocols.py` to drop dependency requirement.
+- [ ] **Examples**
+  - [ ] Refactor `examples/auth/main.py` to pass `db` to `Auth`; use `auth_models`; manage engine lifecycle.
+  - [ ] Delete `examples/auth/database.py`, `examples/auth/models.py`, `examples/auth/models_sqlite.py`.
+- [ ] **Tests**
+  - [ ] Update `__tests__/auth/fixtures/database.py` to use `DatabaseSettings`; ensure FK pragma.
+  - [ ] Adjust any fixtures/imports broken by adapter signature change.
+- [ ] **Docs**
+  - [ ] Refresh `src/belgie/alchemy/README.md`, `examples/auth/README.md`, and trace docs for new dependency flow.
+- [ ] **Quality gates**
+  - [ ] Run `uv run ruff check`, `uv run ty`, `uv run pytest`.
 
 ## Open Questions
 1. Should `DatabaseSettings` optionally expose synchronous engine support for non-async FastAPI usage?
