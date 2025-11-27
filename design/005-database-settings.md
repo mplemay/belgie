@@ -37,11 +37,11 @@ get_db = db.dependency  # async generator yielding AsyncSession
 #### Call Graph
 ```mermaid
 graph TD
-    A[DatabaseSettings __init__] --> B[load settings (pydantic BaseSettings)]
+    A[DatabaseSettings __init__] --> B[load settings via pydantic]
     B --> C{type}
-    C -->|postgres| D[_postgres_url()]
-    C -->|sqlite| E[_sqlite_url()]
-    D --> F[_build_engine()]
+    C -->|postgres| D[_postgres_url]
+    C -->|sqlite| E[_sqlite_url]
+    D --> F[_build_engine]
     E --> F
     F --> G[engine: AsyncEngine]
     G --> H[session_maker: async_sessionmaker]
@@ -80,14 +80,14 @@ from belgie.alchemy import Base, DatabaseSettings
 from belgie.auth import AlchemyAdapter, Auth
 from examples.alchemy.auth_models import User, Account, Session, OAuthState
 
-db_settings = DatabaseSettings(type="sqlite", database="./belgie_auth_example.db", echo=True)
+database_settings = DatabaseSettings(type="sqlite", database="./belgie_auth_example.db", echo=True)
 
 adapter = AlchemyAdapter(
     user=User,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
-    db=db_settings,
+    db=database_settings,
 )
 auth = Auth(settings=..., adapter=adapter, providers=...)
 ```
@@ -167,15 +167,18 @@ New configuration module wrapping SQLAlchemy async setup via Pydantic Settings.
 
 ```python
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-class PostgresConfig(BaseSettings):
+class CommonConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BELGIE_DATABASE_", extra="ignore")
+    echo: bool = False
+
+class PostgresConfig(CommonConfig):
     type: Literal["postgres"]
     host: str
     port: int = 5432
@@ -187,24 +190,50 @@ class PostgresConfig(BaseSettings):
     pool_timeout: float = 30.0
     pool_recycle: int = 3600
     pool_pre_ping: bool = True
-    echo: bool = False
 
-class SqliteConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_DATABASE_", extra="ignore")
+class SqliteConfig(CommonConfig):
     type: Literal["sqlite"]
     database: str
     enable_foreign_keys: bool = True
-    echo: bool = False
 
 Config = PostgresConfig | SqliteConfig  # discriminated by `type`
 
 @dataclass(slots=True, kw_only=True)
 class DatabaseSettings:
-    config: Config
+    type: Literal["postgres", "sqlite"] | None = None
+    echo: bool | None = None
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    username: str | None = None
+    password: SecretStr | None = None
+    pool_size: int | None = None
+    max_overflow: int | None = None
+    pool_timeout: float | None = None
+    pool_recycle: int | None = None
+    pool_pre_ping: bool | None = None
+    enable_foreign_keys: bool | None = None
+    _config: Config = field(init=False)
 
-    @classmethod
-    def from_env(cls) -> Self: ...
+    def __post_init__(self) -> None:
+        payload: dict[str, Any] = {
+            "type": self.type,
+            "echo": self.echo,
+            "host": self.host,
+            "port": self.port,
+            "database": self.database,
+            "username": self.username,
+            "password": self.password,
+            "pool_size": self.pool_size,
+            "max_overflow": self.max_overflow,
+            "pool_timeout": self.pool_timeout,
+            "pool_recycle": self.pool_recycle,
+            "pool_pre_ping": self.pool_pre_ping,
+            "enable_foreign_keys": self.enable_foreign_keys,
+        }
+        self._config = self._build_config(payload)
 
+    def _build_config(self, payload: dict[str, Any]) -> Config: ...
     @property
     def engine(self) -> AsyncEngine: ...
     @property
@@ -213,8 +242,7 @@ class DatabaseSettings:
     def dependency(self) -> AsyncGenerator[AsyncSession, None]: ...
 ```
 
-- `from_env()` builds the discriminated config from environment variables (default entry).
-- Engine creation:
+- Engine creation (uses `self._config` resolved via pydantic, sourcing env defaults when a field is `None`):
   - Postgres: `create_async_engine("postgresql+asyncpg://...")` with pooling params.
   - SQLite: `create_async_engine("sqlite+aiosqlite:///{path}")`; attach FK pragma via `event.listens_for(engine.sync_engine, "connect")` when `enable_foreign_keys`.
 - `session_maker` uses `expire_on_commit=False`.
@@ -253,14 +281,14 @@ Adopt shared settings and example models.
 from belgie.alchemy import Base, DatabaseSettings
 from examples.alchemy.auth_models import User, Account, Session, OAuthState
 
-db_settings = DatabaseSettings(type="sqlite", database="./belgie_auth_example.db", echo=True)
+database_settings = DatabaseSettings(type="sqlite", database="./belgie_auth_example.db", echo=True)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    async with db_settings.engine.begin() as conn:
+    async with database_settings.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-    await db_settings.engine.dispose()
+    await database_settings.engine.dispose()
 ```
 
 Remove local `database.py`, `models.py`, `models_sqlite.py`; rely on `auth_models.py`.
