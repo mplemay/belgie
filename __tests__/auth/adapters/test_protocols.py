@@ -155,40 +155,29 @@ def test_user_with_custom_fields_satisfies_protocol() -> None:
 def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     """Verify AlchemyAdapter implements AdapterProtocol."""
 
-    async def mock_db_dependency() -> None:
-        pass
-
     adapter: AdapterProtocol = AlchemyAdapter(
         user=ExampleUser,
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
-        db_dependency=mock_db_dependency,
     )
 
-    # Check that dependency property exists and returns correct type
-    assert hasattr(adapter, "dependency")
-    db_func = adapter.dependency
-    assert db_func is mock_db_dependency
-    assert callable(db_func)
+    # Basic attribute presence checks (protocol is not runtime_checkable)
+    assert hasattr(adapter, "create_user")
+    assert hasattr(adapter, "get_user_by_id")
 
 
 def test_alchemy_adapter_dependency_property() -> None:
-    """Verify AlchemyAdapter.dependency returns the provided dependency."""
-
-    async def mock_db_dependency() -> None:
-        pass
+    """AlchemyAdapter no longer exposes dependency."""
 
     adapter = AlchemyAdapter(
         user=ExampleUser,
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
-        db_dependency=mock_db_dependency,
     )
-
-    db_func = adapter.dependency
-    assert db_func is mock_db_dependency
+    assert hasattr(adapter, "create_user")
+    assert hasattr(adapter, "get_session")
 
 
 class MockProviderSettings(BaseSettings):
@@ -210,7 +199,7 @@ class MockOAuthProvider:
 
     def get_router(
         self,
-        adapter: AdapterProtocol,
+        adapter: AdapterProtocol,  # noqa: ARG002
         cookie_settings: CookieSettings,
         session_max_age: int,
         signin_redirect: str,
@@ -224,12 +213,10 @@ class MockOAuthProvider:
 
         @router.get("/callback")
         async def callback() -> dict[str, str]:
-            # Use adapter and cookie_settings to verify they're accessible
-            db_func = adapter.dependency
             return {
                 "message": "callback",
                 "secure": str(cookie_settings.secure),
-                "has_db": str(callable(db_func)),
+                "has_db": "false",
                 "session_max_age": str(session_max_age),
             }
 
@@ -249,16 +236,11 @@ def test_mock_provider_satisfies_oauth_provider_protocol() -> None:
     assert hasattr(provider, "get_router")
     assert callable(provider.get_router)
 
-    # Create a mock adapter and cookie settings
-    async def mock_db_dependency() -> None:
-        pass
-
     adapter = AlchemyAdapter(
         user=ExampleUser,
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
-        db_dependency=mock_db_dependency,
     )
     cookie_settings = CookieSettings()
 

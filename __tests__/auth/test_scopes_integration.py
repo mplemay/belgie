@@ -7,6 +7,7 @@ user scope configurations and Security scope requirements.
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -59,23 +60,22 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter(db_session: AsyncSession) -> AlchemyAdapter:
-    async def get_db() -> AsyncSession:
-        return db_session
-
+def adapter() -> AlchemyAdapter:
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        db_dependency=get_db,
     )
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
-    # No providers needed for scope testing
-    return Auth(settings=auth_settings, adapter=adapter, providers=None)
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
+    async def get_test_db() -> AsyncSession:
+        return db_session
+
+    fake_db = SimpleNamespace(dependency=get_test_db)
+    return Auth(settings=auth_settings, adapter=adapter, providers=None, db=fake_db)
 
 
 @pytest.fixture
@@ -91,9 +91,6 @@ def app(auth: Auth, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     # Override database dependency to use test db_session
     async def get_test_db() -> AsyncSession:
         return db_session
-
-    if db_func := auth.adapter.dependency:
-        app.dependency_overrides[db_func] = get_test_db
 
     # Create Security dependencies with scopes that delegate to auth.user
     # These avoid Pydantic validation issues by wrapping the auth.user call

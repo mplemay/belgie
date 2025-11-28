@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable  # noqa: TC003
 from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict
 
 from pydantic_settings import BaseSettings
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from fastapi import APIRouter
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from belgie.auth.adapters.protocols import AdapterProtocol
     from belgie.auth.core.hooks import HookRunner
@@ -29,6 +33,7 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         signin_redirect: str,
         signout_redirect: str,
         hook_runner: HookRunner,
+        db_dependency: Callable[[], AsyncSession | AsyncGenerator[AsyncSession, None]],
     ) -> APIRouter: ...
 
 
