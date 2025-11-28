@@ -39,7 +39,10 @@ class _AuthCallable:
             return self
 
         # Return a callable with this instance's db.dependency
-        dependency = obj.db.dependency if obj.db else obj.adapter.dependency
+        if obj.db is None:
+            msg = "Auth.db must be configured with a dependency"
+            raise RuntimeError(msg)
+        dependency = obj.db.dependency
 
         def __call__(  # noqa: N807
             db: AsyncSession = Depends(dependency),  # noqa: B008
@@ -112,7 +115,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         self,
         settings: AuthSettings,
         adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
-        db: DatabaseSettings | None = None,
+        db: DatabaseSettings,
         providers: Providers | None = None,
         hooks: Hooks | None = None,
     ) -> None:
@@ -161,7 +164,10 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         main_router = APIRouter(prefix="/auth", tags=["auth"])
         provider_router = APIRouter(prefix="/provider")
 
-        dependency = self.db.dependency if self.db else self.adapter.dependency
+        if self.db is None:
+            msg = "Auth.db must be configured with a dependency"
+            raise RuntimeError(msg)
+        dependency = self.db.dependency
 
         # Include all registered provider routers
         for provider in self.providers.values():

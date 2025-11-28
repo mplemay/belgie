@@ -25,15 +25,14 @@ class _TraceCallable:
             # Accessed through class, return descriptor itself
             return self
 
-        dependency: Callable[..., AsyncSession] | None = None
-        if obj.db is not None:
-            dependency = obj.db.dependency
-        elif obj.adapter and hasattr(obj.adapter, "dependency"):
-            dependency = obj.adapter.dependency  # type: ignore[assignment]
+        if obj.db is None:
+            msg = "Trace.db must be configured with a dependency"
+            raise RuntimeError(msg)
+        dependency: Callable[..., AsyncSession] = obj.db.dependency
 
-        # Return a callable with this instance's preferred dependency
+        # Return a callable with this instance's dependency
         def __call__(  # noqa: N807
-            db: AsyncSession | None = Depends(dependency) if dependency else None,  # noqa: B008
+            db: AsyncSession | None = Depends(dependency),  # noqa: B008
         ) -> TraceClient:
             return TraceClient(
                 db=db,

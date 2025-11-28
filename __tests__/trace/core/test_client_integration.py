@@ -94,9 +94,8 @@ class TestTraceClientSettings:
         async def get_db():
             yield None
 
-        adapter.dependency = get_db
-
-        trace = Trace(settings=settings, adapter=adapter)
+        fake_db = SimpleNamespace(dependency=get_db)
+        trace = Trace(settings=settings, adapter=adapter, db=fake_db)
 
         app = FastAPI()
 
@@ -166,9 +165,8 @@ class TestDescriptorPattern:
         async def get_db():
             yield None
 
-        adapter.dependency = get_db
-
-        trace = Trace(settings=settings, adapter=adapter)
+        fake_db = SimpleNamespace(dependency=get_db)
+        trace = Trace(settings=settings, adapter=adapter, db=fake_db)
 
         app = FastAPI()
         clients_created = []
