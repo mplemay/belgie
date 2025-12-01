@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from uuid import UUID
 
 import httpx
@@ -58,10 +59,10 @@ def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: Async
         ),
     }
 
-    async def get_db_override(self):  # noqa: ARG001
+    async def get_db_override():
         yield db_session
 
-    fake_db = type("FakeDB", (), {"dependency": get_db_override})()
+    fake_db = SimpleNamespace(dependency=get_db_override)
 
     return Auth(
         settings=auth_settings,

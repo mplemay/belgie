@@ -59,6 +59,7 @@ class OAuthStateProtocol(Protocol):
     expires_at: datetime
 
 
+@runtime_checkable
 class AdapterProtocol[
     UserT: UserProtocol,
     AccountT: AccountProtocol,

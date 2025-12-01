@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -55,10 +56,10 @@ def adapter(db_session: AsyncSession) -> AlchemyAdapter:  # noqa: ARG001
 def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
     """Auth instance (AuthClient factory)."""
 
-    async def get_db_override(self):  # noqa: ARG001
+    async def get_db_override():
         yield db_session
 
-    fake_db = type("FakeDB", (), {"dependency": get_db_override})()
+    fake_db = SimpleNamespace(dependency=get_db_override)
     return Auth(settings=auth_settings, adapter=adapter, providers=None, db=fake_db)
 
 

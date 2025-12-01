@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable  # noqa: TC003
-from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, runtime_checkable
 
 from pydantic_settings import BaseSettings
 
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from belgie.auth.providers.google import GoogleProviderSettings
 
 
+@runtime_checkable
 class OAuthProviderProtocol[S: BaseSettings](Protocol):
     """Protocol that all OAuth providers must implement."""
 

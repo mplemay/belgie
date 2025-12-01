@@ -1,4 +1,6 @@
+import os
 from importlib.util import find_spec
+from urllib.parse import urlparse
 
 import pytest
 from sqlalchemy import text
@@ -165,3 +167,176 @@ def test_sqlite_settings_validation() -> None:
     assert db.dialect.database == "/tmp/test.db"  # noqa: S108
     assert db.dialect.enable_foreign_keys is False
     assert db.dialect.echo is True
+
+
+# ==================== PostgreSQL Integration Tests ====================
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_postgres_engine_connection() -> None:
+    """Test actual PostgreSQL connection and session creation.
+
+    This test requires a PostgreSQL instance to be available.
+    Set POSTGRES_TEST_URL environment variable or skip.
+    """
+    if not ASYNC_PG_AVAILABLE:
+        pytest.skip("asyncpg not installed")
+
+    # Allow configuring test database via environment
+    test_url = os.getenv("POSTGRES_TEST_URL")
+    if not test_url:
+        pytest.skip("POSTGRES_TEST_URL not set - skipping integration test")
+
+    # Parse URL components (format: postgresql://user:pass@host:port/db)
+    try:
+        parsed = urlparse(test_url)
+        db = DatabaseSettings(
+            dialect={
+                "type": "postgres",
+                "host": parsed.hostname or "localhost",
+                "port": parsed.port or 5432,
+                "database": parsed.path.lstrip("/") if parsed.path else "postgres",
+                "username": parsed.username or "postgres",
+                "password": parsed.password or "",
+            },
+        )
+
+        # Test basic connection
+        async with db.engine.connect() as conn:
+            result = await conn.execute(text("SELECT 1 as test"))
+            value = result.scalar_one()
+            assert value == 1
+
+        await db.engine.dispose()
+
+    except (OSError, IntegrityError) as e:
+        pytest.skip(f"Could not connect to PostgreSQL: {e}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_postgres_session_creation() -> None:
+    """Test that PostgreSQL session factory works correctly."""
+    if not ASYNC_PG_AVAILABLE:
+        pytest.skip("asyncpg not installed")
+
+    test_url = os.getenv("POSTGRES_TEST_URL")
+    if not test_url:
+        pytest.skip("POSTGRES_TEST_URL not set - skipping integration test")
+
+    try:
+        parsed = urlparse(test_url)
+        db = DatabaseSettings(
+            dialect={
+                "type": "postgres",
+                "host": parsed.hostname or "localhost",
+                "port": parsed.port or 5432,
+                "database": parsed.path.lstrip("/") if parsed.path else "postgres",
+                "username": parsed.username or "postgres",
+                "password": parsed.password or "",
+            },
+        )
+
+        # Test session creation
+        async with db.session_maker() as session:
+            assert isinstance(session, AsyncSession)
+            result = await session.execute(text("SELECT version()"))
+            version = result.scalar_one()
+            assert "PostgreSQL" in version
+
+        await db.engine.dispose()
+
+    except (OSError, IntegrityError) as e:
+        pytest.skip(f"Could not connect to PostgreSQL: {e}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_postgres_dependency_yields_sessions() -> None:
+    """Test that PostgreSQL dependency generator works correctly."""
+    if not ASYNC_PG_AVAILABLE:
+        pytest.skip("asyncpg not installed")
+
+    test_url = os.getenv("POSTGRES_TEST_URL")
+    if not test_url:
+        pytest.skip("POSTGRES_TEST_URL not set - skipping integration test")
+
+    try:
+        parsed = urlparse(test_url)
+        db = DatabaseSettings(
+            dialect={
+                "type": "postgres",
+                "host": parsed.hostname or "localhost",
+                "port": parsed.port or 5432,
+                "database": parsed.path.lstrip("/") if parsed.path else "postgres",
+                "username": parsed.username or "postgres",
+                "password": parsed.password or "",
+            },
+        )
+
+        # Test dependency yields working sessions
+        sessions = []
+        async for session in db.dependency():
+            sessions.append(session)
+            # Verify session works
+            result = await session.execute(text("SELECT 1"))
+            assert result.scalar_one() == 1
+            break
+
+        async for session in db.dependency():
+            sessions.append(session)
+            break
+
+        # Verify different session instances
+        assert len(sessions) == 2
+        assert sessions[0] is not sessions[1]
+
+        await db.engine.dispose()
+
+    except (OSError, IntegrityError) as e:
+        pytest.skip(f"Could not connect to PostgreSQL: {e}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_postgres_connection_pooling() -> None:
+    """Test that PostgreSQL connection pooling is configured correctly."""
+    if not ASYNC_PG_AVAILABLE:
+        pytest.skip("asyncpg not installed")
+
+    test_url = os.getenv("POSTGRES_TEST_URL")
+    if not test_url:
+        pytest.skip("POSTGRES_TEST_URL not set - skipping integration test")
+
+    try:
+        parsed = urlparse(test_url)
+        db = DatabaseSettings(
+            dialect={
+                "type": "postgres",
+                "host": parsed.hostname or "localhost",
+                "port": parsed.port or 5432,
+                "database": parsed.path.lstrip("/") if parsed.path else "postgres",
+                "username": parsed.username or "postgres",
+                "password": parsed.password or "",
+                "pool_size": 5,
+                "max_overflow": 10,
+            },
+        )
+
+        # Verify pool settings
+        assert db.dialect.pool_size == 5
+        assert db.dialect.max_overflow == 10
+
+        # Create multiple sessions to test pooling
+        sessions = []
+        for _ in range(3):
+            async with db.session_maker() as session:
+                sessions.append(session)
+                result = await session.execute(text("SELECT 1"))
+                assert result.scalar_one() == 1
+
+        await db.engine.dispose()
+
+    except (OSError, IntegrityError) as e:
+        pytest.skip(f"Could not connect to PostgreSQL: {e}")
