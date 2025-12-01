@@ -1,6 +1,6 @@
 """Main trace orchestrator."""
 
-from collections.abc import Callable  # noqa: TC003
+from collections.abc import AsyncGenerator, Callable  # noqa: TC003
 from typing import Any
 
 from fastapi import Depends
@@ -28,7 +28,7 @@ class _TraceCallable:
         if obj.db is None:
             msg = "Trace.db must be configured with a dependency"
             raise RuntimeError(msg)
-        dependency: Callable[..., AsyncSession] = obj.db.dependency
+        dependency: Callable[..., AsyncGenerator[AsyncSession, None]] = obj.db.dependency
 
         # Return a callable with this instance's dependency
         def __call__(  # noqa: N807

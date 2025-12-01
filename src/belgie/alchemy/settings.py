@@ -62,7 +62,7 @@ class DatabaseSettings(BaseSettings):
                 database=dialect.database,
             )
             return create_async_engine(
-                url.render_as_string(hide_password=False),
+                url,
                 echo=dialect.echo,
                 pool_size=dialect.pool_size,
                 max_overflow=dialect.max_overflow,
@@ -73,7 +73,7 @@ class DatabaseSettings(BaseSettings):
 
         dialect = cast("SqliteSettings", self.dialect)
         url = URL.create("sqlite+aiosqlite", database=dialect.database)
-        engine = create_async_engine(url.render_as_string(hide_password=False), echo=dialect.echo)
+        engine = create_async_engine(url, echo=dialect.echo)
 
         if dialect.enable_foreign_keys:
 

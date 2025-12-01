@@ -216,7 +216,6 @@ class MockOAuthProvider:
             return {
                 "message": "callback",
                 "secure": str(cookie_settings.secure),
-                "has_db": "false",
                 "session_max_age": str(session_max_age),
             }
 

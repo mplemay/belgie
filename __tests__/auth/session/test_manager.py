@@ -10,16 +10,12 @@ from belgie.auth.session.manager import SessionManager
 
 
 @pytest.fixture
-def adapter(db_session: AsyncSession) -> AlchemyAdapter:
-    async def get_db() -> AsyncSession:
-        return db_session
-
+def adapter(_db_session: AsyncSession) -> AlchemyAdapter:
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        db_dependency=get_db,
     )
 
 
