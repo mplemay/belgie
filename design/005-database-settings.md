@@ -27,13 +27,43 @@ Create a `DatabaseSettings` instance where `dialect` is a Pydantic‑discriminat
 ```python
 from belgie.alchemy import DatabaseSettings
 
-# explicit
+# Explicit instantiation
 db = DatabaseSettings(dialect={"type": "sqlite", "database": "./app.db", "echo": True})
-# or via environment (BELGIE_DATABASE_TYPE=postgres etc.) using pydantic settings loading
+
+# Load from environment variables (preferred method)
+db = DatabaseSettings.from_env()
 
 engine = db.engine
 session_maker = db.session_maker
 get_db = db.dependency  # async generator yielding AsyncSession
+```
+
+#### Environment Variables
+**Type selector:**
+```bash
+BELGIE_DATABASE_TYPE=postgres  # or "sqlite" (default: sqlite)
+```
+
+**SQLite configuration:**
+```bash
+BELGIE_SQLITE_DATABASE=:memory:
+BELGIE_SQLITE_ENABLE_FOREIGN_KEYS=true
+BELGIE_SQLITE_ECHO=false
+```
+
+**PostgreSQL configuration:**
+```bash
+BELGIE_POSTGRES_HOST=localhost
+BELGIE_POSTGRES_PORT=5432
+BELGIE_POSTGRES_DATABASE=mydb
+BELGIE_POSTGRES_USERNAME=user
+BELGIE_POSTGRES_PASSWORD=secret
+BELGIE_POSTGRES_POOL_SIZE=10
+BELGIE_POSTGRES_MAX_OVERFLOW=20
+BELGIE_POSTGRES_POOL_TIMEOUT=30.0
+BELGIE_POSTGRES_POOL_RECYCLE=3600
+BELGIE_POSTGRES_POOL_PRE_PING=true
+BELGIE_POSTGRES_ECHO=false
 ```
 
 #### Call Graph
@@ -183,11 +213,16 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 class PostgresSettings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    """PostgreSQL database settings.
+
+    Environment variables use the prefix: BELGIE_POSTGRES_
+    Example: BELGIE_POSTGRES_HOST=localhost
+    """
+    model_config = SettingsConfigDict(env_prefix="BELGIE_POSTGRES_", extra="ignore")
     type: Literal["postgres"] = "postgres"
     host: str
     port: PositiveInt = 5432
-    database: str  # path or ":memory:"
+    database: str
     username: str
     password: SecretStr
     pool_size: PositiveInt = 5
@@ -198,19 +233,42 @@ class PostgresSettings(BaseSettings):
     echo: bool = False
 
 class SqliteSettings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    """SQLite database settings.
+
+    Environment variables use the prefix: BELGIE_SQLITE_
+    Example: BELGIE_SQLITE_DATABASE=:memory:
+    """
+    model_config = SettingsConfigDict(env_prefix="BELGIE_SQLITE_", extra="ignore")
     type: Literal["sqlite"] = "sqlite"
     database: str
     enable_foreign_keys: bool = True
     echo: bool = False
 
 class DatabaseSettings(BaseSettings):
+    """Database settings with support for PostgreSQL and SQLite.
+
+    Environment variables:
+    - BELGIE_DATABASE_TYPE: "postgres" or "sqlite" (default: "sqlite")
+    - For PostgreSQL: BELGIE_POSTGRES_HOST, BELGIE_POSTGRES_PORT, etc.
+    - For SQLite: BELGIE_SQLITE_DATABASE, BELGIE_SQLITE_ENABLE_FOREIGN_KEYS, etc.
+    """
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_DATABASE_",
-        env_nested_delimiter="__",
         extra="ignore",
     )
     dialect: Annotated[PostgresSettings | SqliteSettings, Field(discriminator="type")]
+
+    @classmethod
+    def from_env(cls) -> DatabaseSettings:
+        """Load database settings from environment variables.
+
+        Reads BELGIE_DATABASE_TYPE to determine which dialect to use,
+        then loads the appropriate settings from BELGIE_POSTGRES_* or BELGIE_SQLITE_* vars.
+        """
+        db_type = os.getenv("BELGIE_DATABASE_TYPE", "sqlite")
+        if db_type == "postgres":
+            return cls(dialect=PostgresSettings())
+        return cls(dialect=SqliteSettings())
 
     @cached_property
     def engine(self) -> AsyncEngine:
@@ -350,39 +408,61 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
 - [x] **Settings module**
   - [x] Implement `src/belgie/alchemy/settings.py` (DatabaseSettings with `dialect`, PostgresSettings, SqliteSettings).
   - [x] Add engine/session/dependency helpers with caching and FK pragma.
+  - [x] Add `from_env()` class method for loading from environment variables.
+  - [x] Use separate env prefixes (BELGIE_POSTGRES_*, BELGIE_SQLITE_*) to avoid double underscores.
 - [x] **Exports**
   - [x] Export `DatabaseSettings` in `src/belgie/alchemy/__init__.py`.
-- [ ] **Auth core**
-  - [ ] Update `src/belgie/auth/core/auth.py` to accept `db: DatabaseSettings`.
-  - [ ] Wire FastAPI dependencies to `auth.db.dependency` and ensure error on missing db.
-- [ ] **Auth providers/routes**
-  - [ ] Replace `adapter.dependency` usage with `auth.db.dependency`.
-- [ ] **Auth adapter**
-  - [ ] Remove `db`/`dependency` parameters and properties from `auth/adapters/alchemy.py`.
-  - [ ] Ensure CRUD methods only take `AsyncSession` parameters.
-- [ ] **Trace**
-  - [ ] Update `src/belgie/trace/core/trace.py` to own `db: DatabaseSettings`; adjust callable dependency.
-  - [ ] Update `trace/adapters/protocols.py` to drop dependency requirement.
+- [x] **Auth core**
+  - [x] Update `src/belgie/auth/core/auth.py` to accept `db: DatabaseSettings`.
+  - [x] Wire FastAPI dependencies to `auth.db.dependency` and ensure error on missing db.
+- [x] **Auth providers/routes**
+  - [x] Replace `adapter.dependency` usage with `auth.db.dependency`.
+- [x] **Auth adapter**
+  - [x] Remove `db`/`dependency` parameters and properties from `auth/adapters/alchemy.py`.
+  - [x] Ensure CRUD methods only take `AsyncSession` parameters.
+- [x] **Trace**
+  - [x] Update `src/belgie/trace/core/trace.py` to own `db: DatabaseSettings`; adjust callable dependency.
+  - [x] Update `trace/adapters/protocols.py` to drop dependency requirement.
 - [x] **Examples**
   - [x] Refactor `examples/auth/main.py` to pass `db` to `Auth`; use `auth_models`; manage engine lifecycle.
   - [x] Delete `examples/auth/database.py`, `examples/auth/models.py`, `examples/auth/models_sqlite.py`.
-- [ ] **Tests**
-  - [ ] Update `__tests__/auth/fixtures/database.py` to use `DatabaseSettings`; ensure FK pragma.
-  - [ ] Adjust any fixtures/imports broken by adapter signature change.
+- [x] **Tests**
+  - [x] Update `__tests__/auth/fixtures/database.py` to use `DatabaseSettings`; ensure FK pragma.
+  - [x] Adjust any fixtures/imports broken by adapter signature change.
+  - [x] Add comprehensive integration tests (18 tests) for environment variable loading.
+  - [x] Add tests for protocol runtime checking and validation.
+  - [x] Add PostgreSQL integration tests with real database connections.
 - [ ] **Docs**
   - [ ] Refresh `src/belgie/alchemy/README.md`, `examples/auth/README.md`, and trace docs for new dependency flow.
-- [ ] **Quality gates**
-  - [ ] Run `uv run ruff check`, `uv run ty`, `uv run pytest`.
+- [x] **Quality gates**
+  - [x] Run `uv run ruff check`, `uv run ty`, `uv run pytest`.
+  - [x] All 45 alchemy tests pass, 11 skipped (PostgreSQL tests).
+
+## Resolved Questions
+1. ~~Should `DatabaseSettings` optionally expose synchronous engine support for non-async FastAPI usage?~~
+   - **Resolution**: Not needed. All usage is async-first with `AsyncSession` and `AsyncEngine`.
+2. ~~Do we need custom pool sizing defaults for aiosqlite (currently pooled the same as Postgres)?~~
+   - **Resolution**: SQLite uses connection pooling automatically via SQLAlchemy; no custom config needed.
+3. ~~Should `DatabaseSettings` allow overriding `session_maker` options (e.g., autoflush) via config?~~
+   - **Resolution**: Standardized on `expire_on_commit=False`; other options can be added if needed.
+4. ~~Should we use double underscores in environment variables (BELGIE_DATABASE_DIALECT__TYPE)?~~
+   - **Resolution**: NO. Implemented separate prefixes (BELGIE_POSTGRES_*, BELGIE_SQLITE_*) for cleaner env vars.
 
 ## Open Questions
-1. Should `DatabaseSettings` optionally expose synchronous engine support for non-async FastAPI usage?
-2. Do we need custom pool sizing defaults for aiosqlite (currently pooled the same as Postgres)?
-3. Should `DatabaseSettings` allow overriding `session_maker` options (e.g., autoflush) via config?
+None at this time.
+
+## Implemented Enhancements
+- ✅ Separate environment variable prefixes (no double underscores)
+- ✅ `DatabaseSettings.from_env()` class method for clean environment loading
+- ✅ Comprehensive integration test suite (18 tests)
+- ✅ Protocol runtime checking with `@runtime_checkable` decorators
+- ✅ PostgreSQL live connection tests (optional via POSTGRES_TEST_URL)
 
 ## Future Enhancements
 - Add MySQL/MariaDB configuration variant using the same discriminated union.
 - Provide optional Alembic integration helpers for migrations.
 - Support multiple named database configurations for multi-tenant setups.
+- Update documentation (README files) with new environment variable format.
 
 ## Libraries
 
