@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from datetime import datetime
     from uuid import UUID
 
@@ -60,6 +59,7 @@ class OAuthStateProtocol(Protocol):
     expires_at: datetime
 
 
+@runtime_checkable
 class AdapterProtocol[
     UserT: UserProtocol,
     AccountT: AccountProtocol,
@@ -164,6 +164,3 @@ class AdapterProtocol[
     async def delete_oauth_state(self, db: AsyncSession, state: str) -> bool: ...
 
     async def delete_user(self, db: AsyncSession, user_id: UUID) -> bool: ...
-
-    @property
-    def dependency(self) -> Callable[[], Any]: ...

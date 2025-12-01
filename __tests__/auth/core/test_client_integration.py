@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -40,25 +41,26 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter(db_session: AsyncSession) -> AlchemyAdapter:
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:  # noqa: ARG001
     """Adapter with test database dependency."""
-
-    async def get_db() -> AsyncSession:
-        return db_session
 
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        db_dependency=get_db,
     )
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
     """Auth instance (AuthClient factory)."""
-    return Auth(settings=auth_settings, adapter=adapter, providers=None)
+
+    async def get_db_override():
+        yield db_session
+
+    fake_db = SimpleNamespace(dependency=get_db_override)
+    return Auth(settings=auth_settings, adapter=adapter, providers=None, db=fake_db)
 
 
 @pytest.fixture

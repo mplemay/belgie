@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -16,22 +17,23 @@ def trace_settings() -> TraceSettings:
 
 
 @pytest.fixture
-def mock_adapter() -> Mock:
-    """Mock adapter for testing."""
-    adapter = Mock()
-
-    # Create an async generator that FastAPI can use as a dependency
-    async def get_db():
+def db_dependency():
+    async def _get_db():
         yield None
 
-    adapter.dependency = get_db
-    return adapter
+    return SimpleNamespace(dependency=_get_db)
 
 
 @pytest.fixture
-def trace(trace_settings: TraceSettings, mock_adapter: Mock) -> Trace:
+def mock_adapter() -> Mock:
+    """Mock adapter for testing."""
+    return Mock()
+
+
+@pytest.fixture
+def trace(trace_settings: TraceSettings, mock_adapter: Mock, db_dependency) -> Trace:
     """Trace instance (TraceClient factory)."""
-    return Trace(settings=trace_settings, adapter=mock_adapter)
+    return Trace(settings=trace_settings, adapter=mock_adapter, db=db_dependency)
 
 
 @pytest.fixture
@@ -92,9 +94,8 @@ class TestTraceClientSettings:
         async def get_db():
             yield None
 
-        adapter.dependency = get_db
-
-        trace = Trace(settings=settings, adapter=adapter)
+        fake_db = SimpleNamespace(dependency=get_db)
+        trace = Trace(settings=settings, adapter=adapter, db=fake_db)
 
         app = FastAPI()
 
@@ -164,9 +165,8 @@ class TestDescriptorPattern:
         async def get_db():
             yield None
 
-        adapter.dependency = get_db
-
-        trace = Trace(settings=settings, adapter=adapter)
+        fake_db = SimpleNamespace(dependency=get_db)
+        trace = Trace(settings=settings, adapter=adapter, db=fake_db)
 
         app = FastAPI()
         clients_created = []

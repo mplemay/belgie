@@ -51,9 +51,13 @@ async def test_primary_key_unique_constraint(alchemy_session: AsyncSession) -> N
     alchemy_session.add(user1)
     await alchemy_session.commit()
 
+    # Save the ID and expunge user1 to avoid identity conflicts
+    user1_id = user1.id
+    alchemy_session.expunge(user1)
+
     # Try to create another user with the same ID
     user2 = User(email="user2@example.com")
-    user2.id = user1.id  # Force same ID
+    user2.id = user1_id  # Force same ID
 
     alchemy_session.add(user2)
     with pytest.raises(IntegrityError):

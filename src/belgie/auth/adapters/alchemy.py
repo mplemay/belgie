@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -28,13 +27,11 @@ class AlchemyAdapter[
         account: type[AccountT],
         session: type[SessionT],
         oauth_state: type[OAuthStateT],
-        db_dependency: Callable[[], Any],
     ) -> None:
         self.user_model = user
         self.account_model = account
         self.session_model = session
         self.oauth_state_model = oauth_state
-        self.db_dependency = db_dependency
 
     async def create_user(
         self,
@@ -325,12 +322,3 @@ class AlchemyAdapter[
             raise
 
         return result.rowcount > 0  # type: ignore[attr-defined]
-
-    @property
-    def dependency(self) -> Callable[[], Any]:
-        """FastAPI dependency for database sessions.
-
-        Returns:
-            Database dependency callable
-        """
-        return self.db_dependency

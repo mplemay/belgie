@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict
+from collections.abc import Callable  # noqa: TC003
+from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, runtime_checkable
 
 from pydantic_settings import BaseSettings
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from fastapi import APIRouter
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from belgie.auth.adapters.protocols import AdapterProtocol
     from belgie.auth.core.hooks import HookRunner
@@ -13,6 +17,7 @@ if TYPE_CHECKING:
     from belgie.auth.providers.google import GoogleProviderSettings
 
 
+@runtime_checkable
 class OAuthProviderProtocol[S: BaseSettings](Protocol):
     """Protocol that all OAuth providers must implement."""
 
@@ -29,6 +34,7 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         signin_redirect: str,
         signout_redirect: str,
         hook_runner: HookRunner,
+        db_dependency: Callable[[], AsyncSession | AsyncGenerator[AsyncSession, None]],
     ) -> APIRouter: ...
 
 

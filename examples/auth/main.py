@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Security
 
+from belgie.alchemy import Base, DatabaseSettings
 from belgie.auth import (
     AlchemyAdapter,
     Auth,
@@ -12,14 +13,17 @@ from belgie.auth import (
     URLSettings,
 )
 from belgie.auth.providers.google import GoogleProviderSettings
-from examples.auth.database import get_db, init_db
-from examples.auth.models import Account, OAuthState, Session, User
+from examples.alchemy.auth_models import Account, OAuthState, Session, User
+
+db_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_auth_example.db", "echo": True})
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    await init_db()
+    async with db_settings.engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
+    await db_settings.engine.dispose()
 
 
 app = FastAPI(title="Belgie Example App", lifespan=lifespan)
@@ -47,12 +51,12 @@ adapter = AlchemyAdapter(
     account=Account,
     session=Session,
     oauth_state=OAuthState,
-    db_dependency=get_db,
 )
 
 auth = Auth(
     settings=auth_settings,
     adapter=adapter,
+    db=db_settings,
     providers={
         "google": GoogleProviderSettings(
             client_id="your-google-client-id",

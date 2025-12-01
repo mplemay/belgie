@@ -43,7 +43,10 @@ def test_descriptor_returns_self_when_accessed_on_class() -> None:
 
 
 def test_descriptor_returns_callable_when_accessed_on_instance() -> None:
-    trace = Trace()
+    mock_db = Mock()
+    mock_db.dependency = Mock()
+
+    trace = Trace(db=mock_db)
     descriptor = Trace.__call__
 
     # When accessed on instance, should return a callable
@@ -57,8 +60,11 @@ def test_trace_callable_returns_trace_client() -> None:
     mock_dependency = Mock(return_value=None)
     mock_adapter.dependency = mock_dependency
 
+    mock_db = Mock()
+    mock_db.dependency = Mock()
+
     settings = TraceSettings(enabled=False)
-    trace = Trace(adapter=mock_adapter, settings=settings)
+    trace = Trace(adapter=mock_adapter, settings=settings, db=mock_db)
 
     # Get the callable
     trace_callable = trace.__call__.__get__(trace, Trace)  # type: ignore[attr-defined]
@@ -72,7 +78,10 @@ def test_trace_callable_returns_trace_client() -> None:
 
 
 def test_trace_callable_without_adapter() -> None:
-    trace = Trace()
+    mock_db = Mock()
+    mock_db.dependency = Mock()
+
+    trace = Trace(db=mock_db)
 
     # Get the callable
     trace_callable = trace.__call__.__get__(trace, Trace)  # type: ignore[attr-defined]

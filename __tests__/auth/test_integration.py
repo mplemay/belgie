@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from uuid import UUID
 
 import httpx
@@ -37,21 +38,17 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter(db_session: AsyncSession) -> AlchemyAdapter:
-    async def get_db() -> AsyncSession:
-        return db_session
-
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:  # noqa: ARG001
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        db_dependency=get_db,
     )
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
     # Pass provider settings (not instances)
     providers = {
         "google": GoogleProviderSettings(
@@ -62,10 +59,16 @@ def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
         ),
     }
 
+    async def get_db_override():
+        yield db_session
+
+    fake_db = SimpleNamespace(dependency=get_db_override)
+
     return Auth(
         settings=auth_settings,
         adapter=adapter,
         providers=providers,
+        db=fake_db,
     )
 
 

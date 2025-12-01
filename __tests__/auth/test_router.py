@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -37,21 +38,17 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter(db_session: AsyncSession) -> AlchemyAdapter:
-    async def get_db() -> AsyncSession:
-        return db_session
-
+def adapter() -> AlchemyAdapter:
     return AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        db_dependency=get_db,
     )
 
 
 @pytest.fixture
-def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
+def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Auth:
     # Include Google provider for router testing
     providers = {
         "google": GoogleProviderSettings(
@@ -61,16 +58,18 @@ def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter) -> Auth:
             scopes=["openid", "email", "profile"],
         ),
     }
-    return Auth(settings=auth_settings, adapter=adapter, providers=providers)
-
-
-@pytest.fixture
-def app(auth: Auth, db_session: AsyncSession) -> FastAPI:
-    app = FastAPI()
 
     async def get_db_override() -> AsyncSession:
         return db_session
 
+    fake_db = SimpleNamespace(dependency=get_db_override)
+
+    return Auth(settings=auth_settings, adapter=adapter, providers=providers, db=fake_db)
+
+
+@pytest.fixture
+def app(auth: Auth) -> FastAPI:
+    app = FastAPI()
     app.include_router(auth.router, dependencies=[])
 
     return app

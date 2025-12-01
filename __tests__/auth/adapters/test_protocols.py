@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
+from unittest.mock import Mock
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter
@@ -16,7 +17,7 @@ from belgie.auth.adapters.protocols import (
     UserProtocol,
 )
 from belgie.auth.core.settings import CookieSettings
-from belgie.auth.providers.protocols import OAuthProviderProtocol  # noqa: TC001
+from belgie.auth.providers.protocols import OAuthProviderProtocol
 
 
 @dataclass
@@ -153,42 +154,51 @@ def test_user_with_custom_fields_satisfies_protocol() -> None:
 
 
 def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
-    """Verify AlchemyAdapter implements AdapterProtocol."""
-
-    async def mock_db_dependency() -> None:
-        pass
-
-    adapter: AdapterProtocol = AlchemyAdapter(
-        user=ExampleUser,
-        account=ExampleAccount,
-        session=ExampleSession,
-        oauth_state=ExampleOAuthState,
-        db_dependency=mock_db_dependency,
-    )
-
-    # Check that dependency property exists and returns correct type
-    assert hasattr(adapter, "dependency")
-    db_func = adapter.dependency
-    assert db_func is mock_db_dependency
-    assert callable(db_func)
-
-
-def test_alchemy_adapter_dependency_property() -> None:
-    """Verify AlchemyAdapter.dependency returns the provided dependency."""
-
-    async def mock_db_dependency() -> None:
-        pass
+    """Verify AlchemyAdapter implements AdapterProtocol using runtime checks."""
 
     adapter = AlchemyAdapter(
         user=ExampleUser,
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
-        db_dependency=mock_db_dependency,
     )
 
-    db_func = adapter.dependency
-    assert db_func is mock_db_dependency
+    # Runtime protocol check - AdapterProtocol is now runtime_checkable
+    assert isinstance(adapter, AdapterProtocol)
+
+    # Verify all required methods are callable
+    assert callable(adapter.create_user)
+    assert callable(adapter.get_user_by_id)
+    assert callable(adapter.get_user_by_email)
+    assert callable(adapter.update_user)
+    assert callable(adapter.create_account)
+    assert callable(adapter.get_account)
+    assert callable(adapter.get_account_by_user_and_provider)
+    assert callable(adapter.update_account)
+    assert callable(adapter.create_session)
+    assert callable(adapter.get_session)
+    assert callable(adapter.update_session)
+    assert callable(adapter.delete_session)
+    assert callable(adapter.delete_expired_sessions)
+    assert callable(adapter.create_oauth_state)
+    assert callable(adapter.get_oauth_state)
+    assert callable(adapter.delete_oauth_state)
+    assert callable(adapter.delete_user)
+
+
+def test_alchemy_adapter_no_longer_has_dependency() -> None:
+    """AlchemyAdapter no longer exposes dependency property."""
+
+    adapter = AlchemyAdapter(
+        user=ExampleUser,
+        account=ExampleAccount,
+        session=ExampleSession,
+        oauth_state=ExampleOAuthState,
+    )
+
+    # Verify adapter is valid but doesn't have dependency property
+    assert isinstance(adapter, AdapterProtocol)
+    assert not hasattr(adapter, "dependency")
 
 
 class MockProviderSettings(BaseSettings):
@@ -210,11 +220,13 @@ class MockOAuthProvider:
 
     def get_router(
         self,
-        adapter: AdapterProtocol,
+        adapter: AdapterProtocol,  # noqa: ARG002
         cookie_settings: CookieSettings,
         session_max_age: int,
         signin_redirect: str,
         signout_redirect: str,  # noqa: ARG002
+        hook_runner,  # noqa: ARG002
+        db_dependency,  # noqa: ARG002
     ) -> APIRouter:
         router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
@@ -224,12 +236,9 @@ class MockOAuthProvider:
 
         @router.get("/callback")
         async def callback() -> dict[str, str]:
-            # Use adapter and cookie_settings to verify they're accessible
-            db_func = adapter.dependency
             return {
                 "message": "callback",
                 "secure": str(cookie_settings.secure),
-                "has_db": str(callable(db_func)),
                 "session_max_age": str(session_max_age),
             }
 
@@ -237,30 +246,31 @@ class MockOAuthProvider:
 
 
 def test_mock_provider_satisfies_oauth_provider_protocol() -> None:
-    """Verify MockOAuthProvider implements OAuthProviderProtocol."""
+    """Verify MockOAuthProvider implements OAuthProviderProtocol using runtime checks."""
     settings = MockProviderSettings()
-    provider: OAuthProviderProtocol = MockOAuthProvider(settings)
+    provider = MockOAuthProvider(settings)
 
-    # Check provider_id
+    # Runtime protocol check - OAuthProviderProtocol is now runtime_checkable
+    assert isinstance(provider, OAuthProviderProtocol)
+
+    # Verify provider_id property
     assert hasattr(provider, "provider_id")
     assert provider.provider_id == "mock"
 
-    # Check get_router method
-    assert hasattr(provider, "get_router")
+    # Verify get_router method is callable and returns proper type
     assert callable(provider.get_router)
-
-    # Create a mock adapter and cookie settings
-    async def mock_db_dependency() -> None:
-        pass
 
     adapter = AlchemyAdapter(
         user=ExampleUser,
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
-        db_dependency=mock_db_dependency,
     )
     cookie_settings = CookieSettings()
+
+    # Mock hook_runner and db_dependency for the test
+    mock_hook_runner = Mock()
+    mock_db_dependency = Mock()
 
     router = provider.get_router(
         adapter,
@@ -268,6 +278,13 @@ def test_mock_provider_satisfies_oauth_provider_protocol() -> None:
         session_max_age=3600,
         signin_redirect="/dashboard",
         signout_redirect="/",
+        hook_runner=mock_hook_runner,
+        db_dependency=mock_db_dependency,
     )
     assert isinstance(router, APIRouter)
     assert router.prefix == "/mock"
+
+    # Verify router has expected routes (paths include prefix)
+    route_paths = [route.path for route in router.routes]
+    assert "/mock/signin" in route_paths
+    assert "/mock/callback" in route_paths
