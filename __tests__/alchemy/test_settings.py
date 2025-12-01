@@ -76,8 +76,8 @@ async def test_sqlite_fk_violations_raise_error() -> None:
 
     async with db.session_maker() as session:
         # Try to insert child without parent - should raise IntegrityError
-        await session.execute(text("INSERT INTO test_children (id, parent_id, name) VALUES (1, 999, 'orphan')"))
-        with pytest.raises(IntegrityError):
+        with pytest.raises(IntegrityError):  # noqa: PT012
+            await session.execute(text("INSERT INTO test_children (id, parent_id, name) VALUES (1, 999, 'orphan')"))
             await session.commit()
 
     await db.engine.dispose()

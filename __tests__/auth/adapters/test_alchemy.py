@@ -9,7 +9,7 @@ from belgie.auth.adapters.alchemy import AlchemyAdapter
 
 
 @pytest.fixture
-def adapter(_db_session: AsyncSession) -> AlchemyAdapter:
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:  # noqa: ARG001
     return AlchemyAdapter(
         user=User,
         account=Account,

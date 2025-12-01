@@ -37,7 +37,7 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def adapter(_db_session: AsyncSession) -> AlchemyAdapter:
+def adapter(db_session: AsyncSession) -> AlchemyAdapter:  # noqa: ARG001
     return AlchemyAdapter(
         user=User,
         account=Account,
@@ -58,8 +58,8 @@ def auth(auth_settings: AuthSettings, adapter: AlchemyAdapter, db_session: Async
         ),
     }
 
-    async def get_db_override() -> AsyncSession:
-        return db_session
+    async def get_db_override(self):  # noqa: ARG001
+        yield db_session
 
     fake_db = type("FakeDB", (), {"dependency": get_db_override})()
 
