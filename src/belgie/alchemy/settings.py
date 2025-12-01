@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import cached_property
 from typing import TYPE_CHECKING, Annotated, Literal, cast
 
@@ -15,7 +16,13 @@ if TYPE_CHECKING:
 
 
 class PostgresSettings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    """PostgreSQL database settings.
+
+    Environment variables use the prefix: BELGIE_POSTGRES_
+    Example: BELGIE_POSTGRES_HOST=localhost
+    """
+
+    model_config = SettingsConfigDict(env_prefix="BELGIE_POSTGRES_", extra="ignore")
 
     type: Literal["postgres"] = "postgres"
     host: str
@@ -32,7 +39,13 @@ class PostgresSettings(BaseSettings):
 
 
 class SqliteSettings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    """SQLite database settings.
+
+    Environment variables use the prefix: BELGIE_SQLITE_
+    Example: BELGIE_SQLITE_DATABASE=:memory:
+    """
+
+    model_config = SettingsConfigDict(env_prefix="BELGIE_SQLITE_", extra="ignore")
 
     type: Literal["sqlite"] = "sqlite"
     database: str
@@ -41,13 +54,52 @@ class SqliteSettings(BaseSettings):
 
 
 class DatabaseSettings(BaseSettings):
+    """Database settings with support for PostgreSQL and SQLite.
+
+    Environment variables:
+    - BELGIE_DATABASE_TYPE: "postgres" or "sqlite" (default: "sqlite")
+    - For PostgreSQL: BELGIE_POSTGRES_HOST, BELGIE_POSTGRES_PORT, etc.
+    - For SQLite: BELGIE_SQLITE_DATABASE, BELGIE_SQLITE_ENABLE_FOREIGN_KEYS, etc.
+
+    Example usage:
+        # From environment variables
+        db = DatabaseSettings.from_env()
+
+        # Direct instantiation
+        db = DatabaseSettings(dialect={"type": "sqlite", "database": ":memory:"})
+    """
+
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_DATABASE_",
-        env_nested_delimiter="__",
         extra="ignore",
     )
 
     dialect: Annotated[PostgresSettings | SqliteSettings, Field(discriminator="type")]
+
+    @classmethod
+    def from_env(cls) -> DatabaseSettings:
+        """Load database settings from environment variables.
+
+        Reads BELGIE_DATABASE_TYPE to determine which dialect to use,
+        then loads the appropriate settings from BELGIE_POSTGRES_* or BELGIE_SQLITE_* vars.
+
+        Returns:
+            DatabaseSettings instance configured from environment variables.
+
+        Example:
+            # Set environment variables
+            os.environ["BELGIE_DATABASE_TYPE"] = "postgres"
+            os.environ["BELGIE_POSTGRES_HOST"] = "localhost"
+            os.environ["BELGIE_POSTGRES_DATABASE"] = "mydb"
+            # ... other postgres settings
+
+            db = DatabaseSettings.from_env()
+        """
+        db_type = os.getenv("BELGIE_DATABASE_TYPE", "sqlite")
+
+        if db_type == "postgres":
+            return cls(dialect=PostgresSettings())  # type: ignore[call-arg]
+        return cls(dialect=SqliteSettings())  # type: ignore[call-arg]
 
     @cached_property
     def engine(self) -> AsyncEngine:

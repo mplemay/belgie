@@ -1,15 +1,26 @@
 """Integration tests for DatabaseSettings with environment variables.
 
 This module tests that DatabaseSettings can be correctly loaded from environment
-variables using Pydantic's settings mechanism.
+variables using Pydantic's settings mechanism with separate prefixes.
 
-Environment variable format:
-- Prefix: BELGIE_DATABASE_
-- Nested delimiter: __
-- Examples:
-  - BELGIE_DATABASE_DIALECT__TYPE=postgres
-  - BELGIE_DATABASE_DIALECT__HOST=localhost
-  - BELGIE_DATABASE_DIALECT__PORT=5432
+Environment variable format (NO double underscores!):
+- Type selector: BELGIE_DATABASE_TYPE=postgres or sqlite
+- SQLite vars: BELGIE_SQLITE_DATABASE, BELGIE_SQLITE_ENABLE_FOREIGN_KEYS, etc.
+- Postgres vars: BELGIE_POSTGRES_HOST, BELGIE_POSTGRES_PORT, BELGIE_POSTGRES_DATABASE, etc.
+
+Examples:
+    # SQLite
+    BELGIE_DATABASE_TYPE=sqlite
+    BELGIE_SQLITE_DATABASE=:memory:
+    BELGIE_SQLITE_ENABLE_FOREIGN_KEYS=true
+
+    # PostgreSQL
+    BELGIE_DATABASE_TYPE=postgres
+    BELGIE_POSTGRES_HOST=localhost
+    BELGIE_POSTGRES_PORT=5432
+    BELGIE_POSTGRES_DATABASE=mydb
+    BELGIE_POSTGRES_USERNAME=user
+    BELGIE_POSTGRES_PASSWORD=pass
 """
 
 import os
@@ -26,13 +37,16 @@ from belgie.alchemy.settings import DatabaseSettings
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
 
 
+# ==================== SQLite Tests ====================
+
+
 @pytest.mark.integration
 def test_sqlite_from_env_minimal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test loading minimal SQLite configuration from environment variables."""
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "sqlite")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", ":memory:")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", ":memory:")
 
-    db = DatabaseSettings()
+    db = DatabaseSettings.from_env()
 
     assert db.dialect.type == "sqlite"
     assert db.dialect.database == ":memory:"
@@ -43,12 +57,12 @@ def test_sqlite_from_env_minimal(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.integration
 def test_sqlite_from_env_full(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test loading full SQLite configuration from environment variables."""
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "sqlite")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", "/tmp/test.db")  # noqa: S108
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__ENABLE_FOREIGN_KEYS", "false")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__ECHO", "true")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", "/tmp/test.db")  # noqa: S108
+    monkeypatch.setenv("BELGIE_SQLITE_ENABLE_FOREIGN_KEYS", "false")
+    monkeypatch.setenv("BELGIE_SQLITE_ECHO", "true")
 
-    db = DatabaseSettings()
+    db = DatabaseSettings.from_env()
 
     assert db.dialect.type == "sqlite"
     assert db.dialect.database == "/tmp/test.db"  # noqa: S108
@@ -60,10 +74,10 @@ def test_sqlite_from_env_full(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.integration
 async def test_sqlite_from_env_creates_working_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that SQLite engine created from env vars works correctly."""
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "sqlite")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", ":memory:")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", ":memory:")
 
-    db = DatabaseSettings()
+    db = DatabaseSettings.from_env()
 
     # Test engine works
     async with db.engine.connect() as conn:
@@ -78,11 +92,11 @@ async def test_sqlite_from_env_creates_working_engine(monkeypatch: pytest.Monkey
 @pytest.mark.integration
 async def test_sqlite_from_env_foreign_keys_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that foreign key enforcement from env vars works."""
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "sqlite")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", ":memory:")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__ENABLE_FOREIGN_KEYS", "true")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", ":memory:")
+    monkeypatch.setenv("BELGIE_SQLITE_ENABLE_FOREIGN_KEYS", "true")
 
-    db = DatabaseSettings()
+    db = DatabaseSettings.from_env()
 
     async with db.engine.connect() as conn:
         result = await conn.execute(text("PRAGMA foreign_keys"))
@@ -93,18 +107,32 @@ async def test_sqlite_from_env_foreign_keys_enabled(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.integration
+def test_sqlite_defaults_when_type_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that SQLite is used when BELGIE_DATABASE_TYPE is not set."""
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", ":memory:")
+
+    db = DatabaseSettings.from_env()
+
+    assert db.dialect.type == "sqlite"
+    assert db.dialect.database == ":memory:"
+
+
+# ==================== PostgreSQL Tests ====================
+
+
+@pytest.mark.integration
 def test_postgres_from_env_minimal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test loading minimal PostgreSQL configuration from environment variables."""
     if not ASYNC_PG_AVAILABLE:
         pytest.skip("asyncpg not installed")
 
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "postgres")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__HOST", "localhost")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", "testdb")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__USERNAME", "testuser")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__PASSWORD", "testpass")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_HOST", "localhost")
+    monkeypatch.setenv("BELGIE_POSTGRES_DATABASE", "testdb")
+    monkeypatch.setenv("BELGIE_POSTGRES_USERNAME", "testuser")
+    monkeypatch.setenv("BELGIE_POSTGRES_PASSWORD", "testpass")
 
-    db = DatabaseSettings()
+    db = DatabaseSettings.from_env()
 
     assert db.dialect.type == "postgres"
     assert db.dialect.host == "localhost"
@@ -122,20 +150,20 @@ def test_postgres_from_env_full(monkeypatch: pytest.MonkeyPatch) -> None:
     if not ASYNC_PG_AVAILABLE:
         pytest.skip("asyncpg not installed")
 
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "postgres")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__HOST", "db.example.com")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__PORT", "5433")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", "mydb")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__USERNAME", "admin")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__PASSWORD", "secret123")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__POOL_SIZE", "20")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__MAX_OVERFLOW", "30")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__POOL_TIMEOUT", "60.0")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__POOL_RECYCLE", "7200")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__POOL_PRE_PING", "false")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__ECHO", "true")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_HOST", "db.example.com")
+    monkeypatch.setenv("BELGIE_POSTGRES_PORT", "5433")
+    monkeypatch.setenv("BELGIE_POSTGRES_DATABASE", "mydb")
+    monkeypatch.setenv("BELGIE_POSTGRES_USERNAME", "admin")
+    monkeypatch.setenv("BELGIE_POSTGRES_PASSWORD", "secret123")
+    monkeypatch.setenv("BELGIE_POSTGRES_POOL_SIZE", "20")
+    monkeypatch.setenv("BELGIE_POSTGRES_MAX_OVERFLOW", "30")
+    monkeypatch.setenv("BELGIE_POSTGRES_POOL_TIMEOUT", "60.0")
+    monkeypatch.setenv("BELGIE_POSTGRES_POOL_RECYCLE", "7200")
+    monkeypatch.setenv("BELGIE_POSTGRES_POOL_PRE_PING", "false")
+    monkeypatch.setenv("BELGIE_POSTGRES_ECHO", "true")
 
-    db = DatabaseSettings()
+    db = DatabaseSettings.from_env()
 
     assert db.dialect.type == "postgres"
     assert db.dialect.host == "db.example.com"
@@ -170,15 +198,15 @@ async def test_postgres_from_env_actual_connection(monkeypatch: pytest.MonkeyPat
     # Parse the test URL to set up environment variables
     parsed = urlparse(test_url)
 
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "postgres")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__HOST", parsed.hostname or "localhost")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__PORT", str(parsed.port or 5432))
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", parsed.path.lstrip("/") if parsed.path else "postgres")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__USERNAME", parsed.username or "postgres")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__PASSWORD", parsed.password or "")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_HOST", parsed.hostname or "localhost")
+    monkeypatch.setenv("BELGIE_POSTGRES_PORT", str(parsed.port or 5432))
+    monkeypatch.setenv("BELGIE_POSTGRES_DATABASE", parsed.path.lstrip("/") if parsed.path else "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_USERNAME", parsed.username or "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_PASSWORD", parsed.password or "")
 
     try:
-        db = DatabaseSettings()
+        db = DatabaseSettings.from_env()
 
         # Test basic connection
         async with db.engine.connect() as conn:
@@ -199,20 +227,7 @@ async def test_postgres_from_env_actual_connection(monkeypatch: pytest.MonkeyPat
         pytest.skip(f"Could not connect to PostgreSQL: {e}")
 
 
-@pytest.mark.integration
-def test_env_vars_override_direct_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that environment variables override directly passed values."""
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "sqlite")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", ":memory:")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__ECHO", "true")
-
-    # Try to pass different values directly - env vars should win
-    db = DatabaseSettings()
-
-    # Env vars should be used
-    assert db.dialect.type == "sqlite"
-    assert db.dialect.database == ":memory:"
-    assert db.dialect.echo is True
+# ==================== Validation & Edge Cases ====================
 
 
 @pytest.mark.integration
@@ -221,12 +236,12 @@ def test_missing_required_postgres_fields(monkeypatch: pytest.MonkeyPatch) -> No
     if not ASYNC_PG_AVAILABLE:
         pytest.skip("asyncpg not installed")
 
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "postgres")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__HOST", "localhost")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_HOST", "localhost")
     # Missing database, username, password
 
     with pytest.raises(ValidationError):
-        DatabaseSettings()
+        DatabaseSettings.from_env()
 
 
 @pytest.mark.integration
@@ -235,15 +250,15 @@ def test_invalid_port_number(monkeypatch: pytest.MonkeyPatch) -> None:
     if not ASYNC_PG_AVAILABLE:
         pytest.skip("asyncpg not installed")
 
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "postgres")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__HOST", "localhost")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__PORT", "-1")  # Invalid
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", "testdb")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__USERNAME", "user")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__PASSWORD", "pass")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_HOST", "localhost")
+    monkeypatch.setenv("BELGIE_POSTGRES_PORT", "-1")  # Invalid
+    monkeypatch.setenv("BELGIE_POSTGRES_DATABASE", "testdb")
+    monkeypatch.setenv("BELGIE_POSTGRES_USERNAME", "user")
+    monkeypatch.setenv("BELGIE_POSTGRES_PASSWORD", "pass")
 
     with pytest.raises(ValidationError, match="Input should be greater than 0"):
-        DatabaseSettings()
+        DatabaseSettings.from_env()
 
 
 @pytest.mark.integration
@@ -261,11 +276,11 @@ def test_case_insensitive_boolean_values(monkeypatch: pytest.MonkeyPatch) -> Non
     ]
 
     for env_value, expected in test_cases:
-        monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "sqlite")
-        monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", ":memory:")
-        monkeypatch.setenv("BELGIE_DATABASE_DIALECT__ECHO", env_value)
+        monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+        monkeypatch.setenv("BELGIE_SQLITE_DATABASE", ":memory:")
+        monkeypatch.setenv("BELGIE_SQLITE_ECHO", env_value)
 
-        db = DatabaseSettings()
+        db = DatabaseSettings.from_env()
         assert db.dialect.echo is expected, f"Expected {expected} for env value '{env_value}'"
 
 
@@ -273,10 +288,10 @@ def test_case_insensitive_boolean_values(monkeypatch: pytest.MonkeyPatch) -> Non
 @pytest.mark.integration
 async def test_session_maker_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that session_maker created from env vars works correctly."""
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "sqlite")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", ":memory:")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", ":memory:")
 
-    db = DatabaseSettings()
+    db = DatabaseSettings.from_env()
 
     # Verify session maker settings
     assert db.session_maker.kw["expire_on_commit"] is False
@@ -294,10 +309,10 @@ async def test_session_maker_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.integration
 async def test_dependency_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that dependency generator from env vars works correctly."""
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__TYPE", "sqlite")
-    monkeypatch.setenv("BELGIE_DATABASE_DIALECT__DATABASE", ":memory:")
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", ":memory:")
 
-    db = DatabaseSettings()
+    db = DatabaseSettings.from_env()
 
     # Test dependency yields sessions
     sessions = []
@@ -316,3 +331,86 @@ async def test_dependency_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sessions[0] is not sessions[1]
 
     await db.engine.dispose()
+
+
+# ==================== Mixed Configuration Tests ====================
+
+
+@pytest.mark.integration
+def test_can_override_with_direct_instantiation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that direct instantiation still works regardless of env vars."""
+    # Set env vars that would load postgres
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_HOST", "localhost")
+    monkeypatch.setenv("BELGIE_POSTGRES_DATABASE", "testdb")
+    monkeypatch.setenv("BELGIE_POSTGRES_USERNAME", "user")
+    monkeypatch.setenv("BELGIE_POSTGRES_PASSWORD", "pass")
+
+    # But directly instantiate SQLite
+    db = DatabaseSettings(dialect={"type": "sqlite", "database": ":memory:"})
+
+    assert db.dialect.type == "sqlite"
+    assert db.dialect.database == ":memory:"
+
+
+@pytest.mark.integration
+def test_from_env_vs_direct_instantiation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test the difference between from_env() and direct instantiation."""
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", "/tmp/from_env.db")  # noqa: S108
+    monkeypatch.setenv("BELGIE_SQLITE_ECHO", "true")
+
+    # from_env() reads environment variables
+    db_from_env = DatabaseSettings.from_env()
+    assert db_from_env.dialect.database == "/tmp/from_env.db"  # noqa: S108
+    assert db_from_env.dialect.echo is True
+
+    # Direct instantiation with explicit values overrides env vars
+    db_direct = DatabaseSettings(dialect={"type": "sqlite", "database": ":memory:", "echo": False})
+    assert db_direct.dialect.database == ":memory:"
+    assert db_direct.dialect.echo is False
+
+
+@pytest.mark.integration
+def test_no_database_type_env_var_defaults_to_sqlite(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that missing BELGIE_DATABASE_TYPE defaults to SQLite."""
+    # Don't set BELGIE_DATABASE_TYPE
+    monkeypatch.setenv("BELGIE_SQLITE_DATABASE", ":memory:")
+
+    db = DatabaseSettings.from_env()
+
+    assert db.dialect.type == "sqlite"
+
+
+@pytest.mark.integration
+def test_postgres_connection_string_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that Postgres settings correctly build connection URL."""
+    if not ASYNC_PG_AVAILABLE:
+        pytest.skip("asyncpg not installed")
+
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "postgres")
+    monkeypatch.setenv("BELGIE_POSTGRES_HOST", "testhost.example.com")
+    monkeypatch.setenv("BELGIE_POSTGRES_PORT", "5433")
+    monkeypatch.setenv("BELGIE_POSTGRES_DATABASE", "testdb")
+    monkeypatch.setenv("BELGIE_POSTGRES_USERNAME", "testuser")
+    monkeypatch.setenv("BELGIE_POSTGRES_PASSWORD", "testpass123")
+
+    db = DatabaseSettings.from_env()
+
+    # Verify URL components
+    assert db.engine.url.get_backend_name() == "postgresql"
+    assert db.engine.url.get_driver_name() == "asyncpg"
+    assert db.engine.url.host == "testhost.example.com"
+    assert db.engine.url.port == 5433
+    assert db.engine.url.database == "testdb"
+    assert db.engine.url.username == "testuser"
+
+
+@pytest.mark.integration
+def test_sqlite_missing_database_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that SQLite requires database field."""
+    monkeypatch.setenv("BELGIE_DATABASE_TYPE", "sqlite")
+    # Missing BELGIE_SQLITE_DATABASE
+
+    with pytest.raises(ValidationError):
+        DatabaseSettings.from_env()
