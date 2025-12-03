@@ -83,3 +83,6 @@ asyncio_mode = "strict"
 markers = [
     "integration: marks tests that hit the database or external services",
 ]
+filterwarnings = [
+    "error",
+]
