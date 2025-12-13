@@ -1,0 +1,20 @@
+[project]
+name = "auth"
+version = "0.1.0"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "alchemy",
+    "fastapi>=0.100",
+    "httpx>=0.24",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-multipart>=0.0.20",
+]
+
+[project.optional-dependencies]
+examples = [
+    "uvicorn[standard]>=0.38.0",
+]
+
+[tool.uv.sources]
+alchemy = { workspace = true }

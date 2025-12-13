@@ -28,9 +28,10 @@ Self-hosted, type-safe authentication for FastAPI that makes Google OAuth and se
 ## Installation
 
 ```bash
-pip install belgie
+pip install "belgie[auth]"
+# other extras: belgie[trace], belgie[alchemy], belgie[full]
 # or with uv
-uv add belgie
+uv add "belgie[auth]"
 ```
 
 ## Quick start

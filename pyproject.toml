@@ -7,7 +7,30 @@ authors = [
     { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
 ]
 requires-python = ">=3.12,<3.15"
-dependencies = [
+dependencies = []
+
+[project.optional-dependencies]
+alchemy = [
+    "sqlalchemy[asyncio]>=2.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+]
+auth = [
+    "fastapi>=0.100",
+    "httpx>=0.24",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-multipart>=0.0.20",
+    "sqlalchemy[asyncio]>=2.0",
+]
+trace = [
+    "fastapi>=0.100",
+    "httpx>=0.24",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "sqlalchemy[asyncio]>=2.0",
+]
+full = [
     "fastapi>=0.100",
     "httpx>=0.24",
     "pydantic>=2.0",
@@ -16,10 +39,17 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
 ]
 
-[project.optional-dependencies]
-examples = [
-    "uvicorn[standard]>=0.38.0",
+[tool.uv.workspace]
+members = [
+    "src/belgie/alchemy",
+    "src/belgie/auth",
+    "src/belgie/trace",
 ]
+
+[tool.uv.sources]
+alchemy = { workspace = true }
+auth = { workspace = true }
+trace = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]
@@ -36,6 +66,17 @@ dev = [
     "ruff>=0.14.5",
     "ty>=0.0.1a27",
 ]
+full = [
+    "fastapi>=0.100",
+    "httpx>=0.24",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-multipart>=0.0.20",
+    "sqlalchemy[asyncio]>=2.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "full"]
 
 [tool.ruff]
 target-version = "py312"

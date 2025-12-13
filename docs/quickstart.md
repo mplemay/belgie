@@ -5,10 +5,15 @@ Get started with Belgie in minutes with this quickstart guide.
 ## Installation
 
 ```bash
-pip install belgie.auth
+pip install "belgie[auth]"
 # or with uv
-uv add belgie.auth
+uv add "belgie[auth]"
 ```
+
+Other extras:
+- `belgie[alchemy]` for SQLAlchemy helpers only
+- `belgie[trace]` for trace + auth + alchemy
+- `belgie[full]` for everything
 
 ## Basic Setup
 
