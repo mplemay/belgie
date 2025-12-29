@@ -1,9 +1,14 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from auth.adapters.alchemy import AlchemyAdapter
 from auth.adapters.connection import DBConnection
-from auth.adapters.protocols import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
+from auth.adapters.protocols import (
+    AccountProtocol,
+    AdapterProtocol,
+    OAuthStateProtocol,
+    SessionProtocol,
+    UserProtocol,
+)
 
 
 class SessionManager[
@@ -34,7 +39,7 @@ class SessionManager[
 
     def __init__(
         self,
-        adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
+        adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
         max_age: int,
         update_age: int,
     ) -> None:

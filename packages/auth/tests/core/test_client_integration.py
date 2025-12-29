@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
-from auth.adapters.alchemy import AlchemyAdapter
 from auth.core.auth import Auth
 from auth.core.client import AuthClient
 from auth.core.settings import (
@@ -18,6 +17,8 @@ from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.fixtures.models import Account, OAuthState, Session, User
+
+from belgie.alchemy import AlchemyAdapter
 
 # ==================== Fixtures ====================
 

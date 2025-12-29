@@ -4,10 +4,10 @@ from uuid import UUID
 from fastapi import HTTPException, Request, status
 from fastapi.security import SecurityScopes
 
-from auth.adapters.alchemy import AlchemyAdapter
 from auth.adapters.connection import DBConnection
 from auth.adapters.protocols import (
     AccountProtocol,
+    AdapterProtocol,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
@@ -56,7 +56,7 @@ class AuthClient[
     """
 
     db: DBConnection
-    adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT]
+    adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]
     session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
     cookie_name: str
     hook_runner: HookRunner = field(default_factory=lambda: HookRunner(Hooks()))

@@ -4,7 +4,6 @@ from typing import Literal
 from unittest.mock import Mock
 from uuid import UUID, uuid4
 
-from auth.adapters.alchemy import AlchemyAdapter
 from auth.adapters.protocols import (
     AccountProtocol,
     AdapterProtocol,
@@ -17,6 +16,8 @@ from auth.providers.protocols import OAuthProviderProtocol
 from fastapi import APIRouter
 from pydantic import Field
 from pydantic_settings import BaseSettings
+
+from belgie.alchemy import AlchemyAdapter
 
 
 @dataclass

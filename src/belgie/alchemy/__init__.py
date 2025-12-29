@@ -17,12 +17,14 @@ Usage:
 For complete auth model examples, see examples/alchemy/auth_models.py
 """
 
+from belgie.alchemy.adapter import AlchemyAdapter
 from belgie.alchemy.base import Base
 from belgie.alchemy.mixins import PrimaryKeyMixin, TimestampMixin
 from belgie.alchemy.settings import DatabaseSettings
 from belgie.alchemy.types import DateTimeUTC
 
 __all__ = [
+    "AlchemyAdapter",
     "Base",
     "DatabaseSettings",
     "DateTimeUTC",

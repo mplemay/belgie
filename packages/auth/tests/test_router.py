@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import httpx
 import pytest
 import respx
-from auth.adapters.alchemy import AlchemyAdapter
 from auth.core.auth import Auth
 from auth.core.settings import AuthSettings, CookieSettings, SessionSettings, URLSettings
 from auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
@@ -12,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from belgie.alchemy import AlchemyAdapter
 from tests.fixtures.models import Account, OAuthState, Session, User
 
 

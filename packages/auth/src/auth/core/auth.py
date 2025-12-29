@@ -9,10 +9,10 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes  # noqa: TC002
 
-from auth.adapters.alchemy import AlchemyAdapter  # noqa: TC001
 from auth.adapters.connection import DBConnection  # noqa: TC001
 from auth.adapters.protocols import (
     AccountProtocol,
+    AdapterProtocol,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
@@ -126,7 +126,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
     def __init__(
         self,
         settings: AuthSettings,
-        adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
+        adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
         db: DBDependencyProvider,
         providers: Providers | None = None,
         hooks: Hooks | None = None,

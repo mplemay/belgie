@@ -1,9 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import UUID, uuid4
-
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
+from uuid import UUID
 
 from auth.adapters.connection import DBConnection
 from auth.adapters.protocols import (
@@ -13,6 +10,8 @@ from auth.adapters.protocols import (
     SessionProtocol,
     UserProtocol,
 )
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
 
 class AlchemyAdapter[
@@ -45,13 +44,10 @@ class AlchemyAdapter[
     ) -> UserT:
         session = cast("AsyncSession", db)
         user = self.user_model(
-            id=uuid4(),
             email=email,
             email_verified=email_verified,
             name=name,
             image=image,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         )
         session.add(user)
         try:
@@ -108,7 +104,6 @@ class AlchemyAdapter[
     ) -> AccountT:
         session = cast("AsyncSession", db)
         account = self.account_model(
-            id=uuid4(),
             user_id=user_id,
             provider=provider,
             provider_account_id=provider_account_id,
@@ -118,8 +113,6 @@ class AlchemyAdapter[
             token_type=tokens.get("token_type"),
             scope=tokens.get("scope"),
             id_token=tokens.get("id_token"),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         )
         session.add(account)
         try:
@@ -193,13 +186,10 @@ class AlchemyAdapter[
     ) -> SessionT:
         async_session = cast("AsyncSession", db)
         session = self.session_model(
-            id=uuid4(),
             user_id=user_id,
             expires_at=expires_at,
             ip_address=ip_address,
             user_agent=user_agent,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         )
         async_session.add(session)
         try:
@@ -276,14 +266,23 @@ class AlchemyAdapter[
         redirect_url: str | None = None,
     ) -> OAuthStateT:
         async_session = cast("AsyncSession", db)
-        oauth_state = self.oauth_state_model(
-            id=uuid4(),
-            state=state,
-            code_verifier=code_verifier,
-            redirect_url=redirect_url,
-            created_at=datetime.now(UTC),
-            expires_at=expires_at,
-        )
+        # Create the model instance - some models have user_id, some don't
+        try:
+            oauth_state = self.oauth_state_model(
+                state=state,
+                user_id=None,
+                code_verifier=code_verifier,
+                redirect_url=redirect_url,
+                expires_at=expires_at,
+            )
+        except TypeError:
+            # Model doesn't accept user_id (like auth package models)
+            oauth_state = self.oauth_state_model(
+                state=state,
+                code_verifier=code_verifier,
+                redirect_url=redirect_url,
+                expires_at=expires_at,
+            )
         async_session.add(oauth_state)
         try:
             await db.commit()

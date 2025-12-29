@@ -3,7 +3,6 @@
 from auth import (
     AccountProtocol,
     AdapterProtocol,
-    AlchemyAdapter,
     Auth,
     AuthClient,
     AuthenticationError,
@@ -36,6 +35,8 @@ from auth import (
     parse_scopes,
     validate_scopes,
 )
+
+from belgie.alchemy import AlchemyAdapter
 
 __version__ = "0.1.0"
 
