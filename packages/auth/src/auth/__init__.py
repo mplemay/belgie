@@ -1,48 +1,38 @@
-"""Belgie - Modern authentication and analytics for FastAPI."""
+"""Belgie Auth - Authentication components."""
 
-from auth import (
+from auth.adapters.connection import DBConnection
+from auth.adapters.protocols import (
     AccountProtocol,
     AdapterProtocol,
-    Auth,
-    AuthClient,
+    OAuthStateProtocol,
+    SessionProtocol,
+    UserProtocol,
+)
+from auth.core.auth import Auth
+from auth.core.client import AuthClient
+from auth.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
-    AuthSettings,
     BelgieError,
     ConfigurationError,
-    CookieSettings,
-    DBConnection,
-    GoogleOAuthProvider,
-    GoogleProviderSettings,
-    GoogleUserInfo,
-    HookContext,
-    HookEvent,
-    HookRunner,
-    Hooks,
     InvalidStateError,
     OAuthError,
-    OAuthProviderProtocol,
-    OAuthStateProtocol,
-    Providers,
     SessionExpiredError,
-    SessionManager,
-    SessionProtocol,
+)
+from auth.core.hooks import HookContext, HookEvent, HookRunner, Hooks
+from auth.core.settings import (
+    AuthSettings,
+    CookieSettings,
     SessionSettings,
     URLSettings,
-    UserProtocol,
-    generate_session_id,
-    generate_state_token,
-    parse_scopes,
-    validate_scopes,
 )
-
-from belgie.alchemy import AlchemyAdapter
-
-__version__ = "0.1.0"
+from auth.providers import OAuthProviderProtocol, Providers
+from auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings, GoogleUserInfo
+from auth.session.manager import SessionManager
+from auth.utils.crypto import generate_session_id, generate_state_token
+from auth.utils.scopes import parse_scopes, validate_scopes
 
 __all__ = [  # noqa: RUF022
-    # Version
-    "__version__",
     # Core
     "Auth",
     "AuthClient",
@@ -52,7 +42,6 @@ __all__ = [  # noqa: RUF022
     "HookEvent",
     "HookRunner",
     # Adapters
-    "AlchemyAdapter",
     "DBConnection",
     # Session
     "SessionManager",

@@ -37,8 +37,8 @@ functions or context managers.
 
 ```python
 from belgie.auth import Auth, AuthSettings
-from belgie.auth.adapters.alchemy import AlchemyAdapter
-from belgie.auth.core.hooks import Hooks, HookContext
+from auth.adapters.alchemy import AlchemyAdapter
+from auth.core.hooks import Hooks, HookContext
 
 auth = Auth(
     settings=AuthSettings(),
@@ -217,7 +217,7 @@ from contextlib import AbstractAsyncContextManager, AbstractContextManager, Asyn
 from dataclasses import dataclass
 from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
-from belgie.auth.adapters.protocols import UserProtocol
+from auth.adapters.protocols import UserProtocol
 
 HookEvent = Literal["on_signup", "on_signin", "on_signout", "on_delete"]
 
@@ -306,7 +306,7 @@ Sequence:
 
 #### Exports
 
-- Add `Hooks`, `HookContext`, `HookEvent` (Literal alias) to `belgie.auth.__init__` for public API parity with Auth.
+- Add `Hooks`, `HookContext`, `HookEvent` (Literal alias) to `auth.__init__` for public API parity with Auth.
 
 ### Implementation Order
 
@@ -345,7 +345,7 @@ Sequence:
 
 - [ ] **Leaf components (no new deps)**
   - [ ] Implement `core/hooks.py` with type aliases, normalization, and `HookRunner.dispatch` async context manager.
-  - [ ] Export `Hooks`, `HookContext`, `HookEvent` (Literal) via `belgie.auth.__init__`.
+  - [ ] Export `Hooks`, `HookContext`, `HookEvent` (Literal) via `auth.__init__`.
   - [ ] Unit tests: `__tests__/auth/hooks/test_hooks.py` (sync/async, ctx mgrs, error unwind).
 
 - [ ] **Auth wiring**

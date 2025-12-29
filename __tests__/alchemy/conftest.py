@@ -32,6 +32,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     name: Mapped[str | None] = mapped_column(default=None)
     image: Mapped[str | None] = mapped_column(default=None)
     scopes: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    custom_field: Mapped[str | None] = mapped_column(default=None)
 
     accounts: Mapped[list[Account]] = relationship(
         back_populates="user",
