@@ -1,6 +1,7 @@
 # Models Guide
 
-Belgie uses protocols to define the required structure of your database models, giving you flexibility in implementation while ensuring compatibility.
+Belgie uses protocols to define the required structure of your database models, giving you flexibility in implementation
+while ensuring compatibility.
 
 ## Required Models
 

@@ -13,17 +13,22 @@ Note: Sections that are not relevant (e.g., Libraries when only using stdlib) ca
 ## Overview
 
 ### High-Level Description
+
 <!-- Provide a clear, concise description of what this feature/module does and why it's needed -->
 [Describe the feature, its purpose, and the problem it solves]
 
 ### Goals
+
 <!-- What are the primary objectives of this feature? -->
+
 - [Goal 1]
 - [Goal 2]
 - [Goal 3]
 
 ### Non-Goals
+
 <!-- What is explicitly out of scope? -->
+
 - [Non-goal 1]
 - [Non-goal 2]
 
@@ -32,18 +37,22 @@ Note: Sections that are not relevant (e.g., Libraries when only using stdlib) ca
 <!-- Describe each major workflow separately. Include multiple workflows as needed. -->
 
 ### Workflow 1: [Workflow Name]
+
 <!-- Example: "User Configuration Validation" or "Data Processing Pipeline" -->
 
 #### Description
+
 [Brief description of what this workflow accomplishes]
 
 #### Usage Example
+
 ```python
 # Show concrete example of how a user would invoke this workflow
 # Include imports, setup, and expected results
 ```
 
 #### Call Graph
+
 ```mermaid
 graph TD
     A[Entry Point] --> B[Function 1]
@@ -54,7 +63,9 @@ graph TD
 ```
 
 #### Sequence Diagram
+
 <!-- Optional, include if the workflow involves complex interactions -->
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -68,23 +79,28 @@ sequenceDiagram
 ```
 
 #### Key Components
+
 - **Entry Point** (`main.py:EntryClass`) - [Brief description]
 - **Function 1** (`helper.py:function1`) - [Brief description]
 - **Helper Function** (`helper.py:helper_func`) - [Brief description]
 
 ### Workflow 2: [Another Workflow Name]
+
 <!-- Add additional workflows as needed -->
 
 #### Description
+
 [Brief description of what this workflow accomplishes]
 
 #### Usage Example
+
 ```python
 # Show concrete example of how a user would invoke this workflow
 # Include imports, setup, and expected results
 ```
 
 #### Call Graph
+
 ```mermaid
 graph TD
     X[Another Entry] --> Y[Another Function]
@@ -92,6 +108,7 @@ graph TD
 ```
 
 #### Key Components
+
 - **Another Entry** (`main.py:AnotherClass`) - [Brief description]
 - **Another Function** (`helper.py:another_func`) - [Brief description]
 
@@ -114,10 +131,11 @@ graph TD
 ## Detailed Design
 
 ### Module Structure
+
 <!-- Show the file/module structure -->
 <!-- Cross-reference with dependency graph and workflows -->
 
-```
+```text
 src/belgie/
 ├── feature_name/
 │   ├── main.py              # NewFeature (see Workflow 1)
@@ -136,6 +154,7 @@ src/belgie/
 <!-- Each subsection should have a brief description explaining its purpose -->
 
 #### `src/belgie/feature_name/types.py`
+
 Type definitions and data structures used across the module.
 
 ```python
@@ -151,6 +170,7 @@ class ResultType(TypedDict):
 ```
 
 #### `src/belgie/feature_name/helper.py`
+
 Helper functions for data processing and validation (leaf node, see [Implementation Order](#implementation-order) #3).
 
 ```python
@@ -172,6 +192,7 @@ def validate_config(config: dict[str, str]) -> bool: ...
 ```
 
 #### `src/belgie/feature_name/main.py`
+
 Main entry point implementing the core feature logic (see [Implementation Order](#implementation-order) #5).
 
 ```python
@@ -210,6 +231,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 #### `test_feature_name.py` (or split into multiple test files)
 
 **`helper.py` Tests:**
+
 - Test `process_input()` with valid inputs (various data formats)
 - Test `process_input()` with invalid inputs (malformed data, empty strings, etc.)
 - Test `validate_config()` with valid configurations
@@ -218,6 +240,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `validate_config()` with out-of-range values
 
 **`main.py` (NewFeature class) Tests:**
+
 - Test `NewFeature.__init__()` with valid configuration
 - Test `NewFeature.__init__()` with invalid configuration (should raise appropriate exception)
 - Test `NewFeature.execute()` with valid input data
@@ -226,12 +249,14 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test edge cases: empty data, boundary values, etc.
 
 **Integration Tests:**
+
 - Test [Workflow 1](#workflow-1-workflow-name) end-to-end: create instance, execute with various inputs, verify outputs
 - Test [Workflow 2](#workflow-2-another-workflow-name) end-to-end: test the complete fluent API flow
 - Test error handling across module boundaries
 - Test interaction with existing modules (ExistingModule, ExistingUtil)
 
 **Edge Cases to Cover:**
+
 - [List specific edge cases relevant to this feature]
 - [Example: Empty configurations, None values, extremely large inputs]
 - [Example: Concurrent access patterns if applicable]
@@ -239,6 +264,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 ## Implementation
 
 ### Implementation Order
+
 <!-- Based on the dependency graph, list the order to implement (leaf nodes first) -->
 
 1. **BaseClass** (`base.py`) - Already exists, no implementation needed
@@ -252,6 +278,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
    - Dependencies: NewHelper, ExistingModule
 
 ### Tasks
+
 <!-- Track implementation progress -->
 <!-- Tasks are indented to show dependencies - subtasks depend on their parent task -->
 
@@ -284,12 +311,14 @@ Tests should be organized by module/file and cover unit tests, integration tests
 ## Open Questions
 
 <!-- List any unresolved questions or decisions needed -->
+
 1. [Question 1]?
 2. [Question 2]?
 
 ## Future Enhancements
 
 <!-- Features or improvements to consider after initial implementation -->
+
 - [Enhancement 1]
 - [Enhancement 2]
 
@@ -319,10 +348,12 @@ Tests should be organized by module/file and cover unit tests, integration tests
 **Description**: [Brief description of the alternative approach]
 
 **Pros**:
+
 - [Advantage 1]
 - [Advantage 2]
 
 **Cons**:
+
 - [Disadvantage 1]
 - [Disadvantage 2]
 
@@ -333,9 +364,11 @@ Tests should be organized by module/file and cover unit tests, integration tests
 **Description**: [Brief description]
 
 **Pros**:
+
 - [Advantage 1]
 
 **Cons**:
+
 - [Disadvantage 1]
 
 **Why not chosen**: [Explanation]

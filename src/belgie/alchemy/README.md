@@ -27,6 +27,7 @@ class Article(Base, PrimaryKeyMixin, TimestampMixin):
 ```
 
 This gives you:
+
 - UUID primary key with server-side generation
 - Automatic `created_at`, `updated_at`, `deleted_at` timestamps
 - Timezone-aware datetime handling
@@ -53,6 +54,7 @@ model = MyModel(id=1, name="example")
 ```
 
 Features:
+
 - Consistent naming conventions for constraints
 - Automatic type annotation mapping (`datetime` → `DateTimeUTC`)
 - Dataclass mapping with `kw_only=True`, `repr=True`, `eq=True`
@@ -72,6 +74,7 @@ class MyModel(Base, PrimaryKeyMixin):
 ```
 
 The `id` field:
+
 - Type: `UUID`
 - Server-generated using `gen_random_uuid()`
 - Indexed and unique
@@ -93,6 +96,7 @@ class MyModel(Base, TimestampMixin):
 ```
 
 Features:
+
 - `created_at` set automatically on insert
 - `updated_at` auto-updates on row changes
 - `deleted_at` for soft deletion
@@ -117,6 +121,7 @@ class Event(Base):
 ```
 
 Features:
+
 - Automatically converts naive datetimes to UTC
 - Preserves timezone-aware datetimes
 - Always returns UTC-aware datetimes from database
@@ -140,6 +145,7 @@ class User(Base):
 ```
 
 Features:
+
 - PostgreSQL: Uses native `ARRAY(String)` type
 - SQLite/MySQL: Uses JSON storage
 - Automatically converts StrEnum values to strings
@@ -231,11 +237,13 @@ class Account(Base, PrimaryKeyMixin, TimestampMixin):
 If you previously imported models from `belgie.alchemy.impl.auth`:
 
 **Before:**
+
 ```python
 from belgie.alchemy.impl.auth import User, Account, Session, OAuthState
 ```
 
 **After:**
+
 ```python
 # Copy models from examples/alchemy/auth_models.py to your project
 # Then import from your own code:

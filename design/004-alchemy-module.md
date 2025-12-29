@@ -231,7 +231,7 @@ class DateTimeUTC(TypeDecorator[datetime]):
     # normalize DB value to aware UTC datetime
 ```
 
-#### `examples/alchemy/auth_models.py` (reference implementation for users to copy)
+### `examples/alchemy/auth_models.py` (reference implementation for users to copy)
 
 Provides complete, working examples of authentication models that users copy to their projects:
 

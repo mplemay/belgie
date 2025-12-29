@@ -3,13 +3,22 @@
 ## Overview
 
 ### High-Level Description
-This feature adds infrastructure to belgie for type-safe, StrEnum-based user-level authorization. Instead of providing a fixed set of scopes, belgie will provide the utilities, patterns, and examples that allow library users to define their own custom Scope enums and attach them to their User models. This enables fine-grained access control for protected routes and resources while maintaining maximum flexibility.
 
-Since StrEnum members are strings, they work directly with FastAPI's Security dependency without any conversion helpers - providing a clean, minimal API.
+This feature adds infrastructure to belgie for type-safe, StrEnum-based user-level authorization. Instead of providing a
+fixed set of scopes, belgie will provide the utilities, patterns, and examples that allow library users to define their
+own custom Scope enums and attach them to their User models. This enables fine-grained access control for protected
+routes and resources while maintaining maximum flexibility.
 
-The problem this solves: Currently, belgie only handles OAuth provider scopes (stored on the Account model), but lacks a mechanism for application-level user permissions. Applications using belgie cannot easily implement role-based or permission-based access control.
+Since StrEnum members are strings, they work directly with FastAPI's Security dependency without any conversion helpers
+
+- providing a clean, minimal API.
+
+The problem this solves: Currently, belgie only handles OAuth provider scopes (stored on the Account model), but lacks a
+mechanism for application-level user permissions. Applications using belgie cannot easily implement role-based or
+permission-based access control.
 
 ### Goals
+
 - Provide utilities for working with StrEnum-based scopes (any user-defined StrEnum)
 - Enable efficient database storage using PostgreSQL ARRAY (default) or JSON (fallback)
 - Update auth validation flow to check user scopes with minimal boilerplate
@@ -18,6 +27,7 @@ The problem this solves: Currently, belgie only handles OAuth provider scopes (s
 - Enable direct usage of Scope enums with FastAPI Security (StrEnum members are strings)
 
 ### Non-Goals
+
 - Will not provide a predefined set of scopes (users define their own)
 - This is not a full RBAC (Role-Based Access Control) system with role hierarchies
 - Will not support dynamic scope creation at runtime (scopes are defined in code)
@@ -30,9 +40,12 @@ The problem this solves: Currently, belgie only handles OAuth provider scopes (s
 ### Workflow 1: Defining Custom Scopes and Attaching to User Model
 
 #### Description
-Library users define their own Scope enum using Python's StrEnum and attach scopes to their User model using a simple list column.
+
+Library users define their own Scope enum using Python's StrEnum and attach scopes to their User model using a simple
+list column.
 
 #### Usage Example
+
 ```python
 # In user's application code (e.g., myapp/auth/scopes.py)
 from enum import StrEnum
@@ -78,6 +91,7 @@ class User(Base):
 ```
 
 #### Key Components
+
 - **User-defined StrEnum** - Application-specific scope definitions
 - **StrEnum** (Python 3.11+) - Built-in enum type where members are strings
 - **scopes column** - List of scope strings stored efficiently in database
@@ -85,9 +99,12 @@ class User(Base):
 ### Workflow 2: Protecting Routes with Scopes
 
 #### Description
-Developers protect FastAPI routes with scope requirements. Since StrEnum members are strings, they can be passed directly to Security without conversion helpers.
+
+Developers protect FastAPI routes with scope requirements. Since StrEnum members are strings, they can be passed
+directly to Security without conversion helpers.
 
 #### Usage Example
+
 ```python
 from myapp.auth.scopes import Scope
 from belgie.auth.core import Auth
@@ -129,6 +146,7 @@ async def admin_users(user: User = Security(auth.user)):
 ```
 
 #### Call Graph
+
 ```mermaid
 graph TD
     A[FastAPI Route Handler] --> B[Security: auth.user]
@@ -140,6 +158,7 @@ graph TD
 ```
 
 #### Sequence Diagram
+
 ```mermaid
 sequenceDiagram
     participant Client
@@ -164,6 +183,7 @@ sequenceDiagram
 ```
 
 #### Key Components
+
 - **Security([Scope.READ])** - FastAPI accepts StrEnum directly (members are strings)
 - **Auth.user Dependency** (`src/belgie/auth/core/auth.py:Auth.user`) - Validates user scopes
 - **validate_scopes Utility** (`src/belgie/auth/utils/scopes.py:validate_scopes`) - Generic scope validation
@@ -172,9 +192,12 @@ sequenceDiagram
 ### Workflow 3: Managing User Scopes
 
 #### Description
-Administrators or backend services can update user scopes by modifying the user's scopes list and saving to the database.
+
+Administrators or backend services can update user scopes by modifying the user's scopes list and saving to the
+database.
 
 #### Usage Example
+
 ```python
 from myapp.auth.scopes import Scope
 from myapp.auth.models import User
@@ -205,6 +228,7 @@ async with get_db() as db:
 ```
 
 #### Call Graph
+
 ```mermaid
 graph TD
     A[Admin/Service Code] --> B[user.scopes = list]
@@ -214,6 +238,7 @@ graph TD
 ```
 
 #### Key Components
+
 - **user.scopes** - Direct list assignment, StrEnum converts to str automatically
 - **Database Persistence** - PostgreSQL ARRAY or JSON column
 - **AlchemyAdapter** - No changes needed, works with existing patterns
@@ -240,7 +265,7 @@ graph TD
 
 ### Module Structure
 
-```
+```text
 src/belgie/
 ├── auth/
 │   ├── protocols/
@@ -264,6 +289,7 @@ examples/auth/
 ### API Design
 
 #### `src/belgie/auth/utils/scopes.py`
+
 Generic utilities for working with scope strings (leaf node, see [Implementation Order](#implementation-order) #1).
 
 ```python
@@ -298,6 +324,7 @@ def parse_scopes(scopes_str: str) -> list[str]: ...
 ```
 
 #### `src/belgie/auth/protocols/models.py`
+
 Update UserProtocol to include scopes attribute with generic scope type (see [Implementation Order](#implementation-order) #2).
 
 ```python
@@ -324,6 +351,7 @@ class UserProtocol[S: str](Protocol):
 ```
 
 #### `src/belgie/auth/core/auth.py`
+
 Update auth validation to use user-level scopes (see [Implementation Order](#implementation-order) #3).
 
 ```python
@@ -365,6 +393,7 @@ class Auth[UserT: UserProtocol, AccountT, SessionT, OAuthStateT]:
 ```
 
 #### `examples/auth/scopes.py`
+
 Example Scope enum for users to copy and customize (NEW EXAMPLE).
 
 ```python
@@ -395,7 +424,9 @@ class Scope(StrEnum):
 ```
 
 #### `examples/auth/models.py`
-Updated User model with scopes using PostgreSQL ARRAY and SQLAlchemy Enum (MODIFIED EXAMPLE, see [Implementation Order](#implementation-order) #4).
+
+Updated User model with scopes using PostgreSQL ARRAY and SQLAlchemy Enum (MODIFIED EXAMPLE, see
+[Implementation Order](#implementation-order) #4).
 
 ```python
 from sqlalchemy import ARRAY, Enum as SQLEnum
@@ -432,6 +463,7 @@ class User(Base):
 ```
 
 #### `examples/auth/models_sqlite.py`
+
 Alternative User model using JSON for SQLite compatibility (NEW EXAMPLE).
 
 ```python
@@ -477,6 +509,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 #### `src/belgie/__test__/auth/utils/test_scopes.py` (Updated)
 
 **validate_scopes Function Tests:**
+
 - Test `validate_scopes()` with list of strings (user has all required)
 - Test `validate_scopes()` with list of strings (user missing some required) - should return False
 - Test `validate_scopes()` with set of strings
@@ -485,17 +518,20 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test case sensitivity (should be case-sensitive)
 
 **has_any_scope Function Tests:**
+
 - Test `has_any_scope()` with user having at least one required scope
 - Test `has_any_scope()` with user having none of the required scopes
 - Test `has_any_scope()` with user having all required scopes
 - Test `has_any_scope()` with empty sets (edge cases)
 
 **parse_scopes Function Tests:**
+
 - Keep existing tests unchanged (OAuth provider scope parsing)
 
 #### `examples/auth/test_models.py` (New)
 
 **User Model Scope Tests (PostgreSQL ARRAY version):**
+
 - Test User model can be instantiated with empty scopes (default)
 - Test User.scopes is empty list for new user
 - Test User.scopes can be assigned list of StrEnum members (converts to strings)
@@ -507,12 +543,14 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test SQLAlchemy detects mutations properly
 
 **User Model Scope Tests (SQLite JSON version):**
+
 - Same tests as above but using models_sqlite.py
 - Verify JSON serialization works correctly
 
 #### `src/belgie/__test__/auth/core/test_auth_integration.py` (Updated)
 
 **Auth Integration Tests with Scopes:**
+
 - Test [Workflow 2](#workflow-2-protecting-routes-with-scopes) end-to-end:
   - Create user with specific scopes (assign StrEnum list)
   - Create session for user
@@ -529,6 +567,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Mock database and session creation for isolated testing
 
 **Edge Cases to Cover:**
+
 - User with empty scopes list accessing protected routes
 - Route requiring empty scopes list (should allow all authenticated users)
 - Large number of scopes on a user (performance test)
@@ -694,6 +733,7 @@ Based on the dependency graph, implement in the following order (leaf nodes firs
 ### New Libraries
 
 No new external libraries required. Uses Python 3.11+ stdlib:
+
 - `enum.StrEnum` - Built into Python 3.11+
 
 ### Existing Libraries
@@ -725,18 +765,21 @@ class User(Base):
 ```
 
 **Pros**:
+
 - Type safety in Python code (set[Scope] not list[str])
 - Prevents invalid scope strings in Python layer
 - More explicit enum usage
 
 **Cons**:
+
 - More complex implementation (property getter/setter)
 - Conversion overhead on every access
 - Less obvious that database stores strings
 - Users must remember to use set not list
 - StrEnum comparison with strings still works, so conversion not necessary
 
-**Why not chosen**: StrEnum members ARE strings, so the property pattern adds complexity without significant benefit. Direct list[str] storage is simpler and works naturally with StrEnum.
+**Why not chosen**: StrEnum members ARE strings, so the property pattern adds complexity without significant benefit.
+Direct list [str] storage is simpler and works naturally with StrEnum.
 
 ### Approach 2: Helper Function for Scope Conversion
 
@@ -753,17 +796,20 @@ async def get(user: User = Security(auth.user, scopes=requires_scopes(Scope.READ
 ```
 
 **Pros**:
+
 - More explicit about conversion happening
 - Could provide validation at helper level
 - Clearer API for users unfamiliar with StrEnum
 
 **Cons**:
+
 - Unnecessary since StrEnum members are already strings
 - Extra function call for no benefit
 - More boilerplate in route definitions
 - Hides the fact that StrEnum works directly
 
-**Why not chosen**: FastAPI's `Security(scopes=...)` accepts `Sequence[str]`, and StrEnum members are strings. The helper function is unnecessary boilerplate that obscures the natural behavior of StrEnum.
+**Why not chosen**: FastAPI's `Security(scopes=...)` accepts `Sequence[str]`, and StrEnum members are strings. The
+helper function is unnecessary boilerplate that obscures the natural behavior of StrEnum.
 
 ### Approach 3: String-Based Scopes (No StrEnum)
 
@@ -779,19 +825,22 @@ async def get_resources(user: User = Security(auth.user, scopes=["resource:read"
 ```
 
 **Pros**:
+
 - Maximum simplicity (no enums)
 - No conversion needed anywhere
 - Works with any Python version
 - More flexible
 
 **Cons**:
+
 - No type safety (typos not caught at development time)
 - No IDE autocomplete for scope names
 - Harder to refactor (string literals scattered in code)
 - No centralized scope definition
 - Easy to make mistakes
 
-**Why not chosen**: Type safety and IDE support are major benefits. StrEnum provides compile-time checking and prevents typos while still working naturally as strings.
+**Why not chosen**: Type safety and IDE support are major benefits. StrEnum provides compile-time checking and prevents
+typos while still working naturally as strings.
 
 ### Approach 4: PostgreSQL Native ENUM
 
@@ -807,18 +856,21 @@ scopes: Mapped[list[Scope]] = mapped_column(
 ```
 
 **Pros**:
+
 - Database-level validation of scope values
 - Slightly smaller storage
 - Type safety at database level
 
 **Cons**:
+
 - Requires creating PostgreSQL ENUM type for each user's custom Scope
 - Adding/removing scopes requires ALTER TYPE migrations
 - Much more complex to manage
 - Breaks SQLite compatibility completely
 - Harder for users to customize their scopes
 
-**Why not chosen**: Since users define their own Scope enums, requiring database enum types adds significant complexity. Using ARRAY(String) gives us the efficiency benefits without the migration headaches.
+**Why not chosen**: Since users define their own Scope enums, requiring database enum types adds significant complexity.
+Using ARRAY(String) gives us the efficiency benefits without the migration headaches.
 
 ### Approach 5: JSON Column Only (No ARRAY)
 
@@ -829,14 +881,18 @@ scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
 ```
 
 **Pros**:
+
 - Works on all databases (SQLite, MySQL, PostgreSQL)
 - Single implementation for all database types
 - Simpler to document and teach
 
 **Cons**:
+
 - Less efficient than PostgreSQL ARRAY
 - No native array operations in PostgreSQL
 - Larger storage size
 - Slower queries for scope filtering
 
-**Why not chosen**: PostgreSQL ARRAY is more efficient and provides better query capabilities. Since many production deployments use PostgreSQL, we should default to the optimal solution. Providing both examples (ARRAY and JSON) gives users the best of both worlds.
+**Why not chosen**: PostgreSQL ARRAY is more efficient and provides better query capabilities. Since many production
+deployments use PostgreSQL, we should default to the optimal solution. Providing both examples (ARRAY and JSON) gives
+users the best of both worlds.

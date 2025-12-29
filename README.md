@@ -1,13 +1,16 @@
 # Belgie
 
-Self-hosted, type-safe authentication for FastAPI that makes Google OAuth and secure session cookies work with almost zero glue code. Keep your data, skip per-user SaaS bills, and still get a polished developer experience.
+Self-hosted, type-safe authentication for FastAPI that makes Google OAuth and secure session cookies work with almost
+zero glue code. Keep your data, skip per-user SaaS bills, and still get a polished developer experience.
 
 ## Who this is for
+
 - FastAPI teams that want Google sign-in and protected routes today, not after weeks of wiring.
 - Product engineers who prefer first-class type hints and adapter-driven design over magic.
 - Startups that would rather own their user data and avoid per-MAU pricing from hosted identity vendors.
 
 ## What it solves
+
 - End-to-end Google OAuth 2.0 flow with CSRF-safe state storage.
 - Sliding-window, signed session cookies (no JWT juggling required).
 - Drop-in FastAPI dependencies for `auth.user`, `auth.session`, and scoped access.
@@ -15,10 +18,14 @@ Self-hosted, type-safe authentication for FastAPI that makes Google OAuth and se
 - Hooks so you can plug in logging, analytics, or audit trails without forking.
 
 ## How it compares
-- **fastapi-users**: feature-rich but now in maintenance mode and optimized for password-plus-OAuth flows. Belgie focuses on OAuth + session UX, keeps the surface area small, and ships type-driven adapters out of the box.
-- **Hosted identity (Auth0, Clerk, Supabase Auth)**: great UIs and more providers, but billed per Monthly Active User and hosted off your stack. Belgie is MIT-licensed, runs in your app, and never charges per user.
+
+- **fastapi-users**: feature-rich but now in maintenance mode and optimized for password-plus-OAuth flows. Belgie
+  focuses on OAuth + session UX, keeps the surface area small, and ships type-driven adapters out of the box.
+- **Hosted identity (Auth0, Clerk, Supabase Auth)**: great UIs and more providers, but billed per Monthly Active User
+  and hosted off your stack. Belgie is MIT-licensed, runs in your app, and never charges per user.
 
 ## Features at a glance
+
 - Google OAuth provider with ready-made router (`/auth/signin/google`, `/auth/callback/google`, `/auth/signout`).
 - Session manager with sliding expiry and secure cookie defaults (HttpOnly, SameSite, Secure).
 - Scope-aware dependency for route protection (`Security(auth.user, scopes=[...])`).
@@ -36,6 +43,7 @@ uv add belgie
 ## Quick start
 
 ### 1) Define models
+
 ```python
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -88,6 +96,7 @@ class OAuthState(Base):
 ```
 
 ### 2) Configure Belgie
+
 ```python
 from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleProviderSettings
 
@@ -118,6 +127,7 @@ auth = Auth(
 ```
 
 ### 3) Add routes to FastAPI
+
 ```python
 from fastapi import Depends, FastAPI, Security
 
@@ -141,34 +151,43 @@ async def profile(user: User = Security(auth.user, scopes=["profile"])):
 ```
 
 Run it:
+
 ```bash
 uvicorn main:app --reload
 ```
+
 Visit `http://localhost:8000/auth/signin/google` to sign in.
 
 ## Configuration shortcuts
-- Environment variables: `BELGIE_SECRET`, `BELGIE_BASE_URL`, `BELGIE_GOOGLE_CLIENT_ID`, `BELGIE_GOOGLE_CLIENT_SECRET`, `BELGIE_GOOGLE_REDIRECT_URI` (loaded automatically by `AuthSettings()`).
+
+- Environment variables: `BELGIE_SECRET`, `BELGIE_BASE_URL`, `BELGIE_GOOGLE_CLIENT_ID`, `BELGIE_GOOGLE_CLIENT_SECRET`,
+  `BELGIE_GOOGLE_REDIRECT_URI` (loaded automatically by `AuthSettings()`).
 - Session tuning: `SessionSettings(cookie_name, max_age, update_age)` controls lifetime and sliding refresh.
 - Cookie hardening: `CookieSettings(http_only, secure, same_site)` for production-ready defaults.
 
 ## Router endpoints
+
 - `GET /auth/signin/google` – start OAuth flow
 - `GET /auth/callback/google` – handle Google callback
 - `POST /auth/signout` – clear session cookie and invalidate server session
 
 ## Limitations today
+
 - Google is the only built-in provider; more providers and email/password are on the roadmap.
 - You manage your own database migrations and deployment (by design—no third-party control plane).
 
 ## Why teams pick Belgie
+
 - Keep control of data and infra while getting a batteries-included OAuth flow.
 - Minimal surface area: a single `Auth` instance exposes router + dependencies.
 - Modern typing and clear protocols reduce integration mistakes and make refactors safer.
 - MIT license, zero per-user costs.
 
 ## Documentation and examples
+
 - [docs/quickstart.md](docs/quickstart.md) for full walkthrough
 - [examples/auth](examples/auth) for a runnable app
 
 ## Contributing
-MIT licensed. Issues and PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+MIT licensed. Issues and PRs welcome.

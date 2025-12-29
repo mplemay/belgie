@@ -6,31 +6,31 @@ In general, you **must** follow the following workflow when writing code:
 
 1. **Research and understand the task**
    - Explore the existing codebase to understand current architecture and patterns
-     - Use glob/grep to find relevant files and understand existing implementations
-     - Read related code to understand how similar features are structured
-     - Identify existing utilities, base classes, and patterns to leverage
+   - Use glob/grep to find relevant files and understand existing implementations
+   - Read related code to understand how similar features are structured
+   - Identify existing utilities, base classes, and patterns to leverage
    - Research external solutions and best practices
-     - Search the web for similar implementations in other projects
-     - Research relevant libraries and their APIs
-     - Understand common patterns and anti-patterns for the feature type
-     - Investigate potential dependencies and their trade-offs
+   - Search the web for similar implementations in other projects
+   - Research relevant libraries and their APIs
+   - Understand common patterns and anti-patterns for the feature type
+   - Investigate potential dependencies and their trade-offs
    - Gather requirements and constraints
-     - Clarify ambiguous requirements with the user if needed
-     - Identify edge cases and potential issues
-     - Understand performance, security, and compatibility requirements
+   - Clarify ambiguous requirements with the user if needed
+   - Identify edge cases and potential issues
+   - Understand performance, security, and compatibility requirements
 
 2. **Create a design document**
    - **Use the design document template** ([design/000-design-template.md](design/000-design-template.md)) to structure your plan
    - See the complete example ([design/000-design-example.md](design/000-design-example.md)) for a filled-out design document
    - Act as a system architect and describe the high-level interfaces and functionality
    - The design document should include:
-     - High-level description and goals
-     - Workflows with mermaid diagrams (call graphs, sequence diagrams)
-     - Dependency graphs showing existing and new dependencies
-     - Implementation order (based on dependency graph leaf nodes)
-     - Libraries to be added and their dependency groups
-     - API design with code stubs and inline comments
-     - Testing strategy organized by module
+   - High-level description and goals
+   - Workflows with mermaid diagrams (call graphs, sequence diagrams)
+   - Dependency graphs showing existing and new dependencies
+   - Implementation order (based on dependency graph leaf nodes)
+   - Libraries to be added and their dependency groups
+   - API design with code stubs and inline comments
+   - Testing strategy organized by module
    - The plan should include all details necessary for a programmer to implement the design
 
 3. **Iterate on the design**
