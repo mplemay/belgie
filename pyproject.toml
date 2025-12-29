@@ -72,6 +72,20 @@ ignore = [
     "S106",    # possible hardcoded password (test secrets are fine)
     "SLF001",  # private member accessed
 ]
+"**/__tests__/**/*" = [
+    "ANN001",  # missing type annotation for function argument
+    "ANN201",  # missing return type annotation for public function
+    "ANN202",  # missing return type annotation for private function
+    "B008",    # function call in argument defaults (required for FastAPI Depends)
+    "F841",    # local variable assigned but never used
+    "FAST002", # FastAPI dependency without Annotated
+    "INP001",  # implicit namespace package (tests dir may not need __init__.py)
+    "PLR0913", # too many arguments in function definition
+    "PLR2004", # magic value used in comparison (fine in test cases)
+    "S101",    # use of assert (tests typically use assert directly)
+    "S106",    # possible hardcoded password (test secrets are fine)
+    "SLF001",  # private member accessed
+]
 
 [tool.ruff.lint.flake8-quotes]
 inline-quotes = "double"
