@@ -24,7 +24,7 @@ Configure scopes in your `GoogleProviderSettings`:
 
 ```python
 from belgie.auth import AuthSettings
-from belgie.auth.providers.google import GoogleProviderSettings
+from auth.providers.google import GoogleProviderSettings
 
 settings = AuthSettings(secret="your-secret", base_url="http://localhost:8000")
 providers = {
@@ -213,7 +213,7 @@ Belgie provides utility functions for working with scopes:
 ### Parse Scopes
 
 ```python
-from belgie.auth.utils.scopes import parse_scopes
+from auth.utils.scopes import parse_scopes
 
 # From comma-separated string
 scopes = parse_scopes("email, profile, openid")
@@ -227,7 +227,7 @@ scopes = parse_scopes('["email", "profile"]')
 ### Validate Scopes
 
 ```python
-from belgie.auth.utils.scopes import validate_scopes
+from auth.utils.scopes import validate_scopes
 
 user_scopes = ["openid", "email", "profile"]
 required_scopes = ["email", "profile"]

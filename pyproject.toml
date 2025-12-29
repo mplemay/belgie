@@ -58,7 +58,7 @@ ignore = [
 "__init__.py" = [
     "F401", # imported but unused (common in __init__.py to re-export symbols)
 ]
-"__tests__/**/*" = [
+"**/tests/**/*" = [
     "ANN001",  # missing type annotation for function argument
     "ANN201",  # missing return type annotation for public function
     "ANN202",  # missing return type annotation for private function

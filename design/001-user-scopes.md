@@ -107,7 +107,7 @@ directly to Security without conversion helpers.
 
 ```python
 from myapp.auth.scopes import Scope
-from belgie.auth.core import Auth
+from auth.core import Auth
 from fastapi import FastAPI, Security
 
 app = FastAPI()
@@ -201,7 +201,7 @@ database.
 ```python
 from myapp.auth.scopes import Scope
 from myapp.auth.models import User
-from belgie.auth.adapters.alchemy import AlchemyAdapter
+from auth.adapters.alchemy import AlchemyAdapter
 
 adapter = AlchemyAdapter[User, Account, Session, OAuthState]()
 
@@ -358,8 +358,8 @@ Update auth validation to use user-level scopes (see [Implementation Order](#imp
 from fastapi import HTTPException, Security, status
 from fastapi.security import SecurityScopes
 
-from belgie.auth.utils.scopes import validate_scopes
-from belgie.auth.adapters.protocols import UserProtocol
+from auth.utils.scopes import validate_scopes
+from auth.adapters.protocols import UserProtocol
 
 class Auth[UserT: UserProtocol, AccountT, SessionT, OAuthStateT]:
     # Existing Auth class with updated scope validation

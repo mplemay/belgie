@@ -58,8 +58,8 @@ in the application.
 
 ```python
 from belgie.auth import Auth, AuthSettings
-from belgie.auth.adapters.alchemy import AlchemyAdapter
-from belgie.auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+from auth.adapters.alchemy import AlchemyAdapter
+from auth.providers.google import GoogleOAuthProvider, GoogleProviderSettings
 
 # Load provider settings from environment
 google_settings = GoogleProviderSettings()  # Loads from BELGIE_GOOGLE_* env vars
@@ -221,8 +221,8 @@ class MicrosoftProviderSettings(BaseSettings):
 
 # Step 2: Implement provider protocol
 from fastapi import APIRouter, Depends, RedirectResponse
-from belgie.auth.adapters.protocols import AdapterProtocol
-from belgie.auth.providers.protocols import OAuthProviderProtocol
+from auth.adapters.protocols import AdapterProtocol
+from auth.providers.protocols import OAuthProviderProtocol
 
 class MicrosoftOAuthProvider:
     """Microsoft OAuth provider - self-contained implementation"""
@@ -618,7 +618,7 @@ Before:
 
 ```python
 from belgie.auth import Auth, AuthSettings
-from belgie.auth.providers.google import GoogleProviderSettings
+from auth.providers.google import GoogleProviderSettings
 
 settings = AuthSettings(secret="...", base_url="http://localhost:8000")
 providers = {
@@ -636,7 +636,7 @@ After:
 
 ```python
 from belgie.auth import Auth, AuthSettings
-from belgie.auth.providers.google import GoogleProviderSettings
+from auth.providers.google import GoogleProviderSettings
 
 # Load settings from environment
 auth_settings = AuthSettings()  # BELGIE_* env vars
@@ -696,10 +696,10 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from fastapi import APIRouter
 from pydantic_settings import BaseSettings
 
-from belgie.auth.adapters.protocols import AdapterProtocol
+from auth.adapters.protocols import AdapterProtocol
 
 if TYPE_CHECKING:
-    from belgie.auth.core.settings import AuthSettings
+    from auth.core.settings import AuthSettings
 
 
 class OAuthProviderProtocol[S: BaseSettings](Protocol):
@@ -894,8 +894,8 @@ from fastapi import APIRouter, Depends, RedirectResponse
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from belgie.auth.adapters.protocols import AdapterProtocol
-from belgie.auth.utils.crypto import generate_state_token
+from auth.adapters.protocols import AdapterProtocol
+from auth.utils.crypto import generate_state_token
 
 
 class GoogleProviderSettings(BaseSettings):
@@ -949,7 +949,7 @@ class GoogleOAuthProvider:
         from datetime import UTC, datetime, timedelta
         from urllib.parse import urlencode, urlparse, urlunparse
 
-        from belgie.auth.core.exceptions import InvalidStateError
+        from auth.core.exceptions import InvalidStateError
 
         router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
@@ -1086,7 +1086,7 @@ Type-safe provider registry pattern for Auth class initialization:
 ```python
 from typing import NotRequired, TypedDict
 
-from belgie.auth.providers.protocols import OAuthProviderProtocol
+from auth.providers.protocols import OAuthProviderProtocol
 
 
 class Providers(TypedDict, total=False):
@@ -1120,8 +1120,8 @@ from fastapi import APIRouter
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from belgie.auth.adapters.alchemy import AlchemyAdapter
-from belgie.auth.providers.protocols import OAuthProviderProtocol, Providers
+from auth.adapters.alchemy import AlchemyAdapter
+from auth.providers.protocols import OAuthProviderProtocol, Providers
 
 
 class AuthSettings(BaseSettings):

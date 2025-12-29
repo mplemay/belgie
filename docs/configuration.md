@@ -115,7 +115,7 @@ cookie = CookieSettings(
 Configure Google OAuth 2.0:
 
 ```python
-from belgie.auth.providers.google import GoogleProviderSettings
+from auth.providers.google import GoogleProviderSettings
 
 google = GoogleProviderSettings(
     client_id="your-client-id",
