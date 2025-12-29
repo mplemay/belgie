@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import SettingsConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth.adapters.connection import DBConnection
 from auth.adapters.protocols import AdapterProtocol
 from auth.core.exceptions import InvalidStateError, OAuthError
 from auth.core.hooks import HookContext, HookRunner
@@ -176,12 +176,12 @@ class GoogleOAuthProvider:
         signin_redirect: str,
         signout_redirect: str,  # noqa: ARG002
         hook_runner: HookRunner,
-        db_dependency: Callable[[], AsyncSession | AsyncGenerator[AsyncSession, None]],
+        db_dependency: Callable[[], DBConnection | AsyncGenerator[DBConnection, None]],
     ) -> APIRouter:
         """Create router with Google OAuth endpoints."""
         router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
 
-        async def signin(db: AsyncSession = Depends(db_dependency)) -> RedirectResponse:  # noqa: B008
+        async def signin(db: DBConnection = Depends(db_dependency)) -> RedirectResponse:  # noqa: B008
             """Initiate Google OAuth flow."""
             # Generate and store state token with expiration
             state = generate_state_token()
@@ -196,7 +196,7 @@ class GoogleOAuthProvider:
             auth_url = self.generate_authorization_url(state)
             return RedirectResponse(url=auth_url, status_code=302)
 
-        async def callback(code: str, state: str, db: AsyncSession = Depends(db_dependency)) -> RedirectResponse:  # noqa: B008
+        async def callback(code: str, state: str, db: DBConnection = Depends(db_dependency)) -> RedirectResponse:  # noqa: B008
             """Handle Google OAuth callback."""
             # Validate and delete state token (use walrus operator)
             if not await adapter.get_oauth_state(db, state):

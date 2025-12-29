@@ -4,9 +4,10 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from __tests__.auth.fixtures.database import get_test_engine, get_test_session_factory
-from __tests__.auth.fixtures.models import Session, User
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+from tests.fixtures.database import get_test_engine, get_test_session_factory
+from tests.fixtures.models import Session, User
 
 
 @pytest_asyncio.fixture

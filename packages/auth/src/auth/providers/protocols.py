@@ -9,8 +9,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from fastapi import APIRouter
-    from sqlalchemy.ext.asyncio import AsyncSession
 
+    from auth.adapters.connection import DBConnection
     from auth.adapters.protocols import AdapterProtocol
     from auth.core.hooks import HookRunner
     from auth.core.settings import CookieSettings
@@ -34,7 +34,7 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
         signin_redirect: str,
         signout_redirect: str,
         hook_runner: HookRunner,
-        db_dependency: Callable[[], AsyncSession | AsyncGenerator[AsyncSession, None]],
+        db_dependency: Callable[[], DBConnection | AsyncGenerator[DBConnection, None]],
     ) -> APIRouter: ...
 
 

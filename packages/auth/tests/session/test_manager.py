@@ -2,10 +2,10 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from auth.adapters.alchemy import AlchemyAdapter
 from auth.session.manager import SessionManager
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.fixtures.models import Account, OAuthState, Session, User
 
 
 @pytest.fixture

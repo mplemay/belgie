@@ -12,7 +12,6 @@ from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from auth.adapters.alchemy import AlchemyAdapter
 from auth.adapters.protocols import UserProtocol
 from auth.core.auth import Auth
@@ -21,6 +20,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from tests.fixtures.models import Account, OAuthState, Session, User
 
 
 class AppScope(StrEnum):

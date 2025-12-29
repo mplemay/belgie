@@ -1,9 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from auth.adapters.alchemy import AlchemyAdapter
+from auth.adapters.connection import DBConnection
 from auth.adapters.protocols import AccountProtocol, OAuthStateProtocol, SessionProtocol, UserProtocol
 
 
@@ -52,7 +51,7 @@ class SessionManager[
 
     async def create_session(
         self,
-        db: AsyncSession,
+        db: DBConnection,
         user_id: UUID,
         ip_address: str | None = None,
         user_agent: str | None = None,
@@ -60,7 +59,7 @@ class SessionManager[
         """Create a new session for a user.
 
         Args:
-            db: Async database session
+            db: Database connection
             user_id: UUID of the user
             ip_address: Optional IP address of the client
             user_agent: Optional User-Agent string of the client
@@ -84,7 +83,7 @@ class SessionManager[
 
     async def get_session(
         self,
-        db: AsyncSession,
+        db: DBConnection,
         session_id: UUID,
     ) -> SessionT | None:
         """Retrieve and validate a session with sliding window refresh.
@@ -94,7 +93,7 @@ class SessionManager[
         of expiring (sliding window mechanism).
 
         Args:
-            db: Async database session
+            db: Database connection
             session_id: UUID of the session to retrieve
 
         Returns:
@@ -129,11 +128,11 @@ class SessionManager[
 
         return session
 
-    async def delete_session(self, db: AsyncSession, session_id: UUID) -> bool:
+    async def delete_session(self, db: DBConnection, session_id: UUID) -> bool:
         """Delete a session.
 
         Args:
-            db: Async database session
+            db: Database connection
             session_id: UUID of the session to delete
 
         Returns:
@@ -146,13 +145,13 @@ class SessionManager[
         """
         return await self.adapter.delete_session(db, session_id)
 
-    async def cleanup_expired_sessions(self, db: AsyncSession) -> int:
+    async def cleanup_expired_sessions(self, db: DBConnection) -> int:
         """Delete all expired sessions from the database.
 
         Useful for periodic cleanup tasks to remove stale session data.
 
         Args:
-            db: Async database session
+            db: Database connection
 
         Returns:
             Number of sessions deleted

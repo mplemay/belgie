@@ -3,9 +3,9 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request, status
 from fastapi.security import SecurityScopes
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.adapters.alchemy import AlchemyAdapter
+from auth.adapters.connection import DBConnection
 from auth.adapters.protocols import (
     AccountProtocol,
     OAuthStateProtocol,
@@ -39,7 +39,7 @@ class AuthClient[
         OAuthStateT: OAuth state model type implementing OAuthStateProtocol
 
     Attributes:
-        db: Captured database session
+        db: Captured database connection
         adapter: Database adapter for persistence operations
         session_manager: Session manager for session lifecycle operations
         cookie_name: Name of the session cookie
@@ -55,7 +55,7 @@ class AuthClient[
         ...     return {"message": "Account deleted"}
     """
 
-    db: AsyncSession
+    db: DBConnection
     adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT]
     session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
     cookie_name: str

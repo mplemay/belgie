@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
 from auth.adapters.alchemy import AlchemyAdapter
 from auth.core.auth import Auth
 from auth.core.settings import AuthSettings, CookieSettings, SessionSettings, URLSettings
@@ -12,6 +11,7 @@ from auth.providers.google import GoogleProviderSettings
 from fastapi import HTTPException, Request
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.fixtures.models import Account, OAuthState, Session, User
 
 
 @pytest.fixture

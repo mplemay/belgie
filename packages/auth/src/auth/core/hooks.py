@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from auth.adapters.connection import DBConnection
 else:  # pragma: no cover
-    AsyncSession = object
+    DBConnection = object
 
 from auth.adapters.protocols import UserProtocol
 
@@ -19,7 +19,7 @@ HookEvent = Literal["on_signup", "on_signin", "on_signout", "on_delete"]
 @dataclass(frozen=True, slots=True, kw_only=True)
 class HookContext[UserT: UserProtocol]:
     user: UserT
-    db: AsyncSession
+    db: DBConnection
 
 
 type HookFunc = Callable[[HookContext], None | Awaitable[None]]

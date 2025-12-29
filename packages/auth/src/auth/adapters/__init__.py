@@ -1,4 +1,5 @@
 from auth.adapters.alchemy import AlchemyAdapter
+from auth.adapters.connection import DBConnection
 from auth.adapters.protocols import (
     AccountProtocol,
     AdapterProtocol,
@@ -11,6 +12,7 @@ __all__ = [
     "AccountProtocol",
     "AdapterProtocol",
     "AlchemyAdapter",
+    "DBConnection",
     "OAuthStateProtocol",
     "SessionProtocol",
     "UserProtocol",

@@ -1,6 +1,7 @@
 """Belgie Auth - Authentication components."""
 
 from auth.adapters.alchemy import AlchemyAdapter
+from auth.adapters.connection import DBConnection
 from auth.adapters.protocols import (
     AccountProtocol,
     AdapterProtocol,
@@ -43,6 +44,7 @@ __all__ = [  # noqa: RUF022
     "HookRunner",
     # Adapters
     "AlchemyAdapter",
+    "DBConnection",
     # Session
     "SessionManager",
     # Providers

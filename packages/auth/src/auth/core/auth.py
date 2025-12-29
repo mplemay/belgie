@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable  # noqa: TC003
+from collections.abc import AsyncGenerator, Callable  # noqa: TC003
 from functools import cached_property
-from typing import cast
+from typing import Protocol, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes  # noqa: TC002
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
-from auth.adapters.alchemy import AlchemyAdapter
+from auth.adapters.alchemy import AlchemyAdapter  # noqa: TC001
+from auth.adapters.connection import DBConnection  # noqa: TC001
 from auth.adapters.protocols import (
     AccountProtocol,
     OAuthStateProtocol,
@@ -19,10 +19,22 @@ from auth.adapters.protocols import (
 )
 from auth.core.client import AuthClient
 from auth.core.hooks import HookRunner, Hooks
-from auth.core.settings import AuthSettings
-from auth.providers.protocols import OAuthProviderProtocol, Providers
+from auth.core.settings import AuthSettings  # noqa: TC001
+from auth.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from auth.session.manager import SessionManager
-from belgie.alchemy import DatabaseSettings  # noqa: TC001
+
+
+class DBDependencyProvider(Protocol):
+    """Protocol for database dependency providers.
+
+    This allows Auth to work with any dependency injection system
+    without coupling to a specific implementation.
+    """
+
+    @property
+    def dependency(self) -> Callable[[], DBConnection | AsyncGenerator[DBConnection, None]]:
+        """FastAPI dependency that provides database connections."""
+        ...
 
 
 class _AuthCallable:
@@ -45,7 +57,7 @@ class _AuthCallable:
         dependency = obj.db.dependency
 
         def __call__(  # noqa: N807
-            db: AsyncSession = Depends(dependency),  # noqa: B008
+            db: DBConnection = Depends(dependency),  # noqa: B008
         ) -> AuthClient:
             return AuthClient(
                 db=db,
@@ -115,7 +127,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         self,
         settings: AuthSettings,
         adapter: AlchemyAdapter[UserT, AccountT, SessionT, OAuthStateT],
-        db: DatabaseSettings,
+        db: DBDependencyProvider,
         providers: Providers | None = None,
         hooks: Hooks | None = None,
     ) -> None:
@@ -124,7 +136,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         Args:
             settings: Authentication configuration including session, cookie, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
-            db: Database settings/dependency owner
+            db: Database dependency provider
             providers: Dictionary of provider settings. Each setting is callable and returns its provider.
                       If None, no providers are registered.
 
@@ -185,13 +197,13 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
             provider_router.include_router(provider_specific_router)
 
         # Add signout endpoint to main router (not provider-specific)
-        async def _get_db(db: AsyncSession = Depends(dependency)) -> AsyncSession:  # noqa: B008
+        async def _get_db(db: DBConnection = Depends(dependency)) -> DBConnection:  # noqa: B008
             return db
 
         @main_router.post("/signout")
         async def signout(
             request: Request,
-            db: AsyncSession = Depends(_get_db),  # noqa: B008, FAST002
+            db: DBConnection = Depends(_get_db),  # noqa: B008, FAST002
         ) -> RedirectResponse:
             session_id_str = request.cookies.get(self.settings.cookie.name)
 
@@ -220,7 +232,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
     async def get_user_from_session(
         self,
-        db: AsyncSession,
+        db: DBConnection,
         session_id: UUID,
     ) -> UserT | None:
         """Retrieve user from a session ID.
@@ -228,7 +240,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         This method maintains backward compatibility by delegating to AuthClient internally.
 
         Args:
-            db: Async database session
+            db: Database connection
             session_id: UUID of the session
 
         Returns:
@@ -244,7 +256,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
     async def sign_out(
         self,
-        db: AsyncSession,
+        db: DBConnection,
         session_id: UUID,
     ) -> bool:
         """Sign out a user by deleting their session.
@@ -252,7 +264,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         This method maintains backward compatibility by delegating to AuthClient internally.
 
         Args:
-            db: Async database session
+            db: Database connection
             session_id: UUID of the session to delete
 
         Returns:
@@ -269,7 +281,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
     async def _get_session_from_cookie(
         self,
         request: Request,
-        db: AsyncSession,
+        db: DBConnection,
     ) -> SessionT | None:
         """Extract and validate session from request cookies.
 
@@ -277,7 +289,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
         Args:
             request: FastAPI Request object
-            db: Async database session
+            db: Database connection
 
         Returns:
             Session if valid, None otherwise
@@ -289,7 +301,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         self,
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession,
+        db: DBConnection,
     ) -> UserT:
         """FastAPI dependency for retrieving the authenticated user.
 
@@ -301,7 +313,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
         Args:
             security_scopes: FastAPI SecurityScopes for scope validation
             request: FastAPI Request object containing cookies
-            db: Async database session
+            db: Database connection
 
         Returns:
             Authenticated user object
@@ -327,7 +339,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
     async def session(
         self,
         request: Request,
-        db: AsyncSession,
+        db: DBConnection,
     ) -> SessionT:
         """FastAPI dependency for retrieving the current session.
 
@@ -337,7 +349,7 @@ class Auth[UserT: UserProtocol, AccountT: AccountProtocol, SessionT: SessionProt
 
         Args:
             request: FastAPI Request object containing cookies
-            db: Async database session
+            db: Database connection
 
         Returns:
             Active session object
