@@ -58,6 +58,7 @@ name = "belgie"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "auth" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -86,6 +87,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "auth", editable = "packages/auth" },
     { name = "fastapi", specifier = ">=0.100" },
     { name = "httpx", specifier = ">=0.24" },
     { name = "pydantic", specifier = ">=2.0" },
