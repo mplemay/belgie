@@ -3,15 +3,21 @@
 ## Overview
 
 ### High-Level Description
-Centralize database configuration behind a reusable `DatabaseSettings` class in `belgie.alchemy`. The class will encapsulate environment-driven settings, construct async SQLAlchemy engines, expose session factories, and provide a FastAPI-friendly dependency. Auth and trace modules will consume this shared configuration instead of duplicating engine/session setup.
+
+Centralize database configuration behind a reusable `DatabaseSettings` class in `belgie.alchemy`. The class will
+encapsulate environment-driven settings, construct async SQLAlchemy engines, expose session factories, and provide a
+FastAPI-friendly dependency. Auth and trace modules will consume this shared configuration instead of duplicating
+engine/session setup.
 
 ### Goals
+
 - Provide a single, type-safe configuration surface for database setup (Postgres + SQLite).
 - Simplify FastAPI integration via a prebuilt async session dependency.
 - Remove duplicated example/test database wiring and align adapters on the shared settings object.
 - Preserve sensible defaults (UTC, FK enforcement, pooling) with minimal caller code.
 
 ### Non-Goals
+
 - Managing migrations or schema lifecycle beyond `create_all` in examples/tests.
 - Supporting sync SQLAlchemy engines or ORMs other than SQLAlchemy 2.x.
 - Adding new database backends beyond PostgreSQL and SQLite.
@@ -21,9 +27,13 @@ Centralize database configuration behind a reusable `DatabaseSettings` class in 
 ### Workflow 1: Configure DatabaseSettings
 
 #### Description
-Create a `DatabaseSettings` instance where `dialect` is a Pydantic‑discriminated union (`PostgresSettings | SqliteSettings`). It produces an async engine, session factory, and FastAPI dependency with correct pooling/FK behavior per dialect.
+
+Create a `DatabaseSettings` instance where `dialect` is a Pydantic‑discriminated union
+(`PostgresSettings | SqliteSettings`). It produces an async engine, session factory, and FastAPI
+dependency with correct pooling/FK behavior per dialect.
 
 #### Usage Example
+
 ```python
 from belgie.alchemy import DatabaseSettings
 
@@ -39,12 +49,15 @@ get_db = db.dependency  # async generator yielding AsyncSession
 ```
 
 #### Environment Variables
+
 **Type selector:**
+
 ```bash
 BELGIE_DATABASE_TYPE=postgres  # or "sqlite" (default: sqlite)
 ```
 
 **SQLite configuration:**
+
 ```bash
 BELGIE_SQLITE_DATABASE=:memory:
 BELGIE_SQLITE_ENABLE_FOREIGN_KEYS=true
@@ -52,6 +65,7 @@ BELGIE_SQLITE_ECHO=false
 ```
 
 **PostgreSQL configuration:**
+
 ```bash
 BELGIE_POSTGRES_HOST=localhost
 BELGIE_POSTGRES_PORT=5432
@@ -67,6 +81,7 @@ BELGIE_POSTGRES_ECHO=false
 ```
 
 #### Call Graph
+
 ```mermaid
 graph TD
     A[load DatabaseSettings] --> B[dialect discriminator:type]
@@ -80,6 +95,7 @@ graph TD
 ```
 
 #### Sequence Diagram
+
 ```mermaid
 sequenceDiagram
     participant FastAPI
@@ -96,16 +112,24 @@ sequenceDiagram
 ```
 
 #### Key Components
-- **DatabaseSettings** (`alchemy/settings.py:DatabaseSettings`) - owns `dialect` (discriminated union) and centralizes engine/session/dependency.
-- **PostgresSettings / SqliteSettings** (`alchemy/settings.py`) - concrete variants keyed by discriminator `type`, held in `DatabaseSettings.dialect`.
-- **db.dependency** (`alchemy/settings.py:dependency`) - async generator for FastAPI DI (accessed directly from `db`, not via adapter).
+
+- **DatabaseSettings** (`alchemy/settings.py:DatabaseSettings`) - owns `dialect` (discriminated union) and centralizes
+  engine/session/dependency.
+- **PostgresSettings / SqliteSettings** (`alchemy/settings.py`) - concrete variants keyed by discriminator `type`, held
+  in `DatabaseSettings.dialect`.
+- **db.dependency** (`alchemy/settings.py:dependency`) - async generator for FastAPI DI (accessed directly from `db`,
+  not via adapter).
 
 ### Workflow 2: Integrate with AlchemyAdapter
 
 #### Description
-`Auth`/`Trace` carry `db: DatabaseSettings` (includes `dialect` and runtime helpers). Adapters no longer expose or accept dependencies; FastAPI wiring uses `auth.db.dependency` (or `trace.db.dependency`) directly. Adapters stay persistence-only.
+
+`Auth`/ `Trace` carry `db: DatabaseSettings` (includes `dialect` and runtime helpers). Adapters no longer expose or
+accept dependencies; FastAPI wiring uses `auth.db.dependency` (or `trace.db.dependency`) directly. Adapters stay
+persistence-only.
 
 #### Usage Example
+
 ```python
 from belgie.alchemy import Base, DatabaseSettings
 from belgie.auth import AlchemyAdapter, Auth
@@ -123,6 +147,7 @@ auth = Auth(settings=..., adapter=adapter, providers=..., db=database_settings)
 ```
 
 #### Call Graph
+
 ```mermaid
 graph TD
     A[FastAPI router] --> B[Auth.user/Auth.session deps]
@@ -132,11 +157,17 @@ graph TD
 ```
 
 #### Key Components
-- **Auth** (`auth/core/auth.py:Auth`) - owns `db: DatabaseSettings` and exposes `db.dependency` to FastAPI; passes sessions into adapter methods.
-- **Trace** (`trace/core/trace.py:Trace`) - mirrors Auth ownership of `db` for tracing; adapters remain persistence-only.
-- **AlchemyAdapter** (`auth/adapters/alchemy.py:AlchemyAdapter`) - pure persistence layer; no dependency property or db field.
-- **Examples** (`examples/auth/main.py`) - instantiate `DatabaseSettings`, wire lifecycle to `engine.begin()`/`engine.dispose()`, pass `db` into `Auth`.
-- **Tests** (`__tests__/auth/fixtures/database.py`) - use `DatabaseSettings` to produce in-memory engines and session factories.
+
+- **Auth** (`auth/core/auth.py:Auth`) - owns `db: DatabaseSettings` and exposes `db.dependency` to FastAPI; passes
+  sessions into adapter methods.
+- **Trace** (`trace/core/trace.py:Trace`) - mirrors Auth ownership of `db` for tracing; adapters remain
+  persistence-only.
+- **AlchemyAdapter** (`auth/adapters/alchemy.py:AlchemyAdapter`) - pure persistence layer; no dependency property or db
+  field.
+- **Examples** (`examples/auth/main.py`) - instantiate `DatabaseSettings`, wire lifecycle to `engine.begin()`/
+  `engine.dispose()`, pass `db` into `Auth`.
+- **Tests** (`__tests__/auth/fixtures/database.py`) - use `DatabaseSettings` to produce in-memory engines and session
+  factories.
 
 ## Dependencies
 
@@ -173,7 +204,8 @@ graph TD
 ## Detailed Design
 
 ### Module Structure
-```
+
+```text
 design/
 └── 005-database-settings.md
 src/belgie/alchemy/
@@ -198,6 +230,7 @@ docs/
 ### API Design
 
 #### `src/belgie/alchemy/settings.py`
+
 Full pseudocode with discriminated `dialect` and validated numeric fields.
 
 ```python
@@ -306,7 +339,8 @@ class DatabaseSettings(BaseSettings):
             yield session
 ```
 
-- Instantiate `db = DatabaseSettings.model_validate({})` to pull from env or supply overrides; `dialect.type` drives branching.
+- Instantiate `db = DatabaseSettings.model_validate({})` to pull from env or supply overrides; `dialect.type` drives
+  branching.
 - Engine creation per discriminator:
   - Postgres: `create_async_engine("postgresql+asyncpg://...")` with pooling params.
   - SQLite: `create_async_engine("sqlite+aiosqlite:///{path}")`; add FK pragma when `enable_foreign_keys=True`.
@@ -315,6 +349,7 @@ class DatabaseSettings(BaseSettings):
 - All heavy objects (`engine`, `session_maker`) cached via `functools.cached_property`.
 
 #### `src/belgie/alchemy/__init__.py`
+
 Export `DatabaseSettings` alongside existing `Base`, `PrimaryKeyMixin`, `TimestampMixin`, `DateTimeUTC`.
 
 ```python
@@ -323,17 +358,23 @@ __all__ = ["Base", "DatabaseSettings", "DateTimeUTC", "PrimaryKeyMixin", "Timest
 ```
 
 #### `src/belgie/auth/adapters/alchemy.py`
-Keep constructor focused on model types only; remove `db` argument and `dependency` property. CRUD methods receive `AsyncSession` passed in by `Auth` (sourced from `auth.db.dependency`).
+
+Keep constructor focused on model types only; remove `db` argument and `dependency` property. CRUD methods receive
+`AsyncSession` passed in by `Auth` (sourced from `auth.db.dependency`).
 
 #### `src/belgie/auth/core/auth.py`
+
 - Accept `db: DatabaseSettings` as a required parameter.
 - Provide `db.dependency` for FastAPI (`Auth.__call__`, routers, providers).
 - Pass `AsyncSession` instances from that dependency into adapter methods.
 
 #### `src/belgie/trace/core/trace.py` and `trace/adapters/protocols.py`
-- Mirror the Auth change: `Trace` owns `db: DatabaseSettings`; adapters drop dependency exposure and expect `AsyncSession` to be supplied by callers.
+
+- Mirror the Auth change: `Trace` owns `db: DatabaseSettings`; adapters drop dependency exposure and expect
+  `AsyncSession` to be supplied by callers.
 
 #### `examples/auth/main.py`
+
 Adopt shared settings and example models.
 
 ```python
@@ -353,6 +394,7 @@ async def lifespan(_app: FastAPI):
 Remove local `database.py`, `models.py`, `models_sqlite.py`; rely on `auth_models.py`.
 
 #### `__tests__/auth/fixtures/database.py`
+
 Construct engine/session via `DatabaseSettings` for in-memory SQLite with FK enforcement.
 
 ```python
@@ -366,6 +408,7 @@ session_maker = TEST_DB.session_maker
 Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `DatabaseSettings`.
 
 #### Documentation (`src/belgie/alchemy/README.md`, `examples/auth/README.md`)
+
 - Add DatabaseSettings overview, env var table, quick-start examples for Postgres/SQLite.
 - Document migration path: `db_dependency` → `db=DatabaseSettings`.
 
@@ -388,7 +431,8 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
 - **examples/auth/main.py**
   - Lifespan creates tables and disposes engine without leaks.
 - **fixtures**
-  - `__tests__/auth/fixtures/database.py` builds in-memory sqlite via `DatabaseSettings`; FK pragma active; session factory reusable.
+  - `__tests__/auth/fixtures/database.py` builds in-memory sqlite via `DatabaseSettings`; FK pragma active; session
+    factory reusable.
 - **Integration**
   - End-to-end sign-in/sign-out with sqlite in-memory using new dependency path.
   - Failure case: constructing Auth without `db` raises clear error.
@@ -398,9 +442,11 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
 ### Implementation
 
 #### Implementation Order
+
 1. **Settings module**: Implement `alchemy/settings.py` with configs, engine, session, dependency.
 2. **Exports**: Update `alchemy/__init__.py` to include `DatabaseSettings`.
-3. **Core wiring**: Update `auth/core/auth.py` and `trace/core/trace.py` to own `db: DatabaseSettings` and expose `db.dependency`; remove adapter dependency plumbing.
+3. **Core wiring**: Update `auth/core/auth.py` and `trace/core/trace.py` to own `db: DatabaseSettings` and expose
+   `db.dependency`; remove adapter dependency plumbing.
 4. **Example alignment**: Refactor `examples/auth/main.py`; delete obsolete example database/models files.
 5. **Tests**: Refactor `__tests__/auth/fixtures/database.py` (and any dependent fixtures); adjust imports if needed.
 6. **Docs**: Update alchemy and example READMEs with new usage/migration guidance.
@@ -439,6 +485,7 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
   - [x] All 45 alchemy tests pass, 11 skipped (PostgreSQL tests).
 
 ## Resolved Questions
+
 1. ~~Should `DatabaseSettings` optionally expose synchronous engine support for non-async FastAPI usage?~~
    - **Resolution**: Not needed. All usage is async-first with `AsyncSession` and `AsyncEngine`.
 2. ~~Do we need custom pool sizing defaults for aiosqlite (currently pooled the same as Postgres)?~~
@@ -449,9 +496,11 @@ Fixtures yield sessions from `session_maker`; reuse FK pragma baked into `Databa
    - **Resolution**: NO. Implemented separate prefixes (BELGIE_POSTGRES_*, BELGIE_SQLITE_*) for cleaner env vars.
 
 ## Open Questions
+
 None at this time.
 
 ## Implemented Enhancements
+
 - ✅ Separate environment variable prefixes (no double underscores)
 - ✅ `DatabaseSettings.from_env()` class method for clean environment loading
 - ✅ Comprehensive integration test suite (18 tests)
@@ -459,6 +508,7 @@ None at this time.
 - ✅ PostgreSQL live connection tests (optional via POSTGRES_TEST_URL)
 
 ## Future Enhancements
+
 - Add MySQL/MariaDB configuration variant using the same discriminated union.
 - Provide optional Alembic integration helpers for migrations.
 - Support multiple named database configurations for multi-tenant setups.
@@ -467,20 +517,24 @@ None at this time.
 ## Libraries
 
 ### New Libraries
+
 None (leverages existing `pydantic-settings`, `sqlalchemy` already in dependencies).
 
 ### Existing Libraries
+
 - `pydantic>=2.0`, `pydantic-settings>=2.0` — environment-driven settings.
 - `sqlalchemy>=2.x`, `aiosqlite`, `asyncpg` — async database connectivity.
 
 ## Alternative Approaches
 
 ### Keep adapter accepting callable dependency
+
 **Pros**: Minimal breaking change; caller-defined lifecycle.
 **Cons**: Continues duplication; no standardized pooling/FK behavior; harder to document.
 **Why not chosen**: Goal is centralization and consistent defaults.
 
 ### Use dataclass-only settings (no Pydantic)
+
 **Pros**: Lighter dependency surface.
 **Cons**: Loses env loading, validation, and discriminated unions.
 **Why not chosen**: Pydantic already in project; validation and env support are key.

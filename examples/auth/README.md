@@ -36,6 +36,7 @@ cp .env.example .env
 ```
 
 Edit `.env` and set:
+
 - `BELGIE_GOOGLE_CLIENT_ID` - your Google OAuth client ID
 - `BELGIE_GOOGLE_CLIENT_SECRET` - your Google OAuth client secret
 - `BELGIE_SECRET` - a secure random string for session signing
@@ -118,6 +119,7 @@ curl -X POST -b cookies.txt -c cookies.txt http://localhost:8000/auth/signout
 ### Models (`models.py`)
 
 Defines SQLAlchemy models for:
+
 - `User` - User account information
 - `Account` - OAuth provider accounts linked to users
 - `Session` - Active user sessions
@@ -154,6 +156,7 @@ session=SessionSettings(
 
 1. Install asyncpg: `uv add asyncpg`
 2. Change `DATABASE_URL` in `database.py`:
+
    ```python
    DATABASE_URL = "postgresql+asyncpg://user:password@localhost/dbname"
    ```

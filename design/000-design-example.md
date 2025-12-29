@@ -3,11 +3,16 @@
 ## Overview
 
 ### High-Level Description
-This feature adds a robust configuration validation system to the belgie project. It provides a declarative way to define configuration schemas and validate configuration dictionaries against those schemas. The validator will support type checking, value constraints, required fields, and custom validation rules.
 
-The problem this solves: Currently, there's no centralized way to validate configuration inputs, leading to potential runtime errors when invalid configurations are passed to modules.
+This feature adds a robust configuration validation system to the belgie project. It provides a declarative way to
+define configuration schemas and validate configuration dictionaries against those schemas. The validator will support
+type checking, value constraints, required fields, and custom validation rules.
+
+The problem this solves: Currently, there's no centralized way to validate configuration inputs, leading to potential
+runtime errors when invalid configurations are passed to modules.
 
 ### Goals
+
 - Provide a simple, declarative API for defining configuration schemas
 - Support common validation patterns (type checking, required fields, ranges, patterns)
 - Generate clear, actionable error messages for validation failures
@@ -15,6 +20,7 @@ The problem this solves: Currently, there's no centralized way to validate confi
 - Support nested configuration structures
 
 ### Non-Goals
+
 - This is not a general-purpose data validation library (use pydantic for that)
 - Will not support async validation
 - Will not provide configuration loading/saving functionality
@@ -25,9 +31,12 @@ The problem this solves: Currently, there's no centralized way to validate confi
 ### Workflow 1: Configuration Validation
 
 #### Description
-User creates a schema, passes a config dict to validator, and receives validation results with detailed error messages if validation fails.
+
+User creates a schema, passes a config dict to validator, and receives validation results with detailed error messages
+if validation fails.
 
 #### Usage Example
+
 ```python
 from belgie.config_validator import ConfigValidator, Schema
 from belgie.config_validator.validators import range_validator
@@ -55,6 +64,7 @@ else:
 ```
 
 #### Call Graph
+
 ```mermaid
 graph TD
     A[User Code] --> B[ConfigValidator.validate]
@@ -68,6 +78,7 @@ graph TD
 ```
 
 #### Sequence Diagram
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -88,6 +99,7 @@ sequenceDiagram
 ```
 
 #### Key Components
+
 - **ConfigValidator** (`validator.py:ConfigValidator`) - Main validation orchestrator
 - **Schema** (`schema.py:Schema`) - Schema definition container
 - **ValidationResult** (`result.py:ValidationResult`) - Validation result container
@@ -96,9 +108,11 @@ sequenceDiagram
 ### Workflow 2: Schema Construction
 
 #### Description
+
 User builds a schema using fluent API, defining fields with types and constraints.
 
 #### Usage Example
+
 ```python
 from belgie.config_validator import Schema
 from belgie.config_validator.validators import pattern_validator, length_validator
@@ -122,6 +136,7 @@ schema = (
 ```
 
 #### Call Graph
+
 ```mermaid
 graph TD
     A[User Code] --> B[Schema.field]
@@ -132,6 +147,7 @@ graph TD
 ```
 
 #### Key Components
+
 - **Schema** (`schema.py:Schema`) - Fluent API for schema construction
 - **FieldDefinition** (`schema.py:FieldDefinition`) - Individual field configuration
 - **ConfigValidator** (`validator.py:ConfigValidator`) - Consumes the built schema
@@ -157,7 +173,8 @@ graph TD
 ## Detailed Design
 
 ### Module Structure
-```
+
+```text
 src/belgie/
 ├── config_validator/
 │   ├── validator.py         # ConfigValidator (see Workflow 1)
@@ -177,6 +194,7 @@ src/belgie/
 ### API Design
 
 #### `src/belgie/config_validator/exceptions.py`
+
 Custom exception types for validation and schema errors.
 
 ```python
@@ -190,6 +208,7 @@ class SchemaError(Exception): ...
 ```
 
 #### `src/belgie/config_validator/result.py`
+
 Data structures for validation results and error tracking.
 
 ```python
@@ -227,6 +246,7 @@ class ValidationResult:
 ```
 
 #### `src/belgie/config_validator/validators.py`
+
 Built-in validator functions for common validation patterns (leaf node, see [Implementation Order](#implementation-order) #4).
 
 ```python
@@ -291,6 +311,7 @@ def oneof_validator(allowed_values: list[object]) -> ValidatorFunc:
 ```
 
 #### `src/belgie/config_validator/schema.py`
+
 Schema and field definition classes for declarative configuration (see [Implementation Order](#implementation-order) #3, #5).
 
 ```python
@@ -356,6 +377,7 @@ class Schema:
 ```
 
 #### `src/belgie/config_validator/validator.py`
+
 Main validator class that orchestrates validation logic (see [Implementation Order](#implementation-order) #6).
 
 ```python
@@ -434,6 +456,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 #### `test_validators.py`
 
 **Validator Functions Tests:**
+
 - Test `required()` validator with non-None values (should pass)
 - Test `required()` validator with None (should fail)
 - Test `type_validator()` with matching types (str, int, list, dict, custom classes)
@@ -452,10 +475,12 @@ Tests should be organized by module/file and cover unit tests, integration tests
 #### `test_schema.py`
 
 **FieldDefinition Class Tests:**
+
 - Test `FieldDefinition.__init__()` with various configurations
 - Test `FieldDefinition.add_validator()` method (chaining behavior)
 
 **Schema Class Tests:**
+
 - Test `Schema.__init__()` with empty and pre-populated fields
 - Test `Schema.add_field()` with valid field definitions
 - Test `Schema.field()` fluent API (chaining multiple calls)
@@ -466,6 +491,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 #### `test_validator.py`
 
 **ConfigValidator Class Tests:**
+
 - Test `ConfigValidator.__init__()` with valid and invalid schemas
 - Test `ConfigValidator.validate()` with fully valid configurations
 - Test `ConfigValidator.validate()` with missing required fields (check error messages)
@@ -482,6 +508,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 #### `test_result.py` (if separate)
 
 **ValidationResult Class Tests:**
+
 - Test `ValidationResult.__init__()` with various initial states
 - Test `ValidationResult.add_error()` method (verify error dict structure, is_valid flag updates)
 - Test `ValidationResult.merge()` method combines errors from multiple results
@@ -489,6 +516,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test `ValidationResult.__repr__()` produces readable string representation
 
 **Integration Tests:**
+
 - Test [Workflow 1](#workflow-1-configuration-validation) end-to-end: construct schema, create validator, validate valid config, validate invalid config
 - Test [Workflow 2](#workflow-2-schema-construction) end-to-end: build schema using fluent API, then use it for validation
 - Test error handling across module boundaries (exceptions propagate correctly)
@@ -496,6 +524,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Test realistic use cases: server config (host, port, timeout), user profile (name, email, age), etc.
 
 **Edge Cases to Cover:**
+
 - Empty configurations vs. empty schemas
 - None values in various contexts
 - Extremely large configuration dictionaries
@@ -614,6 +643,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 **Description**: Use the popular Pydantic library for configuration validation instead of building a custom validator.
 
 **Pros**:
+
 - Battle-tested library with extensive features
 - Automatic type coercion and parsing
 - JSON Schema generation built-in
@@ -621,46 +651,56 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Better performance with Rust-based validation
 
 **Cons**:
+
 - Adds external dependency to the project
 - Opinionated API that may not match our specific needs
 - Heavier weight than needed for simple validation
 - Learning curve for team members unfamiliar with Pydantic
 - May be overkill for this specific use case
 
-**Why not chosen**: The goal is to create a lightweight, project-specific validator that demonstrates architectural patterns and has no external dependencies. This is an educational exercise in building validation systems.
+**Why not chosen**: The goal is to create a lightweight, project-specific validator that demonstrates architectural
+patterns and has no external dependencies. This is an educational exercise in building validation systems.
 
 ### Approach 2: Class-Based Validators
 
 **Description**: Use classes for validators instead of factory functions returning closures.
 
 **Pros**:
+
 - More explicit object-oriented design
 - Easier to subclass and extend validators
 - Can maintain state between validations if needed
 - May be more familiar to developers from OOP backgrounds
 
 **Cons**:
+
 - More boilerplate code (defining classes vs simple functions)
 - Heavier memory footprint (class instances vs closures)
 - Less functional programming style
 - Slightly more complex API for simple validators
 
-**Why not chosen**: Closures provide a cleaner, more functional API for simple validators. The factory function pattern (`range_validator(1, 100)`) is more concise and readable than instantiating classes (`RangeValidator(min=1, max=100)`). Since validators are stateless operations, functions are a better fit than classes.
+**Why not chosen**: Closures provide a cleaner, more functional API for simple validators. The factory function pattern
+(`range_validator(1, 100)`) is more concise and readable than instantiating classes (`RangeValidator(min=1, max=100)`).
+Since validators are stateless operations, functions are a better fit than classes.
 
 ### Approach 3: Decorator-Based Schema Definition
 
 **Description**: Use decorators to define schemas directly on dataclasses or regular classes.
 
 **Pros**:
+
 - Schema definition lives with the data structure
 - Type hints can be used for validation
 - Less separation between definition and validation
 - Popular pattern in frameworks like FastAPI
 
 **Cons**:
+
 - Couples validation logic to data structures
 - Less flexible for dynamic schema creation
 - Harder to reuse schemas across different classes
 - May not work well for validating plain dictionaries
 
-**Why not chosen**: The fluent API approach (`Schema().field(...)`) provides better separation of concerns and is more flexible for this use case. We're validating arbitrary configuration dictionaries, not necessarily tied to specific classes.
+**Why not chosen**: The fluent API approach (`Schema().field(...)`) provides better separation of concerns and is more
+flexible for this use case. We're validating arbitrary configuration dictionaries, not necessarily tied to specific
+classes.

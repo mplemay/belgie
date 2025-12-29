@@ -4,11 +4,16 @@
 
 ### High-Level Description
 
-This feature refactors the current OAuth implementation to support multiple OAuth2 providers through a protocol-based architecture. Currently, the system is tightly coupled to Google OAuth with provider-specific methods, types, and routes. This redesign introduces self-contained OAuth providers that each manage their own routes and workflows.
+This feature refactors the current OAuth implementation to support multiple OAuth2 providers through a protocol-based
+architecture. Currently, the system is tightly coupled to Google OAuth with provider-specific methods, types, and
+routes. This redesign introduces self-contained OAuth providers that each manage their own routes and workflows.
 
-The problem this solves: Each new OAuth provider currently requires duplicating the entire OAuth flow logic, creating provider-specific methods in the Auth class, hardcoded route endpoints, and separate settings classes. This approach doesn't scale and violates DRY principles.
+The problem this solves: Each new OAuth provider currently requires duplicating the entire OAuth flow logic, creating
+provider-specific methods in the Auth class, hardcoded route endpoints, and separate settings classes. This approach
+doesn't scale and violates DRY principles.
 
 This design introduces:
+
 - **Provider Protocol**: Minimal interface that providers must implement (`provider_id`, `get_router`)
 - **Self-Contained Providers**: Each provider manages its own FastAPI router and OAuth flow
 - **Adapter Injection**: Database adapter and cookie settings passed to providers via `get_router()` method
@@ -46,7 +51,8 @@ This design introduces:
 
 #### Description
 
-Users load provider settings from environment, instantiate providers, and pass them to Auth which includes their routers in the application.
+Users load provider settings from environment, instantiate providers, and pass them to Auth which includes their routers
+in the application.
 
 #### Usage Example
 
@@ -112,7 +118,8 @@ graph TD
 
 #### Description
 
-User initiates sign-in with a provider. The provider's router handles the entire OAuth flow internally - generating authorization URL, handling callback, creating user/session.
+User initiates sign-in with a provider. The provider's router handles the entire OAuth flow internally - generating
+authorization URL, handling callback, creating user/session.
 
 #### Usage Example
 
@@ -176,7 +183,8 @@ sequenceDiagram
 
 #### Description
 
-Developer adds a new OAuth provider by creating a settings class and provider class implementing the protocol. No changes needed to Auth class.
+Developer adds a new OAuth provider by creating a settings class and provider class implementing the protocol. No
+changes needed to Auth class.
 
 #### Usage Example
 
@@ -362,7 +370,9 @@ graph TD
 
 ### Settings Architecture with TypedDict
 
-To provide type-safe provider configuration while allowing extensibility, we use a TypedDict pattern for provider settings. This gives us:
+To provide type-safe provider configuration while allowing extensibility, we use a TypedDict pattern for provider
+settings. This gives us:
+
 - **Type safety** for built-in providers (currently Google; GitHub, Microsoft, etc. coming soon)
 - **Extensibility** for users to add custom providers
 - **Auto-completion** in IDEs for known providers
@@ -430,6 +440,7 @@ class Auth:
 ```
 
 **Why this approach:**
+
 - Each provider loads settings independently using Pydantic's BaseSettings
 - TypedDict documents the expected provider structure for type checkers
 - No need for complex nested BaseSettings (which can have env prefix conflicts)
@@ -438,7 +449,8 @@ class Auth:
 
 ### Resource Management and httpx
 
-OAuth providers make HTTP requests to exchange tokens and fetch user info. We use httpx's async context manager for automatic resource cleanup:
+OAuth providers make HTTP requests to exchange tokens and fetch user info. We use httpx's async context manager for
+automatic resource cleanup:
 
 ```python
 # In provider's get_router() method:
@@ -459,12 +471,14 @@ async def callback(code: str, state: str, db=Depends(adapter.get_db)):
 **Design Decision: No `close()` method needed on providers**
 
 We do NOT add a `close()` or cleanup method to the OAuthProviderProtocol because:
+
 1. **httpx context managers** handle resource cleanup automatically
 2. **Providers are stateless** - they don't maintain persistent connections
 3. **Routes are closures** - cleanup happens within each request
 4. **Simpler protocol** - fewer methods means easier implementation
 
 If a provider needs persistent connection pooling (rare), it can manage an internal client:
+
 ```python
 class CustomProvider:
     def __init__(self, settings):
@@ -516,6 +530,7 @@ class Auth:
 ```
 
 **Problems:**
+
 - Database dependency is disconnected from the adapter that uses it
 - Auth class has to manage both adapter AND database sessions
 - Providers can't access database dependency (need to pass through Auth)
@@ -591,6 +606,7 @@ class GoogleOAuthProvider:
 ```
 
 **Benefits:**
+
 - **Cohesion**: Database dependency is co-located with database operations
 - **Simplicity**: Auth class has one less responsibility
 - **Flexibility**: Providers access database through adapter interface
@@ -599,6 +615,7 @@ class GoogleOAuthProvider:
 **Migration Guide:**
 
 Before:
+
 ```python
 from belgie.auth import Auth, AuthSettings
 from belgie.auth.providers.google import GoogleProviderSettings
@@ -616,6 +633,7 @@ auth = Auth(settings=settings, adapter=adapter, providers=providers)
 ```
 
 After:
+
 ```python
 from belgie.auth import Auth, AuthSettings
 from belgie.auth.providers.google import GoogleProviderSettings
@@ -643,7 +661,7 @@ auth = Auth(
 
 ### Module Structure
 
-```
+```text
 src/belgie/auth/
 ├── core/
 │   ├── auth.py                 # (MODIFIED) Auth class - loads and registers providers
@@ -743,7 +761,8 @@ class OAuthProviderProtocol[S: BaseSettings](Protocol):
 
 Modified adapter protocol with `get_db()` method (see [Implementation Order](#implementation-order) #2).
 
-**This replaces the current pattern** where `db_dependency` is passed to `Auth.__init__`. The database dependency is now part of the adapter, making it more cohesive.
+**This replaces the current pattern** where `db_dependency` is passed to `Auth.__init__`. The database dependency is now
+part of the adapter, making it more cohesive.
 
 ```python
 from collections.abc import Callable
@@ -858,6 +877,7 @@ class AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT](Protocol):
 **Changes to `AlchemyAdapter`:**
 
 The adapter will need to be updated to:
+
 1. Accept `db_dependency` parameter in `__init__` (moved from Auth)
 2. Store it as `self.db_dependency`
 3. Implement `get_db()` method that returns the dependency callable
@@ -1175,7 +1195,7 @@ class Auth:
 
 The route URLs are built from nested router prefixes:
 
-```
+```text
 Auth creates:
     main_router = APIRouter(prefix="/auth")
         provider_router = APIRouter(prefix="/provider")
@@ -1192,6 +1212,7 @@ Combined URL structure:
 ```
 
 This nesting allows:
+
 - Clean separation of auth routes from other app routes (`/auth/*`)
 - Multiple providers under same namespace (`/auth/provider/{provider_id}/*`)
 - Provider-specific routes managed by each provider
@@ -1241,6 +1262,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 #### `test_google.py`
 
 **GoogleOAuthProvider Tests:**
+
 - Test `__init__()` stores settings correctly
 - Test `provider_id` returns Literal["google"]
 - Test `get_router()` returns APIRouter with correct routes
@@ -1257,6 +1279,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 #### `test_auth.py`
 
 **Auth Class Tests:**
+
 - Test `__init__()` initializes with adapter
 - Test `_load_providers()` loads configured providers from env
 - Test `_load_providers()` skips providers with missing settings
@@ -1269,6 +1292,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Use mock environment variables for testing
 
 **Integration Tests:**
+
 - Test [Workflow 1](#workflow-1-provider-registration-and-initialization): providers loaded from env and routes created
 - Test [Workflow 2](#workflow-2-oauth-sign-in-flow): full OAuth flow with Google
 - Test [Workflow 2](#workflow-2-oauth-sign-in-flow): full OAuth flow with GitHub
@@ -1278,6 +1302,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 - Mock external OAuth provider APIs (Google, GitHub)
 
 **Edge Cases to Cover:**
+
 - No providers configured (empty provider registry)
 - Provider with missing required settings (should be skipped)
 - Provider with invalid settings (should be skipped)
@@ -1360,7 +1385,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
     - [x] Implement `list_providers()` and `get_provider()` methods
       - [x] Use dict.get() in get_provider (return None if not found)
   - [x] Update `adapters/alchemy.py` to implement `get_db()` method
-    - [x] Accept db_dependency in __init__
+    - [x] Accept db_dependency in **init**
     - [x] Store as self.db_dependency
     - [x] Return it from get_db()
   - [x] Write unit tests for `core/auth.py`
@@ -1380,7 +1405,8 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 ## Open Questions
 
-1. Should we provide shared utility functions for common OAuth operations (token exchange, user info fetching)? Or keep each provider completely independent?
+1. Should we provide shared utility functions for common OAuth operations (token exchange, user info fetching)? Or keep
+   each provider completely independent?
    - Current approach: Keep providers independent to avoid coupling
    - If duplication becomes significant, can add optional utility functions later
    - Providers can choose to use utilities or implement custom logic
@@ -1406,12 +1432,14 @@ Tests should be organized by module/file and cover unit tests, integration tests
 These questions were resolved during the design process:
 
 **Q: Should providers have a `close()` method for resource cleanup?**
+
 - **Answer**: No. Use httpx context managers (`async with`) in route handlers for automatic cleanup.
 - Providers are stateless and don't maintain persistent connections
 - Simpler protocol with fewer methods
 - If a provider needs connection pooling, it can manage internally (optional, not required by protocol)
 
 **Q: How should provider settings be structured?**
+
 - **Answer**: TypedDict with individual BaseSettings classes per provider
 - Built-in providers (google, github) get type-safe configuration
 - Each provider loads its own settings using Pydantic BaseSettings with `env_prefix`
@@ -1419,6 +1447,7 @@ These questions were resolved during the design process:
 - Allows custom providers to follow same pattern
 
 **Q: Where should database dependency live - Auth or Adapter?**
+
 - **Answer**: Adapter. `db_dependency` moved from `Auth.__init__` to adapter.
 - Better cohesion - database dependency is with database operations
 - Providers access via `adapter.get_db()` in routes
@@ -1445,53 +1474,66 @@ These questions were resolved during the design process:
 
 ### Approach 1: Centralized OAuth Flow with Provider Registry
 
-**Description**: Keep a central Auth class that orchestrates OAuth flows, with providers just providing configuration (URLs, field mappings). Use a provider registry to manage providers.
+**Description**: Keep a central Auth class that orchestrates OAuth flows, with providers just providing configuration
+(URLs, field mappings). Use a provider registry to manage providers.
 
 **Pros**:
+
 - Single source of truth for OAuth flow logic
 - Less code duplication across providers
 - Easier to add cross-cutting concerns (logging, metrics)
 - Centralized error handling
 
 **Cons**:
+
 - Tight coupling between Auth class and provider implementations
 - Less flexibility for provider-specific workflows
 - Auth class becomes complex with many responsibilities
 - Harder to test providers in isolation
 - Adding providers requires modifying central Auth class
 
-**Why not chosen**: The protocol-based approach with self-contained providers is more modular, easier to test, and scales better. Each provider can customize its OAuth flow without affecting others.
+**Why not chosen**: The protocol-based approach with self-contained providers is more modular, easier to test, and
+scales better. Each provider can customize its OAuth flow without affecting others.
 
 ### Approach 2: Shared Base Class for Providers
 
 **Description**: Create an `OAuthProviderBase` class with common OAuth logic, and providers inherit from it.
 
 **Pros**:
+
 - Reduces code duplication for standard OAuth operations
 - Enforces consistent OAuth flow across providers
 - Easier to add shared functionality
 
 **Cons**:
+
 - Inheritance couples providers to base class implementation
 - Harder to customize OAuth flow for provider-specific needs
 - Changes to base class affect all providers
 - Less flexible than composition
 
-**Why not chosen**: We prefer composition over inheritance. The protocol-based approach gives providers complete freedom while still enforcing a minimal interface. If we see significant duplication, we can add optional utility functions without requiring inheritance.
+**Why not chosen**: We prefer composition over inheritance. The protocol-based approach gives providers complete freedom
+while still enforcing a minimal interface. If we see significant duplication, we can add optional utility functions
+without requiring inheritance.
 
 ### Approach 3: Configuration-Only Providers
 
-**Description**: Define providers purely as configuration (URLs, scopes, field mappings) and have a generic OAuth flow handler process them.
+**Description**: Define providers purely as configuration (URLs, scopes, field mappings) and have a generic OAuth flow
+handler process them.
 
 **Pros**:
+
 - Very simple provider definitions (just data)
 - No code needed for standard OAuth providers
 - Easy to add providers via configuration files
 
 **Cons**:
+
 - Inflexible - hard to handle provider-specific quirks
 - Complex configuration format for advanced cases
 - Generic flow handler becomes very complex
 - Harder to handle edge cases (GitHub email fetching, etc.)
 
-**Why not chosen**: While simple in theory, real-world OAuth providers have enough quirks (GitHub's email API, Microsoft's endpoints, etc.) that a code-based approach is more maintainable. Configuration-based approach works for very simple cases but breaks down with real requirements.
+**Why not chosen**: While simple in theory, real-world OAuth providers have enough quirks (GitHub's email API,
+Microsoft's endpoints, etc.) that a code-based approach is more maintainable. Configuration-based approach works for
+very simple cases but breaks down with real requirements.

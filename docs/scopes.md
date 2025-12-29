@@ -1,10 +1,12 @@
 # Scopes Guide
 
-OAuth scopes control what data and operations your application can access on behalf of users. Belgie provides built-in scope validation for Google OAuth.
+OAuth scopes control what data and operations your application can access on behalf of users. Belgie provides built-in
+scope validation for Google OAuth.
 
 ## What Are Scopes?
 
-Scopes are permissions that users grant to your application. When a user signs in with Google, they see which scopes your app is requesting and can approve or deny access.
+Scopes are permissions that users grant to your application. When a user signs in with Google, they see which scopes
+your app is requesting and can approve or deny access.
 
 ## Google OAuth Scopes
 

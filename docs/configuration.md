@@ -59,6 +59,7 @@ BELGIE_SESSION_UPDATE_AGE=3600
 ### Sliding Window Refresh
 
 Sessions use a sliding window mechanism:
+
 - Sessions are created with `max_age` lifetime
 - When accessed within `update_age` of expiry, they're automatically extended
 - This keeps active users logged in while expiring inactive sessions
@@ -90,6 +91,7 @@ BELGIE_COOKIE_DOMAIN=.example.com  # optional
 ### Security Recommendations
 
 **Production:**
+
 ```python
 cookie = CookieSettings(
     http_only=True,  # Prevent XSS
@@ -99,6 +101,7 @@ cookie = CookieSettings(
 ```
 
 **Development:**
+
 ```python
 cookie = CookieSettings(
     http_only=True,
@@ -142,6 +145,7 @@ BELGIE_GOOGLE_SCOPES=openid,email,profile
 ### Available Scopes
 
 Common Google OAuth scopes:
+
 - `openid` - OpenID Connect identifier
 - `email` - User's email address
 - `profile` - Basic profile information (name, picture)
