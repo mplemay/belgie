@@ -10,8 +10,8 @@ requires-python = ">=3.12,<3.15"
 dependencies = []
 
 [tool.maturin]
-module-name = "auth._core"
-python-packages = ["auth"]
+module-name = "view._core"
+python-packages = ["view"]
 python-source = "src"
 
 [tool.uv]
