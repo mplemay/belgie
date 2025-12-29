@@ -1,4 +1,4 @@
-from auth._core import hello_from_bin
+from view._core import hello_from_bin
 
 
 def hello() -> str:
