@@ -38,6 +38,11 @@ dev = [
     "ty>=0.0.1a27",
 ]
 
+[tool.uv.workspace]
+members = [
+    "packages/auth",
+]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 120
