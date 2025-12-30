@@ -1,9 +1,9 @@
-use pyo3::prelude::*;
+use deno_core::{FastString, JsRuntime, RuntimeOptions};
 use pyo3::exceptions::PyRuntimeError;
-use deno_core::{JsRuntime, RuntimeOptions, FastString};
+use pyo3::prelude::*;
+use std::sync::OnceLock;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use std::sync::OnceLock;
 
 // Global V8 platform initialization
 static V8_PLATFORM_INITIALIZED: OnceLock<()> = OnceLock::new();
@@ -59,12 +59,16 @@ impl Runtime {
                     match cmd {
                         RuntimeCommand::Execute { code, response_tx } => {
                             // Execute the JavaScript code
-                            let result = js_runtime.execute_script("<runtime>", FastString::from(code));
+                            let result =
+                                js_runtime.execute_script("<runtime>", FastString::from(code));
 
                             // Send the response
                             let response = match result {
                                 Ok(_) => RuntimeResponse::Success("executed".to_string()),
-                                Err(js_error) => RuntimeResponse::Error(format!("JavaScript Error: {}", js_error)),
+                                Err(js_error) => RuntimeResponse::Error(format!(
+                                    "JavaScript Error: {}",
+                                    js_error
+                                )),
                             };
 
                             // Ignore if receiver is dropped
@@ -78,11 +82,7 @@ impl Runtime {
         Runtime { command_tx }
     }
 
-    fn __call__<'py>(
-        &self,
-        py: Python<'py>,
-        code: String,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn __call__<'py>(&self, py: Python<'py>, code: String) -> PyResult<Bound<'py, PyAny>> {
         let command_tx = self.command_tx.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -90,13 +90,13 @@ impl Runtime {
             let (response_tx, response_rx) = oneshot::channel();
 
             // Send the command
-            command_tx.send(RuntimeCommand::Execute {
-                code,
-                response_tx,
-            }).map_err(|_| PyRuntimeError::new_err("Runtime thread has terminated"))?;
+            command_tx
+                .send(RuntimeCommand::Execute { code, response_tx })
+                .map_err(|_| PyRuntimeError::new_err("Runtime thread has terminated"))?;
 
             // Wait for the response
-            let response = response_rx.await
+            let response = response_rx
+                .await
                 .map_err(|_| PyRuntimeError::new_err("Failed to receive response from runtime"))?;
 
             // Convert response to PyResult
@@ -110,8 +110,6 @@ impl Runtime {
 
 #[pymodule]
 mod _core {
-    use super::*;
-
     #[pymodule_export]
     use super::Runtime;
 }
