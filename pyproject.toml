@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "auth",
+    "view",
     "fastapi>=0.100",
     "httpx>=0.24",
     "pydantic>=2.0",
@@ -41,10 +42,12 @@ dev = [
 
 [tool.uv.sources]
 auth = { workspace = true }
+view = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "packages/auth",
+    "packages/view",
 ]
 
 [tool.ruff]
