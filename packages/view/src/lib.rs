@@ -114,11 +114,6 @@ mod _core {
 
     #[pymodule_export]
     use super::Runtime;
-
-    #[pyfunction]
-    fn hello_from_bin() -> String {
-        "Hello from auth!".to_string()
-    }
 }
 
 #[cfg(test)]
