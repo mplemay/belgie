@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from view import Runtime
 
@@ -46,7 +48,6 @@ async def test_runtime_stateful():
     assert result == "executed"
 
 
-@pytest.mark.skip(reason="Multiple V8 isolates in same process currently not supported")
 @pytest.mark.asyncio
 async def test_runtime_multiple_instances():
     """Test multiple Runtime instances are isolated."""
@@ -73,3 +74,20 @@ async def test_runtime_syntax_error():
     # Check for error message (different V8 versions may have different messages)
     error_msg = str(exc_info.value)
     assert "JavaScript Error" in error_msg or "SyntaxError" in error_msg or "Unexpected" in error_msg
+
+
+@pytest.mark.asyncio
+async def test_runtime_concurrent_execution():
+    """Test multiple Runtimes can execute JavaScript concurrently."""
+    runtime1 = Runtime()
+    runtime2 = Runtime()
+    runtime3 = Runtime()
+
+    # Execute concurrently
+    results = await asyncio.gather(
+        runtime1("1 + 1"),
+        runtime2("2 + 2"),
+        runtime3("3 + 3"),
+    )
+
+    assert results == ["executed", "executed", "executed"]

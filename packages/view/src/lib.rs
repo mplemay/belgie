@@ -3,6 +3,16 @@ use pyo3::exceptions::PyRuntimeError;
 use deno_core::{JsRuntime, RuntimeOptions, FastString};
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use std::sync::OnceLock;
+
+// Global V8 platform initialization
+static V8_PLATFORM_INITIALIZED: OnceLock<()> = OnceLock::new();
+
+fn ensure_v8_platform() {
+    V8_PLATFORM_INITIALIZED.get_or_init(|| {
+        JsRuntime::init_platform(None, false);
+    });
+}
 
 // Commands that can be sent to the JavaScript runtime thread
 enum RuntimeCommand {
@@ -27,12 +37,18 @@ struct Runtime {
 impl Runtime {
     #[new]
     fn new() -> Self {
+        // Ensure V8 platform is initialized (idempotent, thread-safe)
+        ensure_v8_platform();
+
         let (command_tx, mut command_rx) = mpsc::unbounded_channel::<RuntimeCommand>();
 
         // Spawn a dedicated thread for the JsRuntime
         std::thread::spawn(move || {
-            // Create a Tokio runtime for this thread
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+            // Create a current-thread Tokio runtime for this thread (required by deno_core)
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create Tokio runtime");
 
             rt.block_on(async {
                 // Create the JavaScript runtime
