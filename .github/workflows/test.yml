@@ -9,6 +9,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Fix for V8 thread-local storage in shared libraries on Linux
+      # See: https://github.com/denoland/rusty_v8/issues/1706
+      V8_TLS_LIBRARY_MODE: "1"
     strategy:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
