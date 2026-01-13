@@ -45,7 +45,6 @@ from the design doc or diff.
 
 - Prefer non-interactive creation to ensure title/body accuracy:
   - `gh pr create --title "<conventional-subject>" --body "<body text>"`
-  - Use `--body-file` when the body is multi-line or large.
 - Use flags as needed:
   - `--base` / `--head` to control branches.
   - `--draft` for draft PRs.
