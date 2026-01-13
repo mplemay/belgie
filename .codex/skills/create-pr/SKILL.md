@@ -19,6 +19,8 @@ from the design doc or diff.
   - `git status -sb`
   - `git log -1 --pretty=%s` for the most recent conventional-commit subject.
   - `git diff --stat` and `git diff` for change scope and details.
+  - If the repo has a `main` branch, also compare against it to scope the PR:
+    - `git diff --stat main...HEAD` and `git diff main...HEAD`
 
 ### 2) Prefer design docs when present
 
