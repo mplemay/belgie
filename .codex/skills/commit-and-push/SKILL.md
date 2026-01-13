@@ -40,6 +40,7 @@ Use this workflow to validate changes, fix failures, create a conventional commi
 - Ensure tests and pre-commit pass before committing.
 - Use a conventional commit message (single line, lowercase, <72 chars when possible).
 - If needed, inspect changes to choose the correct type: `git status -sb`, `git diff --stat`.
+- If the changes are already known, skip `git status` and `git diff` and choose the type directly.
 - Examples: `feat: added config validator with schema builder`, `fix: corrected validation error message formatting`.
 - Avoid multi-line messages or vague subjects.
 - Branch names should be kebab-case and prefixed: `feature/`, `bugfix/`, `refactor/`, `docs/`, `test/`.
