@@ -1,58 +1,69 @@
 # Agent Instructions
 
-## Workflow
+## Coding Guidelines
 
-In general, you **must** follow the following workflow when writing code:
+### 1. Think Before Coding
 
-1. **Research and understand the task**
-   - Explore the existing codebase to understand current architecture and patterns
-   - Use glob/grep to find relevant files and understand existing implementations
-   - Read related code to understand how similar features are structured
-   - Identify existing utilities, base classes, and patterns to leverage
-   - Research external solutions and best practices
-   - Search the web for similar implementations in other projects
-   - Research relevant libraries and their APIs
-   - Understand common patterns and anti-patterns for the feature type
-   - Investigate potential dependencies and their trade-offs
-   - Gather requirements and constraints
-   - Clarify ambiguous requirements with the user if needed
-   - Identify edge cases and potential issues
-   - Understand performance, security, and compatibility requirements
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-2. **Create a design document**
-   - **Use the design document template** ([design/000-design-template.md](design/000-design-template.md)) to structure your plan
-   - See the complete example ([design/000-design-example.md](design/000-design-example.md)) for a filled-out design document
-   - Act as a system architect and describe the high-level interfaces and functionality
-   - The design document should include:
-   - High-level description and goals
-   - Workflows with mermaid diagrams (call graphs, sequence diagrams)
-   - Dependency graphs showing existing and new dependencies
-   - Implementation order (based on dependency graph leaf nodes)
-   - Libraries to be added and their dependency groups
-   - API design with code stubs and inline comments
-   - Testing strategy organized by module
-   - The plan should include all details necessary for a programmer to implement the design
+Before implementing:
 
-3. **Iterate on the design**
-   - Once you have created the plan **do not** start implementing it right away
-   - Prompt me for feedback
-   - We will iteratively work together to come up with a design
-   - As we iterate on the plan, **only change the things explicitly asked for**
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-4. **Implement the approved design**
-   - Once I explicitly approve the design, begin the implementation
-   - Start by writing the code that is the least dependent on other code first
-   - Then write comprehensive tests for that code
-   - **Make sure** it addresses the reasonable edge cases (i.e. **Don't over engineer**)
-   - Run the tests to make sure they pass
-   - Once the tests pass commit the code
-   - Often times, when you commit the code there will be linter / formatter errors
-   - Fix those and then attempt to commit again
-   - Repeat step four (continuing to take the leaves of the feature dependency tree) until the work plan is done
+### 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is over complicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove preexisting dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multistep tasks, state a brief plan:
+
+```text
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
 
 ## Tooling
 
-### Package management
+### Package Management
 
 - The package manger for the project is [uv](https://docs.astral.sh/uv/)
 - Make `uv add` for core dependencies, `uv add --dev` for developer dependencies, and add optional features to groups
