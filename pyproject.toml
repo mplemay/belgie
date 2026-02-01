@@ -45,6 +45,8 @@ auth = { workspace = true }
 [tool.uv.workspace]
 members = [
     "packages/auth",
+    "packages/mcp-sdk",
+    "packages/oauth",
 ]
 
 [tool.ruff]
