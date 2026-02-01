@@ -28,10 +28,11 @@ from importlib.util import find_spec
 from urllib.parse import urlparse
 
 import pytest
-from belgie_alchemy.settings import DatabaseSettings
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from belgie_alchemy.settings import DatabaseSettings
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
 

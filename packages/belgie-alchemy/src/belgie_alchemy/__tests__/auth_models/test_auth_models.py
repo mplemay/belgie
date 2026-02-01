@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from __tests__.alchemy.conftest import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.conftest import Account, OAuthState, Session, User
 
 
 def test_user_model_structure() -> None:

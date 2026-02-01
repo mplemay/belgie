@@ -2,10 +2,10 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from belgie_alchemy import AlchemyAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from __tests__.alchemy.conftest import Account, OAuthState, Session, User
+from belgie_alchemy import AlchemyAdapter
+from belgie_alchemy.__tests__.conftest import Account, OAuthState, Session, User
 
 
 @pytest.fixture
