@@ -8,8 +8,8 @@ from pydantic_settings import BaseSettings
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    from belgie_proto import AdapterProtocol, DBConnection
     from fastapi import APIRouter
-    from proto import AdapterProtocol, DBConnection
 
     from belgie.auth.core.hooks import HookRunner
     from belgie.auth.core.settings import CookieSettings

@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
-from alchemy.base import Base
-from alchemy.types import DateTimeUTC
+from belgie_alchemy.base import Base
+from belgie_alchemy.types import DateTimeUTC
 from sqlalchemy import Integer
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column

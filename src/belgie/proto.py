@@ -1,6 +1,6 @@
 """Protocol re-exports for belgie consumers."""
 
-from proto import (
+from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
     OAuthStateProtocol,

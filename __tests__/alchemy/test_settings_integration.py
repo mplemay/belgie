@@ -28,7 +28,7 @@ from importlib.util import find_spec
 from urllib.parse import urlparse
 
 import pytest
-from alchemy.settings import DatabaseSettings
+from belgie_alchemy.settings import DatabaseSettings
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession

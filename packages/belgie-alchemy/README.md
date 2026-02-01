@@ -1,10 +1,10 @@
-# alchemy
+# belgie-alchemy
 
 SQLAlchemy 2.0 building blocks for database models.
 
 ## Overview
 
-`alchemy` provides opinionated defaults and utilities for SQLAlchemy:
+`belgie-alchemy` provides opinionated defaults and utilities for SQLAlchemy:
 
 - **Base**: Declarative base with dataclass mapping and sensible defaults
 - **Mixins**: `PrimaryKeyMixin` (UUID), `TimestampMixin` (created/updated/deleted timestamps)
@@ -16,7 +16,7 @@ This module provides **building blocks only** - you define your own models.
 
 ```python
 from datetime import datetime
-from alchemy import Base, PrimaryKeyMixin, TimestampMixin, DateTimeUTC
+from belgie_alchemy import Base, PrimaryKeyMixin, TimestampMixin, DateTimeUTC
 from sqlalchemy.orm import Mapped, mapped_column
 
 class Article(Base, PrimaryKeyMixin, TimestampMixin):
@@ -40,7 +40,7 @@ This gives you:
 Declarative base with dataclass mapping enabled:
 
 ```python
-from alchemy import Base
+from belgie_alchemy import Base
 from sqlalchemy.orm import Mapped, mapped_column
 
 class MyModel(Base):
@@ -66,7 +66,7 @@ Features:
 Adds a UUID primary key with server-side generation:
 
 ```python
-from alchemy import Base, PrimaryKeyMixin
+from belgie_alchemy import Base, PrimaryKeyMixin
 
 class MyModel(Base, PrimaryKeyMixin):
     __tablename__ = "my_models"
@@ -85,7 +85,7 @@ The `id` field:
 Adds automatic timestamp tracking:
 
 ```python
-from alchemy import Base, TimestampMixin
+from belgie_alchemy import Base, TimestampMixin
 
 class MyModel(Base, TimestampMixin):
     __tablename__ = "my_models"
@@ -110,7 +110,7 @@ Timezone-aware datetime storage:
 
 ```python
 from datetime import datetime
-from alchemy import Base, DateTimeUTC
+from belgie_alchemy import Base, DateTimeUTC
 from sqlalchemy.orm import Mapped, mapped_column
 
 class Event(Base):
@@ -133,7 +133,7 @@ Dialect-specific array storage for permission scopes:
 
 ```python
 from enum import StrEnum
-from alchemy import Base, Scopes
+from belgie_alchemy import Base, Scopes
 from sqlalchemy.orm import Mapped, mapped_column
 
 class User(Base):
@@ -192,7 +192,7 @@ from datetime import datetime
 from uuid import UUID
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from alchemy import Base, PrimaryKeyMixin, TimestampMixin, DateTimeUTC, Scopes
+from belgie_alchemy import Base, PrimaryKeyMixin, TimestampMixin, DateTimeUTC, Scopes
 
 class User(Base, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "users"
@@ -234,12 +234,12 @@ class Account(Base, PrimaryKeyMixin, TimestampMixin):
 
 ## Migration from impl/auth.py
 
-If you previously imported models from `alchemy.impl.auth`:
+If you previously imported models from `belgie_alchemy.impl.auth`:
 
 **Before:**
 
 ```python
-from alchemy.impl.auth import User, Account, Session, OAuthState
+from belgie_alchemy.impl.auth import User, Account, Session, OAuthState
 ```
 
 **After:**

@@ -4,15 +4,15 @@ from typing import Literal
 from unittest.mock import Mock
 from uuid import UUID, uuid4
 
-from alchemy import AlchemyAdapter
-from fastapi import APIRouter
-from proto import (
+from belgie_alchemy import AlchemyAdapter
+from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
 )
+from fastapi import APIRouter
 from pydantic import Field
 from pydantic_settings import BaseSettings
 

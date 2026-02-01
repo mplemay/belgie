@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
-    from proto import DBConnection
+    from belgie_proto import DBConnection
 else:  # pragma: no cover
     DBConnection = object
 
-from proto import UserProtocol
+from belgie_proto import UserProtocol
 
 HookEvent = Literal["on_signup", "on_signin", "on_signout", "on_delete"]
 

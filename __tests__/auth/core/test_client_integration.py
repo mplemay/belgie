@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
-from alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient

@@ -4,9 +4,9 @@ from typing import Literal
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import httpx
+from belgie_proto import AdapterProtocol, DBConnection
 from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
-from proto import AdapterProtocol, DBConnection
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import SettingsConfigDict
 

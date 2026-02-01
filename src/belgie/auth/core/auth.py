@@ -5,10 +5,7 @@ from functools import cached_property
 from typing import Protocol, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, status
-from fastapi.responses import RedirectResponse
-from fastapi.security import SecurityScopes  # noqa: TC002
-from proto import (
+from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
     DBConnection,
@@ -16,6 +13,9 @@ from proto import (
     SessionProtocol,
     UserProtocol,
 )
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.responses import RedirectResponse
+from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie.auth.core.client import AuthClient
 from belgie.auth.core.hooks import HookRunner, Hooks

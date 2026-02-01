@@ -8,11 +8,11 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "alchemy",
     "belgie",
-    "mcp-sdk",
-    "oauth",
-    "proto",
+    "belgie-alchemy",
+    "belgie-mcp",
+    "belgie-oauth",
+    "belgie-proto",
 ]
 
 [[package]]
@@ -22,25 +22,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/4e/8a/64761f4005f17809769d23e518d915db74e6310474e733e3593cfc854ef1/aiosqlite-0.22.1.tar.gz", hash = "sha256:043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650", size = 14821, upload-time = "2025-12-23T19:25:43.997Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl", hash = "sha256:21c002eb13823fad740196c5a2e9d8e62f6243bd9e7e4a1f87fb5e44ecb4fceb", size = 17405, upload-time = "2025-12-23T19:25:42.139Z" },
-]
-
-[[package]]
-name = "alchemy"
-version = "0.1.0"
-source = { editable = "packages/alchemy" }
-dependencies = [
-    { name = "proto" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "proto", editable = "packages/proto" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
 ]
 
 [[package]]
@@ -88,24 +69,37 @@ name = "belgie"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "alchemy" },
+    { name = "belgie-proto" },
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "proto" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
 [package.optional-dependencies]
+alchemy = [
+    { name = "belgie-alchemy" },
+]
+all = [
+    { name = "belgie-alchemy" },
+    { name = "belgie-mcp" },
+    { name = "belgie-oauth" },
+]
 examples = [
     { name = "uvicorn", extra = ["standard"] },
+]
+mcp = [
+    { name = "belgie-mcp" },
+]
+oauth = [
+    { name = "belgie-oauth" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "aiosqlite" },
+    { name = "belgie-alchemy" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -118,21 +112,26 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alchemy", editable = "packages/alchemy" },
+    { name = "belgie-alchemy", marker = "extra == 'alchemy'", editable = "packages/belgie-alchemy" },
+    { name = "belgie-alchemy", marker = "extra == 'all'", editable = "packages/belgie-alchemy" },
+    { name = "belgie-mcp", marker = "extra == 'all'", editable = "packages/belgie-mcp" },
+    { name = "belgie-mcp", marker = "extra == 'mcp'", editable = "packages/belgie-mcp" },
+    { name = "belgie-oauth", marker = "extra == 'all'", editable = "packages/belgie-oauth" },
+    { name = "belgie-oauth", marker = "extra == 'oauth'", editable = "packages/belgie-oauth" },
+    { name = "belgie-proto", editable = "packages/belgie-proto" },
     { name = "fastapi", specifier = ">=0.100" },
     { name = "httpx", specifier = ">=0.24" },
-    { name = "proto", editable = "packages/proto" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'examples'", specifier = ">=0.38.0" },
 ]
-provides-extras = ["examples"]
+provides-extras = ["alchemy", "all", "examples", "mcp", "oauth"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
+    { name = "belgie-alchemy", editable = "packages/belgie-alchemy" },
     { name = "pre-commit", specifier = ">=4.4.0" },
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
@@ -142,6 +141,46 @@ dev = [
     { name = "rumdl" },
     { name = "ty", specifier = ">=0.0.1a27" },
 ]
+
+[[package]]
+name = "belgie-alchemy"
+version = "0.1.0"
+source = { editable = "packages/belgie-alchemy" }
+dependencies = [
+    { name = "belgie-proto" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "belgie-proto", editable = "packages/belgie-proto" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
+]
+
+[[package]]
+name = "belgie-mcp"
+version = "0.1.0"
+source = { editable = "packages/belgie-mcp" }
+dependencies = [
+    { name = "mcp" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mcp", git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=main" }]
+
+[[package]]
+name = "belgie-oauth"
+version = "0.1.0"
+source = { editable = "packages/belgie-oauth" }
+
+[[package]]
+name = "belgie-proto"
+version = "0.1.0"
+source = { editable = "packages/belgie-proto" }
 
 [[package]]
 name = "certifi"
@@ -593,17 +632,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mcp-sdk"
-version = "0.1.0"
-source = { editable = "packages/mcp-sdk" }
-dependencies = [
-    { name = "mcp" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "mcp", git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=main" }]
-
-[[package]]
 name = "nodeenv"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -611,11 +639,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
 ]
-
-[[package]]
-name = "oauth"
-version = "0.1.0"
-source = { editable = "packages/oauth" }
 
 [[package]]
 name = "packaging"
@@ -659,11 +682,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/40/f1/6d86a29246dfd2e9b
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/19/fd3ef348460c80af7bb4669ea7926651d1f95c23ff2df18b9d24bab4f3fa/pre_commit-4.5.1-py2.py3-none-any.whl", hash = "sha256:3b3afd891e97337708c1674210f8eba659b52a38ea5f822ff142d10786221f77", size = 226437, upload-time = "2025-12-16T21:14:32.409Z" },
 ]
-
-[[package]]
-name = "proto"
-version = "0.1.0"
-source = { editable = "packages/proto" }
 
 [[package]]
 name = "pycparser"

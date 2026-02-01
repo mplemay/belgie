@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from alchemy import AlchemyAdapter, Base, DatabaseSettings
+from belgie_alchemy import AlchemyAdapter, Base, DatabaseSettings
 from fastapi import Depends, FastAPI, Security
 
 from belgie.auth import Auth, AuthSettings, CookieSettings, SessionSettings, URLSettings

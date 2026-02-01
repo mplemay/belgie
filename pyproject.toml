@@ -8,19 +8,31 @@ authors = [
 ]
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "alchemy",
-    "proto",
+    "belgie-proto",
     "fastapi>=0.100",
     "httpx>=0.24",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-multipart>=0.0.20",
-    "sqlalchemy[asyncio]>=2.0",
 ]
 
 [project.optional-dependencies]
+alchemy = [
+    "belgie-alchemy",
+]
+all = [
+    "belgie-alchemy",
+    "belgie-mcp",
+    "belgie-oauth",
+]
 examples = [
     "uvicorn[standard]>=0.38.0",
+]
+mcp = [
+    "belgie-mcp",
+]
+oauth = [
+    "belgie-oauth",
 ]
 
 [build-system]
@@ -30,6 +42,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "aiosqlite>=0.21.0",
+    "belgie-alchemy",
     "pre-commit>=4.4.0",
     "pytest>=9.0.1",
     "pytest-asyncio>=1.3.0",
@@ -41,15 +54,17 @@ dev = [
 ]
 
 [tool.uv.sources]
-alchemy = { workspace = true }
-proto = { workspace = true }
+belgie-alchemy = { workspace = true }
+belgie-mcp = { workspace = true }
+belgie-oauth = { workspace = true }
+belgie-proto = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-    "packages/alchemy",
-    "packages/mcp-sdk",
-    "packages/oauth",
-    "packages/proto",
+    "packages/belgie-alchemy",
+    "packages/belgie-mcp",
+    "packages/belgie-oauth",
+    "packages/belgie-proto",
 ]
 
 [tool.ruff]

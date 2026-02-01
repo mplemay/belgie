@@ -1,6 +1,7 @@
 """Belgie - Modern authentication and analytics for FastAPI."""
 
-from alchemy import AlchemyAdapter
+from importlib import import_module
+from typing import TYPE_CHECKING
 
 from belgie.auth import (
     Auth,
@@ -33,7 +34,26 @@ from belgie.auth import (
     validate_scopes,
 )
 
+if TYPE_CHECKING:
+    from belgie_alchemy import AlchemyAdapter as AlchemyAdapter
+
 __version__ = "0.1.0"
+
+_ALCHEMY_IMPORT_ERROR = "AlchemyAdapter requires the 'alchemy' extra. Install with: uv add belgie[alchemy]"
+
+
+def __getattr__(name: str) -> object:
+    if name != "AlchemyAdapter":
+        msg = f"module 'belgie' has no attribute {name!r}"
+        raise AttributeError(msg)
+
+    try:
+        module = import_module("belgie_alchemy")
+    except ModuleNotFoundError as exc:
+        raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
+
+    return module.AlchemyAdapter
+
 
 __all__ = [  # noqa: RUF022
     # Version

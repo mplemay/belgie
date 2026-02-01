@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from proto import (
+from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
     DBConnection,

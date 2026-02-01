@@ -12,11 +12,11 @@ from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter
+from belgie_proto import UserProtocol
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
-from proto import UserProtocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User

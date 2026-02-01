@@ -5,9 +5,9 @@ Get started with Belgie in minutes with this quickstart guide.
 ## Installation
 
 ```bash
-pip install belgie.auth
+pip install belgie[alchemy]
 # or with uv
-uv add belgie.auth
+uv add belgie[alchemy]
 ```
 
 ## Basic Setup
@@ -79,7 +79,7 @@ class OAuthState(Base):
 
 ```python
 from belgie.auth import Auth, AuthSettings, GoogleProviderSettings
-from alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter
 
 # Configure settings
 settings = AuthSettings(

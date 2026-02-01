@@ -185,7 +185,7 @@ from belgie.auth import (
     SessionSettings,
     URLSettings,
 )
-from alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter
 
 settings = AuthSettings(
     secret="your-secret-key",

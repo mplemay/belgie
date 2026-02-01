@@ -3,8 +3,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from alchemy.base import NAMING_CONVENTION, Base
-from alchemy.types import DateTimeUTC
+from belgie_alchemy.base import NAMING_CONVENTION, Base
+from belgie_alchemy.types import DateTimeUTC
 from sqlalchemy import Integer, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column

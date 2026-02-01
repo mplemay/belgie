@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter
 from fastapi import HTTPException, Request
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession

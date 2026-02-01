@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Final
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass
 
-from alchemy.types import DateTimeUTC
+from belgie_alchemy.types import DateTimeUTC
 
 NAMING_CONVENTION: Final[dict[str, str]] = {
     "ix": "ix_%(column_0_label)s",

@@ -12,7 +12,12 @@ def test_core_exports() -> None:
 
 
 def test_adapter_exports() -> None:
-    assert hasattr(belgie, "AlchemyAdapter")
+    try:
+        from belgie import AlchemyAdapter  # noqa: PLC0415
+    except ImportError:
+        return
+
+    assert AlchemyAdapter is not None
 
 
 def test_session_exports() -> None:
@@ -66,12 +71,18 @@ def test_util_exports() -> None:
 
 def test_all_exports_present() -> None:
     for name in belgie.__all__:
+        if name == "AlchemyAdapter":
+            try:
+                assert getattr(belgie, name) is not None
+            except ImportError:
+                continue
+            continue
+
         assert hasattr(belgie, name), f"Missing export: {name}"
 
 
 def test_direct_imports() -> None:
     from belgie import (  # noqa: PLC0415
-        AlchemyAdapter,
         Auth,
         AuthSettings,
         GoogleOAuthProvider,
@@ -80,6 +91,5 @@ def test_direct_imports() -> None:
 
     assert Auth is not None
     assert AuthSettings is not None
-    assert AlchemyAdapter is not None
     assert SessionManager is not None
     assert GoogleOAuthProvider is not None

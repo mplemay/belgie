@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
 import pytest_asyncio
-from alchemy import Base, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
+from belgie_alchemy import Base, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
 from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint, event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column, relationship

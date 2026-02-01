@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func
 from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, mapped_column
 
-from alchemy.types import DateTimeUTC
+from belgie_alchemy.types import DateTimeUTC
 
 
 @declarative_mixin

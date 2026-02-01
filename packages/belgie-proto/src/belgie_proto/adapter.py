@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from proto.account import AccountProtocol
-from proto.oauth_state import OAuthStateProtocol
-from proto.session import SessionProtocol
-from proto.user import UserProtocol
+from belgie_proto.account import AccountProtocol
+from belgie_proto.oauth_state import OAuthStateProtocol
+from belgie_proto.session import SessionProtocol
+from belgie_proto.user import UserProtocol
 
 if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from proto.connection import DBConnection
+    from belgie_proto.connection import DBConnection
 
 
 @runtime_checkable

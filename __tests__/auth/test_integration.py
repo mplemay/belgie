@@ -4,7 +4,7 @@ from uuid import UUID
 import httpx
 import pytest
 import respx
-from alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession

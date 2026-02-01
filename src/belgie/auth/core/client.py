@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from fastapi import HTTPException, Request, status
-from fastapi.security import SecurityScopes
-from proto import (
+from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
     DBConnection,
@@ -11,6 +9,8 @@ from proto import (
     SessionProtocol,
     UserProtocol,
 )
+from fastapi import HTTPException, Request, status
+from fastapi.security import SecurityScopes
 
 from belgie.auth.core.hooks import HookContext, HookRunner, Hooks
 from belgie.auth.session.manager import SessionManager
