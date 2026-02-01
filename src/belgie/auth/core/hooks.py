@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
-    from belgie.auth.adapters.connection import DBConnection
+    from proto import DBConnection
 else:  # pragma: no cover
     DBConnection = object
 

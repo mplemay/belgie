@@ -16,10 +16,10 @@ from alchemy import AlchemyAdapter
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
+from proto import UserProtocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from __tests__.auth.fixtures.models import Account, OAuthState, Session, User
-from belgie.auth.adapters.protocols import UserProtocol
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.settings import AuthSettings, CookieSettings, SessionSettings, URLSettings
 

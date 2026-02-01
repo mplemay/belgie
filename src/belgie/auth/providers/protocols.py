@@ -9,9 +9,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from fastapi import APIRouter
-    from proto import AdapterProtocol
+    from proto import AdapterProtocol, DBConnection
 
-    from belgie.auth.adapters.connection import DBConnection
     from belgie.auth.core.hooks import HookRunner
     from belgie.auth.core.settings import CookieSettings
     from belgie.auth.providers.google import GoogleProviderSettings

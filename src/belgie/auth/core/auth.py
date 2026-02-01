@@ -11,12 +11,12 @@ from fastapi.security import SecurityScopes  # noqa: TC002
 from proto import (
     AccountProtocol,
     AdapterProtocol,
+    DBConnection,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
 )
 
-from belgie.auth.adapters.connection import DBConnection  # noqa: TC001
 from belgie.auth.core.client import AuthClient
 from belgie.auth.core.hooks import HookRunner, Hooks
 from belgie.auth.core.settings import AuthSettings  # noqa: TC001

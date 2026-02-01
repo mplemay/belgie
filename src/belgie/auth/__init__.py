@@ -1,6 +1,7 @@
 """Belgie Auth - Authentication components."""
 
-from belgie.auth.adapters.connection import DBConnection
+from proto import DBConnection
+
 from belgie.auth.core.auth import Auth
 from belgie.auth.core.client import AuthClient
 from belgie.auth.core.exceptions import (

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from proto.connection import DBConnection
 
 
 @runtime_checkable
@@ -25,7 +25,7 @@ class AdapterProtocol[
 
     async def create_user(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         email: str,
         name: str | None = None,
         image: str | None = None,
@@ -33,20 +33,20 @@ class AdapterProtocol[
         email_verified: bool = False,
     ) -> UserT: ...
 
-    async def get_user_by_id(self, session: AsyncSession, user_id: UUID) -> UserT | None: ...
+    async def get_user_by_id(self, session: DBConnection, user_id: UUID) -> UserT | None: ...
 
-    async def get_user_by_email(self, session: AsyncSession, email: str) -> UserT | None: ...
+    async def get_user_by_email(self, session: DBConnection, email: str) -> UserT | None: ...
 
     async def update_user(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         user_id: UUID,
         **updates: Any,  # noqa: ANN401
     ) -> UserT | None: ...
 
     async def create_account(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         user_id: UUID,
         provider: str,
         provider_account_id: str,
@@ -55,21 +55,21 @@ class AdapterProtocol[
 
     async def get_account(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         provider: str,
         provider_account_id: str,
     ) -> AccountT | None: ...
 
     async def get_account_by_user_and_provider(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         user_id: UUID,
         provider: str,
     ) -> AccountT | None: ...
 
     async def update_account(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         user_id: UUID,
         provider: str,
         **tokens: Any,  # noqa: ANN401
@@ -77,7 +77,7 @@ class AdapterProtocol[
 
     async def create_session(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         user_id: UUID,
         expires_at: datetime,
         ip_address: str | None = None,
@@ -86,24 +86,24 @@ class AdapterProtocol[
 
     async def get_session(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         session_id: UUID,
     ) -> SessionT | None: ...
 
     async def update_session(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         session_id: UUID,
         **updates: Any,  # noqa: ANN401
     ) -> SessionT | None: ...
 
-    async def delete_session(self, session: AsyncSession, session_id: UUID) -> bool: ...
+    async def delete_session(self, session: DBConnection, session_id: UUID) -> bool: ...
 
-    async def delete_expired_sessions(self, session: AsyncSession) -> int: ...
+    async def delete_expired_sessions(self, session: DBConnection) -> int: ...
 
     async def create_oauth_state(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         state: str,
         expires_at: datetime,
         code_verifier: str | None = None,
@@ -112,10 +112,10 @@ class AdapterProtocol[
 
     async def get_oauth_state(
         self,
-        session: AsyncSession,
+        session: DBConnection,
         state: str,
     ) -> OAuthStateT | None: ...
 
-    async def delete_oauth_state(self, session: AsyncSession, state: str) -> bool: ...
+    async def delete_oauth_state(self, session: DBConnection, state: str) -> bool: ...
 
-    async def delete_user(self, session: AsyncSession, user_id: UUID) -> bool: ...
+    async def delete_user(self, session: DBConnection, user_id: UUID) -> bool: ...

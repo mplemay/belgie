@@ -4,12 +4,11 @@ from uuid import UUID
 from proto import (
     AccountProtocol,
     AdapterProtocol,
+    DBConnection,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
 )
-
-from belgie.auth.adapters.connection import DBConnection
 
 
 class SessionManager[

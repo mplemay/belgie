@@ -6,16 +6,16 @@ from uuid import UUID, uuid4
 
 from alchemy import AlchemyAdapter
 from fastapi import APIRouter
-from pydantic import Field
-from pydantic_settings import BaseSettings
-
-from belgie.auth.adapters.protocols import (
+from proto import (
     AccountProtocol,
     AdapterProtocol,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
 )
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
 from belgie.auth.core.settings import CookieSettings
 from belgie.auth.providers.protocols import OAuthProviderProtocol
 

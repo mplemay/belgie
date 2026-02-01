@@ -6,11 +6,10 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import httpx
 from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
-from proto import AdapterProtocol
+from proto import AdapterProtocol, DBConnection
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import SettingsConfigDict
 
-from belgie.auth.adapters.connection import DBConnection
 from belgie.auth.core.exceptions import InvalidStateError, OAuthError
 from belgie.auth.core.hooks import HookContext, HookRunner
 from belgie.auth.core.settings import CookieSettings, ProviderSettings
