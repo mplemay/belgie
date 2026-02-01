@@ -2,12 +2,11 @@ from datetime import UTC, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
+from alchemy.base import Base
+from alchemy.types import DateTimeUTC
 from sqlalchemy import Integer
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
-
-from belgie.alchemy.base import Base
-from belgie.alchemy.types import DateTimeUTC
 
 
 class Event(Base):

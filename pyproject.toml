@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "auth",
+    "alchemy",
     "proto",
     "fastapi>=0.100",
     "httpx>=0.24",
@@ -41,12 +41,12 @@ dev = [
 ]
 
 [tool.uv.sources]
-auth = { workspace = true }
+alchemy = { workspace = true }
 proto = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-    "packages/auth",
+    "packages/alchemy",
     "packages/mcp-sdk",
     "packages/oauth",
     "packages/proto",

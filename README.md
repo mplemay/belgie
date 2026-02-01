@@ -98,7 +98,8 @@ class OAuthState(Base):
 ### 2) Configure Belgie
 
 ```python
-from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleProviderSettings
+from belgie.auth import Auth, AuthSettings, GoogleProviderSettings
+from alchemy import AlchemyAdapter
 
 settings = AuthSettings(
     secret="your-secret-key",

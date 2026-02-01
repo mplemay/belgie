@@ -78,7 +78,8 @@ class OAuthState(Base):
 ### 2. Configure Authentication
 
 ```python
-from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleProviderSettings
+from belgie.auth import Auth, AuthSettings, GoogleProviderSettings
+from alchemy import AlchemyAdapter
 
 # Configure settings
 settings = AuthSettings(

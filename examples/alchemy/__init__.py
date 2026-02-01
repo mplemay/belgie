@@ -1,4 +1,4 @@
-"""Example implementations for belgie.alchemy.
+"""Example implementations for alchemy.
 
 These are reference implementations meant to be copied and customized.
 Do not import these directly - copy the code to your project.

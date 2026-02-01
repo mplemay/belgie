@@ -3,13 +3,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from alchemy.base import NAMING_CONVENTION, Base
+from alchemy.types import DateTimeUTC
 from sqlalchemy import Integer, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column
 
 from __tests__.alchemy.conftest import User
-from belgie.alchemy.base import NAMING_CONVENTION, Base
-from belgie.alchemy.types import DateTimeUTC
 
 
 def test_type_annotation_map_uses_datetimeutc() -> None:
