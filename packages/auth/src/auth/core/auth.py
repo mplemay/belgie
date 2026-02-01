@@ -8,15 +8,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes  # noqa: TC002
-
-from auth.adapters.connection import DBConnection  # noqa: TC001
-from auth.adapters.protocols import (
+from proto import (
     AccountProtocol,
     AdapterProtocol,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
 )
+
+from auth.adapters.connection import DBConnection  # noqa: TC001
 from auth.core.client import AuthClient
 from auth.core.hooks import HookRunner, Hooks
 from auth.core.settings import AuthSettings  # noqa: TC001

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 else:  # pragma: no cover
     DBConnection = object
 
-from auth.adapters.protocols import UserProtocol
+from proto import UserProtocol
 
 HookEvent = Literal["on_signup", "on_signin", "on_signout", "on_delete"]
 

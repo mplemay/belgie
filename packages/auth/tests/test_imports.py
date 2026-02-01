@@ -39,10 +39,12 @@ def test_hook_exports() -> None:
 
 
 def test_protocol_exports() -> None:
-    assert hasattr(belgie, "UserProtocol")
-    assert hasattr(belgie, "AccountProtocol")
-    assert hasattr(belgie, "SessionProtocol")
-    assert hasattr(belgie, "OAuthStateProtocol")
+    from belgie import proto  # noqa: PLC0415
+
+    assert hasattr(proto, "UserProtocol")
+    assert hasattr(proto, "AccountProtocol")
+    assert hasattr(proto, "SessionProtocol")
+    assert hasattr(proto, "OAuthStateProtocol")
 
 
 def test_exception_exports() -> None:

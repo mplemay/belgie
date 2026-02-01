@@ -1,8 +1,6 @@
 """Belgie - Modern authentication and analytics for FastAPI."""
 
 from auth import (
-    AccountProtocol,
-    AdapterProtocol,
     Auth,
     AuthClient,
     AuthenticationError,
@@ -22,14 +20,11 @@ from auth import (
     InvalidStateError,
     OAuthError,
     OAuthProviderProtocol,
-    OAuthStateProtocol,
     Providers,
     SessionExpiredError,
     SessionManager,
-    SessionProtocol,
     SessionSettings,
     URLSettings,
-    UserProtocol,
     generate_session_id,
     generate_state_token,
     parse_scopes,
@@ -66,12 +61,6 @@ __all__ = [  # noqa: RUF022
     "SessionSettings",
     "CookieSettings",
     "URLSettings",
-    # Protocols
-    "UserProtocol",
-    "AdapterProtocol",
-    "AccountProtocol",
-    "SessionProtocol",
-    "OAuthStateProtocol",
     # Exceptions
     "BelgieError",
     "AuthenticationError",

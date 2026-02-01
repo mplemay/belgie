@@ -1,14 +1,15 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from auth.adapters.connection import DBConnection
-from auth.adapters.protocols import (
+from proto import (
     AccountProtocol,
     AdapterProtocol,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
 )
+
+from auth.adapters.connection import DBConnection
 
 
 class SessionManager[

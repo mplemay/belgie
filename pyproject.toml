@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "auth",
+    "proto",
     "fastapi>=0.100",
     "httpx>=0.24",
     "pydantic>=2.0",
@@ -41,12 +42,14 @@ dev = [
 
 [tool.uv.sources]
 auth = { workspace = true }
+proto = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "packages/auth",
     "packages/mcp-sdk",
     "packages/oauth",
+    "packages/proto",
 ]
 
 [tool.ruff]

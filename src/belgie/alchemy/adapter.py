@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from auth.adapters.protocols import (
+from proto import (
     AccountProtocol,
     AdapterProtocol,
     OAuthStateProtocol,

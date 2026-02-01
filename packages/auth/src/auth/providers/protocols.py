@@ -9,9 +9,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from fastapi import APIRouter
+    from proto import AdapterProtocol
 
     from auth.adapters.connection import DBConnection
-    from auth.adapters.protocols import AdapterProtocol
     from auth.core.hooks import HookRunner
     from auth.core.settings import CookieSettings
     from auth.providers.google import GoogleProviderSettings

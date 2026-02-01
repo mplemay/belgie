@@ -3,15 +3,15 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request, status
 from fastapi.security import SecurityScopes
-
-from auth.adapters.connection import DBConnection
-from auth.adapters.protocols import (
+from proto import (
     AccountProtocol,
     AdapterProtocol,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
 )
+
+from auth.adapters.connection import DBConnection
 from auth.core.hooks import HookContext, HookRunner, Hooks
 from auth.session.manager import SessionManager
 from auth.utils.scopes import validate_scopes

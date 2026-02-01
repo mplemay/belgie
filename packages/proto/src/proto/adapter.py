@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+from proto.account import AccountProtocol
+from proto.oauth_state import OAuthStateProtocol
+from proto.session import SessionProtocol
+from proto.user import UserProtocol
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from uuid import UUID
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+
+@runtime_checkable
+class AdapterProtocol[
+    UserT: UserProtocol,
+    AccountT: AccountProtocol,
+    SessionT: SessionProtocol,
+    OAuthStateT: OAuthStateProtocol,
+](Protocol):
+    """Protocol for database adapters."""
+
+    async def create_user(
+        self,
+        session: AsyncSession,
+        email: str,
+        name: str | None = None,
+        image: str | None = None,
+        *,
+        email_verified: bool = False,
+    ) -> UserT: ...
+
+    async def get_user_by_id(self, session: AsyncSession, user_id: UUID) -> UserT | None: ...
+
+    async def get_user_by_email(self, session: AsyncSession, email: str) -> UserT | None: ...
+
+    async def update_user(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+        **updates: Any,  # noqa: ANN401
+    ) -> UserT | None: ...
+
+    async def create_account(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+        provider: str,
+        provider_account_id: str,
+        **tokens: Any,  # noqa: ANN401
+    ) -> AccountT: ...
+
+    async def get_account(
+        self,
+        session: AsyncSession,
+        provider: str,
+        provider_account_id: str,
+    ) -> AccountT | None: ...
+
+    async def get_account_by_user_and_provider(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+        provider: str,
+    ) -> AccountT | None: ...
+
+    async def update_account(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+        provider: str,
+        **tokens: Any,  # noqa: ANN401
+    ) -> AccountT | None: ...
+
+    async def create_session(
+        self,
+        session: AsyncSession,
+        user_id: UUID,
+        expires_at: datetime,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> SessionT: ...
+
+    async def get_session(
+        self,
+        session: AsyncSession,
+        session_id: UUID,
+    ) -> SessionT | None: ...
+
+    async def update_session(
+        self,
+        session: AsyncSession,
+        session_id: UUID,
+        **updates: Any,  # noqa: ANN401
+    ) -> SessionT | None: ...
+
+    async def delete_session(self, session: AsyncSession, session_id: UUID) -> bool: ...
+
+    async def delete_expired_sessions(self, session: AsyncSession) -> int: ...
+
+    async def create_oauth_state(
+        self,
+        session: AsyncSession,
+        state: str,
+        expires_at: datetime,
+        code_verifier: str | None = None,
+        redirect_url: str | None = None,
+    ) -> OAuthStateT: ...
+
+    async def get_oauth_state(
+        self,
+        session: AsyncSession,
+        state: str,
+    ) -> OAuthStateT | None: ...
+
+    async def delete_oauth_state(self, session: AsyncSession, state: str) -> bool: ...
+
+    async def delete_user(self, session: AsyncSession, user_id: UUID) -> bool: ...

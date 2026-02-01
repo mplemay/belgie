@@ -1,13 +1,6 @@
 """Belgie Auth - Authentication components."""
 
 from auth.adapters.connection import DBConnection
-from auth.adapters.protocols import (
-    AccountProtocol,
-    AdapterProtocol,
-    OAuthStateProtocol,
-    SessionProtocol,
-    UserProtocol,
-)
 from auth.core.auth import Auth
 from auth.core.client import AuthClient
 from auth.core.exceptions import (
@@ -55,12 +48,6 @@ __all__ = [  # noqa: RUF022
     "SessionSettings",
     "CookieSettings",
     "URLSettings",
-    # Protocols
-    "UserProtocol",
-    "AdapterProtocol",
-    "AccountProtocol",
-    "SessionProtocol",
-    "OAuthStateProtocol",
     # Exceptions
     "BelgieError",
     "AuthenticationError",

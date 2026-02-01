@@ -6,11 +6,11 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import httpx
 from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
+from proto import AdapterProtocol
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import SettingsConfigDict
 
 from auth.adapters.connection import DBConnection
-from auth.adapters.protocols import AdapterProtocol
 from auth.core.exceptions import InvalidStateError, OAuthError
 from auth.core.hooks import HookContext, HookRunner
 from auth.core.settings import CookieSettings, ProviderSettings
