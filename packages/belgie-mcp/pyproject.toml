@@ -15,5 +15,8 @@ dependencies = [
 requires = ["uv_build>=0.9.28,<0.10.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+source-exclude = ["**/__tests__/**"]
+
 [tool.uv.sources]
 mcp = { git = "https://github.com/modelcontextprotocol/python-sdk.git", rev = "main" }

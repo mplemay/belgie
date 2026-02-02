@@ -4,8 +4,14 @@ from contextlib import asynccontextmanager
 from belgie_alchemy import AlchemyAdapter, Base, DatabaseSettings
 from fastapi import Depends, FastAPI, Security
 
-from belgie.auth import Auth, AuthSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.auth.providers.google import GoogleProviderSettings
+from belgie import (
+    Belgie,
+    BelgieSettings,
+    CookieSettings,
+    GoogleProviderSettings,
+    SessionSettings,
+    URLSettings,
+)
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 db_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_auth_example.db", "echo": True})
@@ -21,7 +27,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Belgie Example App", lifespan=lifespan)
 
-auth_settings = AuthSettings(
+settings = BelgieSettings(
     secret="your-secret-key-here-change-in-production",  # noqa: S106
     base_url="http://localhost:8000",
     session=SessionSettings(
@@ -46,8 +52,8 @@ adapter = AlchemyAdapter(
     oauth_state=OAuthState,
 )
 
-auth = Auth(
-    settings=auth_settings,
+belgie = Belgie(
+    settings=settings,
     adapter=adapter,
     db=db_settings,
     providers={
@@ -60,7 +66,7 @@ auth = Auth(
     },
 )
 
-app.include_router(auth.router)
+app.include_router(belgie.router)
 
 
 @app.get("/")
@@ -74,7 +80,7 @@ async def home() -> dict[str, str]:
 
 
 @app.get("/protected")
-async def protected(user: User = Depends(auth.user)) -> dict[str, str]:  # noqa: B008, FAST002
+async def protected(user: User = Depends(belgie.user)) -> dict[str, str]:  # noqa: B008, FAST002
     return {
         "message": "this is a protected route",
         "user_id": str(user.id),
@@ -83,7 +89,7 @@ async def protected(user: User = Depends(auth.user)) -> dict[str, str]:  # noqa:
 
 
 @app.get("/dashboard")
-async def dashboard(user: User = Depends(auth.user)) -> dict[str, str | None]:  # noqa: B008, FAST002
+async def dashboard(user: User = Depends(belgie.user)) -> dict[str, str | None]:  # noqa: B008, FAST002
     return {
         "message": "welcome to your dashboard",
         "user_id": str(user.id),
@@ -94,7 +100,7 @@ async def dashboard(user: User = Depends(auth.user)) -> dict[str, str | None]:  
 
 
 @app.get("/profile/email")
-async def profile_email(user: User = Security(auth.user, scopes=["email"])) -> dict[str, str]:  # noqa: B008, FAST002
+async def profile_email(user: User = Security(belgie.user, scopes=["email"])) -> dict[str, str]:  # noqa: B008, FAST002
     return {
         "email": user.email,
         "verified": str(user.email_verified),
@@ -103,7 +109,7 @@ async def profile_email(user: User = Security(auth.user, scopes=["email"])) -> d
 
 @app.get("/profile/full")
 async def profile_full(
-    user: User = Security(auth.user, scopes=["openid", "email", "profile"]),  # noqa: B008, FAST002
+    user: User = Security(belgie.user, scopes=["openid", "email", "profile"]),  # noqa: B008, FAST002
 ) -> dict[str, str | None]:
     return {
         "id": str(user.id),
@@ -115,7 +121,7 @@ async def profile_full(
 
 
 @app.get("/session")
-async def session_info(session: Session = Depends(auth.session)) -> dict[str, str]:  # noqa: B008, FAST002
+async def session_info(session: Session = Depends(belgie.session)) -> dict[str, str]:  # noqa: B008, FAST002
     return {
         "session_id": str(session.id),
         "user_id": str(session.user_id),

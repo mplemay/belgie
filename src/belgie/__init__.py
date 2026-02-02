@@ -3,13 +3,13 @@
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-from belgie.auth import (
-    Auth,
-    AuthClient,
+from belgie_core import (
     AuthenticationError,
     AuthorizationError,
-    AuthSettings,
+    Belgie,
+    BelgieClient,
     BelgieError,
+    BelgieSettings,
     ConfigurationError,
     CookieSettings,
     DBConnection,
@@ -59,9 +59,9 @@ __all__ = [  # noqa: RUF022
     # Version
     "__version__",
     # Core
-    "Auth",
-    "AuthClient",
-    "AuthSettings",
+    "Belgie",
+    "BelgieClient",
+    "BelgieSettings",
     "Hooks",
     "HookContext",
     "HookEvent",
