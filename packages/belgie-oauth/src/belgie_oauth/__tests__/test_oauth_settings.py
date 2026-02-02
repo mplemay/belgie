@@ -7,6 +7,7 @@ def test_oauth_settings_defaults() -> None:
     settings = OAuthSettings(redirect_uris=["http://example.com/callback"])
 
     assert settings.route_prefix == "/oauth"
+    assert settings.login_url is None
     assert settings.default_scope == "user"
     assert settings.authorization_code_ttl_seconds == 300
     assert settings.access_token_ttl_seconds == 3600

@@ -96,6 +96,7 @@ def oauth_settings() -> OAuthSettings:
     return OAuthSettings(
         issuer_url=None,
         route_prefix="/oauth",
+        login_url="/auth/provider/google/signin",
         client_id="test-client",
         client_secret=SecretStr("test-secret"),
         redirect_uris=["http://testserver/callback"],
@@ -104,23 +105,11 @@ def oauth_settings() -> OAuthSettings:
 
 
 @pytest.fixture
-def demo_username() -> str:
-    return "demo_user"
-
-
-@pytest.fixture
-def demo_password() -> str:
-    return "demo_password"
-
-
-@pytest.fixture
 def oauth_plugin(
     belgie_instance: Belgie,
     oauth_settings: OAuthSettings,
-    demo_username: str,
-    demo_password: str,
 ) -> OAuthPlugin:
-    return belgie_instance.add_plugin(OAuthPlugin, oauth_settings, demo_username, demo_password)
+    return belgie_instance.add_plugin(OAuthPlugin, oauth_settings)
 
 
 @pytest.fixture

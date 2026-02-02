@@ -35,7 +35,7 @@ from belgie_core import (
 )
 
 if TYPE_CHECKING:
-    from belgie_alchemy import AlchemyAdapter as AlchemyAdapter  # ty: ignore[unresolved-import]
+    from belgie_alchemy import AlchemyAdapter  # ty: ignore[unresolved-import]
 
 __version__ = "0.1.0"
 

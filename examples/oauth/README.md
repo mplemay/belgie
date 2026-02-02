@@ -1,7 +1,6 @@
 # Belgie OAuth Server Example
 
-This example spins up the Belgie OAuth server plugin with demo credentials and a minimal
-client callback endpoint.
+This example spins up the Belgie OAuth server plugin with a minimal client callback endpoint.
 
 ## Setup
 
@@ -19,18 +18,11 @@ uvicorn examples.oauth.main:app --reload
 
 The app runs at `http://localhost:8000`.
 
-## Demo Credentials
-
-- Username: `demo@example.com`
-- Password: `demo-password`
-
 ## Endpoints
 
 - `GET /`
 - `GET /auth/oauth/.well-known/oauth-authorization-server`
 - `GET|POST /auth/oauth/authorize`
-- `GET /auth/oauth/login`
-- `POST /auth/oauth/login/callback`
 - `POST /auth/oauth/token`
 - `POST /auth/oauth/introspect`
 - `GET /client/callback`
@@ -49,8 +41,9 @@ curl http://localhost:8000/auth/oauth/.well-known/oauth-authorization-server
 curl -i "http://localhost:8000/auth/oauth/authorize?response_type=code&client_id=demo-client&redirect_uri=http://localhost:8000/client/callback&code_challenge=iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ&state=demo-state"
 ```
 
-3. Open the `location` from the response in a browser and submit the demo credentials.
-   You will be redirected to `/client/callback` with a `code` query param.
+3. Authorization requires an authenticated Belgie session. If you get a `401`, authenticate in your
+   app first so the session cookie is set, then retry. When authorized, you'll be redirected to
+   `/client/callback` with a `code` query param.
 
 4. Exchange the code for a token (replace `CODE_FROM_CALLBACK`):
 

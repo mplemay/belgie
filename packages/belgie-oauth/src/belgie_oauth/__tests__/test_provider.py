@@ -26,9 +26,8 @@ async def test_provider_authorize_and_issue_code() -> None:
         redirect_uri_provided_explicitly=True,
         resource=None,
     )
-    login_url = await provider.authorize(oauth_client, params)
-    assert "/login" in login_url
-    assert "state=state-123" in login_url
+    state_value = await provider.authorize(oauth_client, params)
+    assert state_value == "state-123"
 
     redirect_url = await provider.issue_authorization_code("state-123")
     parsed = urlparse(redirect_url)

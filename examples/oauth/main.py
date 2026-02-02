@@ -15,8 +15,6 @@ from belgie.oauth import OAuthPlugin, OAuthSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 DB_PATH = "./belgie_oauth_example.db"
-DEMO_USERNAME = "demo@example.com"
-DEMO_PASSWORD = "demo-password"  # noqa: S105
 
 
 db_settings = DatabaseSettings(
@@ -75,7 +73,7 @@ oauth_settings = OAuthSettings(
     default_scope="user",
 )
 
-belgie.add_plugin(OAuthPlugin, oauth_settings, DEMO_USERNAME, DEMO_PASSWORD)
+belgie.add_plugin(OAuthPlugin, oauth_settings)
 
 app.include_router(belgie.router())
 

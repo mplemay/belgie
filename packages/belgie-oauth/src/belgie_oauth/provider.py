@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pydantic import AnyUrl
-
 from belgie_oauth.models import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from belgie_oauth.utils import construct_redirect_uri, join_url
+from belgie_oauth.utils import construct_redirect_uri
 
 if TYPE_CHECKING:
     from belgie_oauth.settings import OAuthSettings
@@ -125,8 +124,7 @@ class SimpleOAuthProvider:
             scopes=params.scopes,
             created_at=time.time(),
         )
-        login_url = join_url(self.issuer_url, "login")
-        return construct_redirect_uri(login_url, state=state, client_id=client.client_id)
+        return state
 
     async def issue_authorization_code(self, state: str) -> str:
         self._purge_state_mapping()

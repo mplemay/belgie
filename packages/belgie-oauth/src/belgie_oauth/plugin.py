@@ -5,16 +5,21 @@ import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlunparse
 
-from belgie_core.core.hooks import HookContext
 from belgie_core.core.protocols import Plugin
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
 from pydantic import AnyHttpUrl, AnyUrl, ValidationError
 
-from belgie_oauth.models import InvalidRedirectUriError, InvalidScopeError, OAuthClientMetadata, OAuthMetadata
+from belgie_oauth.models import (
+    InvalidRedirectUriError,
+    InvalidScopeError,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+)
 from belgie_oauth.provider import AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth.utils import create_code_challenge, join_url
+from belgie_oauth.utils import construct_redirect_uri, create_code_challenge, join_url
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -26,10 +31,8 @@ if TYPE_CHECKING:
 
 
 class OAuthPlugin(Plugin):
-    def __init__(self, settings: OAuthSettings, demo_username: str, demo_password: str) -> None:
+    def __init__(self, settings: OAuthSettings) -> None:
         self._settings = settings
-        self._demo_username = demo_username
-        self._demo_password = demo_password
         self._provider: SimpleOAuthProvider | None = None
 
     def router(self, belgie: Belgie) -> APIRouter:
@@ -44,18 +47,12 @@ class OAuthPlugin(Plugin):
         metadata = _build_metadata(issuer_url, self._settings)
 
         router = self._add_metadata_route(router, metadata)
-        router = self._add_authorize_route(router, belgie, provider, self._settings)
+        router = self._add_authorize_route(router, belgie, provider, self._settings, issuer_url)
         router = self._add_token_route(router, provider)
         router = self._add_register_route(router, provider)
         router = self._add_revoke_route(router, provider)
-        router = self._add_login_route(router, issuer_url, self._demo_username, self._demo_password)
-        router = self._add_login_callback_route(
-            router,
-            belgie,
-            provider,
-            self._demo_username,
-            self._demo_password,
-        )
+        router = self._add_login_route(router, belgie, issuer_url, self._settings)
+        router = self._add_login_callback_route(router, belgie, provider)
         return self._add_introspect_route(router, provider)
 
     @staticmethod
@@ -71,77 +68,34 @@ class OAuthPlugin(Plugin):
         return router
 
     @staticmethod
-    def _add_authorize_route(  # noqa: C901
+    def _add_authorize_route(
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
         settings: OAuthSettings,
+        issuer_url: str,
     ) -> APIRouter:
-        async def authorize_handler(  # noqa: C901
+        async def authorize_handler(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> Response:
             data = await _get_request_params(request)
-            response_type = _get_str(data, "response_type")
-            if response_type != "code":
-                raise HTTPException(status_code=400, detail="unsupported_response_type")
-
-            client_id = _get_str(data, "client_id")
-            if not client_id:
-                raise HTTPException(status_code=400, detail="missing client_id")
-
-            oauth_client = await provider.get_client(client_id)
-            if not oauth_client:
-                raise HTTPException(status_code=400, detail="invalid_client")
-
-            redirect_uri_raw = _get_str(data, "redirect_uri")
-            redirect_uri = AnyUrl(redirect_uri_raw) if redirect_uri_raw else None
-            try:
-                validated_redirect_uri = oauth_client.validate_redirect_uri(redirect_uri)
-            except InvalidRedirectUriError as exc:
-                raise HTTPException(status_code=400, detail=exc.message) from exc
-
-            scope_raw = _get_str(data, "scope")
-            try:
-                scopes = oauth_client.validate_scope(scope_raw)
-            except InvalidScopeError as exc:
-                raise HTTPException(status_code=400, detail=exc.message) from exc
-            if scopes is None:
-                scopes = [settings.default_scope]
-
-            code_challenge = _get_str(data, "code_challenge")
-            if not code_challenge:
-                raise HTTPException(status_code=400, detail="missing code_challenge")
-
-            code_challenge_method = _get_str(data, "code_challenge_method") or settings.code_challenge_method
-            if code_challenge_method != "S256":
-                raise HTTPException(status_code=400, detail="unsupported code_challenge_method")
-
-            resource = _get_str(data, "resource")
-            state = _get_str(data, "state") or secrets.token_hex(16)
-
-            params = AuthorizationParams(
-                state=state,
-                scopes=scopes,
-                code_challenge=code_challenge,
-                redirect_uri=validated_redirect_uri,
-                redirect_uri_provided_explicitly=redirect_uri_raw is not None,
-                resource=resource,
-            )
-
-            login_url = await provider.authorize(oauth_client, params)
+            oauth_client, params = await _parse_authorize_params(data, provider, settings)
 
             try:
                 await client.get_user(SecurityScopes(), request)
             except HTTPException as exc:
                 if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                    if not settings.login_url:
+                        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login_required") from exc
+
+                    state_value = await _authorize_state(provider, oauth_client, params)
+                    login_url = _build_login_redirect(issuer_url, state_value)
                     return RedirectResponse(url=login_url, status_code=status.HTTP_302_FOUND)
                 raise
 
-            try:
-                redirect_url = await provider.issue_authorization_code(state)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            state_value = await _authorize_state(provider, oauth_client, params)
+            redirect_url = await _issue_authorization_code(provider, state_value)
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
         router.add_api_route("/authorize", authorize_handler, methods=["GET", "POST"])
@@ -261,25 +215,30 @@ class OAuthPlugin(Plugin):
     @staticmethod
     def _add_login_route(
         router: APIRouter,
+        belgie: Belgie,
         issuer_url: str,
-        demo_username: str,
-        demo_password: str,
+        settings: OAuthSettings,
     ) -> APIRouter:
-        async def login_page_handler(request: Request) -> Response:
+        async def login_handler(request: Request) -> Response:
             state = request.query_params.get("state")
             if not state:
                 raise HTTPException(status_code=400, detail="missing state")
 
-            login_action = join_url(issuer_url, "login/callback")
-            html = _build_login_page(
-                login_action=login_action,
-                state=state,
-                username=demo_username,
-                password=demo_password,
-            )
-            return HTMLResponse(content=html)
+            if not settings.login_url:
+                raise HTTPException(status_code=400, detail="login_url not configured")
 
-        router.add_api_route("/login", login_page_handler, methods=["GET"])
+            parsed_login_url = urlparse(settings.login_url)
+            if parsed_login_url.scheme in {"http", "https"}:
+                login_url = settings.login_url
+            else:
+                login_url = join_url(belgie.settings.base_url, settings.login_url)
+
+            return_to_base = join_url(issuer_url, "login/callback")
+            return_to_url = construct_redirect_uri(return_to_base, state=state)
+            redirect_url = construct_redirect_uri(login_url, return_to=return_to_url)
+            return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+
+        router.add_api_route("/login", login_handler, methods=["GET"])
         return router
 
     @staticmethod
@@ -287,58 +246,29 @@ class OAuthPlugin(Plugin):
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
-        demo_username: str,
-        demo_password: str,
     ) -> APIRouter:
         async def login_callback_handler(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> Response:
-            form = await request.form()
-            username = _get_str(form, "username")
-            password = _get_str(form, "password")
-            state = _get_str(form, "state")
+            state = request.query_params.get("state")
+            if not state:
+                raise HTTPException(status_code=400, detail="missing state")
 
-            if not username or not password or not state:
-                raise HTTPException(status_code=400, detail="missing credentials")
-
-            if username != demo_username or password != demo_password:
-                raise HTTPException(status_code=401, detail="invalid credentials")
-
-            user = await client.adapter.get_user_by_email(client.db, username)
-            created = False
-            if user is None:
-                user = await client.adapter.create_user(client.db, email=username)
-                created = True
-
-            if created:
-                async with client.hook_runner.dispatch("on_signup", HookContext(user=user, db=client.db)):
-                    pass
-
-            session = await client.session_manager.create_session(client.db, user_id=user.id)
-
-            async with client.hook_runner.dispatch("on_signin", HookContext(user=user, db=client.db)):
-                pass
+            try:
+                await client.get_user(SecurityScopes(), request)
+            except HTTPException as exc:
+                if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login_required") from exc
+                raise
 
             try:
                 redirect_url = await provider.issue_authorization_code(state)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
-            response = RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
-            cookie = belgie.settings.cookie
-            response.set_cookie(
-                key=cookie.name,
-                value=str(session.id),
-                max_age=belgie.settings.session.max_age,
-                httponly=cookie.http_only,
-                secure=cookie.secure,
-                samesite=cookie.same_site,
-                domain=cookie.domain,
-            )
-            return response
-
-        router.add_api_route("/login/callback", login_callback_handler, methods=["POST"])
+        router.add_api_route("/login/callback", login_callback_handler, methods=["GET"])
         return router
 
     @staticmethod
@@ -401,40 +331,80 @@ def _build_metadata(issuer_url: str, settings: OAuthSettings) -> OAuthMetadata:
     )
 
 
-def _build_login_page(*, login_action: str, state: str, username: str, password: str) -> str:
-    return f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Belgie Demo Authentication</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }}
-        .form-group {{ margin-bottom: 15px; }}
-        input {{ width: 100%; padding: 8px; margin-top: 5px; }}
-        button {{ background-color: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; }}
-    </style>
-</head>
-<body>
-    <h2>Belgie Demo Authentication</h2>
-    <p>This is a simplified authentication demo. Use the demo credentials below:</p>
-    <p><strong>Username:</strong> {username}<br>
-    <strong>Password:</strong> {password}</p>
+async def _parse_authorize_params(
+    data: dict[str, str],
+    provider: SimpleOAuthProvider,
+    settings: OAuthSettings,
+) -> tuple[OAuthClientInformationFull, AuthorizationParams]:
+    response_type = _get_str(data, "response_type")
+    if response_type != "code":
+        raise HTTPException(status_code=400, detail="unsupported_response_type")
 
-    <form action="{login_action}" method="post">
-        <input type="hidden" name="state" value="{state}">
-        <div class="form-group">
-            <label>Username:</label>
-            <input type="text" name="username" value="{username}" required>
-        </div>
-        <div class="form-group">
-            <label>Password:</label>
-            <input type="password" name="password" value="{password}" required>
-        </div>
-        <button type="submit">Sign In</button>
-    </form>
-</body>
-</html>
-"""
+    client_id = _get_str(data, "client_id")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="missing client_id")
+
+    oauth_client = await provider.get_client(client_id)
+    if not oauth_client:
+        raise HTTPException(status_code=400, detail="invalid_client")
+
+    redirect_uri_raw = _get_str(data, "redirect_uri")
+    redirect_uri = AnyUrl(redirect_uri_raw) if redirect_uri_raw else None
+    try:
+        validated_redirect_uri = oauth_client.validate_redirect_uri(redirect_uri)
+    except InvalidRedirectUriError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+
+    scope_raw = _get_str(data, "scope")
+    try:
+        scopes = oauth_client.validate_scope(scope_raw)
+    except InvalidScopeError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    if scopes is None:
+        scopes = [settings.default_scope]
+
+    code_challenge = _get_str(data, "code_challenge")
+    if not code_challenge:
+        raise HTTPException(status_code=400, detail="missing code_challenge")
+
+    code_challenge_method = _get_str(data, "code_challenge_method") or settings.code_challenge_method
+    if code_challenge_method != "S256":
+        raise HTTPException(status_code=400, detail="unsupported code_challenge_method")
+
+    resource = _get_str(data, "resource")
+    state = _get_str(data, "state") or secrets.token_hex(16)
+
+    params = AuthorizationParams(
+        state=state,
+        scopes=scopes,
+        code_challenge=code_challenge,
+        redirect_uri=validated_redirect_uri,
+        redirect_uri_provided_explicitly=redirect_uri_raw is not None,
+        resource=resource,
+    )
+    return oauth_client, params
+
+
+async def _authorize_state(
+    provider: SimpleOAuthProvider,
+    oauth_client: OAuthClientInformationFull,
+    params: AuthorizationParams,
+) -> str:
+    try:
+        return await provider.authorize(oauth_client, params)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+async def _issue_authorization_code(provider: SimpleOAuthProvider, state: str) -> str:
+    try:
+        return await provider.issue_authorization_code(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _build_login_redirect(issuer_url: str, state: str) -> str:
+    return construct_redirect_uri(join_url(issuer_url, "login"), state=state)
 
 
 def _oauth_error(error: str, description: str | None = None, status_code: int = 400) -> JSONResponse:
