@@ -7,7 +7,7 @@ from sqlalchemy import Integer, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column
 
-from belgie_alchemy.__tests__.conftest import User
+from belgie_alchemy.__tests__.fixtures.models import User
 from belgie_alchemy.base import NAMING_CONVENTION, Base
 from belgie_alchemy.types import DateTimeUTC
 

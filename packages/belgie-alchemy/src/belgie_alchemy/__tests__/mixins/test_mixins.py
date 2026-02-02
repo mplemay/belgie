@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.conftest import User
+from belgie_alchemy.__tests__.fixtures.models import User
 
 
 def test_primary_key_mixin_defaults() -> None:
