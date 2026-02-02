@@ -1,6 +1,7 @@
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from belgie_oauth import provider as provider_module
 from belgie_oauth.provider import AccessToken, AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth.settings import OAuthSettings
 from belgie_oauth.utils import create_code_challenge
@@ -76,9 +77,85 @@ async def test_load_access_token_purges_expired() -> None:
         token="expired",
         client_id="test-client",
         scopes=["user"],
+        created_at=0,
         expires_at=0,
         resource=None,
     )
     token = await provider.load_access_token("expired")
     assert token is None
     assert "expired" not in provider.tokens
+
+
+@pytest.mark.asyncio
+async def test_load_access_token_purges_expired_twice() -> None:
+    settings = OAuthSettings(
+        redirect_uris=["http://example.com/callback"],
+        issuer_url="http://example.com/auth/oauth",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    provider.tokens["expired"] = AccessToken(
+        token="expired",
+        client_id="test-client",
+        scopes=["user"],
+        created_at=0,
+        expires_at=0,
+        resource=None,
+    )
+
+    token = await provider.load_access_token("expired")
+    assert token is None
+    token = await provider.load_access_token("expired")
+    assert token is None
+    assert "expired" not in provider.tokens
+
+
+@pytest.mark.asyncio
+async def test_authorize_rejects_duplicate_state() -> None:
+    settings = OAuthSettings(
+        redirect_uris=["http://example.com/callback"],
+        issuer_url="http://example.com/auth/oauth",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    oauth_client = await provider.get_client("test-client")
+    params = AuthorizationParams(
+        state="state-dup",
+        scopes=["user"],
+        code_challenge="challenge",
+        redirect_uri=settings.redirect_uris[0],
+        redirect_uri_provided_explicitly=True,
+        resource=None,
+    )
+    await provider.authorize(oauth_client, params)
+    with pytest.raises(ValueError, match="Authorization state already exists"):
+        await provider.authorize(oauth_client, params)
+
+
+@pytest.mark.asyncio
+async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = OAuthSettings(
+        redirect_uris=["http://example.com/callback"],
+        issuer_url="http://example.com/auth/oauth",
+        client_id="test-client",
+        state_ttl_seconds=1,
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    oauth_client = await provider.get_client("test-client")
+    params = AuthorizationParams(
+        state="state-expired",
+        scopes=["user"],
+        code_challenge="challenge",
+        redirect_uri=settings.redirect_uris[0],
+        redirect_uri_provided_explicitly=True,
+        resource=None,
+    )
+    monkeypatch.setattr(provider_module.time, "time", lambda: 1000.0)
+    await provider.authorize(oauth_client, params)
+
+    monkeypatch.setattr(provider_module.time, "time", lambda: 1002.0)
+    with pytest.raises(ValueError, match="Invalid state parameter"):
+        await provider.issue_authorization_code("state-expired")
+    assert "state-expired" not in provider.state_mapping

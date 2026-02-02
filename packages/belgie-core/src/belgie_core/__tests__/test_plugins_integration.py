@@ -50,7 +50,7 @@ def test_plugin_router_included(belgie_instance: Belgie) -> None:
 
 def test_multiple_plugins(belgie_instance: Belgie) -> None:
     class PluginA(DummyPlugin):
-        def router(self) -> APIRouter:
+        def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
             router = APIRouter()
 
             @router.get("/a")
@@ -60,7 +60,7 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
             return router
 
     class PluginB(DummyPlugin):
-        def router(self) -> APIRouter:
+        def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
             router = APIRouter()
 
             @router.get("/b")

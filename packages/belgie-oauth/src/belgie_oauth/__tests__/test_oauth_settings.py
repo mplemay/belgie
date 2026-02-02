@@ -8,10 +8,9 @@ def test_oauth_settings_defaults() -> None:
 
     assert settings.route_prefix == "/oauth"
     assert settings.default_scope == "user"
-    assert settings.demo_username == "demo_user"
-    assert settings.demo_password == "demo_password"  # noqa: S105
     assert settings.authorization_code_ttl_seconds == 300
     assert settings.access_token_ttl_seconds == 3600
+    assert settings.state_ttl_seconds == 600
     assert settings.code_challenge_method == "S256"
 
 

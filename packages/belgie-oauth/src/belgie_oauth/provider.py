@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import AnyUrl
 
@@ -49,8 +49,20 @@ class AccessToken:
     token: str
     client_id: str
     scopes: list[str]
+    created_at: int
     expires_at: int | None = None
     resource: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StateEntry:
+    redirect_uri: str
+    code_challenge: str
+    redirect_uri_provided_explicitly: bool
+    client_id: str
+    resource: str | None
+    scopes: list[str] | None
+    created_at: float
 
 
 class SimpleOAuthProvider:
@@ -60,7 +72,7 @@ class SimpleOAuthProvider:
         self.clients: dict[str, OAuthClientInformationFull] = {}
         self.auth_codes: dict[str, AuthorizationCode] = {}
         self.tokens: dict[str, AccessToken] = {}
-        self.state_mapping: dict[str, dict[str, Any]] = {}
+        self.state_mapping: dict[str, StateEntry] = {}
 
         client_secret = settings.client_secret.get_secret_value() if settings.client_secret is not None else None
         self.clients[settings.client_id] = OAuthClientInformationFull(
@@ -74,30 +86,36 @@ class SimpleOAuthProvider:
         return self.clients.get(client_id)
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
+        self._purge_state_mapping()
         state = params.state or secrets.token_hex(16)
-        self.state_mapping[state] = {
-            "redirect_uri": str(params.redirect_uri),
-            "code_challenge": params.code_challenge,
-            "redirect_uri_provided_explicitly": params.redirect_uri_provided_explicitly,
-            "client_id": client.client_id,
-            "resource": params.resource,
-            "scopes": params.scopes,
-        }
+        if state in self.state_mapping:
+            msg = "Authorization state already exists"
+            raise ValueError(msg)
+        self.state_mapping[state] = StateEntry(
+            redirect_uri=str(params.redirect_uri),
+            code_challenge=params.code_challenge,
+            redirect_uri_provided_explicitly=params.redirect_uri_provided_explicitly,
+            client_id=client.client_id,
+            resource=params.resource,
+            scopes=params.scopes,
+            created_at=time.time(),
+        )
         login_url = join_url(self.issuer_url, "login")
         return construct_redirect_uri(login_url, state=state, client_id=client.client_id)
 
     async def issue_authorization_code(self, state: str) -> str:
+        self._purge_state_mapping()
         state_data = self.state_mapping.get(state)
         if not state_data:
             msg = "Invalid state parameter"
             raise ValueError(msg)
 
-        redirect_uri = state_data["redirect_uri"]
-        code_challenge = state_data["code_challenge"]
-        redirect_uri_provided_explicitly = state_data["redirect_uri_provided_explicitly"]
-        client_id = state_data["client_id"]
-        resource = state_data.get("resource")
-        scopes = state_data.get("scopes") or [self.settings.default_scope]
+        redirect_uri = state_data.redirect_uri
+        code_challenge = state_data.code_challenge
+        redirect_uri_provided_explicitly = state_data.redirect_uri_provided_explicitly
+        client_id = state_data.client_id
+        resource = state_data.resource
+        scopes = state_data.scopes or [self.settings.default_scope]
 
         if redirect_uri is None or code_challenge is None or client_id is None:
             msg = "Invalid authorization state"
@@ -132,6 +150,7 @@ class SimpleOAuthProvider:
             token=mcp_token,
             client_id=authorization_code.client_id,
             scopes=authorization_code.scopes,
+            created_at=int(time.time()),
             expires_at=int(time.time()) + self.settings.access_token_ttl_seconds,
             resource=authorization_code.resource,
         )
@@ -155,6 +174,19 @@ class SimpleOAuthProvider:
             return None
 
         return access_token
+
+    def _purge_state_mapping(self, now: float | None = None) -> None:
+        if not self.state_mapping:
+            return
+        current = time.time() if now is None else now
+        ttl_seconds = self.settings.state_ttl_seconds
+        if ttl_seconds <= 0:
+            return
+        expired_states = [
+            state for state, entry in self.state_mapping.items() if entry.created_at + ttl_seconds < current
+        ]
+        for state in expired_states:
+            self.state_mapping.pop(state, None)
 
     async def load_refresh_token(self, _refresh_token: str) -> RefreshToken | None:
         return None

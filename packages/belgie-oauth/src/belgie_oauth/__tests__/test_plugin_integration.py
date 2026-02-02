@@ -5,8 +5,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
-def test_oauth_plugin_registers_routes(belgie_instance: Belgie, oauth_settings: OAuthSettings) -> None:
-    plugin = belgie_instance.add_plugin(OAuthPlugin, oauth_settings)
+def test_oauth_plugin_registers_routes(
+    belgie_instance: Belgie,
+    oauth_settings: OAuthSettings,
+    demo_username: str,
+    demo_password: str,
+) -> None:
+    plugin = belgie_instance.add_plugin(OAuthPlugin, oauth_settings, demo_username, demo_password)
     assert plugin in belgie_instance.plugins
 
     app = FastAPI()

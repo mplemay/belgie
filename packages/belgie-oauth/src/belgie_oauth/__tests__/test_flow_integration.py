@@ -5,7 +5,12 @@ from belgie_oauth.utils import create_code_challenge
 from fastapi.testclient import TestClient
 
 
-def test_full_oauth_flow(client: TestClient, oauth_settings: OAuthSettings) -> None:
+def test_full_oauth_flow(
+    client: TestClient,
+    oauth_settings: OAuthSettings,
+    demo_username: str,
+    demo_password: str,
+) -> None:
     code_verifier = "verifier"
     code_challenge = create_code_challenge(code_verifier)
 
@@ -31,8 +36,8 @@ def test_full_oauth_flow(client: TestClient, oauth_settings: OAuthSettings) -> N
     callback_response = client.post(
         "/auth/oauth/login/callback",
         data={
-            "username": oauth_settings.demo_username,
-            "password": oauth_settings.demo_password,
+            "username": demo_username,
+            "password": demo_password,
             "state": "flow-state",
         },
         follow_redirects=False,

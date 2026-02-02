@@ -100,14 +100,27 @@ def oauth_settings() -> OAuthSettings:
         client_secret=SecretStr("test-secret"),
         redirect_uris=["http://testserver/callback"],
         default_scope="user",
-        demo_username="demo_user",
-        demo_password="demo_password",
     )
 
 
 @pytest.fixture
-def oauth_plugin(belgie_instance: Belgie, oauth_settings: OAuthSettings) -> OAuthPlugin:
-    return belgie_instance.add_plugin(OAuthPlugin, oauth_settings)
+def demo_username() -> str:
+    return "demo_user"
+
+
+@pytest.fixture
+def demo_password() -> str:
+    return "demo_password"
+
+
+@pytest.fixture
+def oauth_plugin(
+    belgie_instance: Belgie,
+    oauth_settings: OAuthSettings,
+    demo_username: str,
+    demo_password: str,
+) -> OAuthPlugin:
+    return belgie_instance.add_plugin(OAuthPlugin, oauth_settings, demo_username, demo_password)
 
 
 @pytest.fixture

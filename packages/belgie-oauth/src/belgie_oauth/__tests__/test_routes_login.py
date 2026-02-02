@@ -56,14 +56,16 @@ async def test_login_callback_creates_user_and_session(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthSettings,
+    demo_username: str,
+    demo_password: str,
 ) -> None:
     await _authorize(async_client, oauth_settings, state="state-good")
 
     response = await async_client.post(
         "/auth/oauth/login/callback",
         data={
-            "username": oauth_settings.demo_username,
-            "password": oauth_settings.demo_password,
+            "username": demo_username,
+            "password": demo_password,
             "state": "state-good",
         },
         follow_redirects=False,
@@ -76,5 +78,5 @@ async def test_login_callback_creates_user_and_session(
     query = parse_qs(urlparse(location).query)
     assert "code" in query
 
-    user = await belgie_instance.adapter.get_user_by_email(db_session, oauth_settings.demo_username)
+    user = await belgie_instance.adapter.get_user_by_email(db_session, demo_username)
     assert user is not None

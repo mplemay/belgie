@@ -17,9 +17,7 @@ class OAuthSettings(BaseSettings):
     redirect_uris: list[AnyUrl] = Field(..., min_length=1)
     default_scope: str = "user"
 
-    demo_username: str = "demo_user"
-    demo_password: str = "demo_password"  # noqa: S105
-
     authorization_code_ttl_seconds: int = 300
     access_token_ttl_seconds: int = 3600
+    state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"
