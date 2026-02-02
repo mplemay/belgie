@@ -1,0 +1,48 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  publish:
+    name: Publish (${{ matrix.package.name }})
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      matrix:
+        package:
+          - name: belgie-proto
+            path: packages/belgie-proto
+          - name: belgie-alchemy
+            path: packages/belgie-alchemy
+          - name: belgie-mcp
+            path: packages/belgie-mcp
+          - name: belgie-oauth
+            path: packages/belgie-oauth
+          - name: belgie
+            path: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Install Python 3.13
+        run: uv python install 3.13
+      - name: Set version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Bump version
+        run: uv --directory "${{ matrix.package.path }}" version "${{ steps.version.outputs.version }}"
+      - name: Build
+        run: uv build "${{ matrix.package.path }}"
+      - name: Publish
+        run: uv publish
