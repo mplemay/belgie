@@ -177,6 +177,22 @@ requires-dist = [{ name = "mcp", git = "https://github.com/modelcontextprotocol/
 name = "belgie-oauth"
 version = "0.1.0"
 source = { editable = "packages/belgie-oauth" }
+dependencies = [
+    { name = "belgie-core" },
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "python-multipart" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "belgie-core", editable = "packages/belgie-core" },
+    { name = "fastapi", specifier = ">=0.100" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.0" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
+]
 
 [[package]]
 name = "belgie-proto"
