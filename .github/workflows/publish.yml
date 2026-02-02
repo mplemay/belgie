@@ -1,0 +1,66 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check tag is on main
+        id: tag_check
+        run: |
+          git fetch origin main --tags --force
+          TAG_COMMIT="$(git rev-list -n 1 "refs/tags/${{ github.event.release.tag_name }}")"
+          if git merge-base --is-ancestor "$TAG_COMMIT" "origin/main"; then
+            echo "on_main=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "on_main=false" >> "$GITHUB_OUTPUT"
+            echo "Tag is not on main; skipping publish."
+          fi
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Install Python 3.13
+        run: uv python install 3.13
+      - name: Set version
+        id: version
+        if: steps.tag_check.outputs.on_main == 'true'
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Bump belgie-proto version
+        if: steps.tag_check.outputs.on_main == 'true'
+        working-directory: packages/belgie-proto
+        run: uv version "${{ steps.version.outputs.version }}"
+      - name: Bump belgie-alchemy version
+        if: steps.tag_check.outputs.on_main == 'true'
+        working-directory: packages/belgie-alchemy
+        run: uv version "${{ steps.version.outputs.version }}"
+      - name: Bump belgie-mcp version
+        if: steps.tag_check.outputs.on_main == 'true'
+        working-directory: packages/belgie-mcp
+        run: uv version "${{ steps.version.outputs.version }}"
+      - name: Bump belgie-oauth version
+        if: steps.tag_check.outputs.on_main == 'true'
+        working-directory: packages/belgie-oauth
+        run: uv version "${{ steps.version.outputs.version }}"
+      - name: Bump belgie version
+        if: steps.tag_check.outputs.on_main == 'true'
+        run: uv version "${{ steps.version.outputs.version }}"
+      - name: Build all packages
+        if: steps.tag_check.outputs.on_main == 'true'
+        run: uv build --all-packages
+      - name: Publish
+        if: steps.tag_check.outputs.on_main == 'true'
+        run: uv publish dist/*
