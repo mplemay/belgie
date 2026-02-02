@@ -1,0 +1,21 @@
+[project]
+name = "belgie-core"
+version = "0.1.0"
+description = "Core authentication logic for Belgie"
+readme = "README.md"
+authors = [
+    { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "belgie-proto",
+    "fastapi>=0.100",
+    "httpx>=0.24",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-multipart>=0.0.20",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.10,<0.10.0"]
+build-backend = "uv_build"

@@ -202,31 +202,31 @@ The existing tests in `src/belgie/auth/__tests__` will be moved to `packages/bel
 
 ### Tasks
 
-- [ ] **Scaffold `belgie-core`**
-  - [ ] Create directory structure
-  - [ ] Create `pyproject.toml` with dependencies (copied from root but filtered)
-- [ ] **Migrate Code**
-  - [ ] Move `core/`
-  - [ ] Move `providers/`
-  - [ ] Move `session/`
-  - [ ] Move `utils/`
-  - [ ] Move `__tests__/`
-- [ ] **Refactor `belgie-core`**
-  - [ ] Rename `core/auth.py` to `core/belgie.py`
-  - [ ] Rename `Auth` -> `Belgie`
-  - [ ] Rename `AuthSettings` -> `BelgieSettings`
-  - [ ] Rename `AuthClient` -> `BelgieClient`
-  - [ ] Update imports in all moved files (replace `belgie.auth` with `belgie_core`)
-- [ ] **Update Root `belgie`**
-  - [ ] Delete `src/belgie/auth`
-  - [ ] Update `src/belgie/__init__.py` to re-export from `belgie_core`
-  - [ ] Update other root modules if they import `belgie.auth`
-- [ ] **Update Workspace**
-  - [ ] Edit root `pyproject.toml` (add member, add dependency)
-  - [ ] Sync workspace (`uv sync`)
-- [ ] **Test**
-  - [ ] Run `uv test`
-  - [ ] Fix any broken imports in tests
+- [x] **Scaffold `belgie-core`**
+  - [x] Create directory structure
+  - [x] Create `pyproject.toml` with dependencies (copied from root but filtered)
+- [x] **Migrate Code**
+  - [x] Move `core/`
+  - [x] Move `providers/`
+  - [x] Move `session/`
+  - [x] Move `utils/`
+  - [x] Move `__tests__/`
+- [x] **Refactor `belgie-core`**
+  - [x] Rename `core/auth.py` to `core/belgie.py`
+  - [x] Rename `Auth` -> `Belgie`
+  - [x] Rename `AuthSettings` -> `BelgieSettings`
+  - [x] Rename `AuthClient` -> `BelgieClient`
+  - [x] Update imports in all moved files (replace `belgie.auth` with `belgie_core`)
+- [x] **Update Root `belgie`**
+  - [x] Delete `src/belgie/auth`
+  - [x] Update `src/belgie/__init__.py` to re-export from `belgie_core`
+  - [x] Update other root modules if they import `belgie.auth`
+- [x] **Update Workspace**
+  - [x] Edit root `pyproject.toml` (add member, add dependency)
+  - [x] Sync workspace (`uv sync`)
+- [x] **Test**
+  - [x] Run `uv test`
+  - [x] Fix any broken imports in tests
 
 ## Libraries
 

@@ -43,6 +43,10 @@ jobs:
         if: steps.tag_check.outputs.on_main == 'true'
         working-directory: packages/belgie-proto
         run: uv version "${{ steps.version.outputs.version }}"
+      - name: Bump belgie-core version
+        if: steps.tag_check.outputs.on_main == 'true'
+        working-directory: packages/belgie-core
+        run: uv version "${{ steps.version.outputs.version }}"
       - name: Bump belgie-alchemy version
         if: steps.tag_check.outputs.on_main == 'true'
         working-directory: packages/belgie-alchemy
