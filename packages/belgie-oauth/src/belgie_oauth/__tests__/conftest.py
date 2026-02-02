@@ -107,7 +107,7 @@ def oauth_settings() -> OAuthSettings:
 
 @pytest.fixture
 def oauth_plugin(belgie_instance: Belgie, oauth_settings: OAuthSettings) -> OAuthPlugin:
-    return belgie_instance.add_plugin(OAuthPlugin, settings=oauth_settings)
+    return belgie_instance.add_plugin(OAuthPlugin, oauth_settings)
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Callable  # noqa: TC003
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 from uuid import UUID
 
 from belgie_proto import (
@@ -18,7 +18,7 @@ from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.hooks import HookRunner, Hooks
-from belgie_core.core.protocols import Plugin, SettingsT
+from belgie_core.core.protocols import Plugin
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from belgie_core.session.manager import SessionManager
@@ -160,7 +160,7 @@ class Belgie[
 
         self.hook_runner = HookRunner(hooks or Hooks())
 
-        self.plugins: list[Plugin[Any]] = []
+        self.plugins: list[Plugin] = []
 
         # Instantiate providers by calling the settings
         self.providers: dict[str, OAuthProviderProtocol] = (
@@ -169,17 +169,23 @@ class Belgie[
             else {}
         )
 
-    def add_plugin[P: Plugin[SettingsT]](self, plugin: type[P], settings: SettingsT) -> P:
+    def add_plugin[P: Plugin, **PParams](
+        self,
+        plugin: Callable[PParams, P],
+        *args: PParams.args,
+        **kwargs: PParams.kwargs,
+    ) -> P:
         """Register and instantiate a plugin.
 
         Args:
             plugin: The class of the plugin to register.
-            settings: The settings object for the plugin.
+            *args: Plugin initialization arguments.
+            **kwargs: Plugin initialization keyword arguments.
 
         Returns:
             The instantiated plugin.
         """
-        instance = plugin(self, settings)
+        instance = plugin(*args, **kwargs)
 
         self.plugins.append(instance)  # ty: ignore[arg-type]
 
@@ -221,7 +227,7 @@ class Belgie[
 
         # Include all registered plugin routers
         for plugin in self.plugins:
-            main_router.include_router(plugin.router())
+            main_router.include_router(plugin.router(self))
 
         # Add signout endpoint to main router (not provider-specific)
         async def _get_db(db: DBConnection = Depends(dependency)) -> DBConnection:  # noqa: B008

@@ -1,4 +1,3 @@
-from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -9,11 +8,7 @@ from belgie_core.core.belgie import Belgie
 
 
 class DummyPlugin:
-    def __init__(self, belgie: Belgie, settings: dict[str, Any]) -> None:
-        self.belgie = belgie
-        self.settings = settings
-
-    def router(self) -> APIRouter:
+    def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         router = APIRouter()
 
         @router.get("/dummy")
@@ -42,7 +37,7 @@ def belgie_instance() -> Belgie:
 
 
 def test_plugin_router_included(belgie_instance: Belgie) -> None:
-    belgie_instance.add_plugin(DummyPlugin, settings={})
+    belgie_instance.add_plugin(DummyPlugin)
 
     app = FastAPI()
     app.include_router(belgie_instance.router())
@@ -74,8 +69,8 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
 
             return router
 
-    belgie_instance.add_plugin(PluginA, settings={})
-    belgie_instance.add_plugin(PluginB, settings={})
+    belgie_instance.add_plugin(PluginA)
+    belgie_instance.add_plugin(PluginB)
 
     app = FastAPI()
     app.include_router(belgie_instance.router())
