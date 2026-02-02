@@ -1,9 +1,8 @@
 name: Publish
 
 on:
-  push:
-    tags:
-      - v*
+  release:
+    types: [published]
 
 jobs:
   publish:
@@ -22,7 +21,7 @@ jobs:
         id: tag_check
         run: |
           git fetch origin main --tags --force
-          TAG_COMMIT="$(git rev-list -n 1 "${{ github.ref }}")"
+          TAG_COMMIT="$(git rev-list -n 1 "refs/tags/${{ github.event.release.tag_name }}")"
           if git merge-base --is-ancestor "$TAG_COMMIT" "origin/main"; then
             echo "on_main=true" >> "$GITHUB_OUTPUT"
           else
@@ -37,7 +36,7 @@ jobs:
         id: version
         if: steps.tag_check.outputs.on_main == 'true'
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="${{ github.event.release.tag_name }}"
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Bump belgie-proto version
