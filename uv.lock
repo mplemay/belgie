@@ -157,42 +157,10 @@ version = "0.1.0"
 source = { editable = "packages/belgie-core" }
 dependencies = [
     { name = "belgie-proto" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-multipart" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "belgie-alchemy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "respx" },
-    { name = "ruff" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "belgie-proto", editable = "packages/belgie-proto" },
-    { name = "fastapi", specifier = ">=0.100" },
-    { name = "httpx", specifier = ">=0.24" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "python-multipart", specifier = ">=0.0.20" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "belgie-alchemy", editable = "packages/belgie-alchemy" },
-    { name = "pytest", specifier = ">=9.0.1" },
-    { name = "pytest-asyncio", specifier = ">=1.3.0" },
-    { name = "pytest-cov", specifier = ">=7.0.0" },
-    { name = "respx", specifier = ">=0.22.0" },
-    { name = "ruff", specifier = ">=0.14.5" },
-]
+requires-dist = [{ name = "belgie-proto", editable = "packages/belgie-proto" }]
 
 [[package]]
 name = "belgie-mcp"
