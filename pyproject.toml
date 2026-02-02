@@ -52,6 +52,9 @@ dev = [
     "ty>=0.0.1a27",
 ]
 
+[tool.uv.build-backend]
+source-exclude = ["**/__tests__/**"]
+
 [tool.uv.sources]
 belgie-alchemy = { workspace = true }
 belgie-core = { workspace = true }

@@ -19,3 +19,47 @@ dependencies = [
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "belgie-alchemy",
+    "pytest>=9.0.1",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "respx>=0.22.0",
+    "ruff>=0.14.5",
+]
+
+[tool.uv.build-backend]
+source-exclude = ["**/__tests__/**"]
+
+[tool.uv.sources]
+belgie-alchemy = { workspace = true }
+belgie-proto = { workspace = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"**/__tests__/**/*" = [
+    "ANN001", "ANN201", "ANN202", "B008", "F841", "FAST002", "INP001",
+    "PLR0913", "PLR2004", "S101", "S106", "SLF001"
+]
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "double"
+multiline-quotes = "double"
+
+[tool.ruff.format]
+docstring-code-format = true
+quote-style = "double"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+filterwarnings = ["error"]
