@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Callable  # noqa: TC003
 from functools import cached_property
-from typing import Protocol, cast
+from typing import Any, Protocol, TypeVar, cast
 from uuid import UUID
 
 from belgie_proto import (
@@ -19,9 +19,12 @@ from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.hooks import HookRunner, Hooks
+from belgie_core.core.protocols import Plugin
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from belgie_core.session.manager import SessionManager
+
+P = TypeVar("P", bound=Plugin)
 
 
 class DBDependencyProvider(Protocol):
@@ -160,12 +163,34 @@ class Belgie[
 
         self.hook_runner = HookRunner(hooks or Hooks())
 
+        self.plugins: list[Plugin] = []
+
         # Instantiate providers by calling the settings
         self.providers: dict[str, OAuthProviderProtocol] = (
             {provider_id: provider_settings() for provider_id, provider_settings in providers.items()}  # ty: ignore[call-non-callable]
             if providers
             else {}
         )
+
+    def add_plugin(self, plugin_cls: type[P], *args: Any, **kwargs: Any) -> P:  # noqa: ANN401
+        """Register and instantiate a plugin.
+
+        Args:
+            plugin_cls: The class of the plugin to register.
+            *args: Positional arguments to pass to the plugin constructor.
+            **kwargs: Keyword arguments to pass to the plugin constructor.
+
+        Returns:
+            The instantiated plugin.
+        """
+        plugin_instance = plugin_cls(self, *args, **kwargs)
+        self.plugins.append(plugin_instance)
+
+        # Clear cached router property if it exists so it rebuilds with new plugin
+        if "router" in self.__dict__:
+            del self.__dict__["router"]
+
+        return plugin_instance
 
     @cached_property
     def router(self) -> APIRouter:
@@ -201,6 +226,11 @@ class Belgie[
                 db_dependency=dependency,
             )
             provider_router.include_router(provider_specific_router)
+
+        # Include all registered plugin routers
+        for plugin in self.plugins:
+            if hasattr(plugin, "router") and plugin.router:
+                main_router.include_router(plugin.router)
 
         # Add signout endpoint to main router (not provider-specific)
         async def _get_db(db: DBConnection = Depends(dependency)) -> DBConnection:  # noqa: B008
