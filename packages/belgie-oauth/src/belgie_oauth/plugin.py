@@ -10,9 +10,9 @@ from belgie_core.core.protocols import Plugin
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
-from pydantic import AnyHttpUrl, AnyUrl
+from pydantic import AnyHttpUrl, AnyUrl, ValidationError
 
-from belgie_oauth.models import InvalidRedirectUriError, InvalidScopeError, OAuthMetadata
+from belgie_oauth.models import InvalidRedirectUriError, InvalidScopeError, OAuthClientMetadata, OAuthMetadata
 from belgie_oauth.provider import AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth.utils import create_code_challenge, join_url
 
@@ -44,6 +44,8 @@ class OAuthPlugin(Plugin):
         router = self._add_metadata_route(router, metadata)
         router = self._add_authorize_route(router, belgie, provider, self._settings)
         router = self._add_token_route(router, provider)
+        router = self._add_register_route(router, provider)
+        router = self._add_revoke_route(router, provider)
         router = self._add_login_route(router, issuer_url, self._demo_username, self._demo_password)
         router = self._add_login_callback_route(
             router,
@@ -198,6 +200,51 @@ class OAuthPlugin(Plugin):
         return router
 
     @staticmethod
+    def _add_register_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:
+        async def register_handler(request: Request) -> Response:
+            try:
+                payload = await request.json()
+                metadata = OAuthClientMetadata.model_validate(payload)
+            except (ValidationError, ValueError):
+                return _oauth_error("invalid_request", "invalid client metadata", status_code=400)
+
+            client_info = await provider.register_client(metadata)
+            return JSONResponse(client_info.model_dump(mode="json"))
+
+        router.add_api_route("/register", register_handler, methods=["POST"])
+        return router
+
+    @staticmethod
+    def _add_revoke_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:
+        async def revoke_handler(request: Request) -> Response:
+            form = await request.form()
+            client_id = _get_str(form, "client_id")
+            if not client_id:
+                return _oauth_error("invalid_client", status_code=401)
+
+            oauth_client = await provider.get_client(client_id)
+            if not oauth_client:
+                return _oauth_error("invalid_client", status_code=401)
+
+            client_secret = _get_str(form, "client_secret")
+            if not client_secret:
+                return _oauth_error("invalid_client", status_code=401)
+            if oauth_client.client_secret and client_secret != oauth_client.client_secret:
+                return _oauth_error("invalid_client", status_code=401)
+
+            token = _get_str(form, "token")
+            if not token:
+                return _oauth_error("invalid_request", "missing token", status_code=400)
+
+            access_token = await provider.load_access_token(token)
+            if access_token:
+                await provider.revoke_token(access_token)
+            return JSONResponse({})
+
+        router.add_api_route("/revoke", revoke_handler, methods=["POST"])
+        return router
+
+    @staticmethod
     def _add_login_route(
         router: APIRouter,
         issuer_url: str,
@@ -320,17 +367,22 @@ def _build_issuer_url(belgie: Belgie, settings: OAuthSettings) -> str:
 def _build_metadata(issuer_url: str, settings: OAuthSettings) -> OAuthMetadata:
     authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
     token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
+    registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))
+    revocation_endpoint = AnyHttpUrl(join_url(issuer_url, "revoke"))
     introspection_endpoint = AnyHttpUrl(join_url(issuer_url, "introspect"))
 
     return OAuthMetadata(
         issuer=AnyHttpUrl(issuer_url),
         authorization_endpoint=authorization_endpoint,
         token_endpoint=token_endpoint,
+        registration_endpoint=registration_endpoint,
         scopes_supported=[settings.default_scope],
         response_types_supported=["code"],
         grant_types_supported=["authorization_code"],
         token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
         code_challenge_methods_supported=["S256"],
+        revocation_endpoint=revocation_endpoint,
+        revocation_endpoint_auth_methods_supported=["client_secret_post"],
         introspection_endpoint=introspection_endpoint,
     )
 

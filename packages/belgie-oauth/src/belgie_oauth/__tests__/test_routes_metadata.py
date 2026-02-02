@@ -11,4 +11,6 @@ def test_metadata_endpoint(client: TestClient) -> None:
     assert payload["issuer"] == AUTH_BASE_URL
     assert payload["authorization_endpoint"] == f"{AUTH_BASE_URL}/authorize"
     assert payload["token_endpoint"] == f"{AUTH_BASE_URL}/token"
+    assert payload["registration_endpoint"] == f"{AUTH_BASE_URL}/register"
+    assert payload["revocation_endpoint"] == f"{AUTH_BASE_URL}/revoke"
     assert payload["introspection_endpoint"] == f"{AUTH_BASE_URL}/introspect"

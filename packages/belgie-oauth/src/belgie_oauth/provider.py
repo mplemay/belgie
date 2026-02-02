@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import AnyUrl
 
-from belgie_oauth.models import OAuthClientInformationFull, OAuthToken
+from belgie_oauth.models import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from belgie_oauth.utils import construct_redirect_uri, join_url
 
 if TYPE_CHECKING:
@@ -84,6 +84,28 @@ class SimpleOAuthProvider:
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         return self.clients.get(client_id)
+
+    async def register_client(self, metadata: OAuthClientMetadata) -> OAuthClientInformationFull:
+        token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
+        client_secret = None
+        if token_endpoint_auth_method != "none":  # noqa: S105
+            client_secret = secrets.token_hex(16)
+
+        client_id = f"belgie_client_{secrets.token_hex(8)}"
+        while client_id in self.clients:
+            client_id = f"belgie_client_{secrets.token_hex(8)}"
+
+        metadata_payload = metadata.model_dump()
+        metadata_payload["token_endpoint_auth_method"] = token_endpoint_auth_method
+        client_info = OAuthClientInformationFull(
+            **metadata_payload,
+            client_id=client_id,
+            client_secret=client_secret,
+            client_id_issued_at=int(time.time()),
+            client_secret_expires_at=None,
+        )
+        self.clients[client_id] = client_info
+        return client_info
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         self._purge_state_mapping()
