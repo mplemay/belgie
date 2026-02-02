@@ -17,6 +17,8 @@ from belgie_oauth.provider import AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth.utils import create_code_challenge, join_url
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
 
@@ -205,7 +207,13 @@ class OAuthPlugin(Plugin):
             try:
                 payload = await request.json()
                 metadata = OAuthClientMetadata.model_validate(payload)
-            except (ValidationError, ValueError):
+            except ValidationError as exc:
+                return _oauth_error(
+                    "invalid_request",
+                    _format_validation_error(exc),
+                    status_code=400,
+                )
+            except ValueError:
                 return _oauth_error("invalid_request", "invalid client metadata", status_code=400)
 
             client_info = await provider.register_client(metadata)
@@ -218,21 +226,21 @@ class OAuthPlugin(Plugin):
     def _add_revoke_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:
         async def revoke_handler(request: Request) -> Response:
             form = await request.form()
-            client_id = _get_str(form, "client_id")
+            client_id: str | None = _get_str(form, "client_id")
             if not client_id:
-                return _oauth_error("invalid_client", status_code=401)
+                return _oauth_error("invalid_request", "missing client_id", status_code=400)
 
             oauth_client = await provider.get_client(client_id)
             if not oauth_client:
                 return _oauth_error("invalid_client", status_code=401)
 
-            client_secret = _get_str(form, "client_secret")
+            client_secret: str | None = _get_str(form, "client_secret")
             if not client_secret:
-                return _oauth_error("invalid_client", status_code=401)
+                return _oauth_error("invalid_request", "missing client_secret", status_code=400)
             if oauth_client.client_secret and client_secret != oauth_client.client_secret:
                 return _oauth_error("invalid_client", status_code=401)
 
-            token = _get_str(form, "token")
+            token: str | None = _get_str(form, "token")
             if not token:
                 return _oauth_error("invalid_request", "missing token", status_code=400)
 
@@ -430,11 +438,26 @@ def _oauth_error(error: str, description: str | None = None, status_code: int = 
     return JSONResponse(payload, status_code=status_code)
 
 
+def _format_validation_error(error: ValidationError) -> str:
+    entries = error.errors()
+    if not entries:
+        return "invalid client metadata"
+    entry = entries[0]
+    loc = ".".join(str(part) for part in entry.get("loc", []) if part is not None)
+    msg = entry.get("msg", "invalid client metadata")
+    if loc:
+        return f"{loc}: {msg}"
+    return msg
+
+
 async def _get_request_params(request: Request) -> dict[str, str]:
     if request.method == "GET":
         return dict(request.query_params)
     return dict(await request.form())
 
 
-def _get_str(data, key: str) -> str | None:  # noqa: ANN001
-    return data.get(key)
+def _get_str(data: Mapping[str, Any], key: str) -> str | None:
+    value = data.get(key)
+    if isinstance(value, str):
+        return value
+    return None

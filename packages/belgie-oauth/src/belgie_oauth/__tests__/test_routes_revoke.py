@@ -25,6 +25,37 @@ async def test_revoke_missing_token(
 
 
 @pytest.mark.asyncio
+async def test_revoke_missing_client_id(async_client: httpx.AsyncClient) -> None:
+    response = await async_client.post(
+        "/auth/oauth/revoke",
+        data={
+            "client_secret": "secret",
+            "token": "token-123",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+
+
+@pytest.mark.asyncio
+async def test_revoke_missing_client_secret(
+    async_client: httpx.AsyncClient,
+    oauth_settings: OAuthSettings,
+) -> None:
+    response = await async_client.post(
+        "/auth/oauth/revoke",
+        data={
+            "client_id": oauth_settings.client_id,
+            "token": "token-123",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+
+
+@pytest.mark.asyncio
 async def test_revoke_invalid_client_id(async_client: httpx.AsyncClient) -> None:
     response = await async_client.post(
         "/auth/oauth/revoke",

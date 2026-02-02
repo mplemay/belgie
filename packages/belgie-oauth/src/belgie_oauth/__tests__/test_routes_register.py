@@ -42,4 +42,6 @@ async def test_register_missing_redirect_uris(async_client: httpx.AsyncClient) -
     response = await async_client.post("/auth/oauth/register", json={})
 
     assert response.status_code == 400
-    assert response.json()["error"] == "invalid_request"
+    payload = response.json()
+    assert payload["error"] == "invalid_request"
+    assert "redirect_uris" in payload["error_description"]

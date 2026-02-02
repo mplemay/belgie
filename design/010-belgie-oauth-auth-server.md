@@ -12,6 +12,8 @@ and session lifecycle are **not re-implemented** inside `belgie-oauth`.
 
 OAuth settings are moved **out of `belgie-proto`** and live in `belgie-oauth` to keep configuration co-located with the
 feature. OAuth logic and in-memory storage live in `SimpleOAuthProvider`; only the plugin and settings are public.
+Client registrations are stored in memory by default; production deployments should replace or extend the provider with
+persistent storage.
 
 ### Goals
 
