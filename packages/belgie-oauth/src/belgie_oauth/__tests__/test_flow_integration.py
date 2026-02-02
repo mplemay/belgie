@@ -54,6 +54,7 @@ def test_full_oauth_flow(
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
             "code": code,
+            "redirect_uri": str(oauth_settings.redirect_uris[0]),
             "code_verifier": code_verifier,
         },
     )

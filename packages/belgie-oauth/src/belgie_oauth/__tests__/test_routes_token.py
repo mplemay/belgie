@@ -2,6 +2,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from belgie_oauth.models import OAuthClientInformationFull
 from belgie_oauth.plugin import OAuthPlugin
 from belgie_oauth.provider import AuthorizationParams
 from belgie_oauth.settings import OAuthSettings
@@ -68,6 +69,34 @@ async def test_token_invalid_client(async_client: httpx.AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_token_client_id_mismatch(
+    async_client: httpx.AsyncClient,
+    oauth_settings: OAuthSettings,
+    oauth_plugin: OAuthPlugin,
+) -> None:
+    oauth_plugin._provider.clients["other-client"] = OAuthClientInformationFull(
+        client_id="other-client",
+        client_secret=oauth_settings.client_secret.get_secret_value(),
+        redirect_uris=oauth_settings.redirect_uris,
+        scope=oauth_settings.default_scope,
+    )
+    code = await _create_authorization_code(oauth_plugin, oauth_settings, "verifier")
+    response = await async_client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": "other-client",
+            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "code": code,
+            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "code_verifier": "verifier",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_grant"
+
+
+@pytest.mark.asyncio
 async def test_token_invalid_client_secret(
     async_client: httpx.AsyncClient,
     oauth_settings: OAuthSettings,
@@ -86,6 +115,27 @@ async def test_token_invalid_client_secret(
     )
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_client"
+
+
+@pytest.mark.asyncio
+async def test_token_requires_redirect_uri_when_explicit(
+    async_client: httpx.AsyncClient,
+    oauth_settings: OAuthSettings,
+    oauth_plugin: OAuthPlugin,
+) -> None:
+    code = await _create_authorization_code(oauth_plugin, oauth_settings, "verifier")
+    response = await async_client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": oauth_settings.client_id,
+            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "code": code,
+            "code_verifier": "verifier",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
 
 
 @pytest.mark.asyncio
@@ -122,6 +172,7 @@ async def test_token_invalid_code_verifier(
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
             "code": code,
+            "redirect_uri": str(oauth_settings.redirect_uris[0]),
             "code_verifier": "wrong",
         },
     )
@@ -145,6 +196,7 @@ async def test_token_success(
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
             "code": code,
+            "redirect_uri": str(oauth_settings.redirect_uris[0]),
             "code_verifier": code_verifier,
         },
     )
