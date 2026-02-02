@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Callable  # noqa: TC003
-from functools import cached_property
 from typing import Any, Protocol, cast
 from uuid import UUID
 
@@ -19,7 +18,7 @@ from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.hooks import HookRunner, Hooks
-from belgie_core.core.protocols import Plugin
+from belgie_core.core.protocols import Plugin, SettingsT_contra
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from belgie_core.session.manager import SessionManager
@@ -161,7 +160,7 @@ class Belgie[
 
         self.hook_runner = HookRunner(hooks or Hooks())
 
-        self.plugins: list[Plugin] = []
+        self.plugins: list[Plugin[Any]] = []
 
         # Instantiate providers by calling the settings
         self.providers: dict[str, OAuthProviderProtocol] = (
@@ -170,26 +169,24 @@ class Belgie[
             else {}
         )
 
-    def add_plugin[P: Plugin](self, plugin_cls: type[P], *args: Any, **kwargs: Any) -> P:  # noqa: ANN401
+    def add_plugin[P: Plugin[SettingsT_contra]](self, plugin_cls: type[P], settings: SettingsT_contra) -> P:
         """Register and instantiate a plugin.
 
         Args:
             plugin_cls: The class of the plugin to register.
-            *args: Positional arguments to pass to the plugin constructor.
-            **kwargs: Keyword arguments to pass to the plugin constructor.
+            settings: The settings object for the plugin.
 
         Returns:
             The instantiated plugin.
         """
-        plugin_instance = plugin_cls(self, *args, **kwargs)
+        plugin_instance = plugin_cls(self, settings)
 
-        self.plugins.append(plugin_instance)
+        self.plugins.append(plugin_instance)  # ty: ignore[arg-type]
 
         return plugin_instance
 
-    @cached_property
     def router(self) -> APIRouter:
-        """FastAPI router with all provider routes (cached).
+        """FastAPI router with all provider routes.
 
         Creates a router with the following structure:
         - /auth/provider/{provider_id}/signin - Provider signin endpoints

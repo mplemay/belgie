@@ -9,8 +9,9 @@ from belgie_core.core.belgie import Belgie
 
 
 class DummyPlugin:
-    def __init__(self, auth: Belgie, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401, ARG002
-        self.auth = auth
+    def __init__(self, belgie: Belgie, settings: dict[str, Any]) -> None:
+        self.belgie = belgie
+        self.settings = settings
 
     @property
     def router(self) -> APIRouter:
@@ -42,10 +43,10 @@ def belgie_instance() -> Belgie:
 
 
 def test_plugin_router_included(belgie_instance: Belgie) -> None:
-    belgie_instance.add_plugin(DummyPlugin)
+    belgie_instance.add_plugin(DummyPlugin, settings={})
 
     app = FastAPI()
-    app.include_router(belgie_instance.router)
+    app.include_router(belgie_instance.router())
 
     client = TestClient(app)
     response = client.get("/auth/dummy")
@@ -76,11 +77,11 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
 
             return router
 
-    belgie_instance.add_plugin(PluginA)
-    belgie_instance.add_plugin(PluginB)
+    belgie_instance.add_plugin(PluginA, settings={})
+    belgie_instance.add_plugin(PluginB, settings={})
 
     app = FastAPI()
-    app.include_router(belgie_instance.router)
+    app.include_router(belgie_instance.router())
     client = TestClient(app)
 
     assert client.get("/auth/a").status_code == 200

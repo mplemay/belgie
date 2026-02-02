@@ -86,7 +86,7 @@ def app(auth: Belgie, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     from fastapi import Security  # noqa: PLC0415
 
     app = FastAPI()
-    app.include_router(auth.router)
+    app.include_router(auth.router())
 
     # Override database dependency to use test db_session
     async def get_test_db() -> AsyncSession:

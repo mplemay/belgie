@@ -1,22 +1,23 @@
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 from fastapi import APIRouter
 
 if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
 
+SettingsT_contra = TypeVar("SettingsT_contra", contravariant=True)
+
 
 @runtime_checkable
-class Plugin(Protocol):
+class Plugin[SettingsT_contra](Protocol):
     """Protocol for Belgie plugins."""
 
-    def __init__(self, auth: "Belgie", *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+    def __init__(self, belgie: "Belgie", settings: SettingsT_contra) -> None:
         """Initialize the plugin.
 
         Args:
-            auth: The parent Belgie instance.
-            *args: Additional positional arguments.
-            **kwargs: Additional keyword arguments.
+            belgie: The parent Belgie instance.
+            settings: The plugin-specific settings.
         """
         ...
 
