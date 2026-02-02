@@ -15,7 +15,7 @@ def test_alchemy_adapter_missing_extra_raises(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(belgie, "import_module", fake_import_module)
 
     with pytest.raises(ImportError, match=r"belgie\[alchemy\]"):
-        pass
+        belgie.AlchemyAdapter  # noqa: B018
 
 
 def test_alchemy_adapter_present(monkeypatch: pytest.MonkeyPatch) -> None:
