@@ -109,6 +109,7 @@ dev = [
     { name = "respx" },
     { name = "ruff" },
     { name = "rumdl" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "ty" },
 ]
 
@@ -142,6 +143,7 @@ dev = [
     { name = "respx", specifier = ">=0.22.0" },
     { name = "ruff", specifier = ">=0.14.5" },
     { name = "rumdl" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "ty", specifier = ">=0.0.1a27" },
 ]
 
