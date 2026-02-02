@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Callable  # noqa: TC003
 from functools import cached_property
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from belgie_proto import (
@@ -23,8 +23,6 @@ from belgie_core.core.protocols import Plugin
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from belgie_core.session.manager import SessionManager
-
-P = TypeVar("P", bound=Plugin)
 
 
 class DBDependencyProvider(Protocol):
@@ -172,7 +170,7 @@ class Belgie[
             else {}
         )
 
-    def add_plugin(self, plugin_cls: type[P], *args: Any, **kwargs: Any) -> P:  # noqa: ANN401
+    def add_plugin[P: Plugin](self, plugin_cls: type[P], *args: Any, **kwargs: Any) -> P:  # noqa: ANN401
         """Register and instantiate a plugin.
 
         Args:
@@ -184,11 +182,8 @@ class Belgie[
             The instantiated plugin.
         """
         plugin_instance = plugin_cls(self, *args, **kwargs)
-        self.plugins.append(plugin_instance)
 
-        # Clear cached router property if it exists so it rebuilds with new plugin
-        if "router" in self.__dict__:
-            del self.__dict__["router"]
+        self.plugins.append(plugin_instance)
 
         return plugin_instance
 
@@ -229,8 +224,7 @@ class Belgie[
 
         # Include all registered plugin routers
         for plugin in self.plugins:
-            if hasattr(plugin, "router") and plugin.router:
-                main_router.include_router(plugin.router)
+            main_router.include_router(plugin.router)
 
         # Add signout endpoint to main router (not provider-specific)
         async def _get_db(db: DBConnection = Depends(dependency)) -> DBConnection:  # noqa: B008
