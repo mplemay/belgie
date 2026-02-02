@@ -13,7 +13,6 @@ class DummyPlugin:
         self.belgie = belgie
         self.settings = settings
 
-    @property
     def router(self) -> APIRouter:
         router = APIRouter()
 
@@ -56,7 +55,6 @@ def test_plugin_router_included(belgie_instance: Belgie) -> None:
 
 def test_multiple_plugins(belgie_instance: Belgie) -> None:
     class PluginA(DummyPlugin):
-        @property
         def router(self) -> APIRouter:
             router = APIRouter()
 
@@ -67,7 +65,6 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
             return router
 
     class PluginB(DummyPlugin):
-        @property
         def router(self) -> APIRouter:
             router = APIRouter()
 

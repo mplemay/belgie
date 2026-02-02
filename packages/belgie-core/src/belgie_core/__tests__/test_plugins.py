@@ -15,7 +15,6 @@ class MockPlugin:
         self.belgie = belgie
         self.settings = settings
 
-    @property
     def router(self) -> APIRouter:
         return APIRouter()
 

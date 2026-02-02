@@ -5,14 +5,14 @@ from fastapi import APIRouter
 if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
 
-SettingsT_contra = TypeVar("SettingsT_contra", contravariant=True)
+SettingsT = TypeVar("SettingsT", contravariant=True)  # noqa: PLC0105
 
 
 @runtime_checkable
-class Plugin[SettingsT_contra](Protocol):
+class Plugin[SettingsT](Protocol):
     """Protocol for Belgie plugins."""
 
-    def __init__(self, belgie: "Belgie", settings: SettingsT_contra) -> None:
+    def __init__(self, belgie: "Belgie", settings: SettingsT) -> None:
         """Initialize the plugin.
 
         Args:
@@ -21,7 +21,6 @@ class Plugin[SettingsT_contra](Protocol):
         """
         ...
 
-    @property
     def router(self) -> APIRouter:
         """Return the FastAPI router for this plugin."""
         ...

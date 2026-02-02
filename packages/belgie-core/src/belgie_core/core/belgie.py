@@ -18,7 +18,7 @@ from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.hooks import HookRunner, Hooks
-from belgie_core.core.protocols import Plugin, SettingsT_contra
+from belgie_core.core.protocols import Plugin, SettingsT
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from belgie_core.session.manager import SessionManager
@@ -169,21 +169,21 @@ class Belgie[
             else {}
         )
 
-    def add_plugin[P: Plugin[SettingsT_contra]](self, plugin_cls: type[P], settings: SettingsT_contra) -> P:
+    def add_plugin[P: Plugin[SettingsT]](self, plugin: type[P], settings: SettingsT) -> P:
         """Register and instantiate a plugin.
 
         Args:
-            plugin_cls: The class of the plugin to register.
+            plugin: The class of the plugin to register.
             settings: The settings object for the plugin.
 
         Returns:
             The instantiated plugin.
         """
-        plugin_instance = plugin_cls(self, settings)
+        instance = plugin(self, settings)
 
-        self.plugins.append(plugin_instance)  # ty: ignore[arg-type]
+        self.plugins.append(instance)  # ty: ignore[arg-type]
 
-        return plugin_instance
+        return instance
 
     def router(self) -> APIRouter:
         """FastAPI router with all provider routes.
@@ -221,7 +221,7 @@ class Belgie[
 
         # Include all registered plugin routers
         for plugin in self.plugins:
-            main_router.include_router(plugin.router)
+            main_router.include_router(plugin.router())
 
         # Add signout endpoint to main router (not provider-specific)
         async def _get_db(db: DBConnection = Depends(dependency)) -> DBConnection:  # noqa: B008
