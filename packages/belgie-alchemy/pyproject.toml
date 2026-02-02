@@ -1,0 +1,19 @@
+[project]
+name = "belgie-alchemy"
+version = "0.1.0"
+description = "SQLAlchemy building blocks for Belgie"
+readme = "README.md"
+authors = [
+    { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "belgie-proto",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "sqlalchemy[asyncio]>=2.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"

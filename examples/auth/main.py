@@ -1,18 +1,11 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from auth.providers.google import GoogleProviderSettings
-from belgie.auth import (
-    AlchemyAdapter,
-    Auth,
-    AuthSettings,
-    CookieSettings,
-    SessionSettings,
-    URLSettings,
-)
+from belgie_alchemy import AlchemyAdapter, Base, DatabaseSettings
 from fastapi import Depends, FastAPI, Security
 
-from belgie.alchemy import Base, DatabaseSettings
+from belgie.auth import Auth, AuthSettings, CookieSettings, SessionSettings, URLSettings
+from belgie.auth.providers.google import GoogleProviderSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 db_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_auth_example.db", "echo": True})

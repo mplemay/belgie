@@ -2,7 +2,7 @@
 
 USAGE: Copy these models to your project and customize as needed.
 
-These models demonstrate how to structure authentication with belgie.alchemy:
+These models demonstrate how to structure authentication with belgie-alchemy:
 - User model with email, verification, and optional scopes
 - Account model for OAuth provider linkage
 - Session model for user sessions
@@ -14,7 +14,7 @@ You can:
 - Modify relationships or constraints
 - Use different table names
 
-These are templates, not meant to be imported directly from belgie.
+These are templates, not meant to be imported directly from belgie_alchemy.
 """
 
 from __future__ import annotations
@@ -22,10 +22,9 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
+from belgie_alchemy import Base, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
 from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from belgie.alchemy import Base, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
 
 
 class User(Base, PrimaryKeyMixin, TimestampMixin):

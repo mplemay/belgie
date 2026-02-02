@@ -40,6 +40,16 @@ pip install belgie
 uv add belgie
 ```
 
+For SQLAlchemy adapter support:
+
+```bash
+pip install belgie[alchemy]
+# or with uv
+uv add belgie[alchemy]
+```
+
+Optional extras: `belgie[mcp]`, `belgie[oauth]`, or `belgie[all]`.
+
 ## Quick start
 
 ### 1) Define models
@@ -98,7 +108,8 @@ class OAuthState(Base):
 ### 2) Configure Belgie
 
 ```python
-from belgie.auth import Auth, AuthSettings, AlchemyAdapter, GoogleProviderSettings
+from belgie.auth import Auth, AuthSettings, GoogleProviderSettings
+from belgie_alchemy import AlchemyAdapter
 
 settings = AuthSettings(
     secret="your-secret-key",
