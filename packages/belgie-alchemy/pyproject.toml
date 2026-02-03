@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12,<3.15"
 dependencies = [
+    "aiosqlite>=0.22.1",
     "belgie-proto",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
