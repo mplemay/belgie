@@ -42,6 +42,8 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "aiosqlite>=0.22.1",
+    "belgie-alchemy",
     "pre-commit>=4.4.0",
     "pytest>=9.0.1",
     "pytest-asyncio>=1.3.0",
@@ -56,11 +58,11 @@ dev = [
 source-exclude = ["**/__tests__/**"]
 
 [tool.uv.sources]
-belgie-alchemy = { workspace = true }
 belgie-core = { workspace = true }
 belgie-mcp = { workspace = true }
 belgie-oauth = { workspace = true }
 belgie-proto = { workspace = true }
+belgie-alchemy = { workspace = true }
 
 [tool.uv.workspace]
 members = [

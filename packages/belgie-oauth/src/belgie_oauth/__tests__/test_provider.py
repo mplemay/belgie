@@ -2,6 +2,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from belgie_oauth import provider as provider_module
+from belgie_oauth.models import OAuthClientMetadata
 from belgie_oauth.provider import AccessToken, AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth.settings import OAuthSettings
 from belgie_oauth.utils import create_code_challenge
@@ -159,3 +160,56 @@ async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPa
     with pytest.raises(ValueError, match="Invalid state parameter"):
         await provider.issue_authorization_code("state-expired")
     assert "state-expired" not in provider.state_mapping
+
+
+@pytest.mark.asyncio
+async def test_register_client_issues_secret_by_default() -> None:
+    settings = OAuthSettings(
+        redirect_uris=["http://example.com/callback"],
+        issuer_url="http://example.com/auth/oauth",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    metadata = OAuthClientMetadata(redirect_uris=["http://example.com/callback"])
+    client_info = await provider.register_client(metadata)
+
+    assert client_info.client_id is not None
+    assert client_info.client_secret is not None
+    assert client_info.client_id_issued_at is not None
+
+
+@pytest.mark.asyncio
+async def test_register_client_no_secret_when_auth_method_none() -> None:
+    settings = OAuthSettings(
+        redirect_uris=["http://example.com/callback"],
+        issuer_url="http://example.com/auth/oauth",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    metadata = OAuthClientMetadata(
+        redirect_uris=["http://example.com/callback"],
+        token_endpoint_auth_method="none",
+    )
+    client_info = await provider.register_client(metadata)
+
+    assert client_info.client_secret is None
+
+
+@pytest.mark.asyncio
+async def test_register_client_rejects_unsupported_auth_method() -> None:
+    settings = OAuthSettings(
+        redirect_uris=["http://example.com/callback"],
+        issuer_url="http://example.com/auth/oauth",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    metadata = OAuthClientMetadata(
+        redirect_uris=["http://example.com/callback"],
+        token_endpoint_auth_method="private_key_jwt",
+    )
+
+    with pytest.raises(ValueError, match="unsupported token_endpoint_auth_method"):
+        await provider.register_client(metadata)
