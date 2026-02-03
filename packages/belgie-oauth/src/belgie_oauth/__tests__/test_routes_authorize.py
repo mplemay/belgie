@@ -74,6 +74,42 @@ async def test_authorize_returns_401_without_login_url(
 
 
 @pytest.mark.asyncio
+async def test_authorize_issues_code_without_login_url_when_authenticated(
+    belgie_instance: Belgie,
+    db_session: AsyncSession,
+    oauth_settings: OAuthSettings,
+) -> None:
+    settings = OAuthSettings(
+        issuer_url=oauth_settings.issuer_url,
+        route_prefix=oauth_settings.route_prefix,
+        client_id=oauth_settings.client_id,
+        client_secret=SecretStr("test-secret"),
+        redirect_uris=oauth_settings.redirect_uris,
+        default_scope=oauth_settings.default_scope,
+        login_url=None,
+    )
+    belgie_instance.add_plugin(OAuthPlugin, settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+        client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+
+        params = _authorize_params(settings, create_code_challenge("verifier"), state="state-auth")
+        response = await client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "testserver"
+    assert query["state"][0] == "state-auth"
+    assert "code" in query
+
+
+@pytest.mark.asyncio
 async def test_authorize_issues_code_when_authenticated(
     async_client: httpx.AsyncClient,
     belgie_instance: Belgie,

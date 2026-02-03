@@ -234,6 +234,7 @@ class OAuthPlugin(Plugin):
                 login_url = join_url(belgie.settings.base_url, settings.login_url)
 
             return_to_base = join_url(issuer_url, "login/callback")
+            # Build a callback URL with state, then wrap it into the login redirect as return_to.
             return_to_url = construct_redirect_uri(return_to_base, state=state)
             redirect_url = construct_redirect_uri(login_url, return_to=return_to_url)
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
