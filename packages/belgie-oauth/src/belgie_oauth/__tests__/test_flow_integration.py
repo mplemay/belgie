@@ -1,20 +1,33 @@
 from urllib.parse import parse_qs, urlparse
 
+import httpx
+import pytest
+from belgie_core.core.belgie import Belgie
 from belgie_oauth.settings import OAuthSettings
 from belgie_oauth.utils import create_code_challenge
-from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def test_full_oauth_flow(
-    client: TestClient,
+async def _create_user_session(belgie: Belgie, db_session: AsyncSession, email: str) -> str:
+    user = await belgie.adapter.create_user(db_session, email=email)
+    session = await belgie.session_manager.create_session(db_session, user_id=user.id)
+    return str(session.id)
+
+
+@pytest.mark.asyncio
+async def test_full_oauth_flow(
+    async_client: httpx.AsyncClient,
+    belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthSettings,
-    demo_username: str,
-    demo_password: str,
 ) -> None:
+    session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+    async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+
     code_verifier = "verifier"
     code_challenge = create_code_challenge(code_verifier)
 
-    authorize_response = client.get(
+    authorize_response = await async_client.get(
         "/auth/oauth/authorize",
         params={
             "response_type": "code",
@@ -27,27 +40,10 @@ def test_full_oauth_flow(
     )
 
     assert authorize_response.status_code == 302
-    login_location = authorize_response.headers["location"]
-    assert "/auth/oauth/login" in login_location
-
-    login_response = client.get(login_location)
-    assert login_response.status_code == 200
-
-    callback_response = client.post(
-        "/auth/oauth/login/callback",
-        data={
-            "username": demo_username,
-            "password": demo_password,
-            "state": "flow-state",
-        },
-        follow_redirects=False,
-    )
-
-    assert callback_response.status_code == 302
-    redirect_location = callback_response.headers["location"]
+    redirect_location = authorize_response.headers["location"]
     code = parse_qs(urlparse(redirect_location).query)["code"][0]
 
-    token_response = client.post(
+    token_response = await async_client.post(
         "/auth/oauth/token",
         data={
             "grant_type": "authorization_code",
@@ -63,7 +59,7 @@ def test_full_oauth_flow(
     token_payload = token_response.json()
     access_token = token_payload["access_token"]
 
-    introspect_response = client.post(
+    introspect_response = await async_client.post(
         "/auth/oauth/introspect",
         data={"token": access_token},
     )
