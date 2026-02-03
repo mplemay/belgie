@@ -178,11 +178,17 @@ name = "belgie-mcp"
 version = "0.1.0"
 source = { editable = "packages/belgie-mcp" }
 dependencies = [
+    { name = "belgie-oauth" },
+    { name = "httpx" },
     { name = "mcp" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=main" }]
+requires-dist = [
+    { name = "belgie-oauth", editable = "packages/belgie-oauth" },
+    { name = "httpx", specifier = ">=0.24" },
+    { name = "mcp", git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=main" },
+]
 
 [[package]]
 name = "belgie-oauth"

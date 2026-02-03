@@ -8,6 +8,8 @@ authors = [
 ]
 requires-python = ">=3.12,<3.15"
 dependencies = [
+    "belgie-oauth",
+    "httpx>=0.24",
     "mcp>=1.26.0",
 ]
 
