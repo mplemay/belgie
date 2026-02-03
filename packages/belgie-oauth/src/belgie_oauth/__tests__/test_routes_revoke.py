@@ -2,6 +2,7 @@ import time
 
 import httpx
 import pytest
+from belgie_oauth.models import OAuthClientInformationFull
 from belgie_oauth.plugin import OAuthPlugin
 from belgie_oauth.provider import AccessToken
 from belgie_oauth.settings import OAuthSettings
@@ -133,3 +134,28 @@ async def test_revoke_unknown_token_returns_success(
 
     assert response.status_code == 200
     assert response.json() == {}
+
+
+@pytest.mark.asyncio
+async def test_revoke_public_client_without_secret(
+    async_client: httpx.AsyncClient,
+    oauth_plugin: OAuthPlugin,
+) -> None:
+    provider = oauth_plugin._provider
+    provider.clients["public-client"] = OAuthClientInformationFull(
+        client_id="public-client",
+        client_secret=None,
+        redirect_uris=["http://testserver/callback"],
+        scope="user",
+        token_endpoint_auth_method="none",
+    )
+
+    response = await async_client.post(
+        "/auth/oauth/revoke",
+        data={
+            "client_id": "public-client",
+            "token": "missing",
+        },
+    )
+
+    assert response.status_code == 200

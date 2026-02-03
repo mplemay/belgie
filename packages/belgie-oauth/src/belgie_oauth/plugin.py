@@ -213,10 +213,15 @@ class OAuthPlugin(Plugin):
                     _format_validation_error(exc),
                     status_code=400,
                 )
-            except ValueError:
-                return _oauth_error("invalid_request", "invalid client metadata", status_code=400)
+            except ValueError as exc:
+                description = str(exc) or "invalid client metadata"
+                return _oauth_error("invalid_request", description, status_code=400)
 
-            client_info = await provider.register_client(metadata)
+            try:
+                client_info = await provider.register_client(metadata)
+            except ValueError as exc:
+                description = str(exc) or "invalid client metadata"
+                return _oauth_error("invalid_request", description, status_code=400)
             return JSONResponse(client_info.model_dump(mode="json"))
 
         router.add_api_route("/register", register_handler, methods=["POST"])
@@ -235,10 +240,11 @@ class OAuthPlugin(Plugin):
                 return _oauth_error("invalid_client", status_code=401)
 
             client_secret: str | None = _get_str(form, "client_secret")
-            if not client_secret:
-                return _oauth_error("invalid_request", "missing client_secret", status_code=400)
-            if oauth_client.client_secret and client_secret != oauth_client.client_secret:
-                return _oauth_error("invalid_client", status_code=401)
+            if oauth_client.client_secret:
+                if not client_secret:
+                    return _oauth_error("invalid_request", "missing client_secret", status_code=400)
+                if client_secret != oauth_client.client_secret:
+                    return _oauth_error("invalid_client", status_code=401)
 
             token: str | None = _get_str(form, "token")
             if not token:
@@ -387,7 +393,7 @@ def _build_metadata(issuer_url: str, settings: OAuthSettings) -> OAuthMetadata:
         scopes_supported=[settings.default_scope],
         response_types_supported=["code"],
         grant_types_supported=["authorization_code"],
-        token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
+        token_endpoint_auth_methods_supported=["client_secret_post"],
         code_challenge_methods_supported=["S256"],
         revocation_endpoint=revocation_endpoint,
         revocation_endpoint_auth_methods_supported=["client_secret_post"],

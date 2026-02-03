@@ -195,3 +195,21 @@ async def test_register_client_no_secret_when_auth_method_none() -> None:
     client_info = await provider.register_client(metadata)
 
     assert client_info.client_secret is None
+
+
+@pytest.mark.asyncio
+async def test_register_client_rejects_unsupported_auth_method() -> None:
+    settings = OAuthSettings(
+        redirect_uris=["http://example.com/callback"],
+        issuer_url="http://example.com/auth/oauth",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    metadata = OAuthClientMetadata(
+        redirect_uris=["http://example.com/callback"],
+        token_endpoint_auth_method="private_key_jwt",
+    )
+
+    with pytest.raises(ValueError, match="unsupported token_endpoint_auth_method"):
+        await provider.register_client(metadata)

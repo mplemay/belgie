@@ -87,6 +87,9 @@ class SimpleOAuthProvider:
 
     async def register_client(self, metadata: OAuthClientMetadata) -> OAuthClientInformationFull:
         token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
+        if token_endpoint_auth_method not in {"client_secret_post", "none"}:
+            msg = f"unsupported token_endpoint_auth_method: {token_endpoint_auth_method}"
+            raise ValueError(msg)
         client_secret = None
         if token_endpoint_auth_method != "none":  # noqa: S105
             client_secret = secrets.token_hex(16)

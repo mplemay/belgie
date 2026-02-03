@@ -45,3 +45,19 @@ async def test_register_missing_redirect_uris(async_client: httpx.AsyncClient) -
     payload = response.json()
     assert payload["error"] == "invalid_request"
     assert "redirect_uris" in payload["error_description"]
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_unsupported_auth_method(async_client: httpx.AsyncClient) -> None:
+    response = await async_client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["http://testserver/callback"],
+            "token_endpoint_auth_method": "private_key_jwt",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "invalid_request"
+    assert "token_endpoint_auth_method" in payload["error_description"]
