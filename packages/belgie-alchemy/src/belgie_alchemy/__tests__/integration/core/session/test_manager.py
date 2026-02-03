@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 from belgie_alchemy import AlchemyAdapter
-from belgie_core.__tests__.fixtures.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.session.manager import SessionManager
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -204,6 +204,8 @@ async def test_cleanup_expired_sessions(session_manager: SessionManager, db_sess
         user_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
+
+    db_session.expunge_all()
 
     count = await session_manager.cleanup_expired_sessions(db_session)
     assert count == 2

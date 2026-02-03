@@ -100,7 +100,6 @@ oauth = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "aiosqlite" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -108,7 +107,6 @@ dev = [
     { name = "respx" },
     { name = "ruff" },
     { name = "rumdl" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "ty" },
 ]
 
@@ -133,7 +131,6 @@ provides-extras = ["alchemy", "all", "examples", "mcp", "oauth"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "pre-commit", specifier = ">=4.4.0" },
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
@@ -141,7 +138,6 @@ dev = [
     { name = "respx", specifier = ">=0.22.0" },
     { name = "ruff", specifier = ">=0.14.5" },
     { name = "rumdl" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "ty", specifier = ">=0.0.1a27" },
 ]
 
@@ -150,6 +146,7 @@ name = "belgie-alchemy"
 version = "0.1.0"
 source = { editable = "packages/belgie-alchemy" }
 dependencies = [
+    { name = "aiosqlite" },
     { name = "belgie-proto" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -158,6 +155,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "belgie-proto", editable = "packages/belgie-proto" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
