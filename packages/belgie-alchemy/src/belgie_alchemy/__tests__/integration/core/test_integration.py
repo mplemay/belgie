@@ -5,14 +5,13 @@ import httpx
 import pytest
 import respx
 from belgie_alchemy import AlchemyAdapter
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from belgie_core.__tests__.fixtures.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie_core.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.fixture

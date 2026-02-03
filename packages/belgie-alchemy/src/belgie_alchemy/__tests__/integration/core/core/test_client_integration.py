@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from belgie_alchemy import AlchemyAdapter
-from belgie_core.__tests__.fixtures.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.settings import (

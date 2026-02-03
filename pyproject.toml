@@ -50,7 +50,6 @@ dev = [
     "respx>=0.22.0",
     "ruff>=0.14.5",
     "rumdl",
-    "sqlalchemy[asyncio]>=2.0",
     "ty>=0.0.1a27",
 ]
 

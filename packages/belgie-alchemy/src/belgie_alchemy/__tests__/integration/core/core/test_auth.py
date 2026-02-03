@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from belgie_alchemy import AlchemyAdapter
-from belgie_core.__tests__.fixtures.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie_core.providers.google import GoogleProviderSettings
