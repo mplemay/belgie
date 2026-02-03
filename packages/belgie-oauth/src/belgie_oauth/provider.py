@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pydantic import AnyUrl
+
 from belgie_oauth.models import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from belgie_oauth.utils import construct_redirect_uri
 
