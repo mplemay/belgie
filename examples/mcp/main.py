@@ -9,10 +9,9 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from mcp.server.mcpserver import MCPServer
 from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from belgie import Belgie, BelgieSettings, CookieSettings, SessionSettings, URLSettings
+from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import AlchemyAdapter, Base, DatabaseSettings, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
 from belgie.mcp import McpPlugin
 from belgie.oauth import OAuthPlugin, OAuthSettings
@@ -215,29 +214,15 @@ async def get_time() -> dict[str, Any]:
 @app.get("/login")
 async def login(
     request: Request,
-    db: Annotated[AsyncSession, Depends(db_settings.dependency)],
+    client: Annotated[BelgieClient, Depends(belgie)],
     return_to: str | None = None,
 ) -> RedirectResponse:
-    user = await adapter.get_user_by_email(db, "dev@example.com")
-    if user is None:
-        user = await adapter.create_user(db, email="dev@example.com", name="Dev User")
-
-    session = await belgie.session_manager.create_session(
-        db,
-        user_id=user.id,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-
     response = RedirectResponse(url=return_to or "/", status_code=302)
-    response.set_cookie(
-        key=belgie.settings.cookie.name,
-        value=str(session.id),
-        max_age=belgie.settings.session.max_age,
-        httponly=belgie.settings.cookie.http_only,
-        secure=belgie.settings.cookie.secure,
-        samesite=belgie.settings.cookie.same_site,
-        domain=belgie.settings.cookie.domain,
+    await client.sign_up(
+        "dev@example.com",
+        name="Dev User",
+        response=response,
+        request=request,
     )
     return response
 

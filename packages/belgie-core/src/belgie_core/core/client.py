@@ -9,10 +9,11 @@ from belgie_proto import (
     SessionProtocol,
     UserProtocol,
 )
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, Response, status
 from fastapi.security import SecurityScopes
 
 from belgie_core.core.hooks import HookContext, HookRunner, Hooks
+from belgie_core.core.settings import CookieSettings
 from belgie_core.session.manager import SessionManager
 from belgie_core.utils.scopes import validate_scopes
 
@@ -43,6 +44,7 @@ class BelgieClient[
         adapter: Database adapter for persistence operations
         session_manager: Session manager for session lifecycle operations
         cookie_name: Name of the session cookie
+        cookie_settings: Settings for the session cookie
 
     Example:
         >>> @app.delete("/account")
@@ -59,6 +61,7 @@ class BelgieClient[
     adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]
     session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
     cookie_name: str
+    cookie_settings: CookieSettings = field(default_factory=CookieSettings)
     hook_runner: HookRunner = field(default_factory=lambda: HookRunner(Hooks()))
 
     async def _get_session_from_cookie(self, request: Request) -> SessionT | None:
@@ -70,8 +73,7 @@ class BelgieClient[
         Returns:
             Valid session object or None if cookie missing/invalid/expired
         """
-        session_id_str = request.cookies.get(self.cookie_name)
-        if not session_id_str:
+        if not (session_id_str := request.cookies.get(self.cookie_name)):
             return None
 
         try:
@@ -102,15 +104,13 @@ class BelgieClient[
             >>> user = await client.get_user(SecurityScopes(scopes=["read"]), request)
             >>> print(user.email)
         """
-        session = await self._get_session_from_cookie(request)
-        if not session:
+        if not (session := await self._get_session_from_cookie(request)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="not authenticated",
             )
 
-        user = await self.adapter.get_user_by_id(self.db, session.user_id)
-        if not user:
+        if not (user := await self.adapter.get_user_by_id(self.db, session.user_id)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="user not found",
@@ -143,8 +143,7 @@ class BelgieClient[
             >>> session = await client.get_session(request)
             >>> print(session.expires_at)
         """
-        session = await self._get_session_from_cookie(request)
-        if not session:
+        if not (session := await self._get_session_from_cookie(request)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="not authenticated",
@@ -173,11 +172,61 @@ class BelgieClient[
             >>> if user:
             ...     print(f"Found user: {user.email}")
         """
-        session = await self.session_manager.get_session(self.db, session_id)
-        if not session:
+        if not (session := await self.session_manager.get_session(self.db, session_id)):
             return None
 
         return await self.adapter.get_user_by_id(self.db, session.user_id)
+
+    async def sign_up(  # noqa: PLR0913
+        self,
+        email: str,
+        *,
+        response: Response,
+        request: Request | None = None,
+        name: str | None = None,
+        image: str | None = None,
+        email_verified: bool = False,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> tuple[UserT, SessionT]:
+        if not (user := await self.adapter.get_user_by_email(self.db, email)):
+            user = await self.adapter.create_user(
+                self.db,
+                email=email,
+                name=name,
+                image=image,
+                email_verified=email_verified,
+            )
+            async with self.hook_runner.dispatch("on_signup", HookContext(user=user, db=self.db)):
+                pass
+
+        if request:
+            if ip_address is None and request.client:
+                ip_address = request.client.host
+            if user_agent is None:
+                user_agent = request.headers.get("user-agent")
+
+        session = await self.session_manager.create_session(
+            self.db,
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+        async with self.hook_runner.dispatch("on_signin", HookContext(user=user, db=self.db)):
+            pass
+
+        response.set_cookie(
+            key=self.cookie_settings.name,
+            value=str(session.id),
+            max_age=self.session_manager.max_age,
+            httponly=self.cookie_settings.http_only,
+            secure=self.cookie_settings.secure,
+            samesite=self.cookie_settings.same_site,
+            domain=self.cookie_settings.domain,
+        )
+
+        return user, session
 
     async def sign_out(self, session_id: UUID) -> bool:
         """Sign out a user by deleting their session.
@@ -192,12 +241,10 @@ class BelgieClient[
             >>> session = await client.get_session(request)
             >>> await client.sign_out(session.id)
         """
-        session = await self.session_manager.get_session(self.db, session_id)
-        if not session:
+        if not (session := await self.session_manager.get_session(self.db, session_id)):
             return False
 
-        user = await self.adapter.get_user_by_id(self.db, session.user_id)
-        if not user:
+        if not (user := await self.adapter.get_user_by_id(self.db, session.user_id)):
             return False
 
         async with self.hook_runner.dispatch("on_signout", HookContext(user=user, db=self.db)):

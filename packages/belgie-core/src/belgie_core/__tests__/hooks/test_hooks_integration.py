@@ -6,6 +6,7 @@ import pytest
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.hooks import HookContext, HookRunner, Hooks
 from belgie_core.session.manager import SessionManager
+from fastapi import Response
 
 
 @dataclass(slots=True)
@@ -50,6 +51,7 @@ class FakeAdapter:
 class FakeSessionManager(SessionManager):
     def __init__(self, session) -> None:
         self._session = session
+        self.max_age = 3600
 
     async def get_session(self, _db, session_id):
         return self._session if session_id == self._session.id else None
@@ -59,6 +61,42 @@ class FakeSessionManager(SessionManager):
             self._session = None
             return True
         return False
+
+
+class SignUpAdapter:
+    def __init__(self, user: DummyUser | None = None) -> None:
+        self._user = user
+        self.created = False
+
+    async def get_user_by_email(self, _db, email):
+        return self._user if self._user and self._user.email == email else None
+
+    async def create_user(self, _db, email, name=None, image=None, *, email_verified=False):
+        self._user = DummyUser(
+            id=uuid4(),
+            email=email,
+            email_verified=email_verified,
+            name=name,
+            image=image,
+        )
+        self.created = True
+        return self._user
+
+
+class SignUpSessionManager:
+    def __init__(self, events: list[str], max_age: int = 3600) -> None:
+        self._events = events
+        self.max_age = max_age
+
+    async def create_session(self, _db, user_id, ip_address=None, user_agent=None):
+        self._events.append("session")
+        return DummySession(
+            id=uuid4(),
+            user_id=user_id,
+            expires_at=datetime.now(UTC) + timedelta(days=1),
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
 
 
 class DummyDB:
@@ -108,3 +146,63 @@ async def test_delete_user_dispatches_hook_before_delete():
     assert await client.delete_user(user) is True
     assert events == [f"delete:{user.id}"]
     assert adapter.deleted_user is True
+
+
+@pytest.mark.asyncio
+async def test_sign_up_dispatches_hooks_in_order_for_new_user():
+    events: list[str] = []
+    adapter = SignUpAdapter()
+    session_manager = SignUpSessionManager(events)
+
+    async def on_signup(ctx: HookContext) -> None:  # type: ignore[override]
+        events.append(f"signup:{ctx.user.id}")
+
+    async def on_signin(ctx: HookContext) -> None:  # type: ignore[override]
+        events.append(f"signin:{ctx.user.id}")
+
+    client = BelgieClient(
+        db=DummyDB(),
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_name="c",
+        hook_runner=HookRunner(Hooks(on_signup=on_signup, on_signin=on_signin)),
+    )
+
+    response = Response()
+    user, _session = await client.sign_up(
+        "new@example.com",
+        response=response,
+    )
+
+    assert events == [f"signup:{user.id}", "session", f"signin:{user.id}"]
+
+
+@pytest.mark.asyncio
+async def test_sign_up_existing_user_skips_signup_hook():
+    events: list[str] = []
+    existing_user = DummyUser(id=uuid4(), email="existing@example.com")
+    adapter = SignUpAdapter(existing_user)
+    session_manager = SignUpSessionManager(events)
+
+    async def on_signup(ctx: HookContext) -> None:  # type: ignore[override]
+        events.append(f"signup:{ctx.user.id}")
+
+    async def on_signin(ctx: HookContext) -> None:  # type: ignore[override]
+        events.append(f"signin:{ctx.user.id}")
+
+    client = BelgieClient(
+        db=DummyDB(),
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_name="c",
+        hook_runner=HookRunner(Hooks(on_signup=on_signup, on_signin=on_signin)),
+    )
+
+    response = Response()
+    user, _session = await client.sign_up(
+        "existing@example.com",
+        response=response,
+    )
+
+    assert user.id == existing_user.id
+    assert events == ["session", f"signin:{existing_user.id}"]
