@@ -3,8 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, Response
 from pydantic import AnyHttpUrl
 
 from belgie_oauth.models import OAuthMetadata
@@ -43,15 +41,3 @@ def build_oauth_metadata_well_known_path(issuer_url: str) -> str:
     if path and path != "/":
         return f"/.well-known/oauth-authorization-server{path}"
     return "/.well-known/oauth-authorization-server"
-
-
-def create_oauth_metadata_router(issuer_url: str, settings: OAuthSettings) -> APIRouter:
-    router = APIRouter(tags=["oauth"])
-    metadata = build_oauth_metadata(issuer_url, settings)
-    well_known_path = build_oauth_metadata_well_known_path(issuer_url)
-
-    async def metadata_handler(_: Request) -> Response:
-        return JSONResponse(metadata.model_dump(mode="json"))
-
-    router.add_api_route(well_known_path, metadata_handler, methods=["GET"])
-    return router

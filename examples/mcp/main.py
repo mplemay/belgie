@@ -9,17 +9,16 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from mcp.server.mcpserver import MCPServer
 from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import AlchemyAdapter, Base, DatabaseSettings, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
-from belgie.mcp import BelgieMcpPlugin, mcp_auth, mcp_token_verifier
+from belgie.mcp import McpPlugin
 from belgie.oauth import OAuthPlugin, OAuthSettings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class User(Base, PrimaryKeyMixin, TimestampMixin):
@@ -129,7 +128,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     async with db_settings.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    yield
+    async with mcp_server.session_manager.run():
+        yield
 
     await db_settings.engine.dispose()
 
@@ -178,25 +178,27 @@ oauth_settings = OAuthSettings(
     login_url="/login",
 )
 
-oauth_plugin = belgie.add_plugin(OAuthPlugin, oauth_settings)
-app.include_router(belgie.router())
-app.include_router(oauth_plugin.metadata_router(belgie))
+_ = belgie.add_plugin(OAuthPlugin, oauth_settings)
+mcp_plugin = belgie.add_plugin(
+    McpPlugin,
+    oauth_settings,
+    server_url="http://localhost:8000/mcp",
+)
 
 mcp_server = MCPServer(
     name="Belgie MCP",
     instructions="MCP server protected by belgie-oauth",
-    token_verifier=mcp_token_verifier(
-        oauth_settings,
-        server_url="http://localhost:8000/mcp",
-        oauth_strict=False,
-    ),
-    auth=mcp_auth(
-        oauth_settings,
-        server_url="http://localhost:8000/mcp",
-    ),
+    token_verifier=mcp_plugin.token_verifier,
+    auth=mcp_plugin.auth,
 )
 
-BelgieMcpPlugin(server=mcp_server, mount_path="/mcp").install(app)
+app.include_router(belgie.router())
+
+mcp_app = mcp_server.streamable_http_app(
+    streamable_http_path="/",
+    host="localhost",
+)
+app.mount("/mcp", mcp_app)
 
 
 @mcp_server.tool()

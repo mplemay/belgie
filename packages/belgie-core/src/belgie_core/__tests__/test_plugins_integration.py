@@ -78,3 +78,25 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
 
     assert client.get("/auth/a").status_code == 200
     assert client.get("/auth/b").status_code == 200
+
+
+def test_plugin_root_router_included(belgie_instance: Belgie) -> None:
+    class RootPlugin(DummyPlugin):
+        def root_router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+            router = APIRouter()
+
+            @router.get("/root")
+            def root_route() -> dict[str, str]:
+                return {"message": "root"}
+
+            return router
+
+    belgie_instance.add_plugin(RootPlugin)
+
+    app = FastAPI()
+    app.include_router(belgie_instance.router())
+
+    client = TestClient(app)
+    response = client.get("/root")
+    assert response.status_code == 200
+    assert response.json() == {"message": "root"}

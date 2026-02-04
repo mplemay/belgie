@@ -261,7 +261,15 @@ class Belgie[
 
         # Include provider router in main router
         main_router.include_router(provider_router)
-        return main_router
+        root_router = APIRouter()
+        root_router.include_router(main_router)
+
+        for plugin in self.plugins:
+            root_router_builder = getattr(plugin, "root_router", None)
+            if callable(root_router_builder):
+                root_router.include_router(root_router_builder(self))
+
+        return root_router
 
     async def get_user_from_session(
         self,

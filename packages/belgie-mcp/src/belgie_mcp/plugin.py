@@ -1,73 +1,53 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+from belgie_core.core.protocols import Plugin
+from fastapi import APIRouter
+
 from belgie_mcp.metadata import create_protected_resource_metadata_router
+from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from belgie_core.core.belgie import Belgie
+    from belgie_oauth.settings import OAuthSettings
+    from mcp.server.auth.provider import TokenVerifier
+    from mcp.server.auth.settings import AuthSettings
+    from pydantic import AnyHttpUrl
 
-    from fastapi import FastAPI
-    from mcp.server.mcpserver import MCPServer
 
-
-class BelgieMcpPlugin:
+class McpPlugin(Plugin):
     def __init__(  # noqa: PLR0913
         self,
-        server: MCPServer,
+        settings: OAuthSettings,
         *,
-        mount_path: str = "/mcp",
-        streamable_http_path: str = "/",
-        host: str = "localhost",
-        include_protected_resource_metadata: bool = True,
+        server_url: str | AnyHttpUrl,
+        required_scopes: list[str] | None = None,
+        introspection_endpoint: str | None = None,
+        oauth_strict: bool = False,
         include_root_fallback: bool = True,
-        manage_lifespan: bool = True,
     ) -> None:
-        if not mount_path:
-            msg = "mount_path must be provided"
-            raise ValueError(msg)
-
-        if not streamable_http_path:
-            msg = "streamable_http_path must be provided"
-            raise ValueError(msg)
-
-        self.server = server
-        self.mount_path = mount_path
-        self.streamable_http_path = streamable_http_path
-        self.host = host
-        self.include_protected_resource_metadata = include_protected_resource_metadata
-        self.include_root_fallback = include_root_fallback
-        self.manage_lifespan = manage_lifespan
-
-    def install(self, app: FastAPI) -> None:
-        mcp_app = self.server.streamable_http_app(
-            streamable_http_path=self.streamable_http_path,
-            host=self.host,
+        self.auth = mcp_auth(
+            settings,
+            server_url=server_url,
+            required_scopes=required_scopes,
         )
-        app.mount(self.mount_path, mcp_app)
+        self.token_verifier = mcp_token_verifier(
+            settings,
+            server_url=server_url,
+            introspection_endpoint=introspection_endpoint,
+            oauth_strict=oauth_strict,
+        )
+        self._include_root_fallback = include_root_fallback
 
-        if self.include_protected_resource_metadata and self.server.settings.auth:
-            app.include_router(
-                create_protected_resource_metadata_router(
-                    self.server.settings.auth,
-                    include_root_fallback=self.include_root_fallback,
-                ),
-            )
+    auth: AuthSettings
+    token_verifier: TokenVerifier
 
-        if self.manage_lifespan:
-            self._wrap_lifespan(app)
+    def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+        return APIRouter()
 
-    def _wrap_lifespan(self, app: FastAPI) -> None:
-        if getattr(app.state, "belgie_mcp_lifespan_wrapped", False):
-            return
-
-        existing_lifespan = app.router.lifespan_context
-
-        @asynccontextmanager
-        async def _lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
-            async with self.server.session_manager.run(), existing_lifespan(app_instance):
-                yield
-
-        app.router.lifespan_context = _lifespan
-        app.state.belgie_mcp_lifespan_wrapped = True
+    def root_router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+        return create_protected_resource_metadata_router(
+            self.auth,
+            include_root_fallback=self._include_root_fallback,
+        )

@@ -118,7 +118,6 @@ def app(belgie_instance: Belgie, oauth_plugin: OAuthPlugin) -> FastAPI:
     _ = oauth_plugin
     app = FastAPI()
     app.include_router(belgie_instance.router())
-    app.include_router(oauth_plugin.metadata_router(belgie_instance))
     return app
 
 
