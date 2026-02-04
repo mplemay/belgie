@@ -1,5 +1,4 @@
 import logging
-from dataclasses import dataclass
 from typing import Any
 
 from belgie_oauth.settings import OAuthSettings
@@ -13,12 +12,6 @@ from pydantic import AnyHttpUrl
 logger = logging.getLogger(__name__)
 
 _HTTP_OK = 200
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class BelgieMcpAuthBundle:
-    auth: AuthSettings
-    token_verifier: TokenVerifier
 
 
 class BelgieOAuthTokenVerifier(TokenVerifier):
@@ -92,34 +85,37 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
         return check_resource_allowed(requested_resource=self.resource_url, configured_resource=resource)
 
 
-def build_belgie_oauth_auth(
+def mcp_auth(
     settings: OAuthSettings,
     *,
     server_url: str | AnyHttpUrl,
     required_scopes: list[str] | None = None,
-    introspection_endpoint: str | None = None,
-    oauth_strict: bool = False,
-) -> BelgieMcpAuthBundle:
-    if settings.issuer_url is None:
-        msg = "OAuthSettings.issuer_url is required to build MCP AuthSettings"
-        raise ValueError(msg)
-
-    issuer_url = str(settings.issuer_url)
+) -> AuthSettings:
+    issuer_url = _require_issuer_url(settings)
     resource_server_url = AnyHttpUrl(str(server_url))
-    endpoint = join_url(issuer_url, "introspect") if introspection_endpoint is None else introspection_endpoint
     scopes = required_scopes if required_scopes is not None else _split_scopes(settings.default_scope)
 
-    auth = AuthSettings(
+    return AuthSettings(
         issuer_url=AnyHttpUrl(issuer_url),
         resource_server_url=resource_server_url,
         required_scopes=scopes,
     )
-    token_verifier = BelgieOAuthTokenVerifier(
+
+
+def mcp_token_verifier(
+    settings: OAuthSettings,
+    *,
+    server_url: str | AnyHttpUrl,
+    introspection_endpoint: str | None = None,
+    oauth_strict: bool = False,
+) -> TokenVerifier:
+    issuer_url = _require_issuer_url(settings)
+    endpoint = join_url(issuer_url, "introspect") if introspection_endpoint is None else introspection_endpoint
+    return BelgieOAuthTokenVerifier(
         introspection_endpoint=endpoint,
         server_url=str(server_url),
         validate_resource=oauth_strict,
     )
-    return BelgieMcpAuthBundle(auth=auth, token_verifier=token_verifier)
 
 
 def _split_scopes(raw_scopes: str) -> list[str]:
@@ -128,3 +124,10 @@ def _split_scopes(raw_scopes: str) -> list[str]:
 
 def _is_safe_introspection_endpoint(endpoint: str) -> bool:
     return endpoint.startswith(("https://", "http://localhost", "http://127.0.0.1"))
+
+
+def _require_issuer_url(settings: OAuthSettings) -> str:
+    if settings.issuer_url is None:
+        msg = "OAuthSettings.issuer_url is required to build MCP AuthSettings"
+        raise ValueError(msg)
+    return str(settings.issuer_url)

@@ -5,7 +5,7 @@ from httpx import Response
 pytest.importorskip("mcp")
 pytest.importorskip("belgie_oauth")
 
-from belgie_mcp.verifier import BelgieOAuthTokenVerifier, build_belgie_oauth_auth
+from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 from belgie_oauth.settings import OAuthSettings
 from belgie_oauth.utils import join_url
 from mcp.server.mcpserver import MCPServer
@@ -96,42 +96,65 @@ async def test_verify_token_strict_resource_rejects_mismatch() -> None:
     assert await verifier.verify_token("token") is None
 
 
-def test_build_belgie_oauth_auth_defaults() -> None:
+def test_mcp_auth_defaults() -> None:
     settings = OAuthSettings(
         issuer_url="https://issuer.local/oauth",
         redirect_uris=["https://app.local/callback"],
     )
 
-    bundle = build_belgie_oauth_auth(settings, server_url="https://mcp.local/mcp")
+    auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
 
-    assert str(bundle.auth.issuer_url) == "https://issuer.local/oauth"
-    assert str(bundle.auth.resource_server_url) == "https://mcp.local/mcp"
-    assert bundle.auth.required_scopes == ["user"]
-    assert bundle.token_verifier.introspection_endpoint == join_url("https://issuer.local/oauth", "introspect")
+    assert str(auth.issuer_url) == "https://issuer.local/oauth"
+    assert str(auth.resource_server_url) == "https://mcp.local/mcp"
+    assert auth.required_scopes == ["user"]
 
 
-def test_build_belgie_oauth_auth_overrides() -> None:
+def test_mcp_auth_overrides() -> None:
     settings = OAuthSettings(
         issuer_url="https://issuer.local/oauth",
         redirect_uris=["https://app.local/callback"],
     )
 
-    bundle = build_belgie_oauth_auth(
+    auth = mcp_auth(
         settings,
         server_url="https://mcp.local/mcp",
         required_scopes=["scope"],
-        introspection_endpoint="https://custom.local/introspect",
     )
 
-    assert bundle.auth.required_scopes == ["scope"]
-    assert bundle.token_verifier.introspection_endpoint == "https://custom.local/introspect"
+    assert auth.required_scopes == ["scope"]
 
 
-def test_build_belgie_oauth_auth_requires_issuer_url() -> None:
+def test_mcp_auth_requires_issuer_url() -> None:
     settings = OAuthSettings(redirect_uris=["https://app.local/callback"])
 
     with pytest.raises(ValueError, match="issuer_url"):
-        build_belgie_oauth_auth(settings, server_url="https://mcp.local/mcp")
+        mcp_auth(settings, server_url="https://mcp.local/mcp")
+
+
+def test_mcp_token_verifier_defaults() -> None:
+    settings = OAuthSettings(
+        issuer_url="https://issuer.local/oauth",
+        redirect_uris=["https://app.local/callback"],
+    )
+
+    verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
+
+    assert verifier.introspection_endpoint == join_url("https://issuer.local/oauth", "introspect")
+
+
+def test_mcp_token_verifier_overrides() -> None:
+    settings = OAuthSettings(
+        issuer_url="https://issuer.local/oauth",
+        redirect_uris=["https://app.local/callback"],
+    )
+
+    verifier = mcp_token_verifier(
+        settings,
+        server_url="https://mcp.local/mcp",
+        introspection_endpoint="https://custom.local/introspect",
+    )
+
+    assert verifier.introspection_endpoint == "https://custom.local/introspect"
 
 
 def test_mcp_server_init_with_bundle() -> None:
@@ -139,12 +162,13 @@ def test_mcp_server_init_with_bundle() -> None:
         issuer_url="https://issuer.local/oauth",
         redirect_uris=["https://app.local/callback"],
     )
-    bundle = build_belgie_oauth_auth(settings, server_url="https://mcp.local/mcp")
+    auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
+    token_verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
 
     server = MCPServer(
         name="Test",
-        token_verifier=bundle.token_verifier,
-        auth=bundle.auth,
+        token_verifier=token_verifier,
+        auth=auth,
     )
 
     assert isinstance(server, MCPServer)

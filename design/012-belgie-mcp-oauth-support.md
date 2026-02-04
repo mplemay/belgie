@@ -30,15 +30,15 @@ optionally enforce RFC 8707 resource validation. A small helper builds MCP `Auth
 
 #### Description
 
-An application configures `belgie-oauth` with `OAuthSettings`, then builds a `BelgieMcpAuthBundle` for a given MCP
-`server_url`. The bundle provides both `AuthSettings` and a `TokenVerifier` for MCP server initialization.
+An application configures `belgie-oauth` with `OAuthSettings`, then builds `AuthSettings` and a `TokenVerifier` for a
+given MCP `server_url`. The helpers provide both pieces for MCP server initialization.
 
 #### Usage Example
 
 ```python
 from mcp.server.mcpserver import MCPServer
 
-from belgie_mcp.verifier import build_belgie_oauth_auth
+from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
 from belgie_oauth.settings import OAuthSettings
 
 settings = OAuthSettings(
@@ -46,15 +46,19 @@ settings = OAuthSettings(
     redirect_uris=["https://app.example.com/callback"],
 )
 
-bundle = build_belgie_oauth_auth(
+auth = mcp_auth(
+    settings,
+    server_url="https://mcp.example.com/mcp",
+)
+token_verifier = mcp_token_verifier(
     settings,
     server_url="https://mcp.example.com/mcp",
 )
 
 server = MCPServer(
     name="Belgie MCP",
-    token_verifier=bundle.token_verifier,
-    auth=bundle.auth,
+    token_verifier=token_verifier,
+    auth=auth,
 )
 ```
 
@@ -62,11 +66,12 @@ server = MCPServer(
 
 ```mermaid
 graph TD
-    A[App startup] --> B[build_belgie_oauth_auth]
-    B --> C[AuthSettings]
-    B --> D[BelgieOAuthTokenVerifier]
-    C --> E[MCPServer]
-    D --> E
+    A[App startup] --> B[mcp_auth]
+    A --> C[mcp_token_verifier]
+    B --> D[AuthSettings]
+    C --> E[BelgieOAuthTokenVerifier]
+    D --> F[MCPServer]
+    E --> F
 ```
 
 #### Sequence Diagram
@@ -75,21 +80,21 @@ graph TD
 sequenceDiagram
     participant App
     participant OAuthSettings
-    participant Helper as build_belgie_oauth_auth
-    participant Verifier as BelgieOAuthTokenVerifier
+    participant Auth as mcp_auth
+    participant Verifier as mcp_token_verifier
     participant MCP as MCPServer
 
     App->>OAuthSettings: construct settings
-    App->>Helper: build bundle (server_url)
-    Helper->>Verifier: create verifier (introspect endpoint)
-    Helper-->>App: BelgieMcpAuthBundle
+    App->>Auth: build AuthSettings (server_url)
+    App->>Verifier: create token verifier (introspect endpoint)
     App->>MCP: initialize with AuthSettings + TokenVerifier
 ```
 
 #### Key Components
 
 - **BelgieOAuthTokenVerifier** (`packages/belgie-mcp/src/belgie_mcp/verifier.py`) - Introspection-based verifier.
-- **build_belgie_oauth_auth** (`packages/belgie-mcp/src/belgie_mcp/verifier.py`) - Builds `AuthSettings` + verifier.
+- **mcp_auth** (`packages/belgie-mcp/src/belgie_mcp/verifier.py`) - Builds `AuthSettings`.
+- **mcp_token_verifier** (`packages/belgie-mcp/src/belgie_mcp/verifier.py`) - Builds `TokenVerifier`.
 - **OAuthSettings** (`packages/belgie-oauth/src/belgie_oauth/settings.py`) - AS configuration source of truth.
 
 ### Workflow 2: Token Verification via OAuth Introspection
@@ -150,13 +155,13 @@ sequenceDiagram
 
 #### Description
 
-When `oauth_strict=True` is enabled in `build_belgie_oauth_auth`, the verifier requires a valid `aud` claim matching
+When `oauth_strict=True` is enabled in `mcp_token_verifier`, the verifier requires a valid `aud` claim matching
 `server_url` using hierarchical resource matching. Tokens without a valid resource indicator are rejected.
 
 #### Usage Example
 
 ```python
-bundle = build_belgie_oauth_auth(
+token_verifier = mcp_token_verifier(
     settings,
     server_url="https://mcp.example.com/mcp",
     oauth_strict=True,
@@ -198,7 +203,7 @@ packages/belgie-mcp/
 ├── pyproject.toml
 └── src/belgie_mcp/
     ├── __init__.py
-    ├── verifier.py                  # BelgieOAuthTokenVerifier + build_belgie_oauth_auth
+    ├── verifier.py                  # BelgieOAuthTokenVerifier + mcp_auth + mcp_token_verifier
     └── __tests__/
         └── test_verifier.py          # Unit tests for verifier + helper
 src/belgie/
@@ -216,11 +221,6 @@ from belgie_oauth.settings import OAuthSettings
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.auth.provider import TokenVerifier
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class BelgieMcpAuthBundle:
-    auth: AuthSettings
-    token_verifier: TokenVerifier
-
 class BelgieOAuthTokenVerifier(TokenVerifier):
     def __init__(self, introspection_endpoint: str, server_url: str, validate_resource: bool = False) -> None: ...
 
@@ -232,30 +232,38 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
     # 5. Map active responses to AccessToken fields.
 
 
-def build_belgie_oauth_auth(
+def mcp_auth(
     settings: OAuthSettings,
     *,
     server_url: str,
     required_scopes: list[str] | None = None,
+) -> AuthSettings: ...
+# 1. Require settings.issuer_url (raise ValueError if missing).
+# 2. Default scopes from settings.default_scope split by spaces.
+# 3. Return AuthSettings.
+
+def mcp_token_verifier(
+    settings: OAuthSettings,
+    *,
+    server_url: str,
     introspection_endpoint: str | None = None,
     oauth_strict: bool = False,
-) -> BelgieMcpAuthBundle: ...
+) -> TokenVerifier: ...
 # 1. Require settings.issuer_url (raise ValueError if missing).
 # 2. Build introspection endpoint from issuer_url unless overridden.
-# 3. Default scopes from settings.default_scope split by spaces.
-# 4. Return bundle with AuthSettings + BelgieOAuthTokenVerifier.
+# 3. Return BelgieOAuthTokenVerifier.
 ```
 
 #### `packages/belgie-mcp/src/belgie_mcp/__init__.py`
 
 ```python
-from belgie_mcp.verifier import BelgieMcpAuthBundle, BelgieOAuthTokenVerifier, build_belgie_oauth_auth
+from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 ```
 
 #### `src/belgie/mcp.py`
 
 ```python
-from belgie_mcp import BelgieMcpAuthBundle, BelgieOAuthTokenVerifier, build_belgie_oauth_auth
+from belgie_mcp import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 ```
 
 ## Testing Strategy
@@ -265,7 +273,8 @@ from belgie_mcp import BelgieMcpAuthBundle, BelgieOAuthTokenVerifier, build_belg
   - non-200 response returns `None`.
   - `active=true` returns `AccessToken` with scopes parsed and `aud` mapped to `resource`.
   - strict resource validation rejects mismatched `aud` values.
-- **build_belgie_oauth_auth** (`test_verifier.py`):
+- **mcp_auth** (`test_verifier.py`):
+- **mcp_token_verifier** (`test_verifier.py`):
   - uses `OAuthSettings.issuer_url` to derive `introspection_endpoint`.
   - respects explicit `required_scopes` and `introspection_endpoint` overrides.
   - raises `ValueError` when `issuer_url` is missing.
@@ -277,7 +286,7 @@ from belgie_mcp import BelgieMcpAuthBundle, BelgieOAuthTokenVerifier, build_belg
 ### Implementation Order
 
 1. Update `packages/belgie-mcp/pyproject.toml` to depend on `belgie-oauth` and `httpx`.
-2. Replace `belgie_mcp.verifier` with `BelgieOAuthTokenVerifier`, `BelgieMcpAuthBundle`, and helper function.
+2. Replace `belgie_mcp.verifier` with `BelgieOAuthTokenVerifier`, `mcp_auth`, and `mcp_token_verifier`.
 3. Update package exports in `packages/belgie-mcp/src/belgie_mcp/__init__.py` and `src/belgie/mcp.py`.
 4. Add unit tests under `packages/belgie-mcp/src/belgie_mcp/__tests__/`.
 5. Add this design document.
@@ -286,7 +295,7 @@ from belgie_mcp import BelgieMcpAuthBundle, BelgieOAuthTokenVerifier, build_belg
 
 - [ ] Add `belgie-oauth` and `httpx` dependencies to `belgie-mcp`.
 - [ ] Implement `BelgieOAuthTokenVerifier`.
-- [ ] Implement `BelgieMcpAuthBundle` and `build_belgie_oauth_auth`.
+- [ ] Implement `mcp_auth` and `mcp_token_verifier`.
 - [ ] Re-export new APIs from `belgie_mcp` and `belgie.mcp`.
 - [ ] Add unit tests for verifier and helper.
 - [ ] Add integration-style MCPServer instantiation test.

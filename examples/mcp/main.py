@@ -13,8 +13,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import AlchemyAdapter, Base, DatabaseSettings, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
-from belgie.mcp import build_belgie_oauth_auth, create_protected_resource_metadata_router
-from belgie.oauth import OAuthPlugin, OAuthSettings, create_oauth_metadata_router
+from belgie.mcp import BelgieMcpPlugin, mcp_auth, mcp_token_verifier
+from belgie.oauth import OAuthPlugin, OAuthSettings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -129,8 +129,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     async with db_settings.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async with mcp_server.session_manager.run():
-        yield
+    yield
 
     await db_settings.engine.dispose()
 
@@ -179,23 +178,25 @@ oauth_settings = OAuthSettings(
     login_url="/login",
 )
 
-belgie.add_plugin(OAuthPlugin, oauth_settings)
+oauth_plugin = belgie.add_plugin(OAuthPlugin, oauth_settings)
 app.include_router(belgie.router())
-app.include_router(create_oauth_metadata_router(str(oauth_settings.issuer_url), oauth_settings))
-
-mcp_bundle = build_belgie_oauth_auth(
-    oauth_settings,
-    server_url="http://localhost:8000/mcp",
-    oauth_strict=False,
-)
-app.include_router(create_protected_resource_metadata_router(mcp_bundle.auth, include_root_fallback=True))
+app.include_router(oauth_plugin.metadata_router(belgie))
 
 mcp_server = MCPServer(
     name="Belgie MCP",
     instructions="MCP server protected by belgie-oauth",
-    token_verifier=mcp_bundle.token_verifier,
-    auth=mcp_bundle.auth,
+    token_verifier=mcp_token_verifier(
+        oauth_settings,
+        server_url="http://localhost:8000/mcp",
+        oauth_strict=False,
+    ),
+    auth=mcp_auth(
+        oauth_settings,
+        server_url="http://localhost:8000/mcp",
+    ),
 )
+
+BelgieMcpPlugin(server=mcp_server, mount_path="/mcp").install(app)
 
 
 @mcp_server.tool()
@@ -207,13 +208,6 @@ async def get_time() -> dict[str, Any]:
         "timestamp": now.timestamp(),
         "formatted": now.strftime("%Y-%m-%d %H:%M:%S"),
     }
-
-
-mcp_app = mcp_server.streamable_http_app(
-    streamable_http_path="/",
-    host="localhost",
-)
-app.mount("/mcp", mcp_app)
 
 
 @app.get("/")

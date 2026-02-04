@@ -1,15 +1,11 @@
 from belgie_mcp.metadata import create_protected_resource_metadata_router
-from belgie_mcp.verifier import BelgieMcpAuthBundle, BelgieOAuthTokenVerifier, build_belgie_oauth_auth
-
-
-def hello() -> str:
-    return "Hello from belgie-mcp!"
-
+from belgie_mcp.plugin import BelgieMcpPlugin
+from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 
 __all__ = [
-    "BelgieMcpAuthBundle",
+    "BelgieMcpPlugin",
     "BelgieOAuthTokenVerifier",
-    "build_belgie_oauth_auth",
     "create_protected_resource_metadata_router",
-    "hello",
+    "mcp_auth",
+    "mcp_token_verifier",
 ]

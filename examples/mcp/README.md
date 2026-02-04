@@ -35,6 +35,6 @@ The app runs at `http://localhost:8000`.
 
 ## Notes
 
-- The MCP server is mounted at `/mcp` and configured via `build_belgie_oauth_auth`.
+- The MCP server is mounted at `/mcp` and configured via `BelgieMcpPlugin`.
 - `OAuthSettings.issuer_url` is set to `http://localhost:8000/auth/oauth` so MCP can derive the introspection endpoint.
 - The example uses SQLite and will create `./belgie_mcp_example.db` in the working directory.

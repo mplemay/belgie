@@ -90,7 +90,7 @@ User installs `belgie` with one or more extras, enabling access to the correspon
 from belgie import Auth, AuthSettings
 from alchemy import AlchemyAdapter
 from mcp_sdk.verifier import SimpleTokenVerifier
-from oauth import hello
+from oauth import OAuthPlugin
 
 settings = AuthSettings(secret="dev-secret", base_url="http://localhost:8000")
 
@@ -102,7 +102,7 @@ adapter = AlchemyAdapter(
 )
 
 _ = SimpleTokenVerifier()
-_ = hello()
+_ = mcp_auth
 ```
 
 #### Call Graph
@@ -150,10 +150,10 @@ When developing inside the repo, `uv` resolves extras to the local workspace pac
 
 ```python
 from mcp_sdk.verifier import SimpleTokenVerifier
-from oauth import hello
+from oauth import OAuthPlugin
 
 _ = SimpleTokenVerifier()
-_ = hello()
+_ = mcp_auth
 ```
 
 #### Call Graph

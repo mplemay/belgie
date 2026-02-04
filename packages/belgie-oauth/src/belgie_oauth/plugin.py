@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
 from pydantic import AnyUrl, ValidationError
 
-from belgie_oauth.metadata import build_oauth_metadata
+from belgie_oauth.metadata import build_oauth_metadata, create_oauth_metadata_router
 from belgie_oauth.models import (
     InvalidRedirectUriError,
     InvalidScopeError,
@@ -55,6 +55,12 @@ class OAuthPlugin(Plugin):
         router = self._add_login_route(router, belgie, issuer_url, self._settings)
         router = self._add_login_callback_route(router, belgie, provider)
         return self._add_introspect_route(router, provider)
+
+    def metadata_router(self, belgie: Belgie) -> APIRouter:
+        issuer_url = (
+            str(self._settings.issuer_url) if self._settings.issuer_url else _build_issuer_url(belgie, self._settings)
+        )
+        return create_oauth_metadata_router(issuer_url, self._settings)
 
     @staticmethod
     def _add_metadata_route(router: APIRouter, metadata: OAuthMetadata) -> APIRouter:
