@@ -13,7 +13,7 @@ from belgie_oauth.settings import OAuthSettings
 
 def test_mcp_plugin_builds_auth_and_verifier() -> None:
     settings = OAuthSettings(
-        issuer_url="https://auth.local/oauth",
+        base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
@@ -25,14 +25,14 @@ def test_mcp_plugin_builds_auth_and_verifier() -> None:
         server_url="https://mcp.local/mcp",
     )
 
-    assert str(plugin.auth.issuer_url) == "https://auth.local/oauth"
+    assert str(plugin.auth.issuer_url) == "https://auth.local/auth/oauth"
     assert str(plugin.auth.resource_server_url) == "https://mcp.local/mcp"
     assert isinstance(plugin.token_verifier, BelgieOAuthTokenVerifier)
 
 
 def test_mcp_plugin_public_router_exposes_prm() -> None:
     settings = OAuthSettings(
-        issuer_url="https://auth.local/oauth",
+        base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
@@ -52,7 +52,7 @@ def test_mcp_plugin_public_router_exposes_prm() -> None:
         assert path_response.status_code == 200
         payload = path_response.json()
         assert payload["resource"] == "https://mcp.local/mcp"
-        assert payload["authorization_servers"] == ["https://auth.local/oauth"]
+        assert payload["authorization_servers"] == ["https://auth.local/auth/oauth"]
 
         root_response = client.get("/.well-known/oauth-protected-resource")
         assert root_response.status_code == 200
@@ -61,7 +61,7 @@ def test_mcp_plugin_public_router_exposes_prm() -> None:
 
 def test_mcp_plugin_builds_server_url_from_base_url() -> None:
     settings = OAuthSettings(
-        issuer_url="https://auth.local/oauth",
+        base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",

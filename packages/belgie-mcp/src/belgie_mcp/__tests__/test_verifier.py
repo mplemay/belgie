@@ -98,20 +98,20 @@ async def test_verify_token_strict_resource_rejects_mismatch() -> None:
 
 def test_mcp_auth_defaults() -> None:
     settings = OAuthSettings(
-        issuer_url="https://issuer.local/oauth",
+        base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
 
     auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
 
-    assert str(auth.issuer_url) == "https://issuer.local/oauth"
+    assert str(auth.issuer_url) == "https://issuer.local/auth/oauth"
     assert str(auth.resource_server_url) == "https://mcp.local/mcp"
     assert auth.required_scopes == ["user"]
 
 
 def test_mcp_auth_overrides() -> None:
     settings = OAuthSettings(
-        issuer_url="https://issuer.local/oauth",
+        base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
 
@@ -133,18 +133,18 @@ def test_mcp_auth_requires_issuer_url() -> None:
 
 def test_mcp_token_verifier_defaults() -> None:
     settings = OAuthSettings(
-        issuer_url="https://issuer.local/oauth",
+        base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
 
     verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
 
-    assert verifier.introspection_endpoint == join_url("https://issuer.local/oauth", "introspect")
+    assert verifier.introspection_endpoint == join_url("https://issuer.local/auth/oauth", "introspect")
 
 
 def test_mcp_token_verifier_overrides() -> None:
     settings = OAuthSettings(
-        issuer_url="https://issuer.local/oauth",
+        base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
 
@@ -159,7 +159,7 @@ def test_mcp_token_verifier_overrides() -> None:
 
 def test_mcp_server_init_with_bundle() -> None:
     settings = OAuthSettings(
-        issuer_url="https://issuer.local/oauth",
+        base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
     auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
