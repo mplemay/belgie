@@ -63,7 +63,6 @@ class _BelgieCallable:
                 db=db,
                 adapter=obj.adapter,
                 session_manager=obj.session_manager,
-                cookie_name=obj.settings.cookie.name,
                 cookie_settings=obj.settings.cookie,
                 hook_runner=obj.hook_runner,
             )

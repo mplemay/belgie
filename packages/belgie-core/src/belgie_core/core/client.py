@@ -43,7 +43,6 @@ class BelgieClient[
         db: Captured database connection
         adapter: Database adapter for persistence operations
         session_manager: Session manager for session lifecycle operations
-        cookie_name: Name of the session cookie
         cookie_settings: Settings for the session cookie
 
     Example:
@@ -60,7 +59,6 @@ class BelgieClient[
     db: DBConnection
     adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]
     session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
-    cookie_name: str
     cookie_settings: CookieSettings = field(default_factory=CookieSettings)
     hook_runner: HookRunner = field(default_factory=lambda: HookRunner(Hooks()))
 
@@ -73,7 +71,7 @@ class BelgieClient[
         Returns:
             Valid session object or None if cookie missing/invalid/expired
         """
-        if not (session_id_str := request.cookies.get(self.cookie_name)):
+        if not (session_id_str := request.cookies.get(self.cookie_settings.name)):
             return None
 
         try:
@@ -181,7 +179,6 @@ class BelgieClient[
         self,
         email: str,
         *,
-        response: Response,
         request: Request | None = None,
         name: str | None = None,
         image: str | None = None,
@@ -216,6 +213,9 @@ class BelgieClient[
         async with self.hook_runner.dispatch("on_signin", HookContext(user=user, db=self.db)):
             pass
 
+        return user, session
+
+    def create_session_cookie[R: Response](self, session: SessionT, response: R) -> R:
         response.set_cookie(
             key=self.cookie_settings.name,
             value=str(session.id),
@@ -225,8 +225,7 @@ class BelgieClient[
             samesite=self.cookie_settings.same_site,
             domain=self.cookie_settings.domain,
         )
-
-        return user, session
+        return response
 
     async def sign_out(self, session_id: UUID) -> bool:
         """Sign out a user by deleting their session.

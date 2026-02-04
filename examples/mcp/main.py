@@ -218,13 +218,12 @@ async def login(
     return_to: str | None = None,
 ) -> RedirectResponse:
     response = RedirectResponse(url=return_to or "/", status_code=302)
-    await client.sign_up(
+    _user, session = await client.sign_up(
         "dev@example.com",
         name="Dev User",
-        response=response,
         request=request,
     )
-    return response
+    return client.create_session_cookie(session, response)
 
 
 if __name__ == "__main__":

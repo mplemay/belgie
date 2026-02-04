@@ -5,8 +5,8 @@ from uuid import UUID, uuid4
 import pytest
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.hooks import HookContext, HookRunner, Hooks
+from belgie_core.core.settings import CookieSettings
 from belgie_core.session.manager import SessionManager
-from fastapi import Response
 
 
 @dataclass(slots=True)
@@ -116,7 +116,7 @@ async def test_sign_out_dispatches_hook():
         db=DummyDB(),
         adapter=FakeAdapter(user, session),
         session_manager=FakeSessionManager(session),
-        cookie_name="c",
+        cookie_settings=CookieSettings(name="c"),
         hook_runner=HookRunner(Hooks(on_signout=hook)),
     )
 
@@ -139,7 +139,7 @@ async def test_delete_user_dispatches_hook_before_delete():
         db=DummyDB(),
         adapter=adapter,
         session_manager=FakeSessionManager(session),
-        cookie_name="c",
+        cookie_settings=CookieSettings(name="c"),
         hook_runner=HookRunner(Hooks(on_delete=hook)),
     )
 
@@ -164,14 +164,12 @@ async def test_sign_up_dispatches_hooks_in_order_for_new_user():
         db=DummyDB(),
         adapter=adapter,
         session_manager=session_manager,
-        cookie_name="c",
+        cookie_settings=CookieSettings(name="c"),
         hook_runner=HookRunner(Hooks(on_signup=on_signup, on_signin=on_signin)),
     )
 
-    response = Response()
     user, _session = await client.sign_up(
         "new@example.com",
-        response=response,
     )
 
     assert events == [f"signup:{user.id}", "session", f"signin:{user.id}"]
@@ -194,14 +192,12 @@ async def test_sign_up_existing_user_skips_signup_hook():
         db=DummyDB(),
         adapter=adapter,
         session_manager=session_manager,
-        cookie_name="c",
+        cookie_settings=CookieSettings(name="c"),
         hook_runner=HookRunner(Hooks(on_signup=on_signup, on_signin=on_signin)),
     )
 
-    response = Response()
     user, _session = await client.sign_up(
         "existing@example.com",
-        response=response,
     )
 
     assert user.id == existing_user.id

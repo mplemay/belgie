@@ -32,7 +32,7 @@ def client(mock_db, mock_adapter, mock_session_manager):
         db=mock_db,
         adapter=mock_adapter,
         session_manager=mock_session_manager,
-        cookie_name="test_session",
+        cookie_settings=CookieSettings(name="test_session"),
     )
 
 
@@ -42,13 +42,13 @@ async def test_init_captures_dependencies(mock_db, mock_adapter, mock_session_ma
         db=mock_db,
         adapter=mock_adapter,
         session_manager=mock_session_manager,
-        cookie_name="my_session",
+        cookie_settings=CookieSettings(name="my_session"),
     )
 
     assert client.db == mock_db
     assert client.adapter == mock_adapter
     assert client.session_manager == mock_session_manager
-    assert client.cookie_name == "my_session"
+    assert client.cookie_settings.name == "my_session"
 
 
 @pytest.mark.asyncio
@@ -289,7 +289,6 @@ async def test_sign_up_creates_user_sets_cookie_and_returns_user_session(mock_db
     adapter = AsyncMock()
     session_manager = AsyncMock()
     session_manager.max_age = 7200
-    response = Response()
     user = MagicMock()
     user.id = uuid4()
     session = MagicMock()
@@ -303,7 +302,6 @@ async def test_sign_up_creates_user_sets_cookie_and_returns_user_session(mock_db
         db=mock_db,
         adapter=adapter,
         session_manager=session_manager,
-        cookie_name="test_session",
         cookie_settings=CookieSettings(
             name="test_session",
             secure=True,
@@ -316,7 +314,6 @@ async def test_sign_up_creates_user_sets_cookie_and_returns_user_session(mock_db
     created_user, created_session = await client.sign_up(
         "user@example.com",
         name="Test User",
-        response=response,
     )
 
     assert created_user is user
@@ -335,6 +332,7 @@ async def test_sign_up_creates_user_sets_cookie_and_returns_user_session(mock_db
         user_agent=None,
     )
 
+    response = client.create_session_cookie(session, Response())
     set_cookie_header = response.headers.get("set-cookie")
     assert set_cookie_header is not None
     cookie = SimpleCookie()
@@ -352,7 +350,6 @@ async def test_sign_up_existing_user_skips_create(mock_db):
     adapter = AsyncMock()
     session_manager = AsyncMock()
     session_manager.max_age = 3600
-    response = Response()
     user = MagicMock()
     user.id = uuid4()
     session = MagicMock()
@@ -365,12 +362,11 @@ async def test_sign_up_existing_user_skips_create(mock_db):
         db=mock_db,
         adapter=adapter,
         session_manager=session_manager,
-        cookie_name="test_session",
+        cookie_settings=CookieSettings(name="test_session"),
     )
 
     created_user, created_session = await client.sign_up(
         "user@example.com",
-        response=response,
     )
 
     assert created_user is user
@@ -389,7 +385,6 @@ async def test_sign_up_derives_ip_and_user_agent_from_request(mock_db):
     adapter = AsyncMock()
     session_manager = AsyncMock()
     session_manager.max_age = 3600
-    response = Response()
     user = MagicMock()
     user.id = uuid4()
     session = MagicMock()
@@ -407,12 +402,11 @@ async def test_sign_up_derives_ip_and_user_agent_from_request(mock_db):
         db=mock_db,
         adapter=adapter,
         session_manager=session_manager,
-        cookie_name="test_session",
+        cookie_settings=CookieSettings(name="test_session"),
     )
 
     await client.sign_up(
         "user@example.com",
-        response=response,
         request=request,
     )
 
