@@ -146,9 +146,11 @@ Edit `auth_settings` in `main.py`:
 
 ```python
 session=SessionSettings(
-    cookie_name="belgie_session",
     max_age=3600 * 24 * 7,  # 7 days
     update_age=3600,  # Update if older than 1 hour
+),
+cookie=CookieSettings(
+    name="belgie_session",
 )
 ```
 

@@ -1,9 +1,11 @@
+from http.cookies import SimpleCookie
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 from belgie_core.core.client import BelgieClient
-from fastapi import HTTPException
+from belgie_core.core.settings import CookieSettings
+from fastapi import HTTPException, Response
 from fastapi.security import SecurityScopes
 
 
@@ -14,7 +16,9 @@ def mock_adapter():
 
 @pytest.fixture
 def mock_session_manager():
-    return AsyncMock()
+    manager = AsyncMock()
+    manager.max_age = 3600
+    return manager
 
 
 @pytest.fixture
@@ -28,7 +32,7 @@ def client(mock_db, mock_adapter, mock_session_manager):
         db=mock_db,
         adapter=mock_adapter,
         session_manager=mock_session_manager,
-        cookie_name="test_session",
+        cookie_settings=CookieSettings(name="test_session"),
     )
 
 
@@ -38,13 +42,13 @@ async def test_init_captures_dependencies(mock_db, mock_adapter, mock_session_ma
         db=mock_db,
         adapter=mock_adapter,
         session_manager=mock_session_manager,
-        cookie_name="my_session",
+        cookie_settings=CookieSettings(name="my_session"),
     )
 
     assert client.db == mock_db
     assert client.adapter == mock_adapter
     assert client.session_manager == mock_session_manager
-    assert client.cookie_name == "my_session"
+    assert client.cookie_settings.name == "my_session"
 
 
 @pytest.mark.asyncio
@@ -278,3 +282,137 @@ async def test_sign_out_returns_false_if_session_not_found(client, mock_session_
     result = await client.sign_out(session_id)
 
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_sign_up_creates_user_sets_cookie_and_returns_user_session(mock_db):
+    adapter = AsyncMock()
+    session_manager = AsyncMock()
+    session_manager.max_age = 7200
+    user = MagicMock()
+    user.id = uuid4()
+    session = MagicMock()
+    session.id = uuid4()
+
+    adapter.get_user_by_email.return_value = None
+    adapter.create_user.return_value = user
+    session_manager.create_session.return_value = session
+
+    client = BelgieClient(
+        db=mock_db,
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_settings=CookieSettings(
+            name="test_session",
+            secure=True,
+            http_only=True,
+            same_site="strict",
+            domain="example.com",
+        ),
+    )
+
+    created_user, created_session = await client.sign_up(
+        "user@example.com",
+        name="Test User",
+    )
+
+    assert created_user is user
+    assert created_session is session
+    adapter.create_user.assert_called_once_with(
+        mock_db,
+        email="user@example.com",
+        name="Test User",
+        image=None,
+        email_verified=False,
+    )
+    session_manager.create_session.assert_called_once_with(
+        mock_db,
+        user_id=user.id,
+        ip_address=None,
+        user_agent=None,
+    )
+
+    response = client.create_session_cookie(session, Response())
+    set_cookie_header = response.headers.get("set-cookie")
+    assert set_cookie_header is not None
+    cookie = SimpleCookie()
+    cookie.load(set_cookie_header)
+    assert cookie["test_session"].value == str(session.id)
+    assert cookie["test_session"]["max-age"] == str(session_manager.max_age)
+    assert cookie["test_session"]["domain"] == "example.com"
+    assert cookie["test_session"]["samesite"] == "strict"
+    assert "HttpOnly" in set_cookie_header
+    assert "Secure" in set_cookie_header
+
+
+@pytest.mark.asyncio
+async def test_sign_up_existing_user_skips_create(mock_db):
+    adapter = AsyncMock()
+    session_manager = AsyncMock()
+    session_manager.max_age = 3600
+    user = MagicMock()
+    user.id = uuid4()
+    session = MagicMock()
+    session.id = uuid4()
+
+    adapter.get_user_by_email.return_value = user
+    session_manager.create_session.return_value = session
+
+    client = BelgieClient(
+        db=mock_db,
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_settings=CookieSettings(name="test_session"),
+    )
+
+    created_user, created_session = await client.sign_up(
+        "user@example.com",
+    )
+
+    assert created_user is user
+    assert created_session is session
+    adapter.create_user.assert_not_called()
+    session_manager.create_session.assert_called_once_with(
+        mock_db,
+        user_id=user.id,
+        ip_address=None,
+        user_agent=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sign_up_derives_ip_and_user_agent_from_request(mock_db):
+    adapter = AsyncMock()
+    session_manager = AsyncMock()
+    session_manager.max_age = 3600
+    user = MagicMock()
+    user.id = uuid4()
+    session = MagicMock()
+    session.id = uuid4()
+
+    adapter.get_user_by_email.return_value = user
+    session_manager.create_session.return_value = session
+
+    request = MagicMock()
+    request.client = MagicMock()
+    request.client.host = "127.0.0.1"
+    request.headers.get.return_value = "test-agent"
+
+    client = BelgieClient(
+        db=mock_db,
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_settings=CookieSettings(name="test_session"),
+    )
+
+    await client.sign_up(
+        "user@example.com",
+        request=request,
+    )
+
+    session_manager.create_session.assert_called_once_with(
+        mock_db,
+        user_id=user.id,
+        ip_address="127.0.0.1",
+        user_agent="test-agent",
+    )
