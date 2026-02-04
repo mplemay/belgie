@@ -169,6 +169,7 @@ belgie = Belgie(
 )
 
 oauth_settings = OAuthSettings(
+    base_url=settings.base_url,
     route_prefix="/oauth",
     client_id="demo-client",
     client_secret="demo-secret",  # noqa: S106
