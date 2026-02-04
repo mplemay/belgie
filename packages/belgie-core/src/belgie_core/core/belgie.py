@@ -265,9 +265,7 @@ class Belgie[
         root_router.include_router(main_router)
 
         for plugin in self.plugins:
-            root_router_builder = getattr(plugin, "root_router", None)
-            if callable(root_router_builder):
-                root_router.include_router(root_router_builder(self))
+            root_router.include_router(plugin.public_router(self))
 
         return root_router
 

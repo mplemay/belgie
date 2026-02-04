@@ -30,7 +30,7 @@ def test_mcp_plugin_builds_auth_and_verifier() -> None:
     assert isinstance(plugin.token_verifier, BelgieOAuthTokenVerifier)
 
 
-def test_mcp_plugin_root_router_exposes_prm() -> None:
+def test_mcp_plugin_public_router_exposes_prm() -> None:
     settings = OAuthSettings(
         issuer_url="https://auth.local/oauth",
         redirect_uris=["http://localhost/callback"],
@@ -45,7 +45,7 @@ def test_mcp_plugin_root_router_exposes_prm() -> None:
     )
 
     app = FastAPI()
-    app.include_router(plugin.root_router(SimpleNamespace()))
+    app.include_router(plugin.public_router(SimpleNamespace()))
 
     with TestClient(app) as client:
         path_response = client.get("/.well-known/oauth-protected-resource/mcp")
@@ -57,3 +57,21 @@ def test_mcp_plugin_root_router_exposes_prm() -> None:
         root_response = client.get("/.well-known/oauth-protected-resource")
         assert root_response.status_code == 200
         assert root_response.json() == payload
+
+
+def test_mcp_plugin_builds_server_url_from_base_url() -> None:
+    settings = OAuthSettings(
+        issuer_url="https://auth.local/oauth",
+        redirect_uris=["http://localhost/callback"],
+        client_id="client",
+        client_secret="secret",
+        default_scope="user",
+    )
+
+    plugin = McpPlugin(
+        settings,
+        base_url="https://example.com",
+        server_path="/mcp",
+    )
+
+    assert str(plugin.auth.resource_server_url) == "https://example.com/mcp"

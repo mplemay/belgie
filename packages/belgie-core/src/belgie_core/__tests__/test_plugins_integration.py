@@ -17,6 +17,9 @@ class DummyPlugin:
 
         return router
 
+    def public_router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+        return APIRouter()
+
 
 @pytest.fixture
 def belgie_instance() -> Belgie:
@@ -59,6 +62,9 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
 
             return router
 
+        def public_router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+            return APIRouter()
+
     class PluginB(DummyPlugin):
         def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
             router = APIRouter()
@@ -68,6 +74,9 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
                 return {"val": "b"}
 
             return router
+
+        def public_router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+            return APIRouter()
 
     belgie_instance.add_plugin(PluginA)
     belgie_instance.add_plugin(PluginB)
@@ -80,9 +89,9 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
     assert client.get("/auth/b").status_code == 200
 
 
-def test_plugin_root_router_included(belgie_instance: Belgie) -> None:
+def test_plugin_public_router_included(belgie_instance: Belgie) -> None:
     class RootPlugin(DummyPlugin):
-        def root_router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+        def public_router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
             router = APIRouter()
 
             @router.get("/root")

@@ -169,11 +169,10 @@ belgie = Belgie(
 )
 
 oauth_settings = OAuthSettings(
-    issuer_url="http://localhost:8000/auth/oauth",
     route_prefix="/oauth",
     client_id="demo-client",
     client_secret="demo-secret",  # noqa: S106
-    redirect_uris=["http://localhost:8000/client/callback"],
+    redirect_uris=["http://localhost:3030/callback"],
     default_scope="user",
     login_url="/login",
 )
@@ -182,7 +181,7 @@ _ = belgie.add_plugin(OAuthPlugin, oauth_settings)
 mcp_plugin = belgie.add_plugin(
     McpPlugin,
     oauth_settings,
-    server_url="http://localhost:8000/mcp",
+    base_url=settings.base_url,
 )
 
 mcp_server = MCPServer(
@@ -209,20 +208,6 @@ async def get_time() -> dict[str, Any]:
         "timezone": "UTC",
         "timestamp": now.timestamp(),
         "formatted": now.strftime("%Y-%m-%d %H:%M:%S"),
-    }
-
-
-@app.get("/")
-async def home() -> dict[str, str]:
-    return {
-        "message": "belgie oauth + mcp example",
-        "metadata": "/auth/oauth/.well-known/oauth-authorization-server",
-        "authorize": "/auth/oauth/authorize",
-        "login": "/auth/oauth/login",
-        "token": "/auth/oauth/token",
-        "introspect": "/auth/oauth/introspect",
-        "client_callback": "/client/callback",
-        "mcp": "/mcp",
     }
 
 
@@ -254,17 +239,6 @@ async def login(
         domain=belgie.settings.cookie.domain,
     )
     return response
-
-
-@app.get("/client/callback")
-async def client_callback(
-    code: str | None = None,
-    state: str | None = None,
-) -> dict[str, str | None]:
-    return {
-        "code": code,
-        "state": state,
-    }
 
 
 if __name__ == "__main__":
