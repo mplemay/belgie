@@ -3,24 +3,24 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from brussels.base import NAMING_CONVENTION, DataclassBase
+from brussels.types import DateTimeUTC
 from sqlalchemy import Integer, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column
 
 from belgie_alchemy.__tests__.fixtures.models import User
-from belgie_alchemy.base import NAMING_CONVENTION, Base
-from belgie_alchemy.types import DateTimeUTC
 
 
 def test_type_annotation_map_uses_datetimeutc() -> None:
-    mapping = Base.type_annotation_map
+    mapping = DataclassBase.type_annotation_map
     assert mapping[datetime] is DateTimeUTC
 
 
 def test_datetime_annotation_auto_uses_datetimeutc() -> None:
     """Verify that Mapped[datetime] automatically uses DateTimeUTC without explicit column type."""
 
-    class TestModel(Base):
+    class TestModel(DataclassBase):
         __tablename__ = "test_auto_datetime"
         id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)
         # No explicit DateTimeUTC type specified - should be inferred from type_annotation_map
@@ -31,7 +31,7 @@ def test_datetime_annotation_auto_uses_datetimeutc() -> None:
 
 
 def test_naming_convention_applied() -> None:
-    assert Base.metadata.naming_convention == NAMING_CONVENTION
+    assert DataclassBase.metadata.naming_convention == NAMING_CONVENTION
 
 
 def test_dataclass_kw_only_init() -> None:
@@ -58,7 +58,7 @@ async def test_file_based_sqlite_database() -> None:
 
         # Create tables
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(DataclassBase.metadata.create_all)
 
         # Create session factory
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

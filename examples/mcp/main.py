@@ -5,6 +5,9 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID  # noqa: TC003
 
+from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
+from brussels.types import DateTimeUTC
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from mcp.server.mcpserver import MCPServer
@@ -12,7 +15,7 @@ from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.alchemy import AlchemyAdapter, Base, DatabaseSettings, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
+from belgie.alchemy import AlchemyAdapter, DatabaseSettings
 from belgie.mcp import McpPlugin
 from belgie.oauth import OAuthPlugin, OAuthSettings
 
@@ -20,7 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
-class User(Base, PrimaryKeyMixin, TimestampMixin):
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "users"
 
     email: Mapped[str] = mapped_column(unique=True, index=True)
@@ -46,7 +49,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class Account(Base, PrimaryKeyMixin, TimestampMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "accounts"
 
     user_id: Mapped[UUID] = mapped_column(
@@ -77,7 +80,7 @@ class Account(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class Session(Base, PrimaryKeyMixin, TimestampMixin):
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "sessions"
 
     user_id: Mapped[UUID] = mapped_column(
@@ -95,7 +98,7 @@ class Session(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class OAuthState(Base, PrimaryKeyMixin, TimestampMixin):
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "oauth_states"
 
     state: Mapped[str] = mapped_column(unique=True, index=True)
@@ -125,7 +128,7 @@ db_settings = DatabaseSettings(
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     async with db_settings.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(DataclassBase.metadata.create_all)
 
     async with mcp_server.session_manager.run():
         yield

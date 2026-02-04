@@ -1,25 +1,28 @@
 # belgie-alchemy
 
-SQLAlchemy 2.0 building blocks for database models.
+SQLAlchemy 2.0 utilities for Belgie.
 
 ## Overview
 
-`belgie-alchemy` provides opinionated defaults and utilities for SQLAlchemy:
+`belgie-alchemy` provides the `AlchemyAdapter` and database settings for Belgie.
+For SQLAlchemy building blocks (Base, mixins, types), use `brussels`:
 
 - **Base**: Declarative base with dataclass mapping and sensible defaults
 - **Mixins**: `PrimaryKeyMixin` (UUID), `TimestampMixin` (created/updated/deleted timestamps)
-- **Types**: `DateTimeUTC` (timezone-aware datetimes), `Scopes` (dialect-specific array/JSON storage)
+- **Types**: `DateTimeUTC` (timezone-aware datetimes), `Json` (dialect-specific JSON storage)
 
-This module provides **building blocks only** - you define your own models.
+The examples below use `brussels` directly so you can own your models.
 
 ## Quick Start
 
 ```python
 from datetime import datetime
-from belgie_alchemy import Base, PrimaryKeyMixin, TimestampMixin, DateTimeUTC
+from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
+from brussels.types import DateTimeUTC
 from sqlalchemy.orm import Mapped, mapped_column
 
-class Article(Base, PrimaryKeyMixin, TimestampMixin):
+class Article(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "articles"
 
     title: Mapped[str]
@@ -40,10 +43,10 @@ This gives you:
 Declarative base with dataclass mapping enabled:
 
 ```python
-from belgie_alchemy import Base
+from brussels.base import DataclassBase
 from sqlalchemy.orm import Mapped, mapped_column
 
-class MyModel(Base):
+class MyModel(DataclassBase):
     __tablename__ = "my_models"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -57,7 +60,7 @@ Features:
 
 - Consistent naming conventions for constraints
 - Automatic type annotation mapping (`datetime` → `DateTimeUTC`)
-- Dataclass mapping with `kw_only=True`, `repr=True`, `eq=True`
+- Dataclass mapping for convenient instantiation
 
 ### Mixins
 
@@ -66,9 +69,10 @@ Features:
 Adds a UUID primary key with server-side generation:
 
 ```python
-from belgie_alchemy import Base, PrimaryKeyMixin
+from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin
 
-class MyModel(Base, PrimaryKeyMixin):
+class MyModel(DataclassBase, PrimaryKeyMixin):
     __tablename__ = "my_models"
     # Automatically includes: id: Mapped[UUID]
 ```
@@ -85,9 +89,10 @@ The `id` field:
 Adds automatic timestamp tracking:
 
 ```python
-from belgie_alchemy import Base, TimestampMixin
+from brussels.base import DataclassBase
+from brussels.mixins import TimestampMixin
 
-class MyModel(Base, TimestampMixin):
+class MyModel(DataclassBase, TimestampMixin):
     __tablename__ = "my_models"
     # Automatically includes:
     # - created_at: Mapped[datetime]
@@ -110,10 +115,11 @@ Timezone-aware datetime storage:
 
 ```python
 from datetime import datetime
-from belgie_alchemy import Base, DateTimeUTC
+from brussels.base import DataclassBase
+from brussels.types import DateTimeUTC
 from sqlalchemy.orm import Mapped, mapped_column
 
-class Event(Base):
+class Event(DataclassBase):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -127,43 +133,43 @@ Features:
 - Always returns UTC-aware datetimes from database
 - Works with PostgreSQL, SQLite, MySQL
 
-#### Scopes
+#### Json
 
-Dialect-specific array storage for permission scopes:
+Dialect-specific JSON storage (JSONB on PostgreSQL):
 
 ```python
-from enum import StrEnum
-from belgie_alchemy import Base, Scopes
+from brussels.base import DataclassBase
+from brussels.types import Json
 from sqlalchemy.orm import Mapped, mapped_column
 
-class User(Base):
+class User(DataclassBase):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Option 1: Simple string array (works everywhere)
-    scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
+    # Store scopes as JSON (works everywhere)
+    scopes: Mapped[list[str] | None] = mapped_column(Json, default=None)
 ```
 
 Features:
 
-- PostgreSQL: Uses native `ARRAY(String)` type
-- SQLite/MySQL: Uses JSON storage
-- Automatically converts StrEnum values to strings
-- Handles `None` values correctly
+- PostgreSQL: Uses `JSONB`
+- SQLite/MySQL: Uses `JSON`
 
 For PostgreSQL with application-specific enum types, you can override:
 
 ```python
 from enum import StrEnum
+from brussels.base import DataclassBase
 from sqlalchemy import ARRAY
 from sqlalchemy.dialects.postgresql import ENUM
+from sqlalchemy.orm import Mapped, mapped_column
 
 class AppScope(StrEnum):
     READ = "resource:read"
     WRITE = "resource:write"
     ADMIN = "admin"
 
-class User(Base):
+class User(DataclassBase):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -190,16 +196,18 @@ Example structure:
 ```python
 from datetime import datetime
 from uuid import UUID
+from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
+from brussels.types import DateTimeUTC, Json
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from belgie_alchemy import Base, PrimaryKeyMixin, TimestampMixin, DateTimeUTC, Scopes
 
-class User(Base, PrimaryKeyMixin, TimestampMixin):
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "users"
 
     email: Mapped[str] = mapped_column(unique=True, index=True)
     email_verified: Mapped[bool] = mapped_column(default=False)
-    scopes: Mapped[list[str] | None] = mapped_column(Scopes, default=None)
+    scopes: Mapped[list[str] | None] = mapped_column(Json, default=None)
 
     accounts: Mapped[list["Account"]] = relationship(
         back_populates="user",
@@ -207,7 +215,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
         init=False,
     )
 
-class Account(Base, PrimaryKeyMixin, TimestampMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "accounts"
 
     user_id: Mapped[UUID] = mapped_column(

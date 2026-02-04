@@ -1,7 +1,8 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from belgie_alchemy import AlchemyAdapter, Base, DatabaseSettings
+from belgie_alchemy import AlchemyAdapter, DatabaseSettings
+from brussels.base import DataclassBase
 from fastapi import Depends, FastAPI, Security
 
 from belgie import (
@@ -20,7 +21,7 @@ db_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     async with db_settings.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(DataclassBase.metadata.create_all)
     yield
     await db_settings.engine.dispose()
 

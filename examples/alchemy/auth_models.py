@@ -2,7 +2,7 @@
 
 USAGE: Copy these models to your project and customize as needed.
 
-These models demonstrate how to structure authentication with belgie-alchemy:
+These models demonstrate how to structure authentication with brussels:
 - User model with email, verification, and optional scopes
 - Account model for OAuth provider linkage
 - Session model for user sessions
@@ -14,7 +14,7 @@ You can:
 - Modify relationships or constraints
 - Use different table names
 
-These are templates, not meant to be imported directly from belgie_alchemy.
+These are templates, not meant to be imported directly.
 """
 
 from __future__ import annotations
@@ -22,12 +22,14 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
-from belgie_alchemy import Base, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
+from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
+from brussels.types import DateTimeUTC
 from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
-class User(Base, PrimaryKeyMixin, TimestampMixin):
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     """User model for authentication.
 
     Customize this model for your application:
@@ -87,7 +89,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class Account(Base, PrimaryKeyMixin, TimestampMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     """OAuth account linkage for users.
 
     Links a user to their OAuth provider accounts (Google, GitHub, etc.).
@@ -123,7 +125,7 @@ class Account(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class Session(Base, PrimaryKeyMixin, TimestampMixin):
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     """User session storage.
 
     Tracks active user sessions with expiration and metadata.
@@ -146,7 +148,7 @@ class Session(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class OAuthState(Base, PrimaryKeyMixin, TimestampMixin):
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     """OAuth flow state management.
 
     Stores PKCE verifiers and state parameters for OAuth flows.
