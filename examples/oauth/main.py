@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from brussels.base import DataclassBase
 from fastapi import FastAPI
 
 from belgie import (
@@ -10,7 +11,7 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie.alchemy import AlchemyAdapter, Base, DatabaseSettings
+from belgie.alchemy import AlchemyAdapter, DatabaseSettings
 from belgie.oauth import OAuthPlugin, OAuthSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
@@ -25,7 +26,7 @@ db_settings = DatabaseSettings(
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     async with db_settings.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(DataclassBase.metadata.create_all)
     yield
     await db_settings.engine.dispose()
 

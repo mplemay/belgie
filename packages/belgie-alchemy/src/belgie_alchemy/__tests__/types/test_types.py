@@ -2,15 +2,14 @@ from datetime import UTC, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
+from brussels.base import DataclassBase
+from brussels.types import DateTimeUTC
 from sqlalchemy import Integer
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
-from belgie_alchemy.base import Base
-from belgie_alchemy.types import DateTimeUTC
 
-
-class Event(Base):
+class Event(DataclassBase):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)

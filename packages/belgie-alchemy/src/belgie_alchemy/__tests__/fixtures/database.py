@@ -1,9 +1,8 @@
 from collections.abc import AsyncGenerator
 
+from brussels.base import DataclassBase
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-
-from belgie_alchemy import Base
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -21,7 +20,7 @@ async def get_test_engine() -> AsyncEngine:
         cursor.close()
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(DataclassBase.metadata.create_all)
     return engine
 
 

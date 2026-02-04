@@ -10,13 +10,14 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
+from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
+from brussels.types import DateTimeUTC
 from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from belgie_alchemy import Base, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
 
-
-class User(Base, PrimaryKeyMixin, TimestampMixin):
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     """Test User model."""
 
     __tablename__ = "users"
@@ -45,7 +46,7 @@ class User(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class Account(Base, PrimaryKeyMixin, TimestampMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     """Test Account model."""
 
     __tablename__ = "accounts"
@@ -78,7 +79,7 @@ class Account(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class Session(Base, PrimaryKeyMixin, TimestampMixin):
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     """Test Session model."""
 
     __tablename__ = "sessions"
@@ -98,7 +99,7 @@ class Session(Base, PrimaryKeyMixin, TimestampMixin):
     )
 
 
-class OAuthState(Base, PrimaryKeyMixin, TimestampMixin):
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     """Test OAuthState model."""
 
     __tablename__ = "oauth_states"
