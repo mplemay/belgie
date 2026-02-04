@@ -87,15 +87,15 @@ def test_auth_session_manager_configuration(auth: Belgie) -> None:
 
 def test_auth_router_created(auth: Belgie) -> None:
     router = auth.router()
-    assert router.prefix == "/auth"
-    assert "auth" in router.tags
+    assert router.prefix == ""
+    assert any(getattr(route, "path", "").startswith("/auth") for route in router.routes)
 
 
 def test_register_provider_invalidates_router_cache(auth: Belgie) -> None:
     """Test that registering a provider after router creation invalidates the cache."""
     # Access the router to cache it
     first_router = auth.router()
-    assert first_router.prefix == "/auth"
+    assert first_router.prefix == ""
 
     # With method based approach, we can just verify it returns a router
     # Caching check is no longer relevant as per refactor

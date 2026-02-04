@@ -14,3 +14,16 @@ def test_metadata_endpoint(client: TestClient) -> None:
     assert payload["registration_endpoint"] == f"{AUTH_BASE_URL}/register"
     assert payload["revocation_endpoint"] == f"{AUTH_BASE_URL}/revoke"
     assert payload["introspection_endpoint"] == f"{AUTH_BASE_URL}/introspect"
+
+
+def test_metadata_alias_endpoint(client: TestClient) -> None:
+    response = client.get("/.well-known/oauth-authorization-server/auth/oauth")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["issuer"] == AUTH_BASE_URL
+    assert payload["authorization_endpoint"] == f"{AUTH_BASE_URL}/authorize"
+    assert payload["token_endpoint"] == f"{AUTH_BASE_URL}/token"
+    assert payload["registration_endpoint"] == f"{AUTH_BASE_URL}/register"
+    assert payload["revocation_endpoint"] == f"{AUTH_BASE_URL}/revoke"
+    assert payload["introspection_endpoint"] == f"{AUTH_BASE_URL}/introspect"

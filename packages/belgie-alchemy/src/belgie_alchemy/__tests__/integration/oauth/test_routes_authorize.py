@@ -52,7 +52,7 @@ async def test_authorize_returns_401_without_login_url(
     oauth_settings: OAuthSettings,
 ) -> None:
     settings = OAuthSettings(
-        issuer_url=oauth_settings.issuer_url,
+        base_url=oauth_settings.base_url,
         route_prefix=oauth_settings.route_prefix,
         client_id=oauth_settings.client_id,
         client_secret=SecretStr("test-secret"),
@@ -80,7 +80,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     oauth_settings: OAuthSettings,
 ) -> None:
     settings = OAuthSettings(
-        issuer_url=oauth_settings.issuer_url,
+        base_url=oauth_settings.base_url,
         route_prefix=oauth_settings.route_prefix,
         client_id=oauth_settings.client_id,
         client_secret=SecretStr("test-secret"),

@@ -95,7 +95,7 @@ def belgie_instance(
 @pytest.fixture
 def oauth_settings() -> OAuthSettings:
     return OAuthSettings(
-        issuer_url=None,
+        base_url="http://testserver",
         route_prefix="/oauth",
         login_url="/auth/provider/google/signin",
         client_id="test-client",

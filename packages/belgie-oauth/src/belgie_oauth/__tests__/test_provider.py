@@ -12,7 +12,7 @@ from belgie_oauth.utils import create_code_challenge
 async def test_provider_authorize_and_issue_code() -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
     )
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
@@ -40,7 +40,7 @@ async def test_provider_authorize_and_issue_code() -> None:
 async def test_exchange_authorization_code_issues_token() -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
     )
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
@@ -68,7 +68,7 @@ async def test_exchange_authorization_code_issues_token() -> None:
 async def test_load_access_token_purges_expired() -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
     )
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
@@ -90,7 +90,7 @@ async def test_load_access_token_purges_expired() -> None:
 async def test_load_access_token_purges_expired_twice() -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
     )
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
@@ -114,7 +114,7 @@ async def test_load_access_token_purges_expired_twice() -> None:
 async def test_authorize_rejects_duplicate_state() -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
     )
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
@@ -137,7 +137,7 @@ async def test_authorize_rejects_duplicate_state() -> None:
 async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
         state_ttl_seconds=1,
     )
@@ -165,7 +165,7 @@ async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPa
 async def test_register_client_issues_secret_by_default() -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
     )
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
@@ -182,7 +182,7 @@ async def test_register_client_issues_secret_by_default() -> None:
 async def test_register_client_no_secret_when_auth_method_none() -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
     )
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
@@ -200,7 +200,7 @@ async def test_register_client_no_secret_when_auth_method_none() -> None:
 async def test_register_client_rejects_unsupported_auth_method() -> None:
     settings = OAuthSettings(
         redirect_uris=["http://example.com/callback"],
-        issuer_url="http://example.com/auth/oauth",
+        base_url="http://example.com",
         client_id="test-client",
     )
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
