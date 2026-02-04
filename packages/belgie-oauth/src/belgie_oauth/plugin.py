@@ -9,8 +9,9 @@ from belgie_core.core.protocols import Plugin
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
-from pydantic import AnyHttpUrl, AnyUrl, ValidationError
+from pydantic import AnyUrl, ValidationError
 
+from belgie_oauth.metadata import build_oauth_metadata
 from belgie_oauth.models import (
     InvalidRedirectUriError,
     InvalidScopeError,
@@ -44,7 +45,7 @@ class OAuthPlugin(Plugin):
         provider = self._provider
 
         router = APIRouter(prefix=self._settings.route_prefix, tags=["oauth"])
-        metadata = _build_metadata(issuer_url, self._settings)
+        metadata = build_oauth_metadata(issuer_url, self._settings)
 
         router = self._add_metadata_route(router, metadata)
         router = self._add_authorize_route(router, belgie, provider, self._settings, issuer_url)
@@ -307,29 +308,6 @@ def _build_issuer_url(belgie: Belgie, settings: OAuthSettings) -> str:
     auth_path = "auth"
     full_path = f"{base_path}/{auth_path}/{prefix}" if prefix else f"{base_path}/{auth_path}"
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
-
-
-def _build_metadata(issuer_url: str, settings: OAuthSettings) -> OAuthMetadata:
-    authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
-    token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
-    registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))
-    revocation_endpoint = AnyHttpUrl(join_url(issuer_url, "revoke"))
-    introspection_endpoint = AnyHttpUrl(join_url(issuer_url, "introspect"))
-
-    return OAuthMetadata(
-        issuer=AnyHttpUrl(issuer_url),
-        authorization_endpoint=authorization_endpoint,
-        token_endpoint=token_endpoint,
-        registration_endpoint=registration_endpoint,
-        scopes_supported=[settings.default_scope],
-        response_types_supported=["code"],
-        grant_types_supported=["authorization_code"],
-        token_endpoint_auth_methods_supported=["client_secret_post"],
-        code_challenge_methods_supported=["S256"],
-        revocation_endpoint=revocation_endpoint,
-        revocation_endpoint_auth_methods_supported=["client_secret_post"],
-        introspection_endpoint=introspection_endpoint,
-    )
 
 
 async def _parse_authorize_params(

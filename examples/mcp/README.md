@@ -22,12 +22,16 @@ The app runs at `http://localhost:8000`.
 ## Endpoints
 
 - `GET /`
+- `GET /login`
 - `GET /auth/oauth/.well-known/oauth-authorization-server`
+- `GET /.well-known/oauth-authorization-server/auth/oauth`
 - `GET|POST /auth/oauth/authorize`
 - `POST /auth/oauth/token`
 - `POST /auth/oauth/introspect`
 - `GET /client/callback`
 - `POST /mcp` (MCP streamable HTTP endpoint)
+- `GET /.well-known/oauth-protected-resource/mcp`
+- `GET /.well-known/oauth-protected-resource`
 
 ## Notes
 

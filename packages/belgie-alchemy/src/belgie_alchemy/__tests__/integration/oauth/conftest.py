@@ -22,7 +22,7 @@ OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth" / "src"
 if str(OAUTH_SRC) not in sys.path:
     sys.path.insert(0, str(OAUTH_SRC))
 
-from belgie_oauth import OAuthPlugin, OAuthSettings  # noqa: E402
+from belgie_oauth import OAuthPlugin, OAuthSettings, create_oauth_metadata_router  # noqa: E402
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -95,7 +95,7 @@ def belgie_instance(
 @pytest.fixture
 def oauth_settings() -> OAuthSettings:
     return OAuthSettings(
-        issuer_url=None,
+        issuer_url="http://testserver/auth/oauth",
         route_prefix="/oauth",
         login_url="/auth/provider/google/signin",
         client_id="test-client",
@@ -114,10 +114,11 @@ def oauth_plugin(
 
 
 @pytest.fixture
-def app(belgie_instance: Belgie, oauth_plugin: OAuthPlugin) -> FastAPI:
+def app(belgie_instance: Belgie, oauth_plugin: OAuthPlugin, oauth_settings: OAuthSettings) -> FastAPI:
     _ = oauth_plugin
     app = FastAPI()
     app.include_router(belgie_instance.router())
+    app.include_router(create_oauth_metadata_router(str(oauth_settings.issuer_url), oauth_settings))
     return app
 
 

@@ -2,21 +2,24 @@ from __future__ import annotations
 
 import datetime
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
+from uuid import UUID  # noqa: TC003
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import RedirectResponse
 from mcp.server.mcpserver import MCPServer
 from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import AlchemyAdapter, Base, DatabaseSettings, DateTimeUTC, PrimaryKeyMixin, TimestampMixin
-from belgie.mcp import build_belgie_oauth_auth
-from belgie.oauth import OAuthPlugin, OAuthSettings
+from belgie.mcp import build_belgie_oauth_auth, create_protected_resource_metadata_router
+from belgie.oauth import OAuthPlugin, OAuthSettings, create_oauth_metadata_router
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from uuid import UUID
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class User(Base, PrimaryKeyMixin, TimestampMixin):
@@ -125,7 +128,10 @@ db_settings = DatabaseSettings(
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     async with db_settings.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield
+
+    async with mcp_server.session_manager.run():
+        yield
+
     await db_settings.engine.dispose()
 
 
@@ -170,16 +176,19 @@ oauth_settings = OAuthSettings(
     client_secret="demo-secret",  # noqa: S106
     redirect_uris=["http://localhost:8000/client/callback"],
     default_scope="user",
+    login_url="/login",
 )
 
 belgie.add_plugin(OAuthPlugin, oauth_settings)
 app.include_router(belgie.router())
+app.include_router(create_oauth_metadata_router(str(oauth_settings.issuer_url), oauth_settings))
 
 mcp_bundle = build_belgie_oauth_auth(
     oauth_settings,
     server_url="http://localhost:8000/mcp",
     oauth_strict=False,
 )
+app.include_router(create_protected_resource_metadata_router(mcp_bundle.auth, include_root_fallback=True))
 
 mcp_server = MCPServer(
     name="Belgie MCP",
@@ -219,6 +228,36 @@ async def home() -> dict[str, str]:
         "client_callback": "/client/callback",
         "mcp": "/mcp",
     }
+
+
+@app.get("/login")
+async def login(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(db_settings.dependency)],
+    return_to: str | None = None,
+) -> RedirectResponse:
+    user = await adapter.get_user_by_email(db, "dev@example.com")
+    if user is None:
+        user = await adapter.create_user(db, email="dev@example.com", name="Dev User")
+
+    session = await belgie.session_manager.create_session(
+        db,
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    response = RedirectResponse(url=return_to or "/", status_code=302)
+    response.set_cookie(
+        key=belgie.settings.cookie.name,
+        value=str(session.id),
+        max_age=belgie.settings.session.max_age,
+        httponly=belgie.settings.cookie.http_only,
+        secure=belgie.settings.cookie.secure,
+        samesite=belgie.settings.cookie.same_site,
+        domain=belgie.settings.cookie.domain,
+    )
+    return response
 
 
 @app.get("/client/callback")

@@ -7,6 +7,7 @@ try:
         BelgieMcpAuthBundle,
         BelgieOAuthTokenVerifier,
         build_belgie_oauth_auth,
+        create_protected_resource_metadata_router,
         hello,
     )
 except ModuleNotFoundError as exc:
@@ -16,5 +17,6 @@ __all__ = [
     "BelgieMcpAuthBundle",
     "BelgieOAuthTokenVerifier",
     "build_belgie_oauth_auth",
+    "create_protected_resource_metadata_router",
     "hello",
 ]
