@@ -11,7 +11,11 @@ Use this workflow to validate changes, fix failures, create a conventional commi
 
 ## Workflow
 
-### 1) Run tests
+### 1) Sync dependencies
+
+- Run `uv sync --all-groups --all-extras --all-packages`.
+
+### 2) Run tests
 
 - Run `uv run pytest`.
 - If tests fail, fix the code/tests and re-run until green.
@@ -21,7 +25,7 @@ Use this workflow to validate changes, fix failures, create a conventional commi
 - Pytest settings live in `pyproject.toml`.
 - If failures are unrelated or require product decisions, stop and ask.
 
-### 2) Run pre-commit and fix hooks
+### 3) Run pre-commit and fix hooks
 
 - Run `uv run pre-commit run --all`.
 - For each failing hook:
@@ -35,7 +39,7 @@ Use this workflow to validate changes, fix failures, create a conventional commi
   when not obvious.
 - Pre-commit configuration is in `.pre-commit-config.yaml`.
 
-### 3) Commit
+### 4) Commit
 
 - Ensure tests and pre-commit pass before committing.
 - Use a conventional commit message (single line, lowercase, <72 chars when possible).
@@ -45,6 +49,6 @@ Use this workflow to validate changes, fix failures, create a conventional commi
 - Avoid multi-line messages or vague subjects.
 - Branch names should be kebab-case and prefixed: `feature/`, `bugfix/`, `refactor/`, `docs/`, `test/`.
 
-### 4) Push
+### 5) Push
 
 - Push with `git push` (autoSetupRemote/autoSetupMerge is configured).
