@@ -1,6 +1,7 @@
-from belgie_oauth.plugin import GoogleOAuthPlugin, GoogleOAuthSettings, GoogleUserInfo
+from belgie_oauth.plugin import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings, GoogleUserInfo
 
 __all__ = [
+    "GoogleOAuthClient",
     "GoogleOAuthPlugin",
     "GoogleOAuthSettings",
     "GoogleUserInfo",

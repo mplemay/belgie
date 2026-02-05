@@ -34,7 +34,7 @@ async def test_login_redirects_to_configured_login_url(async_client: httpx.Async
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
-    assert parsed.path == "/auth/provider/google/signin"
+    assert parsed.path == "/login/google"
     assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-123"
 
 

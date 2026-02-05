@@ -165,6 +165,9 @@ class Belgie[
         """
         instance = plugin(*args, **kwargs)
 
+        if callable(bind := getattr(instance, "bind", None)):
+            bind(self)
+
         self.plugins.append(instance)
 
         return instance

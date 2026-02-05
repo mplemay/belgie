@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Annotated
 
 import httpx
 import pytest
@@ -8,8 +9,9 @@ from belgie_alchemy import AlchemyAdapter
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings
-from fastapi import FastAPI
+from belgie_oauth import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
+from fastapi import Depends, FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,6 +73,16 @@ def app(auth: Belgie) -> FastAPI:
     app = FastAPI()
     app.include_router(auth.router, dependencies=[])
 
+    google_plugin = next(plugin for plugin in auth.plugins if isinstance(plugin, GoogleOAuthPlugin))
+
+    @app.get("/login/google")
+    async def login_google(
+        google: Annotated[GoogleOAuthClient, Depends(google_plugin)],
+        return_to: str | None = None,
+    ) -> RedirectResponse:
+        auth_url = await google.signin_url(return_to=return_to)
+        return RedirectResponse(url=auth_url, status_code=302)
+
     return app
 
 
@@ -80,7 +92,7 @@ def client(app: FastAPI) -> TestClient:
 
 
 def test_signin_google_endpoint_redirects(client: TestClient) -> None:
-    response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    response = client.get("/login/google", follow_redirects=False)
 
     assert response.status_code == 302
     assert "location" in response.headers
@@ -89,8 +101,13 @@ def test_signin_google_endpoint_redirects(client: TestClient) -> None:
     assert "state=" in response.headers["location"]
 
 
-def test_signin_google_creates_oauth_state(client: TestClient, auth: Belgie, db_session: AsyncSession) -> None:
+def test_plugin_signin_route_removed(client: TestClient) -> None:
     response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    assert response.status_code == 404
+
+
+def test_signin_google_creates_oauth_state(client: TestClient, auth: Belgie, db_session: AsyncSession) -> None:
+    response = client.get("/login/google", follow_redirects=False)
 
     location = response.headers["location"]
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015

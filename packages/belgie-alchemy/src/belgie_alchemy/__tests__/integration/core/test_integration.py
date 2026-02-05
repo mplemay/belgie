@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Annotated
 from uuid import UUID
 
 import httpx
@@ -8,8 +9,9 @@ from belgie_alchemy import AlchemyAdapter
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings
-from fastapi import FastAPI
+from belgie_oauth import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
+from fastapi import Depends, FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,6 +75,17 @@ def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: Asy
 def app(auth: Belgie) -> FastAPI:
     app = FastAPI()
     app.include_router(auth.router)
+
+    google_plugin = next(plugin for plugin in auth.plugins if isinstance(plugin, GoogleOAuthPlugin))
+
+    @app.get("/login/google")
+    async def login_google(
+        google: Annotated[GoogleOAuthClient, Depends(google_plugin)],
+        return_to: str | None = None,
+    ) -> RedirectResponse:
+        auth_url = await google.signin_url(return_to=return_to)
+        return RedirectResponse(url=auth_url, status_code=302)
+
     return app
 
 
@@ -89,7 +102,7 @@ def test_full_oauth_flow_signin_to_callback(
 ) -> None:
     import asyncio  # noqa: PLC0415
 
-    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    signin_response = client.get("/login/google", follow_redirects=False)
 
     assert signin_response.status_code == 302
     assert "location" in signin_response.headers
@@ -162,7 +175,7 @@ def test_full_oauth_flow_signin_to_callback(
 def test_signout_flow(client: TestClient, auth: Belgie, db_session: AsyncSession) -> None:
     import asyncio  # noqa: PLC0415
 
-    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    signin_response = client.get("/login/google", follow_redirects=False)
     location = signin_response.headers["location"]
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
 
@@ -222,7 +235,7 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
 
     user_id = asyncio.run(create_existing_user())
 
-    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    signin_response = client.get("/login/google", follow_redirects=False)
     location = signin_response.headers["location"]
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
 
@@ -266,8 +279,8 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
 def test_multiple_concurrent_sessions(client: TestClient, auth: Belgie, db_session: AsyncSession) -> None:
     import asyncio  # noqa: PLC0415
 
-    signin1 = client.get("/auth/provider/google/signin", follow_redirects=False)
-    signin2 = client.get("/auth/provider/google/signin", follow_redirects=False)
+    signin1 = client.get("/login/google", follow_redirects=False)
+    signin2 = client.get("/login/google", follow_redirects=False)
 
     state1 = [  # noqa: RUF015
         param.split("=")[1]

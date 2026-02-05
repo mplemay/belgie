@@ -55,6 +55,9 @@ def test_oauth_client_missing_extra_raises(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_oauth_client_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubClient:
+        pass
+
     class StubPlugin:
         pass
 
@@ -65,6 +68,7 @@ def test_oauth_client_present(monkeypatch: pytest.MonkeyPatch) -> None:
         pass
 
     stub_module = ModuleType("belgie_oauth")
+    stub_module.GoogleOAuthClient = StubClient
     stub_module.GoogleOAuthPlugin = StubPlugin
     stub_module.GoogleOAuthSettings = StubSettings
     stub_module.GoogleUserInfo = StubUserInfo
@@ -74,6 +78,7 @@ def test_oauth_client_present(monkeypatch: pytest.MonkeyPatch) -> None:
 
     module = importlib.import_module("belgie.oauth_client")
 
+    assert module.GoogleOAuthClient is StubClient
     assert module.GoogleOAuthPlugin is StubPlugin
     assert module.GoogleOAuthSettings is StubSettings
     assert module.GoogleUserInfo is StubUserInfo

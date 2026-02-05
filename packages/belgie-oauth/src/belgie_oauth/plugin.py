@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlencode, urlparse, urlunparse
@@ -63,6 +65,23 @@ class GoogleUserInfo(BaseModel):
     locale: str | None = None
 
 
+@dataclass(slots=True, kw_only=True)
+class GoogleOAuthClient:
+    plugin: GoogleOAuthPlugin
+    client: BelgieClient
+
+    async def signin_url(self, *, return_to: str | None = None) -> str:
+        state = generate_state_token()
+        expires_at = datetime.now(UTC) + timedelta(minutes=10)
+        await self.client.adapter.create_oauth_state(
+            self.client.db,
+            state=state,
+            expires_at=expires_at.replace(tzinfo=None),
+            redirect_url=return_to or None,
+        )
+        return self.plugin.generate_authorization_url(state)
+
+
 class GoogleOAuthPlugin(Plugin):
     AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
@@ -70,10 +89,24 @@ class GoogleOAuthPlugin(Plugin):
 
     def __init__(self, settings: GoogleOAuthSettings) -> None:
         self.settings = settings
+        self._resolve_client = None
 
     @property
     def provider_id(self) -> Literal["google"]:
         return "google"
+
+    def bind(self, belgie: Belgie) -> None:
+        async def resolve_client(client: BelgieClient = Depends(belgie)) -> GoogleOAuthClient:  # noqa: B008
+            return GoogleOAuthClient(plugin=self, client=client)
+
+        self._resolve_client = resolve_client
+        self.__signature__ = inspect.signature(resolve_client)
+
+    async def __call__(self, *args: object, **kwargs: object) -> GoogleOAuthClient:
+        if self._resolve_client is None:
+            msg = "GoogleOAuthPlugin must be registered via Belgie.add_plugin before dependency injection"
+            raise RuntimeError(msg)
+        return await self._resolve_client(*args, **kwargs)
 
     def generate_authorization_url(self, state: str) -> str:
         params = {
@@ -168,24 +201,14 @@ class GoogleOAuthPlugin(Plugin):
     def router(self, belgie: Belgie) -> APIRouter:
         router = APIRouter(prefix=f"/provider/{self.provider_id}", tags=["auth", "oauth"])
 
-        async def signin(client: BelgieClient = Depends(belgie)) -> RedirectResponse:  # noqa: B008
-            state = generate_state_token()
-            expires_at = datetime.now(UTC) + timedelta(minutes=10)
-            await client.adapter.create_oauth_state(
-                client.db,
-                state=state,
-                expires_at=expires_at.replace(tzinfo=None),
-            )
-            auth_url = self.generate_authorization_url(state)
-            return RedirectResponse(url=auth_url, status_code=302)
-
         async def callback(
             code: str,
             state: str,
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> RedirectResponse:
-            if not await client.adapter.get_oauth_state(client.db, state):
+            oauth_state = await client.adapter.get_oauth_state(client.db, state)
+            if not oauth_state:
                 msg = "Invalid OAuth state"
                 raise InvalidStateError(msg)
             await client.adapter.delete_oauth_state(client.db, state)
@@ -193,8 +216,9 @@ class GoogleOAuthPlugin(Plugin):
             tokens = await self.exchange_code_for_tokens(code)
             user_info = await self.get_user_info(tokens["access_token"])
 
-            user, _ = await client.get_or_create_user(
+            user, session = await client.sign_up(
                 user_info.email,
+                request=request,
                 name=user_info.name,
                 image=user_info.picture,
                 email_verified=user_info.verified_email,
@@ -212,11 +236,12 @@ class GoogleOAuthPlugin(Plugin):
                 id_token=tokens.get("id_token"),
             )
 
-            session = await client.sign_in_user(user, request=request)
-            response = RedirectResponse(url=belgie.settings.urls.signin_redirect, status_code=302)
+            response = RedirectResponse(
+                url=oauth_state.redirect_url or belgie.settings.urls.signin_redirect,
+                status_code=302,
+            )
             return client.create_session_cookie(session, response)
 
-        router.add_api_route("/signin", signin, methods=["GET"])
         router.add_api_route("/callback", callback, methods=["GET"])
 
         return router
