@@ -62,7 +62,6 @@ belgie = Belgie(
     settings=settings,
     adapter=adapter,
     db=db_settings,
-    providers=None,
 )
 
 oauth_settings = OAuthSettings(

@@ -8,7 +8,7 @@ from belgie_alchemy import AlchemyAdapter
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_core.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,22 +48,22 @@ def adapter() -> AlchemyAdapter:
 
 @pytest.fixture
 def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Belgie:
-    # Include Google provider for router testing
-    providers = {
-        "google": GoogleProviderSettings(
-            client_id="test-client-id",
-            client_secret="test-client-secret",
-            redirect_uri="http://localhost:8000/auth/provider/google/callback",
-            scopes=["openid", "email", "profile"],
-        ),
-    }
-
     async def get_db_override() -> AsyncSession:
         return db_session
 
     fake_db = SimpleNamespace(dependency=get_db_override)
 
-    return Belgie(settings=auth_settings, adapter=adapter, providers=providers, db=fake_db)
+    belgie = Belgie(settings=auth_settings, adapter=adapter, db=fake_db)
+    belgie.add_plugin(
+        GoogleOAuthPlugin,
+        GoogleOAuthSettings(
+            client_id="test-client-id",
+            client_secret="test-client-secret",
+            redirect_uri="http://localhost:8000/auth/provider/google/callback",
+            scopes=["openid", "email", "profile"],
+        ),
+    )
+    return belgie
 
 
 @pytest.fixture
@@ -136,8 +136,8 @@ def test_callback_google_endpoint_success(client: TestClient, auth: Belgie, db_s
         "picture": "https://example.com/photo.jpg",
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     response = client.get(
         f"/auth/provider/google/callback?code=test-code&state={state_token}",
@@ -182,8 +182,8 @@ def test_callback_google_sets_cookie_with_correct_attributes(
         "verified_email": True,
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     response = client.get(
         f"/auth/provider/google/callback?code=test-code&state={state_token}",

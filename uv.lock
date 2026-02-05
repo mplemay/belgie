@@ -12,6 +12,7 @@ members = [
     "belgie-alchemy",
     "belgie-core",
     "belgie-mcp",
+    "belgie-oauth",
     "belgie-oauth-server",
     "belgie-proto",
 ]
@@ -86,6 +87,7 @@ alchemy = [
 all = [
     { name = "belgie-alchemy" },
     { name = "belgie-mcp" },
+    { name = "belgie-oauth" },
     { name = "belgie-oauth-server" },
 ]
 examples = [
@@ -96,6 +98,9 @@ mcp = [
 ]
 oauth = [
     { name = "belgie-oauth-server" },
+]
+oauth-client = [
+    { name = "belgie-oauth" },
 ]
 
 [package.dev-dependencies]
@@ -117,6 +122,8 @@ requires-dist = [
     { name = "belgie-core", editable = "packages/belgie-core" },
     { name = "belgie-mcp", marker = "extra == 'all'", editable = "packages/belgie-mcp" },
     { name = "belgie-mcp", marker = "extra == 'mcp'", editable = "packages/belgie-mcp" },
+    { name = "belgie-oauth", marker = "extra == 'all'", editable = "packages/belgie-oauth" },
+    { name = "belgie-oauth", marker = "extra == 'oauth-client'", editable = "packages/belgie-oauth" },
     { name = "belgie-oauth-server", marker = "extra == 'all'", editable = "packages/belgie-oauth-server" },
     { name = "belgie-oauth-server", marker = "extra == 'oauth'", editable = "packages/belgie-oauth-server" },
     { name = "belgie-proto", editable = "packages/belgie-proto" },
@@ -127,7 +134,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'examples'", specifier = ">=0.38.0" },
 ]
-provides-extras = ["alchemy", "all", "examples", "mcp", "oauth"]
+provides-extras = ["alchemy", "all", "examples", "mcp", "oauth", "oauth-client"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -190,6 +197,27 @@ requires-dist = [
     { name = "belgie-oauth-server", editable = "packages/belgie-oauth-server" },
     { name = "httpx", specifier = ">=0.24" },
     { name = "mcp", git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=main" },
+]
+
+[[package]]
+name = "belgie-oauth"
+version = "0.1.0"
+source = { editable = "packages/belgie-oauth" }
+dependencies = [
+    { name = "belgie-core" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "belgie-core", editable = "packages/belgie-core" },
+    { name = "fastapi", specifier = ">=0.100" },
+    { name = "httpx", specifier = ">=0.24" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.0" },
 ]
 
 [[package]]

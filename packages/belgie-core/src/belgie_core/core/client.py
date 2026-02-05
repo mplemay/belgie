@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import UUID
 
 from belgie_proto import (
@@ -175,28 +176,64 @@ class BelgieClient[
 
         return await self.adapter.get_user_by_id(self.db, session.user_id)
 
-    async def sign_up(  # noqa: PLR0913
+    async def get_or_create_user(
         self,
         email: str,
         *,
-        request: Request | None = None,
         name: str | None = None,
         image: str | None = None,
         email_verified: bool = False,
+    ) -> tuple[UserT, bool]:
+        if user := await self.adapter.get_user_by_email(self.db, email):
+            return user, False
+
+        user = await self.adapter.create_user(
+            self.db,
+            email=email,
+            name=name,
+            image=image,
+            email_verified=email_verified,
+        )
+
+        async with self.hook_runner.dispatch("on_signup", HookContext(user=user, db=self.db)):
+            pass
+
+        return user, True
+
+    async def upsert_oauth_account(
+        self,
+        *,
+        user_id: UUID,
+        provider: str,
+        provider_account_id: str,
+        **tokens: Any,  # noqa: ANN401
+    ) -> AccountT:
+        if await self.adapter.get_account_by_user_and_provider(self.db, user_id, provider):
+            account = await self.adapter.update_account(
+                self.db,
+                user_id=user_id,
+                provider=provider,
+                **tokens,
+            )
+            if account is not None:
+                return account
+
+        return await self.adapter.create_account(
+            self.db,
+            user_id=user_id,
+            provider=provider,
+            provider_account_id=provider_account_id,
+            **tokens,
+        )
+
+    async def sign_in_user(
+        self,
+        user: UserT,
+        *,
+        request: Request | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
-    ) -> tuple[UserT, SessionT]:
-        if not (user := await self.adapter.get_user_by_email(self.db, email)):
-            user = await self.adapter.create_user(
-                self.db,
-                email=email,
-                name=name,
-                image=image,
-                email_verified=email_verified,
-            )
-            async with self.hook_runner.dispatch("on_signup", HookContext(user=user, db=self.db)):
-                pass
-
+    ) -> SessionT:
         if request:
             if ip_address is None and request.client:
                 ip_address = request.client.host
@@ -213,6 +250,31 @@ class BelgieClient[
         async with self.hook_runner.dispatch("on_signin", HookContext(user=user, db=self.db)):
             pass
 
+        return session
+
+    async def sign_up(  # noqa: PLR0913
+        self,
+        email: str,
+        *,
+        request: Request | None = None,
+        name: str | None = None,
+        image: str | None = None,
+        email_verified: bool = False,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> tuple[UserT, SessionT]:
+        user, _ = await self.get_or_create_user(
+            email,
+            name=name,
+            image=image,
+            email_verified=email_verified,
+        )
+        session = await self.sign_in_user(
+            user,
+            request=request,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
         return user, session
 
     def create_session_cookie[R: Response](self, session: SessionT, response: R) -> R:

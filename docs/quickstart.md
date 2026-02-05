@@ -78,11 +78,12 @@ class OAuthState(Base):
 ### 2. Configure Authentication
 
 ```python
-from belgie.auth import Auth, AuthSettings, GoogleProviderSettings
+from belgie import Belgie, BelgieSettings
 from belgie_alchemy import AlchemyAdapter
+from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
 
 # Configure settings
-settings = AuthSettings(
+settings = BelgieSettings(
     secret="your-secret-key-change-in-production",
     base_url="http://localhost:8000",
 )
@@ -95,18 +96,23 @@ adapter = AlchemyAdapter(
     oauth_state=OAuthState,
 )
 
+# Provide your DB dependency
+db = ...
+
 # Create auth instance
-auth = Auth(
+auth = Belgie(
     settings=settings,
     adapter=adapter,
-    providers={
-        "google": GoogleProviderSettings(
-            client_id="your-google-client-id",
-            client_secret="your-google-client-secret",
-            redirect_uri="http://localhost:8000/auth/provider/google/callback",
-            scopes=["openid", "email", "profile"],
-        ),
-    },
+    db=db,
+)
+auth.add_plugin(
+    GoogleOAuthPlugin,
+    GoogleOAuthSettings(
+        client_id="your-google-client-id",
+        client_secret="your-google-client-secret",
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
+        scopes=["openid", "email", "profile"],
+    ),
 )
 ```
 

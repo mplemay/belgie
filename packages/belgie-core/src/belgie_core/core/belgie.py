@@ -20,7 +20,6 @@ from belgie_core.core.client import BelgieClient
 from belgie_core.core.hooks import HookRunner, Hooks
 from belgie_core.core.plugin import Plugin
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
-from belgie_core.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from belgie_core.session.manager import SessionManager
 
 
@@ -78,9 +77,8 @@ class Belgie[
 ]:
     """Main authentication orchestrator for Belgie.
 
-    The Belgie class provides a complete OAuth 2.0 authentication solution with session management,
-    user creation, and FastAPI integration. It automatically loads OAuth providers from environment
-    variables and creates router endpoints for authentication.
+    The Belgie class provides session management, user creation, plugin registration,
+    and FastAPI integration.
 
     Type Parameters:
         UserT: User model type implementing UserProtocol
@@ -92,13 +90,11 @@ class Belgie[
         settings: Authentication configuration settings
         adapter: Database adapter for persistence operations
         session_manager: Session manager instance for session operations
-        providers: Dictionary of registered OAuth providers keyed by provider_id
         router: FastAPI router with authentication endpoints
 
     Example:
         >>> from belgie_core import Belgie, BelgieSettings
         >>> from belgie_alchemy import AlchemyAdapter
-        >>> from belgie_core.providers.google import GoogleOAuthProvider, GoogleProviderSettings
         >>> from myapp.models import User, Account, Session, OAuthState
         >>>
         >>> settings = BelgieSettings(
@@ -114,15 +110,7 @@ class Belgie[
         ... )
         >>> db = DatabaseSettings(dialect={"type": "sqlite", "database": ":memory:"})
         >>>
-        >>> # Explicitly pass provider settings
-        >>> providers: Providers = {
-        ...     "google": GoogleProviderSettings(
-        ...         client_id="your-client-id",
-        ...         client_secret="your-client-secret",
-        ...         redirect_uri="http://localhost:8000/auth/provider/google/callback",
-        ...     ),
-        ... }
-        >>> belgie = Belgie(settings=settings, adapter=adapter, providers=providers, db=db)
+        >>> belgie = Belgie(settings=settings, adapter=adapter, db=db)
         >>> app.include_router(belgie.router)
     """
 
@@ -134,7 +122,6 @@ class Belgie[
         settings: BelgieSettings,
         adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
         db: DBDependencyProvider,
-        providers: Providers | None = None,
         hooks: Hooks | None = None,
     ) -> None:
         """Initialize the Belgie instance.
@@ -143,8 +130,6 @@ class Belgie[
             settings: Authentication configuration including session, cookie, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
             db: Database dependency provider
-            providers: Dictionary of provider settings. Each setting is callable and returns its provider.
-                      If None, no providers are registered.
 
         Raises:
         """
@@ -161,13 +146,6 @@ class Belgie[
         self.hook_runner = HookRunner(hooks or Hooks())
 
         self.plugins: list[Plugin] = []
-
-        # Instantiate providers by calling the settings
-        self.providers: dict[str, OAuthProviderProtocol] = (
-            {provider_id: provider_settings() for provider_id, provider_settings in providers.items()}  # ty: ignore[call-non-callable]
-            if providers
-            else {}
-        )
 
     def add_plugin[P: Plugin, **PParams](
         self,
@@ -187,46 +165,28 @@ class Belgie[
         """
         instance = plugin(*args, **kwargs)
 
-        self.plugins.append(instance)  # ty: ignore[arg-type]
+        self.plugins.append(instance)
 
         return instance
 
     @property
     def router(self) -> APIRouter:
-        """FastAPI router with all provider routes.
+        """FastAPI router with plugin routes.
 
         Creates a router with the following structure:
-        - /auth/provider/{provider_id}/signin - Provider signin endpoints
-        - /auth/provider/{provider_id}/callback - Provider callback endpoints
+        - /auth/* plugin routes
         - /auth/signout - Global signout endpoint
 
         Returns:
             APIRouter with all authentication endpoints
         """
         main_router = APIRouter(prefix="/auth", tags=["auth"])
-        provider_router = APIRouter(prefix="/provider")
 
         if self.db is None:
             msg = "Belgie.db must be configured with a dependency"
             raise RuntimeError(msg)
         dependency = self.db.dependency
 
-        # Include all registered provider routers
-        for provider in self.providers.values():
-            # Provider's router has prefix /{provider_id}
-            # Combined with provider_router prefix: /auth/provider/{provider_id}/...
-            provider_specific_router = provider.get_router(
-                self.adapter,
-                self.settings.cookie,
-                session_max_age=self.settings.session.max_age,
-                signin_redirect=self.settings.urls.signin_redirect,
-                signout_redirect=self.settings.urls.signout_redirect,
-                hook_runner=self.hook_runner,
-                db_dependency=dependency,
-            )
-            provider_router.include_router(provider_specific_router)
-
-        # Include all registered plugin routers
         for plugin in self.plugins:
             main_router.include_router(plugin.router(self))
 
@@ -260,8 +220,6 @@ class Belgie[
 
             return response
 
-        # Include provider router in main router
-        main_router.include_router(provider_router)
         root_router = APIRouter()
         root_router.include_router(main_router)
 

@@ -89,7 +89,7 @@ def belgie_instance(
 
     fake_db = SimpleNamespace(dependency=get_db_override)
 
-    return Belgie(settings=belgie_settings, adapter=adapter, providers=None, db=fake_db)
+    return Belgie(settings=belgie_settings, adapter=adapter, db=fake_db)
 
 
 @pytest.fixture

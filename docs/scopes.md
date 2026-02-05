@@ -20,21 +20,23 @@ your app is requesting and can approve or deny access.
 
 ### Requesting Scopes
 
-Configure scopes in your `GoogleProviderSettings`:
+Configure scopes in your `GoogleOAuthSettings`:
 
 ```python
-from belgie.auth import AuthSettings
-from belgie.auth.providers.google import GoogleProviderSettings
+from belgie import Belgie, BelgieSettings
+from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
 
-settings = AuthSettings(secret="your-secret", base_url="http://localhost:8000")
-providers = {
-    "google": GoogleProviderSettings(
+settings = BelgieSettings(secret="your-secret", base_url="http://localhost:8000")
+belgie = Belgie(settings=settings, adapter=adapter, db=db)
+belgie.add_plugin(
+    GoogleOAuthPlugin,
+    GoogleOAuthSettings(
         client_id="your-client-id",
         client_secret="your-client-secret",
         redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],  # Request these scopes
     ),
-}
+)
 ```
 
 ## Validating Scopes in Routes
@@ -186,24 +188,19 @@ async def request_calendar(user: User = Depends(auth.user)):
     # Redirect user to OAuth with additional scopes
     new_scopes = ["openid", "email", "profile", "calendar.readonly"]
 
-    settings_with_calendar = AuthSettings(secret=settings.secret, base_url=settings.base_url)
-    calendar_providers = {
-        "google": GoogleProviderSettings(
+    settings_with_calendar = BelgieSettings(secret=settings.secret, base_url=settings.base_url)
+    calendar_auth = Belgie(settings=settings_with_calendar, adapter=adapter, db=db)
+    calendar_auth.add_plugin(
+        GoogleOAuthPlugin,
+        GoogleOAuthSettings(
             client_id="your-google-client-id",
             client_secret="your-google-client-secret",
             redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=new_scopes,
         ),
-    }
+    )
 
-    # Create temporary auth instance with new scopes
-    calendar_auth = Auth(settings=settings_with_calendar, adapter=adapter, providers=calendar_providers)
-
-    # Generate new authorization URL
-    async with get_db() as db:
-        url = await calendar_auth.get_google_signin_url(db)
-
-    return RedirectResponse(url=url)
+    return RedirectResponse(url="/auth/provider/google/signin")
 ```
 
 ## Scope Utilities
@@ -213,7 +210,7 @@ Belgie provides utility functions for working with scopes:
 ### Parse Scopes
 
 ```python
-from belgie.auth.utils.scopes import parse_scopes
+from belgie import parse_scopes
 
 # From comma-separated string
 scopes = parse_scopes("email, profile, openid")
@@ -227,7 +224,7 @@ scopes = parse_scopes('["email", "profile"]')
 ### Validate Scopes
 
 ```python
-from belgie.auth.utils.scopes import validate_scopes
+from belgie import validate_scopes
 
 user_scopes = ["openid", "email", "profile"]
 required_scopes = ["email", "profile"]

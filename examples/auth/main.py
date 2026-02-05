@@ -9,10 +9,10 @@ from belgie import (
     Belgie,
     BelgieSettings,
     CookieSettings,
-    GoogleProviderSettings,
     SessionSettings,
     URLSettings,
 )
+from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 db_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_auth_example.db", "echo": True})
@@ -57,14 +57,15 @@ belgie = Belgie(
     settings=settings,
     adapter=adapter,
     db=db_settings,
-    providers={
-        "google": GoogleProviderSettings(
-            client_id="your-google-client-id",
-            client_secret="your-google-client-secret",  # noqa: S106
-            redirect_uri="http://localhost:8000/auth/provider/google/callback",
-            scopes=["openid", "email", "profile"],
-        ),
-    },
+)
+belgie.add_plugin(
+    GoogleOAuthPlugin,
+    GoogleOAuthSettings(
+        client_id="your-google-client-id",
+        client_secret="your-google-client-secret",  # noqa: S106
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
+        scopes=["openid", "email", "profile"],
+    ),
 )
 
 app.include_router(belgie.router)
@@ -74,7 +75,7 @@ app.include_router(belgie.router)
 async def home() -> dict[str, str]:
     return {
         "message": "welcome to belgie example app",
-        "signin": "/auth/signin/google",
+        "signin": "/auth/provider/google/signin",
         "protected": "/protected",
         "dashboard": "/dashboard",
     }

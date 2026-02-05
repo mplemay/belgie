@@ -74,7 +74,7 @@ def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: Asy
         return db_session
 
     fake_db = SimpleNamespace(dependency=get_test_db)
-    return Belgie(settings=auth_settings, adapter=adapter, providers=None, db=fake_db)
+    return Belgie(settings=auth_settings, adapter=adapter, db=fake_db)
 
 
 @pytest.fixture

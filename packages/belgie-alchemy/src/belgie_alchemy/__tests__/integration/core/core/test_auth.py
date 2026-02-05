@@ -8,7 +8,7 @@ from belgie_alchemy import AlchemyAdapter
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_core.providers.google import GoogleProviderSettings
+from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings
 from fastapi import HTTPException, Request
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,35 +48,31 @@ def adapter() -> AlchemyAdapter:
 
 @pytest.fixture
 def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Belgie:
-    # Pass provider settings (not instances)
-    providers = {
-        "google": GoogleProviderSettings(
+    async def get_db_override() -> AsyncSession:
+        return db_session
+
+    fake_db = SimpleNamespace(dependency=get_db_override)
+    belgie = Belgie(
+        settings=auth_settings,
+        adapter=adapter,
+        db=fake_db,
+    )
+    belgie.add_plugin(
+        GoogleOAuthPlugin,
+        GoogleOAuthSettings(
             client_id="test-client-id",
             client_secret="test-client-secret",
             redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=["openid", "email", "profile"],
         ),
-    }
-
-    async def get_db_override() -> AsyncSession:
-        return db_session
-
-    fake_db = SimpleNamespace(dependency=get_db_override)
-
-    return Belgie(
-        settings=auth_settings,
-        adapter=adapter,
-        providers=providers,
-        db=fake_db,
     )
+    return belgie
 
 
 def test_auth_initialization(auth: Belgie, auth_settings: BelgieSettings) -> None:
     assert auth.settings == auth_settings
     assert auth.adapter is not None
     assert auth.session_manager is not None
-    assert auth.providers is not None
-    assert isinstance(auth.providers, dict)
     assert auth.router is not None
 
 
