@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
-from belgie_core.core.protocols import Plugin
+from belgie_core.core.plugin import Plugin
 from fastapi import APIRouter
 
 from belgie_mcp.metadata import create_protected_resource_metadata_router
@@ -52,7 +52,7 @@ class McpPlugin(Plugin):
     def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         return APIRouter()
 
-    def public_router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+    def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         return create_protected_resource_metadata_router(
             self.auth,
             include_root_fallback=self._include_root_fallback,

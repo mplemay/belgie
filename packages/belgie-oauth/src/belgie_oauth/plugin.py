@@ -5,7 +5,7 @@ import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlunparse
 
-from belgie_core.core.protocols import Plugin
+from belgie_core.core.plugin import Plugin
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
@@ -77,7 +77,7 @@ class OAuthPlugin(Plugin):
 
         return create_oauth_metadata_router()
 
-    def public_router(self, belgie: Belgie) -> APIRouter:
+    def public(self, belgie: Belgie) -> APIRouter:
         if self._metadata_router is None:
             self._metadata_router = self.metadata_router(belgie)
         return self._metadata_router

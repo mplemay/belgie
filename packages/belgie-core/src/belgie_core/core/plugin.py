@@ -14,6 +14,6 @@ class Plugin(Protocol):
         """Return the FastAPI router for this plugin."""
         ...
 
-    def public_router(self, belgie: "Belgie") -> APIRouter:
+    def public(self, belgie: "Belgie") -> APIRouter:
         """Return the FastAPI router for public root-level routes."""
         ...
