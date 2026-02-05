@@ -22,7 +22,11 @@ class PostgresSettings(BaseSettings):
     Example: BELGIE_POSTGRES_HOST=localhost
     """
 
-    model_config = SettingsConfigDict(env_prefix="BELGIE_POSTGRES_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_POSTGRES_",
+        env_file=".env",
+        extra="ignore",
+    )
 
     type: Literal["postgres"] = "postgres"
     host: str
@@ -45,7 +49,11 @@ class SqliteSettings(BaseSettings):
     Example: BELGIE_SQLITE_DATABASE=:memory:
     """
 
-    model_config = SettingsConfigDict(env_prefix="BELGIE_SQLITE_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_SQLITE_",
+        env_file=".env",
+        extra="ignore",
+    )
 
     type: Literal["sqlite"] = "sqlite"
     database: str
@@ -71,6 +79,7 @@ class DatabaseSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_DATABASE_",
+        env_file=".env",
         extra="ignore",
     )
 
