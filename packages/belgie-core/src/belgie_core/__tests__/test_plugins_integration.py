@@ -109,3 +109,64 @@ def test_plugin_public_included(belgie_instance: Belgie) -> None:
     response = client.get("/root")
     assert response.status_code == 200
     assert response.json() == {"message": "root"}
+
+
+def test_plugin_router_none_public_included(belgie_instance: Belgie) -> None:
+    class PublicOnlyPlugin(DummyPlugin):
+        def router(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+            return None
+
+        def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+            router = APIRouter()
+
+            @router.get("/public-only")
+            def public_route() -> dict[str, str]:
+                return {"message": "public"}
+
+            return router
+
+    belgie_instance.add_plugin(PublicOnlyPlugin)
+
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    client = TestClient(app)
+
+    assert client.get("/auth/dummy").status_code == 404
+    response = client.get("/public-only")
+    assert response.status_code == 200
+    assert response.json() == {"message": "public"}
+
+
+def test_plugin_public_none_router_included(belgie_instance: Belgie) -> None:
+    class AuthOnlyPlugin(DummyPlugin):
+        def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+            return None
+
+    belgie_instance.add_plugin(AuthOnlyPlugin)
+
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    client = TestClient(app)
+
+    assert client.get("/auth/dummy").status_code == 200
+    assert client.get("/root").status_code == 404
+
+
+def test_plugin_router_and_public_none_keeps_signout_route(belgie_instance: Belgie) -> None:
+    class NoRoutesPlugin(DummyPlugin):
+        def router(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+            return None
+
+        def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+            return None
+
+    belgie_instance.add_plugin(NoRoutesPlugin)
+
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    client = TestClient(app)
+
+    assert client.get("/auth/dummy").status_code == 404
+    assert client.get("/root").status_code == 404
+    assert any(route.path == "/auth/signout" for route in app.routes)
+    assert client.post("/auth/signout", follow_redirects=False).status_code == 302
