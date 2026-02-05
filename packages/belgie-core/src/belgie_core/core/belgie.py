@@ -191,8 +191,7 @@ class Belgie[
         dependency = self.db.dependency
 
         for plugin in self.plugins:
-            plugin_router = plugin.router(self)
-            if plugin_router is not None:
+            if (plugin_router := plugin.router(self)) is not None:
                 main_router.include_router(plugin_router)
 
         # Add signout endpoint to main router (not provider-specific)
@@ -229,8 +228,7 @@ class Belgie[
         root_router.include_router(main_router)
 
         for plugin in self.plugins:
-            public_router = plugin.public(self)
-            if public_router is not None:
+            if (public_router := plugin.public(self)) is not None:
                 root_router.include_router(public_router)
 
         return root_router
