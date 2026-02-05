@@ -191,7 +191,8 @@ class Belgie[
         dependency = self.db.dependency
 
         for plugin in self.plugins:
-            main_router.include_router(plugin.router(self))
+            if (plugin_router := plugin.router(self)) is not None:
+                main_router.include_router(plugin_router)
 
         # Add signout endpoint to main router (not provider-specific)
         async def _get_db(db: DBConnection = Depends(dependency)) -> DBConnection:  # noqa: B008
@@ -227,7 +228,8 @@ class Belgie[
         root_router.include_router(main_router)
 
         for plugin in self.plugins:
-            root_router.include_router(plugin.public(self))
+            if (public_router := plugin.public(self)) is not None:
+                root_router.include_router(public_router)
 
         return root_router
 

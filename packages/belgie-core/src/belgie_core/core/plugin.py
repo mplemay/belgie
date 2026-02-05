@@ -10,10 +10,10 @@ if TYPE_CHECKING:
 class Plugin(Protocol):
     """Protocol for Belgie plugins."""
 
-    def router(self, belgie: "Belgie") -> APIRouter:
+    def router(self, belgie: "Belgie") -> APIRouter | None:
         """Return the FastAPI router for this plugin."""
         ...
 
-    def public(self, belgie: "Belgie") -> APIRouter:
+    def public(self, belgie: "Belgie") -> APIRouter | None:
         """Return the FastAPI router for public root-level routes."""
         ...
