@@ -16,7 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import AlchemyAdapter, DatabaseSettings
-from belgie.mcp import McpPlugin, configure_mcp_user_lookup, get_user_from_access_token
+from belgie.mcp import McpPlugin, UserLookup
 from belgie.oauth import OAuthPlugin, OAuthSettings
 
 if TYPE_CHECKING:
@@ -186,7 +186,7 @@ mcp_plugin = belgie.add_plugin(
     oauth_settings,
     base_url=settings.base_url,
 )
-configure_mcp_user_lookup(belgie)
+user_lookup = UserLookup()
 
 mcp_server = MCPServer(
     name="Belgie MCP",
@@ -206,7 +206,7 @@ app.mount("/mcp", mcp_app)
 
 @mcp_server.tool()
 async def get_time() -> dict[str, Any]:
-    user = await get_user_from_access_token()
+    user = await user_lookup.get_user_from_access_token(belgie)
     now = datetime.datetime.now(datetime.UTC)
     return {
         "user_id": str(user.id) if user else None,

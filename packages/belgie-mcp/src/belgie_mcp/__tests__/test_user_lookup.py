@@ -11,8 +11,7 @@ import pytest
 
 pytest.importorskip("mcp")
 
-from belgie_mcp import user as user_module
-from belgie_mcp.user import configure_mcp_user_lookup, get_user_from_access_token
+from belgie_mcp.user import UserLookup
 from mcp.server.auth.middleware.auth_context import auth_context_var
 
 
@@ -92,55 +91,53 @@ def _b64url(payload: dict[str, object]) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
-def _configure_lookup(user: FakeUser | None) -> None:
+def _build_belgie(user: FakeUser | None) -> FakeBelgie:
     adapter = FakeAdapter(user)
     db = object()
-    belgie = FakeBelgie(adapter, FakeDBProvider(db))
-    configure_mcp_user_lookup(belgie)
-
-
-@pytest.fixture(autouse=True)
-def _reset_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(user_module, "_user_lookup_config", [])
+    return FakeBelgie(adapter, FakeDBProvider(db))
 
 
 @pytest.mark.asyncio
 async def test_get_user_no_token_returns_none() -> None:
-    _configure_lookup(user=None)
+    belgie = _build_belgie(user=None)
+    lookup = UserLookup()
 
-    result = await get_user_from_access_token()
+    result = await lookup.get_user_from_access_token(belgie)
 
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_get_user_malformed_jwt_returns_none() -> None:
-    _configure_lookup(user=None)
+    belgie = _build_belgie(user=None)
+    lookup = UserLookup()
 
     with _set_access_token("not-a-jwt"):
-        result = await get_user_from_access_token()
+        result = await lookup.get_user_from_access_token(belgie)
 
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_get_user_missing_sub_returns_none() -> None:
-    _configure_lookup(user=None)
+    belgie = _build_belgie(user=None)
+    lookup = UserLookup()
     token = _build_jwt({"iss": "issuer"})
 
     with _set_access_token(token):
-        result = await get_user_from_access_token()
+        result = await lookup.get_user_from_access_token(belgie)
 
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_get_user_non_uuid_sub_returns_none() -> None:
-    _configure_lookup(user=None)
+    belgie = _build_belgie(user=None)
+    lookup = UserLookup()
     token = _build_jwt({"sub": "not-a-uuid"})
 
     with _set_access_token(token):
-        result = await get_user_from_access_token()
+        result = await lookup.get_user_from_access_token(belgie)
 
     assert result is None
 
@@ -157,10 +154,11 @@ async def test_get_user_valid_sub_returns_user() -> None:
         updated_at=datetime.now(UTC),
         scopes=["user"],
     )
-    _configure_lookup(user=user)
+    belgie = _build_belgie(user=user)
+    lookup = UserLookup()
     token = _build_jwt({"sub": str(user.id)})
 
     with _set_access_token(token):
-        result = await get_user_from_access_token()
+        result = await lookup.get_user_from_access_token(belgie)
 
     assert result is user
