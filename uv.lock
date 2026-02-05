@@ -196,6 +196,7 @@ version = "0.1.0"
 source = { editable = "packages/belgie-oauth" }
 dependencies = [
     { name = "belgie-core" },
+    { name = "belgie-proto" },
     { name = "fastapi" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -205,6 +206,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "belgie-core", editable = "packages/belgie-core" },
+    { name = "belgie-proto", editable = "packages/belgie-proto" },
     { name = "fastapi", specifier = ">=0.100" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
