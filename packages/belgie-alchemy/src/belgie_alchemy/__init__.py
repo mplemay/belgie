@@ -20,11 +20,13 @@ For complete auth model examples, see examples/alchemy/auth_models.py
 from belgie_alchemy.adapter import AlchemyAdapter
 from belgie_alchemy.base import Base
 from belgie_alchemy.mixins import PrimaryKeyMixin, TimestampMixin
+from belgie_alchemy.oauth_adapter import AlchemyOAuthAdapter
 from belgie_alchemy.settings import DatabaseSettings
 from belgie_alchemy.types import DateTimeUTC
 
 __all__ = [
     "AlchemyAdapter",
+    "AlchemyOAuthAdapter",
     "Base",
     "DatabaseSettings",
     "DateTimeUTC",
