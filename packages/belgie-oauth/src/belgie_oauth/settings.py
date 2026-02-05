@@ -9,7 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class OAuthSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_OAUTH_")
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_OAUTH_",
+        env_file=".env",
+        extra="ignore",
+    )
 
     base_url: AnyHttpUrl | None = None
     route_prefix: str = "/oauth"

@@ -16,7 +16,7 @@ from belgie_proto import (
 )
 from fastapi import APIRouter
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 @dataclass
@@ -202,6 +202,11 @@ def test_alchemy_adapter_no_longer_has_dependency() -> None:
 
 class MockProviderSettings(BaseSettings):
     """Mock provider settings for testing."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
 
     client_id: str = Field(default="test_client_id")
     client_secret: str = Field(default="test_secret")

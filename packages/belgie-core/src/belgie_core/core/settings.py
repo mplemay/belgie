@@ -17,6 +17,11 @@ class ProviderSettings(BaseSettings):
     Subclasses must implement __call__ to construct their provider instance.
     """
 
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
+
     client_id: str
     client_secret: SecretStr
     redirect_uri: str
@@ -52,14 +57,22 @@ class ProviderSettings(BaseSettings):
 
 
 class SessionSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_SESSION_")
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_SESSION_",
+        env_file=".env",
+        extra="ignore",
+    )
 
     max_age: int = Field(default=604800)
     update_age: int = Field(default=86400)
 
 
 class CookieSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_COOKIE_")
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_COOKIE_",
+        env_file=".env",
+        extra="ignore",
+    )
 
     name: str = Field(default="belgie_session")
     secure: bool = Field(default=True)
@@ -69,7 +82,11 @@ class CookieSettings(BaseSettings):
 
 
 class URLSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="BELGIE_URLS_")
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_URLS_",
+        env_file=".env",
+        extra="ignore",
+    )
 
     signin_redirect: str = Field(default="/dashboard")
     signout_redirect: str = Field(default="/")
@@ -81,6 +98,7 @@ class BelgieSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     secret: str
