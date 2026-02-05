@@ -62,7 +62,7 @@ async def test_authorize_returns_401_without_login_url(
     )
     belgie_instance.add_plugin(OAuthPlugin, settings)
     app = FastAPI()
-    app.include_router(belgie_instance.router())
+    app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         verifier = "verifier"
@@ -90,7 +90,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     )
     belgie_instance.add_plugin(OAuthPlugin, settings)
     app = FastAPI()
-    app.include_router(belgie_instance.router())
+    app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
