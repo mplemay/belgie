@@ -76,7 +76,7 @@ oauth_settings = OAuthSettings(
 
 belgie.add_plugin(OAuthPlugin, oauth_settings)
 
-app.include_router(belgie.router())
+app.include_router(belgie.router)
 
 
 @app.get("/")

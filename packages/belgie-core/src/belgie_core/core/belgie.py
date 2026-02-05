@@ -93,7 +93,7 @@ class Belgie[
         adapter: Database adapter for persistence operations
         session_manager: Session manager instance for session operations
         providers: Dictionary of registered OAuth providers keyed by provider_id
-        router: FastAPI router with authentication endpoints (cached property)
+        router: FastAPI router with authentication endpoints
 
     Example:
         >>> from belgie_core import Belgie, BelgieSettings
@@ -191,6 +191,7 @@ class Belgie[
 
         return instance
 
+    @property
     def router(self) -> APIRouter:
         """FastAPI router with all provider routes.
 

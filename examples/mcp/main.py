@@ -194,7 +194,7 @@ mcp_server = MCPServer(
     auth=mcp_plugin.auth,
 )
 
-app.include_router(belgie.router())
+app.include_router(belgie.router)
 
 mcp_app = mcp_server.streamable_http_app(
     streamable_http_path="/",
