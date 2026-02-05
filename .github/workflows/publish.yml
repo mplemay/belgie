@@ -55,9 +55,9 @@ jobs:
         if: steps.tag_check.outputs.on_main == 'true'
         working-directory: packages/belgie-mcp
         run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-oauth version
+      - name: Bump belgie-oauth-server version
         if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-oauth
+        working-directory: packages/belgie-oauth-server
         run: uv version "${{ steps.version.outputs.version }}"
       - name: Bump belgie version
         if: steps.tag_check.outputs.on_main == 'true'

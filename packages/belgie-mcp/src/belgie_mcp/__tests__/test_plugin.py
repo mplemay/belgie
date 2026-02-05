@@ -8,7 +8,7 @@ pytest.importorskip("mcp")
 
 from belgie_mcp.plugin import McpPlugin
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier
-from belgie_oauth.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthSettings
 
 
 def test_mcp_plugin_builds_auth_and_verifier() -> None:

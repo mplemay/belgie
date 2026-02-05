@@ -11,7 +11,7 @@ from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
 
 if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
-    from belgie_oauth.settings import OAuthSettings
+    from belgie_oauth_server.settings import OAuthSettings
     from mcp.server.auth.provider import TokenVerifier
     from mcp.server.auth.settings import AuthSettings
     from pydantic import AnyHttpUrl

@@ -1,11 +1,11 @@
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from belgie_oauth import provider as provider_module
-from belgie_oauth.models import OAuthClientMetadata
-from belgie_oauth.provider import AccessToken, AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth.settings import OAuthSettings
-from belgie_oauth.utils import create_code_challenge
+from belgie_oauth_server import provider as provider_module
+from belgie_oauth_server.models import OAuthClientMetadata
+from belgie_oauth_server.provider import AccessToken, AuthorizationParams, SimpleOAuthProvider
+from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.utils import create_code_challenge
 
 
 @pytest.mark.asyncio

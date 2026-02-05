@@ -18,11 +18,11 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 PACKAGES_ROOT = Path(__file__).resolve().parents[6]
-OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth" / "src"
+OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth-server" / "src"
 if str(OAUTH_SRC) not in sys.path:
     sys.path.insert(0, str(OAUTH_SRC))
 
-from belgie_oauth import OAuthPlugin, OAuthSettings  # noqa: E402
+from belgie_oauth_server import OAuthPlugin, OAuthSettings  # noqa: E402
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker

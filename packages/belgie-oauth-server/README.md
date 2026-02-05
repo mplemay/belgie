@@ -1,4 +1,4 @@
-# belgie-oauth
+# belgie-oauth-server
 
 OAuth 2.1 authorization server package for Belgie.
 

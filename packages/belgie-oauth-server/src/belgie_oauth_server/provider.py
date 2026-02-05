@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import AnyUrl
 
-from belgie_oauth.models import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from belgie_oauth.utils import construct_redirect_uri
+from belgie_oauth_server.models import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from belgie_oauth_server.utils import construct_redirect_uri
 
 if TYPE_CHECKING:
-    from belgie_oauth.settings import OAuthSettings
+    from belgie_oauth_server.settings import OAuthSettings
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

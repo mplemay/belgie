@@ -1,6 +1,6 @@
 import httpx
 import pytest
-from belgie_oauth.plugin import OAuthPlugin
+from belgie_oauth_server.plugin import OAuthPlugin
 
 
 @pytest.mark.asyncio

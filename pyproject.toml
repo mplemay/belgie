@@ -24,7 +24,7 @@ alchemy = [
 all = [
     "belgie-alchemy",
     "belgie-mcp",
-    "belgie-oauth",
+    "belgie-oauth-server",
 ]
 examples = [
     "uvicorn[standard]>=0.38.0",
@@ -33,7 +33,7 @@ mcp = [
     "belgie-mcp",
 ]
 oauth = [
-    "belgie-oauth",
+    "belgie-oauth-server",
 ]
 
 [build-system]
@@ -58,7 +58,7 @@ source-exclude = ["**/__tests__/**"]
 [tool.uv.sources]
 belgie-core = { workspace = true }
 belgie-mcp = { workspace = true }
-belgie-oauth = { workspace = true }
+belgie-oauth-server = { workspace = true }
 belgie-proto = { workspace = true }
 belgie-alchemy = { workspace = true }
 
@@ -67,7 +67,7 @@ members = [
     "packages/belgie-alchemy",
     "packages/belgie-core",
     "packages/belgie-mcp",
-    "packages/belgie-oauth",
+    "packages/belgie-oauth-server",
     "packages/belgie-proto",
 ]
 

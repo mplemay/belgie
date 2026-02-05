@@ -11,16 +11,16 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
 from pydantic import AnyUrl, ValidationError
 
-from belgie_oauth.metadata import build_oauth_metadata, build_oauth_metadata_well_known_path
-from belgie_oauth.models import (
+from belgie_oauth_server.metadata import build_oauth_metadata, build_oauth_metadata_well_known_path
+from belgie_oauth_server.models import (
     InvalidRedirectUriError,
     InvalidScopeError,
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthMetadata,
 )
-from belgie_oauth.provider import AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth.utils import construct_redirect_uri, create_code_challenge, join_url
+from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
+from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge, join_url
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
 
-    from belgie_oauth.settings import OAuthSettings
+    from belgie_oauth_server.settings import OAuthSettings
 
 
 class OAuthPlugin(Plugin):

@@ -1,7 +1,7 @@
 [project]
-name = "belgie-oauth"
+name = "belgie-oauth-server"
 version = "0.1.0"
-description = "Add your description here"
+description = "OAuth 2.1 authorization server for Belgie"
 readme = "README.md"
 authors = [
     { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
