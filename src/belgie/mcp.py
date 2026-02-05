@@ -8,6 +8,7 @@ try:
         McpPlugin,
         UserLookup,
         create_protected_resource_metadata_router,
+        get_user_from_access_token,
         mcp_auth,
         mcp_token_verifier,
     )
@@ -19,6 +20,7 @@ __all__ = [
     "McpPlugin",
     "UserLookup",
     "create_protected_resource_metadata_router",
+    "get_user_from_access_token",
     "mcp_auth",
     "mcp_token_verifier",
 ]

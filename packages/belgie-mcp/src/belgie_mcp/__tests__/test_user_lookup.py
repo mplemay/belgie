@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("mcp")
 
-from belgie_mcp.user import UserLookup
+from belgie_mcp.user import get_user_from_access_token
 from mcp.server.auth.middleware.auth_context import auth_context_var
 
 
@@ -100,9 +100,8 @@ def _build_belgie(user: FakeUser | None) -> FakeBelgie:
 @pytest.mark.asyncio
 async def test_get_user_no_token_returns_none() -> None:
     belgie = _build_belgie(user=None)
-    lookup = UserLookup()
 
-    result = await lookup.get_user_from_access_token(belgie)
+    result = await get_user_from_access_token(belgie)
 
     assert result is None
 
@@ -110,10 +109,9 @@ async def test_get_user_no_token_returns_none() -> None:
 @pytest.mark.asyncio
 async def test_get_user_malformed_jwt_returns_none() -> None:
     belgie = _build_belgie(user=None)
-    lookup = UserLookup()
 
     with _set_access_token("not-a-jwt"):
-        result = await lookup.get_user_from_access_token(belgie)
+        result = await get_user_from_access_token(belgie)
 
     assert result is None
 
@@ -121,11 +119,10 @@ async def test_get_user_malformed_jwt_returns_none() -> None:
 @pytest.mark.asyncio
 async def test_get_user_missing_sub_returns_none() -> None:
     belgie = _build_belgie(user=None)
-    lookup = UserLookup()
     token = _build_jwt({"iss": "issuer"})
 
     with _set_access_token(token):
-        result = await lookup.get_user_from_access_token(belgie)
+        result = await get_user_from_access_token(belgie)
 
     assert result is None
 
@@ -133,11 +130,10 @@ async def test_get_user_missing_sub_returns_none() -> None:
 @pytest.mark.asyncio
 async def test_get_user_non_uuid_sub_returns_none() -> None:
     belgie = _build_belgie(user=None)
-    lookup = UserLookup()
     token = _build_jwt({"sub": "not-a-uuid"})
 
     with _set_access_token(token):
-        result = await lookup.get_user_from_access_token(belgie)
+        result = await get_user_from_access_token(belgie)
 
     assert result is None
 
@@ -155,10 +151,9 @@ async def test_get_user_valid_sub_returns_user() -> None:
         scopes=["user"],
     )
     belgie = _build_belgie(user=user)
-    lookup = UserLookup()
     token = _build_jwt({"sub": str(user.id)})
 
     with _set_access_token(token):
-        result = await lookup.get_user_from_access_token(belgie)
+        result = await get_user_from_access_token(belgie)
 
     assert result is user

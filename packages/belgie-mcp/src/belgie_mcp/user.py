@@ -106,3 +106,7 @@ class UserLookup:
     async def _load_user_from_db(belgie: Belgie, db: DBConnection, user_id: UUID) -> UserProtocol | None:
         client = belgie(db)
         return await client.adapter.get_user_by_id(client.db, user_id)
+
+
+async def get_user_from_access_token(belgie: Belgie) -> UserProtocol | None:
+    return await UserLookup().get_user_from_access_token(belgie)
