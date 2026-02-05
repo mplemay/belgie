@@ -14,14 +14,26 @@ class OAuthSettings(BaseSettings):
     base_url: AnyHttpUrl | None = None
     route_prefix: str = "/oauth"
     login_url: str | None = None
+    consent_url: str | None = None
+    post_login_url: str | None = None
+    select_account_url: str | None = None
+    end_session_url: str | None = None
 
     client_id: str = "belgie_client"
     client_secret: SecretStr | None = None
     redirect_uris: list[AnyUrl] = Field(..., min_length=1)
     default_scope: str = "user"
+    scopes: list[str] | None = None
+    grant_types: list[str] | None = None
+
+    allow_dynamic_client_registration: bool = False
+    allow_unauthenticated_client_registration: bool = False
+    client_registration_allowed_scopes: list[str] | None = None
+    client_registration_default_scopes: list[str] | None = None
 
     authorization_code_ttl_seconds: int = 300
     access_token_ttl_seconds: int = 3600
+    refresh_token_ttl_seconds: int = 2592000
     state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"
 
