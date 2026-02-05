@@ -105,7 +105,7 @@ auth = Belgie(
     adapter=adapter,
     db=db,
 )
-auth.add_plugin(
+google_oauth_plugin = auth.add_plugin(
     GoogleOAuthPlugin,
     GoogleOAuthSettings(
         client_id="your-google-client-id",
@@ -119,12 +119,25 @@ auth.add_plugin(
 ### 3. Add to FastAPI App
 
 ```python
-from fastapi import FastAPI, Depends
+from typing import Annotated
+
+from fastapi import Depends, FastAPI
+from fastapi.responses import RedirectResponse
+from belgie.oauth_client import GoogleOAuthClient
 
 app = FastAPI()
 
-# Include auth router (provides /auth/provider/google/signin, /auth/provider/google/callback, /auth/signout)
+# Include auth router (provides /auth/provider/google/callback and /auth/signout)
 app.include_router(auth.router)
+
+
+@app.get("/login/google")
+async def login_google(
+    google: Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)],
+    return_to: str | None = None,
+):
+    auth_url = await google.signin_url(return_to=return_to)
+    return RedirectResponse(url=auth_url, status_code=302)
 
 # Protect routes with auth.user
 @app.get("/protected")

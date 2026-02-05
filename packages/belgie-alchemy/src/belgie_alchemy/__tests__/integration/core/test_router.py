@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Annotated
 
 import httpx
 import pytest
@@ -9,9 +8,8 @@ from belgie_alchemy import AlchemyAdapter
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_oauth import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
-from fastapi import Depends, FastAPI
-from fastapi.responses import RedirectResponse
+from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,20 +67,10 @@ def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: Asy
 
 
 @pytest.fixture
-def app(auth: Belgie) -> FastAPI:
+def app(auth: Belgie, add_google_login_route) -> FastAPI:
     app = FastAPI()
     app.include_router(auth.router, dependencies=[])
-
-    google_plugin = next(plugin for plugin in auth.plugins if isinstance(plugin, GoogleOAuthPlugin))
-
-    @app.get("/login/google")
-    async def login_google(
-        google: Annotated[GoogleOAuthClient, Depends(google_plugin)],
-        return_to: str | None = None,
-    ) -> RedirectResponse:
-        auth_url = await google.signin_url(return_to=return_to)
-        return RedirectResponse(url=auth_url, status_code=302)
-
+    add_google_login_route(app, auth)
     return app
 
 
@@ -120,6 +108,108 @@ def test_signin_google_creates_oauth_state(client: TestClient, auth: Belgie, db_
         assert oauth_state.state == state_param
 
     asyncio.run(check_state())
+
+
+@respx.mock
+def test_callback_redirects_to_relative_return_to(client: TestClient) -> None:
+    signin_response = client.get("/login/google?return_to=%2Fafter", follow_redirects=False)
+    state_param = [  # noqa: RUF015
+        param.split("=")[1]
+        for param in signin_response.headers["location"].split("?")[1].split("&")
+        if param.startswith("state=")
+    ][0]
+
+    mock_token_response = {
+        "access_token": "test-access-token",
+        "expires_in": 3600,
+        "token_type": "Bearer",
+        "scope": "openid email profile",
+    }
+    mock_user_info = {
+        "id": "google-relative-redirect",
+        "email": "relative@example.com",
+        "verified_email": True,
+    }
+
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+
+    callback = client.get(
+        f"/auth/provider/google/callback?code=test-code&state={state_param}",
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/after"
+
+
+@respx.mock
+def test_callback_redirects_to_same_origin_absolute_return_to(client: TestClient) -> None:
+    signin_response = client.get(
+        "/login/google?return_to=http%3A%2F%2Flocalhost%3A8000%2Fafter%3Ftab%3Dsecurity",
+        follow_redirects=False,
+    )
+    state_param = [  # noqa: RUF015
+        param.split("=")[1]
+        for param in signin_response.headers["location"].split("?")[1].split("&")
+        if param.startswith("state=")
+    ][0]
+
+    mock_token_response = {
+        "access_token": "test-access-token",
+        "expires_in": 3600,
+        "token_type": "Bearer",
+        "scope": "openid email profile",
+    }
+    mock_user_info = {
+        "id": "google-absolute-redirect",
+        "email": "absolute@example.com",
+        "verified_email": True,
+    }
+
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+
+    callback = client.get(
+        f"/auth/provider/google/callback?code=test-code&state={state_param}",
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "http://localhost:8000/after?tab=security"
+
+
+@respx.mock
+def test_callback_rejects_cross_origin_return_to(client: TestClient) -> None:
+    signin_response = client.get("/login/google?return_to=https%3A%2F%2Fexample.com%2Fpwn", follow_redirects=False)
+    state_param = [  # noqa: RUF015
+        param.split("=")[1]
+        for param in signin_response.headers["location"].split("?")[1].split("&")
+        if param.startswith("state=")
+    ][0]
+
+    mock_token_response = {
+        "access_token": "test-access-token",
+        "expires_in": 3600,
+        "token_type": "Bearer",
+        "scope": "openid email profile",
+    }
+    mock_user_info = {
+        "id": "google-cross-origin-redirect",
+        "email": "fallback@example.com",
+        "verified_email": True,
+    }
+
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+
+    callback = client.get(
+        f"/auth/provider/google/callback?code=test-code&state={state_param}",
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/dashboard"
 
 
 @respx.mock

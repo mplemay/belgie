@@ -26,8 +26,7 @@ zero glue code. Keep your data, skip per-user SaaS bills, and still get a polish
 
 ## Features at a glance
 
-- Google OAuth plugin with ready-made routes (`/auth/provider/google/signin`, `/auth/provider/google/callback`,
-  `/auth/signout`).
+- Google OAuth plugin with app-owned signin route support and callback/signout endpoints.
 - Session manager with sliding expiry and secure cookie defaults (HttpOnly, SameSite, Secure).
 - Scope-aware dependency for route protection (`Security(auth.user, scopes=[...])`).
 - Modern Python (3.12+), full typing, and protocol-based models.
@@ -131,7 +130,7 @@ auth = Belgie(
     db=db,
 )
 
-auth.add_plugin(
+google_oauth_plugin = auth.add_plugin(
     GoogleOAuthPlugin,
     GoogleOAuthSettings(
         client_id="your-google-client-id",
@@ -145,7 +144,11 @@ auth.add_plugin(
 ### 3) Add routes to FastAPI
 
 ```python
+from typing import Annotated
+
 from fastapi import Depends, FastAPI, Security
+from fastapi.responses import RedirectResponse
+from belgie.oauth_client import GoogleOAuthClient
 
 app = FastAPI()
 app.include_router(auth.router)
@@ -153,7 +156,16 @@ app.include_router(auth.router)
 
 @app.get("/")
 async def home():
-    return {"message": "Welcome! Visit /auth/provider/google/signin to sign in"}
+    return {"message": "Welcome! Visit /login/google to sign in"}
+
+
+@app.get("/login/google")
+async def login_google(
+    google: Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)],
+    return_to: str | None = None,
+):
+    auth_url = await google.signin_url(return_to=return_to)
+    return RedirectResponse(url=auth_url, status_code=302)
 
 
 @app.get("/protected")
@@ -172,7 +184,7 @@ Run it:
 uvicorn main:app --reload
 ```
 
-Visit `http://localhost:8000/auth/provider/google/signin` to sign in.
+Visit `http://localhost:8000/login/google` to sign in.
 
 ## Configuration shortcuts
 
@@ -183,8 +195,8 @@ Visit `http://localhost:8000/auth/provider/google/signin` to sign in.
 
 ## Router endpoints
 
-- `GET /auth/provider/google/signin` – start OAuth flow
-- `GET /auth/provider/google/callback` – handle Google callback
+- `GET /login/google` – app-owned route that starts OAuth flow via plugin dependency
+- `GET /auth/provider/google/callback` – plugin callback route
 - `POST /auth/signout` – clear session cookie and invalidate server session
 
 ## Limitations today

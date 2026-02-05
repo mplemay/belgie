@@ -73,11 +73,12 @@ class GoogleOAuthClient:
     async def signin_url(self, *, return_to: str | None = None) -> str:
         state = generate_state_token()
         expires_at = datetime.now(UTC) + timedelta(minutes=10)
+        redirect_url = self.plugin.normalize_return_to(return_to)
         await self.client.adapter.create_oauth_state(
             self.client.db,
             state=state,
             expires_at=expires_at.replace(tzinfo=None),
-            redirect_url=return_to or None,
+            redirect_url=redirect_url,
         )
         return self.plugin.generate_authorization_url(state)
 
@@ -90,6 +91,7 @@ class GoogleOAuthPlugin(Plugin):
     def __init__(self, settings: GoogleOAuthSettings) -> None:
         self.settings = settings
         self._resolve_client = None
+        self._base_url_origin: tuple[str, str] | None = None
 
     @property
     def provider_id(self) -> Literal["google"]:
@@ -101,6 +103,28 @@ class GoogleOAuthPlugin(Plugin):
 
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
+        parsed_base_url = urlparse(belgie.settings.base_url)
+        self._base_url_origin = (parsed_base_url.scheme.lower(), parsed_base_url.netloc.lower())
+
+    def normalize_return_to(self, return_to: str | None) -> str | None:
+        if not return_to:
+            return None
+
+        parsed = urlparse(return_to)
+
+        if not parsed.scheme and not parsed.netloc:
+            if return_to.startswith("/") and not return_to.startswith("//"):
+                return return_to
+            return None
+
+        if self._base_url_origin is None:
+            msg = "GoogleOAuthPlugin must be registered via Belgie.add_plugin before dependency injection"
+            raise RuntimeError(msg)
+
+        if (parsed.scheme.lower(), parsed.netloc.lower()) != self._base_url_origin:
+            return None
+
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, parsed.query, ""))
 
     async def __call__(self, *args: object, **kwargs: object) -> GoogleOAuthClient:
         if self._resolve_client is None:

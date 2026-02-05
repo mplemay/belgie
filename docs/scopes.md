@@ -183,24 +183,26 @@ async def require_admin_scope(user: User = Depends(auth.user)):
 Request additional scopes after initial sign-in:
 
 ```python
+new_scopes = ["openid", "email", "profile", "calendar.readonly"]
+
+calendar_google_plugin = auth.add_plugin(
+    GoogleOAuthPlugin,
+    GoogleOAuthSettings(
+        client_id="your-google-client-id",
+        client_secret="your-google-client-secret",
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
+        scopes=new_scopes,
+    ),
+)
+
+
 @app.get("/request-calendar-access")
-async def request_calendar(user: User = Depends(auth.user)):
-    # Redirect user to OAuth with additional scopes
-    new_scopes = ["openid", "email", "profile", "calendar.readonly"]
-
-    settings_with_calendar = BelgieSettings(secret=settings.secret, base_url=settings.base_url)
-    calendar_auth = Belgie(settings=settings_with_calendar, adapter=adapter, db=db)
-    calendar_auth.add_plugin(
-        GoogleOAuthPlugin,
-        GoogleOAuthSettings(
-            client_id="your-google-client-id",
-            client_secret="your-google-client-secret",
-            redirect_uri="http://localhost:8000/auth/provider/google/callback",
-            scopes=new_scopes,
-        ),
-    )
-
-    return RedirectResponse(url="/auth/provider/google/signin")
+async def request_calendar(
+    user: User = Depends(auth.user),
+    google: Annotated[GoogleOAuthClient, Depends(calendar_google_plugin)],
+):
+    auth_url = await google.signin_url()
+    return RedirectResponse(url=auth_url)
 ```
 
 ## Scope Utilities
