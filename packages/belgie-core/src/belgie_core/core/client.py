@@ -13,7 +13,7 @@ from belgie_proto import (
 from fastapi import HTTPException, Request, Response, status
 from fastapi.security import SecurityScopes
 
-from belgie_core.core.hooks import HookContext, HookRunner, Hooks
+from belgie_core.core.hooks import HookContext, HookRunner, Hooks, PreSignupContext
 from belgie_core.core.settings import CookieSettings
 from belgie_core.session.manager import SessionManager
 from belgie_core.utils.scopes import validate_scopes
@@ -61,7 +61,7 @@ class BelgieClient[
     adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]
     session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
     cookie_settings: CookieSettings = field(default_factory=CookieSettings)
-    hook_runner: HookRunner = field(default_factory=lambda: HookRunner(Hooks()))
+    hook_runner: HookRunner = field(default_factory=lambda: HookRunner(hooks=Hooks()))
 
     async def _get_session_from_cookie(self, request: Request) -> SessionT | None:
         """Extract and validate session from request cookies.
@@ -186,6 +186,17 @@ class BelgieClient[
     ) -> tuple[UserT, bool]:
         if user := await self.adapter.get_user_by_email(self.db, email):
             return user, False
+
+        async with self.hook_runner.dispatch_pre_signup(
+            PreSignupContext(
+                email=email,
+                name=name,
+                image=image,
+                email_verified=email_verified,
+                db=self.db,
+            ),
+        ):
+            pass
 
         user = await self.adapter.create_user(
             self.db,

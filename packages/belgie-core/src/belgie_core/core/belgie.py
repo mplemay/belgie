@@ -143,7 +143,7 @@ class Belgie[
             update_age=settings.session.update_age,
         )
 
-        self.hook_runner = HookRunner(hooks or Hooks())
+        self.hook_runner = HookRunner(hooks=hooks or Hooks())
 
         self.plugins: list[Plugin] = []
 
