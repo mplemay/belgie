@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from belgie_core.core.client import BelgieClient
-from belgie_core.core.hooks import HookContext, HookRunner, Hooks
+from belgie_core.core.hooks import HookContext, HookRunner, Hooks, PreSignupContext
 from belgie_core.core.settings import CookieSettings
 from belgie_core.session.manager import SessionManager
 
@@ -117,7 +117,7 @@ async def test_sign_out_dispatches_hook():
         adapter=FakeAdapter(user, session),
         session_manager=FakeSessionManager(session),
         cookie_settings=CookieSettings(name="c"),
-        hook_runner=HookRunner(Hooks(on_signout=hook)),
+        hook_runner=HookRunner(hooks=Hooks(on_signout=hook)),
     )
 
     assert await client.sign_out(session.id) is True
@@ -140,7 +140,7 @@ async def test_delete_user_dispatches_hook_before_delete():
         adapter=adapter,
         session_manager=FakeSessionManager(session),
         cookie_settings=CookieSettings(name="c"),
-        hook_runner=HookRunner(Hooks(on_delete=hook)),
+        hook_runner=HookRunner(hooks=Hooks(on_delete=hook)),
     )
 
     assert await client.delete_user(user) is True
@@ -154,6 +154,9 @@ async def test_sign_up_dispatches_hooks_in_order_for_new_user():
     adapter = SignUpAdapter()
     session_manager = SignUpSessionManager(events)
 
+    async def on_before_signup(ctx: PreSignupContext) -> None:
+        events.append(f"before_signup:{ctx.email}")
+
     async def on_signup(ctx: HookContext) -> None:  # type: ignore[override]
         events.append(f"signup:{ctx.user.id}")
 
@@ -165,14 +168,25 @@ async def test_sign_up_dispatches_hooks_in_order_for_new_user():
         adapter=adapter,
         session_manager=session_manager,
         cookie_settings=CookieSettings(name="c"),
-        hook_runner=HookRunner(Hooks(on_signup=on_signup, on_signin=on_signin)),
+        hook_runner=HookRunner(
+            hooks=Hooks(
+                on_before_signup=on_before_signup,
+                on_signup=on_signup,
+                on_signin=on_signin,
+            ),
+        ),
     )
 
     user, _session = await client.sign_up(
         "new@example.com",
     )
 
-    assert events == [f"signup:{user.id}", "session", f"signin:{user.id}"]
+    assert events == [
+        "before_signup:new@example.com",
+        f"signup:{user.id}",
+        "session",
+        f"signin:{user.id}",
+    ]
 
 
 @pytest.mark.asyncio
@@ -193,7 +207,7 @@ async def test_sign_up_existing_user_skips_signup_hook():
         adapter=adapter,
         session_manager=session_manager,
         cookie_settings=CookieSettings(name="c"),
-        hook_runner=HookRunner(Hooks(on_signup=on_signup, on_signin=on_signin)),
+        hook_runner=HookRunner(hooks=Hooks(on_signup=on_signup, on_signin=on_signin)),
     )
 
     user, _session = await client.sign_up(
@@ -202,3 +216,29 @@ async def test_sign_up_existing_user_skips_signup_hook():
 
     assert user.id == existing_user.id
     assert events == ["session", f"signin:{existing_user.id}"]
+
+
+@pytest.mark.asyncio
+async def test_sign_up_can_be_blocked_before_writing_to_db():
+    adapter = SignUpAdapter()
+    session_events: list[str] = []
+    session_manager = SignUpSessionManager(session_events)
+
+    async def on_before_signup(ctx: PreSignupContext) -> None:
+        if not ctx.email.endswith("@example.com"):
+            msg = "email domain is not allowed"
+            raise PermissionError(msg)
+
+    client = BelgieClient(
+        db=DummyDB(),
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_settings=CookieSettings(name="c"),
+        hook_runner=HookRunner(hooks=Hooks(on_before_signup=on_before_signup)),
+    )
+
+    with pytest.raises(PermissionError, match="email domain is not allowed"):
+        await client.sign_up("blocked@other.com")
+
+    assert adapter.created is False
+    assert session_events == []

@@ -19,6 +19,7 @@ from belgie_core import (
     Hooks,
     InvalidStateError,
     OAuthError,
+    PreSignupContext,
     SessionExpiredError,
     SessionManager,
     SessionSettings,
@@ -59,6 +60,7 @@ __all__ = [  # noqa: RUF022
     "BelgieSettings",
     "Hooks",
     "HookContext",
+    "PreSignupContext",
     "HookEvent",
     "HookRunner",
     # Adapters

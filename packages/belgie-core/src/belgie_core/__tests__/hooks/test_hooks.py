@@ -31,7 +31,7 @@ async def test_sync_hook_runs_before_body():
     def hook(ctx: HookContext) -> None:  # type: ignore[override]
         events.append(f"hook:{ctx.user.id}")
 
-    runner = HookRunner(Hooks(on_signin=hook))
+    runner = HookRunner(hooks=Hooks(on_signin=hook))
     ctx = HookContext(user=DummyUser(id=str(uuid4())), db=DummyDB())
 
     async with runner.dispatch("on_signin", ctx):
@@ -52,7 +52,7 @@ async def test_context_manager_hook_wraps_body():
         finally:
             events.append(f"exit:{ctx.user.id}")
 
-    runner = HookRunner(Hooks(on_signout=hook))
+    runner = HookRunner(hooks=Hooks(on_signout=hook))
     ctx = HookContext(user=DummyUser(id=str(uuid4())), db=DummyDB())
 
     async with runner.dispatch("on_signout", ctx):
@@ -69,7 +69,7 @@ async def test_async_hook_waits_before_body():
         await asyncio.sleep(0)
         events.append(f"async:{ctx.user.id}")
 
-    runner = HookRunner(Hooks(on_signup=[hook]))
+    runner = HookRunner(hooks=Hooks(on_signup=[hook]))
     ctx = HookContext(user=DummyUser(id=str(uuid4())), db=DummyDB())
 
     async with runner.dispatch("on_signup", ctx):
