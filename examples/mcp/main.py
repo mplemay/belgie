@@ -16,7 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import AlchemyAdapter, DatabaseSettings
-from belgie.mcp import McpPlugin
+from belgie.mcp import McpPlugin, get_user_from_access_token
 from belgie.oauth import OAuthPlugin, OAuthSettings
 
 if TYPE_CHECKING:
@@ -205,8 +205,11 @@ app.mount("/mcp", mcp_app)
 
 @mcp_server.tool()
 async def get_time() -> dict[str, Any]:
+    user = await get_user_from_access_token(belgie)
     now = datetime.datetime.now(datetime.UTC)
     return {
+        "user_id": str(user.id) if user else None,
+        "user_email": user.email if user else None,
         "current_time": now.isoformat(),
         "timezone": "UTC",
         "timestamp": now.timestamp(),
