@@ -13,7 +13,7 @@ def test_oauth_plugin_registers_routes(
     assert plugin in belgie_instance.plugins
 
     app = FastAPI()
-    app.include_router(belgie_instance.router())
+    app.include_router(belgie_instance.router)
 
     with TestClient(app) as client:
         response = client.get("/auth/oauth/.well-known/oauth-authorization-server")

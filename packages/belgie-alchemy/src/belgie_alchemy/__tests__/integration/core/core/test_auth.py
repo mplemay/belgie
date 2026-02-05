@@ -77,7 +77,7 @@ def test_auth_initialization(auth: Belgie, auth_settings: BelgieSettings) -> Non
     assert auth.session_manager is not None
     assert auth.providers is not None
     assert isinstance(auth.providers, dict)
-    assert auth.router() is not None
+    assert auth.router is not None
 
 
 def test_auth_session_manager_configuration(auth: Belgie) -> None:
@@ -86,7 +86,7 @@ def test_auth_session_manager_configuration(auth: Belgie) -> None:
 
 
 def test_auth_router_created(auth: Belgie) -> None:
-    router = auth.router()
+    router = auth.router
     assert router.prefix == ""
     assert any(getattr(route, "path", "").startswith("/auth") for route in router.routes)
 
@@ -94,12 +94,12 @@ def test_auth_router_created(auth: Belgie) -> None:
 def test_register_provider_invalidates_router_cache(auth: Belgie) -> None:
     """Test that registering a provider after router creation invalidates the cache."""
     # Access the router to cache it
-    first_router = auth.router()
+    first_router = auth.router
     assert first_router.prefix == ""
 
     # With method based approach, we can just verify it returns a router
     # Caching check is no longer relevant as per refactor
-    assert auth.router() is not None
+    assert auth.router is not None
 
 
 @pytest.mark.asyncio

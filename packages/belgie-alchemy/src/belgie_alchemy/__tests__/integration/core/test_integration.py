@@ -74,7 +74,7 @@ def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: Asy
 @pytest.fixture
 def app(auth: Belgie) -> FastAPI:
     app = FastAPI()
-    app.include_router(auth.router())
+    app.include_router(auth.router)
     return app
 
 

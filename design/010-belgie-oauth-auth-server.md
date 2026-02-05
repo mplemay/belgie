@@ -72,7 +72,7 @@ oauth_settings = OAuthSettings(
 )
 
 belgie.add_plugin(OAuthPlugin, oauth_settings, demo_username="demo@example.com", demo_password="password")
-app.include_router(belgie.router())
+app.include_router(belgie.router)
 ```
 
 #### Call Graph

@@ -43,7 +43,7 @@ def test_plugin_router_included(belgie_instance: Belgie) -> None:
     belgie_instance.add_plugin(DummyPlugin)
 
     app = FastAPI()
-    app.include_router(belgie_instance.router())
+    app.include_router(belgie_instance.router)
 
     client = TestClient(app)
     response = client.get("/auth/dummy")
@@ -82,7 +82,7 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
     belgie_instance.add_plugin(PluginB)
 
     app = FastAPI()
-    app.include_router(belgie_instance.router())
+    app.include_router(belgie_instance.router)
     client = TestClient(app)
 
     assert client.get("/auth/a").status_code == 200
@@ -103,7 +103,7 @@ def test_plugin_public_router_included(belgie_instance: Belgie) -> None:
     belgie_instance.add_plugin(RootPlugin)
 
     app = FastAPI()
-    app.include_router(belgie_instance.router())
+    app.include_router(belgie_instance.router)
 
     client = TestClient(app)
     response = client.get("/root")

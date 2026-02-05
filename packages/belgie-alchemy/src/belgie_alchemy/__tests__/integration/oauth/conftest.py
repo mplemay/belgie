@@ -117,7 +117,7 @@ def oauth_plugin(
 def app(belgie_instance: Belgie, oauth_plugin: OAuthPlugin) -> FastAPI:
     _ = oauth_plugin
     app = FastAPI()
-    app.include_router(belgie_instance.router())
+    app.include_router(belgie_instance.router)
     return app
 
 
