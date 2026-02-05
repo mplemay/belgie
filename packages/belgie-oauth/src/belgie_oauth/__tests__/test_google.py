@@ -4,13 +4,13 @@ import httpx
 import pytest
 import respx
 from belgie_core.core.exceptions import OAuthError
-from belgie_core.providers.google import GoogleOAuthProvider, GoogleProviderSettings, GoogleUserInfo
+from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings, GoogleUserInfo
 from pydantic import ValidationError
 
 
 @pytest.fixture
-def google_provider_settings() -> GoogleProviderSettings:
-    return GoogleProviderSettings(
+def google_provider_settings() -> GoogleOAuthSettings:
+    return GoogleOAuthSettings(
         client_id="test-client-id",
         client_secret="test-client-secret",
         redirect_uri="http://localhost:8000/callback",
@@ -19,8 +19,8 @@ def google_provider_settings() -> GoogleProviderSettings:
 
 
 @pytest.fixture
-def google_provider(google_provider_settings: GoogleProviderSettings) -> GoogleOAuthProvider:
-    return GoogleOAuthProvider(settings=google_provider_settings)
+def google_provider(google_provider_settings: GoogleOAuthSettings) -> GoogleOAuthPlugin:
+    return GoogleOAuthPlugin(settings=google_provider_settings)
 
 
 def test_google_user_info_valid() -> None:
@@ -74,12 +74,12 @@ def test_google_user_info_extra_fields_ignored() -> None:
     assert not hasattr(user_info, "extra_field")
 
 
-def test_google_provider_id(google_provider: GoogleOAuthProvider) -> None:
+def test_google_provider_id(google_provider: GoogleOAuthPlugin) -> None:
     assert google_provider.provider_id == "google"
 
 
 def test_google_provider_settings() -> None:
-    settings = GoogleProviderSettings(
+    settings = GoogleOAuthSettings(
         client_id="test-client-id",
         client_secret="test-secret",
         redirect_uri="http://localhost:8000/auth/callback/google",
@@ -94,7 +94,7 @@ def test_google_provider_settings() -> None:
 
 
 def test_google_provider_settings_custom_values() -> None:
-    settings = GoogleProviderSettings(
+    settings = GoogleOAuthSettings(
         client_id="custom-client-id",
         client_secret="custom-secret",
         redirect_uri="http://example.com/callback",
@@ -111,7 +111,7 @@ def test_google_provider_settings_custom_values() -> None:
 def test_google_provider_settings_rejects_empty_client_id() -> None:
     """Verify that empty client_id is rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        GoogleProviderSettings(
+        GoogleOAuthSettings(
             client_id="",
             client_secret="test-secret",
             redirect_uri="http://localhost:8000/callback",
@@ -125,7 +125,7 @@ def test_google_provider_settings_rejects_empty_client_id() -> None:
 def test_google_provider_settings_rejects_empty_client_secret() -> None:
     """Verify that empty client_secret is rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        GoogleProviderSettings(
+        GoogleOAuthSettings(
             client_id="test-client-id",
             client_secret="",
             redirect_uri="http://localhost:8000/callback",
@@ -138,7 +138,7 @@ def test_google_provider_settings_rejects_empty_client_secret() -> None:
 def test_google_provider_settings_rejects_whitespace_only() -> None:
     """Verify that whitespace-only strings are rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        GoogleProviderSettings(
+        GoogleOAuthSettings(
             client_id="test-client-id",
             client_secret="test-secret",
             redirect_uri="   ",
@@ -150,7 +150,7 @@ def test_google_provider_settings_rejects_whitespace_only() -> None:
 
 def test_google_provider_settings_trims_whitespace() -> None:
     """Verify that leading/trailing whitespace is trimmed."""
-    settings = GoogleProviderSettings(
+    settings = GoogleOAuthSettings(
         client_id="  test-client-id  ",
         client_secret="  test-secret  ",
         redirect_uri="  http://localhost:8000/callback  ",
@@ -164,7 +164,7 @@ def test_google_provider_settings_trims_whitespace() -> None:
 # Authorization URL Generation Tests
 
 
-def test_generate_authorization_url_format(google_provider: GoogleOAuthProvider) -> None:
+def test_generate_authorization_url_format(google_provider: GoogleOAuthPlugin) -> None:
     """Verify authorization URL contains all required OAuth parameters."""
     state = "test-state-123"
     url = google_provider.generate_authorization_url(state)
@@ -184,7 +184,7 @@ def test_generate_authorization_url_format(google_provider: GoogleOAuthProvider)
     assert query_params["prompt"][0] == "consent"
 
 
-def test_generate_authorization_url_unique_states(google_provider: GoogleOAuthProvider) -> None:
+def test_generate_authorization_url_unique_states(google_provider: GoogleOAuthPlugin) -> None:
     """Verify different states produce different URLs."""
     url1 = google_provider.generate_authorization_url("state1")
     url2 = google_provider.generate_authorization_url("state2")
@@ -199,7 +199,7 @@ def test_generate_authorization_url_unique_states(google_provider: GoogleOAuthPr
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_exchange_code_for_tokens_success(google_provider: GoogleOAuthProvider) -> None:
+async def test_exchange_code_for_tokens_success(google_provider: GoogleOAuthPlugin) -> None:
     """Verify successful token exchange."""
     mock_response = {
         "access_token": "ya29.test_access_token",
@@ -210,7 +210,7 @@ async def test_exchange_code_for_tokens_success(google_provider: GoogleOAuthProv
         "id_token": "eyJhbGciOi.test_id_token",
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_response))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_response))
 
     result = await google_provider.exchange_code_for_tokens("test-code")
 
@@ -224,9 +224,9 @@ async def test_exchange_code_for_tokens_success(google_provider: GoogleOAuthProv
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_exchange_code_for_tokens_http_400_error(google_provider: GoogleOAuthProvider) -> None:
+async def test_exchange_code_for_tokens_http_400_error(google_provider: GoogleOAuthPlugin) -> None:
     """Verify proper error handling when Google returns 400."""
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(
         return_value=httpx.Response(400, json={"error": "invalid_grant"}),
     )
 
@@ -236,9 +236,9 @@ async def test_exchange_code_for_tokens_http_400_error(google_provider: GoogleOA
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_exchange_code_for_tokens_includes_error_code_in_message(google_provider: GoogleOAuthProvider) -> None:
+async def test_exchange_code_for_tokens_includes_error_code_in_message(google_provider: GoogleOAuthPlugin) -> None:
     """Verify error message includes OAuth error code when present."""
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(
         return_value=httpx.Response(400, json={"error": "invalid_grant", "error_description": "Bad Request"}),
     )
 
@@ -248,9 +248,9 @@ async def test_exchange_code_for_tokens_includes_error_code_in_message(google_pr
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_exchange_code_for_tokens_handles_non_json_error_response(google_provider: GoogleOAuthProvider) -> None:
+async def test_exchange_code_for_tokens_handles_non_json_error_response(google_provider: GoogleOAuthPlugin) -> None:
     """Verify error handling when response is not JSON."""
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(
         return_value=httpx.Response(500, text="Internal Server Error"),
     )
 
@@ -261,9 +261,9 @@ async def test_exchange_code_for_tokens_handles_non_json_error_response(google_p
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_exchange_code_for_tokens_network_error(google_provider: GoogleOAuthProvider) -> None:
+async def test_exchange_code_for_tokens_network_error(google_provider: GoogleOAuthPlugin) -> None:
     """Verify proper error handling on network failures."""
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(
         side_effect=httpx.RequestError("Network unreachable"),
     )
 
@@ -273,9 +273,9 @@ async def test_exchange_code_for_tokens_network_error(google_provider: GoogleOAu
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_exchange_code_for_tokens_missing_access_token(google_provider: GoogleOAuthProvider) -> None:
+async def test_exchange_code_for_tokens_missing_access_token(google_provider: GoogleOAuthPlugin) -> None:
     """Verify error when response missing required access_token field."""
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(
         return_value=httpx.Response(200, json={"expires_in": 3600}),
     )
 
@@ -285,7 +285,7 @@ async def test_exchange_code_for_tokens_missing_access_token(google_provider: Go
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_exchange_code_for_tokens_without_refresh_token(google_provider: GoogleOAuthProvider) -> None:
+async def test_exchange_code_for_tokens_without_refresh_token(google_provider: GoogleOAuthPlugin) -> None:
     """Verify handling when refresh_token is not provided."""
     mock_response = {
         "access_token": "ya29.test_access_token",
@@ -294,7 +294,7 @@ async def test_exchange_code_for_tokens_without_refresh_token(google_provider: G
         "scope": "openid email profile",
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_response))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_response))
 
     result = await google_provider.exchange_code_for_tokens("test-code")
 
@@ -307,7 +307,7 @@ async def test_exchange_code_for_tokens_without_refresh_token(google_provider: G
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_user_info_success(google_provider: GoogleOAuthProvider) -> None:
+async def test_get_user_info_success(google_provider: GoogleOAuthPlugin) -> None:
     """Verify successful user info fetch."""
     mock_user_data = {
         "id": "123456789",
@@ -320,7 +320,7 @@ async def test_get_user_info_success(google_provider: GoogleOAuthProvider) -> No
         "locale": "en",
     }
 
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_data))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_data))
 
     user_info = await google_provider.get_user_info("test-access-token")
 
@@ -335,7 +335,7 @@ async def test_get_user_info_success(google_provider: GoogleOAuthProvider) -> No
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_user_info_minimal_data(google_provider: GoogleOAuthProvider) -> None:
+async def test_get_user_info_minimal_data(google_provider: GoogleOAuthPlugin) -> None:
     """Verify user info fetch with only required fields."""
     mock_user_data = {
         "id": "123456789",
@@ -343,7 +343,7 @@ async def test_get_user_info_minimal_data(google_provider: GoogleOAuthProvider) 
         "verified_email": True,
     }
 
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_data))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_data))
 
     user_info = await google_provider.get_user_info("test-access-token")
 
@@ -354,9 +354,9 @@ async def test_get_user_info_minimal_data(google_provider: GoogleOAuthProvider) 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_user_info_http_401_error(google_provider: GoogleOAuthProvider) -> None:
+async def test_get_user_info_http_401_error(google_provider: GoogleOAuthPlugin) -> None:
     """Verify proper error handling when token is invalid."""
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(
         return_value=httpx.Response(401, json={"error": "invalid_token"}),
     )
 
@@ -366,9 +366,9 @@ async def test_get_user_info_http_401_error(google_provider: GoogleOAuthProvider
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_user_info_includes_error_code_in_message(google_provider: GoogleOAuthProvider) -> None:
+async def test_get_user_info_includes_error_code_in_message(google_provider: GoogleOAuthPlugin) -> None:
     """Verify error message includes OAuth error code when present."""
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(
         return_value=httpx.Response(401, json={"error": "invalid_token"}),
     )
 
@@ -378,9 +378,9 @@ async def test_get_user_info_includes_error_code_in_message(google_provider: Goo
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_user_info_handles_non_json_error_response(google_provider: GoogleOAuthProvider) -> None:
+async def test_get_user_info_handles_non_json_error_response(google_provider: GoogleOAuthPlugin) -> None:
     """Verify error handling when response is not JSON."""
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(
         return_value=httpx.Response(503, text="Service Unavailable"),
     )
 
@@ -391,9 +391,9 @@ async def test_get_user_info_handles_non_json_error_response(google_provider: Go
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_user_info_network_error(google_provider: GoogleOAuthProvider) -> None:
+async def test_get_user_info_network_error(google_provider: GoogleOAuthPlugin) -> None:
     """Verify proper error handling on network failures."""
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(
         side_effect=httpx.RequestError("Connection timeout"),
     )
 
@@ -403,7 +403,7 @@ async def test_get_user_info_network_error(google_provider: GoogleOAuthProvider)
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_user_info_sends_bearer_token(google_provider: GoogleOAuthProvider) -> None:
+async def test_get_user_info_sends_bearer_token(google_provider: GoogleOAuthPlugin) -> None:
     """Verify correct Authorization header is sent."""
     mock_user_data = {
         "id": "123",
@@ -411,7 +411,7 @@ async def test_get_user_info_sends_bearer_token(google_provider: GoogleOAuthProv
         "verified_email": True,
     }
 
-    route = respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+    route = respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(
         return_value=httpx.Response(200, json=mock_user_data),
     )
 
@@ -427,7 +427,7 @@ async def test_get_user_info_sends_bearer_token(google_provider: GoogleOAuthProv
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_complete_oauth_flow_new_user(google_provider: GoogleOAuthProvider) -> None:
+async def test_complete_oauth_flow_new_user(google_provider: GoogleOAuthPlugin) -> None:
     """Test complete OAuth flow from code exchange to user info fetch with new user."""
     # Mock token exchange response
     mock_token_response = {
@@ -451,8 +451,8 @@ async def test_complete_oauth_flow_new_user(google_provider: GoogleOAuthProvider
         "locale": "en",
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     # Execute the flow
     tokens = await google_provider.exchange_code_for_tokens("test-auth-code")
@@ -473,7 +473,7 @@ async def test_complete_oauth_flow_new_user(google_provider: GoogleOAuthProvider
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_complete_oauth_flow_minimal_response(google_provider: GoogleOAuthProvider) -> None:
+async def test_complete_oauth_flow_minimal_response(google_provider: GoogleOAuthPlugin) -> None:
     """Test OAuth flow with minimal required fields in responses."""
     # Token response without optional fields
     mock_token_response = {
@@ -490,8 +490,8 @@ async def test_complete_oauth_flow_minimal_response(google_provider: GoogleOAuth
         "verified_email": True,
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     # Execute the flow
     tokens = await google_provider.exchange_code_for_tokens("test-code")
@@ -511,10 +511,10 @@ async def test_complete_oauth_flow_minimal_response(google_provider: GoogleOAuth
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_oauth_flow_token_exchange_fails_propagates_error(google_provider: GoogleOAuthProvider) -> None:
+async def test_oauth_flow_token_exchange_fails_propagates_error(google_provider: GoogleOAuthPlugin) -> None:
     """Test that token exchange errors are properly propagated."""
     # Mock failed token exchange
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(
         return_value=httpx.Response(400, json={"error": "invalid_grant", "error_description": "Code expired"}),
     )
 
@@ -525,7 +525,7 @@ async def test_oauth_flow_token_exchange_fails_propagates_error(google_provider:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_oauth_flow_user_info_fetch_fails_propagates_error(google_provider: GoogleOAuthProvider) -> None:
+async def test_oauth_flow_user_info_fetch_fails_propagates_error(google_provider: GoogleOAuthPlugin) -> None:
     """Test that user info fetch errors are properly propagated."""
     # Mock successful token exchange
     mock_token_response = {
@@ -533,10 +533,10 @@ async def test_oauth_flow_user_info_fetch_fails_propagates_error(google_provider
         "expires_in": 3600,
         "token_type": "Bearer",
     }
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
 
     # Mock failed user info fetch
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(
         return_value=httpx.Response(401, json={"error": "invalid_token"}),
     )
 
@@ -550,9 +550,9 @@ async def test_oauth_flow_user_info_fetch_fails_propagates_error(google_provider
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_oauth_flow_network_error_during_token_exchange(google_provider: GoogleOAuthProvider) -> None:
+async def test_oauth_flow_network_error_during_token_exchange(google_provider: GoogleOAuthPlugin) -> None:
     """Test handling of network errors during token exchange."""
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(side_effect=httpx.RequestError("Network timeout"))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(side_effect=httpx.RequestError("Network timeout"))
 
     with pytest.raises(OAuthError, match="oauth token exchange request failed"):
         await google_provider.exchange_code_for_tokens("test-code")
@@ -560,7 +560,7 @@ async def test_oauth_flow_network_error_during_token_exchange(google_provider: G
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_oauth_flow_network_error_during_user_info_fetch(google_provider: GoogleOAuthProvider) -> None:
+async def test_oauth_flow_network_error_during_user_info_fetch(google_provider: GoogleOAuthPlugin) -> None:
     """Test handling of network errors during user info fetch."""
     # Mock successful token exchange
     mock_token_response = {
@@ -568,10 +568,10 @@ async def test_oauth_flow_network_error_during_user_info_fetch(google_provider: 
         "expires_in": 3600,
         "token_type": "Bearer",
     }
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
 
     # Mock network error during user info fetch
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(side_effect=httpx.RequestError("Connection reset"))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(side_effect=httpx.RequestError("Connection reset"))
 
     tokens = await google_provider.exchange_code_for_tokens("test-code")
 

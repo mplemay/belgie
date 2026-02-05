@@ -78,11 +78,12 @@ class OAuthState(Base):
 ### 2. Configure Authentication
 
 ```python
-from belgie.auth import Auth, AuthSettings, GoogleProviderSettings
+from belgie import Belgie, BelgieSettings
 from belgie_alchemy import AlchemyAdapter
+from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
 
 # Configure settings
-settings = AuthSettings(
+settings = BelgieSettings(
     secret="your-secret-key-change-in-production",
     base_url="http://localhost:8000",
 )
@@ -95,30 +96,48 @@ adapter = AlchemyAdapter(
     oauth_state=OAuthState,
 )
 
+# Provide your DB dependency
+db = ...
+
 # Create auth instance
-auth = Auth(
+auth = Belgie(
     settings=settings,
     adapter=adapter,
-    providers={
-        "google": GoogleProviderSettings(
-            client_id="your-google-client-id",
-            client_secret="your-google-client-secret",
-            redirect_uri="http://localhost:8000/auth/provider/google/callback",
-            scopes=["openid", "email", "profile"],
-        ),
-    },
+    db=db,
+)
+google_oauth_plugin = auth.add_plugin(
+    GoogleOAuthPlugin,
+    GoogleOAuthSettings(
+        client_id="your-google-client-id",
+        client_secret="your-google-client-secret",
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
+        scopes=["openid", "email", "profile"],
+    ),
 )
 ```
 
 ### 3. Add to FastAPI App
 
 ```python
-from fastapi import FastAPI, Depends
+from typing import Annotated
+
+from fastapi import Depends, FastAPI
+from fastapi.responses import RedirectResponse
+from belgie.oauth_client import GoogleOAuthClient
 
 app = FastAPI()
 
-# Include auth router (provides /auth/provider/google/signin, /auth/provider/google/callback, /auth/signout)
+# Include auth router (provides /auth/provider/google/callback and /auth/signout)
 app.include_router(auth.router)
+
+
+@app.get("/login/google")
+async def login_google(
+    google: Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)],
+    return_to: str | None = None,
+):
+    auth_url = await google.signin_url(return_to=return_to)
+    return RedirectResponse(url=auth_url, status_code=302)
 
 # Protect routes with auth.user
 @app.get("/protected")

@@ -264,6 +264,113 @@ async def test_get_user_from_session_no_session_returns_none(client, mock_sessio
 
 
 @pytest.mark.asyncio
+async def test_get_or_create_user_creates_and_marks_created(client, mock_adapter):
+    user = MagicMock()
+    user.id = uuid4()
+    mock_adapter.get_user_by_email.return_value = None
+    mock_adapter.create_user.return_value = user
+
+    result_user, created = await client.get_or_create_user("new@example.com", name="New User")
+
+    assert result_user is user
+    assert created is True
+    mock_adapter.create_user.assert_called_once_with(
+        client.db,
+        email="new@example.com",
+        name="New User",
+        image=None,
+        email_verified=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_user_returns_existing_user(client, mock_adapter):
+    user = MagicMock()
+    user.id = uuid4()
+    mock_adapter.get_user_by_email.return_value = user
+
+    result_user, created = await client.get_or_create_user("existing@example.com")
+
+    assert result_user is user
+    assert created is False
+    mock_adapter.create_user.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_upsert_oauth_account_creates_when_missing(client, mock_adapter):
+    user_id = uuid4()
+    account = MagicMock()
+    mock_adapter.get_account_by_user_and_provider.return_value = None
+    mock_adapter.create_account.return_value = account
+
+    result = await client.upsert_oauth_account(
+        user_id=user_id,
+        provider="google",
+        provider_account_id="google-123",
+        access_token="access-token",
+    )
+
+    assert result is account
+    mock_adapter.update_account.assert_not_called()
+    mock_adapter.create_account.assert_called_once_with(
+        client.db,
+        user_id=user_id,
+        provider="google",
+        provider_account_id="google-123",
+        access_token="access-token",
+    )
+
+
+@pytest.mark.asyncio
+async def test_upsert_oauth_account_updates_when_existing(client, mock_adapter):
+    user_id = uuid4()
+    existing_account = MagicMock()
+    updated_account = MagicMock()
+    mock_adapter.get_account_by_user_and_provider.return_value = existing_account
+    mock_adapter.update_account.return_value = updated_account
+
+    result = await client.upsert_oauth_account(
+        user_id=user_id,
+        provider="google",
+        provider_account_id="google-123",
+        access_token="new-access-token",
+    )
+
+    assert result is updated_account
+    mock_adapter.update_account.assert_called_once_with(
+        client.db,
+        user_id=user_id,
+        provider="google",
+        access_token="new-access-token",
+    )
+    mock_adapter.create_account.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sign_in_user_derives_ip_and_user_agent(client, mock_session_manager):
+    user = MagicMock()
+    user.id = uuid4()
+    session = MagicMock()
+    session.id = uuid4()
+    mock_session_manager.create_session.return_value = session
+
+    request = MagicMock()
+    request.client = MagicMock()
+    request.client.host = "127.0.0.1"
+    request.headers.get.return_value = "test-agent"
+
+    result = await client.sign_in_user(user, request=request)
+
+    assert result is session
+    mock_session_manager.create_session.assert_called_once_with(
+        client.db,
+        user_id=user.id,
+        ip_address="127.0.0.1",
+        user_agent="test-agent",
+    )
+
+
+@pytest.mark.asyncio
 async def test_sign_out_success(client, mock_session_manager):
     session_id = uuid4()
     mock_session_manager.delete_session.return_value = True

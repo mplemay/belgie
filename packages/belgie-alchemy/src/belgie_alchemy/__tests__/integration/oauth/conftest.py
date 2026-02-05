@@ -89,7 +89,7 @@ def belgie_instance(
 
     fake_db = SimpleNamespace(dependency=get_db_override)
 
-    return Belgie(settings=belgie_settings, adapter=adapter, providers=None, db=fake_db)
+    return Belgie(settings=belgie_settings, adapter=adapter, db=fake_db)
 
 
 @pytest.fixture
@@ -97,7 +97,7 @@ def oauth_settings() -> OAuthSettings:
     return OAuthSettings(
         base_url="http://testserver",
         route_prefix="/oauth",
-        login_url="/auth/provider/google/signin",
+        login_url="/login/google",
         client_id="test-client",
         client_secret=SecretStr("test-secret"),
         redirect_uris=["http://testserver/callback"],

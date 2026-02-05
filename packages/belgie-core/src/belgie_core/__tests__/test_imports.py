@@ -24,12 +24,6 @@ def test_session_exports() -> None:
     assert hasattr(belgie, "SessionManager")
 
 
-def test_provider_exports() -> None:
-    assert hasattr(belgie, "GoogleOAuthProvider")
-    assert hasattr(belgie, "GoogleProviderSettings")
-    assert hasattr(belgie, "GoogleUserInfo")
-
-
 def test_settings_exports() -> None:
     assert hasattr(belgie, "SessionSettings")
     assert hasattr(belgie, "CookieSettings")
@@ -85,11 +79,9 @@ def test_direct_imports() -> None:
     from belgie import (  # noqa: PLC0415
         Belgie,
         BelgieSettings,
-        GoogleOAuthProvider,
         SessionManager,
     )
 
     assert Belgie is not None
     assert BelgieSettings is not None
     assert SessionManager is not None
-    assert GoogleOAuthProvider is not None

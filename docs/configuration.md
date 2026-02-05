@@ -2,14 +2,14 @@
 
 Belgie uses Pydantic Settings for configuration, allowing you to configure via Python code or environment variables.
 
-## AuthSettings
+## BelgieSettings
 
 The main configuration class that brings together all settings:
 
 ```python
-from belgie.auth import AuthSettings
+from belgie import BelgieSettings
 
-settings = AuthSettings(
+settings = BelgieSettings(
     secret="your-secret-key",
     base_url="http://localhost:8000",
     # Optional nested settings
@@ -41,7 +41,7 @@ BELGIE_BASE_URL=http://localhost:8000
 Configure session behavior:
 
 ```python
-from belgie.auth import SessionSettings
+from belgie import SessionSettings
 
 session = SessionSettings(
     max_age=604800,  # 7 days in seconds
@@ -69,7 +69,7 @@ Sessions use a sliding window mechanism:
 Configure session cookie attributes:
 
 ```python
-from belgie.auth import CookieSettings
+from belgie import CookieSettings
 
 cookie = CookieSettings(
     http_only=True,  # Prevent JavaScript access
@@ -115,9 +115,9 @@ cookie = CookieSettings(
 Configure Google OAuth 2.0:
 
 ```python
-from belgie.auth.providers.google import GoogleProviderSettings
+from belgie.oauth_client import GoogleOAuthSettings
 
-google = GoogleProviderSettings(
+google = GoogleOAuthSettings(
     client_id="your-client-id",
     client_secret="your-client-secret",
     redirect_uri="http://localhost:8000/auth/provider/google/callback",
@@ -157,7 +157,7 @@ See [Google OAuth Scopes](https://developers.google.com/identity/protocols/oauth
 Configure redirect URLs after authentication:
 
 ```python
-from belgie.auth import URLSettings
+from belgie import URLSettings
 
 urls = URLSettings(
     signin_redirect="/dashboard",  # After successful signin
@@ -177,17 +177,17 @@ BELGIE_URLS_SIGNOUT_REDIRECT=/
 ### Python Configuration
 
 ```python
-from belgie.auth import (
-    Auth,
-    AuthSettings,
+from belgie import (
+    Belgie,
+    BelgieSettings,
     CookieSettings,
-    GoogleProviderSettings,
     SessionSettings,
     URLSettings,
 )
 from belgie_alchemy import AlchemyAdapter
+from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
 
-settings = AuthSettings(
+settings = BelgieSettings(
     secret="your-secret-key",
     base_url="http://localhost:8000",
     session=SessionSettings(
@@ -207,15 +207,16 @@ settings = AuthSettings(
 
 adapter = AlchemyAdapter(...)
 
-providers = {
-    "google": GoogleProviderSettings(
+belgie = Belgie(settings=settings, adapter=adapter, db=get_db)
+belgie.add_plugin(
+    GoogleOAuthPlugin,
+    GoogleOAuthSettings(
         client_id="your-client-id",
         client_secret="your-client-secret",
         redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],
     ),
-}
-auth = Auth(settings=settings, adapter=adapter, db_dependency=get_db)
+)
 ```
 
 ### Environment Variable Configuration
@@ -253,8 +254,8 @@ BELGIE_URLS_SIGNOUT_REDIRECT=/
 Then load with:
 
 ```python
-from belgie.auth import AuthSettings
+from belgie import BelgieSettings
 
 # Automatically loads from environment
-settings = AuthSettings()
+settings = BelgieSettings()
 ```

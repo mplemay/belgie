@@ -8,7 +8,7 @@ from belgie_alchemy import AlchemyAdapter
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_core.providers.google import GoogleOAuthProvider, GoogleProviderSettings
+from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,33 +48,32 @@ def adapter(db_session: AsyncSession) -> AlchemyAdapter:  # noqa: ARG001
 
 @pytest.fixture
 def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Belgie:
-    # Pass provider settings (not instances)
-    providers = {
-        "google": GoogleProviderSettings(
+    async def get_db_override():
+        yield db_session
+
+    fake_db = SimpleNamespace(dependency=get_db_override)
+    belgie = Belgie(
+        settings=auth_settings,
+        adapter=adapter,
+        db=fake_db,
+    )
+    belgie.add_plugin(
+        GoogleOAuthPlugin,
+        GoogleOAuthSettings(
             client_id="integration-test-client-id",
             client_secret="integration-test-client-secret",
             redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=["openid", "email", "profile"],
         ),
-    }
-
-    async def get_db_override():
-        yield db_session
-
-    fake_db = SimpleNamespace(dependency=get_db_override)
-
-    return Belgie(
-        settings=auth_settings,
-        adapter=adapter,
-        providers=providers,
-        db=fake_db,
     )
+    return belgie
 
 
 @pytest.fixture
-def app(auth: Belgie) -> FastAPI:
+def app(auth: Belgie, add_google_login_route) -> FastAPI:
     app = FastAPI()
     app.include_router(auth.router)
+    add_google_login_route(app, auth)
     return app
 
 
@@ -91,7 +90,7 @@ def test_full_oauth_flow_signin_to_callback(
 ) -> None:
     import asyncio  # noqa: PLC0415
 
-    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    signin_response = client.get("/login/google", follow_redirects=False)
 
     assert signin_response.status_code == 302
     assert "location" in signin_response.headers
@@ -123,8 +122,8 @@ def test_full_oauth_flow_signin_to_callback(
         "picture": "https://example.com/photo.jpg",
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     callback_response = client.get(
         f"/auth/provider/google/callback?code=test-code&state={state_param}",
@@ -164,7 +163,7 @@ def test_full_oauth_flow_signin_to_callback(
 def test_signout_flow(client: TestClient, auth: Belgie, db_session: AsyncSession) -> None:
     import asyncio  # noqa: PLC0415
 
-    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    signin_response = client.get("/login/google", follow_redirects=False)
     location = signin_response.headers["location"]
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
 
@@ -181,8 +180,8 @@ def test_signout_flow(client: TestClient, auth: Belgie, db_session: AsyncSession
         "verified_email": True,
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     callback_response = client.get(
         f"/auth/provider/google/callback?code=signout-code&state={state_param}",
@@ -224,7 +223,7 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
 
     user_id = asyncio.run(create_existing_user())
 
-    signin_response = client.get("/auth/provider/google/signin", follow_redirects=False)
+    signin_response = client.get("/login/google", follow_redirects=False)
     location = signin_response.headers["location"]
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
 
@@ -242,8 +241,8 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
         "name": "Existing User",
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     callback_response = client.get(
         f"/auth/provider/google/callback?code=existing-code&state={state_param}",
@@ -268,8 +267,8 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
 def test_multiple_concurrent_sessions(client: TestClient, auth: Belgie, db_session: AsyncSession) -> None:
     import asyncio  # noqa: PLC0415
 
-    signin1 = client.get("/auth/provider/google/signin", follow_redirects=False)
-    signin2 = client.get("/auth/provider/google/signin", follow_redirects=False)
+    signin1 = client.get("/login/google", follow_redirects=False)
+    signin2 = client.get("/login/google", follow_redirects=False)
 
     state1 = [  # noqa: RUF015
         param.split("=")[1]
@@ -297,8 +296,8 @@ def test_multiple_concurrent_sessions(client: TestClient, auth: Belgie, db_sessi
         "verified_email": True,
     }
 
-    respx.post(GoogleOAuthProvider.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
-    respx.get(GoogleOAuthProvider.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
+    respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
+    respx.get(GoogleOAuthPlugin.USER_INFO_URL).mock(return_value=httpx.Response(200, json=mock_user_info))
 
     callback1 = client.get(f"/auth/provider/google/callback?code=code1&state={state1}", follow_redirects=False)
     callback2 = client.get(f"/auth/provider/google/callback?code=code2&state={state2}", follow_redirects=False)

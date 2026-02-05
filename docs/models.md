@@ -333,10 +333,10 @@ class User(Model):
 Periodically clean up expired sessions and OAuth states:
 
 ```python
-from belgie.auth import Auth
+from belgie import Belgie
 from sqlalchemy.ext.asyncio import AsyncSession
 
-async def cleanup_task(auth: Auth, db: AsyncSession):
+async def cleanup_task(auth: Belgie, db: AsyncSession):
     # Clean up expired sessions
     session_count = await auth.session_manager.cleanup_expired_sessions(db)
     print(f"Deleted {session_count} expired sessions")

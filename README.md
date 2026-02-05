@@ -26,7 +26,7 @@ zero glue code. Keep your data, skip per-user SaaS bills, and still get a polish
 
 ## Features at a glance
 
-- Google OAuth provider with ready-made router (`/auth/signin/google`, `/auth/callback/google`, `/auth/signout`).
+- Google OAuth plugin with app-owned signin route support and callback/signout endpoints.
 - Session manager with sliding expiry and secure cookie defaults (HttpOnly, SameSite, Secure).
 - Scope-aware dependency for route protection (`Security(auth.user, scopes=[...])`).
 - Modern Python (3.12+), full typing, and protocol-based models.
@@ -48,7 +48,7 @@ pip install belgie[alchemy]
 uv add belgie[alchemy]
 ```
 
-Optional extras: `belgie[mcp]`, `belgie[oauth]`, or `belgie[all]`.
+Optional extras: `belgie[mcp]`, `belgie[oauth]`, `belgie[oauth-client]`, or `belgie[all]`.
 
 ## Quick start
 
@@ -108,10 +108,11 @@ class OAuthState(Base):
 ### 2) Configure Belgie
 
 ```python
-from belgie.auth import Auth, AuthSettings, GoogleProviderSettings
+from belgie import Belgie, BelgieSettings
+from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
 from belgie_alchemy import AlchemyAdapter
 
-settings = AuthSettings(
+settings = BelgieSettings(
     secret="your-secret-key",
     base_url="http://localhost:8000",
 )
@@ -123,24 +124,31 @@ adapter = AlchemyAdapter(
     oauth_state=OAuthState,
 )
 
-auth = Auth(
+auth = Belgie(
     settings=settings,
     adapter=adapter,
-    providers={
-        "google": GoogleProviderSettings(
-            client_id="your-google-client-id",
-            client_secret="your-google-client-secret",
-            redirect_uri="http://localhost:8000/auth/provider/google/callback",
-            scopes=["openid", "email", "profile"],
-        ),
-    },
+    db=db,
+)
+
+google_oauth_plugin = auth.add_plugin(
+    GoogleOAuthPlugin,
+    GoogleOAuthSettings(
+        client_id="your-google-client-id",
+        client_secret="your-google-client-secret",
+        redirect_uri="http://localhost:8000/auth/provider/google/callback",
+        scopes=["openid", "email", "profile"],
+    ),
 )
 ```
 
 ### 3) Add routes to FastAPI
 
 ```python
+from typing import Annotated
+
 from fastapi import Depends, FastAPI, Security
+from fastapi.responses import RedirectResponse
+from belgie.oauth_client import GoogleOAuthClient
 
 app = FastAPI()
 app.include_router(auth.router)
@@ -148,7 +156,16 @@ app.include_router(auth.router)
 
 @app.get("/")
 async def home():
-    return {"message": "Welcome! Visit /auth/provider/google/signin to sign in"}
+    return {"message": "Welcome! Visit /login/google to sign in"}
+
+
+@app.get("/login/google")
+async def login_google(
+    google: Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)],
+    return_to: str | None = None,
+):
+    auth_url = await google.signin_url(return_to=return_to)
+    return RedirectResponse(url=auth_url, status_code=302)
 
 
 @app.get("/protected")
@@ -167,19 +184,19 @@ Run it:
 uvicorn main:app --reload
 ```
 
-Visit `http://localhost:8000/auth/signin/google` to sign in.
+Visit `http://localhost:8000/login/google` to sign in.
 
 ## Configuration shortcuts
 
 - Environment variables: `BELGIE_SECRET`, `BELGIE_BASE_URL`, `BELGIE_GOOGLE_CLIENT_ID`, `BELGIE_GOOGLE_CLIENT_SECRET`,
-  `BELGIE_GOOGLE_REDIRECT_URI` (loaded automatically by `AuthSettings()`).
+  `BELGIE_GOOGLE_REDIRECT_URI` (loaded automatically by `BelgieSettings()`).
 - Session tuning: `SessionSettings(cookie_name, max_age, update_age)` controls lifetime and sliding refresh.
 - Cookie hardening: `CookieSettings(http_only, secure, same_site)` for production-ready defaults.
 
 ## Router endpoints
 
-- `GET /auth/signin/google` – start OAuth flow
-- `GET /auth/callback/google` – handle Google callback
+- `GET /login/google` – app-owned route that starts OAuth flow via plugin dependency
+- `GET /auth/provider/google/callback` – plugin callback route
 - `POST /auth/signout` – clear session cookie and invalidate server session
 
 ## Limitations today

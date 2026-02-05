@@ -1,12 +1,8 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
-from unittest.mock import Mock
 from uuid import UUID, uuid4
 
 from belgie_alchemy import AlchemyAdapter
-from belgie_core.core.settings import CookieSettings
-from belgie_core.providers.protocols import OAuthProviderProtocol
 from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
@@ -14,9 +10,6 @@ from belgie_proto import (
     SessionProtocol,
     UserProtocol,
 )
-from fastapi import APIRouter
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 @dataclass
@@ -198,97 +191,3 @@ def test_alchemy_adapter_no_longer_has_dependency() -> None:
     # Verify adapter is valid but doesn't have dependency property
     assert isinstance(adapter, AdapterProtocol)
     assert not hasattr(adapter, "dependency")
-
-
-class MockProviderSettings(BaseSettings):
-    """Mock provider settings for testing."""
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        extra="ignore",
-    )
-
-    client_id: str = Field(default="test_client_id")
-    client_secret: str = Field(default="test_secret")
-
-
-class MockOAuthProvider:
-    """Mock OAuth provider for testing protocol compliance."""
-
-    def __init__(self, settings: MockProviderSettings) -> None:
-        self.settings = settings
-
-    @property
-    def provider_id(self) -> Literal["mock"]:
-        return "mock"
-
-    def get_router(
-        self,
-        adapter: AdapterProtocol,  # noqa: ARG002
-        cookie_settings: CookieSettings,
-        session_max_age: int,
-        signin_redirect: str,
-        signout_redirect: str,  # noqa: ARG002
-        hook_runner,  # noqa: ARG002
-        db_dependency,  # noqa: ARG002
-    ) -> APIRouter:
-        router = APIRouter(prefix=f"/{self.provider_id}", tags=["auth", "oauth"])
-
-        @router.get("/signin")
-        async def signin() -> dict[str, str]:
-            return {"message": "signin", "redirect": signin_redirect}
-
-        @router.get("/callback")
-        async def callback() -> dict[str, str]:
-            return {
-                "message": "callback",
-                "secure": str(cookie_settings.secure),
-                "session_max_age": str(session_max_age),
-            }
-
-        return router
-
-
-def test_mock_provider_satisfies_oauth_provider_protocol() -> None:
-    """Verify MockOAuthProvider implements OAuthProviderProtocol using runtime checks."""
-    settings = MockProviderSettings()
-    provider = MockOAuthProvider(settings)
-
-    # Runtime protocol check - OAuthProviderProtocol is now runtime_checkable
-    assert isinstance(provider, OAuthProviderProtocol)
-
-    # Verify provider_id property
-    assert hasattr(provider, "provider_id")
-    assert provider.provider_id == "mock"
-
-    # Verify get_router method is callable and returns proper type
-    assert callable(provider.get_router)
-
-    adapter = AlchemyAdapter(
-        user=ExampleUser,
-        account=ExampleAccount,
-        session=ExampleSession,
-        oauth_state=ExampleOAuthState,
-    )
-    cookie_settings = CookieSettings()
-
-    # Mock hook_runner and db_dependency for the test
-    mock_hook_runner = Mock()
-    mock_db_dependency = Mock()
-
-    router = provider.get_router(
-        adapter,
-        cookie_settings,
-        session_max_age=3600,
-        signin_redirect="/dashboard",
-        signout_redirect="/",
-        hook_runner=mock_hook_runner,
-        db_dependency=mock_db_dependency,
-    )
-    assert isinstance(router, APIRouter)
-    assert router.prefix == "/mock"
-
-    # Verify router has expected routes (paths include prefix)
-    route_paths = [route.path for route in router.routes]
-    assert "/mock/signin" in route_paths
-    assert "/mock/callback" in route_paths
