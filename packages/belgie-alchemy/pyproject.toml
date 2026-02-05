@@ -10,7 +10,7 @@ requires-python = ">=3.12,<3.15"
 dependencies = [
     "aiosqlite>=0.22.1",
     "belgie-proto",
-    "brussels>=0.2.0",
+    "brussels>=0.3.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "sqlalchemy[asyncio]>=2.0",

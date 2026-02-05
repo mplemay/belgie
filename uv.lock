@@ -158,7 +158,7 @@ dependencies = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "belgie-proto", editable = "packages/belgie-proto" },
-    { name = "brussels", specifier = ">=0.2.0" },
+    { name = "brussels", specifier = ">=0.3.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
@@ -220,14 +220,14 @@ source = { editable = "packages/belgie-proto" }
 
 [[package]]
 name = "brussels"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/af/babd8eb5561751e2afc0f9a7cbe4f986107afca960a5e867de3102869156/brussels-0.2.0.tar.gz", hash = "sha256:e4f08768c177215bfa390bccab628eec04dad7041386145e4841d02a8e5a253e", size = 3601, upload-time = "2026-02-04T19:44:54.769Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/0f/e8e3a419c77ab19cc78c016eea1566c99ac25e46e8b9914c830a3e386545/brussels-0.3.0.tar.gz", hash = "sha256:b53507f7b2e4e93a965e06682cc68574c4313b0890f6dc13391db01fa019eda3", size = 3784, upload-time = "2026-02-05T16:23:12.455Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2b/e1/0ccf03f8e826966d9fab15364764fa0c7f2f859888ae74124b884872eb83/brussels-0.2.0-py3-none-any.whl", hash = "sha256:da4198e7dc1407399dddf5b76700c731c84638c884c459422ac671738ee51799", size = 5920, upload-time = "2026-02-04T19:44:57.249Z" },
+    { url = "https://files.pythonhosted.org/packages/30/53/77c90964b9a8c52c88d99db9f5cd8e60d8254815772256b8d81cae545047/brussels-0.3.0-py3-none-any.whl", hash = "sha256:2771636fd4c651eb4d6b7149b04a832d464682f90ceffa894f9378097a7091d3", size = 6125, upload-time = "2026-02-05T16:23:11.296Z" },
 ]
 
 [[package]]

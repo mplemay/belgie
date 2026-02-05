@@ -18,7 +18,7 @@ from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.hooks import HookRunner, Hooks
-from belgie_core.core.protocols import Plugin
+from belgie_core.core.plugin import Plugin
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.providers.protocols import OAuthProviderProtocol, Providers  # noqa: TC001
 from belgie_core.session.manager import SessionManager
@@ -266,7 +266,7 @@ class Belgie[
         root_router.include_router(main_router)
 
         for plugin in self.plugins:
-            root_router.include_router(plugin.public_router(self))
+            root_router.include_router(plugin.public(self))
 
         return root_router
 
