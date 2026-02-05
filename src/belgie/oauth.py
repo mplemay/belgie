@@ -3,7 +3,7 @@
 _OAUTH_IMPORT_ERROR = "belgie.oauth requires the 'oauth' extra. Install with: uv add belgie[oauth]"
 
 try:
-    from belgie_oauth import (  # type: ignore[import-not-found]
+    from belgie_oauth_server import (  # type: ignore[import-not-found]
         OAuthPlugin,
         OAuthSettings,
         build_oauth_metadata,

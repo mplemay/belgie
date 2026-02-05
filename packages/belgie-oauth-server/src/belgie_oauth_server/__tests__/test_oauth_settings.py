@@ -1,5 +1,5 @@
 import pytest
-from belgie_oauth.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthSettings
 from pydantic import ValidationError
 
 

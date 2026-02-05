@@ -1,26 +1,27 @@
-# Design Document: belgie-oauth Authorization Server
+# Design Document: belgie-oauth-server Authorization Server
 
 ## Overview
 
 ### High-Level Description
 
-Introduce a new workspace package, `belgie-oauth`, that provides an OAuth 2.1 Authorization Server (AS) for FastAPI and
-integrates with the **existing Belgie plugin system** in `belgie-core`. The plugin is registered via
+Introduce a new workspace package, `belgie-oauth-server`, that provides an OAuth 2.1 Authorization Server (AS) for
+FastAPI and integrates with the **existing Belgie plugin system** in `belgie-core`. The plugin is registered via
 `Belgie.add_plugin(...)` and exposes AS endpoints through the Belgie router. The OAuth AS relies on
 `belgie_core.core.client.BelgieClient` and `belgie_core.core.belgie.Belgie` for user/session operations so user identity
-and session lifecycle are **not re-implemented** inside `belgie-oauth`.
+and session lifecycle are **not re-implemented** inside `belgie-oauth-server`.
 
-OAuth settings are moved **out of `belgie-proto`** and live in `belgie-oauth` to keep configuration co-located with the
-feature. OAuth logic and in-memory storage live in `SimpleOAuthProvider`; only the plugin and settings are public.
-Client registrations are stored in memory by default; production deployments should replace or extend the provider with
-persistent storage.
+OAuth settings are moved **out of `belgie-proto`** and live in `belgie-oauth-server` to keep configuration co-located
+with the feature. OAuth logic and in-memory storage live in `SimpleOAuthProvider`; only the plugin and settings are
+public. Client registrations are stored in memory by default; production deployments should replace or extend the
+provider with persistent storage.
 
 ### Goals
 
 - Provide a FastAPI router implementing OAuth AS endpoints with a configurable path prefix via a Belgie plugin.
 - Use `BelgieClient` and `Belgie` for all user/session operations: current user lookup, user creation, session creation,
   and hooks.
-- Relocate OAuth settings from `belgie-proto` into `belgie-oauth` and keep them private to the package’s public API.
+- Relocate OAuth settings from `belgie-proto` into `belgie-oauth-server` and keep them private to the package’s public
+  API.
 - Encapsulate OAuth logic and storage inside `SimpleOAuthProvider`, exposing only a minimal plugin surface.
 - Support the authorization code flow plus token introspection.
 - Add `/register` (dynamic client registration) and `/revoke` endpoints.
@@ -55,7 +56,7 @@ authenticated, it issues an authorization code and later exchanges it for an acc
 from fastapi import FastAPI
 
 from belgie_core import Belgie, BelgieSettings
-from belgie_oauth import OAuthPlugin, OAuthSettings
+from belgie_oauth_server import OAuthPlugin, OAuthSettings
 
 app = FastAPI()
 
@@ -122,9 +123,10 @@ sequenceDiagram
 
 #### Key Components
 
-- **OAuthPlugin** (`belgie_oauth/plugin.py:OAuthPlugin`) - Belgie plugin wiring router, routes, and provider.
-- **OAuthSettings** (`belgie_oauth/settings.py:OAuthSettings`) - OAuth server settings (moved out of belgie-proto).
-- **SimpleOAuthProvider** (`belgie_oauth/provider.py:SimpleOAuthProvider`) - Core AS logic and in-memory storage.
+- **OAuthPlugin** (`belgie_oauth_server/plugin.py:OAuthPlugin`) - Belgie plugin wiring router, routes, and provider.
+- **OAuthSettings** (`belgie_oauth_server/settings.py:OAuthSettings`) - OAuth server settings (moved out of
+  belgie-proto).
+- **SimpleOAuthProvider** (`belgie_oauth_server/provider.py:SimpleOAuthProvider`) - Core AS logic and in-memory storage.
 - **BelgieClient** (`belgie_core/core/client.py:BelgieClient`) - Current user and session access.
 
 ### Workflow 2: Demo Login and User Bootstrap
@@ -138,7 +140,7 @@ a user if missing via `BelgieClient.adapter.create_user`, creates a session via
 #### Usage Example
 
 ```python
-from belgie_oauth import OAuthSettings
+from belgie_oauth_server import OAuthSettings
 
 oauth_settings = OAuthSettings(
     issuer_url="http://localhost:8000",
@@ -161,7 +163,7 @@ graph TD
 
 #### Key Components
 
-- **Login routes** (`belgie_oauth/plugin.py`) - Demo login page and session creation.
+- **Login routes** (`belgie_oauth_server/plugin.py`) - Demo login page and session creation.
 - **BelgieClient.adapter** (`belgie_proto.AdapterProtocol`) - User creation and lookup.
 - **SessionManager** (`belgie_core/session/manager.py:SessionManager`) - Session lifecycle.
 - **HookRunner** (`belgie_core/core/hooks.py:HookRunner`) - `on_signup` / `on_signin` hooks.
@@ -176,7 +178,7 @@ client info in memory, and return a full registration response.
 #### Usage Example
 
 ```python
-from belgie_oauth import OAuthSettings
+from belgie_oauth_server import OAuthSettings
 
 settings = OAuthSettings(
     issuer_url="http://localhost:8000",
@@ -196,14 +198,14 @@ graph TD
 
 #### Key Components
 
-- **/register route** (`belgie_oauth/plugin.py`) - Validates and stores client registration.
+- **/register route** (`belgie_oauth_server/plugin.py`) - Validates and stores client registration.
 
 ## Dependencies
 
 ```mermaid
 graph TD
     BelgieCore[belgie-core]
-    OAuthPkg["(NEW) belgie-oauth"]
+    OAuthPkg["(NEW) belgie-oauth-server"]
     ProtoPkg[belgie-proto]
     FastAPI[fastapi]
     Pydantic[pydantic]
@@ -221,10 +223,10 @@ graph TD
 ### Module Structure
 
 ```text
-packages/belgie-oauth/
+packages/belgie-oauth-server/
 ├── README.md
 ├── pyproject.toml
-└── src/belgie_oauth/
+└── src/belgie_oauth_server/
     ├── __init__.py
     ├── py.typed
     ├── plugin.py                 # OAuthPlugin (Belgie integration)
@@ -237,7 +239,7 @@ packages/belgie-oauth/
 
 ### API Design
 
-#### `packages/belgie-oauth/src/belgie_oauth/settings.py`
+#### `packages/belgie-oauth-server/src/belgie_oauth_server/settings.py`
 
 OAuth server configuration. These settings are **no longer in `belgie-proto`**.
 
@@ -265,7 +267,7 @@ class OAuthSettings(BaseSettings):
     code_challenge_method: Literal["S256"] = "S256"
 ```
 
-#### `packages/belgie-oauth/src/belgie_oauth/models.py`
+#### `packages/belgie-oauth-server/src/belgie_oauth_server/models.py`
 
 Shared OAuth models aligned with MCP and used by the provider and plugin routes.
 
@@ -346,7 +348,7 @@ class OAuthMetadata(BaseModel):
     client_id_metadata_document_supported: bool | None = None
 ```
 
-#### `packages/belgie-oauth/src/belgie_oauth/provider.py`
+#### `packages/belgie-oauth-server/src/belgie_oauth_server/provider.py`
 
 In-memory OAuth provider and supporting dataclasses.
 
@@ -355,7 +357,7 @@ from dataclasses import dataclass
 
 from pydantic import AnyUrl
 
-from belgie_oauth.models import OAuthClientInformationFull, OAuthToken
+from belgie_oauth_server.models import OAuthClientInformationFull, OAuthToken
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -420,7 +422,7 @@ class SimpleOAuthProvider:
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None: ...
 ```
 
-#### `packages/belgie-oauth/src/belgie_oauth/plugin.py`
+#### `packages/belgie-oauth-server/src/belgie_oauth_server/plugin.py`
 
 Belgie-facing plugin wrapper, wired to the plugin system in `belgie-core`.
 
@@ -429,8 +431,8 @@ from fastapi import APIRouter
 
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.protocols import Plugin
-from belgie_oauth.provider import SimpleOAuthProvider
-from belgie_oauth.settings import OAuthSettings
+from belgie_oauth_server.provider import SimpleOAuthProvider
+from belgie_oauth_server.settings import OAuthSettings
 
 
 class OAuthPlugin(Plugin):
@@ -450,56 +452,56 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 #### Settings
 
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_oauth_settings.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_oauth_settings.py`
   - Default `route_prefix` is `/oauth`.
   - `redirect_uris` is required and must be non-empty.
   - Environment variable prefix `BELGIE_OAUTH_` is respected.
 
 #### Models
 
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_models.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_models.py`
   - Token type normalization.
   - Redirect URI validation behavior.
   - Scope validation behavior.
 
 #### Provider
 
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_provider.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_provider.py`
   - `authorize()` persists state for login flow.
   - `issue_authorization_code()` returns redirect with code.
   - `exchange_authorization_code()` issues access token.
 
 #### Routes
 
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_routes_authorize.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_routes_authorize.py`
   - Unauthenticated user triggers redirect to demo login.
   - Authenticated user returns redirect with code + state.
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_routes_token.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_routes_token.py`
   - Missing/invalid grant type returns `unsupported_grant_type`.
   - Invalid code returns `invalid_grant`.
   - Successful exchange returns JSON token response.
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_routes_metadata.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_routes_metadata.py`
   - Metadata endpoint returns issuer + endpoints.
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_routes_login.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_routes_login.py`
   - Login flow issues session + redirect.
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_routes_introspect.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_routes_introspect.py`
   - Introspection returns active token when present.
 
 #### Utils
 
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_utils.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_utils.py`
   - Redirect URI construction, URL joining, and PKCE challenge hashing.
 
 #### Plugin Integration
 
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_plugin_integration.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_plugin_integration.py`
   - `Belgie.add_plugin` registers `OAuthPlugin`.
   - Plugin routes are available under `/auth/<route_prefix>`.
   - Multiple plugins mount without conflicts.
 
 #### Integration
 
-- `packages/belgie-oauth/src/belgie_oauth/__tests__/test_flow_integration.py`
+- `packages/belgie-oauth-server/src/belgie_oauth_server/__tests__/test_flow_integration.py`
   - End-to-end auth code flow with in-memory storage and Belgie session.
   - Demo login flow creates session and allows authorization.
   - Introspection returns active token when enabled.
@@ -544,9 +546,9 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 | Library | Version | Purpose | Dependency Group | Command |
 |---------|---------|---------|------------------|---------|
-| `fastapi` | `>=0.100` | HTTP routing and request handling (belgie-oauth) | core | `uv add fastapi` |
-| `pydantic` | `>=2.0` | Settings/model validation (belgie-oauth) | core | `uv add pydantic` |
-| `pydantic-settings` | `>=2.0` | Environment-based settings (belgie-oauth) | core | `uv add pydantic-settings` |
+| `fastapi` | `>=0.100` | HTTP routing and request handling (belgie-oauth-server) | core | `uv add fastapi` |
+| `pydantic` | `>=2.0` | Settings/model validation (belgie-oauth-server) | core | `uv add pydantic` |
+| `pydantic-settings` | `>=2.0` | Environment-based settings (belgie-oauth-server) | core | `uv add pydantic-settings` |
 
 ### Existing Libraries
 
@@ -567,7 +569,7 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 **Cons**:
 
-- Tightens coupling between `belgie-proto` and `belgie-oauth`.
+- Tightens coupling between `belgie-proto` and `belgie-oauth-server`.
 - Expands the “proto” package beyond pure protocols.
 
 **Why not chosen**: OAuth settings are feature-specific and belong with the OAuth server package. `belgie-proto` remains
@@ -603,4 +605,5 @@ settings and internal defaults.
 - Bloats `belgie-core` with optional functionality.
 - Harder to keep dependencies optional (fastapi, pydantic-settings).
 
-**Why not chosen**: A separate `belgie-oauth` package keeps the core lean and preserves optional dependency boundaries.
+**Why not chosen**: A separate `belgie-oauth-server` package keeps the core lean and preserves optional dependency
+boundaries.

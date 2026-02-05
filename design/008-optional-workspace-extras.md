@@ -333,8 +333,8 @@ None.
 
 ### Approach 2: Separate Distribution Packages
 
-**Description**: Publish `belgie-alchemy`, `belgie-mcp`, and `belgie-oauth` as separate distributions and keep `belgie`
-lean with no extras.
+**Description**: Publish `belgie-alchemy`, `belgie-mcp`, and `belgie-oauth-server` as separate distributions and keep
+`belgie` lean with no extras.
 
 **Pros**:
 

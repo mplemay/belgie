@@ -3,9 +3,9 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from belgie_core.core.belgie import Belgie
-from belgie_oauth.plugin import OAuthPlugin
-from belgie_oauth.settings import OAuthSettings
-from belgie_oauth.utils import create_code_challenge
+from belgie_oauth_server.plugin import OAuthPlugin
+from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.utils import create_code_challenge
 from fastapi import FastAPI
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession

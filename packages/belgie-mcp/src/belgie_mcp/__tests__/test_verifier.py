@@ -3,11 +3,11 @@ import respx
 from httpx import Response
 
 pytest.importorskip("mcp")
-pytest.importorskip("belgie_oauth")
+pytest.importorskip("belgie_oauth_server")
 
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
-from belgie_oauth.settings import OAuthSettings
-from belgie_oauth.utils import join_url
+from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.utils import join_url
 from mcp.server.mcpserver import MCPServer
 
 

@@ -2,11 +2,11 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from belgie_oauth.models import OAuthClientInformationFull
-from belgie_oauth.plugin import OAuthPlugin
-from belgie_oauth.provider import AuthorizationParams
-from belgie_oauth.settings import OAuthSettings
-from belgie_oauth.utils import create_code_challenge
+from belgie_oauth_server.models import OAuthClientInformationFull
+from belgie_oauth_server.plugin import OAuthPlugin
+from belgie_oauth_server.provider import AuthorizationParams
+from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.utils import create_code_challenge
 
 BEARER = "Bearer"
 

@@ -2,8 +2,8 @@ import time
 
 import httpx
 import pytest
-from belgie_oauth.plugin import OAuthPlugin
-from belgie_oauth.provider import AccessToken
+from belgie_oauth_server.plugin import OAuthPlugin
+from belgie_oauth_server.provider import AccessToken
 
 BEARER = "Bearer"
 

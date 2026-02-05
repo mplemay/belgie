@@ -1,8 +1,8 @@
 import logging
 from typing import Any
 
-from belgie_oauth.settings import OAuthSettings
-from belgie_oauth.utils import join_url
+from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.utils import join_url
 from httpx import AsyncClient, HTTPError, Limits, Timeout
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings

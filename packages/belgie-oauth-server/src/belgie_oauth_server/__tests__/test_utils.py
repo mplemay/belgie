@@ -1,4 +1,4 @@
-from belgie_oauth.utils import construct_redirect_uri, create_code_challenge, join_url
+from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge, join_url
 
 
 def test_construct_redirect_uri_merges_params() -> None:

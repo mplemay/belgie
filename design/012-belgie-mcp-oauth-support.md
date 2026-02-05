@@ -5,13 +5,14 @@
 ### High-Level Description
 
 Add first-class OAuth Resource Server support to `belgie-mcp` by introducing a token verifier that introspects tokens
-against the `belgie-oauth` authorization server. The new verifier plugs into MCP’s `TokenVerifier` interface and can
-optionally enforce RFC 8707 resource validation. A small helper builds MCP `AuthSettings` automatically from
-`belgie_oauth.settings.OAuthSettings`, keeping configuration consistent between `belgie-oauth` and `belgie-mcp`.
+against the `belgie-oauth-server` authorization server. The new verifier plugs into MCP’s `TokenVerifier` interface and
+can optionally enforce RFC 8707 resource validation. A small helper builds MCP `AuthSettings` automatically from
+`belgie_oauth_server.settings.OAuthSettings`, keeping configuration consistent between `belgie-oauth-server` and
+`belgie-mcp`.
 
 ### Goals
 
-- Provide a `BelgieOAuthTokenVerifier` that validates access tokens via `/introspect` on `belgie-oauth`.
+- Provide a `BelgieOAuthTokenVerifier` that validates access tokens via `/introspect` on `belgie-oauth-server`.
 - Automatically construct MCP `AuthSettings` from `OAuthSettings` plus a `server_url` for the MCP resource server.
 - Support optional RFC 8707 resource validation for strict audience/resource matching.
 - Keep the public API surface minimal and consistent with existing Belgie patterns.
@@ -26,12 +27,12 @@ optionally enforce RFC 8707 resource validation. A small helper builds MCP `Auth
 
 ## Workflows
 
-### Workflow 1: MCP Server Startup with belgie-oauth Settings
+### Workflow 1: MCP Server Startup with belgie-oauth-server Settings
 
 #### Description
 
-An application configures `belgie-oauth` with `OAuthSettings`, then builds `AuthSettings` and a `TokenVerifier` for a
-given MCP `server_url`. The helpers provide both pieces for MCP server initialization.
+An application configures `belgie-oauth-server` with `OAuthSettings`, then builds `AuthSettings` and a `TokenVerifier`
+for a given MCP `server_url`. The helpers provide both pieces for MCP server initialization.
 
 #### Usage Example
 
@@ -39,7 +40,7 @@ given MCP `server_url`. The helpers provide both pieces for MCP server initializ
 from mcp.server.mcpserver import MCPServer
 
 from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
-from belgie_oauth.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthSettings
 
 settings = OAuthSettings(
     issuer_url="https://auth.example.com/auth/oauth",
@@ -95,7 +96,8 @@ sequenceDiagram
 - **BelgieOAuthTokenVerifier** (`packages/belgie-mcp/src/belgie_mcp/verifier.py`) - Introspection-based verifier.
 - **mcp_auth** (`packages/belgie-mcp/src/belgie_mcp/verifier.py`) - Builds `AuthSettings`.
 - **mcp_token_verifier** (`packages/belgie-mcp/src/belgie_mcp/verifier.py`) - Builds `TokenVerifier`.
-- **OAuthSettings** (`packages/belgie-oauth/src/belgie_oauth/settings.py`) - AS configuration source of truth.
+- **OAuthSettings** (`packages/belgie-oauth-server/src/belgie_oauth_server/settings.py`) - AS configuration source of
+  truth.
 
 ### Workflow 2: Token Verification via OAuth Introspection
 
@@ -134,7 +136,7 @@ graph TD
 sequenceDiagram
     participant MCP
     participant Verifier
-    participant AS as belgie-oauth
+    participant AS as belgie-oauth-server
 
     MCP->>Verifier: verify_token(token)
     Verifier->>AS: POST /introspect (token)
@@ -185,7 +187,7 @@ graph TD
 ```mermaid
 graph TD
     BelgieMcp["belgie-mcp"]
-    BelgieOauth["belgie-oauth"]
+    BelgieOauth["belgie-oauth-server"]
     Httpx["httpx"]
     Mcp["mcp"]
 
@@ -217,7 +219,7 @@ src/belgie/
 ```python
 from dataclasses import dataclass
 
-from belgie_oauth.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthSettings
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.auth.provider import TokenVerifier
 
@@ -285,7 +287,7 @@ from belgie_mcp import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 
 ### Implementation Order
 
-1. Update `packages/belgie-mcp/pyproject.toml` to depend on `belgie-oauth` and `httpx`.
+1. Update `packages/belgie-mcp/pyproject.toml` to depend on `belgie-oauth-server` and `httpx`.
 2. Replace `belgie_mcp.verifier` with `BelgieOAuthTokenVerifier`, `mcp_auth`, and `mcp_token_verifier`.
 3. Update package exports in `packages/belgie-mcp/src/belgie_mcp/__init__.py` and `src/belgie/mcp.py`.
 4. Add unit tests under `packages/belgie-mcp/src/belgie_mcp/__tests__/`.
@@ -293,7 +295,7 @@ from belgie_mcp import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 
 ### Tasks
 
-- [ ] Add `belgie-oauth` and `httpx` dependencies to `belgie-mcp`.
+- [ ] Add `belgie-oauth-server` and `httpx` dependencies to `belgie-mcp`.
 - [ ] Implement `BelgieOAuthTokenVerifier`.
 - [ ] Implement `mcp_auth` and `mcp_token_verifier`.
 - [ ] Re-export new APIs from `belgie_mcp` and `belgie.mcp`.
@@ -317,7 +319,7 @@ from belgie_mcp import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 
 | Library | Version | Purpose | Dependency Group | Command |
 |---------|---------|---------|------------------|---------|
-| `belgie-oauth` | `workspace` | Reuse OAuth settings and URL helpers | core | `uv add belgie-oauth` |
+| `belgie-oauth-server` | `workspace` | Reuse OAuth settings and URL helpers | core | `uv add belgie-oauth-server` |
 | `httpx` | `>=0.24` | Async HTTP client for introspection | core | `uv add httpx` |
 
 ### Existing Libraries
@@ -347,8 +349,8 @@ scopes, and other metadata dynamically.
 
 ### Approach 2: ProviderTokenVerifier
 
-**Description**: Implement a verifier that directly uses the `SimpleOAuthProvider` in `belgie-oauth` rather than token
-introspection.
+**Description**: Implement a verifier that directly uses the `SimpleOAuthProvider` in `belgie-oauth-server` rather than
+token introspection.
 
 **Pros**:
 

@@ -1,5 +1,5 @@
 import pytest
-from belgie_oauth.models import InvalidRedirectUriError, InvalidScopeError, OAuthClientMetadata, OAuthToken
+from belgie_oauth_server.models import InvalidRedirectUriError, InvalidScopeError, OAuthClientMetadata, OAuthToken
 from pydantic import AnyUrl
 
 BEARER = "Bearer"

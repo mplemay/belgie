@@ -5,11 +5,11 @@ from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
 
-from belgie_oauth.models import OAuthMetadata
-from belgie_oauth.utils import join_url
+from belgie_oauth_server.models import OAuthMetadata
+from belgie_oauth_server.utils import join_url
 
 if TYPE_CHECKING:
-    from belgie_oauth.settings import OAuthSettings
+    from belgie_oauth_server.settings import OAuthSettings
 
 
 def build_oauth_metadata(issuer_url: str, settings: OAuthSettings) -> OAuthMetadata:
