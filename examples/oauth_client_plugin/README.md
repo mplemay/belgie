@@ -9,6 +9,14 @@ This example shows the new OAuth client plugin flow using `belgie-oauth`.
   - `belgie.add_plugin(GoogleOAuthPlugin, GoogleOAuthSettings(...))`
 - App-owned signin endpoint using plugin dependency:
   - `GET /login/google`
+- Unscoped user dependency using `Depends(belgie.user)`:
+  - `GET /profile`
+- Scoped user dependency using `Security(belgie.user, scopes=["email"])`:
+  - `GET /profile/email`
+- Protected route dependency using `Depends(belgie.user)`:
+  - `GET /dashboard`
+- Session dependency using `Depends(belgie.session)`:
+  - `GET /session`
 - Plugin callback + core signout endpoints:
   - `GET /auth/provider/google/callback`
   - `POST /auth/signout`
@@ -31,3 +39,7 @@ Then open:
 
 - `http://localhost:8000/`
 - `http://localhost:8000/login/google`
+- `http://localhost:8000/dashboard`
+- `http://localhost:8000/profile`
+- `http://localhost:8000/profile/email`
+- `http://localhost:8000/session`
