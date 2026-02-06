@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from brussels.base import DataclassBase
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Security
 from fastapi.responses import RedirectResponse
 
 from belgie import Belgie, BelgieSettings, CookieSettings, SessionSettings, URLSettings
@@ -78,6 +78,10 @@ async def home() -> dict[str, str]:
         "message": "oauth client plugin example",
         "signin": "/login/google",
         "signout": "/auth/signout",
+        "dashboard": "/dashboard",
+        "profile": "/profile",
+        "profile_email": "/profile/email",
+        "session": "/session",
     }
 
 
@@ -97,6 +101,32 @@ async def dashboard(user: User = Depends(belgie.user)) -> dict[str, str | None]:
         "email": user.email,
         "name": user.name,
         "image": user.image,
+    }
+
+
+@app.get("/profile")
+async def profile(user: User = Depends(belgie.user)) -> dict[str, str | None]:  # noqa: B008, FAST002
+    return {
+        "user_id": str(user.id),
+        "email": user.email,
+        "name": user.name,
+    }
+
+
+@app.get("/profile/email")
+async def profile_email(user: User = Security(belgie.user, scopes=["email"])) -> dict[str, str]:  # noqa: B008, FAST002
+    return {
+        "email": user.email,
+        "email_verified": str(user.email_verified),
+    }
+
+
+@app.get("/session")
+async def session_info(session: Session = Depends(belgie.session)) -> dict[str, str]:  # noqa: B008, FAST002
+    return {
+        "session_id": str(session.id),
+        "user_id": str(session.user_id),
+        "expires_at": session.expires_at.isoformat(),
     }
 
 
