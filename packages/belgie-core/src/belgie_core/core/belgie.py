@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Callable  # noqa: TC003
-from typing import Protocol, cast
+from collections.abc import AsyncGenerator, Callable, Coroutine  # noqa: TC003
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from belgie_proto import (
@@ -300,12 +300,8 @@ class Belgie[
         client = self.__call__(db)
         return await client._get_session_from_cookie(request)  # noqa: SLF001
 
-    async def user(
-        self,
-        security_scopes: SecurityScopes,
-        request: Request,
-        db: DBConnection,
-    ) -> UserT:
+    @property
+    def user(self) -> Callable[[SecurityScopes, Request, DBConnection], Coroutine[Any, Any, UserT]]:
         """FastAPI dependency for retrieving the authenticated user.
 
         Extracts the session from cookies, validates it, and returns the authenticated user.
@@ -336,14 +332,23 @@ class Belgie[
             >>> async def resource_route(user: User = Security(belgie.user, scopes=[Scope.READ])):
             ...     return {"data": "..."}
         """
-        client = self.__call__(db)
-        return await client.get_user(security_scopes, request)
+        if self.db is None:
+            msg = "Belgie.db must be configured with a dependency"
+            raise RuntimeError(msg)
+        dependency = self.db.dependency
 
-    async def session(
-        self,
-        request: Request,
-        db: DBConnection,
-    ) -> SessionT:
+        async def _user(
+            security_scopes: SecurityScopes,
+            request: Request,
+            db: DBConnection = Depends(dependency),  # noqa: B008
+        ) -> UserT:
+            client = self.__call__(db)
+            return await client.get_user(security_scopes, request)
+
+        return _user
+
+    @property
+    def session(self) -> Callable[[Request, DBConnection], Coroutine[Any, Any, SessionT]]:
         """FastAPI dependency for retrieving the current session.
 
         Extracts and validates the session from cookies.
@@ -367,5 +372,16 @@ class Belgie[
             >>> async def session_info(session: Session = Depends(belgie.session)):
             ...     return {"session_id": str(session.id), "expires_at": session.expires_at.isoformat()}
         """
-        client = self.__call__(db)
-        return await client.get_session(request)
+        if self.db is None:
+            msg = "Belgie.db must be configured with a dependency"
+            raise RuntimeError(msg)
+        dependency = self.db.dependency
+
+        async def _session(
+            request: Request,
+            db: DBConnection = Depends(dependency),  # noqa: B008
+        ) -> SessionT:
+            client = self.__call__(db)
+            return await client.get_session(request)
+
+        return _session
