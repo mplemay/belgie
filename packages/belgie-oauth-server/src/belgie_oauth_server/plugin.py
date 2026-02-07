@@ -11,7 +11,12 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
 from pydantic import AnyUrl, ValidationError
 
-from belgie_oauth_server.metadata import build_oauth_metadata, build_oauth_metadata_well_known_path
+from belgie_oauth_server.metadata import (
+    build_oauth_metadata,
+    build_oauth_metadata_well_known_path,
+    build_protected_resource_metadata,
+    build_protected_resource_metadata_well_known_path,
+)
 from belgie_oauth_server.models import (
     InvalidRedirectUriError,
     InvalidScopeError,
@@ -29,6 +34,8 @@ if TYPE_CHECKING:
     from belgie_core.core.client import BelgieClient
 
     from belgie_oauth_server.settings import OAuthSettings
+
+_ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 
 
 class OAuthPlugin(Plugin):
@@ -65,17 +72,39 @@ class OAuthPlugin(Plugin):
         )
         metadata = build_oauth_metadata(issuer_url, self._settings)
         well_known_path = build_oauth_metadata_well_known_path(issuer_url)
+        router = APIRouter(tags=["oauth"])
 
-        def create_oauth_metadata_router() -> APIRouter:
-            router = APIRouter(tags=["oauth"])
+        async def metadata_handler(_: Request) -> Response:
+            return JSONResponse(metadata.model_dump(mode="json"))
 
-            async def metadata_handler(_: Request) -> Response:
-                return JSONResponse(metadata.model_dump(mode="json"))
+        router.add_api_route(well_known_path, metadata_handler, methods=["GET"])
 
-            router.add_api_route(well_known_path, metadata_handler, methods=["GET"])
-            return router
+        if self._settings.resource_server_url is not None:
+            protected_resource_metadata = build_protected_resource_metadata(issuer_url, self._settings)
+            protected_resource_well_known_path = build_protected_resource_metadata_well_known_path(
+                self._settings.resource_server_url,
+            )
 
-        return create_oauth_metadata_router()
+            async def protected_resource_metadata_handler(_: Request) -> Response:
+                return JSONResponse(protected_resource_metadata.model_dump(mode="json"))
+
+            router.add_api_route(
+                protected_resource_well_known_path,
+                protected_resource_metadata_handler,
+                methods=["GET"],
+            )
+
+            if (
+                self._settings.include_root_resource_metadata_fallback
+                and protected_resource_well_known_path != _ROOT_RESOURCE_METADATA_PATH
+            ):
+                router.add_api_route(
+                    _ROOT_RESOURCE_METADATA_PATH,
+                    protected_resource_metadata_handler,
+                    methods=["GET"],
+                )
+
+        return router
 
     def public(self, belgie: Belgie) -> APIRouter:
         if self._metadata_router is None:

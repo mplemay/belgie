@@ -28,6 +28,9 @@ class OAuthSettings(BaseSettings):
     access_token_ttl_seconds: int = 3600
     state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"
+    resource_server_url: AnyHttpUrl | None = None
+    resource_scopes: list[str] | None = None
+    include_root_resource_metadata_fallback: bool = True
 
     @cached_property
     def issuer_url(self) -> AnyHttpUrl | None:

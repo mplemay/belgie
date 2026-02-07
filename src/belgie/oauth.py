@@ -8,6 +8,8 @@ try:
         OAuthSettings,
         build_oauth_metadata,
         build_oauth_metadata_well_known_path,
+        build_protected_resource_metadata,
+        build_protected_resource_metadata_well_known_path,
     )
 except ModuleNotFoundError as exc:
     raise ImportError(_OAUTH_IMPORT_ERROR) from exc
@@ -17,4 +19,6 @@ __all__ = [
     "OAuthSettings",
     "build_oauth_metadata",
     "build_oauth_metadata_well_known_path",
+    "build_protected_resource_metadata",
+    "build_protected_resource_metadata_well_known_path",
 ]
