@@ -30,3 +30,26 @@ def test_protected_resource_metadata_routes() -> None:
         root_response = client.get("/.well-known/oauth-protected-resource")
         assert root_response.status_code == 200
         assert root_response.json() == payload
+
+
+def test_protected_resource_metadata_uses_authorization_server_override() -> None:
+    auth = AuthSettings(
+        issuer_url="https://auth.local",
+        resource_server_url="https://mcp.local/mcp",
+        required_scopes=["user"],
+    )
+
+    app = FastAPI()
+    app.include_router(
+        create_protected_resource_metadata_router(
+            auth,
+            authorization_server_url="https://auth.local/auth/oauth",
+        ),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/.well-known/oauth-protected-resource/mcp")
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert payload["authorization_servers"] == ["https://auth.local/auth/oauth"]

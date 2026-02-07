@@ -14,20 +14,23 @@ _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 if TYPE_CHECKING:
     from fastapi.responses import Response
     from mcp.server.auth.settings import AuthSettings
+    from pydantic import AnyHttpUrl
 
 
 def create_protected_resource_metadata_router(
     auth: AuthSettings,
     *,
     include_root_fallback: bool = True,
+    authorization_server_url: str | AnyHttpUrl | None = None,
 ) -> APIRouter:
     if auth.resource_server_url is None:
         msg = "AuthSettings.resource_server_url is required to build protected resource metadata"
         raise ValueError(msg)
 
+    issuer_url = str(auth.issuer_url) if authorization_server_url is None else str(authorization_server_url)
     metadata = ProtectedResourceMetadata(
         resource=auth.resource_server_url,
-        authorization_servers=[auth.issuer_url],
+        authorization_servers=[issuer_url],
         scopes_supported=auth.required_scopes,
     )
 
