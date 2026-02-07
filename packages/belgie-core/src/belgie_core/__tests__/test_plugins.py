@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from unittest.mock import Mock
 
 import pytest
@@ -6,27 +7,24 @@ from fastapi import APIRouter
 from belgie_core.core.belgie import Belgie
 
 
-class MockSettings:
-    pass
+@dataclass(slots=True, kw_only=True, frozen=True)
+class MockPluginSettings:
+    label: str
+    enabled: bool = True
 
 
 class MockPlugin:
-    def __init__(self, settings: MockSettings, label: str, *, enabled: bool = True) -> None:
+    def __init__(self, belgie_settings: object, settings: MockPluginSettings) -> None:
+        self.belgie_settings = belgie_settings
         self.settings = settings
-        self.label = label
-        self.enabled = enabled
+        self.label = settings.label
+        self.enabled = settings.enabled
 
     def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         return APIRouter()
 
-
-class BindablePlugin(MockPlugin):
-    def __init__(self, settings: MockSettings, label: str, *, enabled: bool = True) -> None:
-        super().__init__(settings, label, enabled=enabled)
-        self.bound_belgie: Belgie | None = None
-
-    def bind(self, belgie: Belgie) -> None:
-        self.bound_belgie = belgie
+    def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+        return None
 
 
 @pytest.fixture
@@ -47,49 +45,38 @@ def belgie_instance() -> Belgie:
 
 
 def test_add_plugin_stores_instance(belgie_instance: Belgie) -> None:
-    settings = MockSettings()
-    plugin = belgie_instance.add_plugin(MockPlugin, settings, "alpha", enabled=False)
+    plugin_settings = MockPluginSettings(label="alpha", enabled=False)
+    plugin = belgie_instance.add_plugin(MockPlugin, plugin_settings)
     assert isinstance(plugin, MockPlugin)
     assert plugin in belgie_instance.plugins
     assert plugin.label == "alpha"
     assert plugin.enabled is False
-    assert plugin.settings == settings
+    assert plugin.settings == plugin_settings
 
 
-def test_add_plugin_passes_settings(belgie_instance: Belgie) -> None:
-    settings = MockSettings()
-    plugin = belgie_instance.add_plugin(MockPlugin, settings, "alpha")
-    assert plugin.settings == settings
-
-
-def test_add_plugin_does_not_call_bind_when_missing(belgie_instance: Belgie) -> None:
-    settings = MockSettings()
-    plugin = belgie_instance.add_plugin(MockPlugin, settings, "alpha")
-    assert not hasattr(plugin, "bound_belgie")
+def test_add_plugin_passes_belgie_settings(belgie_instance: Belgie) -> None:
+    plugin_settings = MockPluginSettings(label="alpha")
+    plugin = belgie_instance.add_plugin(MockPlugin, plugin_settings)
+    assert plugin.belgie_settings is belgie_instance.settings
 
 
 def test_add_plugin_returns_instance(belgie_instance: Belgie) -> None:
-    settings = MockSettings()
-    plugin = belgie_instance.add_plugin(MockPlugin, settings, "alpha")
+    plugin_settings = MockPluginSettings(label="alpha")
+    plugin = belgie_instance.add_plugin(MockPlugin, plugin_settings)
     assert isinstance(plugin, MockPlugin)
 
 
-def test_add_plugin_calls_optional_bind(belgie_instance: Belgie) -> None:
-    settings = MockSettings()
-    plugin = belgie_instance.add_plugin(BindablePlugin, settings, "alpha")
-    assert plugin.bound_belgie is belgie_instance
-    assert plugin in belgie_instance.plugins
+def test_add_plugin_legacy_constructor_fails_fast(belgie_instance: Belgie) -> None:
+    class LegacyPlugin:
+        def __init__(self, settings: MockPluginSettings) -> None:
+            self.settings = settings
 
+        def router(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+            return None
 
-def test_add_plugin_calls_bind_once(belgie_instance: Belgie) -> None:
-    class CountedBindablePlugin(MockPlugin):
-        def __init__(self, settings: MockSettings, label: str, *, enabled: bool = True) -> None:
-            super().__init__(settings, label, enabled=enabled)
-            self.bind_calls = 0
+        def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+            return None
 
-        def bind(self, belgie: Belgie) -> None:  # noqa: ARG002
-            self.bind_calls += 1
-
-    settings = MockSettings()
-    plugin = belgie_instance.add_plugin(CountedBindablePlugin, settings, "alpha")
-    assert plugin.bind_calls == 1
+    plugin_settings = MockPluginSettings(label="alpha")
+    with pytest.raises(TypeError, match=r"__init__\(belgie_settings, settings\)"):
+        belgie_instance.add_plugin(LegacyPlugin, plugin_settings)

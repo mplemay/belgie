@@ -16,7 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import AlchemyAdapter, DatabaseSettings
-from belgie.mcp import McpPlugin, get_user_from_access_token
+from belgie.mcp import McpPlugin, McpPluginSettings, get_user_from_access_token
 from belgie.oauth import OAuthPlugin, OAuthSettings
 
 if TYPE_CHECKING:
@@ -184,8 +184,10 @@ oauth_settings = OAuthSettings(
 _ = belgie.add_plugin(OAuthPlugin, oauth_settings)
 mcp_plugin = belgie.add_plugin(
     McpPlugin,
-    oauth_settings,
-    base_url=settings.base_url,
+    McpPluginSettings(
+        oauth_settings=oauth_settings,
+        base_url=settings.base_url,
+    ),
 )
 
 mcp_server = MCPServer(

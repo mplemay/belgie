@@ -6,6 +6,7 @@ try:
     from belgie_mcp import (  # type: ignore[import-not-found]
         BelgieOAuthTokenVerifier,
         McpPlugin,
+        McpPluginSettings,
         get_user_from_access_token,
     )
 except ModuleNotFoundError as exc:
@@ -14,5 +15,6 @@ except ModuleNotFoundError as exc:
 __all__ = [
     "BelgieOAuthTokenVerifier",
     "McpPlugin",
+    "McpPluginSettings",
     "get_user_from_access_token",
 ]

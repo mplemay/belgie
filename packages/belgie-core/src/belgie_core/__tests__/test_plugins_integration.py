@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from unittest.mock import Mock
 
 import pytest
@@ -7,7 +8,15 @@ from fastapi.testclient import TestClient
 from belgie_core.core.belgie import Belgie
 
 
+@dataclass(slots=True, kw_only=True, frozen=True)
+class DummyPluginSettings:
+    pass
+
+
 class DummyPlugin:
+    def __init__(self, _belgie_settings: object, _settings: DummyPluginSettings) -> None:
+        pass
+
     def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         router = APIRouter()
 
@@ -40,7 +49,7 @@ def belgie_instance() -> Belgie:
 
 
 def test_plugin_router_included(belgie_instance: Belgie) -> None:
-    belgie_instance.add_plugin(DummyPlugin)
+    belgie_instance.add_plugin(DummyPlugin, DummyPluginSettings())
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -78,8 +87,8 @@ def test_multiple_plugins(belgie_instance: Belgie) -> None:
         def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
             return APIRouter()
 
-    belgie_instance.add_plugin(PluginA)
-    belgie_instance.add_plugin(PluginB)
+    belgie_instance.add_plugin(PluginA, DummyPluginSettings())
+    belgie_instance.add_plugin(PluginB, DummyPluginSettings())
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -100,7 +109,7 @@ def test_plugin_public_included(belgie_instance: Belgie) -> None:
 
             return router
 
-    belgie_instance.add_plugin(RootPlugin)
+    belgie_instance.add_plugin(RootPlugin, DummyPluginSettings())
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -125,7 +134,7 @@ def test_plugin_router_none_public_included(belgie_instance: Belgie) -> None:
 
             return router
 
-    belgie_instance.add_plugin(PublicOnlyPlugin)
+    belgie_instance.add_plugin(PublicOnlyPlugin, DummyPluginSettings())
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -142,7 +151,7 @@ def test_plugin_public_none_router_included(belgie_instance: Belgie) -> None:
         def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
             return None
 
-    belgie_instance.add_plugin(AuthOnlyPlugin)
+    belgie_instance.add_plugin(AuthOnlyPlugin, DummyPluginSettings())
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -160,7 +169,7 @@ def test_plugin_router_and_public_none_keeps_signout_route(belgie_instance: Belg
         def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
             return None
 
-    belgie_instance.add_plugin(NoRoutesPlugin)
+    belgie_instance.add_plugin(NoRoutesPlugin, DummyPluginSettings())
 
     app = FastAPI()
     app.include_router(belgie_instance.router)

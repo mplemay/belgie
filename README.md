@@ -193,6 +193,11 @@ Visit `http://localhost:8000/login/google` to sign in.
 - Session tuning: `SessionSettings(cookie_name, max_age, update_age)` controls lifetime and sliding refresh.
 - Cookie hardening: `CookieSettings(http_only, secure, same_site)` for production-ready defaults.
 
+## Plugin API migration note
+
+- `bind()` has been removed from plugins.
+- Plugin constructors now receive `BelgieSettings` and plugin settings: `__init__(belgie_settings, settings)`.
+
 ## Router endpoints
 
 - `GET /login/google` – app-owned route that starts OAuth flow via plugin dependency

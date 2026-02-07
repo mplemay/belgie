@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from belgie_core.core.exceptions import InvalidStateError
+from belgie_core.core.settings import BelgieSettings
 from belgie_oauth import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings, GoogleUserInfo
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -28,14 +29,15 @@ def _build_plugin() -> GoogleOAuthPlugin:
         client_secret="test-client-secret",
         redirect_uri="http://localhost:8000/auth/provider/google/callback",
     )
-    return GoogleOAuthPlugin(settings)
+    belgie_settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
+    return GoogleOAuthPlugin(belgie_settings, settings)
 
 
 @pytest.mark.asyncio
-async def test_dependency_requires_bind() -> None:
+async def test_dependency_requires_router_initialization() -> None:
     plugin = _build_plugin()
 
-    with pytest.raises(RuntimeError, match=r"Belgie.add_plugin"):
+    with pytest.raises(RuntimeError, match=r"router initialization"):
         await plugin()
 
 
@@ -44,7 +46,7 @@ def test_signin_url_persists_relative_return_to() -> None:
 
     adapter = SimpleNamespace(create_oauth_state=AsyncMock())
     client_dependency = SimpleNamespace(db=object(), adapter=adapter)
-    plugin.bind(DummyBelgie(client_dependency))
+    plugin.router(DummyBelgie(client_dependency))
 
     app = FastAPI()
 
@@ -73,7 +75,7 @@ def test_signin_url_persists_same_origin_absolute_return_to() -> None:
 
     adapter = SimpleNamespace(create_oauth_state=AsyncMock())
     client_dependency = SimpleNamespace(db=object(), adapter=adapter)
-    plugin.bind(DummyBelgie(client_dependency))
+    plugin.router(DummyBelgie(client_dependency))
 
     app = FastAPI()
 
@@ -104,7 +106,7 @@ def test_signin_url_rejects_cross_origin_return_to() -> None:
 
     adapter = SimpleNamespace(create_oauth_state=AsyncMock())
     client_dependency = SimpleNamespace(db=object(), adapter=adapter)
-    plugin.bind(DummyBelgie(client_dependency))
+    plugin.router(DummyBelgie(client_dependency))
 
     app = FastAPI()
 
