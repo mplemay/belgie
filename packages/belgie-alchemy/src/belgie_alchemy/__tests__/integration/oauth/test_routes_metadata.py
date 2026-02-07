@@ -60,7 +60,7 @@ def test_protected_resource_metadata_absent_when_resource_server_unset(
 ) -> None:
     settings = OAuthSettings(
         base_url="http://testserver",
-        route_prefix="/oauth",
+        prefix="/oauth",
         login_url="/login/google",
         client_id="test-client",
         client_secret=SecretStr("test-secret"),
@@ -98,7 +98,7 @@ def test_oauth_metadata_root_fallback_absent_when_disabled(
 ) -> None:
     settings = OAuthSettings(
         base_url="http://testserver",
-        route_prefix="/oauth",
+        prefix="/oauth",
         login_url="/login/google",
         client_id="test-client",
         client_secret=SecretStr("test-secret"),
