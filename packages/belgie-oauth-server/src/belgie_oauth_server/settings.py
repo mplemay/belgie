@@ -31,6 +31,7 @@ class OAuthSettings(BaseSettings):
     resource_server_url: AnyHttpUrl | None = None
     resource_scopes: list[str] | None = None
     include_root_resource_metadata_fallback: bool = True
+    include_root_oauth_metadata_fallback: bool = True
 
     @cached_property
     def issuer_url(self) -> AnyHttpUrl | None:

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthSettings
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
+_ROOT_OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
 
 
 def build_oauth_metadata(issuer_url: str, settings: OAuthSettings) -> OAuthMetadata:
