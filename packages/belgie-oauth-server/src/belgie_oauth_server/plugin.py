@@ -47,7 +47,7 @@ class OAuthPlugin(Plugin):
 
         self._metadata_router = self.metadata_router(belgie)
 
-        router = APIRouter(prefix=self._settings.route_prefix, tags=["oauth"])
+        router = APIRouter(prefix=self._settings.prefix, tags=["oauth"])
         metadata = build_oauth_metadata(issuer_url, self._settings)
 
         router = self._add_metadata_route(router, metadata)
@@ -330,7 +330,7 @@ class OAuthPlugin(Plugin):
 def _build_issuer_url(belgie: Belgie, settings: OAuthSettings) -> str:
     parsed = urlparse(belgie.settings.base_url)
     base_path = parsed.path.rstrip("/")
-    prefix = settings.route_prefix.strip("/")
+    prefix = settings.prefix.strip("/")
     auth_path = "auth"
     full_path = f"{base_path}/{auth_path}/{prefix}" if prefix else f"{base_path}/{auth_path}"
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))

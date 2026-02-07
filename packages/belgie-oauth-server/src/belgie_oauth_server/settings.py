@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlparse, urlunparse
 
-from pydantic import AnyHttpUrl, AnyUrl, Field, SecretStr
+from pydantic import AnyHttpUrl, AnyUrl, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import Doc
 
 
 class OAuthSettings(BaseSettings):
@@ -16,7 +17,7 @@ class OAuthSettings(BaseSettings):
     )
 
     base_url: AnyHttpUrl | None = None
-    route_prefix: str = "/oauth"
+    prefix: Annotated[str, Doc("An optional path prefix for the router.")] = "/oauth"
     login_url: str | None = None
 
     client_id: str = "belgie_client"
@@ -29,6 +30,14 @@ class OAuthSettings(BaseSettings):
     state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_legacy_route_prefix(cls, values: object) -> object:
+        if isinstance(values, dict) and "route_prefix" in values:
+            msg = "`route_prefix` has been removed; use `prefix` instead"
+            raise ValueError(msg)
+        return values
+
     @cached_property
     def issuer_url(self) -> AnyHttpUrl | None:
         if self.base_url is None:
@@ -36,7 +45,7 @@ class OAuthSettings(BaseSettings):
 
         parsed = urlparse(str(self.base_url))
         base_path = parsed.path.rstrip("/")
-        prefix = self.route_prefix.strip("/")
+        prefix = self.prefix.strip("/")
         auth_path = "auth"
         full_path = f"{base_path}/{auth_path}/{prefix}" if prefix else f"{base_path}/{auth_path}"
         return AnyHttpUrl(urlunparse(parsed._replace(path=full_path, query="", fragment="")))
