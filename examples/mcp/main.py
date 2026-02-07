@@ -177,6 +177,8 @@ oauth_settings = OAuthSettings(
     redirect_uris=["http://localhost:3030/callback"],
     default_scope="user",
     login_url="/login",
+    resource_server_url=f"{settings.base_url.rstrip('/')}/mcp",
+    resource_scopes=["user"],
 )
 
 _ = belgie.add_plugin(OAuthPlugin, oauth_settings)

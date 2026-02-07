@@ -5,11 +5,13 @@ from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
 
-from belgie_oauth_server.models import OAuthMetadata
+from belgie_oauth_server.models import OAuthMetadata, ProtectedResourceMetadata
 from belgie_oauth_server.utils import join_url
 
 if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthSettings
+
+_ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 
 
 def build_oauth_metadata(issuer_url: str, settings: OAuthSettings) -> OAuthMetadata:
@@ -41,3 +43,24 @@ def build_oauth_metadata_well_known_path(issuer_url: str) -> str:
     if path and path != "/":
         return f"/.well-known/oauth-authorization-server{path}"
     return "/.well-known/oauth-authorization-server"
+
+
+def build_protected_resource_metadata(
+    issuer_url: str,
+    settings: OAuthSettings,
+) -> ProtectedResourceMetadata:
+    if settings.resource_server_url is None:
+        msg = "OAuthSettings.resource_server_url is required to build protected resource metadata"
+        raise ValueError(msg)
+
+    return ProtectedResourceMetadata(
+        resource=settings.resource_server_url,
+        authorization_servers=[AnyHttpUrl(issuer_url)],
+        scopes_supported=settings.resource_scopes,
+    )
+
+
+def build_protected_resource_metadata_well_known_path(resource_server_url: str | AnyHttpUrl) -> str:
+    parsed = urlparse(str(resource_server_url))
+    resource_path = parsed.path if parsed.path != "/" else ""
+    return f"{_ROOT_RESOURCE_METADATA_PATH}{resource_path}"

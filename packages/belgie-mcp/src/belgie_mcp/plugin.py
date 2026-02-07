@@ -6,7 +6,6 @@ from urllib.parse import urlparse, urlunparse
 from belgie_core.core.plugin import Plugin
 from fastapi import APIRouter
 
-from belgie_mcp.metadata import create_protected_resource_metadata_router
 from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
 
 if TYPE_CHECKING:
@@ -28,12 +27,10 @@ class McpPlugin(Plugin):
         required_scopes: list[str] | None = None,
         introspection_endpoint: str | None = None,
         oauth_strict: bool = False,
-        include_root_fallback: bool = True,
     ) -> None:
         resolved_server_url = (
             str(server_url) if server_url is not None else _build_server_url(_require_base_url(base_url), server_path)
         )
-        self._authorization_server_url = _build_authorization_server_url(settings)
         self.auth = mcp_auth(
             settings,
             server_url=resolved_server_url,
@@ -45,21 +42,15 @@ class McpPlugin(Plugin):
             introspection_endpoint=introspection_endpoint,
             oauth_strict=oauth_strict,
         )
-        self._include_root_fallback = include_root_fallback
 
     auth: AuthSettings
     token_verifier: TokenVerifier
-    _authorization_server_url: str
 
     def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         return APIRouter()
 
-    def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
-        return create_protected_resource_metadata_router(
-            self.auth,
-            include_root_fallback=self._include_root_fallback,
-            authorization_server_url=self._authorization_server_url,
-        )
+    def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+        return None
 
 
 def _require_base_url(base_url: str | AnyHttpUrl | None) -> str:
@@ -74,20 +65,4 @@ def _build_server_url(base_url: str, server_path: str) -> str:
     base_path = parsed.path.rstrip("/")
     path_suffix = server_path.strip("/")
     full_path = (f"{base_path}/{path_suffix}" if base_path else f"/{path_suffix}") if path_suffix else base_path
-    return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
-
-
-def _require_settings_base_url(settings: OAuthSettings) -> str:
-    if settings.base_url is None:
-        msg = "OAuthSettings.base_url is required to build MCP AuthSettings"
-        raise ValueError(msg)
-    return str(settings.base_url)
-
-
-def _build_authorization_server_url(settings: OAuthSettings) -> str:
-    parsed = urlparse(_require_settings_base_url(settings))
-    base_path = parsed.path.rstrip("/")
-    prefix = settings.route_prefix.strip("/")
-    auth_path = "auth"
-    full_path = f"{base_path}/{auth_path}/{prefix}" if prefix else f"{base_path}/{auth_path}"
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))

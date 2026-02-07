@@ -13,6 +13,9 @@ def test_oauth_settings_defaults() -> None:
     assert settings.access_token_ttl_seconds == 3600
     assert settings.state_ttl_seconds == 600
     assert settings.code_challenge_method == "S256"
+    assert settings.resource_server_url is None
+    assert settings.resource_scopes is None
+    assert settings.include_root_resource_metadata_fallback is True
 
 
 def test_oauth_settings_requires_redirect_uris() -> None:
@@ -34,3 +37,17 @@ def test_oauth_settings_populates_issuer_url_from_base_url() -> None:
     )
 
     assert str(settings.issuer_url) == "http://example.com/auth/oauth"
+
+
+def test_oauth_settings_accepts_resource_metadata_settings() -> None:
+    settings = OAuthSettings(
+        base_url="http://example.com",
+        redirect_uris=["http://example.com/callback"],
+        resource_server_url="http://example.com/mcp",
+        resource_scopes=["user", "files:read"],
+        include_root_resource_metadata_fallback=False,
+    )
+
+    assert str(settings.resource_server_url) == "http://example.com/mcp"
+    assert settings.resource_scopes == ["user", "files:read"]
+    assert settings.include_root_resource_metadata_fallback is False

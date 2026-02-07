@@ -102,6 +102,8 @@ def oauth_settings() -> OAuthSettings:
         client_secret=SecretStr("test-secret"),
         redirect_uris=["http://testserver/callback"],
         default_scope="user",
+        resource_server_url="http://testserver/mcp",
+        resource_scopes=["user"],
     )
 
 
