@@ -96,7 +96,7 @@ def belgie_instance(
 def oauth_settings() -> OAuthSettings:
     return OAuthSettings(
         base_url="http://testserver",
-        route_prefix="/oauth",
+        prefix="/oauth",
         login_url="/login/google",
         client_id="test-client",
         client_secret=SecretStr("test-secret"),

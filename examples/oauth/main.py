@@ -66,7 +66,7 @@ belgie = Belgie(
 
 oauth_settings = OAuthSettings(
     issuer_url=None,
-    route_prefix="/oauth",
+    prefix="/oauth",
     client_id="demo-client",
     client_secret="demo-secret",  # noqa: S106
     redirect_uris=["http://localhost:8000/client/callback"],
