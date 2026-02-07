@@ -16,8 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
+    from belgie_core.core.settings import BelgieSettings
 
 
 class GoogleOAuthSettings(BaseSettings):
@@ -83,28 +86,30 @@ class GoogleOAuthClient:
         return self.plugin.generate_authorization_url(state)
 
 
-class GoogleOAuthPlugin(Plugin):
+class GoogleOAuthPlugin(Plugin[GoogleOAuthSettings]):
     AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
     USER_INFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
-    def __init__(self, settings: GoogleOAuthSettings) -> None:
+    def __init__(self, belgie_settings: BelgieSettings, settings: GoogleOAuthSettings) -> None:
         self.settings = settings
-        self._resolve_client = None
-        self._base_url_origin: tuple[str, str] | None = None
+        self._resolve_client: Callable[..., Coroutine[object, object, GoogleOAuthClient]] | None = None
+        parsed_base_url = urlparse(belgie_settings.base_url)
+        self._base_url_origin = (parsed_base_url.scheme.lower(), parsed_base_url.netloc.lower())
 
     @property
     def provider_id(self) -> Literal["google"]:
         return "google"
 
-    def bind(self, belgie: Belgie) -> None:
+    def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
+        if self._resolve_client is not None:
+            return
+
         async def resolve_client(client: BelgieClient = Depends(belgie)) -> GoogleOAuthClient:  # noqa: B008
             return GoogleOAuthClient(plugin=self, client=client)
 
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
-        parsed_base_url = urlparse(belgie.settings.base_url)
-        self._base_url_origin = (parsed_base_url.scheme.lower(), parsed_base_url.netloc.lower())
 
     def normalize_return_to(self, return_to: str | None) -> str | None:
         if not return_to:
@@ -117,10 +122,6 @@ class GoogleOAuthPlugin(Plugin):
                 return return_to
             return None
 
-        if self._base_url_origin is None:
-            msg = "GoogleOAuthPlugin must be registered via Belgie.add_plugin before dependency injection"
-            raise RuntimeError(msg)
-
         if (parsed.scheme.lower(), parsed.netloc.lower()) != self._base_url_origin:
             return None
 
@@ -128,7 +129,10 @@ class GoogleOAuthPlugin(Plugin):
 
     async def __call__(self, *args: object, **kwargs: object) -> GoogleOAuthClient:
         if self._resolve_client is None:
-            msg = "GoogleOAuthPlugin must be registered via Belgie.add_plugin before dependency injection"
+            msg = (
+                "GoogleOAuthPlugin dependency requires router initialization "
+                "(call app.include_router(belgie.router) first)"
+            )
             raise RuntimeError(msg)
         return await self._resolve_client(*args, **kwargs)
 
@@ -223,6 +227,7 @@ class GoogleOAuthPlugin(Plugin):
             raise OAuthError(msg) from e
 
     def router(self, belgie: Belgie) -> APIRouter:
+        self._ensure_dependency_resolver(belgie)
         router = APIRouter(prefix=f"/provider/{self.provider_id}", tags=["auth", "oauth"])
 
         async def callback(

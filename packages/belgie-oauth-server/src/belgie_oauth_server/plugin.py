@@ -26,6 +26,7 @@ from belgie_oauth_server.models import (
     OAuthMetadata,
 )
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
+from belgie_oauth_server.settings import OAuthSettings
 from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge, join_url
 
 if TYPE_CHECKING:
@@ -33,14 +34,13 @@ if TYPE_CHECKING:
 
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
-
-    from belgie_oauth_server.settings import OAuthSettings
+    from belgie_core.core.settings import BelgieSettings
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 
 
-class OAuthPlugin(Plugin):
-    def __init__(self, settings: OAuthSettings) -> None:
+class OAuthPlugin(Plugin[OAuthSettings]):
+    def __init__(self, _belgie_settings: BelgieSettings, settings: OAuthSettings) -> None:
         self._settings = settings
         self._provider: SimpleOAuthProvider | None = None
         self._metadata_router: APIRouter | None = None

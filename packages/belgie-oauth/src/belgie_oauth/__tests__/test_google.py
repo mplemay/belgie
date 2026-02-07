@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 from belgie_core.core.exceptions import OAuthError
+from belgie_core.core.settings import BelgieSettings
 from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings, GoogleUserInfo
 from pydantic import ValidationError
 
@@ -19,8 +20,16 @@ def google_provider_settings() -> GoogleOAuthSettings:
 
 
 @pytest.fixture
-def google_provider(google_provider_settings: GoogleOAuthSettings) -> GoogleOAuthPlugin:
-    return GoogleOAuthPlugin(settings=google_provider_settings)
+def belgie_settings() -> BelgieSettings:
+    return BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
+
+
+@pytest.fixture
+def google_provider(
+    google_provider_settings: GoogleOAuthSettings,
+    belgie_settings: BelgieSettings,
+) -> GoogleOAuthPlugin:
+    return GoogleOAuthPlugin(belgie_settings, google_provider_settings)
 
 
 def test_google_user_info_valid() -> None:

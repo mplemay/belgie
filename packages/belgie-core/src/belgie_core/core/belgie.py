@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Callable, Coroutine  # noqa: TC003
+from inspect import signature
 from typing import Any, Protocol, cast
 from uuid import UUID
 
@@ -145,28 +146,29 @@ class Belgie[
 
         self.hook_runner = HookRunner(hooks=hooks or Hooks())
 
-        self.plugins: list[Plugin] = []
+        self.plugins: list[Plugin[Any]] = []
 
-    def add_plugin[P: Plugin, **PParams](
+    def add_plugin[S, P: Plugin[S]](
         self,
-        plugin: Callable[PParams, P],
-        *args: PParams.args,
-        **kwargs: PParams.kwargs,
+        plugin: type[P],
+        settings: S,
     ) -> P:
         """Register and instantiate a plugin.
 
         Args:
             plugin: The class of the plugin to register.
-            *args: Plugin initialization arguments.
-            **kwargs: Plugin initialization keyword arguments.
+            settings: Plugin-specific settings object.
 
         Returns:
             The instantiated plugin.
         """
-        instance = plugin(*args, **kwargs)
+        try:
+            signature(plugin).bind(self.settings, settings)
+        except TypeError as exc:
+            msg = f"{plugin.__name__} constructor must follow __init__(belgie_settings, settings)"
+            raise TypeError(msg) from exc
 
-        if callable(bind := getattr(instance, "bind", None)):
-            bind(self)
+        instance = plugin(self.settings, settings)
 
         self.plugins.append(instance)
 
