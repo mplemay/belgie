@@ -12,6 +12,7 @@ from fastapi.security import SecurityScopes
 from pydantic import AnyUrl, ValidationError
 
 from belgie_oauth_server.metadata import (
+    _ROOT_OAUTH_METADATA_PATH,
     build_oauth_metadata,
     build_oauth_metadata_well_known_path,
     build_protected_resource_metadata,
@@ -78,6 +79,13 @@ class OAuthPlugin(Plugin):
             return JSONResponse(metadata.model_dump(mode="json"))
 
         router.add_api_route(well_known_path, metadata_handler, methods=["GET"])
+
+        if self._settings.include_root_oauth_metadata_fallback and well_known_path != _ROOT_OAUTH_METADATA_PATH:
+            router.add_api_route(
+                _ROOT_OAUTH_METADATA_PATH,
+                metadata_handler,
+                methods=["GET"],
+            )
 
         if self._settings.resource_server_url is not None:
             protected_resource_metadata = build_protected_resource_metadata(issuer_url, self._settings)
