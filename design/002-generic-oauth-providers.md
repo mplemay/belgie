@@ -1324,7 +1324,8 @@ Tests should be organized by module/file and cover unit tests, integration tests
    - Dependencies: None
 
 3. **Google Provider** (`providers/google.py`) - Refactor to self-contained implementation
-   - Used in: [Workflow 1](#workflow-1-provider-registration-and-initialization), [Workflow 2](#workflow-2-oauth-sign-in-flow)
+   - Used in: [Workflow 1](#workflow-1-provider-registration-and-initialization),
+     [Workflow 2](#workflow-2-oauth-sign-in-flow)
    - Dependencies: Provider protocol, Adapter protocol
    - Uses @dataclass with slots=True, kw_only=True
    - Static methods for building route handlers
