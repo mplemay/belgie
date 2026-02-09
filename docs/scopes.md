@@ -24,7 +24,7 @@ Configure scopes in your `GoogleOAuthSettings`:
 
 ```python
 from belgie import Belgie, BelgieSettings
-from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
 
 settings = BelgieSettings(secret="your-secret", base_url="http://localhost:8000")
 belgie = Belgie(settings=settings, adapter=adapter, db=db)

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import AlchemyAdapter, DatabaseSettings
 from belgie.mcp import McpPlugin, McpPluginSettings, get_user_from_access_token
-from belgie.oauth import OAuthResource, OAuthServerPlugin, OAuthServerSettings
+from belgie.oauth.server import OAuthResource, OAuthServerPlugin, OAuthServerSettings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

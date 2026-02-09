@@ -12,7 +12,7 @@ from belgie import (
     URLSettings,
 )
 from belgie.alchemy import AlchemyAdapter, DatabaseSettings
-from belgie.oauth import OAuthServerPlugin, OAuthServerSettings
+from belgie.oauth.server import OAuthServerPlugin, OAuthServerSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 DB_PATH = "./belgie_oauth_example.db"

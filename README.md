@@ -109,7 +109,7 @@ class OAuthState(Base):
 
 ```python
 from belgie import Belgie, BelgieSettings
-from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
 from belgie_alchemy import AlchemyAdapter
 
 settings = BelgieSettings(
@@ -147,7 +147,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Security
 from fastapi.responses import RedirectResponse
-from belgie.oauth_client import GoogleOAuthClient
+from belgie.oauth.google import GoogleOAuthClient
 
 app = FastAPI()
 app.include_router(auth.router)

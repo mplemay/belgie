@@ -14,7 +14,7 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie.oauth_client import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 db_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_auth_example.db", "echo": True})
