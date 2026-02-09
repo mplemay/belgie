@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.settings import PostgresSettings, SQLAlchemyRuntime, SqliteSettings
+from belgie_alchemy.settings import PostgresSettings, SqliteSettings
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
 
@@ -150,14 +150,11 @@ def test_sqlite_settings_validation() -> None:
     assert settings.echo is True
 
 
-def test_runtime_is_cached_per_settings_instance() -> None:
+def test_engine_and_session_maker_are_cached_per_settings_instance() -> None:
     settings = SqliteSettings(database=":memory:")
 
-    runtime = settings()
-    assert isinstance(runtime, SQLAlchemyRuntime)
-    assert runtime is settings()
-    assert runtime.engine is settings.engine
-    assert runtime.session_maker is settings.session_maker
+    assert settings.engine is settings.engine
+    assert settings.session_maker is settings.session_maker
 
 
 def test_sqlite_url_cached_for_memory_database() -> None:

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING, Literal, Self, cast
+from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
 from pydantic import NonNegativeFloat, NonNegativeInt, PositiveInt, SecretStr  # noqa: TC002
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
-    from typing import Protocol
 
     from belgie_proto import DBConnection
 
@@ -24,14 +22,15 @@ if TYPE_CHECKING:
         def cursor(self) -> DBAPICursor: ...
 
 
-@dataclass(slots=True, kw_only=True, frozen=True)
-class SQLAlchemyRuntime:
-    engine: AsyncEngine
-    session_maker: async_sessionmaker[AsyncSession]
+class DatabaseRuntimeProtocol(Protocol):
+    @property
+    def url(self) -> URL: ...
 
-    async def dependency(self) -> AsyncGenerator[AsyncSession, None]:
-        async with self.session_maker() as session:
-            yield session
+    @property
+    def engine(self) -> AsyncEngine: ...
+
+    @property
+    def session_maker(self) -> async_sessionmaker[AsyncSession]: ...
 
 
 class PostgresSettings(BaseSettings):
@@ -66,8 +65,8 @@ class PostgresSettings(BaseSettings):
         )
 
     @cached_property
-    def _runtime(self) -> SQLAlchemyRuntime:
-        engine = create_async_engine(
+    def engine(self) -> AsyncEngine:
+        return create_async_engine(
             self.url,
             echo=self.echo,
             pool_size=self.pool_size,
@@ -77,25 +76,17 @@ class PostgresSettings(BaseSettings):
             pool_pre_ping=self.pool_pre_ping,
         )
 
-        return SQLAlchemyRuntime(
-            engine=engine,
-            session_maker=async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False),
-        )
-
-    def __call__(self) -> SQLAlchemyRuntime:
-        return self._runtime
-
-    @property
-    def engine(self) -> AsyncEngine:
-        return self._runtime.engine
-
-    @property
+    @cached_property
     def session_maker(self) -> async_sessionmaker[AsyncSession]:
-        return self._runtime.session_maker
+        return async_sessionmaker(self.engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _dependency(self) -> AsyncGenerator[AsyncSession, None]:
+        async with self.session_maker() as session:
+            yield session
 
     @property
     def dependency(self) -> Callable[[], DBConnection | AsyncGenerator[DBConnection, None]]:
-        return self._runtime.dependency
+        return self._dependency
 
     @property
     def dialect(self) -> Self:
@@ -125,7 +116,7 @@ class SqliteSettings(BaseSettings):
         return URL.create("sqlite+aiosqlite", database=self.database)
 
     @cached_property
-    def _runtime(self) -> SQLAlchemyRuntime:
+    def engine(self) -> AsyncEngine:
         engine = create_async_engine(
             self.url,
             echo=self.echo,
@@ -139,25 +130,19 @@ class SqliteSettings(BaseSettings):
                 cursor.execute("PRAGMA foreign_keys=ON")
                 cursor.close()
 
-        return SQLAlchemyRuntime(
-            engine=engine,
-            session_maker=async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False),
-        )
+        return engine
 
-    def __call__(self) -> SQLAlchemyRuntime:
-        return self._runtime
-
-    @property
-    def engine(self) -> AsyncEngine:
-        return self._runtime.engine
-
-    @property
+    @cached_property
     def session_maker(self) -> async_sessionmaker[AsyncSession]:
-        return self._runtime.session_maker
+        return async_sessionmaker(self.engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _dependency(self) -> AsyncGenerator[AsyncSession, None]:
+        async with self.session_maker() as session:
+            yield session
 
     @property
     def dependency(self) -> Callable[[], DBConnection | AsyncGenerator[DBConnection, None]]:
-        return self._runtime.dependency
+        return self._dependency
 
     @property
     def dialect(self) -> Self:

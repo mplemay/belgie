@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from belgie_alchemy.settings import DatabaseBackendSettings, SQLAlchemyRuntime
+    from belgie_alchemy.settings import DatabaseRuntimeProtocol
 
 
 class AlchemyAdapter[
@@ -35,19 +35,23 @@ class AlchemyAdapter[
         account: type[AccountT],
         session: type[SessionT],
         oauth_state: type[OAuthStateT],
-        database: DatabaseBackendSettings,
+        database: DatabaseRuntimeProtocol,
     ) -> None:
         self.user_model = user
         self.account_model = account
         self.session_model = session
         self.oauth_state_model = oauth_state
-        self.db = database()
+        self.db = database
 
-    db: SQLAlchemyRuntime
+    db: DatabaseRuntimeProtocol
 
     @property
     def dependency(self) -> Callable[[], DBConnection | AsyncGenerator[DBConnection, None]]:
-        return self.db.dependency
+        return self._dependency
+
+    async def _dependency(self) -> AsyncGenerator[DBConnection, None]:
+        async with self.db.session_maker() as session:
+            yield session
 
     async def create_user(
         self,
