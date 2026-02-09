@@ -1,10 +1,9 @@
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
-from belgie_alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
@@ -39,27 +38,26 @@ def auth_settings() -> BelgieSettings:
     )
 
 
-@pytest.fixture
-def adapter(db_session: AsyncSession) -> AlchemyAdapter:  # noqa: ARG001
+@pytest_asyncio.fixture
+async def adapter(db_session: AsyncSession, sqlite_database: str):  # noqa: ARG001
     """Adapter with test database dependency."""
 
-    return AlchemyAdapter(
+    adapter = AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        database=SqliteSettings(database=sqlite_database),
     )
+    yield adapter
+    await adapter.db.engine.dispose()
 
 
 @pytest.fixture
 def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Belgie:
     """Belgie instance (BelgieClient factory)."""
-
-    async def get_db_override():
-        yield db_session
-
-    fake_db = SimpleNamespace(dependency=get_db_override)
-    return Belgie(settings=auth_settings, adapter=adapter, db=fake_db)
+    _ = db_session
+    return Belgie(settings=auth_settings, adapter=adapter)
 
 
 @pytest.fixture
@@ -589,7 +587,6 @@ class TestGetSession:
         create_session_helper,
         make_request_with_cookie,
         adapter: AlchemyAdapter,
-        db_session: AsyncSession,
     ):
         """Test that session is refreshed when within update_age threshold."""
         user = await create_user_helper("refresh@test.com")
@@ -604,11 +601,11 @@ class TestGetSession:
         assert response.status_code == 200
 
         # Verify session was refreshed in database
-        refreshed_session = await adapter.get_session(db_session, session.id)
-        assert refreshed_session is not None
-        # Compare as timezone-aware datetimes
-        refreshed_expires = refreshed_session.expires_at.replace(tzinfo=UTC)
-        assert refreshed_expires > nearly_expired
+        async with adapter.db.session_maker() as verification_session:
+            refreshed_session = await adapter.get_session(verification_session, session.id)
+            assert refreshed_session is not None
+            refreshed_expires = refreshed_session.expires_at.replace(tzinfo=UTC)
+            assert refreshed_expires > nearly_expired
 
 
 class TestDeleteUser:

@@ -28,8 +28,16 @@ class FakeUser:
 
 
 class FakeAdapter:
-    def __init__(self, user: FakeUser | None) -> None:
+    def __init__(self, user: FakeUser | None, db: object) -> None:
         self.user = user
+        self._db = db
+
+    @property
+    def dependency(self):
+        async def _dependency():
+            yield self._db
+
+        return _dependency
 
     async def get_user_by_id(self, _session: object, user_id: UUID) -> FakeUser | None:
         if self.user and self.user.id == user_id:
@@ -43,18 +51,9 @@ class FakeClient:
     db: object
 
 
-class FakeDBProvider:
-    def __init__(self, db: object) -> None:
-        self._db = db
-
-    async def dependency(self):
-        yield self._db
-
-
 class FakeBelgie:
-    def __init__(self, adapter: FakeAdapter, db_provider: FakeDBProvider) -> None:
+    def __init__(self, adapter: FakeAdapter) -> None:
         self.adapter = adapter
-        self.db = db_provider
 
     def __call__(self, db: object) -> FakeClient:
         return FakeClient(adapter=self.adapter, db=db)
@@ -92,9 +91,8 @@ def _b64url(payload: dict[str, object]) -> str:
 
 
 def _build_belgie(user: FakeUser | None) -> FakeBelgie:
-    adapter = FakeAdapter(user)
-    db = object()
-    return FakeBelgie(adapter, FakeDBProvider(db))
+    adapter = FakeAdapter(user, object())
+    return FakeBelgie(adapter)
 
 
 @pytest.mark.asyncio

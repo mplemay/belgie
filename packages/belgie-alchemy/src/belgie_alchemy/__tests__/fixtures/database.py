@@ -1,23 +1,14 @@
 from collections.abc import AsyncGenerator
 
 from brussels.base import DataclassBase
-from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+from belgie_alchemy.settings import SqliteSettings
 
 
-async def get_test_engine() -> AsyncEngine:
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        echo=False,
-    )
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def _enable_foreign_keys(dbapi_conn, _connection_record) -> None:
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+async def get_test_engine(database: str = ":memory:") -> AsyncEngine:
+    settings = SqliteSettings(database=database, echo=False, enable_foreign_keys=True)
+    engine = settings.engine
 
     async with engine.begin() as conn:
         await conn.run_sync(DataclassBase.metadata.create_all)

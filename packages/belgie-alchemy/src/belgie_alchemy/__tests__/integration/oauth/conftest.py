@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 import pytest_asyncio
-from belgie_alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from belgie_alchemy.__tests__.fixtures.database import get_test_engine, get_test_session_factory
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
@@ -29,8 +28,8 @@ if TYPE_CHECKING:
 
 
 @pytest_asyncio.fixture
-async def db_engine() -> AsyncEngine:
-    engine = await get_test_engine()
+async def db_engine(sqlite_database: str) -> AsyncEngine:
+    engine = await get_test_engine(sqlite_database)
     yield engine
     await engine.dispose()
 
@@ -46,14 +45,17 @@ async def db_session(db_session_factory: async_sessionmaker[AsyncSession]) -> As
         yield session
 
 
-@pytest.fixture
-def adapter() -> AlchemyAdapter:
-    return AlchemyAdapter(
+@pytest_asyncio.fixture
+async def adapter(sqlite_database: str):
+    adapter = AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        database=SqliteSettings(database=sqlite_database),
     )
+    yield adapter
+    await adapter.db.engine.dispose()
 
 
 @pytest.fixture
@@ -84,12 +86,8 @@ def belgie_instance(
     adapter: AlchemyAdapter,
     db_session: AsyncSession,
 ) -> Belgie:
-    async def get_db_override() -> AsyncSession:
-        return db_session
-
-    fake_db = SimpleNamespace(dependency=get_db_override)
-
-    return Belgie(settings=belgie_settings, adapter=adapter, db=fake_db)
+    _ = db_session
+    return Belgie(settings=belgie_settings, adapter=adapter)
 
 
 @pytest.fixture

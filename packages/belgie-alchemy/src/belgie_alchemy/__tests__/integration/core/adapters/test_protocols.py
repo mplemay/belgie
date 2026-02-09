@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from belgie_alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
@@ -153,6 +153,7 @@ def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
+        database=SqliteSettings(database=":memory:"),
     )
 
     # Runtime protocol check - AdapterProtocol is now runtime_checkable
@@ -178,16 +179,17 @@ def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     assert callable(adapter.delete_user)
 
 
-def test_alchemy_adapter_no_longer_has_dependency() -> None:
-    """AlchemyAdapter no longer exposes dependency property."""
+def test_alchemy_adapter_exposes_dependency() -> None:
+    """AlchemyAdapter exposes adapter-owned dependency."""
 
     adapter = AlchemyAdapter(
         user=ExampleUser,
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
+        database=SqliteSettings(database=":memory:"),
     )
 
-    # Verify adapter is valid but doesn't have dependency property
+    # Verify adapter is valid and dependency is available for FastAPI Depends.
     assert isinstance(adapter, AdapterProtocol)
-    assert not hasattr(adapter, "dependency")
+    assert callable(adapter.dependency)

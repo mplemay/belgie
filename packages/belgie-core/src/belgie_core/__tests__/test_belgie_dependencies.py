@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from inspect import signature
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -12,17 +13,17 @@ from belgie_core.core.belgie import Belgie
 
 
 @pytest.fixture
-def db_provider() -> tuple[SimpleNamespace, Mock]:
+def db_provider() -> tuple[Callable[[], Mock], Mock]:
     db = Mock()
 
     async def get_db() -> Mock:
         return db
 
-    return SimpleNamespace(dependency=get_db), db
+    return get_db, db
 
 
 @pytest.fixture
-def belgie_instance(db_provider: tuple[SimpleNamespace, Mock]) -> Belgie:
+def belgie_instance(db_provider: tuple[Callable[[], Mock], Mock]) -> Belgie:
     settings = Mock()
     settings.session.max_age = 3600
     settings.session.update_age = 600
@@ -32,9 +33,10 @@ def belgie_instance(db_provider: tuple[SimpleNamespace, Mock]) -> Belgie:
     settings.cookie.domain = None
 
     adapter = Mock()
-    provider, _ = db_provider
+    dependency, _ = db_provider
+    adapter.dependency = dependency
 
-    return Belgie(settings=settings, adapter=adapter, db=provider)
+    return Belgie(settings=settings, adapter=adapter)
 
 
 def test_depends_belgie_user_route_registration_no_fastapi_error(belgie_instance: Belgie) -> None:
@@ -58,27 +60,37 @@ def test_depends_belgie_session_route_registration_no_fastapi_error(belgie_insta
 
 
 def test_user_property_signature_uses_depends(
-    db_provider: tuple[SimpleNamespace, Mock],
+    db_provider: tuple[Callable[[], Mock], Mock],
     belgie_instance: Belgie,
 ) -> None:
-    provider, _ = db_provider
+    dependency, _ = db_provider
 
     db_param_default = signature(belgie_instance.user).parameters["db"].default
 
     assert isinstance(db_param_default, DependsParam)
-    assert db_param_default.dependency is provider.dependency
+    assert db_param_default.dependency is dependency
 
 
 def test_session_property_signature_uses_depends(
-    db_provider: tuple[SimpleNamespace, Mock],
+    db_provider: tuple[Callable[[], Mock], Mock],
     belgie_instance: Belgie,
 ) -> None:
-    provider, _ = db_provider
+    dependency, _ = db_provider
 
     db_param_default = signature(belgie_instance.session).parameters["db"].default
 
     assert isinstance(db_param_default, DependsParam)
-    assert db_param_default.dependency is provider.dependency
+    assert db_param_default.dependency is dependency
+
+
+def test_constructor_rejects_db_keyword() -> None:
+    settings = Mock()
+    adapter = Mock()
+    adapter.dependency = lambda: None
+    db = SimpleNamespace(dependency=lambda: None)
+
+    with pytest.raises(TypeError):
+        Belgie(settings=settings, adapter=adapter, db=db)  # type: ignore[call-arg]
 
 
 @pytest.mark.asyncio

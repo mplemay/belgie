@@ -110,24 +110,26 @@ class OAuthState(Base):
 ```python
 from belgie import Belgie, BelgieSettings
 from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
-from belgie_alchemy import AlchemyAdapter
+from belgie.alchemy import AlchemyAdapter, SqliteSettings
 
 settings = BelgieSettings(
     secret="your-secret-key",
     base_url="http://localhost:8000",
 )
 
+database = SqliteSettings(database="./app.db")
+
 adapter = AlchemyAdapter(
     user=User,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
+    database=database,
 )
 
 auth = Belgie(
     settings=settings,
     adapter=adapter,
-    db=db,
 )
 
 google_oauth_plugin = auth.add_plugin(

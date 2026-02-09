@@ -21,10 +21,6 @@ class UserLookup:
     MIN_PARTS: ClassVar[Final[int]] = 2
 
     async def get_user_from_access_token(self, belgie: Belgie) -> UserProtocol | None:
-        if belgie.db is None:
-            msg = "Belgie.db must be configured before calling get_user_from_access_token"
-            raise RuntimeError(msg)
-
         access_token = get_access_token()
         if access_token is None:
             return None
@@ -88,7 +84,7 @@ class UserLookup:
             return None
 
     async def _load_user_from_belgie(self, belgie: Belgie, user_id: UUID) -> UserProtocol | None:
-        dependency = belgie.db.dependency
+        dependency = belgie.adapter.dependency
         db_or_generator = dependency()
 
         if self._is_async_generator(db_or_generator):

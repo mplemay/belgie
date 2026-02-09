@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 @pytest_asyncio.fixture
-async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
-    engine = await get_test_engine()
+async def db_engine(sqlite_database: str) -> AsyncGenerator[AsyncEngine, None]:
+    engine = await get_test_engine(sqlite_database)
     yield engine
     await engine.dispose()
 
