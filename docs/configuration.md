@@ -120,7 +120,6 @@ from belgie.oauth_client import GoogleOAuthSettings
 google = GoogleOAuthSettings(
     client_id="your-client-id",
     client_secret="your-client-secret",
-    redirect_uri="http://localhost:8000/auth/provider/google/callback",
     scopes=["openid", "email", "profile"],
 )
 ```
@@ -138,9 +137,10 @@ google = GoogleOAuthSettings(
 ```bash
 BELGIE_GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
 BELGIE_GOOGLE_CLIENT_SECRET=your-secret
-BELGIE_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/provider/google/callback
 BELGIE_GOOGLE_SCOPES=openid,email,profile
 ```
+
+Google callback URL is fixed to `<BELGIE_BASE_URL>/auth/provider/google/callback`.
 
 ### Available Scopes
 
@@ -213,7 +213,6 @@ belgie.add_plugin(
     GoogleOAuthSettings(
         client_id="your-client-id",
         client_secret="your-client-secret",
-        redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],
     ),
 )
@@ -243,7 +242,6 @@ BELGIE_COOKIE_SAME_SITE=lax
 # Google OAuth
 BELGIE_GOOGLE_CLIENT_ID=your-client-id
 BELGIE_GOOGLE_CLIENT_SECRET=your-client-secret
-BELGIE_GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback/google
 BELGIE_GOOGLE_SCOPES=openid,email,profile
 
 # URLs

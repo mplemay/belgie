@@ -135,7 +135,6 @@ google_oauth_plugin = auth.add_plugin(
     GoogleOAuthSettings(
         client_id="your-google-client-id",
         client_secret="your-google-client-secret",
-        redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],
     ),
 )
@@ -189,9 +188,10 @@ Visit `http://localhost:8000/login/google` to sign in.
 ## Configuration shortcuts
 
 - Environment variables: `BELGIE_SECRET`, `BELGIE_BASE_URL`, `BELGIE_GOOGLE_CLIENT_ID`, `BELGIE_GOOGLE_CLIENT_SECRET`,
-  `BELGIE_GOOGLE_REDIRECT_URI` (loaded automatically by `BelgieSettings()`).
+  `BELGIE_GOOGLE_SCOPES` (loaded automatically by `BelgieSettings()`).
 - Session tuning: `SessionSettings(cookie_name, max_age, update_age)` controls lifetime and sliding refresh.
 - Cookie hardening: `CookieSettings(http_only, secure, same_site)` for production-ready defaults.
+- Google callback URL is fixed to `<BELGIE_BASE_URL>/auth/provider/google/callback`.
 
 ## Plugin API migration note
 

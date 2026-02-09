@@ -2,7 +2,7 @@ import time
 
 import httpx
 import pytest
-from belgie_oauth_server.plugin import OAuthPlugin
+from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.provider import AccessToken
 
 BEARER = "Bearer"
@@ -23,7 +23,7 @@ async def test_introspect_unknown_token(async_client: httpx.AsyncClient) -> None
 
 
 @pytest.mark.asyncio
-async def test_introspect_active_token(async_client: httpx.AsyncClient, oauth_plugin: OAuthPlugin) -> None:
+async def test_introspect_active_token(async_client: httpx.AsyncClient, oauth_plugin: OAuthServerPlugin) -> None:
     provider = oauth_plugin._provider
     created_at = int(time.time()) - 5
     provider.tokens["token-123"] = AccessToken(
@@ -49,7 +49,7 @@ async def test_introspect_active_token(async_client: httpx.AsyncClient, oauth_pl
 @pytest.mark.asyncio
 async def test_introspect_active_token_without_client_auth(
     async_client: httpx.AsyncClient,
-    oauth_plugin: OAuthPlugin,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     provider = oauth_plugin._provider
     provider.tokens["token-no-auth"] = AccessToken(

@@ -62,7 +62,6 @@ def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: Asy
         GoogleOAuthSettings(
             client_id="integration-test-client-id",
             client_secret="integration-test-client-secret",
-            redirect_uri="http://localhost:8000/auth/provider/google/callback",
             scopes=["openid", "email", "profile"],
         ),
     )

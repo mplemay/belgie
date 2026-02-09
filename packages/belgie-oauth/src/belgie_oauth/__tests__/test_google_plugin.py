@@ -27,7 +27,6 @@ def _build_plugin() -> GoogleOAuthPlugin:
     settings = GoogleOAuthSettings(
         client_id="test-client-id",
         client_secret="test-client-secret",
-        redirect_uri="http://localhost:8000/auth/provider/google/callback",
     )
     belgie_settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
     return GoogleOAuthPlugin(belgie_settings, settings)

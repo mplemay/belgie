@@ -1,10 +1,10 @@
 import httpx
 import pytest
-from belgie_oauth_server.plugin import OAuthPlugin
+from belgie_oauth_server.plugin import OAuthServerPlugin
 
 
 @pytest.mark.asyncio
-async def test_register_success(async_client: httpx.AsyncClient, oauth_plugin: OAuthPlugin) -> None:
+async def test_register_success(async_client: httpx.AsyncClient, oauth_plugin: OAuthServerPlugin) -> None:
     response = await async_client.post(
         "/auth/oauth/register",
         json={

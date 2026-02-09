@@ -14,7 +14,6 @@ def google_provider_settings() -> GoogleOAuthSettings:
     return GoogleOAuthSettings(
         client_id="test-client-id",
         client_secret="test-client-secret",
-        redirect_uri="http://localhost:8000/callback",
         scopes=["openid", "email", "profile"],
     )
 
@@ -91,12 +90,10 @@ def test_google_provider_settings() -> None:
     settings = GoogleOAuthSettings(
         client_id="test-client-id",
         client_secret="test-secret",
-        redirect_uri="http://localhost:8000/auth/callback/google",
     )
 
     assert settings.client_id == "test-client-id"
     assert settings.client_secret.get_secret_value() == "test-secret"
-    assert settings.redirect_uri == "http://localhost:8000/auth/callback/google"
     assert settings.scopes == ["openid", "email", "profile"]
     assert settings.access_type == "offline"
     assert settings.prompt == "consent"
@@ -106,7 +103,6 @@ def test_google_provider_settings_custom_values() -> None:
     settings = GoogleOAuthSettings(
         client_id="custom-client-id",
         client_secret="custom-secret",
-        redirect_uri="http://example.com/callback",
         scopes=["openid", "email"],
         access_type="online",
         prompt="select_account",
@@ -123,7 +119,6 @@ def test_google_provider_settings_rejects_empty_client_id() -> None:
         GoogleOAuthSettings(
             client_id="",
             client_secret="test-secret",
-            redirect_uri="http://localhost:8000/callback",
         )
 
     errors = exc_info.value.errors()
@@ -137,24 +132,10 @@ def test_google_provider_settings_rejects_empty_client_secret() -> None:
         GoogleOAuthSettings(
             client_id="test-client-id",
             client_secret="",
-            redirect_uri="http://localhost:8000/callback",
         )
 
     errors = exc_info.value.errors()
     assert any(error["loc"][0] == "client_secret" for error in errors)
-
-
-def test_google_provider_settings_rejects_whitespace_only() -> None:
-    """Verify that whitespace-only strings are rejected."""
-    with pytest.raises(ValidationError) as exc_info:
-        GoogleOAuthSettings(
-            client_id="test-client-id",
-            client_secret="test-secret",
-            redirect_uri="   ",
-        )
-
-    errors = exc_info.value.errors()
-    assert any(error["loc"][0] == "redirect_uri" for error in errors)
 
 
 def test_google_provider_settings_trims_whitespace() -> None:
@@ -162,12 +143,27 @@ def test_google_provider_settings_trims_whitespace() -> None:
     settings = GoogleOAuthSettings(
         client_id="  test-client-id  ",
         client_secret="  test-secret  ",
-        redirect_uri="  http://localhost:8000/callback  ",
     )
 
     assert settings.client_id == "test-client-id"
     assert settings.client_secret.get_secret_value() == "test-secret"
-    assert settings.redirect_uri == "http://localhost:8000/callback"
+
+
+def test_google_provider_redirect_uri_is_derived_from_base_url(
+    google_provider: GoogleOAuthPlugin,
+) -> None:
+    assert google_provider.redirect_uri == "http://localhost:8000/auth/provider/google/callback"
+
+
+def test_google_provider_redirect_uri_includes_base_path(
+    google_provider_settings: GoogleOAuthSettings,
+) -> None:
+    plugin = GoogleOAuthPlugin(
+        BelgieSettings(secret="test-secret", base_url="http://localhost:8000/app"),
+        google_provider_settings,
+    )
+
+    assert plugin.redirect_uri == "http://localhost:8000/app/auth/provider/google/callback"
 
 
 # Authorization URL Generation Tests
@@ -185,7 +181,7 @@ def test_generate_authorization_url_format(google_provider: GoogleOAuthPlugin) -
     assert parsed.netloc == "accounts.google.com"
     assert parsed.path == "/o/oauth2/v2/auth"
     assert query_params["client_id"][0] == google_provider.settings.client_id
-    assert query_params["redirect_uri"][0] == google_provider.settings.redirect_uri
+    assert query_params["redirect_uri"][0] == google_provider.redirect_uri
     assert query_params["response_type"][0] == "code"
     assert query_params["scope"][0] == "openid email profile"
     assert query_params["state"][0] == state

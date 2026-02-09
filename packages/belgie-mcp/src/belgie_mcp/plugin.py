@@ -12,7 +12,7 @@ from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
 if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
-    from belgie_oauth_server.settings import OAuthSettings
+    from belgie_oauth_server.settings import OAuthServerSettings
     from mcp.server.auth.provider import TokenVerifier
     from mcp.server.auth.settings import AuthSettings
     from pydantic import AnyHttpUrl
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True, kw_only=True, frozen=True)
 class McpPluginSettings:
-    oauth_settings: OAuthSettings
+    oauth_settings: OAuthServerSettings
     server_url: str | AnyHttpUrl | None = None
     base_url: str | AnyHttpUrl | None = None
     server_path: str = "/mcp"

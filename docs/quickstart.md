@@ -110,7 +110,6 @@ google_oauth_plugin = auth.add_plugin(
     GoogleOAuthSettings(
         client_id="your-google-client-id",
         client_secret="your-google-client-secret",
-        redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],
     ),
 )
