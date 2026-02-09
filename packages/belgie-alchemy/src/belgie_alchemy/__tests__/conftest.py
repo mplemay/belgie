@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from importlib.util import find_spec
+from tempfile import gettempdir
 from typing import TYPE_CHECKING
+from uuid import uuid4
+
+import pytest
 
 SQLALCHEMY_AVAILABLE = find_spec("sqlalchemy") is not None
 
@@ -22,14 +26,18 @@ if SQLALCHEMY_AVAILABLE:
 
         from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+    @pytest.fixture
+    def sqlite_database() -> str:
+        return f"{gettempdir()}/belgie_test_{uuid4().hex}.db"
+
     @pytest_asyncio.fixture
-    async def alchemy_engine() -> AsyncGenerator[AsyncEngine, None]:
+    async def alchemy_engine(sqlite_database: str) -> AsyncGenerator[AsyncEngine, None]:
         """Create an isolated in-memory SQLite engine for testing.
 
         Each test gets its own in-memory database, so Base.metadata.create_all
         is safe even when tests run in parallel - there's no shared state.
         """
-        engine = await get_test_engine()
+        engine = await get_test_engine(sqlite_database)
         yield engine
         await engine.dispose()
 

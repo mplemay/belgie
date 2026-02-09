@@ -1,16 +1,25 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
+    DBConnection,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
 )
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Callable
+    from uuid import UUID
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from belgie_alchemy.settings import DatabaseBackendSettings, SQLAlchemyRuntime
 
 
 class AlchemyAdapter[
@@ -26,11 +35,19 @@ class AlchemyAdapter[
         account: type[AccountT],
         session: type[SessionT],
         oauth_state: type[OAuthStateT],
+        database: DatabaseBackendSettings,
     ) -> None:
         self.user_model = user
         self.account_model = account
         self.session_model = session
         self.oauth_state_model = oauth_state
+        self.db = database()
+
+    db: SQLAlchemyRuntime
+
+    @property
+    def dependency(self) -> Callable[[], DBConnection | AsyncGenerator[DBConnection, None]]:
+        return self.db.dependency
 
     async def create_user(
         self,

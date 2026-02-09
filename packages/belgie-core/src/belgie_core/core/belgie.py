@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Callable, Coroutine  # noqa: TC003
+from collections.abc import Callable, Coroutine  # noqa: TC003
 from inspect import signature
-from typing import Any, Protocol, cast
+from typing import Any, cast
 from uuid import UUID
 
 from belgie_proto import (
@@ -24,19 +24,6 @@ from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.session.manager import SessionManager
 
 
-class DBDependencyProvider(Protocol):
-    """Protocol for database dependency providers.
-
-    This allows Belgie to work with any dependency injection system
-    without coupling to a specific implementation.
-    """
-
-    @property
-    def dependency(self) -> Callable[[], DBConnection | AsyncGenerator[DBConnection, None]]:
-        """FastAPI dependency that provides database connections."""
-        ...
-
-
 class _BelgieCallable:
     """Descriptor that makes Belgie instances callable with instance-specific dependencies.
 
@@ -50,11 +37,8 @@ class _BelgieCallable:
             # Accessed through class, return descriptor itself
             return self
 
-        # Return a callable with this instance's db.dependency
-        if obj.db is None:
-            msg = "Belgie.db must be configured with a dependency"
-            raise RuntimeError(msg)
-        dependency = obj.db.dependency
+        # Return a callable with this instance's adapter dependency
+        dependency = obj.adapter.dependency
 
         def __call__(  # noqa: N807
             db: DBConnection = Depends(dependency),  # noqa: B008
@@ -95,7 +79,7 @@ class Belgie[
 
     Example:
         >>> from belgie_core import Belgie, BelgieSettings
-        >>> from belgie_alchemy import AlchemyAdapter
+        >>> from belgie_alchemy import AlchemyAdapter, SqliteSettings
         >>> from myapp.models import User, Account, Session, OAuthState
         >>>
         >>> settings = BelgieSettings(
@@ -103,15 +87,16 @@ class Belgie[
         ...     base_url="http://localhost:8000",
         ... )
         >>>
+        >>> database = SqliteSettings(database=":memory:")
         >>> adapter = AlchemyAdapter(
         ...     user=User,
         ...     account=Account,
         ...     session=Session,
         ...     oauth_state=OAuthState,
+        ...     database=database,
         ... )
-        >>> db = DatabaseSettings(dialect={"type": "sqlite", "database": ":memory:"})
         >>>
-        >>> belgie = Belgie(settings=settings, adapter=adapter, db=db)
+        >>> belgie = Belgie(settings=settings, adapter=adapter)
         >>> app.include_router(belgie.router)
     """
 
@@ -122,7 +107,6 @@ class Belgie[
         self,
         settings: BelgieSettings,
         adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
-        db: DBDependencyProvider,
         hooks: Hooks | None = None,
     ) -> None:
         """Initialize the Belgie instance.
@@ -130,13 +114,10 @@ class Belgie[
         Args:
             settings: Authentication configuration including session, cookie, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
-            db: Database dependency provider
-
         Raises:
         """
         self.settings = settings
         self.adapter = adapter
-        self.db = db
 
         self.session_manager = SessionManager(
             adapter=adapter,
@@ -186,11 +167,7 @@ class Belgie[
             APIRouter with all authentication endpoints
         """
         main_router = APIRouter(prefix="/auth", tags=["auth"])
-
-        if self.db is None:
-            msg = "Belgie.db must be configured with a dependency"
-            raise RuntimeError(msg)
-        dependency = self.db.dependency
+        dependency = self.adapter.dependency
 
         for plugin in self.plugins:
             if (plugin_router := plugin.router(self)) is not None:
@@ -334,10 +311,7 @@ class Belgie[
             >>> async def resource_route(user: User = Security(belgie.user, scopes=[Scope.READ])):
             ...     return {"data": "..."}
         """
-        if self.db is None:
-            msg = "Belgie.db must be configured with a dependency"
-            raise RuntimeError(msg)
-        dependency = self.db.dependency
+        dependency = self.adapter.dependency
 
         async def _user(
             security_scopes: SecurityScopes,
@@ -374,10 +348,7 @@ class Belgie[
             >>> async def session_info(session: Session = Depends(belgie.session)):
             ...     return {"session_id": str(session.id), "expires_at": session.expires_at.isoformat()}
         """
-        if self.db is None:
-            msg = "Belgie.db must be configured with a dependency"
-            raise RuntimeError(msg)
-        dependency = self.db.dependency
+        dependency = self.adapter.dependency
 
         async def _session(
             request: Request,

@@ -2,20 +2,24 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from belgie_alchemy import AlchemyAdapter
+import pytest_asyncio
+from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.session.manager import SessionManager
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-@pytest.fixture
-def adapter(db_session: AsyncSession) -> AlchemyAdapter:  # noqa: ARG001
-    return AlchemyAdapter(
+@pytest_asyncio.fixture
+async def adapter(db_session: AsyncSession, sqlite_database: str):  # noqa: ARG001
+    adapter = AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        database=SqliteSettings(database=sqlite_database),
     )
+    yield adapter
+    await adapter.db.engine.dispose()
 
 
 @pytest.fixture

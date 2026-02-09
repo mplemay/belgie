@@ -11,16 +11,14 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie.alchemy import AlchemyAdapter, DatabaseSettings
+from belgie.alchemy import AlchemyAdapter, SqliteSettings
 from belgie.oauth.server import OAuthServerPlugin, OAuthServerSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 DB_PATH = "./belgie_oauth_example.db"
 
 
-db_settings = DatabaseSettings(
-    dialect={"type": "sqlite", "database": DB_PATH, "echo": True},
-)
+db_settings = SqliteSettings(database=DB_PATH, echo=True)
 
 
 @asynccontextmanager
@@ -56,12 +54,12 @@ adapter = AlchemyAdapter(
     account=Account,
     session=Session,
     oauth_state=OAuthState,
+    database=db_settings,
 )
 
 belgie = Belgie(
     settings=settings,
     adapter=adapter,
-    db=db_settings,
 )
 
 oauth_settings = OAuthServerSettings(

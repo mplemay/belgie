@@ -207,7 +207,7 @@ settings = BelgieSettings(
 
 adapter = AlchemyAdapter(...)
 
-belgie = Belgie(settings=settings, adapter=adapter, db=get_db)
+belgie = Belgie(settings=settings, adapter=adapter)
 belgie.add_plugin(
     GoogleOAuthPlugin,
     GoogleOAuthSettings(

@@ -7,9 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
-async def get_test_engine() -> AsyncEngine:
+def _build_test_database_url(database: str) -> str:
+    if database == ":memory:":
+        return TEST_DATABASE_URL
+    if database.startswith("file:"):
+        return f"sqlite+aiosqlite:///{database}&uri=true"
+    return f"sqlite+aiosqlite:///{database}"
+
+
+async def get_test_engine(database: str = ":memory:") -> AsyncEngine:
     engine = create_async_engine(
-        TEST_DATABASE_URL,
+        _build_test_database_url(database),
         echo=False,
     )
 

@@ -1,10 +1,10 @@
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
 import httpx
 import pytest
+import pytest_asyncio
 import respx
-from belgie_alchemy import AlchemyAdapter
+from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
@@ -36,24 +36,22 @@ def auth_settings() -> BelgieSettings:
     )
 
 
-@pytest.fixture
-def adapter() -> AlchemyAdapter:
-    return AlchemyAdapter(
+@pytest_asyncio.fixture
+async def adapter(sqlite_database: str):
+    adapter = AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+        database=SqliteSettings(database=sqlite_database),
     )
+    yield adapter
+    await adapter.db.engine.dispose()
 
 
 @pytest.fixture
-def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Belgie:
-    async def get_db_override() -> AsyncSession:
-        return db_session
-
-    fake_db = SimpleNamespace(dependency=get_db_override)
-
-    belgie = Belgie(settings=auth_settings, adapter=adapter, db=fake_db)
+def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Belgie:  # noqa: ARG001
+    belgie = Belgie(settings=auth_settings, adapter=adapter)
     belgie.add_plugin(
         GoogleOAuthPlugin,
         GoogleOAuthSettings(

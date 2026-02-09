@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from belgie_alchemy import AlchemyAdapter, DatabaseSettings
+from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from brussels.base import DataclassBase
 from fastapi import Depends, FastAPI, Security
 from fastapi.responses import RedirectResponse
@@ -17,7 +17,7 @@ from belgie import (
 from belgie.oauth.google import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
-db_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_auth_example.db", "echo": True})
+db_settings = SqliteSettings(database="./belgie_auth_example.db", echo=True)
 
 
 @asynccontextmanager
@@ -53,12 +53,12 @@ adapter = AlchemyAdapter(
     account=Account,
     session=Session,
     oauth_state=OAuthState,
+    database=db_settings,
 )
 
 belgie = Belgie(
     settings=settings,
     adapter=adapter,
-    db=db_settings,
 )
 google_oauth_plugin = belgie.add_plugin(
     GoogleOAuthPlugin,

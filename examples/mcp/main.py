@@ -15,7 +15,7 @@ from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.alchemy import AlchemyAdapter, DatabaseSettings
+from belgie.alchemy import AlchemyAdapter, SqliteSettings
 from belgie.mcp import McpPlugin, McpPluginSettings, get_user_from_access_token
 from belgie.oauth.server import OAuthResource, OAuthServerPlugin, OAuthServerSettings
 
@@ -120,9 +120,7 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin):
 DB_PATH = "./belgie_mcp_example.db"
 
 
-db_settings = DatabaseSettings(
-    dialect={"type": "sqlite", "database": DB_PATH, "echo": True},
-)
+db_settings = SqliteSettings(database=DB_PATH, echo=True)
 
 
 @asynccontextmanager
@@ -161,12 +159,12 @@ adapter = AlchemyAdapter(
     account=Account,
     session=Session,
     oauth_state=OAuthState,
+    database=db_settings,
 )
 
 belgie = Belgie(
     settings=settings,
     adapter=adapter,
-    db=db_settings,
 )
 
 oauth_settings = OAuthServerSettings(
