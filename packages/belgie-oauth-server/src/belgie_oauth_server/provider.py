@@ -41,6 +41,7 @@ class RefreshToken:
     token: str
     client_id: str
     scopes: list[str]
+    created_at: int
     expires_at: int | None = None
 
 
@@ -52,6 +53,7 @@ class AccessToken:
     created_at: int
     expires_at: int | None = None
     resource: str | None = None
+    refresh_token: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -72,6 +74,7 @@ class SimpleOAuthProvider:
         self.clients: dict[str, OAuthClientInformationFull] = {}
         self.auth_codes: dict[str, AuthorizationCode] = {}
         self.tokens: dict[str, AccessToken] = {}
+        self.refresh_tokens: dict[str, RefreshToken] = {}
         self.state_mapping: dict[str, StateEntry] = {}
 
         client_secret = settings.client_secret.get_secret_value() if settings.client_secret is not None else None
@@ -87,7 +90,7 @@ class SimpleOAuthProvider:
 
     async def register_client(self, metadata: OAuthClientMetadata) -> OAuthClientInformationFull:
         token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
-        if token_endpoint_auth_method not in {"client_secret_post", "none"}:
+        if token_endpoint_auth_method not in {"client_secret_post", "client_secret_basic", "none"}:
             msg = f"unsupported token_endpoint_auth_method: {token_endpoint_auth_method}"
             raise ValueError(msg)
         client_secret = None
@@ -164,28 +167,37 @@ class SimpleOAuthProvider:
     async def load_authorization_code(self, authorization_code: str) -> AuthorizationCode | None:
         return self.auth_codes.get(authorization_code)
 
-    async def exchange_authorization_code(self, authorization_code: AuthorizationCode) -> OAuthToken:
+    async def exchange_authorization_code(
+        self,
+        authorization_code: AuthorizationCode,
+        *,
+        issue_refresh_token: bool = False,
+    ) -> OAuthToken:
         if authorization_code.code not in self.auth_codes:
             msg = "Invalid authorization code"
             raise ValueError(msg)
 
-        mcp_token = f"belgie_{secrets.token_hex(32)}"
-        self.tokens[mcp_token] = AccessToken(
-            token=mcp_token,
+        access_token = self._issue_access_token(
             client_id=authorization_code.client_id,
             scopes=authorization_code.scopes,
-            created_at=int(time.time()),
-            expires_at=int(time.time()) + self.settings.access_token_ttl_seconds,
             resource=authorization_code.resource,
         )
+        refresh_token_value = None
+        if issue_refresh_token:
+            refresh_token = self._issue_refresh_token(
+                client_id=authorization_code.client_id,
+                scopes=authorization_code.scopes,
+            )
+            refresh_token_value = refresh_token.token
 
         del self.auth_codes[authorization_code.code]
 
         return OAuthToken(
-            access_token=mcp_token,
+            access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
             expires_in=self.settings.access_token_ttl_seconds,
             scope=" ".join(authorization_code.scopes),
+            refresh_token=refresh_token_value,
         )
 
     async def load_access_token(self, token: str) -> AccessToken | None:
@@ -213,11 +225,125 @@ class SimpleOAuthProvider:
             self.state_mapping.pop(state, None)
 
     async def load_refresh_token(self, _refresh_token: str) -> RefreshToken | None:
-        return None
+        refresh_token = self.refresh_tokens.get(_refresh_token)
+        if not refresh_token:
+            return None
+
+        if refresh_token.expires_at is not None and refresh_token.expires_at < time.time():
+            del self.refresh_tokens[_refresh_token]
+            return None
+        return refresh_token
 
     async def exchange_refresh_token(self, refresh_token: RefreshToken, scopes: list[str]) -> OAuthToken:
-        raise NotImplementedError
+        stored_refresh_token = self.refresh_tokens.get(refresh_token.token)
+        if not stored_refresh_token:
+            msg = "Invalid refresh token"
+            raise ValueError(msg)
+
+        if stored_refresh_token.expires_at is not None and stored_refresh_token.expires_at < time.time():
+            del self.refresh_tokens[refresh_token.token]
+            msg = "Refresh token expired"
+            raise ValueError(msg)
+
+        invalid_scopes = [scope for scope in scopes if scope not in stored_refresh_token.scopes]
+        if invalid_scopes:
+            msg = f"Requested scope '{invalid_scopes[0]}' was not granted"
+            raise ValueError(msg)
+
+        del self.refresh_tokens[refresh_token.token]
+
+        new_refresh_token = self._issue_refresh_token(
+            client_id=stored_refresh_token.client_id,
+            scopes=scopes,
+        )
+        access_token = self._issue_access_token(
+            client_id=stored_refresh_token.client_id,
+            scopes=scopes,
+            refresh_token=new_refresh_token.token,
+        )
+
+        return OAuthToken(
+            access_token=access_token.token,
+            token_type="Bearer",  # noqa: S106
+            expires_in=self.settings.access_token_ttl_seconds,
+            scope=" ".join(scopes),
+            refresh_token=new_refresh_token.token,
+        )
+
+    async def issue_client_credentials_token(
+        self,
+        client_id: str,
+        scopes: list[str],
+    ) -> OAuthToken:
+        access_token = self._issue_access_token(client_id=client_id, scopes=scopes)
+        return OAuthToken(
+            access_token=access_token.token,
+            token_type="Bearer",  # noqa: S106
+            expires_in=self.settings.access_token_ttl_seconds,
+            scope=" ".join(scopes),
+        )
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         if isinstance(token, AccessToken):
             self.tokens.pop(token.token, None)
+            return
+
+        self.refresh_tokens.pop(token.token, None)
+        linked_access_tokens = [
+            access_token.token for access_token in self.tokens.values() if access_token.refresh_token == token.token
+        ]
+        for linked_token in linked_access_tokens:
+            self.tokens.pop(linked_token, None)
+
+    def default_scopes_for_client(self, client: OAuthClientInformationFull) -> list[str]:
+        raw_scope = client.scope.strip() if client.scope else ""
+        if raw_scope:
+            return [scope for scope in raw_scope.split(" ") if scope]
+        return [self.settings.default_scope]
+
+    def validate_scopes_for_client(self, client: OAuthClientInformationFull, scopes: list[str]) -> None:
+        allowed_scopes = set(self.default_scopes_for_client(client))
+        invalid_scopes = [scope for scope in scopes if scope not in allowed_scopes]
+        if invalid_scopes:
+            msg = f"Client was not registered with scope {invalid_scopes[0]}"
+            raise ValueError(msg)
+
+    def _issue_access_token(
+        self,
+        *,
+        client_id: str,
+        scopes: list[str],
+        resource: str | None = None,
+        refresh_token: str | None = None,
+    ) -> AccessToken:
+        now = int(time.time())
+        token_value = f"belgie_{secrets.token_hex(32)}"
+        access_token = AccessToken(
+            token=token_value,
+            client_id=client_id,
+            scopes=scopes,
+            created_at=now,
+            expires_at=now + self.settings.access_token_ttl_seconds,
+            resource=resource,
+            refresh_token=refresh_token,
+        )
+        self.tokens[token_value] = access_token
+        return access_token
+
+    def _issue_refresh_token(
+        self,
+        *,
+        client_id: str,
+        scopes: list[str],
+    ) -> RefreshToken:
+        now = int(time.time())
+        token_value = f"belgie_{secrets.token_hex(32)}"
+        refresh_token = RefreshToken(
+            token=token_value,
+            client_id=client_id,
+            scopes=scopes,
+            created_at=now,
+            expires_at=now + self.settings.access_token_ttl_seconds,
+        )
+        self.refresh_tokens[token_value] = refresh_token
+        return refresh_token

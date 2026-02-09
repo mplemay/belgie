@@ -57,6 +57,8 @@ class OAuthServerSettings(BaseSettings):
     access_token_ttl_seconds: int = 3600
     state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"
+    allow_dynamic_client_registration: bool = False
+    allow_unauthenticated_client_registration: bool = False
     resources: list[OAuthResource] | None = Field(default=None, min_length=1, max_length=1)
     include_root_resource_metadata_fallback: bool = True
     include_root_oauth_metadata_fallback: bool = True

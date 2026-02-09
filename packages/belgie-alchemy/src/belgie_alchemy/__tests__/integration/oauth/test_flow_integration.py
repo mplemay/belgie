@@ -61,7 +61,11 @@ async def test_full_oauth_flow(
 
     introspect_response = await async_client.post(
         "/auth/oauth/introspect",
-        data={"token": access_token},
+        data={
+            "client_id": oauth_settings.client_id,
+            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "token": access_token,
+        },
     )
 
     assert introspect_response.status_code == 200

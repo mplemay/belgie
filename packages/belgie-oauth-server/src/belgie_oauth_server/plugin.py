@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import secrets
 import time
 from typing import TYPE_CHECKING, Any
@@ -37,6 +39,8 @@ if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
+ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
+REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
 
 
 class OAuthServerPlugin(Plugin[OAuthServerSettings]):
@@ -61,7 +65,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         router = self._add_metadata_route(router, metadata)
         router = self._add_authorize_route(router, belgie, provider, self._settings, issuer_url)
         router = self._add_token_route(router, provider)
-        router = self._add_register_route(router, provider)
+        router = self._add_register_route(router, belgie, provider, self._settings)
         router = self._add_revoke_route(router, provider)
         router = self._add_login_route(router, belgie, issuer_url, self._settings)
         router = self._add_login_callback_route(router, belgie, provider)
@@ -172,62 +176,146 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         return router
 
     @staticmethod
-    def _add_token_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:  # noqa: C901
-        async def token_handler(request: Request) -> Response:  # noqa: C901, PLR0911
+    def _add_token_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:  # noqa: C901, PLR0915
+        async def token_handler(request: Request) -> Response:  # noqa: C901, PLR0911, PLR0912, PLR0915
             form = await request.form()
             grant_type = _get_str(form, "grant_type")
-            if grant_type != "authorization_code":
-                return _oauth_error("unsupported_grant_type", status_code=400)
+            client_id, client_secret, auth_error = _extract_client_credentials(request, form)
+            if auth_error is not None:
+                return auth_error
 
-            code = _get_str(form, "code")
-            if not code:
-                return _oauth_error("invalid_request", "missing code", status_code=400)
+            if grant_type == "authorization_code":
+                oauth_client, error = await _authenticate_client(
+                    provider,
+                    client_id,
+                    client_secret,
+                )
+                if error is not None:
+                    return error
 
-            client_id = _get_str(form, "client_id")
-            if not client_id:
-                return _oauth_error("invalid_client", status_code=401)
+                code = _get_str(form, "code")
+                if not code:
+                    return _oauth_error("invalid_request", "missing code", status_code=400)
 
-            oauth_client = await provider.get_client(client_id)
-            if not oauth_client:
-                return _oauth_error("invalid_client", status_code=401)
+                authorization_code = await provider.load_authorization_code(code)
+                if not authorization_code:
+                    return _oauth_error("invalid_grant", status_code=400)
 
-            client_secret = _get_str(form, "client_secret")
-            if oauth_client.client_secret and client_secret != oauth_client.client_secret:
-                return _oauth_error("invalid_client", status_code=401)
+                if authorization_code.expires_at < time.time():
+                    return _oauth_error("invalid_grant", "code expired", status_code=400)
 
-            authorization_code = await provider.load_authorization_code(code)
-            if not authorization_code:
-                return _oauth_error("invalid_grant", status_code=400)
+                if oauth_client.client_id != authorization_code.client_id:
+                    return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
 
-            if authorization_code.expires_at < time.time():
-                return _oauth_error("invalid_grant", "code expired", status_code=400)
+                redirect_uri_raw = _get_str(form, "redirect_uri")
+                if authorization_code.redirect_uri_provided_explicitly and not redirect_uri_raw:
+                    return _oauth_error("invalid_request", "missing redirect_uri", status_code=400)
+                if redirect_uri_raw and redirect_uri_raw != str(authorization_code.redirect_uri):
+                    return _oauth_error("invalid_grant", "redirect_uri mismatch", status_code=400)
 
-            redirect_uri_raw = _get_str(form, "redirect_uri")
-            if client_id != authorization_code.client_id:
-                return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
+                code_verifier = _get_str(form, "code_verifier")
+                if not code_verifier:
+                    return _oauth_error("invalid_request", "missing code_verifier", status_code=400)
 
-            if authorization_code.redirect_uri_provided_explicitly and not redirect_uri_raw:
-                return _oauth_error("invalid_request", "missing redirect_uri", status_code=400)
-            if redirect_uri_raw and redirect_uri_raw != str(authorization_code.redirect_uri):
-                return _oauth_error("invalid_grant", "redirect_uri mismatch", status_code=400)
+                expected_challenge = create_code_challenge(code_verifier)
+                if expected_challenge != authorization_code.code_challenge:
+                    return _oauth_error("invalid_grant", "invalid code_verifier", status_code=400)
 
-            code_verifier = _get_str(form, "code_verifier")
-            if not code_verifier:
-                return _oauth_error("invalid_request", "missing code_verifier", status_code=400)
+                token = await provider.exchange_authorization_code(
+                    authorization_code,
+                    issue_refresh_token="offline_access" in authorization_code.scopes,
+                )
+                return JSONResponse(token.model_dump())
 
-            expected_challenge = create_code_challenge(code_verifier)
-            if expected_challenge != authorization_code.code_challenge:
-                return _oauth_error("invalid_grant", "invalid code_verifier", status_code=400)
+            if grant_type == "refresh_token":
+                oauth_client, error = await _authenticate_client(
+                    provider,
+                    client_id,
+                    client_secret,
+                )
+                if error is not None:
+                    return error
 
-            token = await provider.exchange_authorization_code(authorization_code)
-            return JSONResponse(token.model_dump())
+                refresh_token_value = _get_str(form, "refresh_token")
+                if not refresh_token_value:
+                    return _oauth_error("invalid_request", "missing refresh_token", status_code=400)
+
+                refresh_token = await provider.load_refresh_token(refresh_token_value)
+                if not refresh_token:
+                    return _oauth_error("invalid_grant", status_code=400)
+
+                if refresh_token.client_id != oauth_client.client_id:
+                    return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
+
+                requested_scopes = _parse_scope_param(_get_str(form, "scope"))
+                if requested_scopes is not None and not requested_scopes:
+                    return _oauth_error("invalid_scope", "missing scope", status_code=400)
+                scopes = requested_scopes or refresh_token.scopes
+                if requested_scopes is not None:
+                    invalid_scopes = [scope for scope in requested_scopes if scope not in refresh_token.scopes]
+                    if invalid_scopes:
+                        return _oauth_error(
+                            "invalid_scope",
+                            f"unable to issue scope {invalid_scopes[0]}",
+                            status_code=400,
+                        )
+
+                try:
+                    provider.validate_scopes_for_client(oauth_client, scopes)
+                except ValueError as exc:
+                    return _oauth_error("invalid_scope", str(exc), status_code=400)
+
+                try:
+                    token = await provider.exchange_refresh_token(refresh_token, scopes)
+                except ValueError as exc:
+                    return _oauth_error("invalid_grant", str(exc), status_code=400)
+                return JSONResponse(token.model_dump())
+
+            if grant_type == "client_credentials":
+                oauth_client, error = await _authenticate_client(
+                    provider,
+                    client_id,
+                    client_secret,
+                    require_confidential=True,
+                )
+                if error is not None:
+                    return error
+
+                requested_scopes = _parse_scope_param(_get_str(form, "scope"))
+                if requested_scopes is not None and not requested_scopes:
+                    return _oauth_error("invalid_scope", "missing scope", status_code=400)
+                scopes = requested_scopes or provider.default_scopes_for_client(oauth_client)
+                try:
+                    provider.validate_scopes_for_client(oauth_client, scopes)
+                except ValueError as exc:
+                    return _oauth_error("invalid_scope", str(exc), status_code=400)
+
+                token = await provider.issue_client_credentials_token(oauth_client.client_id, scopes)
+                return JSONResponse(token.model_dump())
+
+            return _oauth_error("unsupported_grant_type", status_code=400)
 
         router.add_api_route("/token", token_handler, methods=["POST"])
         return router
 
     @staticmethod
-    def _add_register_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:
-        async def register_handler(request: Request) -> Response:
+    def _add_register_route(  # noqa: C901
+        router: APIRouter,
+        belgie: Belgie,
+        provider: SimpleOAuthProvider,
+        settings: OAuthServerSettings,
+    ) -> APIRouter:
+        async def register_handler(  # noqa: PLR0911
+            request: Request,
+            client: BelgieClient = Depends(belgie),  # noqa: B008
+        ) -> Response:
+            if not settings.allow_dynamic_client_registration:
+                return _oauth_error(
+                    "access_denied",
+                    "client registration is disabled",
+                    status_code=403,
+                )
+
             try:
                 payload = await request.json()
                 metadata = OAuthClientMetadata.model_validate(payload)
@@ -241,6 +329,29 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
                 description = str(exc) or "invalid client metadata"
                 return _oauth_error("invalid_request", description, status_code=400)
 
+            authenticated = False
+            try:
+                await client.get_user(SecurityScopes(), request)
+                authenticated = True
+            except HTTPException as exc:
+                if exc.status_code != status.HTTP_401_UNAUTHORIZED:
+                    raise
+
+            is_public_client = (metadata.token_endpoint_auth_method or "client_secret_post") == "none"
+            if not authenticated:
+                if not settings.allow_unauthenticated_client_registration:
+                    return _oauth_error(
+                        "invalid_token",
+                        "authentication required for client registration",
+                        status_code=401,
+                    )
+                if not is_public_client:
+                    return _oauth_error(
+                        "invalid_request",
+                        "authentication required for confidential client registration",
+                        status_code=401,
+                    )
+
             try:
                 client_info = await provider.register_client(metadata)
             except ValueError as exc:
@@ -252,31 +363,44 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         return router
 
     @staticmethod
-    def _add_revoke_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:
-        async def revoke_handler(request: Request) -> Response:
+    def _add_revoke_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:  # noqa: C901
+        async def revoke_handler(request: Request) -> Response:  # noqa: C901
             form = await request.form()
-            client_id: str | None = _get_str(form, "client_id")
-            if not client_id:
-                return _oauth_error("invalid_request", "missing client_id", status_code=400)
+            client_id, client_secret, auth_error = _extract_client_credentials(request, form)
+            if auth_error is not None:
+                return auth_error
 
-            oauth_client = await provider.get_client(client_id)
-            if not oauth_client:
-                return _oauth_error("invalid_client", status_code=401)
-
-            client_secret: str | None = _get_str(form, "client_secret")
-            if oauth_client.client_secret:
-                if not client_secret:
-                    return _oauth_error("invalid_request", "missing client_secret", status_code=400)
-                if client_secret != oauth_client.client_secret:
-                    return _oauth_error("invalid_client", status_code=401)
+            oauth_client, error = await _authenticate_client(
+                provider,
+                client_id,
+                client_secret,
+                require_credentials=True,
+                require_confidential=True,
+            )
+            if error is not None:
+                return error
 
             token: str | None = _get_str(form, "token")
             if not token:
                 return _oauth_error("invalid_request", "missing token", status_code=400)
+            if token.startswith("Bearer "):
+                token = token.removeprefix("Bearer ")
 
-            access_token = await provider.load_access_token(token)
-            if access_token:
-                await provider.revoke_token(access_token)
+            token_type_hint, hint_error = _parse_token_type_hint(form)
+            if hint_error is not None:
+                return hint_error
+
+            if token_type_hint in {None, ACCESS_TOKEN_HINT}:
+                access_token = await provider.load_access_token(token)
+                if access_token is not None and access_token.client_id == oauth_client.client_id:
+                    await provider.revoke_token(access_token)
+                if token_type_hint == ACCESS_TOKEN_HINT:
+                    return JSONResponse({})
+
+            if token_type_hint in {None, REFRESH_TOKEN_HINT}:
+                refresh_token = await provider.load_refresh_token(token)
+                if refresh_token is not None and refresh_token.client_id == oauth_client.client_id:
+                    await provider.revoke_token(refresh_token)
             return JSONResponse({})
 
         router.add_api_route("/revoke", revoke_handler, methods=["POST"])
@@ -343,28 +467,65 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         return router
 
     @staticmethod
-    def _add_introspect_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:
-        async def introspect_handler(request: Request) -> Response:
+    def _add_introspect_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:  # noqa: C901
+        async def introspect_handler(request: Request) -> Response:  # noqa: C901, PLR0911
             form = await request.form()
+            client_id, client_secret, auth_error = _extract_client_credentials(request, form)
+            if auth_error is not None:
+                return auth_error
+
+            oauth_client, error = await _authenticate_client(
+                provider,
+                client_id,
+                client_secret,
+                require_credentials=True,
+                require_confidential=True,
+            )
+            if error is not None:
+                return error
+
             token = _get_str(form, "token")
             if not token:
                 return JSONResponse({"active": False}, status_code=400)
+            if token.startswith("Bearer "):
+                token = token.removeprefix("Bearer ")
 
-            access_token = await provider.load_access_token(token)
-            if not access_token:
-                return JSONResponse({"active": False})
+            token_type_hint, hint_error = _parse_token_type_hint(form)
+            if hint_error is not None:
+                return hint_error
 
-            return JSONResponse(
-                {
-                    "active": True,
-                    "client_id": access_token.client_id,
-                    "scope": " ".join(access_token.scopes),
-                    "exp": access_token.expires_at,
-                    "iat": access_token.created_at,
-                    "token_type": "Bearer",
-                    "aud": access_token.resource,
-                },
-            )
+            if token_type_hint in {None, ACCESS_TOKEN_HINT}:
+                access_token = await provider.load_access_token(token)
+                if access_token and access_token.client_id == oauth_client.client_id:
+                    return JSONResponse(
+                        {
+                            "active": True,
+                            "client_id": access_token.client_id,
+                            "scope": " ".join(access_token.scopes),
+                            "exp": access_token.expires_at,
+                            "iat": access_token.created_at,
+                            "token_type": "Bearer",
+                            "aud": access_token.resource,
+                        },
+                    )
+                if token_type_hint == ACCESS_TOKEN_HINT:
+                    return JSONResponse({"active": False})
+
+            if token_type_hint in {None, REFRESH_TOKEN_HINT}:
+                refresh_token = await provider.load_refresh_token(token)
+                if refresh_token and refresh_token.client_id == oauth_client.client_id:
+                    return JSONResponse(
+                        {
+                            "active": True,
+                            "client_id": refresh_token.client_id,
+                            "scope": " ".join(refresh_token.scopes),
+                            "exp": refresh_token.expires_at,
+                            "iat": refresh_token.created_at,
+                            "token_type": "refresh_token",
+                        },
+                    )
+
+            return JSONResponse({"active": False})
 
         router.add_api_route("/introspect", introspect_handler, methods=["POST"])
         return router
@@ -505,3 +666,90 @@ def _get_str(data: Mapping[str, Any], key: str) -> str | None:
     if isinstance(value, str):
         return value
     return None
+
+
+def _extract_client_credentials(
+    request: Request,
+    form: Mapping[str, Any],
+) -> tuple[str | None, str | None, JSONResponse | None]:
+    client_id = _get_str(form, "client_id")
+    client_secret = _get_str(form, "client_secret")
+    authorization = request.headers.get("authorization")
+    if authorization and authorization.startswith("Basic "):
+        try:
+            basic_client_id, basic_client_secret = _parse_basic_authorization(authorization)
+        except ValueError:
+            return None, None, _oauth_error("invalid_client", status_code=401)
+        client_id = basic_client_id
+        client_secret = basic_client_secret
+    return client_id, client_secret, None
+
+
+def _parse_basic_authorization(value: str) -> tuple[str, str]:
+    encoded = value.removeprefix("Basic ").strip()
+    if not encoded:
+        msg = "invalid basic auth"
+        raise ValueError(msg)
+    try:
+        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        msg = "invalid basic auth"
+        raise ValueError(msg) from exc
+
+    if ":" not in decoded:
+        msg = "invalid basic auth"
+        raise ValueError(msg)
+    client_id, client_secret = decoded.split(":", 1)
+    if not client_id:
+        msg = "invalid basic auth"
+        raise ValueError(msg)
+    return client_id, client_secret
+
+
+async def _authenticate_client(  # noqa: PLR0911
+    provider: SimpleOAuthProvider,
+    client_id: str | None,
+    client_secret: str | None,
+    *,
+    require_credentials: bool = False,
+    require_confidential: bool = False,
+) -> tuple[OAuthClientInformationFull | None, JSONResponse | None]:
+    if not client_id:
+        return None, _oauth_error("invalid_client", status_code=401)
+
+    oauth_client = await provider.get_client(client_id)
+    if not oauth_client:
+        return None, _oauth_error("invalid_client", status_code=401)
+
+    if oauth_client.client_secret is None:
+        if require_credentials or require_confidential:
+            return None, _oauth_error("invalid_client", status_code=401)
+        if client_secret:
+            return None, _oauth_error("invalid_client", status_code=401)
+        return oauth_client, None
+
+    if not client_secret:
+        return None, _oauth_error("invalid_client", status_code=401)
+    if client_secret != oauth_client.client_secret:
+        return None, _oauth_error("invalid_client", status_code=401)
+    return oauth_client, None
+
+
+def _parse_scope_param(scope: str | None) -> list[str] | None:
+    if scope is None:
+        return None
+    parts = [segment for segment in scope.split(" ") if segment]
+    deduped: list[str] = []
+    for part in parts:
+        if part not in deduped:
+            deduped.append(part)
+    return deduped
+
+
+def _parse_token_type_hint(form: Mapping[str, Any]) -> tuple[str | None, JSONResponse | None]:
+    token_type_hint = _get_str(form, "token_type_hint")
+    if token_type_hint is None:
+        return None, None
+    if token_type_hint not in {ACCESS_TOKEN_HINT, REFRESH_TOKEN_HINT}:
+        return None, _oauth_error("invalid_request", "unsupported token_type_hint", status_code=400)
+    return token_type_hint, None

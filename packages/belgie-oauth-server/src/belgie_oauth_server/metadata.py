@@ -29,12 +29,13 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServerSettings) -> OAut
         registration_endpoint=registration_endpoint,
         scopes_supported=[settings.default_scope],
         response_types_supported=["code"],
-        grant_types_supported=["authorization_code"],
-        token_endpoint_auth_methods_supported=["client_secret_post"],
+        grant_types_supported=["authorization_code", "refresh_token", "client_credentials"],
+        token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
         code_challenge_methods_supported=["S256"],
         revocation_endpoint=revocation_endpoint,
-        revocation_endpoint_auth_methods_supported=["client_secret_post"],
+        revocation_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
         introspection_endpoint=introspection_endpoint,
+        introspection_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
     )
 
 

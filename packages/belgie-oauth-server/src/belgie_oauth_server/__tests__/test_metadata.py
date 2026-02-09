@@ -1,10 +1,24 @@
 from belgie_oauth_server.metadata import (
     _ROOT_OAUTH_METADATA_PATH,
     _ROOT_RESOURCE_METADATA_PATH,
+    build_oauth_metadata,
     build_oauth_metadata_well_known_path,
     build_protected_resource_metadata,
     build_protected_resource_metadata_well_known_path,
 )
+from belgie_oauth_server.settings import OAuthServerSettings
+
+
+def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
+    metadata = build_oauth_metadata(
+        "https://auth.local/auth/oauth",
+        OAuthServerSettings(redirect_uris=["https://client.local/callback"]),
+    )
+
+    assert metadata.grant_types_supported == ["authorization_code", "refresh_token", "client_credentials"]
+    assert metadata.token_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
+    assert metadata.introspection_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
+    assert metadata.revocation_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
 
 
 def test_build_protected_resource_metadata() -> None:

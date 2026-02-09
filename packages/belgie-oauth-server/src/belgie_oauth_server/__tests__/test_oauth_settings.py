@@ -13,6 +13,8 @@ def test_oauth_settings_defaults() -> None:
     assert settings.access_token_ttl_seconds == 3600
     assert settings.state_ttl_seconds == 600
     assert settings.code_challenge_method == "S256"
+    assert settings.allow_dynamic_client_registration is False
+    assert settings.allow_unauthenticated_client_registration is False
     assert settings.resources is None
     assert settings.include_root_resource_metadata_fallback is True
 
