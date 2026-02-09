@@ -247,7 +247,8 @@ class ValidationResult:
 
 #### `src/belgie/config_validator/validators.py`
 
-Built-in validator functions for common validation patterns (leaf node, see [Implementation Order](#implementation-order) #4).
+Built-in validator functions for common validation patterns (leaf node, see
+[Implementation Order](#implementation-order) #4).
 
 ```python
 import re
@@ -312,7 +313,9 @@ def oneof_validator(allowed_values: list[object]) -> ValidatorFunc:
 
 #### `src/belgie/config_validator/schema.py`
 
-Schema and field definition classes for declarative configuration (see [Implementation Order](#implementation-order) #3, #5).
+Schema and field definition classes for declarative configuration (see [Implementation Order](#implementation-order) #3,
+
+## 5)
 
 ```python
 from typing import Self
@@ -376,7 +379,7 @@ class Schema:
     # Used in: Workflow 1 (validation to check required fields)
 ```
 
-#### `src/belgie/config_validator/validator.py`
+## `src/belgie/config_validator/validator.py`
 
 Main validator class that orchestrates validation logic (see [Implementation Order](#implementation-order) #6).
 
@@ -517,8 +520,10 @@ Tests should be organized by module/file and cover unit tests, integration tests
 
 **Integration Tests:**
 
-- Test [Workflow 1](#workflow-1-configuration-validation) end-to-end: construct schema, create validator, validate valid config, validate invalid config
-- Test [Workflow 2](#workflow-2-schema-construction) end-to-end: build schema using fluent API, then use it for validation
+- Test [Workflow 1](#workflow-1-configuration-validation) end-to-end: construct schema, create validator, validate valid
+  config, validate invalid config
+- Test [Workflow 2](#workflow-2-schema-construction) end-to-end: build schema using fluent API, then use it for
+  validation
 - Test error handling across module boundaries (exceptions propagate correctly)
 - Test complex schemas with multiple fields, types, and validators
 - Test realistic use cases: server config (host, port, timeout), user profile (name, email, age), etc.

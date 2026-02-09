@@ -325,7 +325,8 @@ def parse_scopes(scopes_str: str) -> list[str]: ...
 
 #### `src/belgie/auth/protocols/models.py`
 
-Update UserProtocol to include scopes attribute with generic scope type (see [Implementation Order](#implementation-order) #2).
+Update UserProtocol to include scopes attribute with generic scope type (see
+[Implementation Order](#implementation-order) #2).
 
 ```python
 from typing import Protocol
@@ -601,7 +602,8 @@ Based on the dependency graph, implement in the following order (leaf nodes firs
    - Demonstrate pattern for users to follow
 
 5. **Example User Model (PostgreSQL)** (`examples/auth/models.py`) - Implement fifth (depends on example Scope)
-   - Used in: [Workflow 1](#workflow-1-defining-custom-scopes-and-attaching-to-user-model), [Workflow 2](#workflow-2-protecting-routes-with-scopes)
+   - Used in: [Workflow 1](#workflow-1-defining-custom-scopes-and-attaching-to-user-model),
+     [Workflow 2](#workflow-2-protecting-routes-with-scopes)
    - Dependencies: SQLAlchemy
    - Add `scopes: Mapped[list[str]]` with ARRAY type
 
