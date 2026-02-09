@@ -2,7 +2,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from brussels.base import DataclassBase
 from fastapi import Depends, FastAPI, Security
 from fastapi.responses import RedirectResponse
@@ -14,6 +13,7 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
+from belgie.alchemy import AlchemyAdapter, SqliteSettings
 from belgie.oauth.google import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 

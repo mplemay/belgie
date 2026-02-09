@@ -184,7 +184,7 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie_alchemy import AlchemyAdapter
+from belgie.alchemy import AlchemyAdapter
 from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
 
 settings = BelgieSettings(

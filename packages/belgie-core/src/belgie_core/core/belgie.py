@@ -79,7 +79,7 @@ class Belgie[
 
     Example:
         >>> from belgie_core import Belgie, BelgieSettings
-        >>> from belgie_alchemy import AlchemyAdapter, SqliteSettings
+        >>> from belgie.alchemy import AlchemyAdapter, SqliteSettings
         >>> from myapp.models import User, Account, Session, OAuthState
         >>>
         >>> settings = BelgieSettings(
