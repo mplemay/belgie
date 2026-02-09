@@ -11,7 +11,7 @@ from belgie_oauth_server.models import OAuthClientInformationFull, OAuthClientMe
 from belgie_oauth_server.utils import construct_redirect_uri
 
 if TYPE_CHECKING:
-    from belgie_oauth_server.settings import OAuthSettings
+    from belgie_oauth_server.settings import OAuthServerSettings
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -66,7 +66,7 @@ class StateEntry:
 
 
 class SimpleOAuthProvider:
-    def __init__(self, settings: OAuthSettings, issuer_url: str) -> None:
+    def __init__(self, settings: OAuthServerSettings, issuer_url: str) -> None:
         self.settings = settings
         self.issuer_url = issuer_url
         self.clients: dict[str, OAuthClientInformationFull] = {}

@@ -80,7 +80,7 @@ class OAuthState(Base):
 ```python
 from belgie import Belgie, BelgieSettings
 from belgie_alchemy import AlchemyAdapter
-from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
 
 # Configure settings
 settings = BelgieSettings(
@@ -110,7 +110,6 @@ google_oauth_plugin = auth.add_plugin(
     GoogleOAuthSettings(
         client_id="your-google-client-id",
         client_secret="your-google-client-secret",
-        redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],
     ),
 )
@@ -123,7 +122,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
-from belgie.oauth_client import GoogleOAuthClient
+from belgie.oauth.google import GoogleOAuthClient
 
 app = FastAPI()
 

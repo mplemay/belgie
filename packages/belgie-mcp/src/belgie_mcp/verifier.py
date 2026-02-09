@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthServerSettings
 from belgie_oauth_server.utils import join_url
 from httpx import AsyncClient, HTTPError, Limits, Timeout
 from mcp.server.auth.provider import AccessToken, TokenVerifier
@@ -86,7 +86,7 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
 
 
 def mcp_auth(
-    settings: OAuthSettings,
+    settings: OAuthServerSettings,
     *,
     server_url: str | AnyHttpUrl,
     required_scopes: list[str] | None = None,
@@ -103,7 +103,7 @@ def mcp_auth(
 
 
 def mcp_token_verifier(
-    settings: OAuthSettings,
+    settings: OAuthServerSettings,
     *,
     server_url: str | AnyHttpUrl,
     introspection_endpoint: str | None = None,
@@ -126,8 +126,8 @@ def _is_safe_introspection_endpoint(endpoint: str) -> bool:
     return endpoint.startswith(("https://", "http://localhost", "http://127.0.0.1"))
 
 
-def _require_issuer_url(settings: OAuthSettings) -> str:
+def _require_issuer_url(settings: OAuthServerSettings) -> str:
     if settings.issuer_url is None:
-        msg = "OAuthSettings.issuer_url is required to build MCP AuthSettings"
+        msg = "OAuthServerSettings.issuer_url is required to build MCP AuthSettings"
         raise ValueError(msg)
     return str(settings.issuer_url)

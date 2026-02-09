@@ -3,15 +3,15 @@ import time
 import httpx
 import pytest
 from belgie_oauth_server.models import OAuthClientInformationFull
-from belgie_oauth_server.plugin import OAuthPlugin
+from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.provider import AccessToken
-from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthServerSettings
 
 
 @pytest.mark.asyncio
 async def test_revoke_missing_token(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
+    oauth_settings: OAuthServerSettings,
 ) -> None:
     response = await async_client.post(
         "/auth/oauth/revoke",
@@ -42,7 +42,7 @@ async def test_revoke_missing_client_id(async_client: httpx.AsyncClient) -> None
 @pytest.mark.asyncio
 async def test_revoke_missing_client_secret(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
+    oauth_settings: OAuthServerSettings,
 ) -> None:
     response = await async_client.post(
         "/auth/oauth/revoke",
@@ -74,7 +74,7 @@ async def test_revoke_invalid_client_id(async_client: httpx.AsyncClient) -> None
 @pytest.mark.asyncio
 async def test_revoke_invalid_client_secret(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
+    oauth_settings: OAuthServerSettings,
 ) -> None:
     response = await async_client.post(
         "/auth/oauth/revoke",
@@ -92,8 +92,8 @@ async def test_revoke_invalid_client_secret(
 @pytest.mark.asyncio
 async def test_revoke_success_removes_token(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
-    oauth_plugin: OAuthPlugin,
+    oauth_settings: OAuthServerSettings,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     provider = oauth_plugin._provider
     provider.tokens["token-123"] = AccessToken(
@@ -121,7 +121,7 @@ async def test_revoke_success_removes_token(
 @pytest.mark.asyncio
 async def test_revoke_unknown_token_returns_success(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
+    oauth_settings: OAuthServerSettings,
 ) -> None:
     response = await async_client.post(
         "/auth/oauth/revoke",
@@ -139,7 +139,7 @@ async def test_revoke_unknown_token_returns_success(
 @pytest.mark.asyncio
 async def test_revoke_public_client_without_secret(
     async_client: httpx.AsyncClient,
-    oauth_plugin: OAuthPlugin,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     provider = oauth_plugin._provider
     provider.clients["public-client"] = OAuthClientInformationFull(

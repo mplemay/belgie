@@ -26,7 +26,7 @@ from belgie_oauth_server.models import (
     OAuthMetadata,
 )
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthServerSettings
 from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge, join_url
 
 if TYPE_CHECKING:
@@ -39,8 +39,8 @@ if TYPE_CHECKING:
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 
 
-class OAuthPlugin(Plugin[OAuthSettings]):
-    def __init__(self, _belgie_settings: BelgieSettings, settings: OAuthSettings) -> None:
+class OAuthServerPlugin(Plugin[OAuthServerSettings]):
+    def __init__(self, _belgie_settings: BelgieSettings, settings: OAuthServerSettings) -> None:
         self._settings = settings
         self._provider: SimpleOAuthProvider | None = None
         self._metadata_router: APIRouter | None = None
@@ -87,10 +87,16 @@ class OAuthPlugin(Plugin[OAuthSettings]):
                 methods=["GET"],
             )
 
-        if self._settings.resource_server_url is not None:
-            protected_resource_metadata = build_protected_resource_metadata(issuer_url, self._settings)
+        resolved_resource = self._settings.resolve_resource(belgie.settings.base_url)
+        if resolved_resource is not None:
+            resource_url, resource_scopes = resolved_resource
+            protected_resource_metadata = build_protected_resource_metadata(
+                issuer_url,
+                resource_url=resource_url,
+                resource_scopes=resource_scopes,
+            )
             protected_resource_well_known_path = build_protected_resource_metadata_well_known_path(
-                self._settings.resource_server_url,
+                resource_url,
             )
 
             async def protected_resource_metadata_handler(_: Request) -> Response:
@@ -136,7 +142,7 @@ class OAuthPlugin(Plugin[OAuthSettings]):
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
-        settings: OAuthSettings,
+        settings: OAuthServerSettings,
         issuer_url: str,
     ) -> APIRouter:
         async def authorize_handler(
@@ -144,7 +150,7 @@ class OAuthPlugin(Plugin[OAuthSettings]):
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> Response:
             data = await _get_request_params(request)
-            oauth_client, params = await _parse_authorize_params(data, provider, settings)
+            oauth_client, params = await _parse_authorize_params(data, provider, settings, belgie.settings.base_url)
 
             try:
                 await client.get_user(SecurityScopes(), request)
@@ -281,7 +287,7 @@ class OAuthPlugin(Plugin[OAuthSettings]):
         router: APIRouter,
         belgie: Belgie,
         issuer_url: str,
-        settings: OAuthSettings,
+        settings: OAuthServerSettings,
     ) -> APIRouter:
         async def login_handler(request: Request) -> Response:
             state = request.query_params.get("state")
@@ -364,7 +370,7 @@ class OAuthPlugin(Plugin[OAuthSettings]):
         return router
 
 
-def _build_issuer_url(belgie: Belgie, settings: OAuthSettings) -> str:
+def _build_issuer_url(belgie: Belgie, settings: OAuthServerSettings) -> str:
     parsed = urlparse(belgie.settings.base_url)
     base_path = parsed.path.rstrip("/")
     prefix = settings.prefix.strip("/")
@@ -376,7 +382,8 @@ def _build_issuer_url(belgie: Belgie, settings: OAuthSettings) -> str:
 async def _parse_authorize_params(
     data: dict[str, str],
     provider: SimpleOAuthProvider,
-    settings: OAuthSettings,
+    settings: OAuthServerSettings,
+    belgie_base_url: str,
 ) -> tuple[OAuthClientInformationFull, AuthorizationParams]:
     response_type = _get_str(data, "response_type")
     if response_type != "code":
@@ -414,6 +421,8 @@ async def _parse_authorize_params(
         raise HTTPException(status_code=400, detail="unsupported code_challenge_method")
 
     resource = _get_str(data, "resource")
+    _validate_authorize_resource(settings, belgie_base_url, resource)
+
     state = _get_str(data, "state") or secrets.token_hex(16)
 
     params = AuthorizationParams(
@@ -425,6 +434,23 @@ async def _parse_authorize_params(
         resource=resource,
     )
     return oauth_client, params
+
+
+def _validate_authorize_resource(
+    settings: OAuthServerSettings,
+    belgie_base_url: str,
+    resource: str | None,
+) -> None:
+    if resource is None:
+        return
+
+    configured_resource = settings.resolve_resource(belgie_base_url)
+    if configured_resource is None:
+        return
+
+    resource_url, _resource_scopes = configured_resource
+    if resource != str(resource_url):
+        raise HTTPException(status_code=400, detail="invalid_target")
 
 
 async def _authorize_state(

@@ -24,7 +24,7 @@ Configure scopes in your `GoogleOAuthSettings`:
 
 ```python
 from belgie import Belgie, BelgieSettings
-from belgie.oauth_client import GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
 
 settings = BelgieSettings(secret="your-secret", base_url="http://localhost:8000")
 belgie = Belgie(settings=settings, adapter=adapter, db=db)
@@ -33,7 +33,6 @@ belgie.add_plugin(
     GoogleOAuthSettings(
         client_id="your-client-id",
         client_secret="your-client-secret",
-        redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],  # Request these scopes
     ),
 )
@@ -190,7 +189,6 @@ calendar_google_plugin = auth.add_plugin(
     GoogleOAuthSettings(
         client_id="your-google-client-id",
         client_secret="your-google-client-secret",
-        redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=new_scopes,
     ),
 )

@@ -14,7 +14,7 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie.oauth_client import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 db_settings = DatabaseSettings(dialect={"type": "sqlite", "database": "./belgie_auth_example.db", "echo": True})
@@ -65,7 +65,6 @@ google_oauth_plugin = belgie.add_plugin(
     GoogleOAuthSettings(
         client_id="your-google-client-id",
         client_secret="your-google-client-secret",  # noqa: S106
-        redirect_uri="http://localhost:8000/auth/provider/google/callback",
         scopes=["openid", "email", "profile"],
     ),
 )

@@ -3,17 +3,17 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from belgie_oauth_server.models import OAuthClientInformationFull
-from belgie_oauth_server.plugin import OAuthPlugin
+from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.provider import AuthorizationParams
-from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthServerSettings
 from belgie_oauth_server.utils import create_code_challenge
 
 BEARER = "Bearer"
 
 
 async def _create_authorization_code(
-    oauth_plugin: OAuthPlugin,
-    oauth_settings: OAuthSettings,
+    oauth_plugin: OAuthServerPlugin,
+    oauth_settings: OAuthServerSettings,
     code_verifier: str,
 ) -> str:
     provider = oauth_plugin._provider
@@ -39,7 +39,7 @@ async def test_token_missing_grant_type(async_client: httpx.AsyncClient) -> None
 
 
 @pytest.mark.asyncio
-async def test_token_missing_code(async_client: httpx.AsyncClient, oauth_settings: OAuthSettings) -> None:
+async def test_token_missing_code(async_client: httpx.AsyncClient, oauth_settings: OAuthServerSettings) -> None:
     response = await async_client.post(
         "/auth/oauth/token",
         data={
@@ -71,8 +71,8 @@ async def test_token_invalid_client(async_client: httpx.AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_token_client_id_mismatch(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
-    oauth_plugin: OAuthPlugin,
+    oauth_settings: OAuthServerSettings,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     oauth_plugin._provider.clients["other-client"] = OAuthClientInformationFull(
         client_id="other-client",
@@ -99,8 +99,8 @@ async def test_token_client_id_mismatch(
 @pytest.mark.asyncio
 async def test_token_invalid_client_secret(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
-    oauth_plugin: OAuthPlugin,
+    oauth_settings: OAuthServerSettings,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     code = await _create_authorization_code(oauth_plugin, oauth_settings, "verifier")
     response = await async_client.post(
@@ -120,8 +120,8 @@ async def test_token_invalid_client_secret(
 @pytest.mark.asyncio
 async def test_token_requires_redirect_uri_when_explicit(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
-    oauth_plugin: OAuthPlugin,
+    oauth_settings: OAuthServerSettings,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     code = await _create_authorization_code(oauth_plugin, oauth_settings, "verifier")
     response = await async_client.post(
@@ -141,8 +141,8 @@ async def test_token_requires_redirect_uri_when_explicit(
 @pytest.mark.asyncio
 async def test_token_missing_code_verifier(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
-    oauth_plugin: OAuthPlugin,
+    oauth_settings: OAuthServerSettings,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     code = await _create_authorization_code(oauth_plugin, oauth_settings, "verifier")
     response = await async_client.post(
@@ -161,8 +161,8 @@ async def test_token_missing_code_verifier(
 @pytest.mark.asyncio
 async def test_token_invalid_code_verifier(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
-    oauth_plugin: OAuthPlugin,
+    oauth_settings: OAuthServerSettings,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     code = await _create_authorization_code(oauth_plugin, oauth_settings, "verifier")
     response = await async_client.post(
@@ -183,8 +183,8 @@ async def test_token_invalid_code_verifier(
 @pytest.mark.asyncio
 async def test_token_success(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthSettings,
-    oauth_plugin: OAuthPlugin,
+    oauth_settings: OAuthServerSettings,
+    oauth_plugin: OAuthServerPlugin,
 ) -> None:
     code_verifier = "verifier"
     code = await _create_authorization_code(oauth_plugin, oauth_settings, code_verifier)

@@ -6,7 +6,7 @@ pytest.importorskip("mcp")
 pytest.importorskip("belgie_oauth_server")
 
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
-from belgie_oauth_server.settings import OAuthSettings
+from belgie_oauth_server.settings import OAuthServerSettings
 from belgie_oauth_server.utils import join_url
 from mcp.server.mcpserver import MCPServer
 
@@ -97,7 +97,7 @@ async def test_verify_token_strict_resource_rejects_mismatch() -> None:
 
 
 def test_mcp_auth_defaults() -> None:
-    settings = OAuthSettings(
+    settings = OAuthServerSettings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -110,7 +110,7 @@ def test_mcp_auth_defaults() -> None:
 
 
 def test_mcp_auth_overrides() -> None:
-    settings = OAuthSettings(
+    settings = OAuthServerSettings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -125,14 +125,14 @@ def test_mcp_auth_overrides() -> None:
 
 
 def test_mcp_auth_requires_issuer_url() -> None:
-    settings = OAuthSettings(redirect_uris=["https://app.local/callback"])
+    settings = OAuthServerSettings(redirect_uris=["https://app.local/callback"])
 
     with pytest.raises(ValueError, match="issuer_url"):
         mcp_auth(settings, server_url="https://mcp.local/mcp")
 
 
 def test_mcp_token_verifier_defaults() -> None:
-    settings = OAuthSettings(
+    settings = OAuthServerSettings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -143,7 +143,7 @@ def test_mcp_token_verifier_defaults() -> None:
 
 
 def test_mcp_token_verifier_overrides() -> None:
-    settings = OAuthSettings(
+    settings = OAuthServerSettings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -158,7 +158,7 @@ def test_mcp_token_verifier_overrides() -> None:
 
 
 def test_mcp_server_init_with_bundle() -> None:
-    settings = OAuthSettings(
+    settings = OAuthServerSettings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )

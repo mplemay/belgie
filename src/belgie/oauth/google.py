@@ -1,7 +1,7 @@
-"""OAuth client re-exports for belgie consumers."""
+"""Google OAuth re-exports for belgie consumers."""
 
 _OAUTH_CLIENT_IMPORT_ERROR = (
-    "belgie.oauth_client requires the 'oauth-client' extra. Install with: uv add belgie[oauth-client]"
+    "belgie.oauth.google requires the 'oauth-client' extra. Install with: uv add belgie[oauth-client]"
 )
 
 try:

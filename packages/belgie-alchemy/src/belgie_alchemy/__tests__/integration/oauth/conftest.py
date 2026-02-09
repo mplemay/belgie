@@ -22,7 +22,7 @@ OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth-server" / "src"
 if str(OAUTH_SRC) not in sys.path:
     sys.path.insert(0, str(OAUTH_SRC))
 
-from belgie_oauth_server import OAuthPlugin, OAuthSettings  # noqa: E402
+from belgie_oauth_server import OAuthResource, OAuthServerPlugin, OAuthServerSettings  # noqa: E402
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -93,8 +93,8 @@ def belgie_instance(
 
 
 @pytest.fixture
-def oauth_settings() -> OAuthSettings:
-    return OAuthSettings(
+def oauth_settings() -> OAuthServerSettings:
+    return OAuthServerSettings(
         base_url="http://testserver",
         prefix="/oauth",
         login_url="/login/google",
@@ -102,21 +102,20 @@ def oauth_settings() -> OAuthSettings:
         client_secret=SecretStr("test-secret"),
         redirect_uris=["http://testserver/callback"],
         default_scope="user",
-        resource_server_url="http://testserver/mcp",
-        resource_scopes=["user"],
+        resources=[OAuthResource(prefix="/mcp", scopes=["user"])],
     )
 
 
 @pytest.fixture
 def oauth_plugin(
     belgie_instance: Belgie,
-    oauth_settings: OAuthSettings,
-) -> OAuthPlugin:
-    return belgie_instance.add_plugin(OAuthPlugin, oauth_settings)
+    oauth_settings: OAuthServerSettings,
+) -> OAuthServerPlugin:
+    return belgie_instance.add_plugin(OAuthServerPlugin, oauth_settings)
 
 
 @pytest.fixture
-def app(belgie_instance: Belgie, oauth_plugin: OAuthPlugin) -> FastAPI:
+def app(belgie_instance: Belgie, oauth_plugin: OAuthServerPlugin) -> FastAPI:
     _ = oauth_plugin
     app = FastAPI()
     app.include_router(belgie_instance.router)

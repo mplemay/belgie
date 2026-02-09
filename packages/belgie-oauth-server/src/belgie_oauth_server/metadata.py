@@ -9,13 +9,13 @@ from belgie_oauth_server.models import OAuthMetadata, ProtectedResourceMetadata
 from belgie_oauth_server.utils import join_url
 
 if TYPE_CHECKING:
-    from belgie_oauth_server.settings import OAuthSettings
+    from belgie_oauth_server.settings import OAuthServerSettings
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 _ROOT_OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
 
 
-def build_oauth_metadata(issuer_url: str, settings: OAuthSettings) -> OAuthMetadata:
+def build_oauth_metadata(issuer_url: str, settings: OAuthServerSettings) -> OAuthMetadata:
     authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
     token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
     registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))
@@ -48,16 +48,14 @@ def build_oauth_metadata_well_known_path(issuer_url: str) -> str:
 
 def build_protected_resource_metadata(
     issuer_url: str,
-    settings: OAuthSettings,
+    *,
+    resource_url: str | AnyHttpUrl,
+    resource_scopes: list[str] | None = None,
 ) -> ProtectedResourceMetadata:
-    if settings.resource_server_url is None:
-        msg = "OAuthSettings.resource_server_url is required to build protected resource metadata"
-        raise ValueError(msg)
-
     return ProtectedResourceMetadata(
-        resource=settings.resource_server_url,
+        resource=AnyHttpUrl(str(resource_url)),
         authorization_servers=[AnyHttpUrl(issuer_url)],
-        scopes_supported=settings.resource_scopes,
+        scopes_supported=resource_scopes,
     )
 
 

@@ -32,12 +32,11 @@ class GoogleOAuthSettings(BaseSettings):
 
     client_id: str
     client_secret: SecretStr
-    redirect_uri: str
     scopes: list[str] = Field(default=["openid", "email", "profile"])
     access_type: str = Field(default="offline")
     prompt: str = Field(default="consent")
 
-    @field_validator("client_id", "redirect_uri")
+    @field_validator("client_id")
     @classmethod
     def validate_non_empty(cls, value: str, info) -> str:  # noqa: ANN001
         if not value or not value.strip():
@@ -93,6 +92,10 @@ class GoogleOAuthPlugin(Plugin[GoogleOAuthSettings]):
 
     def __init__(self, belgie_settings: BelgieSettings, settings: GoogleOAuthSettings) -> None:
         self.settings = settings
+        self._redirect_uri = _build_provider_callback_url(
+            belgie_settings.base_url,
+            provider_id=self.provider_id,
+        )
         self._resolve_client: Callable[..., Coroutine[object, object, GoogleOAuthClient]] | None = None
         parsed_base_url = urlparse(belgie_settings.base_url)
         self._base_url_origin = (parsed_base_url.scheme.lower(), parsed_base_url.netloc.lower())
@@ -136,10 +139,14 @@ class GoogleOAuthPlugin(Plugin[GoogleOAuthSettings]):
             raise RuntimeError(msg)
         return await self._resolve_client(*args, **kwargs)
 
+    @property
+    def redirect_uri(self) -> str:
+        return self._redirect_uri
+
     def generate_authorization_url(self, state: str) -> str:
         params = {
             "client_id": self.settings.client_id,
-            "redirect_uri": self.settings.redirect_uri,
+            "redirect_uri": self.redirect_uri,
             "response_type": "code",
             "scope": " ".join(self.settings.scopes),
             "state": state,
@@ -167,7 +174,7 @@ class GoogleOAuthPlugin(Plugin[GoogleOAuthSettings]):
                         "client_id": self.settings.client_id,
                         "client_secret": self.settings.client_secret.get_secret_value(),
                         "code": code,
-                        "redirect_uri": self.settings.redirect_uri,
+                        "redirect_uri": self.redirect_uri,
                         "grant_type": "authorization_code",
                     },
                 )
@@ -277,3 +284,11 @@ class GoogleOAuthPlugin(Plugin[GoogleOAuthSettings]):
 
     def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         return APIRouter()
+
+
+def _build_provider_callback_url(base_url: str, *, provider_id: str) -> str:
+    parsed = urlparse(base_url)
+    base_path = parsed.path.rstrip("/")
+    callback_path = f"/auth/provider/{provider_id}/callback"
+    full_path = f"{base_path}{callback_path}" if base_path else callback_path
+    return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
