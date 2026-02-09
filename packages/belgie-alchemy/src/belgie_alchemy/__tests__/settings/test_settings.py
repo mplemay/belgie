@@ -107,12 +107,13 @@ def test_postgres_url_creation() -> None:
         password="secret",
     )
 
-    assert settings.engine.url.get_backend_name() == "postgresql"
-    assert settings.engine.url.get_driver_name() == "asyncpg"
-    assert settings.engine.url.username == "user"
-    assert settings.engine.url.host == "localhost"
-    assert settings.engine.url.database == "belgie"
-    assert settings.engine.url.port == 5432
+    assert settings.url.get_backend_name() == "postgresql"
+    assert settings.url.get_driver_name() == "asyncpg"
+    assert settings.url.username == "user"
+    assert settings.url.host == "localhost"
+    assert settings.url.database == "belgie"
+    assert settings.url.port == 5432
+    assert settings.url is settings.url
 
 
 def test_postgres_settings_validation() -> None:
@@ -157,6 +158,21 @@ def test_runtime_is_cached_per_settings_instance() -> None:
     assert runtime is settings()
     assert runtime.engine is settings.engine
     assert runtime.session_maker is settings.session_maker
+
+
+def test_sqlite_url_cached_for_memory_database() -> None:
+    settings = SqliteSettings(database=":memory:")
+
+    assert settings.url.database == ":memory:"
+    assert settings.url.query == {}
+    assert settings.url is settings.url
+
+
+def test_sqlite_url_file_database_enables_uri_mode() -> None:
+    settings = SqliteSettings(database="file:belgie_test?mode=memory&cache=shared")
+
+    assert settings.url.database == "file:belgie_test?mode=memory&cache=shared"
+    assert settings.url.query == {"uri": "true"}
 
 
 @pytest.mark.asyncio

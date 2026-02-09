@@ -55,16 +55,20 @@ class PostgresSettings(BaseSettings):
     echo: bool = False
 
     @cached_property
+    def url(self) -> URL:
+        return URL.create(
+            "postgresql+asyncpg",
+            username=self.username,
+            password=self.password.get_secret_value(),
+            host=self.host,
+            port=self.port,
+            database=self.database,
+        )
+
+    @cached_property
     def _runtime(self) -> SQLAlchemyRuntime:
         engine = create_async_engine(
-            URL.create(
-                "postgresql+asyncpg",
-                username=self.username,
-                password=self.password.get_secret_value(),
-                host=self.host,
-                port=self.port,
-                database=self.database,
-            ),
+            self.url,
             echo=self.echo,
             pool_size=self.pool_size,
             max_overflow=self.max_overflow,
@@ -111,12 +115,20 @@ class SqliteSettings(BaseSettings):
     echo: bool = False
 
     @cached_property
+    def url(self) -> URL:
+        if self.database.startswith("file:"):
+            return URL.create(
+                "sqlite+aiosqlite",
+                database=self.database,
+                query={"uri": "true"},
+            )
+        return URL.create("sqlite+aiosqlite", database=self.database)
+
+    @cached_property
     def _runtime(self) -> SQLAlchemyRuntime:
-        connect_args = {"uri": True} if self.database.startswith("file:") else {}
         engine = create_async_engine(
-            URL.create("sqlite+aiosqlite", database=self.database),
+            self.url,
             echo=self.echo,
-            connect_args=connect_args,
         )
 
         if self.enable_foreign_keys:
