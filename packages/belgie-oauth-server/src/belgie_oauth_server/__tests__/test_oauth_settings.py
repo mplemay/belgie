@@ -11,6 +11,7 @@ def test_oauth_settings_defaults() -> None:
     assert settings.default_scope == "user"
     assert settings.authorization_code_ttl_seconds == 300
     assert settings.access_token_ttl_seconds == 3600
+    assert settings.refresh_token_ttl_seconds == 2592000
     assert settings.id_token_ttl_seconds == 36000
     assert settings.state_ttl_seconds == 600
     assert settings.code_challenge_method == "S256"

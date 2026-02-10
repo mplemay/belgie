@@ -7,12 +7,6 @@ from belgie_oauth_server.settings import OAuthServerSettings
 from fastapi import FastAPI
 
 
-async def _create_user_session(belgie, db_session, email: str) -> str:
-    user = await belgie.adapter.create_user(db_session, email=email)
-    session = await belgie.session_manager.create_session(db_session, user_id=user.id)
-    return str(session.id)
-
-
 @pytest.mark.asyncio
 async def test_register_disabled_by_default(async_client: httpx.AsyncClient) -> None:
     response = await async_client.post(
@@ -59,6 +53,7 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
     belgie_instance,
     oauth_settings: OAuthServerSettings,
     db_session,
+    create_user_session,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
@@ -68,7 +63,7 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+        session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
             "/auth/oauth/register",
@@ -143,6 +138,7 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
     belgie_instance,
     oauth_settings: OAuthServerSettings,
     db_session,
+    create_user_session,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
@@ -153,7 +149,7 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+        session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
             "/auth/oauth/register",
@@ -173,6 +169,7 @@ async def test_register_allows_post_logout_redirect_uris(
     belgie_instance,
     oauth_settings: OAuthServerSettings,
     db_session,
+    create_user_session,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
@@ -182,7 +179,7 @@ async def test_register_allows_post_logout_redirect_uris(
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+        session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
             "/auth/oauth/register",
@@ -205,6 +202,7 @@ async def test_register_ignores_enable_end_session_in_metadata(
     belgie_instance,
     oauth_settings: OAuthServerSettings,
     db_session,
+    create_user_session,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
@@ -214,7 +212,7 @@ async def test_register_ignores_enable_end_session_in_metadata(
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+        session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
             "/auth/oauth/register",

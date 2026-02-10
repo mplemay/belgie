@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -9,11 +8,6 @@ from belgie_oauth_server.provider import AuthorizationParams
 from belgie_oauth_server.utils import create_code_challenge
 
 BEARER = "Bearer"
-
-
-def _basic_auth(client_id: str, client_secret: str) -> str:
-    raw = f"{client_id}:{client_secret}".encode()
-    return f"Basic {base64.b64encode(raw).decode('utf-8')}"
 
 
 async def _create_authorization_code(
@@ -41,12 +35,6 @@ async def _create_authorization_code(
     await provider.authorize(oauth_client, params)
     redirect_url = await provider.issue_authorization_code("state-token")
     return parse_qs(urlparse(redirect_url).query)["code"][0]
-
-
-async def _create_user_session(belgie, db_session, email: str) -> str:
-    user = await belgie.adapter.create_user(db_session, email=email)
-    session = await belgie.session_manager.create_session(db_session, user_id=user.id)
-    return str(session.id)
 
 
 async def _create_refresh_token(
@@ -213,10 +201,11 @@ async def test_token_authorization_code_accepts_basic_auth(
     async_client,
     oauth_settings,
     oauth_plugin,
+    basic_auth_header,
 ) -> None:
     code_verifier = "basic-verifier"
     code = await _create_authorization_code(oauth_plugin, oauth_settings, code_verifier)
-    auth_header = _basic_auth(oauth_settings.client_id, oauth_settings.client_secret.get_secret_value())
+    auth_header = basic_auth_header(oauth_settings.client_id, oauth_settings.client_secret.get_secret_value())
 
     response = await async_client.post(
         "/auth/oauth/token",
@@ -297,8 +286,9 @@ async def test_token_authorization_code_issues_id_token_for_confidential_openid_
     oauth_plugin,
     belgie_instance,
     db_session,
+    create_user_session,
 ) -> None:
-    session_id = await _create_user_session(belgie_instance, db_session, "openid-confidential@test.com")
+    session_id = await create_user_session(belgie_instance, db_session, "openid-confidential@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
     oauth_plugin._provider.clients[oauth_settings.client_id].scope = "openid profile email"
 
@@ -339,8 +329,9 @@ async def test_token_authorization_code_does_not_issue_id_token_for_public_clien
     oauth_plugin,
     belgie_instance,
     db_session,
+    create_user_session,
 ) -> None:
-    session_id = await _create_user_session(belgie_instance, db_session, "openid-public@test.com")
+    session_id = await create_user_session(belgie_instance, db_session, "openid-public@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
     oauth_plugin._provider.clients["public-openid"] = OAuthClientInformationFull(
         client_id="public-openid",
@@ -493,8 +484,9 @@ async def test_token_client_credentials_success_post_auth(
 async def test_token_client_credentials_success_basic_auth(
     async_client,
     oauth_settings,
+    basic_auth_header,
 ) -> None:
-    auth_header = _basic_auth(oauth_settings.client_id, oauth_settings.client_secret.get_secret_value())
+    auth_header = basic_auth_header(oauth_settings.client_id, oauth_settings.client_secret.get_secret_value())
 
     response = await async_client.post(
         "/auth/oauth/token",

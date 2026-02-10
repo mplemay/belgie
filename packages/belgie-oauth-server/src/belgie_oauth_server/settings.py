@@ -55,6 +55,7 @@ class OAuthServerSettings(BaseSettings):
 
     authorization_code_ttl_seconds: int = 300
     access_token_ttl_seconds: int = 3600
+    refresh_token_ttl_seconds: int = 2592000
     id_token_ttl_seconds: int = 36000
     state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"

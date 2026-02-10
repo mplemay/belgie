@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import time
 
 import pytest
@@ -8,11 +7,6 @@ from belgie_oauth_server.models import OAuthClientInformationFull
 from belgie_oauth_server.provider import AccessToken, RefreshToken
 
 BEARER = "Bearer"
-
-
-def _basic_auth(client_id: str, client_secret: str) -> str:
-    raw = f"{client_id}:{client_secret}".encode()
-    return f"Basic {base64.b64encode(raw).decode('utf-8')}"
 
 
 @pytest.mark.asyncio
@@ -126,6 +120,7 @@ async def test_introspect_accepts_basic_auth(
     async_client,
     oauth_settings,
     oauth_plugin,
+    basic_auth_header,
 ) -> None:
     provider = oauth_plugin._provider
     provider.tokens["token-basic"] = AccessToken(
@@ -141,7 +136,7 @@ async def test_introspect_accepts_basic_auth(
         "/auth/oauth/introspect",
         data={"token": "token-basic"},
         headers={
-            "authorization": _basic_auth(
+            "authorization": basic_auth_header(
                 oauth_settings.client_id,
                 oauth_settings.client_secret.get_secret_value(),
             ),

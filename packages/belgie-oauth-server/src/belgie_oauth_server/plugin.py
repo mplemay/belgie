@@ -3,8 +3,10 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import hmac
 import secrets
 import time
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
@@ -49,6 +51,18 @@ if TYPE_CHECKING:
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
 REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _TokenHandlerContext:
+    client: BelgieClient
+    form: Mapping[str, Any]
+    provider: SimpleOAuthProvider
+    settings: OAuthServerSettings
+    belgie_base_url: str
+    issuer_url: str
+    client_id: str | None
+    client_secret: str | None
 
 
 class OAuthServerPlugin(Plugin[OAuthServerSettings]):
@@ -224,7 +238,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         return router
 
     @staticmethod
-    def _add_token_route(  # noqa: C901, PLR0913, PLR0915
+    def _add_token_route(  # noqa: PLR0913
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
@@ -232,7 +246,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         belgie_base_url: str,
         issuer_url: str,
     ) -> APIRouter:
-        async def token_handler(  # noqa: C901, PLR0911, PLR0912, PLR0915
+        async def token_handler(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> Response:
@@ -242,189 +256,25 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
             if auth_error is not None:
                 return auth_error
 
+            token_context = _TokenHandlerContext(
+                client=client,
+                form=form,
+                provider=provider,
+                settings=settings,
+                belgie_base_url=belgie_base_url,
+                issuer_url=issuer_url,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+
             if grant_type == "authorization_code":
-                oauth_client, error = await _authenticate_client(
-                    provider,
-                    client_id,
-                    client_secret,
-                )
-                if error is not None:
-                    return error
-
-                code = _get_str(form, "code")
-                if not code:
-                    return _oauth_error("invalid_request", "missing code", status_code=400)
-
-                authorization_code = await provider.load_authorization_code(code)
-                if not authorization_code:
-                    return _oauth_error("invalid_grant", status_code=400)
-
-                if authorization_code.expires_at < time.time():
-                    return _oauth_error("invalid_grant", "code expired", status_code=400)
-
-                if oauth_client.client_id != authorization_code.client_id:
-                    return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
-
-                redirect_uri_raw = _get_str(form, "redirect_uri")
-                if authorization_code.redirect_uri_provided_explicitly and not redirect_uri_raw:
-                    return _oauth_error("invalid_request", "missing redirect_uri", status_code=400)
-                if redirect_uri_raw and redirect_uri_raw != str(authorization_code.redirect_uri):
-                    return _oauth_error("invalid_grant", "redirect_uri mismatch", status_code=400)
-
-                code_verifier = _get_str(form, "code_verifier")
-                if not code_verifier:
-                    return _oauth_error("invalid_request", "missing code_verifier", status_code=400)
-
-                expected_challenge = create_code_challenge(code_verifier)
-                if expected_challenge != authorization_code.code_challenge:
-                    return _oauth_error("invalid_grant", "invalid code_verifier", status_code=400)
-
-                requested_resource = _get_str(form, "resource")
-                resolved_resource, resource_error = _resolve_token_resource(
-                    settings,
-                    belgie_base_url,
-                    requested_resource=requested_resource,
-                    bound_resource=authorization_code.resource,
-                    require_bound_match=True,
-                )
-                if resource_error is not None:
-                    return resource_error
-
-                token = await provider.exchange_authorization_code(
-                    authorization_code,
-                    issue_refresh_token="offline_access" in authorization_code.scopes,
-                    access_token_resource=_build_access_token_audience(
-                        issuer_url,
-                        base_resource=resolved_resource,
-                        scopes=authorization_code.scopes,
-                    ),
-                )
-                token_payload = token.model_dump()
-                token_payload["id_token"] = await _maybe_build_id_token(
-                    client,
-                    settings,
-                    issuer_url,
-                    oauth_client,
-                    scopes=authorization_code.scopes,
-                    user_id=authorization_code.user_id,
-                    nonce=authorization_code.nonce,
-                    session_id=authorization_code.session_id,
-                )
-                return JSONResponse(token_payload)
+                return await _handle_authorization_code_grant(token_context)
 
             if grant_type == "refresh_token":
-                oauth_client, error = await _authenticate_client(
-                    provider,
-                    client_id,
-                    client_secret,
-                )
-                if error is not None:
-                    return error
-
-                refresh_token_value = _get_str(form, "refresh_token")
-                if not refresh_token_value:
-                    return _oauth_error("invalid_request", "missing refresh_token", status_code=400)
-
-                refresh_token = await provider.load_refresh_token(refresh_token_value)
-                if not refresh_token:
-                    return _oauth_error("invalid_grant", status_code=400)
-
-                if refresh_token.client_id != oauth_client.client_id:
-                    return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
-
-                requested_scopes = _parse_scope_param(_get_str(form, "scope"))
-                if requested_scopes is not None and not requested_scopes:
-                    return _oauth_error("invalid_scope", "missing scope", status_code=400)
-                scopes = requested_scopes or refresh_token.scopes
-                if requested_scopes is not None:
-                    invalid_scopes = [scope for scope in requested_scopes if scope not in refresh_token.scopes]
-                    if invalid_scopes:
-                        return _oauth_error(
-                            "invalid_scope",
-                            f"unable to issue scope {invalid_scopes[0]}",
-                            status_code=400,
-                        )
-
-                requested_resource = _get_str(form, "resource")
-                resolved_resource, resource_error = _resolve_token_resource(
-                    settings,
-                    belgie_base_url,
-                    requested_resource=requested_resource,
-                    bound_resource=refresh_token.resource,
-                    require_bound_match=True,
-                )
-                if resource_error is not None:
-                    return resource_error
-
-                try:
-                    provider.validate_scopes_for_client(oauth_client, scopes)
-                except ValueError as exc:
-                    return _oauth_error("invalid_scope", str(exc), status_code=400)
-
-                try:
-                    token = await provider.exchange_refresh_token(
-                        refresh_token,
-                        scopes,
-                        access_token_resource=_build_access_token_audience(
-                            issuer_url,
-                            base_resource=resolved_resource,
-                            scopes=scopes,
-                        ),
-                        refresh_token_resource=resolved_resource,
-                    )
-                except ValueError as exc:
-                    return _oauth_error("invalid_grant", str(exc), status_code=400)
-
-                token_payload = token.model_dump()
-                token_payload["id_token"] = await _maybe_build_id_token(
-                    client,
-                    settings,
-                    issuer_url,
-                    oauth_client,
-                    scopes=scopes,
-                    user_id=refresh_token.user_id,
-                    session_id=refresh_token.session_id,
-                )
-                return JSONResponse(token_payload)
+                return await _handle_refresh_token_grant(token_context)
 
             if grant_type == "client_credentials":
-                oauth_client, error = await _authenticate_client(
-                    provider,
-                    client_id,
-                    client_secret,
-                    require_confidential=True,
-                )
-                if error is not None:
-                    return error
-
-                requested_scopes = _parse_scope_param(_get_str(form, "scope"))
-                if requested_scopes is not None and not requested_scopes:
-                    return _oauth_error("invalid_scope", "missing scope", status_code=400)
-                scopes = requested_scopes or provider.default_scopes_for_client(oauth_client)
-                try:
-                    provider.validate_scopes_for_client(oauth_client, scopes)
-                except ValueError as exc:
-                    return _oauth_error("invalid_scope", str(exc), status_code=400)
-
-                requested_resource = _get_str(form, "resource")
-                resolved_resource, resource_error = _resolve_token_resource(
-                    settings,
-                    belgie_base_url,
-                    requested_resource=requested_resource,
-                )
-                if resource_error is not None:
-                    return resource_error
-
-                token = await provider.issue_client_credentials_token(
-                    oauth_client.client_id,
-                    scopes,
-                    resource=_build_access_token_audience(
-                        issuer_url,
-                        base_resource=resolved_resource,
-                        scopes=scopes,
-                    ),
-                )
-                return JSONResponse(token.model_dump())
+                return await _handle_client_credentials_grant(token_context)
 
             return _oauth_error("unsupported_grant_type", status_code=400)
 
@@ -592,6 +442,8 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
             if not id_token_hint:
                 return _oauth_error("invalid_request", "missing id_token_hint", status_code=400)
 
+            # Pass 1: decode without verification only to extract audience and identify
+            # the candidate client secret for full verification in pass 2 below.
             decoded_unverified = _decode_unverified_jwt(id_token_hint)
             if decoded_unverified is None:
                 return _oauth_error("invalid_token", "invalid id token", status_code=401)
@@ -616,6 +468,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
                 return _oauth_error("invalid_client", "missing required credentials", status_code=401)
 
             try:
+                # Pass 2: verify signature and standard claims with the resolved client.
                 payload = jwt.decode(
                     id_token_hint,
                     _id_token_signing_key(oauth_client.client_secret),
@@ -977,9 +830,196 @@ async def _authenticate_client(  # noqa: PLR0911
 
     if not client_secret:
         return None, _oauth_error("invalid_client", status_code=401)
-    if client_secret != oauth_client.client_secret:
+    if not hmac.compare_digest(client_secret, oauth_client.client_secret):
         return None, _oauth_error("invalid_client", status_code=401)
     return oauth_client, None
+
+
+async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> Response:  # noqa: C901, PLR0911
+    oauth_client, error = await _authenticate_client(
+        ctx.provider,
+        ctx.client_id,
+        ctx.client_secret,
+    )
+    if error is not None:
+        return error
+
+    code = _get_str(ctx.form, "code")
+    if not code:
+        return _oauth_error("invalid_request", "missing code", status_code=400)
+
+    authorization_code = await ctx.provider.load_authorization_code(code)
+    if not authorization_code:
+        return _oauth_error("invalid_grant", status_code=400)
+
+    if authorization_code.expires_at < time.time():
+        return _oauth_error("invalid_grant", "code expired", status_code=400)
+
+    if oauth_client.client_id != authorization_code.client_id:
+        return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
+
+    redirect_uri_raw = _get_str(ctx.form, "redirect_uri")
+    if authorization_code.redirect_uri_provided_explicitly and not redirect_uri_raw:
+        return _oauth_error("invalid_request", "missing redirect_uri", status_code=400)
+    if redirect_uri_raw and redirect_uri_raw != str(authorization_code.redirect_uri):
+        return _oauth_error("invalid_grant", "redirect_uri mismatch", status_code=400)
+
+    code_verifier = _get_str(ctx.form, "code_verifier")
+    if not code_verifier:
+        return _oauth_error("invalid_request", "missing code_verifier", status_code=400)
+
+    expected_challenge = create_code_challenge(code_verifier)
+    if expected_challenge != authorization_code.code_challenge:
+        return _oauth_error("invalid_grant", "invalid code_verifier", status_code=400)
+
+    requested_resource = _get_str(ctx.form, "resource")
+    resolved_resource, resource_error = _resolve_token_resource(
+        ctx.settings,
+        ctx.belgie_base_url,
+        requested_resource=requested_resource,
+        bound_resource=authorization_code.resource,
+        require_bound_match=True,
+    )
+    if resource_error is not None:
+        return resource_error
+
+    token = await ctx.provider.exchange_authorization_code(
+        authorization_code,
+        issue_refresh_token="offline_access" in authorization_code.scopes,
+        access_token_resource=_build_access_token_audience(
+            ctx.issuer_url,
+            base_resource=resolved_resource,
+            scopes=authorization_code.scopes,
+        ),
+    )
+    token_payload = token.model_dump()
+    token_payload["id_token"] = await _maybe_build_id_token(
+        ctx.client,
+        ctx.settings,
+        ctx.issuer_url,
+        oauth_client,
+        scopes=authorization_code.scopes,
+        user_id=authorization_code.user_id,
+        nonce=authorization_code.nonce,
+        session_id=authorization_code.session_id,
+    )
+    return JSONResponse(token_payload)
+
+
+async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> Response:  # noqa: C901, PLR0911
+    oauth_client, error = await _authenticate_client(
+        ctx.provider,
+        ctx.client_id,
+        ctx.client_secret,
+    )
+    if error is not None:
+        return error
+
+    refresh_token_value = _get_str(ctx.form, "refresh_token")
+    if not refresh_token_value:
+        return _oauth_error("invalid_request", "missing refresh_token", status_code=400)
+
+    refresh_token = await ctx.provider.load_refresh_token(refresh_token_value)
+    if not refresh_token:
+        return _oauth_error("invalid_grant", status_code=400)
+
+    if refresh_token.client_id != oauth_client.client_id:
+        return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
+
+    requested_scopes = _parse_scope_param(_get_str(ctx.form, "scope"))
+    if requested_scopes is not None and not requested_scopes:
+        return _oauth_error("invalid_scope", "missing scope", status_code=400)
+    scopes = requested_scopes or refresh_token.scopes
+    if requested_scopes is not None:
+        invalid_scopes = [scope for scope in requested_scopes if scope not in refresh_token.scopes]
+        if invalid_scopes:
+            return _oauth_error(
+                "invalid_scope",
+                f"unable to issue scope {invalid_scopes[0]}",
+                status_code=400,
+            )
+
+    requested_resource = _get_str(ctx.form, "resource")
+    resolved_resource, resource_error = _resolve_token_resource(
+        ctx.settings,
+        ctx.belgie_base_url,
+        requested_resource=requested_resource,
+        bound_resource=refresh_token.resource,
+        require_bound_match=True,
+    )
+    if resource_error is not None:
+        return resource_error
+
+    try:
+        ctx.provider.validate_scopes_for_client(oauth_client, scopes)
+    except ValueError as exc:
+        return _oauth_error("invalid_scope", str(exc), status_code=400)
+
+    try:
+        token = await ctx.provider.exchange_refresh_token(
+            refresh_token,
+            scopes,
+            access_token_resource=_build_access_token_audience(
+                ctx.issuer_url,
+                base_resource=resolved_resource,
+                scopes=scopes,
+            ),
+            refresh_token_resource=resolved_resource,
+        )
+    except ValueError as exc:
+        return _oauth_error("invalid_grant", str(exc), status_code=400)
+
+    token_payload = token.model_dump()
+    token_payload["id_token"] = await _maybe_build_id_token(
+        ctx.client,
+        ctx.settings,
+        ctx.issuer_url,
+        oauth_client,
+        scopes=scopes,
+        user_id=refresh_token.user_id,
+        session_id=refresh_token.session_id,
+    )
+    return JSONResponse(token_payload)
+
+
+async def _handle_client_credentials_grant(ctx: _TokenHandlerContext) -> Response:
+    oauth_client, error = await _authenticate_client(
+        ctx.provider,
+        ctx.client_id,
+        ctx.client_secret,
+        require_confidential=True,
+    )
+    if error is not None:
+        return error
+
+    requested_scopes = _parse_scope_param(_get_str(ctx.form, "scope"))
+    if requested_scopes is not None and not requested_scopes:
+        return _oauth_error("invalid_scope", "missing scope", status_code=400)
+    scopes = requested_scopes or ctx.provider.default_scopes_for_client(oauth_client)
+    try:
+        ctx.provider.validate_scopes_for_client(oauth_client, scopes)
+    except ValueError as exc:
+        return _oauth_error("invalid_scope", str(exc), status_code=400)
+
+    requested_resource = _get_str(ctx.form, "resource")
+    resolved_resource, resource_error = _resolve_token_resource(
+        ctx.settings,
+        ctx.belgie_base_url,
+        requested_resource=requested_resource,
+    )
+    if resource_error is not None:
+        return resource_error
+
+    token = await ctx.provider.issue_client_credentials_token(
+        oauth_client.client_id,
+        scopes,
+        resource=_build_access_token_audience(
+            ctx.issuer_url,
+            base_resource=resolved_resource,
+            scopes=scopes,
+        ),
+    )
+    return JSONResponse(token.model_dump())
 
 
 def _parse_scope_param(scope: str | None) -> list[str] | None:
@@ -1102,14 +1142,8 @@ def _id_token_signing_key(client_secret: str) -> bytes:
 
 
 def _with_authorization_principal(params: AuthorizationParams, *, user_id: str, session_id: str) -> AuthorizationParams:
-    return AuthorizationParams(
-        state=params.state,
-        scopes=params.scopes,
-        code_challenge=params.code_challenge,
-        redirect_uri=params.redirect_uri,
-        redirect_uri_provided_explicitly=params.redirect_uri_provided_explicitly,
-        resource=params.resource,
-        nonce=params.nonce,
+    return replace(
+        params,
         user_id=user_id,
         session_id=session_id,
     )

@@ -339,6 +339,23 @@ async def test_exchange_refresh_token_rotates_tokens(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
+async def test_issue_refresh_token_uses_refresh_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = OAuthServerSettings(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        access_token_ttl_seconds=300,
+        refresh_token_ttl_seconds=7200,
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    monkeypatch.setattr(provider_module.time, "time", lambda: 1000.0)
+
+    refresh = provider._issue_refresh_token(client_id="test-client", scopes=["user"])
+
+    assert refresh.expires_at == 8200
+
+
+@pytest.mark.asyncio
 async def test_exchange_refresh_token_preserves_resource_binding() -> None:
     settings = OAuthServerSettings(
         redirect_uris=["http://example.com/callback"],

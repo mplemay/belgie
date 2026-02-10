@@ -414,7 +414,7 @@ class SimpleOAuthProvider:
             client_id=client_id,
             scopes=scopes,
             created_at=now,
-            expires_at=now + self.settings.access_token_ttl_seconds,
+            expires_at=now + self.settings.refresh_token_ttl_seconds,
             user_id=user_id,
             session_id=session_id,
             resource=resource,
