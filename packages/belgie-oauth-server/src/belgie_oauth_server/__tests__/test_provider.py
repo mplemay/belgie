@@ -37,6 +37,39 @@ async def test_provider_authorize_and_issue_code() -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_authorize_state_carries_nonce_user_and_session() -> None:
+    settings = OAuthServerSettings(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    oauth_client = await provider.get_client("test-client")
+    params = AuthorizationParams(
+        state="state-principal",
+        scopes=["openid", "profile"],
+        code_challenge="challenge",
+        redirect_uri=settings.redirect_uris[0],
+        redirect_uri_provided_explicitly=True,
+        resource="http://example.com/mcp",
+        nonce="nonce-123",
+        user_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    )
+    await provider.authorize(oauth_client, params)
+    redirect_url = await provider.issue_authorization_code("state-principal")
+    code = parse_qs(urlparse(redirect_url).query)["code"][0]
+    authorization_code = await provider.load_authorization_code(code)
+
+    assert authorization_code is not None
+    assert authorization_code.nonce == "nonce-123"
+    assert authorization_code.user_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert authorization_code.session_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    assert authorization_code.resource == "http://example.com/mcp"
+
+
+@pytest.mark.asyncio
 async def test_exchange_authorization_code_issues_token() -> None:
     settings = OAuthServerSettings(
         redirect_uris=["http://example.com/callback"],
@@ -303,6 +336,36 @@ async def test_exchange_refresh_token_rotates_tokens(monkeypatch: pytest.MonkeyP
     assert token.refresh_token is not None
     assert original_refresh.token not in provider.refresh_tokens
     assert token.refresh_token in provider.refresh_tokens
+
+
+@pytest.mark.asyncio
+async def test_exchange_refresh_token_preserves_resource_binding() -> None:
+    settings = OAuthServerSettings(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    refresh = provider._issue_refresh_token(
+        client_id="test-client",
+        scopes=["openid", "offline_access"],
+        resource="http://example.com/mcp",
+        user_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    )
+
+    token = await provider.exchange_refresh_token(
+        refresh,
+        ["openid", "offline_access"],
+        access_token_resource=["http://example.com/mcp", "http://example.com/userinfo"],
+        refresh_token_resource="http://example.com/mcp",
+    )
+
+    assert token.refresh_token is not None
+    rotated_refresh = provider.refresh_tokens[token.refresh_token]
+    assert rotated_refresh.resource == "http://example.com/mcp"
+    assert rotated_refresh.user_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert rotated_refresh.session_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
 
 @pytest.mark.asyncio

@@ -91,6 +91,37 @@ async def test_introspect_active_access_token(
 
 
 @pytest.mark.asyncio
+async def test_introspect_active_access_token_with_list_audience(
+    async_client,
+    oauth_settings,
+    oauth_plugin,
+) -> None:
+    provider = oauth_plugin._provider
+    created_at = int(time.time()) - 5
+    provider.tokens["token-aud-list"] = AccessToken(
+        token="token-aud-list",
+        client_id=oauth_settings.client_id,
+        scopes=["openid", "profile"],
+        created_at=created_at,
+        expires_at=int(time.time()) + 3600,
+        resource=["http://testserver/mcp", "http://testserver/auth/oauth/userinfo"],
+    )
+
+    response = await async_client.post(
+        "/auth/oauth/introspect",
+        data={
+            "client_id": oauth_settings.client_id,
+            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "token": "token-aud-list",
+        },
+    )
+    payload = response.json()
+
+    assert payload["active"] is True
+    assert payload["aud"] == ["http://testserver/mcp", "http://testserver/auth/oauth/userinfo"]
+
+
+@pytest.mark.asyncio
 async def test_introspect_accepts_basic_auth(
     async_client,
     oauth_settings,

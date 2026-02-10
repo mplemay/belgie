@@ -11,12 +11,15 @@ def test_oauth_settings_defaults() -> None:
     assert settings.default_scope == "user"
     assert settings.authorization_code_ttl_seconds == 300
     assert settings.access_token_ttl_seconds == 3600
+    assert settings.id_token_ttl_seconds == 36000
     assert settings.state_ttl_seconds == 600
     assert settings.code_challenge_method == "S256"
+    assert settings.enable_end_session is False
     assert settings.allow_dynamic_client_registration is False
     assert settings.allow_unauthenticated_client_registration is False
     assert settings.resources is None
     assert settings.include_root_resource_metadata_fallback is True
+    assert settings.include_root_openid_metadata_fallback is True
 
 
 def test_oauth_settings_requires_redirect_uris() -> None:

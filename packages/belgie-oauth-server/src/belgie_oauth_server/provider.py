@@ -22,6 +22,9 @@ class AuthorizationParams:
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None
+    nonce: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -34,6 +37,9 @@ class AuthorizationCode:
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None
+    nonce: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -43,6 +49,9 @@ class RefreshToken:
     scopes: list[str]
     created_at: int
     expires_at: int | None = None
+    user_id: str | None = None
+    session_id: str | None = None
+    resource: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -52,8 +61,10 @@ class AccessToken:
     scopes: list[str]
     created_at: int
     expires_at: int | None = None
-    resource: str | None = None
+    resource: str | list[str] | None = None
     refresh_token: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -65,6 +76,9 @@ class StateEntry:
     resource: str | None
     scopes: list[str] | None
     created_at: float
+    nonce: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
 
 
 class SimpleOAuthProvider:
@@ -83,6 +97,7 @@ class SimpleOAuthProvider:
             client_secret=client_secret,
             redirect_uris=settings.redirect_uris,
             scope=settings.default_scope,
+            enable_end_session=settings.enable_end_session,
         )
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
@@ -103,6 +118,7 @@ class SimpleOAuthProvider:
 
         metadata_payload = metadata.model_dump()
         metadata_payload["token_endpoint_auth_method"] = token_endpoint_auth_method
+        metadata_payload.pop("enable_end_session", None)
         client_info = OAuthClientInformationFull(
             **metadata_payload,
             client_id=client_id,
@@ -127,8 +143,30 @@ class SimpleOAuthProvider:
             resource=params.resource,
             scopes=params.scopes,
             created_at=time.time(),
+            nonce=params.nonce,
+            user_id=params.user_id,
+            session_id=params.session_id,
         )
         return state
+
+    async def bind_authorization_state(self, state: str, *, user_id: str, session_id: str) -> None:
+        self._purge_state_mapping()
+        state_data = self.state_mapping.get(state)
+        if state_data is None:
+            msg = "Invalid state parameter"
+            raise ValueError(msg)
+        self.state_mapping[state] = StateEntry(
+            redirect_uri=state_data.redirect_uri,
+            code_challenge=state_data.code_challenge,
+            redirect_uri_provided_explicitly=state_data.redirect_uri_provided_explicitly,
+            client_id=state_data.client_id,
+            resource=state_data.resource,
+            scopes=state_data.scopes,
+            created_at=state_data.created_at,
+            nonce=state_data.nonce,
+            user_id=user_id,
+            session_id=session_id,
+        )
 
     async def issue_authorization_code(self, state: str) -> str:
         self._purge_state_mapping()
@@ -158,6 +196,9 @@ class SimpleOAuthProvider:
             scopes=scopes,
             code_challenge=code_challenge,
             resource=resource,
+            nonce=state_data.nonce,
+            user_id=state_data.user_id,
+            session_id=state_data.session_id,
         )
         self.auth_codes[new_code] = auth_code
 
@@ -172,21 +213,28 @@ class SimpleOAuthProvider:
         authorization_code: AuthorizationCode,
         *,
         issue_refresh_token: bool = False,
+        access_token_resource: str | list[str] | None = None,
     ) -> OAuthToken:
         if authorization_code.code not in self.auth_codes:
             msg = "Invalid authorization code"
             raise ValueError(msg)
 
+        effective_resource = authorization_code.resource if access_token_resource is None else access_token_resource
         access_token = self._issue_access_token(
             client_id=authorization_code.client_id,
             scopes=authorization_code.scopes,
-            resource=authorization_code.resource,
+            resource=effective_resource,
+            user_id=authorization_code.user_id,
+            session_id=authorization_code.session_id,
         )
         refresh_token_value = None
         if issue_refresh_token:
             refresh_token = self._issue_refresh_token(
                 client_id=authorization_code.client_id,
                 scopes=authorization_code.scopes,
+                user_id=authorization_code.user_id,
+                session_id=authorization_code.session_id,
+                resource=authorization_code.resource,
             )
             refresh_token_value = refresh_token.token
 
@@ -224,17 +272,24 @@ class SimpleOAuthProvider:
         for state in expired_states:
             self.state_mapping.pop(state, None)
 
-    async def load_refresh_token(self, _refresh_token: str) -> RefreshToken | None:
-        refresh_token = self.refresh_tokens.get(_refresh_token)
+    async def load_refresh_token(self, refresh_token_value: str) -> RefreshToken | None:
+        refresh_token = self.refresh_tokens.get(refresh_token_value)
         if not refresh_token:
             return None
 
         if refresh_token.expires_at is not None and refresh_token.expires_at < time.time():
-            del self.refresh_tokens[_refresh_token]
+            del self.refresh_tokens[refresh_token_value]
             return None
         return refresh_token
 
-    async def exchange_refresh_token(self, refresh_token: RefreshToken, scopes: list[str]) -> OAuthToken:
+    async def exchange_refresh_token(
+        self,
+        refresh_token: RefreshToken,
+        scopes: list[str],
+        *,
+        access_token_resource: str | list[str] | None = None,
+        refresh_token_resource: str | None = None,
+    ) -> OAuthToken:
         stored_refresh_token = self.refresh_tokens.get(refresh_token.token)
         if not stored_refresh_token:
             msg = "Invalid refresh token"
@@ -255,11 +310,18 @@ class SimpleOAuthProvider:
         new_refresh_token = self._issue_refresh_token(
             client_id=stored_refresh_token.client_id,
             scopes=scopes,
+            user_id=stored_refresh_token.user_id,
+            session_id=stored_refresh_token.session_id,
+            resource=stored_refresh_token.resource if refresh_token_resource is None else refresh_token_resource,
         )
+        effective_resource = stored_refresh_token.resource if access_token_resource is None else access_token_resource
         access_token = self._issue_access_token(
             client_id=stored_refresh_token.client_id,
             scopes=scopes,
+            resource=effective_resource,
             refresh_token=new_refresh_token.token,
+            user_id=stored_refresh_token.user_id,
+            session_id=stored_refresh_token.session_id,
         )
 
         return OAuthToken(
@@ -274,8 +336,10 @@ class SimpleOAuthProvider:
         self,
         client_id: str,
         scopes: list[str],
+        *,
+        resource: str | list[str] | None = None,
     ) -> OAuthToken:
-        access_token = self._issue_access_token(client_id=client_id, scopes=scopes)
+        access_token = self._issue_access_token(client_id=client_id, scopes=scopes, resource=resource)
         return OAuthToken(
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
@@ -308,13 +372,15 @@ class SimpleOAuthProvider:
             msg = f"Client was not registered with scope {invalid_scopes[0]}"
             raise ValueError(msg)
 
-    def _issue_access_token(
+    def _issue_access_token(  # noqa: PLR0913
         self,
         *,
         client_id: str,
         scopes: list[str],
-        resource: str | None = None,
+        resource: str | list[str] | None = None,
         refresh_token: str | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
     ) -> AccessToken:
         now = int(time.time())
         token_value = f"belgie_{secrets.token_hex(32)}"
@@ -326,6 +392,8 @@ class SimpleOAuthProvider:
             expires_at=now + self.settings.access_token_ttl_seconds,
             resource=resource,
             refresh_token=refresh_token,
+            user_id=user_id,
+            session_id=session_id,
         )
         self.tokens[token_value] = access_token
         return access_token
@@ -335,6 +403,9 @@ class SimpleOAuthProvider:
         *,
         client_id: str,
         scopes: list[str],
+        user_id: str | None = None,
+        session_id: str | None = None,
+        resource: str | None = None,
     ) -> RefreshToken:
         now = int(time.time())
         token_value = f"belgie_{secrets.token_hex(32)}"
@@ -344,6 +415,9 @@ class SimpleOAuthProvider:
             scopes=scopes,
             created_at=now,
             expires_at=now + self.settings.access_token_ttl_seconds,
+            user_id=user_id,
+            session_id=session_id,
+            resource=resource,
         )
         self.refresh_tokens[token_value] = refresh_token
         return refresh_token

@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
 
-from belgie_oauth_server.models import OAuthMetadata, ProtectedResourceMetadata
+from belgie_oauth_server.models import OAuthMetadata, OIDCMetadata, ProtectedResourceMetadata
 from belgie_oauth_server.utils import join_url
 
 if TYPE_CHECKING:
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 _ROOT_OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
+_ROOT_OPENID_METADATA_PATH = "/.well-known/openid-configuration"
 
 
 def build_oauth_metadata(issuer_url: str, settings: OAuthServerSettings) -> OAuthMetadata:
@@ -39,12 +40,57 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServerSettings) -> OAut
     )
 
 
+def build_openid_metadata(issuer_url: str, settings: OAuthServerSettings) -> OIDCMetadata:
+    oauth_metadata = build_oauth_metadata(issuer_url, settings)
+    oidc_metadata = oauth_metadata.model_dump(mode="python")
+    advertised_scopes: list[str] = [settings.default_scope, "openid", "profile", "email", "offline_access"]
+    deduped_scopes: list[str] = []
+    for scope in advertised_scopes:
+        if scope not in deduped_scopes:
+            deduped_scopes.append(scope)
+    oidc_metadata["scopes_supported"] = deduped_scopes
+
+    return OIDCMetadata(
+        **oidc_metadata,
+        userinfo_endpoint=AnyHttpUrl(join_url(issuer_url, "userinfo")),
+        claims_supported=[
+            "sub",
+            "iss",
+            "aud",
+            "exp",
+            "iat",
+            "sid",
+            "scope",
+            "azp",
+            "email",
+            "email_verified",
+            "name",
+            "picture",
+            "family_name",
+            "given_name",
+        ],
+        subject_types_supported=["public"],
+        id_token_signing_alg_values_supported=["HS256"],
+        end_session_endpoint=AnyHttpUrl(join_url(issuer_url, "end-session")),
+        acr_values_supported=["urn:mace:incommon:iap:bronze"],
+        prompt_values_supported=["login", "consent", "create", "select_account"],
+    )
+
+
 def build_oauth_metadata_well_known_path(issuer_url: str) -> str:
     parsed = urlparse(issuer_url)
     path = parsed.path.rstrip("/")
     if path and path != "/":
         return f"/.well-known/oauth-authorization-server{path}"
     return "/.well-known/oauth-authorization-server"
+
+
+def build_openid_metadata_well_known_path(issuer_url: str) -> str:
+    parsed = urlparse(issuer_url)
+    path = parsed.path.rstrip("/")
+    if path and path != "/":
+        return f"{path}/.well-known/openid-configuration"
+    return "/.well-known/openid-configuration"
 
 
 def build_protected_resource_metadata(

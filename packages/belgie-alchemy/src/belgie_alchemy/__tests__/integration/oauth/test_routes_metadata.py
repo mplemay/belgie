@@ -1,6 +1,6 @@
 from belgie_core.core.belgie import Belgie
 from belgie_oauth_server import OAuthServerPlugin, OAuthServerSettings
-from belgie_oauth_server.metadata import _ROOT_OAUTH_METADATA_PATH
+from belgie_oauth_server.metadata import _ROOT_OAUTH_METADATA_PATH, _ROOT_OPENID_METADATA_PATH
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -37,6 +37,23 @@ def test_metadata_alias_endpoint(client: TestClient) -> None:
     assert payload["registration_endpoint"] == f"{AUTH_BASE_URL}/register"
     assert payload["revocation_endpoint"] == f"{AUTH_BASE_URL}/revoke"
     assert payload["introspection_endpoint"] == f"{AUTH_BASE_URL}/introspect"
+
+
+def test_openid_metadata_endpoint(client: TestClient) -> None:
+    response = client.get("/auth/oauth/.well-known/openid-configuration")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["issuer"] == AUTH_BASE_URL
+    assert payload["userinfo_endpoint"] == f"{AUTH_BASE_URL}/userinfo"
+    assert payload["end_session_endpoint"] == f"{AUTH_BASE_URL}/end-session"
+    assert payload["id_token_signing_alg_values_supported"] == ["HS256"]
+
+
+def test_openid_metadata_root_fallback(client: TestClient) -> None:
+    response = client.get(_ROOT_OPENID_METADATA_PATH)
+    assert response.status_code == 200
+    assert response.json()["issuer"] == AUTH_BASE_URL
 
 
 def test_protected_resource_metadata_endpoint(client: TestClient) -> None:
@@ -122,4 +139,29 @@ def test_oauth_metadata_root_fallback_absent_when_disabled(
 
         # Path-based endpoint should still work
         response = client.get("/.well-known/oauth-authorization-server/auth/oauth")
+        assert response.status_code == 200
+
+
+def test_openid_metadata_root_fallback_absent_when_disabled(
+    belgie_instance: Belgie,
+) -> None:
+    settings = OAuthServerSettings(
+        base_url="http://testserver",
+        prefix="/oauth",
+        login_url="/login/google",
+        client_id="test-client",
+        client_secret=SecretStr("test-secret"),
+        redirect_uris=["http://testserver/callback"],
+        default_scope="user",
+        include_root_openid_metadata_fallback=False,
+    )
+    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+
+    with TestClient(app) as client:
+        response = client.get(_ROOT_OPENID_METADATA_PATH)
+        assert response.status_code == 404
+        response = client.get("/auth/oauth/.well-known/openid-configuration")
         assert response.status_code == 200

@@ -166,3 +166,67 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
     assert response.status_code == 400
     payload = response.json()
     assert payload["error"] == "invalid_request"
+
+
+@pytest.mark.asyncio
+async def test_register_allows_post_logout_redirect_uris(
+    belgie_instance,
+    oauth_settings: OAuthServerSettings,
+    db_session,
+) -> None:
+    settings_payload = oauth_settings.model_dump(mode="python")
+    settings_payload["allow_dynamic_client_registration"] = True
+    settings = OAuthServerSettings(**settings_payload)
+    plugin = belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+        client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+        response = await client.post(
+            "/auth/oauth/register",
+            json={
+                "redirect_uris": ["http://testserver/callback"],
+                "post_logout_redirect_uris": ["http://testserver/logout-complete"],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["post_logout_redirect_uris"] == ["http://testserver/logout-complete"]
+    assert payload["client_id"] in plugin._provider.clients
+    registered_client = plugin._provider.clients[payload["client_id"]]
+    assert [str(uri) for uri in registered_client.post_logout_redirect_uris] == ["http://testserver/logout-complete"]
+
+
+@pytest.mark.asyncio
+async def test_register_ignores_enable_end_session_in_metadata(
+    belgie_instance,
+    oauth_settings: OAuthServerSettings,
+    db_session,
+) -> None:
+    settings_payload = oauth_settings.model_dump(mode="python")
+    settings_payload["allow_dynamic_client_registration"] = True
+    settings = OAuthServerSettings(**settings_payload)
+    plugin = belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+        client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+        response = await client.post(
+            "/auth/oauth/register",
+            json={
+                "redirect_uris": ["http://testserver/callback"],
+                "enable_end_session": True,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["enable_end_session"] is None
+    assert payload["client_id"] in plugin._provider.clients
+    registered_client = plugin._provider.clients[payload["client_id"]]
+    assert registered_client.enable_end_session is None

@@ -11,6 +11,7 @@ class OAuthToken(BaseModel):
     expires_in: int | None = None
     scope: str | None = None
     refresh_token: str | None = None
+    id_token: str | None = None
 
     @field_validator("token_type", mode="before")
     @classmethod
@@ -55,6 +56,7 @@ class OAuthClientMetadata(BaseModel):
     jwks: Any | None = None
     software_id: str | None = None
     software_version: str | None = None
+    post_logout_redirect_uris: list[AnyUrl] | None = None
 
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:
@@ -84,6 +86,7 @@ class OAuthClientInformationFull(OAuthClientMetadata):
     client_secret: str | None = None
     client_id_issued_at: int | None = None
     client_secret_expires_at: int | None = None
+    enable_end_session: bool | None = None
 
 
 class OAuthMetadata(BaseModel):
@@ -109,6 +112,16 @@ class OAuthMetadata(BaseModel):
     introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
     client_id_metadata_document_supported: bool | None = None
+
+
+class OIDCMetadata(OAuthMetadata):
+    userinfo_endpoint: AnyHttpUrl
+    claims_supported: list[str]
+    subject_types_supported: list[str]
+    id_token_signing_alg_values_supported: list[str]
+    end_session_endpoint: AnyHttpUrl
+    acr_values_supported: list[str]
+    prompt_values_supported: list[str]
 
 
 class ProtectedResourceMetadata(BaseModel):
