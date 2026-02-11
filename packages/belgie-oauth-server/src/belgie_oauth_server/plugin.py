@@ -61,7 +61,7 @@ class _TokenHandlerContext:
     settings: OAuthServerSettings
     belgie_base_url: str
     issuer_url: str
-    id_token_signing_secret: str
+    fallback_signing_secret: str
     client_id: str | None
     client_secret: str | None
 
@@ -264,7 +264,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
                 settings=settings,
                 belgie_base_url=belgie_base_url,
                 issuer_url=issuer_url,
-                id_token_signing_secret=belgie.settings.secret,
+                fallback_signing_secret=belgie.settings.secret,
                 client_id=client_id,
                 client_secret=client_secret,
             )
@@ -597,34 +597,34 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
             if token_type_hint in {None, ACCESS_TOKEN_HINT}:
                 access_token = await provider.load_access_token(token)
                 if access_token and access_token.client_id == oauth_client.client_id:
-                    return JSONResponse(
-                        {
-                            "active": True,
-                            "client_id": access_token.client_id,
-                            "scope": " ".join(access_token.scopes),
-                            "exp": access_token.expires_at,
-                            "iat": access_token.created_at,
-                            "token_type": "Bearer",
-                            "aud": access_token.resource,
-                        },
-                    )
+                    payload: dict[str, Any] = {
+                        "active": True,
+                        "client_id": access_token.client_id,
+                        "scope": " ".join(access_token.scopes),
+                        "exp": access_token.expires_at,
+                        "iat": access_token.created_at,
+                        "token_type": "Bearer",
+                    }
+                    if access_token.resource is not None:
+                        payload["aud"] = access_token.resource
+                    return JSONResponse(payload)
                 if token_type_hint == ACCESS_TOKEN_HINT:
                     return JSONResponse({"active": False})
 
             if token_type_hint in {None, REFRESH_TOKEN_HINT}:
                 refresh_token = await provider.load_refresh_token(token)
                 if refresh_token and refresh_token.client_id == oauth_client.client_id:
-                    return JSONResponse(
-                        {
-                            "active": True,
-                            "client_id": refresh_token.client_id,
-                            "scope": " ".join(refresh_token.scopes),
-                            "exp": refresh_token.expires_at,
-                            "iat": refresh_token.created_at,
-                            "token_type": "refresh_token",
-                            "aud": refresh_token.resource,
-                        },
-                    )
+                    payload: dict[str, Any] = {
+                        "active": True,
+                        "client_id": refresh_token.client_id,
+                        "scope": " ".join(refresh_token.scopes),
+                        "exp": refresh_token.expires_at,
+                        "iat": refresh_token.created_at,
+                        "token_type": "refresh_token",
+                    }
+                    if refresh_token.resource is not None:
+                        payload["aud"] = refresh_token.resource
+                    return JSONResponse(payload)
 
             return JSONResponse({"active": False})
 
@@ -900,7 +900,7 @@ async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> Respons
         ctx.settings,
         ctx.issuer_url,
         oauth_client,
-        signing_secret=ctx.id_token_signing_secret,
+        fallback_signing_secret=ctx.fallback_signing_secret,
         scopes=authorization_code.scopes,
         user_id=authorization_code.user_id,
         nonce=authorization_code.nonce,
@@ -978,7 +978,7 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> Response:  #
         ctx.settings,
         ctx.issuer_url,
         oauth_client,
-        signing_secret=ctx.id_token_signing_secret,
+        fallback_signing_secret=ctx.fallback_signing_secret,
         scopes=scopes,
         user_id=refresh_token.user_id,
         session_id=refresh_token.session_id,
@@ -1082,7 +1082,7 @@ async def _maybe_build_id_token(  # noqa: PLR0913
     issuer_url: str,
     oauth_client: OAuthClientInformationFull,
     *,
-    signing_secret: str,
+    fallback_signing_secret: str,
     scopes: list[str],
     user_id: str | None,
     nonce: str | None = None,
@@ -1108,7 +1108,7 @@ async def _maybe_build_id_token(  # noqa: PLR0913
         oauth_client,
         user=user,
         scopes=scopes,
-        signing_secret=signing_secret,
+        fallback_signing_secret=fallback_signing_secret,
         nonce=nonce,
         session_id=session_id,
     )
@@ -1121,7 +1121,7 @@ def _build_id_token(  # noqa: PLR0913
     *,
     user: _UserClaimsSource,
     scopes: list[str],
-    signing_secret: str,
+    fallback_signing_secret: str,
     nonce: str | None,
     session_id: str | None,
 ) -> str:
@@ -1141,7 +1141,7 @@ def _build_id_token(  # noqa: PLR0913
 
     return jwt.encode(
         payload,
-        _id_token_signing_key(_resolve_id_token_signing_secret(oauth_client, signing_secret)),
+        _id_token_signing_key(_resolve_id_token_signing_secret(oauth_client, fallback_signing_secret)),
         algorithm="HS256",
     )
 

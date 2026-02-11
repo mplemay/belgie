@@ -183,6 +183,42 @@ async def test_introspect_refresh_token_with_hint(
 
 
 @pytest.mark.asyncio
+async def test_introspect_refresh_token_without_resource_omits_aud(
+    async_client,
+    oauth_settings,
+    oauth_plugin,
+) -> None:
+    provider = oauth_plugin._provider
+    created_at = int(time.time()) - 2
+    provider.refresh_tokens["refresh-no-resource"] = RefreshToken(
+        token="refresh-no-resource",
+        client_id=oauth_settings.client_id,
+        scopes=["user", "offline_access"],
+        created_at=created_at,
+        expires_at=int(time.time()) + 3600,
+        resource=None,
+    )
+
+    response = await async_client.post(
+        "/auth/oauth/introspect",
+        data={
+            "client_id": oauth_settings.client_id,
+            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "token": "refresh-no-resource",
+            "token_type_hint": "refresh_token",
+        },
+    )
+    payload = response.json()
+
+    assert payload["active"] is True
+    assert payload["client_id"] == oauth_settings.client_id
+    assert payload["scope"] == "user offline_access"
+    assert payload["token_type"] == "refresh_token"  # noqa: S105
+    assert payload["iat"] == created_at
+    assert "aud" not in payload
+
+
+@pytest.mark.asyncio
 async def test_introspect_token_type_hint_access_token_does_not_match_refresh(
     async_client,
     oauth_settings,

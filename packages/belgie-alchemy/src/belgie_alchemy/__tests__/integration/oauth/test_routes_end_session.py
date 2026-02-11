@@ -238,3 +238,63 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
     assert response.headers["location"] == "http://testserver/logout-complete"
     deleted_session = await belgie_instance.session_manager.get_session(db_session, UUID(session_id))
     assert deleted_session is None
+
+
+@pytest.mark.asyncio
+async def test_end_session_rejects_public_client_without_logout_permission(
+    async_client,
+    oauth_plugin,
+    belgie_instance,
+    db_session,
+    create_user_session,
+) -> None:
+    session_id = await create_user_session(belgie_instance, db_session, "end-session-public-disabled@test.com")
+    async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+
+    oauth_plugin._provider.clients["public-end-session-disabled"] = OAuthClientInformationFull(
+        client_id="public-end-session-disabled",
+        client_secret=None,
+        redirect_uris=["http://testserver/callback"],
+        scope="openid profile email",
+        token_endpoint_auth_method="none",
+        enable_end_session=False,
+    )
+
+    code_verifier = "end-session-public-disabled-verifier"
+    authorize_response = await async_client.get(
+        "/auth/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": "public-end-session-disabled",
+            "redirect_uri": "http://testserver/callback",
+            "code_challenge": create_code_challenge(code_verifier),
+            "scope": "openid profile email",
+            "state": "end-session-public-disabled-state",
+        },
+        follow_redirects=False,
+    )
+    code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
+
+    token_response = await async_client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": "public-end-session-disabled",
+            "code": code,
+            "redirect_uri": "http://testserver/callback",
+            "code_verifier": code_verifier,
+        },
+    )
+    assert token_response.status_code == 200
+    id_token = token_response.json().get("id_token")
+    assert id_token is not None
+
+    response = await async_client.get(
+        "/auth/oauth/end-session",
+        params={"id_token_hint": id_token},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_client"
+    existing_session = await belgie_instance.session_manager.get_session(db_session, UUID(session_id))
+    assert existing_session is not None
