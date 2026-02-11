@@ -19,3 +19,11 @@ To migrate existing clients:
 
 - Configure a resource with `resources=[OAuthResource(...)]`.
 - Or stop sending the `resource` parameter.
+
+## ID Token Signing for Public Clients
+
+`id_token` signing and verification use the client secret-derived key for confidential clients. Public clients (with
+`token_endpoint_auth_method="none"`) use a server fallback signing secret instead.
+
+This keeps RP-initiated logout working for public clients while still requiring normal OIDC claim validation.
+`iss` and `aud` are always checked when validating `id_token_hint` at `/end-session`.
