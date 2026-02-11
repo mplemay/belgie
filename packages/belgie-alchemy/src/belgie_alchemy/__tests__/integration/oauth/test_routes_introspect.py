@@ -160,6 +160,7 @@ async def test_introspect_refresh_token_with_hint(
         scopes=["user", "offline_access"],
         created_at=created_at,
         expires_at=int(time.time()) + 3600,
+        resource="http://example.com/resource",
     )
 
     response = await async_client.post(
@@ -178,6 +179,7 @@ async def test_introspect_refresh_token_with_hint(
     assert payload["scope"] == "user offline_access"
     assert payload["token_type"] == "refresh_token"  # noqa: S105
     assert payload["iat"] == created_at
+    assert payload["aud"] == "http://example.com/resource"
 
 
 @pytest.mark.asyncio

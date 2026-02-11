@@ -324,7 +324,7 @@ async def test_token_authorization_code_issues_id_token_for_confidential_openid_
 
 
 @pytest.mark.asyncio
-async def test_token_authorization_code_does_not_issue_id_token_for_public_client(
+async def test_token_authorization_code_issues_id_token_for_public_client(
     async_client,
     oauth_plugin,
     belgie_instance,
@@ -368,7 +368,7 @@ async def test_token_authorization_code_does_not_issue_id_token_for_public_clien
     )
 
     assert token_response.status_code == 200
-    assert token_response.json().get("id_token") is None
+    assert token_response.json().get("id_token") is not None
 
 
 @pytest.mark.asyncio

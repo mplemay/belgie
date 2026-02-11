@@ -21,7 +21,8 @@ def test_metadata_endpoint(client: TestClient) -> None:
     assert payload["revocation_endpoint"] == f"{AUTH_BASE_URL}/revoke"
     assert payload["introspection_endpoint"] == f"{AUTH_BASE_URL}/introspect"
     assert payload["grant_types_supported"] == ["authorization_code", "refresh_token", "client_credentials"]
-    assert payload["token_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
+    assert payload["response_modes_supported"] == ["query"]
+    assert payload["token_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic", "none"]
     assert payload["revocation_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
     assert payload["introspection_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
 
@@ -48,6 +49,7 @@ def test_openid_metadata_endpoint(client: TestClient) -> None:
     assert payload["userinfo_endpoint"] == f"{AUTH_BASE_URL}/userinfo"
     assert payload["end_session_endpoint"] == f"{AUTH_BASE_URL}/end-session"
     assert payload["id_token_signing_alg_values_supported"] == ["HS256"]
+    assert payload["response_modes_supported"] == ["query"]
 
 
 def test_openid_metadata_root_fallback(client: TestClient) -> None:

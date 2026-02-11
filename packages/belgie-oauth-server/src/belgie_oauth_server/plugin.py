@@ -61,6 +61,7 @@ class _TokenHandlerContext:
     settings: OAuthServerSettings
     belgie_base_url: str
     issuer_url: str
+    id_token_signing_secret: str
     client_id: str | None
     client_secret: str | None
 
@@ -263,6 +264,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
                 settings=settings,
                 belgie_base_url=belgie_base_url,
                 issuer_url=issuer_url,
+                id_token_signing_secret=belgie.settings.secret,
                 client_id=client_id,
                 client_secret=client_secret,
             )
@@ -443,7 +445,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
                 return _oauth_error("invalid_request", "missing id_token_hint", status_code=400)
 
             # Pass 1: decode without verification only to extract audience and identify
-            # the candidate client secret for full verification in pass 2 below.
+            # the candidate signing secret for full verification in pass 2 below.
             decoded_unverified = _decode_unverified_jwt(id_token_hint)
             if decoded_unverified is None:
                 return _oauth_error("invalid_token", "invalid id token", status_code=401)
@@ -464,14 +466,13 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
                 return _oauth_error("invalid_client", "client doesn't exist", status_code=400)
             if oauth_client.enable_end_session is not True:
                 return _oauth_error("invalid_client", "client unable to logout", status_code=401)
-            if oauth_client.client_secret is None:
-                return _oauth_error("invalid_client", "missing required credentials", status_code=401)
-
             try:
                 # Pass 2: verify signature and standard claims with the resolved client.
                 payload = jwt.decode(
                     id_token_hint,
-                    _id_token_signing_key(oauth_client.client_secret),
+                    _id_token_signing_key(
+                        _resolve_id_token_signing_secret(oauth_client, belgie.settings.secret),
+                    ),
                     algorithms=["HS256"],
                     audience=inferred_client_id,
                     issuer=issuer_url,
@@ -621,6 +622,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
                             "exp": refresh_token.expires_at,
                             "iat": refresh_token.created_at,
                             "token_type": "refresh_token",
+                            "aud": refresh_token.resource,
                         },
                     )
 
@@ -898,6 +900,7 @@ async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> Respons
         ctx.settings,
         ctx.issuer_url,
         oauth_client,
+        signing_secret=ctx.id_token_signing_secret,
         scopes=authorization_code.scopes,
         user_id=authorization_code.user_id,
         nonce=authorization_code.nonce,
@@ -975,6 +978,7 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> Response:  #
         ctx.settings,
         ctx.issuer_url,
         oauth_client,
+        signing_secret=ctx.id_token_signing_secret,
         scopes=scopes,
         user_id=refresh_token.user_id,
         session_id=refresh_token.session_id,
@@ -1078,14 +1082,13 @@ async def _maybe_build_id_token(  # noqa: PLR0913
     issuer_url: str,
     oauth_client: OAuthClientInformationFull,
     *,
+    signing_secret: str,
     scopes: list[str],
     user_id: str | None,
     nonce: str | None = None,
     session_id: str | None = None,
 ) -> str | None:
     if "openid" not in scopes:
-        return None
-    if oauth_client.client_secret is None:
         return None
     if user_id is None:
         return None
@@ -1105,6 +1108,7 @@ async def _maybe_build_id_token(  # noqa: PLR0913
         oauth_client,
         user=user,
         scopes=scopes,
+        signing_secret=signing_secret,
         nonce=nonce,
         session_id=session_id,
     )
@@ -1117,6 +1121,7 @@ def _build_id_token(  # noqa: PLR0913
     *,
     user: _UserClaimsSource,
     scopes: list[str],
+    signing_secret: str,
     nonce: str | None,
     session_id: str | None,
 ) -> str:
@@ -1134,11 +1139,21 @@ def _build_id_token(  # noqa: PLR0913
     if oauth_client.enable_end_session and session_id:
         payload["sid"] = session_id
 
-    return jwt.encode(payload, _id_token_signing_key(oauth_client.client_secret), algorithm="HS256")
+    return jwt.encode(
+        payload,
+        _id_token_signing_key(_resolve_id_token_signing_secret(oauth_client, signing_secret)),
+        algorithm="HS256",
+    )
 
 
-def _id_token_signing_key(client_secret: str) -> bytes:
-    return hashlib.sha256(client_secret.encode("utf-8")).digest()
+def _id_token_signing_key(signing_secret: str) -> bytes:
+    return hashlib.sha256(signing_secret.encode("utf-8")).digest()
+
+
+def _resolve_id_token_signing_secret(oauth_client: OAuthClientInformationFull, fallback_secret: str) -> str:
+    if oauth_client.client_secret is not None:
+        return oauth_client.client_secret
+    return fallback_secret
 
 
 def _with_authorization_principal(params: AuthorizationParams, *, user_id: str, session_id: str) -> AuthorizationParams:
