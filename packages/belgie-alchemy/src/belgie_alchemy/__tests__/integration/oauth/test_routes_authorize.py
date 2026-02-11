@@ -11,12 +11,6 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def _create_user_session(belgie: Belgie, db_session: AsyncSession, email: str) -> str:
-    user = await belgie.adapter.create_user(db_session, email=email)
-    session = await belgie.session_manager.create_session(db_session, user_id=user.id)
-    return str(session.id)
-
-
 def _authorize_params(
     oauth_settings: OAuthServerSettings,
     code_challenge: str,
@@ -86,6 +80,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServerSettings,
+    create_user_session,
 ) -> None:
     settings = OAuthServerSettings(
         base_url=oauth_settings.base_url,
@@ -101,7 +96,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+        session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
         params = _authorize_params(settings, create_code_challenge("verifier"), state="state-auth")
@@ -123,8 +118,9 @@ async def test_authorize_issues_code_when_authenticated(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServerSettings,
+    create_user_session,
 ) -> None:
-    session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+    session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     params = _authorize_params(oauth_settings, create_code_challenge("verifier"), state="state-auth")
@@ -162,8 +158,9 @@ async def test_authorize_accepts_configured_resource_when_authenticated(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServerSettings,
+    create_user_session,
 ) -> None:
-    session_id = await _create_user_session(belgie_instance, db_session, "user@test.com")
+    session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     params = _authorize_params(

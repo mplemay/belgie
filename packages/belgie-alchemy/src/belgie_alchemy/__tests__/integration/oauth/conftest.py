@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -132,3 +133,22 @@ async def async_client(app: FastAPI) -> httpx.AsyncClient:
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
     await transport.aclose()
+
+
+@pytest.fixture
+def basic_auth_header():
+    def _build(client_id: str, client_secret: str) -> str:
+        raw = f"{client_id}:{client_secret}".encode()
+        return f"Basic {base64.b64encode(raw).decode('utf-8')}"
+
+    return _build
+
+
+@pytest.fixture
+def create_user_session():
+    async def _create(belgie: Belgie, db_session: AsyncSession, email: str) -> str:
+        user = await belgie.adapter.create_user(db_session, email=email)
+        session = await belgie.session_manager.create_session(db_session, user_id=user.id)
+        return str(session.id)
+
+    return _create
