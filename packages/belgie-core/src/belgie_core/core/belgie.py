@@ -18,7 +18,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
-from belgie_core.core.hooks import HookRunner, Hooks
 from belgie_core.core.plugin import Plugin
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.session.manager import SessionManager
@@ -48,7 +47,6 @@ class _BelgieCallable:
                 adapter=obj.adapter,
                 session_manager=obj.session_manager,
                 cookie_settings=obj.settings.cookie,
-                hook_runner=obj.hook_runner,
             )
 
         return __call__
@@ -107,7 +105,6 @@ class Belgie[
         self,
         settings: BelgieSettings,
         adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
-        hooks: Hooks | None = None,
     ) -> None:
         """Initialize the Belgie instance.
 
@@ -124,8 +121,6 @@ class Belgie[
             max_age=settings.session.max_age,
             update_age=settings.session.update_age,
         )
-
-        self.hook_runner = HookRunner(hooks=hooks or Hooks())
 
         self.plugins: list[Plugin[Any]] = []
 

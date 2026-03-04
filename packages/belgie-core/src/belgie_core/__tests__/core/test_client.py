@@ -371,19 +371,24 @@ async def test_sign_in_user_derives_ip_and_user_agent(client, mock_session_manag
 
 
 @pytest.mark.asyncio
-async def test_sign_out_success(client, mock_session_manager):
+async def test_sign_out_success(client, mock_adapter, mock_session_manager):
     session_id = uuid4()
+    session = MagicMock()
     mock_session_manager.delete_session.return_value = True
+    mock_session_manager.get_session.return_value = session
 
     result = await client.sign_out(session_id)
 
     assert result is True
+    mock_session_manager.get_session.assert_called_once_with(client.db, session_id)
     mock_session_manager.delete_session.assert_called_once_with(client.db, session_id)
+    mock_adapter.get_user_by_id.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_sign_out_returns_false_if_session_not_found(client, mock_session_manager):
     session_id = uuid4()
+    mock_session_manager.get_session.return_value = None
     mock_session_manager.delete_session.return_value = False
 
     result = await client.sign_out(session_id)

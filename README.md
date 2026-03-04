@@ -15,7 +15,7 @@ zero glue code. Keep your data, skip per-user SaaS bills, and still get a polish
 - Sliding-window, signed session cookies (no JWT juggling required).
 - Drop-in FastAPI dependencies for `auth.user`, `auth.session`, and scoped access.
 - A thin SQLAlchemy adapter that works with your existing models.
-- Hooks so you can plug in logging, analytics, or audit trails without forking.
+- Composable client methods so you can add logging, analytics, or audit trails in your own endpoints.
 
 ## How it compares
 
@@ -30,7 +30,7 @@ zero glue code. Keep your data, skip per-user SaaS bills, and still get a polish
 - Session manager with sliding expiry and secure cookie defaults (HttpOnly, SameSite, Secure).
 - Scope-aware dependency for route protection (`Security(auth.user, scopes=[...])`).
 - Modern Python (3.12+), full typing, and protocol-based models.
-- Event hooks and utility helpers for custom workflows.
+- Utility helpers for custom workflows.
 
 ## Installation
 
