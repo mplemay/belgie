@@ -26,10 +26,10 @@ def test_fixture_models_use_auth_mixins() -> None:
 
 
 def test_default_tablenames() -> None:
-    assert UserMixin.__tablename__ == "users"
-    assert AccountMixin.__tablename__ == "accounts"
-    assert SessionMixin.__tablename__ == "sessions"
-    assert OAuthStateMixin.__tablename__ == "oauth_states"
+    assert UserMixin.__tablename__ == "user"
+    assert AccountMixin.__tablename__ == "account"
+    assert SessionMixin.__tablename__ == "session"
+    assert OAuthStateMixin.__tablename__ == "oauth_state"
 
 
 def test_user_mixin_defaults() -> None:
@@ -51,15 +51,13 @@ def test_user_mixin_defaults() -> None:
 
 def test_account_session_oauthstate_mixin_defaults() -> None:
     account_fk = next(iter(Account.__table__.c.user_id.foreign_keys))
-    assert account_fk.target_fullname == "users.id"
+    assert account_fk.target_fullname == "user.id"
     assert account_fk.ondelete == "cascade"
     assert account_fk.onupdate == "cascade"
     assert isinstance(Account.__table__.c.expires_at.type, DateTimeUTC)
 
     unique_constraints = [
-        constraint
-        for constraint in Account.__table__.constraints
-        if isinstance(constraint, UniqueConstraint)
+        constraint for constraint in Account.__table__.constraints if isinstance(constraint, UniqueConstraint)
     ]
     assert any(
         constraint.name == "uq_accounts_provider_provider_account_id"
@@ -69,13 +67,13 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
 
     assert isinstance(Session.__table__.c.expires_at.type, DateTimeUTC)
     session_fk = next(iter(Session.__table__.c.user_id.foreign_keys))
-    assert session_fk.target_fullname == "users.id"
+    assert session_fk.target_fullname == "user.id"
     assert session_fk.ondelete == "cascade"
     assert session_fk.onupdate == "cascade"
 
     assert isinstance(OAuthState.__table__.c.expires_at.type, DateTimeUTC)
     oauth_state_fk = next(iter(OAuthState.__table__.c.user_id.foreign_keys))
-    assert oauth_state_fk.target_fullname == "users.id"
+    assert oauth_state_fk.target_fullname == "user.id"
     assert oauth_state_fk.ondelete == "set null"
     assert oauth_state_fk.onupdate == "cascade"
 

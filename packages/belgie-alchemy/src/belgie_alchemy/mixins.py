@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 
 class UserMixin(PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "users"
+    __tablename__ = "user"
 
     @declared_attr
     def email(self) -> Mapped[str]:
@@ -61,12 +61,12 @@ class UserMixin(PrimaryKeyMixin, TimestampMixin):
 
 
 class AccountMixin(PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "accounts"
+    __tablename__ = "account"
 
     @declared_attr
     def user_id(self) -> Mapped[UUID]:
         return mapped_column(
-            ForeignKey("users.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("user.id", ondelete="cascade", onupdate="cascade"),
             nullable=False,
             kw_only=True,
         )
@@ -124,12 +124,12 @@ class AccountMixin(PrimaryKeyMixin, TimestampMixin):
 
 
 class SessionMixin(PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "sessions"
+    __tablename__ = "session"
 
     @declared_attr
     def user_id(self) -> Mapped[UUID]:
         return mapped_column(
-            ForeignKey("users.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("user.id", ondelete="cascade", onupdate="cascade"),
             nullable=False,
             kw_only=True,
         )
@@ -157,7 +157,7 @@ class SessionMixin(PrimaryKeyMixin, TimestampMixin):
 
 
 class OAuthStateMixin(PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "oauth_states"
+    __tablename__ = "oauth_state"
 
     @declared_attr
     def state(self) -> Mapped[str]:
@@ -166,7 +166,7 @@ class OAuthStateMixin(PrimaryKeyMixin, TimestampMixin):
     @declared_attr
     def user_id(self) -> Mapped[UUID | None]:
         return mapped_column(
-            ForeignKey("users.id", ondelete="set null", onupdate="cascade"),
+            ForeignKey("user.id", ondelete="set null", onupdate="cascade"),
             nullable=True,
             kw_only=True,
         )
