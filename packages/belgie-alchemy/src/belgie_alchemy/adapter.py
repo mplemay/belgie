@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
-class AlchemyAdapter[
+class BelgieAdapter[
     UserT: UserProtocol,
     AccountT: AccountProtocol,
     SessionT: SessionProtocol,

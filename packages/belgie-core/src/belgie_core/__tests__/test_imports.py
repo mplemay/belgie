@@ -16,11 +16,30 @@ def test_core_exports() -> None:
 
 def test_adapter_exports() -> None:
     try:
-        from belgie import AlchemyAdapter  # noqa: PLC0415
+        from belgie import BelgieAdapter  # noqa: PLC0415
     except ImportError:
         return
 
-    assert AlchemyAdapter is not None
+    assert BelgieAdapter is not None
+
+
+def test_old_adapter_export_removed() -> None:
+    with pytest.raises(ImportError):
+        from belgie import AlchemyAdapter  # noqa: PLC0415, F401
+
+
+def test_adapter_module_exports() -> None:
+    try:
+        from belgie.alchemy.adapter import BelgieAdapter  # noqa: PLC0415
+    except ImportError:
+        return
+
+    assert BelgieAdapter is not None
+
+
+def test_old_alchemy_module_export_removed() -> None:
+    with pytest.raises(ImportError):
+        from belgie.alchemy import AlchemyAdapter  # noqa: PLC0415, F401
 
 
 def test_session_exports() -> None:
@@ -75,7 +94,7 @@ def test_util_exports() -> None:
 
 def test_all_exports_present() -> None:
     for name in belgie.__all__:
-        if name == "AlchemyAdapter":
+        if name == "BelgieAdapter":
             try:
                 assert getattr(belgie, name) is not None
             except ImportError:

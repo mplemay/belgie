@@ -11,7 +11,8 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie.alchemy import AlchemyAdapter, SqliteSettings
+from belgie.alchemy import SqliteSettings
+from belgie.alchemy.adapter import BelgieAdapter
 from belgie.oauth.server import OAuthServer
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
@@ -49,7 +50,7 @@ settings = BelgieSettings(
     ),
 )
 
-adapter = AlchemyAdapter(
+adapter = BelgieAdapter(
     user=User,
     account=Account,
     session=Session,
