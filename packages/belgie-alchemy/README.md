@@ -4,14 +4,14 @@ SQLAlchemy 2.0 utilities for Belgie.
 
 ## Overview
 
-`belgie-alchemy` provides the `BelgieAdapter` and database settings for Belgie.
-For SQLAlchemy building blocks (Base, mixins, types), use `brussels`:
+`belgie-alchemy` provides the `BelgieAdapter`, auth model mixins, and database settings for Belgie.
+For SQLAlchemy building blocks (Base, low-level mixins, types), use `brussels`:
 
 - **Base**: Declarative base with dataclass mapping and sensible defaults
 - **Mixins**: `PrimaryKeyMixin` (UUID), `TimestampMixin` (created/updated/deleted timestamps)
 - **Types**: `DateTimeUTC` (timezone-aware datetimes), `Json` (dialect-specific JSON storage)
 
-The examples below use `brussels` directly so you can own your models.
+The examples below keep model ownership in your app while reducing boilerplate.
 
 ## Quick Start
 
@@ -180,57 +180,38 @@ class User(DataclassBase):
     )
 ```
 
-## Complete Example: Auth Models
+## Auth Model Mixins
 
-See `examples/alchemy/auth_models.py` for a complete reference implementation of authentication models:
-
-- `User` - with email, verification, and scopes
-- `Account` - OAuth provider linkage
-- `Session` - user session management
-- `OAuthState` - OAuth flow state
-
-**These are templates** - copy them to your project and customize as needed.
-
-Example structure:
+Use the built-in auth mixins for a minimal model setup:
 
 ```python
-from datetime import datetime
-from uuid import UUID
 from brussels.base import DataclassBase
-from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from brussels.types import DateTimeUTC, Json
-from sqlalchemy import ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from belgie_alchemy import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
-class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "users"
+class User(DataclassBase, UserMixin):
+    pass
 
-    email: Mapped[str] = mapped_column(unique=True, index=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
-    scopes: Mapped[list[str] | None] = mapped_column(Json, default=None)
+class Account(DataclassBase, AccountMixin):
+    pass
 
-    accounts: Mapped[list["Account"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-        init=False,
-    )
+class Session(DataclassBase, SessionMixin):
+    pass
 
-class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "accounts"
-
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="cascade"),
-        nullable=False,
-    )
-    provider: Mapped[str]
-    provider_account_id: Mapped[str]
-
-    user: Mapped[User] = relationship(
-        back_populates="accounts",
-        lazy="selectin",
-        init=False,
-    )
+class OAuthState(DataclassBase, OAuthStateMixin):
+    pass
 ```
+
+Defaults include:
+
+- User email/profile fields and JSON scopes (`Json`, JSONB on PostgreSQL)
+- Account provider linkage fields and uniqueness constraint
+- Session expiration and metadata fields
+- OAuth state PKCE fields and optional user linkage
+- UUID primary keys and timestamps on all models
+
+You can still override any field, relationship, or `__tablename__` in your concrete model classes.
+
+See `examples/alchemy/auth_models.py` for a complete reference implementation.
 
 ## Design Principles
 
@@ -253,9 +234,12 @@ from belgie_alchemy.impl.auth import User, Account, Session, OAuthState
 **After:**
 
 ```python
-# Copy models from examples/alchemy/auth_models.py to your project
-# Then import from your own code:
-from myapp.models import User, Account, Session, OAuthState
-```
+# Build your own concrete classes from mixins:
+from brussels.base import DataclassBase
+from belgie_alchemy import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
-This gives you full control to customize the models for your application.
+class User(DataclassBase, UserMixin): ...
+class Account(DataclassBase, AccountMixin): ...
+class Session(DataclassBase, SessionMixin): ...
+class OAuthState(DataclassBase, OAuthStateMixin): ...
+```
