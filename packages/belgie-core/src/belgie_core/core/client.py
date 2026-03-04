@@ -13,7 +13,6 @@ from belgie_proto import (
 from fastapi import HTTPException, Request, Response, status
 from fastapi.security import SecurityScopes
 
-from belgie_core.core.hooks import HookContext, HookRunner, Hooks, PreSignupContext
 from belgie_core.core.settings import CookieSettings
 from belgie_core.session.manager import SessionManager
 from belgie_core.utils.scopes import validate_scopes
@@ -61,7 +60,6 @@ class BelgieClient[
     adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]
     session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
     cookie_settings: CookieSettings = field(default_factory=CookieSettings)
-    hook_runner: HookRunner = field(default_factory=lambda: HookRunner(hooks=Hooks()))
 
     async def _get_session_from_cookie(self, request: Request) -> SessionT | None:
         """Extract and validate session from request cookies.
@@ -152,8 +150,7 @@ class BelgieClient[
 
     async def delete_user(self, user: UserT) -> bool:
         """Delete a user and all associated data."""
-        async with self.hook_runner.dispatch("on_delete", HookContext(user=user, db=self.db)):
-            return await self.adapter.delete_user(self.db, user.id)
+        return await self.adapter.delete_user(self.db, user.id)
 
     async def get_user_from_session(self, session_id: UUID) -> UserT | None:
         """Retrieve user from a session ID.
@@ -187,17 +184,6 @@ class BelgieClient[
         if user := await self.adapter.get_user_by_email(self.db, email):
             return user, False
 
-        async with self.hook_runner.dispatch_pre_signup(
-            PreSignupContext(
-                email=email,
-                name=name,
-                image=image,
-                email_verified=email_verified,
-                db=self.db,
-            ),
-        ):
-            pass
-
         user = await self.adapter.create_user(
             self.db,
             email=email,
@@ -205,9 +191,6 @@ class BelgieClient[
             image=image,
             email_verified=email_verified,
         )
-
-        async with self.hook_runner.dispatch("on_signup", HookContext(user=user, db=self.db)):
-            pass
 
         return user, True
 
@@ -251,17 +234,12 @@ class BelgieClient[
             if user_agent is None:
                 user_agent = request.headers.get("user-agent")
 
-        session = await self.session_manager.create_session(
+        return await self.session_manager.create_session(
             self.db,
             user_id=user.id,
             ip_address=ip_address,
             user_agent=user_agent,
         )
-
-        async with self.hook_runner.dispatch("on_signin", HookContext(user=user, db=self.db)):
-            pass
-
-        return session
 
     async def sign_up(  # noqa: PLR0913
         self,
@@ -313,11 +291,7 @@ class BelgieClient[
             >>> session = await client.get_session(request)
             >>> await client.sign_out(session.id)
         """
-        if not (session := await self.session_manager.get_session(self.db, session_id)):
+        if await self.session_manager.get_session(self.db, session_id) is None:
             return False
 
-        if not (user := await self.adapter.get_user_by_id(self.db, session.user_id)):
-            return False
-
-        async with self.hook_runner.dispatch("on_signout", HookContext(user=user, db=self.db)):
-            return await self.session_manager.delete_session(self.db, session_id)
+        return await self.session_manager.delete_session(self.db, session_id)

@@ -114,6 +114,16 @@ def test_constructor_rejects_db_keyword() -> None:
         Belgie(settings=settings, adapter=adapter, database=database, db=database)  # type: ignore[call-arg]
 
 
+def test_constructor_rejects_hooks_keyword() -> None:
+    settings = Mock()
+    adapter = Mock()
+    adapter.dependency = lambda: None
+    hooks = SimpleNamespace()
+
+    with pytest.raises(TypeError):
+        Belgie(settings=settings, adapter=adapter, hooks=hooks)  # type: ignore[call-arg]
+
+
 @pytest.mark.asyncio
 async def test_user_dependency_delegates_to_client_get_user(belgie_instance: Belgie) -> None:
     mock_client = AsyncMock()
