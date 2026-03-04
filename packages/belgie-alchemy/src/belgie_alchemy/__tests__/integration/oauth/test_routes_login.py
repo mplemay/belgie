@@ -126,6 +126,62 @@ async def test_login_redirects_to_configured_login_url_when_prompt_login(
 
 
 @pytest.mark.asyncio
+async def test_login_redirects_to_signup_url_for_prompt_with_multiple_values(
+    async_client: httpx.AsyncClient,
+    oauth_settings: OAuthServer,
+) -> None:
+    state = await _create_login_state(
+        async_client,
+        oauth_settings,
+        state="state-create-multi",
+        prompt="select_account create",
+    )
+    response = await async_client.get(
+        "/auth/oauth/login",
+        params={"state": state},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "testserver"
+    assert parsed.path == "/signup"
+    assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-create-multi"
+    assert query["intent"][0] == "create"
+
+
+@pytest.mark.asyncio
+async def test_login_redirects_to_login_url_for_unknown_prompt_value(
+    async_client: httpx.AsyncClient,
+    oauth_settings: OAuthServer,
+) -> None:
+    state = await _create_login_state(
+        async_client,
+        oauth_settings,
+        state="state-unknown-prompt",
+        prompt="select_account",
+    )
+    response = await async_client.get(
+        "/auth/oauth/login",
+        params={"state": state},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "testserver"
+    assert parsed.path == "/login/google"
+    assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-unknown-prompt"
+    assert query["intent"][0] == "login"
+
+
+@pytest.mark.asyncio
 async def test_login_prompt_create_falls_back_to_login_url_when_signup_url_missing(
     belgie_instance: Belgie,
     oauth_settings: OAuthServer,

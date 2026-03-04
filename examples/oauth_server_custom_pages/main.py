@@ -92,8 +92,8 @@ def _build_local_url(path: str, **query_params: str) -> str:
 async def home() -> dict[str, str]:
     return {
         "message": "oauth server with custom login and signup pages",
-        "authorize_login": "/auth/oauth/authorize?response_type=code&client_id=demo-client&redirect_uri=http://localhost:3030/callback&code_challenge=iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ&state=demo-login&prompt=login",
-        "authorize_signup": "/auth/oauth/authorize?response_type=code&client_id=demo-client&redirect_uri=http://localhost:3030/callback&code_challenge=iMnq5o6zALKXGivsnlom_0F5_WYda32GHkxlV7mq7hQ&state=demo-signup&prompt=create",
+        "authorize_endpoint": "/auth/oauth/authorize",
+        "authorize_prompt_values": "use prompt=login or prompt=create",
         "login_page": "/login",
         "signup_page": "/signup",
         "google_login_page": "/login/google",
@@ -105,7 +105,12 @@ async def login(
     request: Request,
     oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
 ) -> RedirectResponse:
-    context = await oauth.resolve_login_context(request)
+    context = await oauth.try_resolve_login_context(request)
+    if context is None:
+        return RedirectResponse(
+            url=_build_local_url("/login/google", return_to=belgie.settings.urls.signin_redirect),
+            status_code=302,
+        )
     if context.intent == "create":
         return RedirectResponse(url=_build_local_url("/signup", state=context.state), status_code=302)
     return RedirectResponse(url=_build_local_url("/login/google", state=context.state), status_code=302)
@@ -117,8 +122,9 @@ async def signup(
     oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
     client: Annotated[BelgieClient, Depends(belgie)],
 ) -> RedirectResponse:
-    context = await oauth.resolve_login_context(request)
-    response = RedirectResponse(url=context.return_to, status_code=302)
+    context = await oauth.try_resolve_login_context(request)
+    redirect_target = context.return_to if context is not None else belgie.settings.urls.signin_redirect
+    response = RedirectResponse(url=redirect_target, status_code=302)
     _user, session = await client.sign_up(
         "dev@example.com",
         name="Dev User",
@@ -133,8 +139,9 @@ async def login_google(
     oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
     google: Annotated[GoogleOAuthClient, Depends(google_plugin)],
 ) -> RedirectResponse:
-    context = await oauth.resolve_login_context(request)
-    auth_url = await google.signin_url(return_to=context.return_to)
+    context = await oauth.try_resolve_login_context(request)
+    return_to = context.return_to if context is not None else belgie.settings.urls.signin_redirect
+    auth_url = await google.signin_url(return_to=return_to)
     return RedirectResponse(url=auth_url, status_code=302)
 
 
