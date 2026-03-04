@@ -8,11 +8,12 @@ import inspect
 import secrets
 import time
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Annotated, Any, Protocol
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
 import jwt
+from belgie_core.core.client import BelgieClient
 from belgie_core.core.plugin import PluginClient
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -46,7 +47,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Mapping
 
     from belgie_core.core.belgie import Belgie
-    from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
 
     from belgie_oauth_server.settings import OAuthServer
@@ -231,9 +231,9 @@ class OAuthServerPlugin(PluginClient):
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
-        async def authorize_handler(
+        async def _authorize(
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
             data = await _get_request_params(request)
             oauth_client, params = await _parse_authorize_params(data, provider, settings, belgie.settings.base_url)
@@ -267,7 +267,22 @@ class OAuthServerPlugin(PluginClient):
             redirect_url = await _issue_authorization_code(provider, state_value)
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
-        router.add_api_route("/authorize", authorize_handler, methods=["GET", "POST"])
+        async def authorize_get_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
+            return await _authorize(request, client)
+
+        async def authorize_post_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
+            return await _authorize(request, client)
+
+        authorize_get_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
+        authorize_post_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
+        router.add_api_route("/authorize", authorize_get_handler, methods=["GET"])
+        router.add_api_route("/authorize", authorize_post_handler, methods=["POST"])
         return router
 
     @staticmethod
@@ -281,7 +296,7 @@ class OAuthServerPlugin(PluginClient):
     ) -> APIRouter:
         async def token_handler(
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
             form = await request.form()
             grant_type = _get_str(form, "grant_type")
@@ -312,6 +327,7 @@ class OAuthServerPlugin(PluginClient):
 
             return _oauth_error("unsupported_grant_type", status_code=400)
 
+        token_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/token", token_handler, methods=["POST"])
         return router
 
@@ -324,7 +340,7 @@ class OAuthServerPlugin(PluginClient):
     ) -> APIRouter:
         async def register_handler(  # noqa: PLR0911
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
             if not settings.allow_dynamic_client_registration:
                 return _oauth_error(
@@ -376,6 +392,7 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("invalid_request", description, status_code=400)
             return JSONResponse(client_info.model_dump(mode="json"))
 
+        register_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/register", register_handler, methods=["POST"])
         return router
 
@@ -427,7 +444,7 @@ class OAuthServerPlugin(PluginClient):
     def _add_userinfo_route(router: APIRouter, belgie: Belgie, provider: SimpleOAuthProvider) -> APIRouter:
         async def userinfo_handler(  # noqa: PLR0911
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
             authorization = request.headers.get("authorization")
             if not authorization:
@@ -458,6 +475,7 @@ class OAuthServerPlugin(PluginClient):
 
             return JSONResponse(_build_user_claims(user, access_token.scopes))
 
+        userinfo_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/userinfo", userinfo_handler, methods=["GET"])
         return router
 
@@ -470,7 +488,7 @@ class OAuthServerPlugin(PluginClient):
     ) -> APIRouter:
         async def end_session_handler(  # noqa: C901, PLR0911
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
             id_token_hint = request.query_params.get("id_token_hint")
             if not id_token_hint:
@@ -534,6 +552,7 @@ class OAuthServerPlugin(PluginClient):
 
             return JSONResponse({})
 
+        end_session_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/end-session", end_session_handler, methods=["GET"])
         return router
 
@@ -578,7 +597,7 @@ class OAuthServerPlugin(PluginClient):
     ) -> APIRouter:
         async def login_callback_handler(
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
             state = request.query_params.get("state")
             if not state:
@@ -599,6 +618,7 @@ class OAuthServerPlugin(PluginClient):
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
+        login_callback_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/login/callback", login_callback_handler, methods=["GET"])
         return router
 

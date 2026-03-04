@@ -32,7 +32,7 @@ class InvalidRedirectUriError(Exception):
 
 
 class OAuthClientMetadata(BaseModel):
-    redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
+    redirect_uris: list[AnyUrl] | None = Field(min_length=1)
     token_endpoint_auth_method: (
         Literal[
             "none",
@@ -126,5 +126,5 @@ class OIDCMetadata(OAuthMetadata):
 
 class ProtectedResourceMetadata(BaseModel):
     resource: AnyHttpUrl
-    authorization_servers: list[AnyHttpUrl] = Field(..., min_length=1)
+    authorization_servers: list[AnyHttpUrl] = Field(min_length=1)
     scopes_supported: list[str] | None = None

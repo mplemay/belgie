@@ -92,7 +92,7 @@ async def login_google(
 
 
 @app.get("/dashboard")
-async def dashboard(user: User = Depends(belgie.user)) -> dict[str, str | None]:  # noqa: B008, FAST002
+async def dashboard(user: Annotated[User, Depends(belgie.user)]) -> dict[str, str | None]:
     return {
         "user_id": str(user.id),
         "email": user.email,
@@ -102,7 +102,7 @@ async def dashboard(user: User = Depends(belgie.user)) -> dict[str, str | None]:
 
 
 @app.get("/profile")
-async def profile(user: User = Depends(belgie.user)) -> dict[str, str | None]:  # noqa: B008, FAST002
+async def profile(user: Annotated[User, Depends(belgie.user)]) -> dict[str, str | None]:
     return {
         "user_id": str(user.id),
         "email": user.email,
@@ -111,7 +111,7 @@ async def profile(user: User = Depends(belgie.user)) -> dict[str, str | None]:  
 
 
 @app.get("/profile/email")
-async def profile_email(user: User = Security(belgie.user, scopes=["email"])) -> dict[str, str]:  # noqa: B008, FAST002
+async def profile_email(user: Annotated[User, Security(belgie.user, scopes=["email"])]) -> dict[str, str]:
     return {
         "email": user.email,
         "email_verified": str(user.email_verified),
@@ -119,7 +119,7 @@ async def profile_email(user: User = Security(belgie.user, scopes=["email"])) ->
 
 
 @app.get("/session")
-async def session_info(session: Session = Depends(belgie.session)) -> dict[str, str]:  # noqa: B008, FAST002
+async def session_info(session: Annotated[Session, Depends(belgie.session)]) -> dict[str, str]:
     return {
         "session_id": str(session.id),
         "user_id": str(session.user_id),

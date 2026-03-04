@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Coroutine  # noqa: TC003
 from inspect import signature
-from typing import Any, cast
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from belgie_proto import (
@@ -41,7 +41,7 @@ class _BelgieCallable:
         dependency = obj.database.dependency
 
         def __call__(  # noqa: N807
-            db: DBConnection = Depends(dependency),  # noqa: B008
+            db: Annotated[DBConnection, Depends(dependency)],
         ) -> BelgieClient:
             return BelgieClient(
                 db=db,
@@ -50,6 +50,7 @@ class _BelgieCallable:
                 cookie_settings=obj.settings.cookie,
             )
 
+        __call__.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
         return __call__
 
 
@@ -176,13 +177,15 @@ class Belgie[
                 main_router.include_router(plugin_router)
 
         # Add signout endpoint to main router (not provider-specific)
-        async def _get_db(db: DBConnection = Depends(dependency)) -> DBConnection:  # noqa: B008
+        async def _get_db(db: Annotated[DBConnection, Depends(dependency)]) -> DBConnection:
             return db
+
+        _get_db.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
 
         @main_router.post("/signout")
         async def signout(
             request: Request,
-            db: DBConnection = Depends(_get_db),  # noqa: B008, FAST002
+            db: Annotated[DBConnection, Depends(_get_db)],
         ) -> RedirectResponse:
             session_id_str = request.cookies.get(self.settings.cookie.name)
 
@@ -204,6 +207,8 @@ class Belgie[
             )
 
             return response
+
+        signout.__annotations__["db"] = Annotated[DBConnection, Depends(_get_db)]
 
         root_router = APIRouter()
         root_router.include_router(main_router)
@@ -318,11 +323,12 @@ class Belgie[
         async def _user(
             security_scopes: SecurityScopes,
             request: Request,
-            db: DBConnection = Depends(dependency),  # noqa: B008
+            db: Annotated[DBConnection, Depends(dependency)],
         ) -> UserT:
             client = self.__call__(db)
             return await client.get_user(security_scopes, request)
 
+        _user.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
         return _user
 
     @property
@@ -354,9 +360,10 @@ class Belgie[
 
         async def _session(
             request: Request,
-            db: DBConnection = Depends(dependency),  # noqa: B008
+            db: Annotated[DBConnection, Depends(dependency)],
         ) -> SessionT:
             client = self.__call__(db)
             return await client.get_session(request)
 
+        _session.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
         return _session
