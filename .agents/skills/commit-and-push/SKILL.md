@@ -1,6 +1,6 @@
 ---
 name: commit-and-push
-description: Run the repo's finalize workflow (uv pytest, pre-commit with per-hook fixes, conventional commit, git push). Use when asked to run tests/lint, fix hook failures, commit changes, or push updates.
+description: Run the repo's finalize workflow (uv pytest, prek with per-hook fixes, conventional commit, git push). Use when asked to run tests/lint, fix hook failures, commit changes, or push updates.
 ---
 
 # Commit And Push
@@ -25,23 +25,23 @@ Use this workflow to validate changes, fix failures, create a conventional commi
 - Pytest settings live in `pyproject.toml`.
 - If failures are unrelated or require product decisions, stop and ask.
 
-### 3) Run pre-commit and fix hooks
+### 3) Run prek and fix hooks
 
-- Run `uv run pre-commit run --all`.
+- Run `uv run prek run --all-files`.
 - For each failing hook:
   - Diagnose the root cause and fix it directly.
   - Avoid ignores unless the issue is a true edge case or false positive.
-  - Re-run only the failing hook by name: `uv run pre-commit run <hook-name> --all`.
+  - Re-run only the failing hook by name: `uv run prek run <hook-name> --all-files`.
   - If hooks conflict (format vs. lint), resolve the underlying formatting/code issue, then re-run the affected hooks.
-- When all hooks pass, run `uv run pre-commit run --all` again to confirm.
+- When all hooks pass, run `uv run prek run --all-files` again to confirm.
 - Ruff is the linter; rules are in `pyproject.toml`.
 - Type checking uses `ty`. Use specific ignores only when needed, e.g. `# ty: ignore[attr-defined]` with a short reason
   when not obvious.
-- Pre-commit configuration is in `.pre-commit-config.yaml`.
+- Prek configuration is in `prek.toml`.
 
 ### 4) Commit
 
-- Ensure tests and pre-commit pass before committing.
+- Ensure tests and prek pass before committing.
 - Use a conventional commit message (single line, lowercase, <72 chars when possible).
 - If needed, inspect changes to choose the correct type: `git status -sb`, `git diff --stat`.
 - If the changes are already known, skip `git status` and `git diff` and choose the type directly.
