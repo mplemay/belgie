@@ -54,10 +54,17 @@ async def test_provider_authorize_state_carries_nonce_user_and_session() -> None
         redirect_uri_provided_explicitly=True,
         resource="http://example.com/mcp",
         nonce="nonce-123",
+        prompt="create",
+        intent="create",
         user_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     )
     await provider.authorize(oauth_client, params)
+    state_data = await provider.load_authorization_state("state-principal")
+    assert state_data is not None
+    assert state_data.prompt == "create"
+    assert state_data.intent == "create"
+
     redirect_url = await provider.issue_authorization_code("state-principal")
     code = parse_qs(urlparse(redirect_url).query)["code"][0]
     authorization_code = await provider.load_authorization_code(code)

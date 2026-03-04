@@ -103,6 +103,7 @@ def oauth_settings() -> OAuthServer:
         base_url="http://testserver",
         prefix="/oauth",
         login_url="/login/google",
+        signup_url="/signup",
         client_id="test-client",
         client_secret=SecretStr("test-secret"),
         redirect_uris=["http://testserver/callback"],

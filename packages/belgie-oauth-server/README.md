@@ -27,3 +27,54 @@ To migrate existing clients:
 
 This keeps RP-initiated logout working for public clients while still requiring normal OIDC claim validation.
 `iss` and `aud` are always checked when validating `id_token_hint` at `/end-session`.
+
+## Custom Login and Signup Pages
+
+Use `login_url` and `signup_url` to point the OAuth server at app-owned pages:
+
+```python
+from typing import Annotated
+
+from fastapi import Depends, Request
+from fastapi.responses import RedirectResponse
+
+from belgie import BelgieClient
+from belgie.oauth.server import OAuthServer, OAuthServerClient
+from belgie_oauth_server.utils import construct_redirect_uri
+
+oauth_plugin = belgie.add_plugin(
+    OAuthServer(
+        login_url="/login",
+        signup_url="/signup",
+        client_id="demo-client",
+        client_secret="demo-secret",
+        redirect_uris=["http://localhost:3030/callback"],
+    ),
+)
+
+
+@app.get("/login")
+async def login(
+    request: Request,
+    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+):
+    context = await oauth.resolve_login_context(request)
+    if context.intent == "create":
+        return RedirectResponse(url=construct_redirect_uri("/signup", state=context.state), status_code=302)
+    return RedirectResponse(url=construct_redirect_uri("/login/google", state=context.state), status_code=302)
+
+
+@app.get("/signup")
+async def signup(
+    request: Request,
+    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+    client: Annotated[BelgieClient, Depends(belgie)],
+):
+    context = await oauth.resolve_login_context(request)
+    response = RedirectResponse(url=context.return_to, status_code=302)
+    _user, session = await client.sign_up("dev@example.com", request=request)
+    return client.create_session_cookie(session, response)
+```
+
+When `prompt=create` is present on `/authorize`, `signup_url` is preferred; otherwise `login_url` is used.
+`prompt=create` falls back to `login_url` if `signup_url` is not configured.

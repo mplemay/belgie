@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import inspect
 import secrets
 import time
 from dataclasses import dataclass, replace
@@ -19,6 +20,7 @@ from fastapi.security import SecurityScopes
 from jwt import InvalidTokenError
 from pydantic import AnyUrl, ValidationError
 
+from belgie_oauth_server.client import OAuthLoginIntent, OAuthServerClient
 from belgie_oauth_server.metadata import (
     _ROOT_OAUTH_METADATA_PATH,
     _ROOT_OPENID_METADATA_PATH,
@@ -41,7 +43,7 @@ from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvide
 from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge, join_url
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Coroutine, Mapping
 
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
@@ -72,6 +74,27 @@ class OAuthServerPlugin(PluginClient):
         self._settings = settings
         self._provider: SimpleOAuthProvider | None = None
         self._metadata_router: APIRouter | None = None
+        self._resolve_client: Callable[..., Coroutine[object, object, OAuthServerClient]] | None = None
+
+    def _ensure_dependency_resolver(self, belgie: Belgie, provider: SimpleOAuthProvider, issuer_url: str) -> None:
+        if self._resolve_client is not None:
+            return
+
+        async def resolve_client(client: BelgieClient = Depends(belgie)) -> OAuthServerClient:  # noqa: B008
+            _ = client
+            return OAuthServerClient(provider=provider, issuer_url=issuer_url)
+
+        self._resolve_client = resolve_client
+        self.__signature__ = inspect.signature(resolve_client)
+
+    async def __call__(self, *args: object, **kwargs: object) -> OAuthServerClient:
+        if self._resolve_client is None:
+            msg = (
+                "OAuthServerPlugin dependency requires router initialization "
+                "(call app.include_router(belgie.router) first)"
+            )
+            raise RuntimeError(msg)
+        return await self._resolve_client(*args, **kwargs)
 
     def router(self, belgie: Belgie) -> APIRouter:
         issuer_url = (
@@ -80,6 +103,7 @@ class OAuthServerPlugin(PluginClient):
         if self._provider is None:
             self._provider = SimpleOAuthProvider(self._settings, issuer_url=issuer_url)
         provider = self._provider
+        self._ensure_dependency_resolver(belgie, provider, issuer_url)
 
         self._metadata_router = self.metadata_router(belgie)
 
@@ -95,7 +119,7 @@ class OAuthServerPlugin(PluginClient):
         router = self._add_revoke_route(router, provider)
         router = self._add_userinfo_route(router, belgie, provider)
         router = self._add_end_session_route(router, belgie, provider, issuer_url)
-        router = self._add_login_route(router, belgie, issuer_url, self._settings)
+        router = self._add_login_route(router, belgie, issuer_url, self._settings, provider)
         router = self._add_login_callback_route(router, belgie, provider)
         return self._add_introspect_route(router, provider)
 
@@ -219,7 +243,14 @@ class OAuthServerPlugin(PluginClient):
                 session = await client.get_session(request)
             except HTTPException as exc:
                 if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-                    if not settings.login_url:
+                    if (
+                        _resolve_auth_redirect_url(
+                            settings,
+                            belgie.settings.base_url,
+                            intent=params.intent,
+                        )
+                        is None
+                    ):
                         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login_required") from exc
 
                     state_value = await _authorize_state(provider, oauth_client, params)
@@ -512,24 +543,28 @@ class OAuthServerPlugin(PluginClient):
         belgie: Belgie,
         issuer_url: str,
         settings: OAuthServer,
+        provider: SimpleOAuthProvider,
     ) -> APIRouter:
         async def login_handler(request: Request) -> Response:
             state = request.query_params.get("state")
             if not state:
                 raise HTTPException(status_code=400, detail="missing state")
 
-            if not settings.login_url:
-                raise HTTPException(status_code=400, detail="login_url not configured")
+            state_data = await provider.load_authorization_state(state)
+            if state_data is None:
+                raise HTTPException(status_code=400, detail="Invalid state parameter")
 
-            parsed_login_url = urlparse(settings.login_url)
-            if parsed_login_url.scheme in {"http", "https"}:
-                login_url = settings.login_url
-            else:
-                login_url = join_url(belgie.settings.base_url, settings.login_url)
+            login_url = _resolve_auth_redirect_url(
+                settings,
+                belgie.settings.base_url,
+                intent=state_data.intent,
+            )
+            if login_url is None:
+                raise HTTPException(status_code=400, detail="login_url not configured")
 
             return_to_base = join_url(issuer_url, "login/callback")
             return_to_url = construct_redirect_uri(return_to_base, state=state)
-            redirect_url = construct_redirect_uri(login_url, return_to=return_to_url)
+            redirect_url = construct_redirect_uri(login_url, return_to=return_to_url, intent=state_data.intent)
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
         router.add_api_route("/login", login_handler, methods=["GET"])
@@ -687,6 +722,7 @@ async def _parse_authorize_params(
     _validate_authorize_resource(settings, belgie_base_url, resource)
 
     state = _get_str(data, "state") or secrets.token_hex(16)
+    prompt = _normalize_prompt(_get_str(data, "prompt"))
 
     params = AuthorizationParams(
         state=state,
@@ -696,6 +732,8 @@ async def _parse_authorize_params(
         redirect_uri_provided_explicitly=redirect_uri_raw is not None,
         resource=resource,
         nonce=_get_str(data, "nonce"),
+        prompt=prompt,
+        intent=_derive_login_intent(prompt),
     )
     return oauth_client, params
 
@@ -737,6 +775,39 @@ async def _issue_authorization_code(provider: SimpleOAuthProvider, state: str) -
 
 def _build_login_redirect(issuer_url: str, state: str) -> str:
     return construct_redirect_uri(join_url(issuer_url, "login"), state=state)
+
+
+def _normalize_prompt(prompt: str | None) -> str | None:
+    if prompt is None:
+        return None
+    values = [value for value in prompt.split(" ") if value]
+    if not values:
+        return None
+    return " ".join(values)
+
+
+def _derive_login_intent(prompt: str | None) -> OAuthLoginIntent:
+    if not prompt:
+        return "login"
+    values = set(prompt.split(" "))
+    if "create" in values:
+        return "create"
+    return "login"
+
+
+def _resolve_auth_redirect_url(settings: OAuthServer, belgie_base_url: str, *, intent: OAuthLoginIntent) -> str | None:
+    if intent == "create" and settings.signup_url:
+        return _resolve_redirect_url(belgie_base_url, settings.signup_url)
+    if settings.login_url:
+        return _resolve_redirect_url(belgie_base_url, settings.login_url)
+    return None
+
+
+def _resolve_redirect_url(belgie_base_url: str, redirect_url: str) -> str:
+    parsed_redirect_url = urlparse(redirect_url)
+    if parsed_redirect_url.scheme in {"http", "https"}:
+        return redirect_url
+    return join_url(belgie_base_url, redirect_url)
 
 
 def _oauth_error(error: str, description: str | None = None, status_code: int = 400) -> JSONResponse:

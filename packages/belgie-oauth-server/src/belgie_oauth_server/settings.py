@@ -52,6 +52,7 @@ class OAuthServer(BaseSettings):
     base_url: AnyHttpUrl | None = None
     prefix: str = "/oauth"
     login_url: str | None = None
+    signup_url: str | None = None
 
     client_id: str = "belgie_client"
     client_secret: SecretStr | None = None
