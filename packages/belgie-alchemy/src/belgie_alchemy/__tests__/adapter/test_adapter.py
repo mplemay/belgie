@@ -5,13 +5,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy import AlchemyAdapter
+from belgie_alchemy import BelgieAdapter
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 
 
 @pytest_asyncio.fixture
 async def adapter(alchemy_session: AsyncSession):  # noqa: ARG001
-    adapter = AlchemyAdapter(
+    adapter = BelgieAdapter(
         user=User,
         account=Account,
         session=Session,
@@ -21,7 +21,7 @@ async def adapter(alchemy_session: AsyncSession):  # noqa: ARG001
 
 
 @pytest.mark.asyncio
-async def test_create_user(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_create_user(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -37,7 +37,7 @@ async def test_create_user(adapter: AlchemyAdapter, alchemy_session: AsyncSessio
 
 
 @pytest.mark.asyncio
-async def test_get_user_by_id(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_user_by_id(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     created_user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -52,13 +52,13 @@ async def test_get_user_by_id(adapter: AlchemyAdapter, alchemy_session: AsyncSes
 
 
 @pytest.mark.asyncio
-async def test_get_user_by_id_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_user_by_id_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.get_user_by_id(alchemy_session, uuid4())
     assert user is None
 
 
 @pytest.mark.asyncio
-async def test_get_user_by_email(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_user_by_email(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -72,13 +72,13 @@ async def test_get_user_by_email(adapter: AlchemyAdapter, alchemy_session: Async
 
 
 @pytest.mark.asyncio
-async def test_get_user_by_email_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_user_by_email_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.get_user_by_email(alchemy_session, "nonexistent@example.com")
     assert user is None
 
 
 @pytest.mark.asyncio
-async def test_update_user(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_update_user(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -98,7 +98,7 @@ async def test_update_user(adapter: AlchemyAdapter, alchemy_session: AsyncSessio
 
 
 @pytest.mark.asyncio
-async def test_update_user_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_update_user_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     updated_user = await adapter.update_user(
         alchemy_session,
         uuid4(),
@@ -108,7 +108,7 @@ async def test_update_user_not_found(adapter: AlchemyAdapter, alchemy_session: A
 
 
 @pytest.mark.asyncio
-async def test_create_account(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_create_account(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -136,7 +136,7 @@ async def test_create_account(adapter: AlchemyAdapter, alchemy_session: AsyncSes
 
 
 @pytest.mark.asyncio
-async def test_get_account(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_account(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -157,13 +157,13 @@ async def test_get_account(adapter: AlchemyAdapter, alchemy_session: AsyncSessio
 
 
 @pytest.mark.asyncio
-async def test_get_account_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_account_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     account = await adapter.get_account(alchemy_session, "google", "nonexistent")
     assert account is None
 
 
 @pytest.mark.asyncio
-async def test_create_session(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_create_session(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -185,7 +185,7 @@ async def test_create_session(adapter: AlchemyAdapter, alchemy_session: AsyncSes
 
 
 @pytest.mark.asyncio
-async def test_get_session(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_session(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -204,13 +204,13 @@ async def test_get_session(adapter: AlchemyAdapter, alchemy_session: AsyncSessio
 
 
 @pytest.mark.asyncio
-async def test_get_session_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_session_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     session = await adapter.get_session(alchemy_session, uuid4())
     assert session is None
 
 
 @pytest.mark.asyncio
-async def test_update_session(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_update_session(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -236,7 +236,7 @@ async def test_update_session(adapter: AlchemyAdapter, alchemy_session: AsyncSes
 
 
 @pytest.mark.asyncio
-async def test_update_session_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_update_session_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     updated_session = await adapter.update_session(
         alchemy_session,
         uuid4(),
@@ -246,7 +246,7 @@ async def test_update_session_not_found(adapter: AlchemyAdapter, alchemy_session
 
 
 @pytest.mark.asyncio
-async def test_delete_session(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_delete_session(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -266,13 +266,13 @@ async def test_delete_session(adapter: AlchemyAdapter, alchemy_session: AsyncSes
 
 
 @pytest.mark.asyncio
-async def test_delete_session_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_delete_session_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     deleted = await adapter.delete_session(alchemy_session, uuid4())
     assert deleted is False
 
 
 @pytest.mark.asyncio
-async def test_delete_expired_sessions(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_delete_expired_sessions(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -295,7 +295,7 @@ async def test_delete_expired_sessions(adapter: AlchemyAdapter, alchemy_session:
 
 
 @pytest.mark.asyncio
-async def test_create_oauth_state(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_create_oauth_state(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     expires_at = datetime.now(UTC) + timedelta(minutes=10)
     oauth_state = await adapter.create_oauth_state(
         alchemy_session,
@@ -312,7 +312,7 @@ async def test_create_oauth_state(adapter: AlchemyAdapter, alchemy_session: Asyn
 
 
 @pytest.mark.asyncio
-async def test_get_oauth_state(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_oauth_state(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     await adapter.create_oauth_state(
         alchemy_session,
         state="random_state_123",
@@ -326,13 +326,13 @@ async def test_get_oauth_state(adapter: AlchemyAdapter, alchemy_session: AsyncSe
 
 
 @pytest.mark.asyncio
-async def test_get_oauth_state_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_get_oauth_state_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     oauth_state = await adapter.get_oauth_state(alchemy_session, "nonexistent")
     assert oauth_state is None
 
 
 @pytest.mark.asyncio
-async def test_delete_oauth_state(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_delete_oauth_state(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     await adapter.create_oauth_state(
         alchemy_session,
         state="random_state_123",
@@ -347,13 +347,13 @@ async def test_delete_oauth_state(adapter: AlchemyAdapter, alchemy_session: Asyn
 
 
 @pytest.mark.asyncio
-async def test_delete_oauth_state_not_found(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_delete_oauth_state_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     deleted = await adapter.delete_oauth_state(alchemy_session, "nonexistent")
     assert deleted is False
 
 
 @pytest.mark.asyncio
-async def test_user_with_custom_fields(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_user_with_custom_fields(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user_data = User(
         email="custom@example.com",
         email_verified=True,
@@ -370,7 +370,7 @@ async def test_user_with_custom_fields(adapter: AlchemyAdapter, alchemy_session:
 
 
 @pytest.mark.asyncio
-async def test_delete_user_deletes_user(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_delete_user_deletes_user(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(alchemy_session, email="delete@example.com", name="Delete User")
 
     deleted = await adapter.delete_user(alchemy_session, user.id)
@@ -380,7 +380,7 @@ async def test_delete_user_deletes_user(adapter: AlchemyAdapter, alchemy_session
 
 
 @pytest.mark.asyncio
-async def test_delete_user_deletes_sessions(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_delete_user_deletes_sessions(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(alchemy_session, email="delete@example.com", name="Delete User")
 
     expires_at = datetime.now(UTC) + timedelta(days=1)
@@ -394,7 +394,7 @@ async def test_delete_user_deletes_sessions(adapter: AlchemyAdapter, alchemy_ses
 
 
 @pytest.mark.asyncio
-async def test_delete_user_deletes_accounts(adapter: AlchemyAdapter, alchemy_session: AsyncSession) -> None:
+async def test_delete_user_deletes_accounts(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_user(alchemy_session, email="delete@example.com", name="Delete User")
 
     await adapter.create_account(
@@ -412,7 +412,7 @@ async def test_delete_user_deletes_accounts(adapter: AlchemyAdapter, alchemy_ses
 
 @pytest.mark.asyncio
 async def test_delete_user_deletes_all_related_data(
-    adapter: AlchemyAdapter,
+    adapter: BelgieAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
     user = await adapter.create_user(alchemy_session, email="delete@example.com", name="Delete User")
@@ -448,7 +448,7 @@ async def test_delete_user_deletes_all_related_data(
 
 @pytest.mark.asyncio
 async def test_delete_user_returns_false_if_user_not_found(
-    adapter: AlchemyAdapter,
+    adapter: BelgieAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
     fake_user_id = uuid4()
@@ -459,7 +459,7 @@ async def test_delete_user_returns_false_if_user_not_found(
 
 @pytest.mark.asyncio
 async def test_delete_user_only_deletes_target_users_data(
-    adapter: AlchemyAdapter,
+    adapter: BelgieAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
     user1 = await adapter.create_user(alchemy_session, email="user1@example.com", name="User 1")

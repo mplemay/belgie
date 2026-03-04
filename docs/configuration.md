@@ -184,7 +184,8 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie.alchemy import AlchemyAdapter
+from belgie.alchemy import SqliteSettings
+from belgie.alchemy.adapter import BelgieAdapter
 from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
 
 settings = BelgieSettings(
@@ -206,7 +207,7 @@ settings = BelgieSettings(
 )
 
 database = SqliteSettings(database="./app.db")
-adapter = AlchemyAdapter(...)
+adapter = BelgieAdapter(...)
 
 belgie = Belgie(settings=settings, adapter=adapter, database=database)
 belgie.add_plugin(
