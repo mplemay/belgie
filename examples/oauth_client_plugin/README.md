@@ -6,7 +6,7 @@ This example shows the new OAuth client plugin flow using `belgie-oauth`.
 
 - Constructing `Belgie` without `providers=`
 - Registering OAuth client routes via:
-  - `belgie.add_plugin(GoogleOAuthPlugin, GoogleOAuthSettings(...))`
+  - `belgie.add_plugin(GoogleOAuth(...))`
 - App-owned signin endpoint using plugin dependency:
   - `GET /login/google`
 - Unscoped user dependency using `Depends(belgie.user)`:

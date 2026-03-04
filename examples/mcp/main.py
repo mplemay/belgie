@@ -17,8 +17,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import SqliteSettings
 from belgie.alchemy.adapter import BelgieAdapter
-from belgie.mcp import McpPlugin, McpPluginSettings, get_user_from_access_token
-from belgie.oauth.server import OAuthResource, OAuthServerPlugin, OAuthServerSettings
+from belgie.mcp import Mcp, get_user_from_access_token
+from belgie.oauth.server import OAuthResource, OAuthServer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -168,7 +168,7 @@ belgie = Belgie(
     database=db_settings,
 )
 
-oauth_settings = OAuthServerSettings(
+oauth_settings = OAuthServer(
     base_url=settings.base_url,
     prefix="/oauth",
     client_id="demo-client",
@@ -179,11 +179,10 @@ oauth_settings = OAuthServerSettings(
     resources=[OAuthResource(prefix="/mcp", scopes=["user"])],
 )
 
-_ = belgie.add_plugin(OAuthServerPlugin, oauth_settings)
+_ = belgie.add_plugin(oauth_settings)
 mcp_plugin = belgie.add_plugin(
-    McpPlugin,
-    McpPluginSettings(
-        oauth_settings=oauth_settings,
+    Mcp(
+        oauth=oauth_settings,
         base_url=settings.base_url,
     ),
 )

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse, urlunparse
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from belgie_core.core.settings import BelgieSettings
+
+    from belgie_oauth_server.plugin import OAuthServerPlugin
 
 
 class OAuthResource(BaseModel):
@@ -37,7 +42,7 @@ class OAuthResource(BaseModel):
         return AnyHttpUrl(urlunparse(parsed._replace(path=full_path, query="", fragment="")))
 
 
-class OAuthServerSettings(BaseSettings):
+class OAuthServer(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_OAUTH_",
         env_file=".env",
@@ -108,3 +113,7 @@ class OAuthServerSettings(BaseSettings):
 
         resource = self.resources[0]
         return resource.resolve_url(base_url), resource.scopes
+
+    def __call__(self, belgie_settings: BelgieSettings) -> OAuthServerPlugin:
+        plugin_class = __import__("belgie_oauth_server.plugin", fromlist=["OAuthServerPlugin"]).OAuthServerPlugin
+        return plugin_class(belgie_settings, self)

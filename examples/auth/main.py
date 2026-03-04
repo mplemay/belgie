@@ -15,7 +15,7 @@ from belgie import (
 )
 from belgie.alchemy import SqliteSettings
 from belgie.alchemy.adapter import BelgieAdapter
-from belgie.oauth.google import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 db_settings = SqliteSettings(database="./belgie_auth_example.db", echo=True)
@@ -62,8 +62,7 @@ belgie = Belgie(
     database=db_settings,
 )
 google_oauth_plugin = belgie.add_plugin(
-    GoogleOAuthPlugin,
-    GoogleOAuthSettings(
+    GoogleOAuth(
         client_id="your-google-client-id",
         client_secret="your-google-client-secret",  # noqa: S106
         scopes=["openid", "email", "profile"],

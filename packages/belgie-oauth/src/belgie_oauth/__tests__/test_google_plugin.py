@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from belgie_core.core.exceptions import InvalidStateError
 from belgie_core.core.settings import BelgieSettings
-from belgie_oauth import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings, GoogleUserInfo
+from belgie_oauth import GoogleOAuth, GoogleOAuthClient, GoogleOAuthPlugin, GoogleUserInfo
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
@@ -24,7 +24,7 @@ class DummyBelgie:
 
 
 def _build_plugin() -> GoogleOAuthPlugin:
-    settings = GoogleOAuthSettings(
+    settings = GoogleOAuth(
         client_id="test-client-id",
         client_secret="test-client-secret",
     )

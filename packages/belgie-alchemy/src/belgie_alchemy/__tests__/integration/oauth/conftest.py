@@ -22,7 +22,7 @@ OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth-server" / "src"
 if str(OAUTH_SRC) not in sys.path:
     sys.path.insert(0, str(OAUTH_SRC))
 
-from belgie_oauth_server import OAuthResource, OAuthServerPlugin, OAuthServerSettings  # noqa: E402
+from belgie_oauth_server import OAuthResource, OAuthServer, OAuthServerPlugin  # noqa: E402
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -98,8 +98,8 @@ def belgie_instance(
 
 
 @pytest.fixture
-def oauth_settings() -> OAuthServerSettings:
-    return OAuthServerSettings(
+def oauth_settings() -> OAuthServer:
+    return OAuthServer(
         base_url="http://testserver",
         prefix="/oauth",
         login_url="/login/google",
@@ -114,9 +114,9 @@ def oauth_settings() -> OAuthServerSettings:
 @pytest.fixture
 def oauth_plugin(
     belgie_instance: Belgie,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
 ) -> OAuthServerPlugin:
-    return belgie_instance.add_plugin(OAuthServerPlugin, oauth_settings)
+    return belgie_instance.add_plugin(oauth_settings)
 
 
 @pytest.fixture

@@ -5,13 +5,13 @@ import pytest
 import respx
 from belgie_core.core.exceptions import OAuthError
 from belgie_core.core.settings import BelgieSettings
-from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings, GoogleUserInfo
+from belgie_oauth import GoogleOAuth, GoogleOAuthPlugin, GoogleUserInfo
 from pydantic import ValidationError
 
 
 @pytest.fixture
-def google_provider_settings() -> GoogleOAuthSettings:
-    return GoogleOAuthSettings(
+def google_provider_settings() -> GoogleOAuth:
+    return GoogleOAuth(
         client_id="test-client-id",
         client_secret="test-client-secret",
         scopes=["openid", "email", "profile"],
@@ -25,7 +25,7 @@ def belgie_settings() -> BelgieSettings:
 
 @pytest.fixture
 def google_provider(
-    google_provider_settings: GoogleOAuthSettings,
+    google_provider_settings: GoogleOAuth,
     belgie_settings: BelgieSettings,
 ) -> GoogleOAuthPlugin:
     return GoogleOAuthPlugin(belgie_settings, google_provider_settings)
@@ -87,7 +87,7 @@ def test_google_provider_id(google_provider: GoogleOAuthPlugin) -> None:
 
 
 def test_google_provider_settings() -> None:
-    settings = GoogleOAuthSettings(
+    settings = GoogleOAuth(
         client_id="test-client-id",
         client_secret="test-secret",
     )
@@ -100,7 +100,7 @@ def test_google_provider_settings() -> None:
 
 
 def test_google_provider_settings_custom_values() -> None:
-    settings = GoogleOAuthSettings(
+    settings = GoogleOAuth(
         client_id="custom-client-id",
         client_secret="custom-secret",
         scopes=["openid", "email"],
@@ -116,7 +116,7 @@ def test_google_provider_settings_custom_values() -> None:
 def test_google_provider_settings_rejects_empty_client_id() -> None:
     """Verify that empty client_id is rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        GoogleOAuthSettings(
+        GoogleOAuth(
             client_id="",
             client_secret="test-secret",
         )
@@ -129,7 +129,7 @@ def test_google_provider_settings_rejects_empty_client_id() -> None:
 def test_google_provider_settings_rejects_empty_client_secret() -> None:
     """Verify that empty client_secret is rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        GoogleOAuthSettings(
+        GoogleOAuth(
             client_id="test-client-id",
             client_secret="",
         )
@@ -140,7 +140,7 @@ def test_google_provider_settings_rejects_empty_client_secret() -> None:
 
 def test_google_provider_settings_trims_whitespace() -> None:
     """Verify that leading/trailing whitespace is trimmed."""
-    settings = GoogleOAuthSettings(
+    settings = GoogleOAuth(
         client_id="  test-client-id  ",
         client_secret="  test-secret  ",
     )
@@ -156,7 +156,7 @@ def test_google_provider_redirect_uri_is_derived_from_base_url(
 
 
 def test_google_provider_redirect_uri_includes_base_path(
-    google_provider_settings: GoogleOAuthSettings,
+    google_provider_settings: GoogleOAuth,
 ) -> None:
     plugin = GoogleOAuthPlugin(
         BelgieSettings(secret="test-secret", base_url="http://localhost:8000/app"),

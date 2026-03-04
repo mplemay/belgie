@@ -8,12 +8,8 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class Plugin[S](Protocol):
-    """Protocol for Belgie plugins."""
-
-    def __init__(self, belgie_settings: "BelgieSettings", settings: S) -> None:
-        """Initialize plugin with Belgie settings and plugin settings."""
-        ...
+class PluginClient(Protocol):
+    """Protocol for Belgie runtime plugins."""
 
     def router(self, belgie: "Belgie") -> APIRouter | None:
         """Return the FastAPI router for this plugin."""
@@ -21,4 +17,13 @@ class Plugin[S](Protocol):
 
     def public(self, belgie: "Belgie") -> APIRouter | None:
         """Return the FastAPI router for public root-level routes."""
+        ...
+
+
+@runtime_checkable
+class Plugin[P: PluginClient](Protocol):
+    """Protocol for Belgie plugin configuration callables."""
+
+    def __call__(self, belgie_settings: "BelgieSettings") -> P:
+        """Build and return a runtime plugin."""
         ...

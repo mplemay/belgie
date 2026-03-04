@@ -5,9 +5,9 @@ import pytest
 pytest.importorskip("mcp")
 
 from belgie_core.core.settings import BelgieSettings
-from belgie_mcp.plugin import McpPlugin, McpPluginSettings
+from belgie_mcp.plugin import Mcp, McpPlugin
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier
-from belgie_oauth_server.settings import OAuthServerSettings
+from belgie_oauth_server.settings import OAuthServer
 
 
 def _belgie_settings() -> BelgieSettings:
@@ -15,7 +15,7 @@ def _belgie_settings() -> BelgieSettings:
 
 
 def test_mcp_plugin_builds_auth_and_verifier() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -25,8 +25,8 @@ def test_mcp_plugin_builds_auth_and_verifier() -> None:
 
     plugin = McpPlugin(
         _belgie_settings(),
-        McpPluginSettings(
-            oauth_settings=settings,
+        Mcp(
+            oauth=settings,
             server_url="https://mcp.local/mcp",
         ),
     )
@@ -37,7 +37,7 @@ def test_mcp_plugin_builds_auth_and_verifier() -> None:
 
 
 def test_mcp_plugin_public_returns_none() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -47,8 +47,8 @@ def test_mcp_plugin_public_returns_none() -> None:
 
     plugin = McpPlugin(
         _belgie_settings(),
-        McpPluginSettings(
-            oauth_settings=settings,
+        Mcp(
+            oauth=settings,
             server_url="https://mcp.local/mcp",
         ),
     )
@@ -57,7 +57,7 @@ def test_mcp_plugin_public_returns_none() -> None:
 
 
 def test_mcp_plugin_builds_server_url_from_base_url() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -67,8 +67,8 @@ def test_mcp_plugin_builds_server_url_from_base_url() -> None:
 
     plugin = McpPlugin(
         _belgie_settings(),
-        McpPluginSettings(
-            oauth_settings=settings,
+        Mcp(
+            oauth=settings,
             base_url="https://example.com",
             server_path="/mcp",
         ),
@@ -78,7 +78,7 @@ def test_mcp_plugin_builds_server_url_from_base_url() -> None:
 
 
 def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -88,8 +88,8 @@ def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
 
     plugin = McpPlugin(
         _belgie_settings(),
-        McpPluginSettings(
-            oauth_settings=settings,
+        Mcp(
+            oauth=settings,
             server_path="/mcp",
         ),
     )

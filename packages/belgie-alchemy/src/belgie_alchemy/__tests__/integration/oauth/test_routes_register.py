@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from belgie_oauth_server.plugin import OAuthServerPlugin
-from belgie_oauth_server.settings import OAuthServerSettings
+from belgie_oauth_server.settings import OAuthServer
 from fastapi import FastAPI
 
 
@@ -25,12 +24,12 @@ async def test_register_disabled_by_default(async_client: httpx.AsyncClient) -> 
 @pytest.mark.asyncio
 async def test_register_enabled_requires_authentication(
     belgie_instance,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServerSettings(**settings_payload)
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    settings = OAuthServer(**settings_payload)
+    belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
@@ -51,14 +50,14 @@ async def test_register_enabled_requires_authentication(
 @pytest.mark.asyncio
 async def test_register_enabled_allows_authenticated_confidential_registration(
     belgie_instance,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     db_session,
     create_user_session,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServerSettings(**settings_payload)
-    plugin = belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    settings = OAuthServer(**settings_payload)
+    plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
@@ -83,13 +82,13 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
 @pytest.mark.asyncio
 async def test_register_enabled_unauthenticated_allows_public_clients(
     belgie_instance,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
     settings_payload["allow_unauthenticated_client_registration"] = True
-    settings = OAuthServerSettings(**settings_payload)
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    settings = OAuthServer(**settings_payload)
+    belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
@@ -110,13 +109,13 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
 @pytest.mark.asyncio
 async def test_register_enabled_unauthenticated_rejects_confidential_clients(
     belgie_instance,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
     settings_payload["allow_unauthenticated_client_registration"] = True
-    settings = OAuthServerSettings(**settings_payload)
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    settings = OAuthServer(**settings_payload)
+    belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
@@ -136,15 +135,15 @@ async def test_register_enabled_unauthenticated_rejects_confidential_clients(
 @pytest.mark.asyncio
 async def test_register_rejects_unsupported_auth_method_when_enabled(
     belgie_instance,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     db_session,
     create_user_session,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
     settings_payload["allow_unauthenticated_client_registration"] = True
-    settings = OAuthServerSettings(**settings_payload)
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    settings = OAuthServer(**settings_payload)
+    belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
@@ -167,14 +166,14 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
 @pytest.mark.asyncio
 async def test_register_allows_post_logout_redirect_uris(
     belgie_instance,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     db_session,
     create_user_session,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServerSettings(**settings_payload)
-    plugin = belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    settings = OAuthServer(**settings_payload)
+    plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
@@ -200,14 +199,14 @@ async def test_register_allows_post_logout_redirect_uris(
 @pytest.mark.asyncio
 async def test_register_ignores_enable_end_session_in_metadata(
     belgie_instance,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     db_session,
     create_user_session,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServerSettings(**settings_payload)
-    plugin = belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    settings = OAuthServer(**settings_payload)
+    plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)

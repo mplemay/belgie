@@ -1,5 +1,5 @@
 from belgie_core.core.belgie import Belgie
-from belgie_oauth_server import OAuthServerPlugin, OAuthServerSettings
+from belgie_oauth_server import OAuthServer
 from belgie_oauth_server.metadata import _ROOT_OAUTH_METADATA_PATH, _ROOT_OPENID_METADATA_PATH
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -81,7 +81,7 @@ def test_protected_resource_metadata_root_fallback(client: TestClient) -> None:
 def test_protected_resource_metadata_absent_when_resource_server_unset(
     belgie_instance: Belgie,
 ) -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="http://testserver",
         prefix="/oauth",
         login_url="/login/google",
@@ -90,7 +90,7 @@ def test_protected_resource_metadata_absent_when_resource_server_unset(
         redirect_uris=["http://testserver/callback"],
         default_scope="user",
     )
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    belgie_instance.add_plugin(settings)
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -119,7 +119,7 @@ def test_oauth_metadata_root_fallback(client: TestClient) -> None:
 def test_oauth_metadata_root_fallback_absent_when_disabled(
     belgie_instance: Belgie,
 ) -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="http://testserver",
         prefix="/oauth",
         login_url="/login/google",
@@ -129,7 +129,7 @@ def test_oauth_metadata_root_fallback_absent_when_disabled(
         default_scope="user",
         include_root_oauth_metadata_fallback=False,
     )
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    belgie_instance.add_plugin(settings)
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -147,7 +147,7 @@ def test_oauth_metadata_root_fallback_absent_when_disabled(
 def test_openid_metadata_root_fallback_absent_when_disabled(
     belgie_instance: Belgie,
 ) -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="http://testserver",
         prefix="/oauth",
         login_url="/login/google",
@@ -157,7 +157,7 @@ def test_openid_metadata_root_fallback_absent_when_disabled(
         default_scope="user",
         include_root_openid_metadata_fallback=False,
     )
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    belgie_instance.add_plugin(settings)
 
     app = FastAPI()
     app.include_router(belgie_instance.router)

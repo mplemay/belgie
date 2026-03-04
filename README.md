@@ -109,7 +109,7 @@ class OAuthState(Base):
 
 ```python
 from belgie import Belgie, BelgieSettings
-from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuth
 from belgie.alchemy import SqliteSettings
 from belgie.alchemy.adapter import BelgieAdapter
 
@@ -134,8 +134,7 @@ auth = Belgie(
 )
 
 google_oauth_plugin = auth.add_plugin(
-    GoogleOAuthPlugin,
-    GoogleOAuthSettings(
+    GoogleOAuth(
         client_id="your-google-client-id",
         client_secret="your-google-client-secret",
         scopes=["openid", "email", "profile"],
@@ -199,7 +198,7 @@ Visit `http://localhost:8000/login/google` to sign in.
 ## Plugin API migration note
 
 - `bind()` has been removed from plugins.
-- Plugin constructors now receive `BelgieSettings` and plugin settings: `__init__(belgie_settings, settings)`.
+- Register plugins with callable config objects: `auth.add_plugin(GoogleOAuth(...))`.
 
 ## Router endpoints
 

@@ -33,9 +33,9 @@ The app runs at `http://localhost:8000`.
 
 ## Notes
 
-- The MCP server is mounted at `/mcp` and configured via `McpPlugin`.
+- The MCP server is mounted at `/mcp` and configured via `Mcp`.
 - OAuth discovery serving (`/.well-known/oauth-authorization-server*` and
   `/.well-known/oauth-protected-resource*`) is owned by `OAuthServerPlugin`.
-- Configure `OAuthServerSettings.resources=[OAuthResource(prefix="/mcp", ...)]` so protected
+- Configure `OAuthServer.resources=[OAuthResource(prefix="/mcp", ...)]` so protected
   resource metadata is published at the RFC9728 well-known endpoint.
 - The example uses SQLite and will create `./belgie_mcp_example.db` in the working directory.

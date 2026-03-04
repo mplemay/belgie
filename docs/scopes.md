@@ -20,21 +20,20 @@ your app is requesting and can approve or deny access.
 
 ### Requesting Scopes
 
-Configure scopes in your `GoogleOAuthSettings`:
+Configure scopes in your `GoogleOAuth`:
 
 ```python
 from belgie import Belgie, BelgieSettings
 from belgie.alchemy import SqliteSettings
 from belgie.alchemy.adapter import BelgieAdapter
-from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie.oauth.google import GoogleOAuth
 
 settings = BelgieSettings(secret="your-secret", base_url="http://localhost:8000")
 database = SqliteSettings(database="./app.db")
 adapter = BelgieAdapter(...)
 belgie = Belgie(settings=settings, adapter=adapter, database=database)
 belgie.add_plugin(
-    GoogleOAuthPlugin,
-    GoogleOAuthSettings(
+    GoogleOAuth(
         client_id="your-client-id",
         client_secret="your-client-secret",
         scopes=["openid", "email", "profile"],  # Request these scopes
@@ -189,8 +188,7 @@ Request additional scopes after initial sign-in:
 new_scopes = ["openid", "email", "profile", "calendar.readonly"]
 
 calendar_google_plugin = auth.add_plugin(
-    GoogleOAuthPlugin,
-    GoogleOAuthSettings(
+    GoogleOAuth(
         client_id="your-google-client-id",
         client_secret="your-google-client-secret",
         scopes=new_scopes,

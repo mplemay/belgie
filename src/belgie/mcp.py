@@ -5,8 +5,8 @@ _MCP_IMPORT_ERROR = "belgie.mcp requires the 'mcp' extra. Install with: uv add b
 try:
     from belgie_mcp import (  # type: ignore[import-not-found]
         BelgieOAuthTokenVerifier,
+        Mcp,
         McpPlugin,
-        McpPluginSettings,
         get_user_from_access_token,
     )
 except ModuleNotFoundError as exc:
@@ -14,7 +14,7 @@ except ModuleNotFoundError as exc:
 
 __all__ = [
     "BelgieOAuthTokenVerifier",
+    "Mcp",
     "McpPlugin",
-    "McpPluginSettings",
     "get_user_from_access_token",
 ]

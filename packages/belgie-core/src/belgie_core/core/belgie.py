@@ -19,7 +19,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
-from belgie_core.core.plugin import Plugin
+from belgie_core.core.plugin import Plugin, PluginClient
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.session.manager import SessionManager
 
@@ -128,29 +128,30 @@ class Belgie[
             update_age=settings.session.update_age,
         )
 
-        self.plugins: list[Plugin[Any]] = []
+        self.plugins: list[PluginClient] = []
 
-    def add_plugin[S, P: Plugin[S]](
+    def add_plugin[P: PluginClient](
         self,
-        plugin: type[P],
-        settings: S,
+        plugin: Plugin[P],
     ) -> P:
-        """Register and instantiate a plugin.
+        """Register and instantiate a plugin from configuration.
 
         Args:
-            plugin: The class of the plugin to register.
-            settings: Plugin-specific settings object.
+            plugin: Plugin configuration callable.
 
         Returns:
-            The instantiated plugin.
+            The instantiated runtime plugin.
         """
         try:
-            signature(plugin).bind(self.settings, settings)
+            signature(plugin).bind(self.settings)
         except TypeError as exc:
-            msg = f"{plugin.__name__} constructor must follow __init__(belgie_settings, settings)"
+            msg = "plugin callable must follow __call__(belgie_settings)"
             raise TypeError(msg) from exc
 
-        instance = plugin(self.settings, settings)
+        instance = plugin(self.settings)
+        if not isinstance(instance, PluginClient):
+            msg = "plugin callable must return an object implementing router(belgie) and public(belgie)"
+            raise TypeError(msg)
 
         self.plugins.append(instance)
 

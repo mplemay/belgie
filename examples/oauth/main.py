@@ -13,7 +13,7 @@ from belgie import (
 )
 from belgie.alchemy import SqliteSettings
 from belgie.alchemy.adapter import BelgieAdapter
-from belgie.oauth.server import OAuthServerPlugin, OAuthServerSettings
+from belgie.oauth.server import OAuthServer
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 DB_PATH = "./belgie_oauth_example.db"
@@ -63,7 +63,7 @@ belgie = Belgie(
     database=db_settings,
 )
 
-oauth_settings = OAuthServerSettings(
+oauth_settings = OAuthServer(
     prefix="/oauth",
     client_id="demo-client",
     client_secret="demo-secret",  # noqa: S106
@@ -71,7 +71,7 @@ oauth_settings = OAuthServerSettings(
     default_scope="user",
 )
 
-belgie.add_plugin(OAuthServerPlugin, oauth_settings)
+belgie.add_plugin(oauth_settings)
 
 app.include_router(belgie.router)
 
