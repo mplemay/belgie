@@ -1,6 +1,7 @@
 from collections.abc import Callable
-from inspect import signature
+from inspect import Parameter, signature
 from types import SimpleNamespace
+from typing import Annotated, get_args, get_origin
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -65,10 +66,13 @@ def test_user_property_signature_uses_depends(
 ) -> None:
     dependency, _ = db_provider
 
-    db_param_default = signature(belgie_instance.user).parameters["db"].default
+    db_parameter = signature(belgie_instance.user).parameters["db"]
+    assert db_parameter.default is Parameter.empty
+    assert get_origin(db_parameter.annotation) is Annotated
 
-    assert isinstance(db_param_default, DependsParam)
-    assert db_param_default.dependency is dependency
+    _, depends_marker = get_args(db_parameter.annotation)
+    assert isinstance(depends_marker, DependsParam)
+    assert depends_marker.dependency is dependency
 
 
 def test_session_property_signature_uses_depends(
@@ -77,10 +81,13 @@ def test_session_property_signature_uses_depends(
 ) -> None:
     dependency, _ = db_provider
 
-    db_param_default = signature(belgie_instance.session).parameters["db"].default
+    db_parameter = signature(belgie_instance.session).parameters["db"]
+    assert db_parameter.default is Parameter.empty
+    assert get_origin(db_parameter.annotation) is Annotated
 
-    assert isinstance(db_param_default, DependsParam)
-    assert db_param_default.dependency is dependency
+    _, depends_marker = get_args(db_parameter.annotation)
+    assert isinstance(depends_marker, DependsParam)
+    assert depends_marker.dependency is dependency
 
 
 def test_constructor_accepts_database_keyword() -> None:

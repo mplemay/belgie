@@ -92,7 +92,7 @@ async def login_google(
 
 
 @app.get("/protected")
-async def protected(user: User = Depends(belgie.user)) -> dict[str, str]:  # noqa: B008, FAST002
+async def protected(user: Annotated[User, Depends(belgie.user)]) -> dict[str, str]:
     return {
         "message": "this is a protected route",
         "user_id": str(user.id),
@@ -101,7 +101,7 @@ async def protected(user: User = Depends(belgie.user)) -> dict[str, str]:  # noq
 
 
 @app.get("/dashboard")
-async def dashboard(user: User = Depends(belgie.user)) -> dict[str, str | None]:  # noqa: B008, FAST002
+async def dashboard(user: Annotated[User, Depends(belgie.user)]) -> dict[str, str | None]:
     return {
         "message": "welcome to your dashboard",
         "user_id": str(user.id),
@@ -112,7 +112,7 @@ async def dashboard(user: User = Depends(belgie.user)) -> dict[str, str | None]:
 
 
 @app.get("/profile/email")
-async def profile_email(user: User = Security(belgie.user, scopes=["email"])) -> dict[str, str]:  # noqa: B008, FAST002
+async def profile_email(user: Annotated[User, Security(belgie.user, scopes=["email"])]) -> dict[str, str]:
     return {
         "email": user.email,
         "verified": str(user.email_verified),
@@ -121,7 +121,7 @@ async def profile_email(user: User = Security(belgie.user, scopes=["email"])) ->
 
 @app.get("/profile/full")
 async def profile_full(
-    user: User = Security(belgie.user, scopes=["openid", "email", "profile"]),  # noqa: B008, FAST002
+    user: Annotated[User, Security(belgie.user, scopes=["openid", "email", "profile"])],
 ) -> dict[str, str | None]:
     return {
         "id": str(user.id),
@@ -133,7 +133,7 @@ async def profile_full(
 
 
 @app.get("/session")
-async def session_info(session: Session = Depends(belgie.session)) -> dict[str, str]:  # noqa: B008, FAST002
+async def session_info(session: Annotated[Session, Depends(belgie.session)]) -> dict[str, str]:
     return {
         "session_id": str(session.id),
         "user_id": str(session.user_id),

@@ -136,6 +136,30 @@ async def test_authorize_issues_code_when_authenticated(
 
 
 @pytest.mark.asyncio
+async def test_authorize_issues_code_when_authenticated_via_post(
+    async_client: httpx.AsyncClient,
+    belgie_instance: Belgie,
+    db_session: AsyncSession,
+    oauth_settings: OAuthServer,
+    create_user_session,
+) -> None:
+    session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
+    async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+
+    form_data = _authorize_params(oauth_settings, create_code_challenge("verifier"), state="state-auth-post")
+    response = await async_client.post("/auth/oauth/authorize", data=form_data, follow_redirects=False)
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "testserver"
+    assert query["state"][0] == "state-auth-post"
+    assert "code" in query
+
+
+@pytest.mark.asyncio
 async def test_authorize_rejects_unknown_resource(
     async_client: httpx.AsyncClient,
     oauth_settings: OAuthServer,

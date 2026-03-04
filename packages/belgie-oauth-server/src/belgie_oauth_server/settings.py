@@ -55,7 +55,7 @@ class OAuthServer(BaseSettings):
 
     client_id: str = "belgie_client"
     client_secret: SecretStr | None = None
-    redirect_uris: list[AnyUrl] = Field(..., min_length=1)
+    redirect_uris: list[AnyUrl] = Field(min_length=1)
     default_scope: str = "user"
 
     authorization_code_ttl_seconds: int = 300

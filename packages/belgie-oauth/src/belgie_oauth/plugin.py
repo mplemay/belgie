@@ -3,10 +3,11 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import httpx
+from belgie_core.core.client import BelgieClient
 from belgie_core.core.exceptions import InvalidStateError, OAuthError
 from belgie_core.core.plugin import PluginClient
 from belgie_core.utils.crypto import generate_state_token
@@ -19,7 +20,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from belgie_core.core.belgie import Belgie
-    from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
 
 
@@ -111,9 +111,10 @@ class GoogleOAuthPlugin(PluginClient):
         if self._resolve_client is not None:
             return
 
-        async def resolve_client(client: BelgieClient = Depends(belgie)) -> GoogleOAuthClient:  # noqa: B008
+        async def resolve_client(client: Annotated[BelgieClient, Depends(belgie)]) -> GoogleOAuthClient:
             return GoogleOAuthClient(plugin=self, client=client)
 
+        resolve_client.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
@@ -244,7 +245,7 @@ class GoogleOAuthPlugin(PluginClient):
             code: str,
             state: str,
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated[BelgieClient, Depends(belgie)],
         ) -> RedirectResponse:
             oauth_state = await client.adapter.get_oauth_state(client.db, state)
             if not oauth_state:
@@ -281,6 +282,7 @@ class GoogleOAuthPlugin(PluginClient):
             )
             return client.create_session_cookie(session, response)
 
+        callback.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/callback", callback, methods=["GET"])
 
         return router
