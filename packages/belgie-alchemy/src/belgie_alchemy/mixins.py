@@ -5,7 +5,8 @@ from uuid import UUID  # noqa: TC003
 
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC, Json
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 
@@ -14,7 +15,8 @@ class UserMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def email(self) -> Mapped[str]:
-        return mapped_column(unique=True, index=True, kw_only=True)
+        email_type = String().with_variant(CITEXT(), "postgresql")
+        return mapped_column(email_type, unique=True, index=True, kw_only=True)
 
     @declared_attr
     def email_verified(self) -> Mapped[bool]:
@@ -73,11 +75,13 @@ class AccountMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def provider(self) -> Mapped[str]:
-        return mapped_column(Text, kw_only=True)
+        provider_type = Text().with_variant(CITEXT(), "postgresql")
+        return mapped_column(provider_type, kw_only=True)
 
     @declared_attr
     def provider_account_id(self) -> Mapped[str]:
-        return mapped_column(Text, kw_only=True)
+        provider_account_id_type = Text().with_variant(CITEXT(), "postgresql")
+        return mapped_column(provider_account_id_type, kw_only=True)
 
     @declared_attr
     def access_token(self) -> Mapped[str | None]:

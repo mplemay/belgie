@@ -208,6 +208,9 @@ Defaults include:
 - Session expiration and metadata fields
 - OAuth state PKCE fields and optional user linkage
 - UUID primary keys and timestamps on all models
+- PostgreSQL `CITEXT` variants for case-insensitive `email`, `provider`, and `provider_account_id`
+
+For PostgreSQL deployments, ensure the `citext` extension is installed when using the default mixins.
 
 You can still override any field, relationship, or `__tablename__` in your concrete model classes.
 
