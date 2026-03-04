@@ -4,7 +4,7 @@ _ALCHEMY_IMPORT_ERROR = "belgie.alchemy requires the 'alchemy' extra. Install wi
 
 try:
     from belgie_alchemy import (  # type: ignore[import-not-found]
-        AlchemyAdapter,
+        BelgieAdapter,
         DatabaseRuntimeProtocol,
         PostgresSettings,
         SqliteSettings,
@@ -13,7 +13,7 @@ except ModuleNotFoundError as exc:
     raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
 
 __all__ = [
-    "AlchemyAdapter",
+    "BelgieAdapter",
     "DatabaseRuntimeProtocol",
     "PostgresSettings",
     "SqliteSettings",

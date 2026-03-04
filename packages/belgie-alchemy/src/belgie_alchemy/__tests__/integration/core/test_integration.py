@@ -4,7 +4,7 @@ import httpx
 import pytest
 import pytest_asyncio
 import respx
-from belgie_alchemy import AlchemyAdapter, SqliteSettings
+from belgie_alchemy import BelgieAdapter, SqliteSettings
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
@@ -45,7 +45,7 @@ async def database(sqlite_database: str):
 
 @pytest_asyncio.fixture
 async def adapter(db_session: AsyncSession):  # noqa: ARG001
-    adapter = AlchemyAdapter(
+    adapter = BelgieAdapter(
         user=User,
         account=Account,
         session=Session,
@@ -55,7 +55,7 @@ async def adapter(db_session: AsyncSession):  # noqa: ARG001
 
 
 @pytest.fixture
-def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, database: SqliteSettings) -> Belgie:
+def auth(auth_settings: BelgieSettings, adapter: BelgieAdapter, database: SqliteSettings) -> Belgie:
     belgie = Belgie(
         settings=auth_settings,
         adapter=adapter,

@@ -79,7 +79,8 @@ class OAuthState(Base):
 
 ```python
 from belgie import Belgie, BelgieSettings
-from belgie.alchemy import AlchemyAdapter, SqliteSettings
+from belgie.alchemy import SqliteSettings
+from belgie.alchemy.adapter import BelgieAdapter
 from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
 
 # Configure settings
@@ -92,7 +93,7 @@ settings = BelgieSettings(
 database = SqliteSettings(database="./app.db")
 
 # Create adapter
-adapter = AlchemyAdapter(
+adapter = BelgieAdapter(
     user=User,
     account=Account,
     session=Session,

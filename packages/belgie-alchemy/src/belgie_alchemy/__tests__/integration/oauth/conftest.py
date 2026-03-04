@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 import pytest_asyncio
-from belgie_alchemy import AlchemyAdapter, SqliteSettings
+from belgie_alchemy import BelgieAdapter, SqliteSettings
 from belgie_alchemy.__tests__.fixtures.database import get_test_engine, get_test_session_factory
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
@@ -55,7 +55,7 @@ async def database(sqlite_database: str):
 
 @pytest_asyncio.fixture
 async def adapter():
-    adapter = AlchemyAdapter(
+    adapter = BelgieAdapter(
         user=User,
         account=Account,
         session=Session,
@@ -89,7 +89,7 @@ def belgie_settings() -> BelgieSettings:
 @pytest.fixture
 def belgie_instance(
     belgie_settings: BelgieSettings,
-    adapter: AlchemyAdapter,
+    adapter: BelgieAdapter,
     database: SqliteSettings,
     db_session: AsyncSession,
 ) -> Belgie:

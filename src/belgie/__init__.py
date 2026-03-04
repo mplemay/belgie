@@ -27,15 +27,15 @@ from belgie_core import (
 )
 
 if TYPE_CHECKING:
-    from belgie_alchemy import AlchemyAdapter  # type: ignore[import-not-found]
+    from belgie_alchemy import BelgieAdapter  # type: ignore[import-not-found]
 
 __version__ = "0.1.0"
 
-_ALCHEMY_IMPORT_ERROR = "AlchemyAdapter requires the 'alchemy' extra. Install with: uv add belgie[alchemy]"
+_ALCHEMY_IMPORT_ERROR = "BelgieAdapter requires the 'alchemy' extra. Install with: uv add belgie[alchemy]"
 
 
 def __getattr__(name: str) -> object:
-    if name != "AlchemyAdapter":
+    if name != "BelgieAdapter":
         msg = f"module 'belgie' has no attribute {name!r}"
         raise AttributeError(msg)
 
@@ -44,7 +44,7 @@ def __getattr__(name: str) -> object:
     except ModuleNotFoundError as exc:
         raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
 
-    return module.AlchemyAdapter
+    return module.BelgieAdapter
 
 
 __all__ = [  # noqa: RUF022
@@ -55,7 +55,7 @@ __all__ = [  # noqa: RUF022
     "BelgieClient",
     "BelgieSettings",
     # Adapters
-    "AlchemyAdapter",
+    "BelgieAdapter",
     "DBConnection",
     "DatabaseProtocol",
     # Session

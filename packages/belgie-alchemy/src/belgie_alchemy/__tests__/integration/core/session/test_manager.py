@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from belgie_alchemy import AlchemyAdapter
+from belgie_alchemy import BelgieAdapter
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.session.manager import SessionManager
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 @pytest_asyncio.fixture
 async def adapter(db_session: AsyncSession):  # noqa: ARG001
-    adapter = AlchemyAdapter(
+    adapter = BelgieAdapter(
         user=User,
         account=Account,
         session=Session,
@@ -21,7 +21,7 @@ async def adapter(db_session: AsyncSession):  # noqa: ARG001
 
 
 @pytest.fixture
-def session_manager(adapter: AlchemyAdapter) -> SessionManager:
+def session_manager(adapter: BelgieAdapter) -> SessionManager:
     return SessionManager(
         adapter=adapter,
         max_age=3600,
@@ -234,7 +234,7 @@ async def test_cleanup_no_expired_sessions(session_manager: SessionManager, db_s
 
 @pytest.mark.asyncio
 async def test_session_manager_with_custom_max_age(
-    adapter: AlchemyAdapter,
+    adapter: BelgieAdapter,
     db_session: AsyncSession,
 ) -> None:
     custom_manager = SessionManager(
@@ -264,7 +264,7 @@ async def test_session_manager_with_custom_max_age(
 
 @pytest.mark.asyncio
 async def test_session_manager_sliding_window_exact_boundary(
-    adapter: AlchemyAdapter,
+    adapter: BelgieAdapter,
     db_session: AsyncSession,
 ) -> None:
     manager = SessionManager(

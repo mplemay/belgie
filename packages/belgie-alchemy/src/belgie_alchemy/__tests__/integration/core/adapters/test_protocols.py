@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from belgie_alchemy import AlchemyAdapter, SqliteSettings
+from belgie_alchemy import BelgieAdapter, SqliteSettings
 from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
@@ -147,9 +147,9 @@ def test_user_with_custom_fields_satisfies_protocol() -> None:
 
 
 def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
-    """Verify AlchemyAdapter implements AdapterProtocol using runtime checks."""
+    """Verify BelgieAdapter implements AdapterProtocol using runtime checks."""
 
-    adapter = AlchemyAdapter(
+    adapter = BelgieAdapter(
         user=ExampleUser,
         account=ExampleAccount,
         session=ExampleSession,

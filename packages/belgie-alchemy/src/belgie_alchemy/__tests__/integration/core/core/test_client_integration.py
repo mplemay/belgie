@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
-from belgie_alchemy import AlchemyAdapter, SqliteSettings
+from belgie_alchemy import BelgieAdapter, SqliteSettings
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
@@ -49,7 +49,7 @@ async def database(sqlite_database: str):
 async def adapter(db_session: AsyncSession):  # noqa: ARG001
     """Adapter with test database dependency."""
 
-    adapter = AlchemyAdapter(
+    adapter = BelgieAdapter(
         user=User,
         account=Account,
         session=Session,
@@ -61,7 +61,7 @@ async def adapter(db_session: AsyncSession):  # noqa: ARG001
 @pytest.fixture
 def auth(
     auth_settings: BelgieSettings,
-    adapter: AlchemyAdapter,
+    adapter: BelgieAdapter,
     database: SqliteSettings,
     db_session: AsyncSession,
 ) -> Belgie:
@@ -174,7 +174,7 @@ def client(app: FastAPI) -> TestClient:
 
 
 @pytest_asyncio.fixture
-async def create_user_helper(adapter: AlchemyAdapter, db_session: AsyncSession):
+async def create_user_helper(adapter: BelgieAdapter, db_session: AsyncSession):
     """Factory for creating users with scopes."""
 
     async def _create(email: str, scopes: list[str] | None = None, name: str = "Test User") -> User:
@@ -189,7 +189,7 @@ async def create_user_helper(adapter: AlchemyAdapter, db_session: AsyncSession):
 
 
 @pytest_asyncio.fixture
-async def create_session_helper(adapter: AlchemyAdapter, db_session: AsyncSession):
+async def create_session_helper(adapter: BelgieAdapter, db_session: AsyncSession):
     """Factory for creating sessions with custom expiration."""
 
     async def _create(
@@ -213,7 +213,7 @@ async def create_session_helper(adapter: AlchemyAdapter, db_session: AsyncSessio
 
 
 @pytest_asyncio.fixture
-async def create_account_helper(adapter: AlchemyAdapter, db_session: AsyncSession):
+async def create_account_helper(adapter: BelgieAdapter, db_session: AsyncSession):
     """Factory for creating OAuth accounts."""
 
     async def _create(
@@ -382,7 +382,7 @@ class TestGetUser:
         create_user_helper,
         create_session_helper,
         make_request_with_cookie,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test that session with deleted user returns 401.
@@ -596,7 +596,7 @@ class TestGetSession:
         create_user_helper,
         create_session_helper,
         make_request_with_cookie,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         database: SqliteSettings,
     ):
         """Test that session is refreshed when within update_age threshold."""
@@ -629,7 +629,7 @@ class TestDeleteUser:
         create_user_helper,
         create_session_helper,
         make_request_with_cookie,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test successful user deletion."""
@@ -653,7 +653,7 @@ class TestDeleteUser:
         create_user_helper,
         create_session_helper,
         make_request_with_cookie,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test that deleting user also deletes their sessions."""
@@ -680,7 +680,7 @@ class TestDeleteUser:
         create_session_helper,
         create_account_helper,
         make_request_with_cookie,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test that deleting user also deletes their OAuth account."""
@@ -705,7 +705,7 @@ class TestDeleteUser:
         create_session_helper,
         create_account_helper,
         make_request_with_cookie,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test that all OAuth accounts are deleted when user is deleted."""
@@ -733,7 +733,7 @@ class TestDeleteUser:
         create_session_helper,
         create_account_helper,
         make_request_with_cookie,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test comprehensive cascade deletion."""
@@ -818,7 +818,7 @@ class TestSignOut:
         client: TestClient,
         create_user_helper,
         create_session_helper,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test signing out successfully deletes session."""
@@ -850,7 +850,7 @@ class TestSignOut:
         client: TestClient,
         create_user_helper,
         create_session_helper,
-        adapter: AlchemyAdapter,
+        adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test that signing out doesn't delete the user."""

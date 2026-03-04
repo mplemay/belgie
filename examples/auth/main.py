@@ -13,7 +13,8 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie.alchemy import AlchemyAdapter, SqliteSettings
+from belgie.alchemy import SqliteSettings
+from belgie.alchemy.adapter import BelgieAdapter
 from belgie.oauth.google import GoogleOAuthClient, GoogleOAuthPlugin, GoogleOAuthSettings
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
@@ -48,7 +49,7 @@ settings = BelgieSettings(
     ),
 )
 
-adapter = AlchemyAdapter(
+adapter = BelgieAdapter(
     user=User,
     account=Account,
     session=Session,
