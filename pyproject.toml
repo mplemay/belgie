@@ -26,6 +26,8 @@ all = [
     "belgie-mcp",
     "belgie-oauth",
     "belgie-oauth-server",
+    "belgie-organization",
+    "belgie-team",
 ]
 examples = [
     "uvicorn[standard]>=0.38.0",
@@ -38,6 +40,12 @@ oauth = [
 ]
 oauth-client = [
     "belgie-oauth",
+]
+organization = [
+    "belgie-organization",
+]
+team = [
+    "belgie-team",
 ]
 
 [build-system]
@@ -64,7 +72,9 @@ belgie-core = { workspace = true }
 belgie-mcp = { workspace = true }
 belgie-oauth = { workspace = true }
 belgie-oauth-server = { workspace = true }
+belgie-organization = { workspace = true }
 belgie-proto = { workspace = true }
+belgie-team = { workspace = true }
 belgie-alchemy = { workspace = true }
 
 [tool.uv.workspace]
@@ -74,7 +84,9 @@ members = [
     "packages/belgie-mcp",
     "packages/belgie-oauth",
     "packages/belgie-oauth-server",
+    "packages/belgie-organization",
     "packages/belgie-proto",
+    "packages/belgie-team",
 ]
 
 [tool.ruff]
