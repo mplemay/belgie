@@ -37,6 +37,35 @@ def test_adapter_module_exports() -> None:
     assert BelgieAdapter is not None
 
 
+def test_mixins_module_exports() -> None:
+    try:
+        from belgie.alchemy.mixins import (  # noqa: PLC0415
+            AccountMixin,
+            OAuthStateMixin,
+            SessionMixin,
+            UserMixin,
+        )
+    except ImportError:
+        return
+
+    assert AccountMixin is not None
+    assert OAuthStateMixin is not None
+    assert SessionMixin is not None
+    assert UserMixin is not None
+
+
+def test_mixins_exports_from_alchemy_module() -> None:
+    try:
+        from belgie.alchemy import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin  # noqa: PLC0415
+    except ImportError:
+        return
+
+    assert AccountMixin is not None
+    assert OAuthStateMixin is not None
+    assert SessionMixin is not None
+    assert UserMixin is not None
+
+
 def test_old_alchemy_module_export_removed() -> None:
     with pytest.raises(ImportError):
         from belgie.alchemy import AlchemyAdapter  # noqa: PLC0415, F401

@@ -10,7 +10,7 @@ from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Sessio
 
 def test_user_model_structure() -> None:
     """Verify User model demonstrates proper structure."""
-    assert User.__tablename__ == "users"
+    assert User.__tablename__ == "user"
     assert not User.__dict__.get("__abstract__", False)
     assert hasattr(User, "email")
     assert hasattr(User, "scopes")
