@@ -75,6 +75,41 @@ async def test_authorize_returns_401_without_login_url(
 
 
 @pytest.mark.asyncio
+async def test_authorize_redirects_when_prompt_create_and_signup_url_is_configured(
+    belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
+) -> None:
+    settings = OAuthServer(
+        base_url=oauth_settings.base_url,
+        prefix=oauth_settings.prefix,
+        client_id=oauth_settings.client_id,
+        client_secret=SecretStr("test-secret"),
+        redirect_uris=oauth_settings.redirect_uris,
+        default_scope=oauth_settings.default_scope,
+        login_url=None,
+        signup_url="/signup",
+    )
+    belgie_instance.add_plugin(settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        verifier = "verifier"
+        params = _authorize_params(settings, create_code_challenge(verifier), state="state-create")
+        params["prompt"] = "create"
+        response = await client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "testserver"
+    assert parsed.path == "/auth/oauth/login"
+    assert query["state"][0] == "state-create"
+
+
+@pytest.mark.asyncio
 async def test_authorize_issues_code_without_login_url_when_authenticated(
     belgie_instance: Belgie,
     db_session: AsyncSession,

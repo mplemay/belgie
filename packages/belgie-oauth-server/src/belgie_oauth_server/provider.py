@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import AnyUrl
 
@@ -23,6 +23,8 @@ class AuthorizationParams:
     redirect_uri_provided_explicitly: bool
     resource: str | None = None
     nonce: str | None = None
+    prompt: str | None = None
+    intent: Literal["login", "create"] = "login"
     user_id: str | None = None
     session_id: str | None = None
 
@@ -77,6 +79,8 @@ class StateEntry:
     scopes: list[str] | None
     created_at: float
     nonce: str | None = None
+    prompt: str | None = None
+    intent: Literal["login", "create"] = "login"
     user_id: str | None = None
     session_id: str | None = None
 
@@ -144,6 +148,8 @@ class SimpleOAuthProvider:
             scopes=params.scopes,
             created_at=time.time(),
             nonce=params.nonce,
+            prompt=params.prompt,
+            intent=params.intent,
             user_id=params.user_id,
             session_id=params.session_id,
         )
@@ -164,9 +170,15 @@ class SimpleOAuthProvider:
             scopes=state_data.scopes,
             created_at=state_data.created_at,
             nonce=state_data.nonce,
+            prompt=state_data.prompt,
+            intent=state_data.intent,
             user_id=user_id,
             session_id=session_id,
         )
+
+    async def load_authorization_state(self, state: str) -> StateEntry | None:
+        self._purge_state_mapping()
+        return self.state_mapping.get(state)
 
     async def issue_authorization_code(self, state: str) -> str:
         self._purge_state_mapping()

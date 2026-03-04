@@ -8,6 +8,7 @@ def test_oauth_settings_defaults() -> None:
 
     assert settings.prefix == "/oauth"
     assert settings.login_url is None
+    assert settings.signup_url is None
     assert settings.default_scope == "user"
     assert settings.authorization_code_ttl_seconds == 300
     assert settings.access_token_ttl_seconds == 3600
@@ -87,6 +88,15 @@ def test_oauth_settings_accepts_resource_metadata_settings() -> None:
     resource_url, resource_scopes = settings.resolve_resource()
     assert str(resource_url) == "http://example.com/mcp"
     assert resource_scopes == ["user", "files:read"]
+
+
+def test_oauth_settings_accepts_signup_url() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        signup_url="/signup",
+    )
+
+    assert settings.signup_url == "/signup"
 
 
 def test_oauth_settings_rejects_multiple_resources() -> None:
