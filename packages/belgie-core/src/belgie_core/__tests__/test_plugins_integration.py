@@ -41,9 +41,10 @@ def belgie_instance() -> Belgie:
     settings.cookie.domain = None
 
     adapter = Mock()
-    adapter.dependency = lambda: None
+    database = Mock()
+    database.dependency = lambda: None
 
-    return Belgie(settings=settings, adapter=adapter)
+    return Belgie(settings=settings, adapter=adapter, database=database)
 
 
 def test_plugin_router_included(belgie_instance: Belgie) -> None:

@@ -8,6 +8,7 @@ from uuid import UUID
 from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
+    DatabaseProtocol,
     DBConnection,
     OAuthStateProtocol,
     SessionProtocol,
@@ -36,8 +37,8 @@ class _BelgieCallable:
             # Accessed through class, return descriptor itself
             return self
 
-        # Return a callable with this instance's adapter dependency
-        dependency = obj.adapter.dependency
+        # Return a callable with this instance's database dependency
+        dependency = obj.database.dependency
 
         def __call__(  # noqa: N807
             db: DBConnection = Depends(dependency),  # noqa: B008
@@ -72,6 +73,7 @@ class Belgie[
     Attributes:
         settings: Authentication configuration settings
         adapter: Database adapter for persistence operations
+        database: Database dependency provider used for FastAPI session injection
         session_manager: Session manager instance for session operations
         router: FastAPI router with authentication endpoints
 
@@ -91,10 +93,9 @@ class Belgie[
         ...     account=Account,
         ...     session=Session,
         ...     oauth_state=OAuthState,
-        ...     database=database,
         ... )
         >>>
-        >>> belgie = Belgie(settings=settings, adapter=adapter)
+        >>> belgie = Belgie(settings=settings, adapter=adapter, database=database)
         >>> app.include_router(belgie.router)
     """
 
@@ -105,16 +106,20 @@ class Belgie[
         self,
         settings: BelgieSettings,
         adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
+        *,
+        database: DatabaseProtocol,
     ) -> None:
         """Initialize the Belgie instance.
 
         Args:
             settings: Authentication configuration including session, cookie, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
+            database: Database dependency provider for FastAPI session injection
         Raises:
         """
         self.settings = settings
         self.adapter = adapter
+        self.database = database
 
         self.session_manager = SessionManager(
             adapter=adapter,
@@ -162,7 +167,7 @@ class Belgie[
             APIRouter with all authentication endpoints
         """
         main_router = APIRouter(prefix="/auth", tags=["auth"])
-        dependency = self.adapter.dependency
+        dependency = self.database.dependency
 
         for plugin in self.plugins:
             if (plugin_router := plugin.router(self)) is not None:
@@ -306,7 +311,7 @@ class Belgie[
             >>> async def resource_route(user: User = Security(belgie.user, scopes=[Scope.READ])):
             ...     return {"data": "..."}
         """
-        dependency = self.adapter.dependency
+        dependency = self.database.dependency
 
         async def _user(
             security_scopes: SecurityScopes,
@@ -343,7 +348,7 @@ class Belgie[
             >>> async def session_info(session: Session = Depends(belgie.session)):
             ...     return {"session_id": str(session.id), "expires_at": session.expires_at.isoformat()}
         """
-        dependency = self.adapter.dependency
+        dependency = self.database.dependency
 
         async def _session(
             request: Request,

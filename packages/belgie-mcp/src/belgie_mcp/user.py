@@ -84,7 +84,7 @@ class UserLookup:
             return None
 
     async def _load_user_from_belgie(self, belgie: Belgie, user_id: UUID) -> UserProtocol | None:
-        dependency = belgie.adapter.dependency
+        dependency = belgie.database.dependency
         db_or_generator = dependency()
 
         if self._is_async_generator(db_or_generator):

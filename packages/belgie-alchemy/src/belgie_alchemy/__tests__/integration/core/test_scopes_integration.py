@@ -58,22 +58,32 @@ def auth_settings() -> BelgieSettings:
 
 
 @pytest_asyncio.fixture
-async def adapter(sqlite_database: str):
+async def database(sqlite_database: str):
+    database = SqliteSettings(database=sqlite_database)
+    yield database
+    await database.engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def adapter():
     adapter = AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        database=SqliteSettings(database=sqlite_database),
     )
     yield adapter
-    await adapter.db.engine.dispose()
 
 
 @pytest.fixture
-def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Belgie:
+def auth(
+    auth_settings: BelgieSettings,
+    adapter: AlchemyAdapter,
+    database: SqliteSettings,
+    db_session: AsyncSession,
+) -> Belgie:
     _ = db_session
-    return Belgie(settings=auth_settings, adapter=adapter)
+    return Belgie(settings=auth_settings, adapter=adapter, database=database)
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 """Belgie Core - Authentication components."""
 
-from belgie_proto import DBConnection
+from belgie_proto import DatabaseProtocol, DBConnection
 
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
@@ -30,6 +30,7 @@ __all__ = [  # noqa: RUF022
     "BelgieSettings",
     # Adapters
     "DBConnection",
+    "DatabaseProtocol",
     # Session
     "SessionManager",
     # Settings

@@ -39,7 +39,14 @@ def auth_settings() -> BelgieSettings:
 
 
 @pytest_asyncio.fixture
-async def adapter(db_session: AsyncSession, sqlite_database: str):  # noqa: ARG001
+async def database(sqlite_database: str):
+    database = SqliteSettings(database=sqlite_database)
+    yield database
+    await database.engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def adapter(db_session: AsyncSession):  # noqa: ARG001
     """Adapter with test database dependency."""
 
     adapter = AlchemyAdapter(
@@ -47,17 +54,20 @@ async def adapter(db_session: AsyncSession, sqlite_database: str):  # noqa: ARG0
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        database=SqliteSettings(database=sqlite_database),
     )
     yield adapter
-    await adapter.db.engine.dispose()
 
 
 @pytest.fixture
-def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, db_session: AsyncSession) -> Belgie:
+def auth(
+    auth_settings: BelgieSettings,
+    adapter: AlchemyAdapter,
+    database: SqliteSettings,
+    db_session: AsyncSession,
+) -> Belgie:
     """Belgie instance (BelgieClient factory)."""
     _ = db_session
-    return Belgie(settings=auth_settings, adapter=adapter)
+    return Belgie(settings=auth_settings, adapter=adapter, database=database)
 
 
 @pytest.fixture
@@ -587,6 +597,7 @@ class TestGetSession:
         create_session_helper,
         make_request_with_cookie,
         adapter: AlchemyAdapter,
+        database: SqliteSettings,
     ):
         """Test that session is refreshed when within update_age threshold."""
         user = await create_user_helper("refresh@test.com")
@@ -601,7 +612,7 @@ class TestGetSession:
         assert response.status_code == 200
 
         # Verify session was refreshed in database
-        async with adapter.db.session_maker() as verification_session:
+        async with database.session_maker() as verification_session:
             refreshed_session = await adapter.get_session(verification_session, session.id)
             assert refreshed_session is not None
             refreshed_expires = refreshed_session.expires_at.replace(tzinfo=UTC)

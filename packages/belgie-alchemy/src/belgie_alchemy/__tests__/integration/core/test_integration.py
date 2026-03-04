@@ -37,23 +37,29 @@ def auth_settings() -> BelgieSettings:
 
 
 @pytest_asyncio.fixture
-async def adapter(db_session: AsyncSession, sqlite_database: str):  # noqa: ARG001
+async def database(sqlite_database: str):
+    database = SqliteSettings(database=sqlite_database)
+    yield database
+    await database.engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def adapter(db_session: AsyncSession):  # noqa: ARG001
     adapter = AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        database=SqliteSettings(database=sqlite_database),
     )
     yield adapter
-    await adapter.db.engine.dispose()
 
 
 @pytest.fixture
-def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter) -> Belgie:
+def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, database: SqliteSettings) -> Belgie:
     belgie = Belgie(
         settings=auth_settings,
         adapter=adapter,
+        database=database,
     )
     belgie.add_plugin(
         GoogleOAuthPlugin,
