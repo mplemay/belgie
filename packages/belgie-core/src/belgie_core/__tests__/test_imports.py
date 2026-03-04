@@ -1,3 +1,5 @@
+import pytest
+
 import belgie
 
 
@@ -30,11 +32,17 @@ def test_settings_exports() -> None:
     assert hasattr(belgie, "URLSettings")
 
 
-def test_hook_exports() -> None:
-    assert hasattr(belgie, "Hooks")
-    assert hasattr(belgie, "HookContext")
-    assert hasattr(belgie, "HookEvent")
-    assert hasattr(belgie, "HookRunner")
+def test_hook_exports_removed() -> None:
+    assert not hasattr(belgie, "Hooks")
+    assert not hasattr(belgie, "HookContext")
+    assert not hasattr(belgie, "HookEvent")
+    assert not hasattr(belgie, "HookRunner")
+    assert not hasattr(belgie, "PreSignupContext")
+
+
+def test_direct_hook_imports_fail() -> None:
+    with pytest.raises(ImportError):
+        from belgie import Hooks  # noqa: PLC0415, F401
 
 
 def test_protocol_exports() -> None:
