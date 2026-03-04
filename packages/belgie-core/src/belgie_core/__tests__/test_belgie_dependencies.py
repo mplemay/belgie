@@ -34,9 +34,9 @@ def belgie_instance(db_provider: tuple[Callable[[], Mock], Mock]) -> Belgie:
 
     adapter = Mock()
     dependency, _ = db_provider
-    adapter.dependency = dependency
+    database = SimpleNamespace(dependency=dependency)
 
-    return Belgie(settings=settings, adapter=adapter)
+    return Belgie(settings=settings, adapter=adapter, database=database)
 
 
 def test_depends_belgie_user_route_registration_no_fastapi_error(belgie_instance: Belgie) -> None:
@@ -83,14 +83,35 @@ def test_session_property_signature_uses_depends(
     assert db_param_default.dependency is dependency
 
 
+def test_constructor_accepts_database_keyword() -> None:
+    settings = Mock()
+    settings.session.max_age = 3600
+    settings.session.update_age = 600
+    settings.urls.signin_redirect = "/signin"
+    settings.urls.signout_redirect = "/signout"
+    settings.cookie.name = "belgie_session"
+    settings.cookie.domain = None
+    adapter = Mock()
+    database = SimpleNamespace(dependency=lambda: None)
+
+    belgie = Belgie(settings=settings, adapter=adapter, database=database)
+
+    assert belgie.database is database
+
+
 def test_constructor_rejects_db_keyword() -> None:
     settings = Mock()
+    settings.session.max_age = 3600
+    settings.session.update_age = 600
+    settings.urls.signin_redirect = "/signin"
+    settings.urls.signout_redirect = "/signout"
+    settings.cookie.name = "belgie_session"
+    settings.cookie.domain = None
     adapter = Mock()
-    adapter.dependency = lambda: None
-    db = SimpleNamespace(dependency=lambda: None)
+    database = SimpleNamespace(dependency=lambda: None)
 
     with pytest.raises(TypeError):
-        Belgie(settings=settings, adapter=adapter, db=db)  # type: ignore[call-arg]
+        Belgie(settings=settings, adapter=adapter, database=database, db=database)  # type: ignore[call-arg]
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ try:
     from belgie_proto import (
         AccountProtocol,
         AdapterProtocol,
+        DatabaseProtocol,
         OAuthStateProtocol,
         SessionProtocol,
         UserProtocol,
@@ -16,6 +17,7 @@ except ModuleNotFoundError as exc:
 __all__ = [
     "AccountProtocol",
     "AdapterProtocol",
+    "DatabaseProtocol",
     "OAuthStateProtocol",
     "SessionProtocol",
     "UserProtocol",

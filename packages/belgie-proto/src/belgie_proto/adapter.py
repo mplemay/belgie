@@ -8,7 +8,6 @@ from belgie_proto.session import SessionProtocol
 from belgie_proto.user import UserProtocol
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
     from datetime import datetime
     from uuid import UUID
 
@@ -23,9 +22,6 @@ class AdapterProtocol[
     OAuthStateT: OAuthStateProtocol,
 ](Protocol):
     """Protocol for database adapters."""
-
-    @property
-    def dependency(self) -> Callable[[], DBConnection | AsyncGenerator[DBConnection, None]]: ...
 
     async def create_user(
         self,

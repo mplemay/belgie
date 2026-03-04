@@ -205,9 +205,10 @@ settings = BelgieSettings(
     ),
 )
 
+database = SqliteSettings(database="./app.db")
 adapter = AlchemyAdapter(...)
 
-belgie = Belgie(settings=settings, adapter=adapter)
+belgie = Belgie(settings=settings, adapter=adapter, database=database)
 belgie.add_plugin(
     GoogleOAuthPlugin,
     GoogleOAuthSettings(

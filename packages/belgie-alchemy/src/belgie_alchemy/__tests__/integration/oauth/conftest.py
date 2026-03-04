@@ -47,16 +47,21 @@ async def db_session(db_session_factory: async_sessionmaker[AsyncSession]) -> As
 
 
 @pytest_asyncio.fixture
-async def adapter(sqlite_database: str):
+async def database(sqlite_database: str):
+    database = SqliteSettings(database=sqlite_database)
+    yield database
+    await database.engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def adapter():
     adapter = AlchemyAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
-        database=SqliteSettings(database=sqlite_database),
     )
     yield adapter
-    await adapter.db.engine.dispose()
 
 
 @pytest.fixture
@@ -85,10 +90,11 @@ def belgie_settings() -> BelgieSettings:
 def belgie_instance(
     belgie_settings: BelgieSettings,
     adapter: AlchemyAdapter,
+    database: SqliteSettings,
     db_session: AsyncSession,
 ) -> Belgie:
     _ = db_session
-    return Belgie(settings=belgie_settings, adapter=adapter)
+    return Belgie(settings=belgie_settings, adapter=adapter, database=database)
 
 
 @pytest.fixture

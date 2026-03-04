@@ -6,6 +6,7 @@ from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from belgie_proto import (
     AccountProtocol,
     AdapterProtocol,
+    DatabaseProtocol,
     OAuthStateProtocol,
     SessionProtocol,
     UserProtocol,
@@ -153,7 +154,6 @@ def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
-        database=SqliteSettings(database=":memory:"),
     )
 
     # Runtime protocol check - AdapterProtocol is now runtime_checkable
@@ -179,17 +179,8 @@ def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     assert callable(adapter.delete_user)
 
 
-def test_alchemy_adapter_exposes_dependency() -> None:
-    """AlchemyAdapter exposes adapter-owned dependency."""
+def test_sqlite_settings_satisfy_database_protocol() -> None:
+    database = SqliteSettings(database=":memory:")
 
-    adapter = AlchemyAdapter(
-        user=ExampleUser,
-        account=ExampleAccount,
-        session=ExampleSession,
-        oauth_state=ExampleOAuthState,
-        database=SqliteSettings(database=":memory:"),
-    )
-
-    # Verify adapter is valid and dependency is available for FastAPI Depends.
-    assert isinstance(adapter, AdapterProtocol)
-    assert callable(adapter.dependency)
+    assert isinstance(database, DatabaseProtocol)
+    assert callable(database.dependency)

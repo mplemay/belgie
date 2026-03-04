@@ -9,6 +9,7 @@ def test_version_export() -> None:
 def test_core_exports() -> None:
     assert hasattr(belgie, "Belgie")
     assert hasattr(belgie, "BelgieSettings")
+    assert hasattr(belgie, "DatabaseProtocol")
 
 
 def test_adapter_exports() -> None:
@@ -42,6 +43,7 @@ def test_protocol_exports() -> None:
 
     assert hasattr(proto, "UserProtocol")
     assert hasattr(proto, "AccountProtocol")
+    assert hasattr(proto, "DatabaseProtocol")
     assert hasattr(proto, "SessionProtocol")
     assert hasattr(proto, "OAuthStateProtocol")
 
@@ -79,9 +81,11 @@ def test_direct_imports() -> None:
     from belgie import (  # noqa: PLC0415
         Belgie,
         BelgieSettings,
+        DatabaseProtocol,
         SessionManager,
     )
 
     assert Belgie is not None
     assert BelgieSettings is not None
+    assert DatabaseProtocol is not None
     assert SessionManager is not None

@@ -124,12 +124,12 @@ adapter = AlchemyAdapter(
     account=Account,
     session=Session,
     oauth_state=OAuthState,
-    database=database,
 )
 
 auth = Belgie(
     settings=settings,
     adapter=adapter,
+    database=database,
 )
 
 google_oauth_plugin = auth.add_plugin(

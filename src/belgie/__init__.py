@@ -12,6 +12,7 @@ from belgie_core import (
     BelgieSettings,
     ConfigurationError,
     CookieSettings,
+    DatabaseProtocol,
     DBConnection,
     HookContext,
     HookEvent,
@@ -66,6 +67,7 @@ __all__ = [  # noqa: RUF022
     # Adapters
     "AlchemyAdapter",
     "DBConnection",
+    "DatabaseProtocol",
     # Session
     "SessionManager",
     # Settings

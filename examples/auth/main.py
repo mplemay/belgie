@@ -53,12 +53,12 @@ adapter = AlchemyAdapter(
     account=Account,
     session=Session,
     oauth_state=OAuthState,
-    database=db_settings,
 )
 
 belgie = Belgie(
     settings=settings,
     adapter=adapter,
+    database=db_settings,
 )
 google_oauth_plugin = belgie.add_plugin(
     GoogleOAuthPlugin,

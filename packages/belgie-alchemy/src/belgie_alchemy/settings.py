@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
+from belgie_proto import DatabaseProtocol
 from pydantic import NonNegativeFloat, NonNegativeInt, PositiveInt, SecretStr  # noqa: TC002
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import event
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
         def cursor(self) -> DBAPICursor: ...
 
 
-class DatabaseRuntimeProtocol(Protocol):
+class DatabaseRuntimeProtocol(DatabaseProtocol, Protocol):
     @property
     def url(self) -> URL: ...
 

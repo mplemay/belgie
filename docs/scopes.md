@@ -24,10 +24,13 @@ Configure scopes in your `GoogleOAuthSettings`:
 
 ```python
 from belgie import Belgie, BelgieSettings
+from belgie.alchemy import AlchemyAdapter, SqliteSettings
 from belgie.oauth.google import GoogleOAuthPlugin, GoogleOAuthSettings
 
 settings = BelgieSettings(secret="your-secret", base_url="http://localhost:8000")
-belgie = Belgie(settings=settings, adapter=adapter)
+database = SqliteSettings(database="./app.db")
+adapter = AlchemyAdapter(...)
+belgie = Belgie(settings=settings, adapter=adapter, database=database)
 belgie.add_plugin(
     GoogleOAuthPlugin,
     GoogleOAuthSettings(
