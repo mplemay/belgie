@@ -1,15 +1,14 @@
 from belgie_core.core.belgie import Belgie
-from belgie_oauth_server.plugin import OAuthServerPlugin
-from belgie_oauth_server.settings import OAuthServerSettings
+from belgie_oauth_server.settings import OAuthServer
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
 def test_oauth_plugin_registers_routes(
     belgie_instance: Belgie,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
 ) -> None:
-    plugin = belgie_instance.add_plugin(OAuthServerPlugin, oauth_settings)
+    plugin = belgie_instance.add_plugin(oauth_settings)
     assert plugin in belgie_instance.plugins
 
     app = FastAPI()

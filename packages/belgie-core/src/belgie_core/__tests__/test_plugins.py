@@ -8,13 +8,16 @@ from belgie_core.core.belgie import Belgie
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class MockPluginSettings:
+class MockPluginConfig:
     label: str
     enabled: bool = True
 
+    def __call__(self, belgie_settings: object) -> "MockPlugin":
+        return MockPlugin(belgie_settings, self)
+
 
 class MockPlugin:
-    def __init__(self, belgie_settings: object, settings: MockPluginSettings) -> None:
+    def __init__(self, belgie_settings: object, settings: MockPluginConfig) -> None:
         self.belgie_settings = belgie_settings
         self.settings = settings
         self.label = settings.label
@@ -45,38 +48,40 @@ def belgie_instance() -> Belgie:
 
 
 def test_add_plugin_stores_instance(belgie_instance: Belgie) -> None:
-    plugin_settings = MockPluginSettings(label="alpha", enabled=False)
-    plugin = belgie_instance.add_plugin(MockPlugin, plugin_settings)
+    plugin_config = MockPluginConfig(label="alpha", enabled=False)
+    plugin = belgie_instance.add_plugin(plugin_config)
     assert isinstance(plugin, MockPlugin)
     assert plugin in belgie_instance.plugins
     assert plugin.label == "alpha"
     assert plugin.enabled is False
-    assert plugin.settings == plugin_settings
+    assert plugin.settings == plugin_config
 
 
 def test_add_plugin_passes_belgie_settings(belgie_instance: Belgie) -> None:
-    plugin_settings = MockPluginSettings(label="alpha")
-    plugin = belgie_instance.add_plugin(MockPlugin, plugin_settings)
+    plugin_config = MockPluginConfig(label="alpha")
+    plugin = belgie_instance.add_plugin(plugin_config)
     assert plugin.belgie_settings is belgie_instance.settings
 
 
 def test_add_plugin_returns_instance(belgie_instance: Belgie) -> None:
-    plugin_settings = MockPluginSettings(label="alpha")
-    plugin = belgie_instance.add_plugin(MockPlugin, plugin_settings)
+    plugin_config = MockPluginConfig(label="alpha")
+    plugin = belgie_instance.add_plugin(plugin_config)
     assert isinstance(plugin, MockPlugin)
 
 
-def test_add_plugin_legacy_constructor_fails_fast(belgie_instance: Belgie) -> None:
-    class LegacyPlugin:
-        def __init__(self, settings: MockPluginSettings) -> None:
-            self.settings = settings
+def test_add_plugin_callable_signature_fails_fast(belgie_instance: Belgie) -> None:
+    class LegacyPluginConfig:
+        def __call__(self) -> MockPlugin:
+            return MockPlugin(belgie_instance.settings, MockPluginConfig(label="alpha"))
 
-        def router(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
-            return None
+    with pytest.raises(TypeError, match=r"__call__\(belgie_settings\)"):
+        belgie_instance.add_plugin(LegacyPluginConfig())
 
-        def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
-            return None
 
-    plugin_settings = MockPluginSettings(label="alpha")
-    with pytest.raises(TypeError, match=r"__init__\(belgie_settings, settings\)"):
-        belgie_instance.add_plugin(LegacyPlugin, plugin_settings)
+def test_add_plugin_return_type_fails_fast(belgie_instance: Belgie) -> None:
+    class InvalidPluginConfig:
+        def __call__(self, belgie_settings: object) -> object:  # noqa: ARG002
+            return object()
+
+    with pytest.raises(TypeError, match=r"must return an object implementing"):
+        belgie_instance.add_plugin(InvalidPluginConfig())

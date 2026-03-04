@@ -12,7 +12,7 @@ from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
 import jwt
-from belgie_core.core.plugin import Plugin
+from belgie_core.core.plugin import PluginClient
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
@@ -38,7 +38,6 @@ from belgie_oauth_server.models import (
     OIDCMetadata,
 )
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthServerSettings
 from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge, join_url
 
 if TYPE_CHECKING:
@@ -47,6 +46,8 @@ if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
+
+    from belgie_oauth_server.settings import OAuthServer
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
@@ -58,7 +59,7 @@ class _TokenHandlerContext:
     client: BelgieClient
     form: Mapping[str, Any]
     provider: SimpleOAuthProvider
-    settings: OAuthServerSettings
+    settings: OAuthServer
     belgie_base_url: str
     issuer_url: str
     fallback_signing_secret: str
@@ -66,8 +67,8 @@ class _TokenHandlerContext:
     client_secret: str | None
 
 
-class OAuthServerPlugin(Plugin[OAuthServerSettings]):
-    def __init__(self, _belgie_settings: BelgieSettings, settings: OAuthServerSettings) -> None:
+class OAuthServerPlugin(PluginClient):
+    def __init__(self, _belgie_settings: BelgieSettings, settings: OAuthServer) -> None:
         self._settings = settings
         self._provider: SimpleOAuthProvider | None = None
         self._metadata_router: APIRouter | None = None
@@ -203,7 +204,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
-        settings: OAuthServerSettings,
+        settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
         async def authorize_handler(
@@ -243,7 +244,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
-        settings: OAuthServerSettings,
+        settings: OAuthServer,
         belgie_base_url: str,
         issuer_url: str,
     ) -> APIRouter:
@@ -288,7 +289,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
-        settings: OAuthServerSettings,
+        settings: OAuthServer,
     ) -> APIRouter:
         async def register_handler(  # noqa: PLR0911
             request: Request,
@@ -510,7 +511,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         router: APIRouter,
         belgie: Belgie,
         issuer_url: str,
-        settings: OAuthServerSettings,
+        settings: OAuthServer,
     ) -> APIRouter:
         async def login_handler(request: Request) -> Response:
             state = request.query_params.get("state")
@@ -632,7 +633,7 @@ class OAuthServerPlugin(Plugin[OAuthServerSettings]):
         return router
 
 
-def _build_issuer_url(belgie: Belgie, settings: OAuthServerSettings) -> str:
+def _build_issuer_url(belgie: Belgie, settings: OAuthServer) -> str:
     parsed = urlparse(belgie.settings.base_url)
     base_path = parsed.path.rstrip("/")
     prefix = settings.prefix.strip("/")
@@ -644,7 +645,7 @@ def _build_issuer_url(belgie: Belgie, settings: OAuthServerSettings) -> str:
 async def _parse_authorize_params(
     data: dict[str, str],
     provider: SimpleOAuthProvider,
-    settings: OAuthServerSettings,
+    settings: OAuthServer,
     belgie_base_url: str,
 ) -> tuple[OAuthClientInformationFull, AuthorizationParams]:
     response_type = _get_str(data, "response_type")
@@ -700,7 +701,7 @@ async def _parse_authorize_params(
 
 
 def _validate_authorize_resource(
-    settings: OAuthServerSettings,
+    settings: OAuthServer,
     belgie_base_url: str,
     resource: str | None,
 ) -> None:
@@ -1078,7 +1079,7 @@ def _build_user_claims(user: _UserClaimsSource, scopes: list[str]) -> dict[str, 
 
 async def _maybe_build_id_token(  # noqa: PLR0913
     client: BelgieClient,
-    settings: OAuthServerSettings,
+    settings: OAuthServer,
     issuer_url: str,
     oauth_client: OAuthClientInformationFull,
     *,
@@ -1115,7 +1116,7 @@ async def _maybe_build_id_token(  # noqa: PLR0913
 
 
 def _build_id_token(  # noqa: PLR0913
-    settings: OAuthServerSettings,
+    settings: OAuthServer,
     issuer_url: str,
     oauth_client: OAuthClientInformationFull,
     *,
@@ -1165,7 +1166,7 @@ def _with_authorization_principal(params: AuthorizationParams, *, user_id: str, 
 
 
 def _resolve_token_resource(
-    settings: OAuthServerSettings,
+    settings: OAuthServer,
     belgie_base_url: str,
     *,
     requested_resource: str | None,

@@ -1,10 +1,10 @@
 import pytest
-from belgie_oauth_server.settings import OAuthResource, OAuthServerSettings
+from belgie_oauth_server.settings import OAuthResource, OAuthServer
 from pydantic import ValidationError
 
 
 def test_oauth_settings_defaults() -> None:
-    settings = OAuthServerSettings(redirect_uris=["http://example.com/callback"])
+    settings = OAuthServer(redirect_uris=["http://example.com/callback"])
 
     assert settings.prefix == "/oauth"
     assert settings.login_url is None
@@ -25,19 +25,19 @@ def test_oauth_settings_defaults() -> None:
 
 def test_oauth_settings_requires_redirect_uris() -> None:
     with pytest.raises(ValidationError) as exc:
-        OAuthServerSettings()
+        OAuthServer()
     assert "redirect_uris" in str(exc.value)
 
 
 def test_oauth_settings_rejects_empty_redirect_uris() -> None:
     with pytest.raises(ValidationError) as exc:
-        OAuthServerSettings(redirect_uris=[])
+        OAuthServer(redirect_uris=[])
     assert "redirect_uris" in str(exc.value)
 
 
 def test_oauth_settings_rejects_legacy_route_prefix() -> None:
     with pytest.raises(ValidationError) as exc:
-        OAuthServerSettings(
+        OAuthServer(
             redirect_uris=["http://example.com/callback"],
             route_prefix="/oauth",
         )
@@ -46,7 +46,7 @@ def test_oauth_settings_rejects_legacy_route_prefix() -> None:
 
 def test_oauth_settings_rejects_legacy_resource_settings() -> None:
     with pytest.raises(ValidationError) as exc:
-        OAuthServerSettings(
+        OAuthServer(
             redirect_uris=["http://example.com/callback"],
             resource_server_url="http://example.com/mcp",
         )
@@ -55,7 +55,7 @@ def test_oauth_settings_rejects_legacy_resource_settings() -> None:
 
 def test_oauth_settings_rejects_legacy_resource_scopes() -> None:
     with pytest.raises(ValidationError) as exc:
-        OAuthServerSettings(
+        OAuthServer(
             redirect_uris=["http://example.com/callback"],
             resource_scopes=["user"],
         )
@@ -63,7 +63,7 @@ def test_oauth_settings_rejects_legacy_resource_scopes() -> None:
 
 
 def test_oauth_settings_populates_issuer_url_from_base_url() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="http://example.com",
         redirect_uris=["http://example.com/callback"],
     )
@@ -72,7 +72,7 @@ def test_oauth_settings_populates_issuer_url_from_base_url() -> None:
 
 
 def test_oauth_settings_accepts_resource_metadata_settings() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url="http://example.com",
         redirect_uris=["http://example.com/callback"],
         resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
@@ -91,7 +91,7 @@ def test_oauth_settings_accepts_resource_metadata_settings() -> None:
 
 def test_oauth_settings_rejects_multiple_resources() -> None:
     with pytest.raises(ValidationError) as exc:
-        OAuthServerSettings(
+        OAuthServer(
             redirect_uris=["http://example.com/callback"],
             resources=[OAuthResource(prefix="/mcp"), OAuthResource(prefix="/files")],
         )
@@ -99,7 +99,7 @@ def test_oauth_settings_rejects_multiple_resources() -> None:
 
 
 def test_oauth_settings_resolves_resource_with_fallback_base_url() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         resources=[OAuthResource(prefix="/mcp", scopes=["user"])],
     )

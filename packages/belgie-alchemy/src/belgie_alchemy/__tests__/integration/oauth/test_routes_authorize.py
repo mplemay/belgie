@@ -3,8 +3,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from belgie_core.core.belgie import Belgie
-from belgie_oauth_server.plugin import OAuthServerPlugin
-from belgie_oauth_server.settings import OAuthServerSettings
+from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import FastAPI
 from pydantic import SecretStr
@@ -12,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _authorize_params(
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     code_challenge: str,
     state: str | None = None,
     resource: str | None = None,
@@ -32,7 +31,7 @@ def _authorize_params(
 @pytest.mark.asyncio
 async def test_authorize_redirects_to_login_when_unauthenticated(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
 ) -> None:
     verifier = "verifier"
     params = _authorize_params(oauth_settings, create_code_challenge(verifier))
@@ -51,9 +50,9 @@ async def test_authorize_redirects_to_login_when_unauthenticated(
 @pytest.mark.asyncio
 async def test_authorize_returns_401_without_login_url(
     belgie_instance: Belgie,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
 ) -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url=oauth_settings.base_url,
         prefix=oauth_settings.prefix,
         client_id=oauth_settings.client_id,
@@ -62,7 +61,7 @@ async def test_authorize_returns_401_without_login_url(
         default_scope=oauth_settings.default_scope,
         login_url=None,
     )
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
@@ -79,10 +78,10 @@ async def test_authorize_returns_401_without_login_url(
 async def test_authorize_issues_code_without_login_url_when_authenticated(
     belgie_instance: Belgie,
     db_session: AsyncSession,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     create_user_session,
 ) -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         base_url=oauth_settings.base_url,
         prefix=oauth_settings.prefix,
         client_id=oauth_settings.client_id,
@@ -91,7 +90,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
         default_scope=oauth_settings.default_scope,
         login_url=None,
     )
-    belgie_instance.add_plugin(OAuthServerPlugin, settings)
+    belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
@@ -117,7 +116,7 @@ async def test_authorize_issues_code_when_authenticated(
     async_client: httpx.AsyncClient,
     belgie_instance: Belgie,
     db_session: AsyncSession,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     create_user_session,
 ) -> None:
     session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
@@ -139,7 +138,7 @@ async def test_authorize_issues_code_when_authenticated(
 @pytest.mark.asyncio
 async def test_authorize_rejects_unknown_resource(
     async_client: httpx.AsyncClient,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
 ) -> None:
     params = _authorize_params(
         oauth_settings,
@@ -157,7 +156,7 @@ async def test_authorize_accepts_configured_resource_when_authenticated(
     async_client: httpx.AsyncClient,
     belgie_instance: Belgie,
     db_session: AsyncSession,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     create_user_session,
 ) -> None:
     session_id = await create_user_session(belgie_instance, db_session, "user@test.com")

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
-from belgie_core.core.plugin import Plugin
+from belgie_core.core.plugin import PluginClient
 from fastapi import APIRouter
 
 from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
@@ -12,15 +12,15 @@ from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
 if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
-    from belgie_oauth_server.settings import OAuthServerSettings
+    from belgie_oauth_server.settings import OAuthServer
     from mcp.server.auth.provider import TokenVerifier
     from mcp.server.auth.settings import AuthSettings
     from pydantic import AnyHttpUrl
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class McpPluginSettings:
-    oauth_settings: OAuthServerSettings
+class Mcp:
+    oauth: OAuthServer
     server_url: str | AnyHttpUrl | None = None
     base_url: str | AnyHttpUrl | None = None
     server_path: str = "/mcp"
@@ -28,9 +28,12 @@ class McpPluginSettings:
     introspection_endpoint: str | None = None
     oauth_strict: bool = False
 
+    def __call__(self, belgie_settings: BelgieSettings) -> McpPlugin:
+        return McpPlugin(belgie_settings, self)
 
-class McpPlugin(Plugin[McpPluginSettings]):
-    def __init__(self, belgie_settings: BelgieSettings, settings: McpPluginSettings) -> None:
+
+class McpPlugin(PluginClient):
+    def __init__(self, belgie_settings: BelgieSettings, settings: Mcp) -> None:
         resolved_base_url = settings.base_url if settings.base_url is not None else belgie_settings.base_url
         resolved_server_url = (
             str(settings.server_url)
@@ -38,12 +41,12 @@ class McpPlugin(Plugin[McpPluginSettings]):
             else _build_server_url(_require_base_url(resolved_base_url), settings.server_path)
         )
         self.auth = mcp_auth(
-            settings.oauth_settings,
+            settings.oauth,
             server_url=resolved_server_url,
             required_scopes=settings.required_scopes,
         )
         self.token_verifier = mcp_token_verifier(
-            settings.oauth_settings,
+            settings.oauth,
             server_url=resolved_server_url,
             introspection_endpoint=settings.introspection_endpoint,
             oauth_strict=settings.oauth_strict,

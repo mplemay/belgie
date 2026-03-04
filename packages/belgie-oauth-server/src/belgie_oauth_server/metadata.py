@@ -9,14 +9,14 @@ from belgie_oauth_server.models import OAuthMetadata, OIDCMetadata, ProtectedRes
 from belgie_oauth_server.utils import join_url
 
 if TYPE_CHECKING:
-    from belgie_oauth_server.settings import OAuthServerSettings
+    from belgie_oauth_server.settings import OAuthServer
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 _ROOT_OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
 _ROOT_OPENID_METADATA_PATH = "/.well-known/openid-configuration"
 
 
-def build_oauth_metadata(issuer_url: str, settings: OAuthServerSettings) -> OAuthMetadata:
+def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthMetadata:
     authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
     token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
     registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))
@@ -41,7 +41,7 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServerSettings) -> OAut
     )
 
 
-def build_openid_metadata(issuer_url: str, settings: OAuthServerSettings) -> OIDCMetadata:
+def build_openid_metadata(issuer_url: str, settings: OAuthServer) -> OIDCMetadata:
     oauth_metadata = build_oauth_metadata(issuer_url, settings)
     oidc_metadata = oauth_metadata.model_dump(mode="python")
     advertised_scopes: list[str] = [settings.default_scope, "openid", "profile", "email", "offline_access"]

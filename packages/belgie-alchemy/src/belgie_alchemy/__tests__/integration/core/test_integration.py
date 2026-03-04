@@ -8,7 +8,7 @@ from belgie_alchemy import AlchemyAdapter, SqliteSettings
 from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_oauth import GoogleOAuthPlugin, GoogleOAuthSettings
+from belgie_oauth import GoogleOAuth, GoogleOAuthPlugin
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,8 +62,7 @@ def auth(auth_settings: BelgieSettings, adapter: AlchemyAdapter, database: Sqlit
         database=database,
     )
     belgie.add_plugin(
-        GoogleOAuthPlugin,
-        GoogleOAuthSettings(
+        GoogleOAuth(
             client_id="integration-test-client-id",
             client_secret="integration-test-client-secret",
             scopes=["openid", "email", "profile"],

@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 
 import httpx
 from belgie_core.core.exceptions import InvalidStateError, OAuthError
-from belgie_core.core.plugin import Plugin
+from belgie_core.core.plugin import PluginClient
 from belgie_core.utils.crypto import generate_state_token
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
 
 
-class GoogleOAuthSettings(BaseSettings):
+class GoogleOAuth(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_GOOGLE_",
         env_file=".env",
@@ -52,6 +52,9 @@ class GoogleOAuthSettings(BaseSettings):
             msg = "client_secret must be a non-empty string"
             raise ValueError(msg)
         return SecretStr(secret.strip())
+
+    def __call__(self, belgie_settings: BelgieSettings) -> GoogleOAuthPlugin:
+        return GoogleOAuthPlugin(belgie_settings, self)
 
 
 class GoogleUserInfo(BaseModel):
@@ -85,12 +88,12 @@ class GoogleOAuthClient:
         return self.plugin.generate_authorization_url(state)
 
 
-class GoogleOAuthPlugin(Plugin[GoogleOAuthSettings]):
+class GoogleOAuthPlugin(PluginClient):
     AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
     USER_INFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
-    def __init__(self, belgie_settings: BelgieSettings, settings: GoogleOAuthSettings) -> None:
+    def __init__(self, belgie_settings: BelgieSettings, settings: GoogleOAuth) -> None:
         self.settings = settings
         self._redirect_uri = _build_provider_callback_url(
             belgie_settings.base_url,

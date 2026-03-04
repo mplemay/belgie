@@ -4,13 +4,13 @@ import pytest
 from belgie_oauth_server import provider as provider_module
 from belgie_oauth_server.models import OAuthClientMetadata
 from belgie_oauth_server.provider import AccessToken, AuthorizationParams, RefreshToken, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthServerSettings
+from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import create_code_challenge
 
 
 @pytest.mark.asyncio
 async def test_provider_authorize_and_issue_code() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -38,7 +38,7 @@ async def test_provider_authorize_and_issue_code() -> None:
 
 @pytest.mark.asyncio
 async def test_provider_authorize_state_carries_nonce_user_and_session() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -71,7 +71,7 @@ async def test_provider_authorize_state_carries_nonce_user_and_session() -> None
 
 @pytest.mark.asyncio
 async def test_exchange_authorization_code_issues_token() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -99,7 +99,7 @@ async def test_exchange_authorization_code_issues_token() -> None:
 
 @pytest.mark.asyncio
 async def test_exchange_authorization_code_with_offline_access_issues_refresh_token() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -131,7 +131,7 @@ async def test_exchange_authorization_code_with_offline_access_issues_refresh_to
 
 @pytest.mark.asyncio
 async def test_load_access_token_purges_expired() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -153,7 +153,7 @@ async def test_load_access_token_purges_expired() -> None:
 
 @pytest.mark.asyncio
 async def test_load_access_token_purges_expired_twice() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -177,7 +177,7 @@ async def test_load_access_token_purges_expired_twice() -> None:
 
 @pytest.mark.asyncio
 async def test_authorize_rejects_duplicate_state() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -200,7 +200,7 @@ async def test_authorize_rejects_duplicate_state() -> None:
 
 @pytest.mark.asyncio
 async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -228,7 +228,7 @@ async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.asyncio
 async def test_register_client_issues_secret_by_default() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -245,7 +245,7 @@ async def test_register_client_issues_secret_by_default() -> None:
 
 @pytest.mark.asyncio
 async def test_register_client_no_secret_when_auth_method_none() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -263,7 +263,7 @@ async def test_register_client_no_secret_when_auth_method_none() -> None:
 
 @pytest.mark.asyncio
 async def test_register_client_rejects_unsupported_auth_method() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -281,7 +281,7 @@ async def test_register_client_rejects_unsupported_auth_method() -> None:
 
 @pytest.mark.asyncio
 async def test_register_client_accepts_client_secret_basic() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -300,7 +300,7 @@ async def test_register_client_accepts_client_secret_basic() -> None:
 
 @pytest.mark.asyncio
 async def test_load_refresh_token_purges_expired() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -321,7 +321,7 @@ async def test_load_refresh_token_purges_expired() -> None:
 
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_rotates_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -340,7 +340,7 @@ async def test_exchange_refresh_token_rotates_tokens(monkeypatch: pytest.MonkeyP
 
 @pytest.mark.asyncio
 async def test_issue_refresh_token_uses_refresh_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -357,7 +357,7 @@ async def test_issue_refresh_token_uses_refresh_ttl(monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_preserves_resource_binding() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -387,7 +387,7 @@ async def test_exchange_refresh_token_preserves_resource_binding() -> None:
 
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -401,7 +401,7 @@ async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
 
 @pytest.mark.asyncio
 async def test_issue_client_credentials_token() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -420,7 +420,7 @@ async def test_issue_client_credentials_token() -> None:
 
 @pytest.mark.asyncio
 async def test_revoke_refresh_token_removes_linked_access_tokens() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -445,7 +445,7 @@ async def test_revoke_refresh_token_removes_linked_access_tokens() -> None:
 
 
 def test_validate_scopes_for_client_raises_for_unknown_scope() -> None:
-    settings = OAuthServerSettings(
+    settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",

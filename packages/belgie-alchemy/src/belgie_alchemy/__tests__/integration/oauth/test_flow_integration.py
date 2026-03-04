@@ -3,7 +3,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from belgie_core.core.belgie import Belgie
-from belgie_oauth_server.settings import OAuthServerSettings
+from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import create_code_challenge
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ async def test_full_oauth_flow(
     async_client: httpx.AsyncClient,
     belgie_instance: Belgie,
     db_session: AsyncSession,
-    oauth_settings: OAuthServerSettings,
+    oauth_settings: OAuthServer,
     create_user_session,
 ) -> None:
     session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
