@@ -15,12 +15,13 @@ from belgie_proto.team.session import TeamSessionProtocol
 from belgie_proto.team.team import TeamProtocol
 from sqlalchemy import delete, select
 
-from belgie_alchemy.organization import OrganizationAdapter
-
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from belgie_proto.core import AdapterProtocol
     from belgie_proto.core.connection import DBConnection
+
+    from belgie_alchemy.organization import OrganizationAdapter
 
 
 class TeamAdapter[
@@ -34,15 +35,6 @@ class TeamAdapter[
     TeamT: TeamProtocol,
     TeamMemberT: TeamMemberProtocol,
 ](
-    OrganizationAdapter[
-        UserT,
-        AccountT,
-        SessionT,
-        OAuthStateT,
-        OrganizationT,
-        MemberT,
-        InvitationT,
-    ],
     TeamAdapterProtocol[
         OrganizationT,
         MemberT,
@@ -52,30 +44,246 @@ class TeamAdapter[
         SessionT,
     ],
 ):
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         *,
-        user: type[UserT],
-        account: type[AccountT],
-        session: type[SessionT],
-        oauth_state: type[OAuthStateT],
-        organization: type[OrganizationT],
-        member: type[MemberT],
-        invitation: type[InvitationT],
+        core: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
+        organization_adapter: OrganizationAdapter[
+            UserT,
+            AccountT,
+            SessionT,
+            OAuthStateT,
+            OrganizationT,
+            MemberT,
+            InvitationT,
+        ],
         team: type[TeamT],
         team_member: type[TeamMemberT],
     ) -> None:
-        super().__init__(
-            user=user,
-            account=account,
-            session=session,
-            oauth_state=oauth_state,
-            organization=organization,
-            member=member,
-            invitation=invitation,
-        )
+        self.core = core
+        self.organization_adapter = organization_adapter
         self.team_model = team
         self.team_member_model = team_member
+
+    async def create_organization(
+        self,
+        session: DBConnection,
+        *,
+        name: str,
+        slug: str,
+        logo: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> OrganizationT:
+        return await self.organization_adapter.create_organization(
+            session,
+            name=name,
+            slug=slug,
+            logo=logo,
+            metadata=metadata,
+        )
+
+    async def get_organization_by_id(
+        self,
+        session: DBConnection,
+        organization_id: UUID,
+    ) -> OrganizationT | None:
+        return await self.organization_adapter.get_organization_by_id(session, organization_id)
+
+    async def get_organization_by_slug(
+        self,
+        session: DBConnection,
+        slug: str,
+    ) -> OrganizationT | None:
+        return await self.organization_adapter.get_organization_by_slug(session, slug)
+
+    async def update_organization(  # noqa: PLR0913
+        self,
+        session: DBConnection,
+        organization_id: UUID,
+        *,
+        name: str | None = None,
+        slug: str | None = None,
+        logo: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> OrganizationT | None:
+        return await self.organization_adapter.update_organization(
+            session,
+            organization_id,
+            name=name,
+            slug=slug,
+            logo=logo,
+            metadata=metadata,
+        )
+
+    async def delete_organization(
+        self,
+        session: DBConnection,
+        organization_id: UUID,
+    ) -> bool:
+        return await self.organization_adapter.delete_organization(session, organization_id)
+
+    async def list_organizations_for_user(
+        self,
+        session: DBConnection,
+        user_id: UUID,
+    ) -> list[OrganizationT]:
+        return await self.organization_adapter.list_organizations_for_user(session, user_id)
+
+    async def create_member(
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+        user_id: UUID,
+        role: str,
+    ) -> MemberT:
+        return await self.organization_adapter.create_member(
+            session,
+            organization_id=organization_id,
+            user_id=user_id,
+            role=role,
+        )
+
+    async def get_member(
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+        user_id: UUID,
+    ) -> MemberT | None:
+        return await self.organization_adapter.get_member(
+            session,
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+
+    async def get_member_by_id(
+        self,
+        session: DBConnection,
+        member_id: UUID,
+    ) -> MemberT | None:
+        return await self.organization_adapter.get_member_by_id(session, member_id)
+
+    async def list_members(
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+    ) -> list[MemberT]:
+        return await self.organization_adapter.list_members(session, organization_id=organization_id)
+
+    async def update_member_role(
+        self,
+        session: DBConnection,
+        *,
+        member_id: UUID,
+        role: str,
+    ) -> MemberT | None:
+        return await self.organization_adapter.update_member_role(
+            session,
+            member_id=member_id,
+            role=role,
+        )
+
+    async def remove_member(
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+        user_id: UUID,
+    ) -> bool:
+        team_ids_stmt = select(self.team_model.id).where(self.team_model.organization_id == organization_id)
+        await session.execute(
+            delete(self.team_member_model).where(
+                self.team_member_model.user_id == user_id,
+                self.team_member_model.team_id.in_(team_ids_stmt),
+            ),
+        )
+        member_delete_result = await session.execute(
+            delete(self.organization_adapter.member_model).where(
+                self.organization_adapter.member_model.organization_id == organization_id,
+                self.organization_adapter.member_model.user_id == user_id,
+            ),
+        )
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        return member_delete_result.rowcount > 0  # type: ignore[attr-defined]
+
+    async def create_invitation(  # noqa: PLR0913
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+        email: str,
+        role: str,
+        inviter_id: UUID,
+        expires_at: datetime,
+    ) -> InvitationT:
+        return await self.organization_adapter.create_invitation(
+            session,
+            organization_id=organization_id,
+            email=email,
+            role=role,
+            inviter_id=inviter_id,
+            expires_at=expires_at,
+        )
+
+    async def get_invitation(
+        self,
+        session: DBConnection,
+        invitation_id: UUID,
+    ) -> InvitationT | None:
+        return await self.organization_adapter.get_invitation(session, invitation_id)
+
+    async def get_pending_invitation(
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+        email: str,
+    ) -> InvitationT | None:
+        return await self.organization_adapter.get_pending_invitation(
+            session,
+            organization_id=organization_id,
+            email=email,
+        )
+
+    async def list_invitations(
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+    ) -> list[InvitationT]:
+        return await self.organization_adapter.list_invitations(session, organization_id=organization_id)
+
+    async def set_invitation_status(
+        self,
+        session: DBConnection,
+        *,
+        invitation_id: UUID,
+        status: str,
+    ) -> InvitationT | None:
+        return await self.organization_adapter.set_invitation_status(
+            session,
+            invitation_id=invitation_id,
+            status=status,
+        )
+
+    async def set_active_organization(
+        self,
+        session: DBConnection,
+        *,
+        session_id: UUID,
+        organization_id: UUID | None,
+    ) -> SessionT | None:
+        return await self.organization_adapter.set_active_organization(
+            session,
+            session_id=session_id,
+            organization_id=organization_id,
+        )
 
     async def create_team(
         self,
@@ -231,33 +439,6 @@ class TeamAdapter[
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def remove_member(
-        self,
-        session: DBConnection,
-        *,
-        organization_id: UUID,
-        user_id: UUID,
-    ) -> bool:
-        team_ids_stmt = select(self.team_model.id).where(self.team_model.organization_id == organization_id)
-        await session.execute(
-            delete(self.team_member_model).where(
-                self.team_member_model.user_id == user_id,
-                self.team_member_model.team_id.in_(team_ids_stmt),
-            ),
-        )
-        member_delete_result = await session.execute(
-            delete(self.member_model).where(
-                self.member_model.organization_id == organization_id,
-                self.member_model.user_id == user_id,
-            ),
-        )
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        return member_delete_result.rowcount > 0  # type: ignore[attr-defined]
-
     async def set_active_team(
         self,
         session: DBConnection,
@@ -265,13 +446,13 @@ class TeamAdapter[
         session_id: UUID,
         team_id: UUID | None,
     ) -> SessionT | None:
-        session_obj = await self.get_session(session, session_id)
+        session_obj = await self.core.get_session(session, session_id)
         if session_obj is None:
             return None
         if not hasattr(session_obj, "active_team_id"):
             msg = "session model is missing 'active_team_id'. Use TeamSessionMixin on your session model."
             raise AttributeError(msg)
-        return await self.update_session(
+        return await self.core.update_session(
             session,
             session_id,
             active_team_id=team_id,

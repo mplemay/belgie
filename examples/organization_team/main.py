@@ -9,6 +9,8 @@ from fastapi.responses import RedirectResponse
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import SqliteSettings
+from belgie.alchemy.core import BelgieAdapter
+from belgie.alchemy.organization import OrganizationAdapter
 from belgie.alchemy.team import TeamAdapter
 from belgie.organization import Organization as OrganizationSettings
 from belgie.team import Team as TeamSettings
@@ -60,26 +62,35 @@ settings = BelgieSettings(
     ),
 )
 
-adapter = TeamAdapter(
+core_adapter = BelgieAdapter(
     user=User,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
+)
+
+organization_adapter = OrganizationAdapter(
+    core=core_adapter,
     organization=Organization,
     member=OrganizationMember,
     invitation=OrganizationInvitation,
+)
+
+team_adapter = TeamAdapter(
+    core=core_adapter,
+    organization_adapter=organization_adapter,
     team=Team,
     team_member=TeamMember,
 )
 
 belgie = Belgie(
     settings=settings,
-    adapter=adapter,
+    adapter=core_adapter,
     database=db_settings,
 )
 
-belgie.add_plugin(OrganizationSettings(adapter=adapter))
-belgie.add_plugin(TeamSettings(adapter=adapter))
+belgie.add_plugin(OrganizationSettings(adapter=organization_adapter))
+belgie.add_plugin(TeamSettings(adapter=team_adapter))
 
 app.include_router(belgie.router)
 

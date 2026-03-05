@@ -9,19 +9,41 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
     OrganizationMember,
 )
 from belgie_alchemy.__tests__.fixtures.team.models import Team, TeamMember
+from belgie_alchemy.core import BelgieAdapter
+from belgie_alchemy.organization import OrganizationAdapter
 from belgie_alchemy.team import TeamAdapter
 
 
 @pytest_asyncio.fixture
-async def team_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
-    adapter = TeamAdapter(
+async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
+    adapter = BelgieAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+    )
+    yield adapter
+
+
+@pytest_asyncio.fixture
+async def organization_adapter(core_adapter: BelgieAdapter, alchemy_session: AsyncSession):  # noqa: ARG001
+    adapter = OrganizationAdapter(
+        core=core_adapter,
         organization=Organization,
         member=OrganizationMember,
         invitation=OrganizationInvitation,
+    )
+    yield adapter
+
+
+@pytest_asyncio.fixture
+async def team_adapter(
+    core_adapter: BelgieAdapter,
+    organization_adapter: OrganizationAdapter,
+):
+    adapter = TeamAdapter(
+        core=core_adapter,
+        organization_adapter=organization_adapter,
         team=Team,
         team_member=TeamMember,
     )
@@ -30,14 +52,15 @@ async def team_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
 
 @pytest.mark.asyncio
 async def test_team_member_cleanup_when_removing_org_member(
+    core_adapter: BelgieAdapter,
     team_adapter: TeamAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    owner = await team_adapter.create_user(
+    owner = await core_adapter.create_user(
         alchemy_session,
         email="owner2@example.com",
     )
-    member_user = await team_adapter.create_user(
+    member_user = await core_adapter.create_user(
         alchemy_session,
         email="member@example.com",
     )
