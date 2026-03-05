@@ -4,7 +4,7 @@ SQLAlchemy 2.0 utilities for Belgie.
 
 ## Overview
 
-`belgie-alchemy` provides the `BelgieAdapter`, auth model mixins, and database settings for Belgie.
+`belgie-alchemy` provides the `BelgieAdapter` and auth model mixins for Belgie.
 For SQLAlchemy building blocks (Base, low-level mixins, types), use `brussels`:
 
 - **Base**: Declarative base with dataclass mapping and sensible defaults

@@ -17,7 +17,6 @@ from pydantic import SecretStr
 from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get_test_session_factory
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
 from belgie_alchemy.core import BelgieAdapter
-from belgie_alchemy.core.settings import SqliteSettings
 
 PACKAGES_ROOT = Path(__file__).resolve().parents[7]
 OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth-server" / "src"
@@ -48,11 +47,15 @@ async def db_session(db_session_factory: async_sessionmaker[AsyncSession]) -> As
         yield session
 
 
-@pytest_asyncio.fixture
-async def database(sqlite_database: str):
-    database = SqliteSettings(database=sqlite_database)
-    yield database
-    await database.engine.dispose()
+@pytest.fixture
+def database(
+    db_session_factory: async_sessionmaker[AsyncSession],
+):
+    async def get_db():
+        async with db_session_factory() as session:
+            yield session
+
+    return get_db
 
 
 @pytest_asyncio.fixture
@@ -92,7 +95,7 @@ def belgie_settings() -> BelgieSettings:
 def belgie_instance(
     belgie_settings: BelgieSettings,
     adapter: BelgieAdapter,
-    database: SqliteSettings,
+    database,
     db_session: AsyncSession,
 ) -> Belgie:
     _ = db_session

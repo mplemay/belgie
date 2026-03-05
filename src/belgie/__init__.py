@@ -12,7 +12,6 @@ from belgie_core import (
     BelgieSettings,
     ConfigurationError,
     CookieSettings,
-    DatabaseProtocol,
     DBConnection,
     InvalidStateError,
     OAuthError,
@@ -57,7 +56,6 @@ __all__ = [  # noqa: RUF022
     # Adapters
     "BelgieAdapter",
     "DBConnection",
-    "DatabaseProtocol",
     # Session
     "SessionManager",
     # Settings

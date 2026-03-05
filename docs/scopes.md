@@ -23,15 +23,26 @@ your app is requesting and can approve or deny access.
 Configure scopes in your `GoogleOAuth`:
 
 ```python
+from collections.abc import AsyncGenerator
+
+from sqlalchemy.engine import URL
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from belgie import Belgie, BelgieSettings
-from belgie.alchemy import SqliteSettings
 from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth
 
 settings = BelgieSettings(secret="your-secret", base_url="http://localhost:8000")
-database = SqliteSettings(database="./app.db")
+engine = create_async_engine(URL.create("sqlite+aiosqlite", database="./app.db"))
+session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with session_maker() as session:
+        yield session
+
 adapter = BelgieAdapter(...)
-belgie = Belgie(settings=settings, adapter=adapter, database=database)
+belgie = Belgie(settings=settings, adapter=adapter, database=get_db)
 belgie.add_plugin(
     GoogleOAuth(
         client_id="your-client-id",

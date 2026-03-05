@@ -35,9 +35,7 @@ def belgie_instance(db_provider: tuple[Callable[[], Mock], Mock]) -> Belgie:
 
     adapter = Mock()
     dependency, _ = db_provider
-    database = SimpleNamespace(dependency=dependency)
-
-    return Belgie(settings=settings, adapter=adapter, database=database)
+    return Belgie(settings=settings, adapter=adapter, database=dependency)
 
 
 def test_depends_belgie_user_route_registration_no_fastapi_error(belgie_instance: Belgie) -> None:
@@ -99,7 +97,9 @@ def test_constructor_accepts_database_keyword() -> None:
     settings.cookie.name = "belgie_session"
     settings.cookie.domain = None
     adapter = Mock()
-    database = SimpleNamespace(dependency=lambda: None)
+
+    def database() -> None:
+        return None
 
     belgie = Belgie(settings=settings, adapter=adapter, database=database)
 
@@ -115,7 +115,9 @@ def test_constructor_rejects_db_keyword() -> None:
     settings.cookie.name = "belgie_session"
     settings.cookie.domain = None
     adapter = Mock()
-    database = SimpleNamespace(dependency=lambda: None)
+
+    def database() -> None:
+        return None
 
     with pytest.raises(TypeError):
         Belgie(settings=settings, adapter=adapter, database=database, db=database)  # type: ignore[call-arg]
@@ -124,11 +126,12 @@ def test_constructor_rejects_db_keyword() -> None:
 def test_constructor_rejects_hooks_keyword() -> None:
     settings = Mock()
     adapter = Mock()
-    adapter.dependency = lambda: None
-    hooks = SimpleNamespace()
+
+    def database() -> None:
+        return None
 
     with pytest.raises(TypeError):
-        Belgie(settings=settings, adapter=adapter, hooks=hooks)  # type: ignore[call-arg]
+        Belgie(settings=settings, adapter=adapter, database=database, hooks=database)  # type: ignore[call-arg]
 
 
 @pytest.mark.asyncio

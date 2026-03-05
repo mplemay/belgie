@@ -37,18 +37,6 @@ class FakeAdapter:
         return None
 
 
-class FakeDatabase:
-    def __init__(self, db: object) -> None:
-        self._db = db
-
-    @property
-    def dependency(self):
-        async def _dependency():
-            yield self._db
-
-        return _dependency
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FakeClient:
     adapter: FakeAdapter
@@ -56,7 +44,11 @@ class FakeClient:
 
 
 class FakeBelgie:
-    def __init__(self, adapter: FakeAdapter, database: FakeDatabase) -> None:
+    def __init__(
+        self,
+        adapter: FakeAdapter,
+        database: object,
+    ) -> None:
         self.adapter = adapter
         self.database = database
 
@@ -97,7 +89,12 @@ def _b64url(payload: dict[str, object]) -> str:
 
 def _build_belgie(user: FakeUser | None) -> FakeBelgie:
     adapter = FakeAdapter(user)
-    return FakeBelgie(adapter, FakeDatabase(object()))
+    db = object()
+
+    async def get_db():
+        yield db
+
+    return FakeBelgie(adapter, get_db)
 
 
 @pytest.mark.asyncio
