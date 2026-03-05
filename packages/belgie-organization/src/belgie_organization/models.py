@@ -41,6 +41,7 @@ class InvitationView(BaseModel):
 
     id: UUID
     organization_id: UUID
+    team_id: UUID | None
     email: str
     role: str
     status: InvitationStatus
@@ -54,37 +55,3 @@ class OrganizationFullView(BaseModel):
     organization: OrganizationView
     members: list[MemberView]
     invitations: list[InvitationView]
-
-
-class CreateOrganizationBody(BaseModel):
-    name: str = Field(min_length=1)
-    slug: str = Field(min_length=1)
-    logo: str | None = None
-    metadata: dict[str, Any] | None = None
-    user_id: UUID | None = None
-    keep_current_active_organization: bool = False
-
-
-class SetActiveOrganizationBody(BaseModel):
-    organization_id: UUID | None = None
-    organization_slug: str | None = None
-
-
-class GetFullOrganizationQuery(BaseModel):
-    organization_id: UUID | None = None
-    organization_slug: str | None = None
-
-
-class InviteMemberBody(BaseModel):
-    email: str
-    role: str = "member"
-    organization_id: UUID | None = None
-
-
-class AcceptInvitationBody(BaseModel):
-    invitation_id: UUID
-
-
-class AcceptInvitationView(BaseModel):
-    invitation: InvitationView
-    member: MemberView

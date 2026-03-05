@@ -217,6 +217,7 @@ class TeamAdapter[
         session: DBConnection,
         *,
         organization_id: UUID,
+        team_id: UUID | None,
         email: str,
         role: str,
         inviter_id: UUID,
@@ -225,6 +226,7 @@ class TeamAdapter[
         return await self.organization_adapter.create_invitation(
             session,
             organization_id=organization_id,
+            team_id=team_id,
             email=email,
             role=role,
             inviter_id=inviter_id,
@@ -258,6 +260,14 @@ class TeamAdapter[
         organization_id: UUID,
     ) -> list[InvitationT]:
         return await self.organization_adapter.list_invitations(session, organization_id=organization_id)
+
+    async def list_user_invitations(
+        self,
+        session: DBConnection,
+        *,
+        email: str,
+    ) -> list[InvitationT]:
+        return await self.organization_adapter.list_user_invitations(session, email=email)
 
     async def set_invitation_status(
         self,

@@ -117,6 +117,7 @@ class OrganizationAdapterProtocol[
         session: DBConnection,
         *,
         organization_id: UUID,
+        team_id: UUID | None,
         email: str,
         role: str,
         inviter_id: UUID,
@@ -142,6 +143,13 @@ class OrganizationAdapterProtocol[
         session: DBConnection,
         *,
         organization_id: UUID,
+    ) -> list[InvitationT]: ...
+
+    async def list_user_invitations(
+        self,
+        session: DBConnection,
+        *,
+        email: str,
     ) -> list[InvitationT]: ...
 
     async def set_invitation_status(

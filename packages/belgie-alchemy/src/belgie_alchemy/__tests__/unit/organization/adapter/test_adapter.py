@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -10,6 +11,7 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
     OrganizationInvitation,
     OrganizationMember,
 )
+from belgie_alchemy.__tests__.fixtures.team.models import Team
 from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
 
@@ -105,6 +107,7 @@ async def test_invitation_accept_flow(
     invitation = await organization_adapter.create_invitation(
         alchemy_session,
         organization_id=organization.id,
+        team_id=None,
         email=invited.email,
         role="member",
         inviter_id=inviter.id,
@@ -125,3 +128,52 @@ async def test_invitation_accept_flow(
     assert pending.id == invitation.id
     assert accepted is not None
     assert accepted.status == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_invitation_team_id_and_list_user_invitations(
+    core_adapter: BelgieAdapter,
+    organization_adapter: OrganizationAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    inviter = await core_adapter.create_user(
+        alchemy_session,
+        email="inviter2@example.com",
+    )
+    invited = await core_adapter.create_user(
+        alchemy_session,
+        email="invited2@example.com",
+    )
+    organization = await organization_adapter.create_organization(
+        alchemy_session,
+        name="Org3",
+        slug="org3",
+    )
+    await organization_adapter.create_member(
+        alchemy_session,
+        organization_id=organization.id,
+        user_id=inviter.id,
+        role="owner",
+    )
+    team = Team(name=f"team-{uuid4()}", organization_id=organization.id)
+    alchemy_session.add(team)
+    await alchemy_session.commit()
+    await alchemy_session.refresh(team)
+
+    invitation = await organization_adapter.create_invitation(
+        alchemy_session,
+        organization_id=organization.id,
+        team_id=team.id,
+        email=invited.email,
+        role="member",
+        inviter_id=inviter.id,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    user_invitations = await organization_adapter.list_user_invitations(
+        alchemy_session,
+        email=invited.email,
+    )
+
+    assert invitation.team_id == team.id
+    assert len(user_invitations) == 1
+    assert user_invitations[0].id == invitation.id

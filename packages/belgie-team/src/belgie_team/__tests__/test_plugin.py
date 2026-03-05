@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import pytest
 from belgie_core.core.settings import BelgieSettings
-from belgie_proto.team import TeamAdapterProtocol
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
 from belgie_organization.plugin import OrganizationPlugin
 from belgie_organization.settings import Organization as OrganizationSettings
-from fastapi import FastAPI
+from belgie_proto.team import TeamAdapterProtocol
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from belgie_team.plugin import TeamPlugin
 from belgie_team.settings import Team
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from belgie_team.client import TeamClient
 
 
 class DummyBelgie:
@@ -43,91 +44,76 @@ class FakeBelgieClient:
 
 
 class FakeTeamAdapter(TeamAdapterProtocol):
-    def __init__(self, *, active_team, organization_member, team_member) -> None:
-        self._active_team = active_team
-        self._organization_member = organization_member
-        self._team_member = team_member
-
-    async def get_team_by_id(self, _session, _team_id):
-        return self._active_team
-
-    async def get_member(self, _session, *, organization_id, user_id):  # noqa: ARG002
-        return self._organization_member
-
-    async def get_team_member(self, _session, *, team_id, user_id):  # noqa: ARG002
-        return self._team_member
-
-    def __getattr__(self, name: str) -> Callable[..., Awaitable[None]]:
+    def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
-            msg = f"unexpected adapter call: {name}"
-            raise AssertionError(msg)
+            return None
 
         return _unexpected
 
 
-def _create_client(*, organization_member, team_member) -> tuple[TestClient, SimpleNamespace]:
+def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
     settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
-    team = SimpleNamespace(
-        id=uuid4(),
-        organization_id=uuid4(),
-        name="Engineering",
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-    )
-    user = SimpleNamespace(id=uuid4())
-    session = SimpleNamespace(id=uuid4(), active_organization_id=team.organization_id, active_team_id=team.id)
-    adapter = FakeTeamAdapter(
-        active_team=team,
-        organization_member=organization_member,
-        team_member=team_member,
-    )
+    user = SimpleNamespace(id=uuid4(), email="member@example.com")
+    session = SimpleNamespace(id=uuid4(), active_organization_id=None, active_team_id=None)
+    belgie_client = FakeBelgieClient(user=user, session=session)
+    adapter = FakeTeamAdapter()
+
     organization_plugin = OrganizationPlugin(settings, OrganizationSettings(adapter=adapter))
     team_plugin = TeamPlugin(settings, Team(adapter=adapter))
-    belgie_client = FakeBelgieClient(user=user, session=session)
     belgie = DummyBelgie(belgie_client, plugins=[organization_plugin, team_plugin])
 
     app = FastAPI()
     app.include_router(team_plugin.router(belgie))
-    return TestClient(app), team
+
+    @app.get("/team-client")
+    async def get_team_client(team: TeamClient = Depends(team_plugin)) -> dict[str, str]:
+        return {
+            "user_id": str(team.current_user.id),
+            "session_id": str(team.current_session.id),
+        }
+
+    return TestClient(app), belgie_client
 
 
-def test_get_active_team_returns_null_when_user_not_in_team() -> None:
-    client, _team = _create_client(
-        organization_member=SimpleNamespace(id=uuid4()),
-        team_member=None,
-    )
+def test_plugin_injects_team_client() -> None:
+    client, belgie_client = _build_fixture()
 
-    response = client.get("/team/active")
-
-    assert response.status_code == 200
-    assert response.json() is None
-
-
-def test_get_active_team_returns_null_when_user_not_in_organization() -> None:
-    client, _team = _create_client(
-        organization_member=None,
-        team_member=SimpleNamespace(id=uuid4()),
-    )
-
-    response = client.get("/team/active")
-
-    assert response.status_code == 200
-    assert response.json() is None
-
-
-def test_get_active_team_returns_team_when_user_is_still_authorized() -> None:
-    client, team = _create_client(
-        organization_member=SimpleNamespace(id=uuid4()),
-        team_member=SimpleNamespace(id=uuid4()),
-    )
-
-    response = client.get("/team/active")
+    response = client.get("/team-client")
 
     assert response.status_code == 200
     assert response.json() == {
-        "id": str(team.id),
-        "organization_id": str(team.organization_id),
-        "name": team.name,
-        "created_at": team.created_at.isoformat().replace("+00:00", "Z"),
-        "updated_at": team.updated_at.isoformat().replace("+00:00", "Z"),
+        "user_id": str(belgie_client.user.id),
+        "session_id": str(belgie_client.session.id),
     }
+
+
+def test_legacy_team_routes_removed() -> None:
+    client, _ = _build_fixture()
+
+    response = client.get("/team/active")
+
+    assert response.status_code == 404
+
+
+def test_team_plugin_requires_organization_plugin_registration() -> None:
+    settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
+    team_plugin = TeamPlugin(settings, Team(adapter=FakeTeamAdapter()))
+    belgie = DummyBelgie(
+        FakeBelgieClient(
+            user=SimpleNamespace(id=uuid4(), email="member@example.com"),
+            session=SimpleNamespace(id=uuid4(), active_organization_id=None, active_team_id=None),
+        ),
+        plugins=[team_plugin],
+    )
+
+    with pytest.raises(RuntimeError, match="requires organization plugin"):
+        team_plugin.router(belgie)
+
+
+@pytest.mark.asyncio
+async def test_dependency_requires_router_initialization() -> None:
+    settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
+    team_plugin = TeamPlugin(settings, Team(adapter=FakeTeamAdapter()))
+
+    with pytest.raises(RuntimeError, match="router initialization"):
+        await team_plugin(SimpleNamespace(), SimpleNamespace())

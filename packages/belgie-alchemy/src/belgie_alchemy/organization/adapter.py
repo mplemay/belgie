@@ -249,6 +249,7 @@ class OrganizationAdapter[
         session: DBConnection,
         *,
         organization_id: UUID,
+        team_id: UUID | None,
         email: str,
         role: str,
         inviter_id: UUID,
@@ -256,6 +257,7 @@ class OrganizationAdapter[
     ) -> InvitationT:
         invitation = self.invitation_model(
             organization_id=organization_id,
+            team_id=team_id,
             email=email.lower(),
             role=role,
             status="pending",
@@ -303,6 +305,20 @@ class OrganizationAdapter[
         organization_id: UUID,
     ) -> list[InvitationT]:
         stmt = select(self.invitation_model).where(self.invitation_model.organization_id == organization_id)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_user_invitations(
+        self,
+        session: DBConnection,
+        *,
+        email: str,
+    ) -> list[InvitationT]:
+        stmt = select(self.invitation_model).where(
+            self.invitation_model.email == email.lower(),
+            self.invitation_model.status == "pending",
+            self.invitation_model.expires_at > datetime.now(UTC),
+        )
         result = await session.execute(stmt)
         return list(result.scalars().all())
 

@@ -70,7 +70,7 @@ class OrganizationMemberMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def role(self) -> Mapped[str]:
-        return mapped_column(default="member", kw_only=True)
+        return mapped_column(kw_only=True)
 
     @declared_attr
     def organization(self) -> Mapped[object]:
@@ -112,13 +112,23 @@ class OrganizationInvitationMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
     @declared_attr
+    def team_id(self) -> Mapped[UUID | None]:
+        return mapped_column(
+            ForeignKey("team.id", ondelete="set null", onupdate="cascade"),
+            nullable=True,
+            default=None,
+            index=True,
+            kw_only=True,
+        )
+
+    @declared_attr
     def email(self) -> Mapped[str]:
         email_type = Text().with_variant(CITEXT(), "postgresql")
         return mapped_column(email_type, index=True, kw_only=True)
 
     @declared_attr
     def role(self) -> Mapped[str]:
-        return mapped_column(default="member", kw_only=True)
+        return mapped_column(kw_only=True)
 
     @declared_attr
     def status(self) -> Mapped[str]:
