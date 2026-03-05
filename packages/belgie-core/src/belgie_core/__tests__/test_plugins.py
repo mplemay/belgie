@@ -12,13 +12,14 @@ class MockPluginConfig:
     label: str
     enabled: bool = True
 
-    def __call__(self, belgie_settings: object) -> "MockPlugin":
-        return MockPlugin(belgie_settings, self)
+    def __call__(self, belgie_settings: object, adapter: object) -> "MockPlugin":
+        return MockPlugin(belgie_settings, adapter, self)
 
 
 class MockPlugin:
-    def __init__(self, belgie_settings: object, settings: MockPluginConfig) -> None:
+    def __init__(self, belgie_settings: object, adapter: object, settings: MockPluginConfig) -> None:
         self.belgie_settings = belgie_settings
+        self.adapter = adapter
         self.settings = settings
         self.label = settings.label
         self.enabled = settings.enabled
@@ -61,6 +62,7 @@ def test_add_plugin_passes_belgie_settings(belgie_instance: Belgie) -> None:
     plugin_config = MockPluginConfig(label="alpha")
     plugin = belgie_instance.add_plugin(plugin_config)
     assert plugin.belgie_settings is belgie_instance.settings
+    assert plugin.adapter is belgie_instance.adapter
 
 
 def test_add_plugin_returns_instance(belgie_instance: Belgie) -> None:
@@ -72,15 +74,15 @@ def test_add_plugin_returns_instance(belgie_instance: Belgie) -> None:
 def test_add_plugin_callable_signature_fails_fast(belgie_instance: Belgie) -> None:
     class LegacyPluginConfig:
         def __call__(self) -> MockPlugin:
-            return MockPlugin(belgie_instance.settings, MockPluginConfig(label="alpha"))
+            return MockPlugin(belgie_instance.settings, belgie_instance.adapter, MockPluginConfig(label="alpha"))
 
-    with pytest.raises(TypeError, match=r"__call__\(belgie_settings\)"):
+    with pytest.raises(TypeError, match=r"__call__\(belgie_settings, adapter\)"):
         belgie_instance.add_plugin(LegacyPluginConfig())
 
 
 def test_add_plugin_return_type_fails_fast(belgie_instance: Belgie) -> None:
     class InvalidPluginConfig:
-        def __call__(self, belgie_settings: object) -> object:  # noqa: ARG002
+        def __call__(self, belgie_settings: object, adapter: object) -> object:  # noqa: ARG002
             return object()
 
     with pytest.raises(TypeError, match=r"must return an object implementing"):

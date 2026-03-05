@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
 from belgie_core.core.plugin import PluginClient
 from belgie_organization.plugin import OrganizationPlugin
-from belgie_proto.team import TeamAdapterProtocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import SecurityScopes
 
@@ -28,28 +27,20 @@ if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto.organization.invitation import InvitationProtocol
-    from belgie_proto.organization.member import MemberProtocol
-    from belgie_proto.organization.organization import OrganizationProtocol
-    from belgie_proto.team.member import TeamMemberProtocol
-    from belgie_proto.team.session import TeamSessionProtocol
-    from belgie_proto.team.team import TeamProtocol
+    from belgie_proto.team import TeamAdapterProtocol
 
     from belgie_team.settings import Team
 
-    type TeamAdapterCast = TeamAdapterProtocol[
-        OrganizationProtocol,
-        MemberProtocol,
-        InvitationProtocol,
-        TeamProtocol,
-        TeamMemberProtocol,
-        TeamSessionProtocol,
-    ]
-
 
 class TeamPlugin(PluginClient):
-    def __init__(self, _belgie_settings: BelgieSettings, settings: Team) -> None:
+    def __init__(
+        self,
+        _belgie_settings: BelgieSettings,
+        settings: Team,
+        adapter: TeamAdapterProtocol,
+    ) -> None:
         self._settings = settings
+        self._adapter = adapter
         self._resolve_client: Callable[..., Coroutine[object, object, TeamClient]] | None = None
 
     def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
@@ -57,17 +48,10 @@ class TeamPlugin(PluginClient):
             return
 
         async def resolve_client(client: BelgieClient = Depends(belgie)) -> TeamClient:  # noqa: B008
-            if not isinstance(client.adapter, TeamAdapterProtocol):
-                msg = (
-                    "team plugin requires an adapter implementing TeamAdapterProtocol. "
-                    "Use belgie_alchemy.team.TeamAdapter."
-                )
-                raise TypeError(msg)
-            adapter = cast("TeamAdapterCast", client.adapter)
             return TeamClient(
                 client=client,
                 settings=self._settings,
-                adapter=adapter,
+                adapter=self._adapter,
             )
 
         self._resolve_client = resolve_client

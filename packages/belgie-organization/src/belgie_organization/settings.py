@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable  # noqa: TC003
 from typing import TYPE_CHECKING
 
+from belgie_proto.organization import OrganizationAdapterProtocol
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -42,6 +43,14 @@ class Organization(BaseSettings):
             raise ValueError(msg)
         return normalized
 
-    def __call__(self, belgie_settings: BelgieSettings) -> OrganizationPlugin:
+    def __call__(self, belgie_settings: BelgieSettings, adapter: object) -> OrganizationPlugin:
+        if not isinstance(adapter, OrganizationAdapterProtocol):
+            msg = (
+                "organization plugin requires an adapter implementing "
+                "OrganizationAdapterProtocol. Use "
+                "belgie_alchemy.organization.OrganizationAdapter or "
+                "belgie_alchemy.team.TeamAdapter."
+            )
+            raise TypeError(msg)
         plugin_class = __import__("belgie_organization.plugin", fromlist=["OrganizationPlugin"]).OrganizationPlugin
-        return plugin_class(belgie_settings, self)
+        return plugin_class(belgie_settings, self, adapter)

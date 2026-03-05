@@ -12,14 +12,14 @@ from belgie_core.core.belgie import Belgie
 class DummyPluginConfig:
     plugin_class: type["DummyPlugin"] | None = None
 
-    def __call__(self, belgie_settings: object) -> "DummyPlugin":
+    def __call__(self, belgie_settings: object, adapter: object) -> "DummyPlugin":
         plugin_class = DummyPlugin if self.plugin_class is None else self.plugin_class
-        return plugin_class(belgie_settings, self)
+        return plugin_class(belgie_settings, adapter, self)
 
 
 class DummyPlugin:
-    def __init__(self, _belgie_settings: object, _settings: DummyPluginConfig) -> None:
-        pass
+    def __init__(self, _belgie_settings: object, adapter: object, _settings: DummyPluginConfig) -> None:
+        self.adapter = adapter
 
     def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         router = APIRouter()
@@ -52,7 +52,8 @@ def belgie_instance() -> Belgie:
 
 
 def test_plugin_router_included(belgie_instance: Belgie) -> None:
-    belgie_instance.add_plugin(DummyPluginConfig())
+    plugin = belgie_instance.add_plugin(DummyPluginConfig())
+    assert plugin.adapter is belgie_instance.adapter
 
     app = FastAPI()
     app.include_router(belgie_instance.router)

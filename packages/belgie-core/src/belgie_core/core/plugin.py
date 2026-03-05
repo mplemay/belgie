@@ -24,6 +24,10 @@ class PluginClient(Protocol):
 class Plugin[P: PluginClient](Protocol):
     """Protocol for Belgie plugin configuration callables."""
 
-    def __call__(self, belgie_settings: "BelgieSettings") -> P:
+    def __call__(
+        self,
+        belgie_settings: "BelgieSettings",
+        adapter: object,
+    ) -> P:
         """Build and return a runtime plugin."""
         ...

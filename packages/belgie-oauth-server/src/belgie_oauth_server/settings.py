@@ -115,6 +115,6 @@ class OAuthServer(BaseSettings):
         resource = self.resources[0]
         return resource.resolve_url(base_url), resource.scopes
 
-    def __call__(self, belgie_settings: BelgieSettings) -> OAuthServerPlugin:
+    def __call__(self, belgie_settings: BelgieSettings, _adapter: object) -> OAuthServerPlugin:
         plugin_class = __import__("belgie_oauth_server.plugin", fromlist=["OAuthServerPlugin"]).OAuthServerPlugin
         return plugin_class(belgie_settings, self)

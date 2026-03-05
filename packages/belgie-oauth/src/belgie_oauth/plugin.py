@@ -53,7 +53,7 @@ class GoogleOAuth(BaseSettings):
             raise ValueError(msg)
         return SecretStr(secret.strip())
 
-    def __call__(self, belgie_settings: BelgieSettings) -> GoogleOAuthPlugin:
+    def __call__(self, belgie_settings: BelgieSettings, _adapter: object) -> GoogleOAuthPlugin:
         return GoogleOAuthPlugin(belgie_settings, self)
 
 

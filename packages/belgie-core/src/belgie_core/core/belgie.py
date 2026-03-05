@@ -144,12 +144,12 @@ class Belgie[
             The instantiated runtime plugin.
         """
         try:
-            signature(plugin).bind(self.settings)
+            signature(plugin).bind(self.settings, self.adapter)
         except TypeError as exc:
-            msg = "plugin callable must follow __call__(belgie_settings)"
+            msg = "plugin callable must follow __call__(belgie_settings, adapter)"
             raise TypeError(msg) from exc
 
-        instance = plugin(self.settings)
+        instance = plugin(self.settings, self.adapter)
         if not isinstance(instance, PluginClient):
             msg = "plugin callable must return an object implementing router(belgie) and public(belgie)"
             raise TypeError(msg)

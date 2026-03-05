@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from belgie_proto.team import TeamAdapterProtocol
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,6 +35,11 @@ class Team(BaseSettings):
             raise ValueError(msg)
         return normalized
 
-    def __call__(self, belgie_settings: BelgieSettings) -> TeamPlugin:
+    def __call__(self, belgie_settings: BelgieSettings, adapter: object) -> TeamPlugin:
+        if not isinstance(adapter, TeamAdapterProtocol):
+            msg = (
+                "team plugin requires an adapter implementing TeamAdapterProtocol. Use belgie_alchemy.team.TeamAdapter."
+            )
+            raise TypeError(msg)
         plugin_class = __import__("belgie_team.plugin", fromlist=["TeamPlugin"]).TeamPlugin
-        return plugin_class(belgie_settings, self)
+        return plugin_class(belgie_settings, self, adapter)

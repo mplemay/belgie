@@ -28,7 +28,7 @@ class Mcp:
     introspection_endpoint: str | None = None
     oauth_strict: bool = False
 
-    def __call__(self, belgie_settings: BelgieSettings) -> McpPlugin:
+    def __call__(self, belgie_settings: BelgieSettings, _adapter: object) -> McpPlugin:
         return McpPlugin(belgie_settings, self)
 
 

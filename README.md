@@ -198,6 +198,7 @@ Visit `http://localhost:8000/login/google` to sign in.
 ## Plugin API migration note
 
 - `bind()` has been removed from plugins.
+- Plugin config callables now follow `__call__(belgie_settings, adapter)`.
 - Register plugins with callable config objects: `auth.add_plugin(GoogleOAuth(...))`.
 
 ## Router endpoints

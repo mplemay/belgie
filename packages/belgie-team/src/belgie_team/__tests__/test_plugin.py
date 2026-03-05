@@ -67,7 +67,6 @@ class FakeTeamAdapter(TeamAdapterProtocol):
 
 def _create_client(*, organization_member, team_member) -> tuple[TestClient, SimpleNamespace]:
     settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
-    team_plugin = TeamPlugin(settings, Team())
     organization_plugin = object.__new__(OrganizationPlugin)
 
     team = SimpleNamespace(
@@ -84,6 +83,7 @@ def _create_client(*, organization_member, team_member) -> tuple[TestClient, Sim
         organization_member=organization_member,
         team_member=team_member,
     )
+    team_plugin = TeamPlugin(settings, Team(), adapter)
     belgie_client = FakeBelgieClient(adapter=adapter, user=user, session=session)
     belgie = DummyBelgie(belgie_client, plugins=[organization_plugin, team_plugin])
 
