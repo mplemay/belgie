@@ -3,8 +3,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated
 
-from belgie_proto.organization.invitation import InvitationProtocol
-from belgie_proto.organization.organization import OrganizationProtocol
 from brussels.base import DataclassBase
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
@@ -80,16 +78,8 @@ belgie = Belgie(
     database=db_settings,
 )
 
-# belgie_organization settings includes forward refs that need explicit resolution at runtime.
-OrganizationSettings.model_rebuild(
-    _types_namespace={
-        "InvitationProtocol": InvitationProtocol,
-        "OrganizationProtocol": OrganizationProtocol,
-    },
-)
-
-belgie.add_plugin(OrganizationSettings())
-belgie.add_plugin(TeamSettings())
+belgie.add_plugin(OrganizationSettings(adapter=adapter))
+belgie.add_plugin(TeamSettings(adapter=adapter))
 
 app.include_router(belgie.router)
 

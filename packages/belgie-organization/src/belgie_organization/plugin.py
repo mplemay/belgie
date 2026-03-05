@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import inspect
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
 from belgie_core.core.plugin import PluginClient
-from belgie_proto.organization import OrganizationAdapterProtocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import SecurityScopes
 
@@ -25,62 +24,43 @@ from belgie_organization.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Awaitable, Callable
 
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto.organization.invitation import InvitationProtocol
-    from belgie_proto.organization.member import MemberProtocol
-    from belgie_proto.organization.organization import OrganizationProtocol
     from belgie_proto.organization.session import OrganizationSessionProtocol
 
     from belgie_organization.settings import Organization
-
-    type OrganizationAdapterCast = OrganizationAdapterProtocol[
-        OrganizationProtocol,
-        MemberProtocol,
-        InvitationProtocol,
-        OrganizationSessionProtocol,
-    ]
 
 
 class OrganizationPlugin(PluginClient):
     def __init__(self, _belgie_settings: BelgieSettings, settings: Organization) -> None:
         self._settings = settings
-        self._resolve_client: Callable[..., Coroutine[object, object, OrganizationClient]] | None = None
+        self._resolve_client: Callable[[BelgieClient], Awaitable[OrganizationClient]] | None = None
 
     def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
         if self._resolve_client is not None:
             return
 
         async def resolve_client(client: BelgieClient = Depends(belgie)) -> OrganizationClient:  # noqa: B008
-            if not isinstance(client.adapter, OrganizationAdapterProtocol):
-                msg = (
-                    "organization plugin requires an adapter implementing "
-                    "OrganizationAdapterProtocol. Use "
-                    "belgie_alchemy.organization.OrganizationAdapter or "
-                    "belgie_alchemy.team.TeamAdapter."
-                )
-                raise TypeError(msg)
-            adapter = cast("OrganizationAdapterCast", client.adapter)
             return OrganizationClient(
                 client=client,
                 settings=self._settings,
-                adapter=adapter,
+                adapter=self._settings.adapter,
             )
 
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
-    async def __call__(self, *args: object, **kwargs: object) -> OrganizationClient:
+    async def __call__(self, client: BelgieClient) -> OrganizationClient:
         if self._resolve_client is None:
             msg = (
                 "OrganizationPlugin dependency requires router initialization "
                 "(call app.include_router(belgie.router) first)"
             )
             raise RuntimeError(msg)
-        return await self._resolve_client(*args, **kwargs)
+        return await self._resolve_client(client)
 
     def router(self, belgie: Belgie) -> APIRouter:  # noqa: C901, PLR0915
         self._ensure_dependency_resolver(belgie)
@@ -411,14 +391,5 @@ class OrganizationPlugin(PluginClient):
         return None
 
 
-def _get_active_organization_id(session_obj: object) -> UUID | None:
-    if not hasattr(session_obj, "active_organization_id"):
-        msg = (
-            "session model is missing 'active_organization_id'. "
-            "Use belgie_alchemy.organization.mixins.OrganizationSessionMixin on your session model."
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=msg,
-        )
-    return session_obj.active_organization_id  # type: ignore[attr-defined]
+def _get_active_organization_id(session_obj: OrganizationSessionProtocol) -> UUID | None:
+    return session_obj.active_organization_id

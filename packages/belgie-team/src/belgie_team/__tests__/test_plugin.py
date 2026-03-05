@@ -9,9 +9,10 @@ from belgie_core.core.settings import BelgieSettings
 from belgie_proto.team import TeamAdapterProtocol
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Awaitable, Callable
 
 from belgie_organization.plugin import OrganizationPlugin
+from belgie_organization.settings import Organization as OrganizationSettings
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -20,20 +21,19 @@ from belgie_team.settings import Team
 
 
 class DummyBelgie:
-    def __init__(self, client, *, plugins: list[object]) -> None:
+    def __init__(self, client: FakeBelgieClient, *, plugins: list[OrganizationPlugin | TeamPlugin]) -> None:
         self._client = client
         self.plugins = plugins
 
-    async def __call__(self) -> object:
+    async def __call__(self) -> FakeBelgieClient:
         return self._client
 
 
 class FakeBelgieClient:
-    def __init__(self, *, adapter, user, session) -> None:
-        self.adapter = adapter
+    def __init__(self, *, user, session) -> None:
         self.user = user
         self.session = session
-        self.db = object()
+        self.db = SimpleNamespace()
 
     async def get_user(self, _security_scopes, _request):
         return self.user
@@ -57,8 +57,8 @@ class FakeTeamAdapter(TeamAdapterProtocol):
     async def get_team_member(self, _session, *, team_id, user_id):  # noqa: ARG002
         return self._team_member
 
-    def __getattr__(self, name: str) -> Callable[..., Coroutine[object, object, None]]:
-        async def _unexpected(*_args: object, **_kwargs: object) -> None:
+    def __getattr__(self, name: str) -> Callable[..., Awaitable[None]]:
+        async def _unexpected(*_args: int, **_kwargs: int) -> None:
             msg = f"unexpected adapter call: {name}"
             raise AssertionError(msg)
 
@@ -67,9 +67,6 @@ class FakeTeamAdapter(TeamAdapterProtocol):
 
 def _create_client(*, organization_member, team_member) -> tuple[TestClient, SimpleNamespace]:
     settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
-    team_plugin = TeamPlugin(settings, Team())
-    organization_plugin = object.__new__(OrganizationPlugin)
-
     team = SimpleNamespace(
         id=uuid4(),
         organization_id=uuid4(),
@@ -78,13 +75,15 @@ def _create_client(*, organization_member, team_member) -> tuple[TestClient, Sim
         updated_at=datetime.now(UTC),
     )
     user = SimpleNamespace(id=uuid4())
-    session = SimpleNamespace(id=uuid4(), active_team_id=team.id)
+    session = SimpleNamespace(id=uuid4(), active_organization_id=team.organization_id, active_team_id=team.id)
     adapter = FakeTeamAdapter(
         active_team=team,
         organization_member=organization_member,
         team_member=team_member,
     )
-    belgie_client = FakeBelgieClient(adapter=adapter, user=user, session=session)
+    organization_plugin = OrganizationPlugin(settings, OrganizationSettings(adapter=adapter))
+    team_plugin = TeamPlugin(settings, Team(adapter=adapter))
+    belgie_client = FakeBelgieClient(user=user, session=session)
     belgie = DummyBelgie(belgie_client, plugins=[organization_plugin, team_plugin])
 
     app = FastAPI()
