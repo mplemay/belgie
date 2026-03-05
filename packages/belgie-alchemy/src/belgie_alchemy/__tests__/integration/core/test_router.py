@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -9,11 +10,10 @@ from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSet
 from belgie_oauth import GoogleOAuth, GoogleOAuthPlugin
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
 from belgie_alchemy.core import BelgieAdapter
-from belgie_alchemy.core.settings import SqliteSettings
 
 
 @pytest.fixture
@@ -38,11 +38,15 @@ def auth_settings() -> BelgieSettings:
     )
 
 
-@pytest_asyncio.fixture
-async def database(sqlite_database: str):
-    database = SqliteSettings(database=sqlite_database)
-    yield database
-    await database.engine.dispose()
+@pytest.fixture
+def database(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> Callable[[], AsyncGenerator[AsyncSession, None]]:
+    async def get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with db_session_factory() as session:
+            yield session
+
+    return get_db
 
 
 @pytest_asyncio.fixture
@@ -60,7 +64,7 @@ async def adapter():
 def auth(
     auth_settings: BelgieSettings,
     adapter: BelgieAdapter,
-    database: SqliteSettings,
+    database: Callable[[], AsyncGenerator[AsyncSession, None]],
     db_session: AsyncSession,
 ) -> Belgie:
     _ = db_session

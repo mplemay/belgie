@@ -1,14 +1,36 @@
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, cast
 
 from brussels.base import DataclassBase
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy import event
+from sqlalchemy.engine import URL
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from belgie_alchemy.core.settings import SqliteSettings
+if TYPE_CHECKING:
+    from typing import Protocol
+
+    class DBAPICursor(Protocol):
+        def execute(self, operation: str) -> object: ...
+        def close(self) -> None: ...
+
+    class DBAPIConnection(Protocol):
+        def cursor(self) -> DBAPICursor: ...
+
+
+def _sqlite_url(database: str) -> URL:
+    if database.startswith("file:"):
+        return URL.create("sqlite+aiosqlite", database=database, query={"uri": "true"})
+    return URL.create("sqlite+aiosqlite", database=database)
 
 
 async def get_test_engine(database: str = ":memory:") -> AsyncEngine:
-    settings = SqliteSettings(database=database, echo=False, enable_foreign_keys=True)
-    engine = settings.engine
+    engine = create_async_engine(_sqlite_url(database), echo=False)
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_foreign_keys(dbapi_conn: object, _connection_record: object) -> None:
+        cursor = cast("DBAPIConnection", dbapi_conn).cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
     async with engine.begin() as conn:
         await conn.run_sync(DataclassBase.metadata.create_all)

@@ -45,8 +45,9 @@ def belgie_instance() -> Belgie:
     settings.cookie.domain = None
 
     adapter = Mock()
-    database = Mock()
-    database.dependency = lambda: None
+
+    def database() -> None:
+        return None
 
     return Belgie(settings=settings, adapter=adapter, database=database)
 

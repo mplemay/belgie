@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine  # noqa: TC003
+from collections.abc import AsyncGenerator, Callable, Coroutine  # noqa: TC003
 from inspect import signature
 from typing import TYPE_CHECKING, Annotated, Any, cast
 from uuid import UUID
@@ -21,7 +21,6 @@ from belgie_core.session.manager import SessionManager
 
 if TYPE_CHECKING:
     from belgie_proto.core import AdapterProtocol
-    from belgie_proto.core.database import DatabaseProtocol
 
 
 class _BelgieCallable:
@@ -38,7 +37,7 @@ class _BelgieCallable:
             return self
 
         # Return a callable with this instance's database dependency
-        dependency = obj.database.dependency
+        dependency = obj.database
 
         def __call__(  # noqa: N807
             db: Annotated[DBConnection, Depends(dependency)],
@@ -74,14 +73,15 @@ class Belgie[
     Attributes:
         settings: Authentication configuration settings
         adapter: Database adapter for persistence operations
-        database: Database dependency provider used for FastAPI session injection
+        database: Database dependency callable used for FastAPI session injection
         session_manager: Session manager instance for session operations
         router: FastAPI router with authentication endpoints
 
     Example:
         >>> from belgie_core import Belgie, BelgieSettings
-        >>> from belgie.alchemy import SqliteSettings
+        >>> from collections.abc import AsyncGenerator
         >>> from belgie.alchemy import BelgieAdapter
+        >>> from belgie_proto.core.connection import DBConnection
         >>> from myapp.models import User, Account, Session, OAuthState
         >>>
         >>> settings = BelgieSettings(
@@ -89,7 +89,10 @@ class Belgie[
         ...     base_url="http://localhost:8000",
         ... )
         >>>
-        >>> database = SqliteSettings(database=":memory:")
+        >>> async def get_db() -> AsyncGenerator[DBConnection, None]:
+        ...     async with session_maker() as session:
+        ...         yield session
+        >>>
         >>> adapter = BelgieAdapter(
         ...     user=User,
         ...     account=Account,
@@ -97,7 +100,7 @@ class Belgie[
         ...     oauth_state=OAuthState,
         ... )
         >>>
-        >>> belgie = Belgie(settings=settings, adapter=adapter, database=database)
+        >>> belgie = Belgie(settings=settings, adapter=adapter, database=get_db)
         >>> app.include_router(belgie.router)
     """
 
@@ -109,14 +112,14 @@ class Belgie[
         settings: BelgieSettings,
         adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
         *,
-        database: DatabaseProtocol,
+        database: Callable[[], DBConnection | AsyncGenerator[DBConnection, None]],
     ) -> None:
         """Initialize the Belgie instance.
 
         Args:
             settings: Authentication configuration including session, cookie, and URL settings
             adapter: Database adapter for user, account, session, and OAuth state persistence
-            database: Database dependency provider for FastAPI session injection
+            database: Database dependency callable for FastAPI session injection
         Raises:
         """
         self.settings = settings
@@ -170,7 +173,7 @@ class Belgie[
             APIRouter with all authentication endpoints
         """
         main_router = APIRouter(prefix="/auth", tags=["auth"])
-        dependency = self.database.dependency
+        dependency = self.database
 
         for plugin in self.plugins:
             if (plugin_router := plugin.router(self)) is not None:
@@ -318,7 +321,7 @@ class Belgie[
             >>> async def resource_route(user: User = Security(belgie.user, scopes=[Scope.READ])):
             ...     return {"data": "..."}
         """
-        dependency = self.database.dependency
+        dependency = self.database
 
         async def _user(
             security_scopes: SecurityScopes,
@@ -356,7 +359,7 @@ class Belgie[
             >>> async def session_info(session: Session = Depends(belgie.session)):
             ...     return {"session_id": str(session.id), "expires_at": session.expires_at.isoformat()}
         """
-        dependency = self.database.dependency
+        dependency = self.database
 
         async def _session(
             request: Request,

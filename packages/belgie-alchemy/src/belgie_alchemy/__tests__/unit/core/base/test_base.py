@@ -6,11 +6,11 @@ import pytest
 from brussels.base import NAMING_CONVENTION, DataclassBase
 from brussels.types import DateTimeUTC
 from sqlalchemy import Integer, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.engine import URL
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column
 
 from belgie_alchemy.__tests__.fixtures.core.models import User
-from belgie_alchemy.core.settings import SqliteSettings
 
 
 def test_type_annotation_map_uses_datetimeutc() -> None:
@@ -45,8 +45,7 @@ async def test_file_based_sqlite_database() -> None:
     """Test that models work correctly with file-based SQLite database."""
     with TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
-        settings = SqliteSettings(database=str(db_path), echo=False, enable_foreign_keys=True)
-        engine = settings.engine
+        engine = create_async_engine(URL.create("sqlite+aiosqlite", database=str(db_path)), echo=False)
 
         # Create tables
         async with engine.begin() as conn:

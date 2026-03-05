@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 
 from belgie_proto.core import AdapterProtocol
 from belgie_proto.core.account import AccountProtocol
-from belgie_proto.core.database import DatabaseProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.core.user import UserProtocol
@@ -12,7 +11,6 @@ from belgie_proto.organization import OrganizationAdapterProtocol
 from belgie_proto.team import TeamAdapterProtocol
 
 from belgie_alchemy.core import BelgieAdapter
-from belgie_alchemy.core.settings import SqliteSettings
 from belgie_alchemy.organization import OrganizationAdapter
 from belgie_alchemy.team import TeamAdapter
 
@@ -240,13 +238,6 @@ def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     assert callable(adapter.get_oauth_state)
     assert callable(adapter.delete_oauth_state)
     assert callable(adapter.delete_user)
-
-
-def test_sqlite_settings_satisfy_database_protocol() -> None:
-    database = SqliteSettings(database=":memory:")
-
-    assert isinstance(database, DatabaseProtocol)
-    assert callable(database.dependency)
 
 
 def test_organization_adapter_satisfies_organization_protocol_only() -> None:

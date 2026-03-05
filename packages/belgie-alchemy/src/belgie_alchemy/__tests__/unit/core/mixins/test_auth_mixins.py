@@ -11,13 +11,13 @@ from brussels.types import DateTimeUTC, Json
 from sqlalchemy import ForeignKey, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import CITEXT, dialect as postgresql_dialect
 from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
+from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, configure_mappers, mapped_column, relationship
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
 from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
-from belgie_alchemy.core.settings import PostgresSettings
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
 
@@ -188,22 +188,24 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
     assert custom_oauth_state_fk.target_fullname == "custom_users.id"
 
 
-def _postgres_settings_from_env() -> PostgresSettings | None:
+def _postgres_engine_from_env() -> AsyncEngine | None:
     if not (test_url := os.getenv("POSTGRES_TEST_URL")):
         return None
 
     parsed = urlparse(test_url)
-    return PostgresSettings(
+    url = URL.create(
+        "postgresql+asyncpg",
+        username=parsed.username or "postgres",
+        password=parsed.password,
         host=parsed.hostname or "localhost",
         port=parsed.port or 5432,
         database=parsed.path.lstrip("/") if parsed.path else "postgres",
-        username=parsed.username or "postgres",
-        password=parsed.password or "",
     )
+    return create_async_engine(url)
 
 
-async def _citext_extension_is_installed(settings: PostgresSettings) -> bool:
-    async with settings.engine.connect() as conn:
+async def _citext_extension_is_installed(engine: AsyncEngine) -> bool:
+    async with engine.connect() as conn:
         result = await conn.execute(text("SELECT 1 FROM pg_extension WHERE extname = 'citext'"))
         return result.scalar_one_or_none() is not None
 
@@ -287,13 +289,13 @@ def _create_citext_model_classes(
 
 
 async def _create_citext_tables(
-    settings: PostgresSettings,
+    engine: AsyncEngine,
     user_model: type[DataclassBase],
     account_model: type[DataclassBase],
     session_model: type[DataclassBase],
     oauth_state_model: type[DataclassBase],
 ) -> None:
-    async with settings.engine.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(user_model.__table__.create, checkfirst=True)
         await conn.run_sync(account_model.__table__.create, checkfirst=True)
         await conn.run_sync(session_model.__table__.create, checkfirst=True)
@@ -301,13 +303,13 @@ async def _create_citext_tables(
 
 
 async def _drop_citext_tables(
-    settings: PostgresSettings,
+    engine: AsyncEngine,
     user_model: type[DataclassBase],
     account_model: type[DataclassBase],
     session_model: type[DataclassBase],
     oauth_state_model: type[DataclassBase],
 ) -> None:
-    async with settings.engine.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(oauth_state_model.__table__.drop, checkfirst=True)
         await conn.run_sync(session_model.__table__.drop, checkfirst=True)
         await conn.run_sync(account_model.__table__.drop, checkfirst=True)
@@ -320,19 +322,19 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
     if not ASYNC_PG_AVAILABLE:
         pytest.skip("asyncpg not installed")
 
-    if (settings := _postgres_settings_from_env()) is None:
+    if (engine := _postgres_engine_from_env()) is None:
         pytest.skip("POSTGRES_TEST_URL not set - skipping integration test")
 
-    if not await _citext_extension_is_installed(settings):
-        await settings.engine.dispose()
+    if not await _citext_extension_is_installed(engine):
+        await engine.dispose()
         pytest.skip("citext extension is not installed")
 
     user_model, account_model, session_model, oauth_state_model = _create_citext_model_classes(uuid4().hex[:8])
 
     try:
-        await _create_citext_tables(settings, user_model, account_model, session_model, oauth_state_model)
+        await _create_citext_tables(engine, user_model, account_model, session_model, oauth_state_model)
 
-        session_factory = async_sessionmaker(settings.engine, class_=AsyncSession, expire_on_commit=False)
+        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         async with session_factory() as session:
             user = user_model(email=f"Case-{uuid4().hex[:8]}@Example.com")
@@ -363,5 +365,5 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
                 await session.commit()
             await session.rollback()
     finally:
-        await _drop_citext_tables(settings, user_model, account_model, session_model, oauth_state_model)
-        await settings.engine.dispose()
+        await _drop_citext_tables(engine, user_model, account_model, session_model, oauth_state_model)
+        await engine.dispose()

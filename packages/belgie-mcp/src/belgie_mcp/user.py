@@ -4,14 +4,16 @@ import base64
 import binascii
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final, TypeGuard
 from uuid import UUID
 
+from belgie_proto.core.connection import DBConnection
 from mcp.server.auth.middleware.auth_context import get_access_token
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from belgie_core.core.belgie import Belgie
-    from belgie_proto.core.connection import DBConnection
     from belgie_proto.core.user import UserProtocol
     from mcp.server.auth.provider import AccessToken
 
@@ -85,18 +87,20 @@ class UserLookup:
             return None
 
     async def _load_user_from_belgie(self, belgie: Belgie, user_id: UUID) -> UserProtocol | None:
-        dependency = belgie.database.dependency
-        db_or_generator = dependency()
+        db_or_generator = belgie.database()
 
         if self._is_async_generator(db_or_generator):
             async for db in db_or_generator:
                 return await self._load_user_from_db(belgie, db, user_id)
             return None
 
-        return await self._load_user_from_db(belgie, db_or_generator, user_id)
+        if isinstance(db_or_generator, DBConnection):
+            return await self._load_user_from_db(belgie, db_or_generator, user_id)
+
+        return None
 
     @staticmethod
-    def _is_async_generator(value: object) -> bool:
+    def _is_async_generator(value: object) -> TypeGuard[AsyncGenerator[DBConnection, None]]:
         return hasattr(value, "__aiter__")
 
     @staticmethod

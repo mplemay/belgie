@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -14,11 +15,10 @@ from belgie_core.core.settings import (
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
 from belgie_alchemy.core import BelgieAdapter
-from belgie_alchemy.core.settings import SqliteSettings
 
 # ==================== Fixtures ====================
 
@@ -40,11 +40,15 @@ def auth_settings() -> BelgieSettings:
     )
 
 
-@pytest_asyncio.fixture
-async def database(sqlite_database: str):
-    database = SqliteSettings(database=sqlite_database)
-    yield database
-    await database.engine.dispose()
+@pytest.fixture
+def database(
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> Callable[[], AsyncGenerator[AsyncSession, None]]:
+    async def get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with db_session_factory() as session:
+            yield session
+
+    return get_db
 
 
 @pytest_asyncio.fixture
@@ -64,7 +68,7 @@ async def adapter(db_session: AsyncSession):  # noqa: ARG001
 def auth(
     auth_settings: BelgieSettings,
     adapter: BelgieAdapter,
-    database: SqliteSettings,
+    database: Callable[[], AsyncGenerator[AsyncSession, None]],
     db_session: AsyncSession,
 ) -> Belgie:
     """Belgie instance (BelgieClient factory)."""
@@ -599,7 +603,7 @@ class TestGetSession:
         create_session_helper,
         make_request_with_cookie,
         adapter: BelgieAdapter,
-        database: SqliteSettings,
+        db_session_factory: async_sessionmaker[AsyncSession],
     ):
         """Test that session is refreshed when within update_age threshold."""
         user = await create_user_helper("refresh@test.com")
@@ -614,7 +618,7 @@ class TestGetSession:
         assert response.status_code == 200
 
         # Verify session was refreshed in database
-        async with database.session_maker() as verification_session:
+        async with db_session_factory() as verification_session:
             refreshed_session = await adapter.get_session(verification_session, session.id)
             assert refreshed_session is not None
             refreshed_expires = refreshed_session.expires_at.replace(tzinfo=UTC)

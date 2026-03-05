@@ -8,9 +8,10 @@ from brussels.base import DataclassBase
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.engine import URL
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.alchemy import SqliteSettings
 from belgie.alchemy.core import BelgieAdapter
 from belgie.alchemy.organization import OrganizationAdapter
 from belgie.alchemy.team import TeamAdapter
@@ -36,20 +37,29 @@ from examples.organization_team.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
 DB_PATH = "./belgie_organization_team_example.db"
 
 
-db_settings = SqliteSettings(database=DB_PATH, echo=True)
+engine = create_async_engine(
+    URL.create("sqlite+aiosqlite", database=DB_PATH),
+    echo=True,
+)
+session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with session_maker() as session:
+        yield session
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    async with db_settings.engine.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(DataclassBase.metadata.create_all)
     yield
-    await db_settings.engine.dispose()
+    await engine.dispose()
 
 
 class CreateOrganizationPayload(BaseModel):
@@ -135,7 +145,7 @@ team_adapter = TeamAdapter(
 belgie = Belgie(
     settings=settings,
     adapter=core_adapter,
-    database=db_settings,
+    database=get_db,
 )
 
 organization_plugin = belgie.add_plugin(OrganizationSettings(adapter=organization_adapter))

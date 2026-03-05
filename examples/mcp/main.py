@@ -12,15 +12,17 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from mcp.server.mcpserver import MCPServer
 from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
+from sqlalchemy.engine import URL
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.alchemy import BelgieAdapter, SqliteSettings
+from belgie.alchemy import BelgieAdapter
 from belgie.mcp import Mcp, get_user_from_access_token
 from belgie.oauth.server import OAuthResource, OAuthServer
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
 
 class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
@@ -120,18 +122,27 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin):
 DB_PATH = "./belgie_mcp_example.db"
 
 
-db_settings = SqliteSettings(database=DB_PATH, echo=True)
+engine = create_async_engine(
+    URL.create("sqlite+aiosqlite", database=DB_PATH),
+    echo=True,
+)
+session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with session_maker() as session:
+        yield session
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    async with db_settings.engine.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(DataclassBase.metadata.create_all)
 
     async with mcp_server.session_manager.run():
         yield
 
-    await db_settings.engine.dispose()
+    await engine.dispose()
 
 
 app = FastAPI(title="Belgie MCP OAuth Example", lifespan=lifespan)
@@ -164,7 +175,7 @@ adapter = BelgieAdapter(
 belgie = Belgie(
     settings=settings,
     adapter=adapter,
-    database=db_settings,
+    database=get_db,
 )
 
 oauth_settings = OAuthServer(

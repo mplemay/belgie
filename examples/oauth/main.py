@@ -1,8 +1,10 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 
 from brussels.base import DataclassBase
 from fastapi import FastAPI
+from sqlalchemy.engine import URL
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from belgie import (
     Belgie,
@@ -11,22 +13,31 @@ from belgie import (
     SessionSettings,
     URLSettings,
 )
-from belgie.alchemy import BelgieAdapter, SqliteSettings
+from belgie.alchemy import BelgieAdapter
 from belgie.oauth.server import OAuthServer
 from examples.alchemy.auth_models import Account, OAuthState, Session, User
 
 DB_PATH = "./belgie_oauth_example.db"
 
 
-db_settings = SqliteSettings(database=DB_PATH, echo=True)
+engine = create_async_engine(
+    URL.create("sqlite+aiosqlite", database=DB_PATH),
+    echo=True,
+)
+session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with session_maker() as session:
+        yield session
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    async with db_settings.engine.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(DataclassBase.metadata.create_all)
     yield
-    await db_settings.engine.dispose()
+    await engine.dispose()
 
 
 app = FastAPI(title="Belgie OAuth Server Example", lifespan=lifespan)
@@ -59,7 +70,7 @@ adapter = BelgieAdapter(
 belgie = Belgie(
     settings=settings,
     adapter=adapter,
-    database=db_settings,
+    database=get_db,
 )
 
 oauth_settings = OAuthServer(

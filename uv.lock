@@ -170,8 +170,6 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "belgie-proto" },
     { name = "brussels" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
@@ -180,8 +178,6 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "belgie-proto", editable = "packages/belgie-proto" },
     { name = "brussels", specifier = ">=0.3.0" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
 ]
 
