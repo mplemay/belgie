@@ -8,13 +8,11 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_core import BelgieClient
-    from belgie_proto import (
-        InvitationProtocol,
-        MemberProtocol,
-        OrganizationAdapterProtocol,
-        OrganizationProtocol,
-        OrganizationSessionProtocol,
-    )
+    from belgie_proto.organization.adapter import OrganizationAdapterProtocol
+    from belgie_proto.organization.invitation import InvitationProtocol
+    from belgie_proto.organization.member import MemberProtocol
+    from belgie_proto.organization.organization import OrganizationProtocol
+    from belgie_proto.organization.session import OrganizationSessionProtocol
 
     from belgie_organization.settings import Organization
 

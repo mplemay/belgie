@@ -8,7 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto import InvitationProtocol, OrganizationProtocol
+    from belgie_proto.organization.invitation import InvitationProtocol
+    from belgie_proto.organization.organization import OrganizationProtocol
 
     from belgie_organization.plugin import OrganizationPlugin
 

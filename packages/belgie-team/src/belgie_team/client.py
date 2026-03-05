@@ -7,15 +7,13 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_core import BelgieClient
-    from belgie_proto import (
-        InvitationProtocol,
-        MemberProtocol,
-        OrganizationProtocol,
-        TeamAdapterProtocol,
-        TeamMemberProtocol,
-        TeamProtocol,
-        TeamSessionProtocol,
-    )
+    from belgie_proto.organization.invitation import InvitationProtocol
+    from belgie_proto.organization.member import MemberProtocol
+    from belgie_proto.organization.organization import OrganizationProtocol
+    from belgie_proto.team.adapter import TeamAdapterProtocol
+    from belgie_proto.team.member import TeamMemberProtocol
+    from belgie_proto.team.session import TeamSessionProtocol
+    from belgie_proto.team.team import TeamProtocol
 
     from belgie_team.settings import Team
 

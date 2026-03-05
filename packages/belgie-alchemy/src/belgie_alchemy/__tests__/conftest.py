@@ -19,7 +19,7 @@ def pytest_ignore_collect(collection_path, config) -> bool:  # noqa: ARG001
 if SQLALCHEMY_AVAILABLE:
     import pytest_asyncio
 
-    from belgie_alchemy.__tests__.fixtures.database import get_test_engine, get_test_session_factory
+    from belgie_alchemy.__tests__.core.fixtures.database import get_test_engine, get_test_session_factory
 
     if TYPE_CHECKING:
         from collections.abc import AsyncGenerator

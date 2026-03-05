@@ -6,7 +6,7 @@ from uuid import UUID  # noqa: TC003
 
 from belgie_core.core.plugin import PluginClient
 from belgie_organization.plugin import OrganizationPlugin
-from belgie_proto import TeamAdapterProtocol
+from belgie_proto.team.adapter import TeamAdapterProtocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import SecurityScopes
 
@@ -28,16 +28,23 @@ if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto import (
-        InvitationProtocol,
-        MemberProtocol,
-        OrganizationProtocol,
-        TeamMemberProtocol,
-        TeamProtocol,
-        TeamSessionProtocol,
-    )
+    from belgie_proto.organization.invitation import InvitationProtocol
+    from belgie_proto.organization.member import MemberProtocol
+    from belgie_proto.organization.organization import OrganizationProtocol
+    from belgie_proto.team.member import TeamMemberProtocol
+    from belgie_proto.team.session import TeamSessionProtocol
+    from belgie_proto.team.team import TeamProtocol
 
     from belgie_team.settings import Team
+
+    type TeamAdapterCast = TeamAdapterProtocol[
+        OrganizationProtocol,
+        MemberProtocol,
+        InvitationProtocol,
+        TeamProtocol,
+        TeamMemberProtocol,
+        TeamSessionProtocol,
+    ]
 
 
 class TeamPlugin(PluginClient):
@@ -52,16 +59,11 @@ class TeamPlugin(PluginClient):
         async def resolve_client(client: BelgieClient = Depends(belgie)) -> TeamClient:  # noqa: B008
             if not isinstance(client.adapter, TeamAdapterProtocol):
                 msg = (
-                    "team plugin requires an adapter implementing TeamAdapterProtocol. Use belgie_alchemy.TeamAdapter."
+                    "team plugin requires an adapter implementing TeamAdapterProtocol. "
+                    "Use belgie_alchemy.team.adapter.TeamAdapter."
                 )
                 raise TypeError(msg)
-            adapter = cast(
-                (
-                    "TeamAdapterProtocol[OrganizationProtocol, MemberProtocol, InvitationProtocol, "
-                    "TeamProtocol, TeamMemberProtocol, TeamSessionProtocol]"
-                ),
-                client.adapter,
-            )
+            adapter = cast("TeamAdapterCast", client.adapter)
             return TeamClient(
                 client=client,
                 settings=self._settings,
@@ -411,7 +413,7 @@ def _get_active_organization_id(session_obj: object) -> UUID | None:
     if not hasattr(session_obj, "active_organization_id"):
         msg = (
             "session model is missing 'active_organization_id'. "
-            "Use belgie_alchemy.OrganizationSessionMixin on your session model."
+            "Use belgie_alchemy.organization.mixins.OrganizationSessionMixin on your session model."
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -422,7 +424,10 @@ def _get_active_organization_id(session_obj: object) -> UUID | None:
 
 def _get_active_team_id(session_obj: object) -> UUID | None:
     if not hasattr(session_obj, "active_team_id"):
-        msg = "session model is missing 'active_team_id'. Use belgie_alchemy.TeamSessionMixin on your session model."
+        msg = (
+            "session model is missing 'active_team_id'. "
+            "Use belgie_alchemy.team.mixins.TeamSessionMixin on your session model."
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=msg,

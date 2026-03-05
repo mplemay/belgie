@@ -2,18 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Coroutine  # noqa: TC003
 from inspect import signature
-from typing import Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 from uuid import UUID
 
-from belgie_proto import (
-    AccountProtocol,
-    AdapterProtocol,
-    DatabaseProtocol,
-    DBConnection,
-    OAuthStateProtocol,
-    SessionProtocol,
-    UserProtocol,
-)
+from belgie_proto.core.account import AccountProtocol
+from belgie_proto.core.connection import DBConnection
+from belgie_proto.core.oauth_state import OAuthStateProtocol
+from belgie_proto.core.session import SessionProtocol
+from belgie_proto.core.user import UserProtocol
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes  # noqa: TC002
@@ -22,6 +18,10 @@ from belgie_core.core.client import BelgieClient
 from belgie_core.core.plugin import Plugin, PluginClient
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.session.manager import SessionManager
+
+if TYPE_CHECKING:
+    from belgie_proto.core.adapter import AdapterProtocol
+    from belgie_proto.core.database import DatabaseProtocol
 
 
 class _BelgieCallable:

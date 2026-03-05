@@ -2,14 +2,12 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from belgie_proto import (
-    AccountProtocol,
-    AdapterProtocol,
-    DBConnection,
-    OAuthStateProtocol,
-    SessionProtocol,
-    UserProtocol,
-)
+from belgie_proto.core.account import AccountProtocol
+from belgie_proto.core.adapter import AdapterProtocol
+from belgie_proto.core.connection import DBConnection
+from belgie_proto.core.oauth_state import OAuthStateProtocol
+from belgie_proto.core.session import SessionProtocol
+from belgie_proto.core.user import UserProtocol
 from fastapi import HTTPException, Request, Response, status
 from fastapi.security import SecurityScopes
 
