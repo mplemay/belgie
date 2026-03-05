@@ -202,13 +202,27 @@ class TeamPlugin(PluginClient):
             request: Request,
             team: TeamClient = Depends(self),  # noqa: B008, FAST002
         ) -> TeamView | None:
-            _ = await team.client.get_user(SecurityScopes(), request)
+            user = await team.client.get_user(SecurityScopes(), request)
             current_session = await team.client.get_session(request)
             active_team_id = _get_active_team_id(current_session)
             if active_team_id is None:
                 return None
             active_team = await team.adapter.get_team_by_id(team.client.db, active_team_id)
             if active_team is None:
+                return None
+            member = await team.adapter.get_member(
+                team.client.db,
+                organization_id=active_team.organization_id,
+                user_id=user.id,
+            )
+            if member is None:
+                return None
+            team_member = await team.adapter.get_team_member(
+                team.client.db,
+                team_id=active_team.id,
+                user_id=user.id,
+            )
+            if team_member is None:
                 return None
             return TeamView.model_validate(active_team)
 
