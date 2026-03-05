@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
 from belgie_core.core.plugin import PluginClient
 from belgie_organization.plugin import OrganizationPlugin
-from belgie_proto.team import TeamAdapterProtocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import SecurityScopes
 
@@ -23,61 +22,40 @@ from belgie_team.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Awaitable, Callable
 
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto.organization.invitation import InvitationProtocol
-    from belgie_proto.organization.member import MemberProtocol
-    from belgie_proto.organization.organization import OrganizationProtocol
-    from belgie_proto.team.member import TeamMemberProtocol
     from belgie_proto.team.session import TeamSessionProtocol
-    from belgie_proto.team.team import TeamProtocol
 
     from belgie_team.settings import Team
-
-    type TeamAdapterCast = TeamAdapterProtocol[
-        OrganizationProtocol,
-        MemberProtocol,
-        InvitationProtocol,
-        TeamProtocol,
-        TeamMemberProtocol,
-        TeamSessionProtocol,
-    ]
 
 
 class TeamPlugin(PluginClient):
     def __init__(self, _belgie_settings: BelgieSettings, settings: Team) -> None:
         self._settings = settings
-        self._resolve_client: Callable[..., Coroutine[object, object, TeamClient]] | None = None
+        self._resolve_client: Callable[[BelgieClient], Awaitable[TeamClient]] | None = None
 
     def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
         if self._resolve_client is not None:
             return
 
         async def resolve_client(client: BelgieClient = Depends(belgie)) -> TeamClient:  # noqa: B008
-            if not isinstance(client.adapter, TeamAdapterProtocol):
-                msg = (
-                    "team plugin requires an adapter implementing TeamAdapterProtocol. "
-                    "Use belgie_alchemy.team.TeamAdapter."
-                )
-                raise TypeError(msg)
-            adapter = cast("TeamAdapterCast", client.adapter)
             return TeamClient(
                 client=client,
                 settings=self._settings,
-                adapter=adapter,
+                adapter=self._settings.adapter,
             )
 
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
-    async def __call__(self, *args: object, **kwargs: object) -> TeamClient:
+    async def __call__(self, client: BelgieClient) -> TeamClient:
         if self._resolve_client is None:
             msg = "TeamPlugin dependency requires router initialization (call app.include_router(belgie.router) first)"
             raise RuntimeError(msg)
-        return await self._resolve_client(*args, **kwargs)
+        return await self._resolve_client(client)
 
     def router(self, belgie: Belgie) -> APIRouter:  # noqa: C901, PLR0915
         if not any(isinstance(plugin, OrganizationPlugin) for plugin in belgie.plugins):
@@ -423,27 +401,9 @@ class TeamPlugin(PluginClient):
         return None
 
 
-def _get_active_organization_id(session_obj: object) -> UUID | None:
-    if not hasattr(session_obj, "active_organization_id"):
-        msg = (
-            "session model is missing 'active_organization_id'. "
-            "Use belgie_alchemy.organization.mixins.OrganizationSessionMixin on your session model."
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=msg,
-        )
-    return session_obj.active_organization_id  # type: ignore[attr-defined]
+def _get_active_organization_id(session_obj: TeamSessionProtocol) -> UUID | None:
+    return session_obj.active_organization_id
 
 
-def _get_active_team_id(session_obj: object) -> UUID | None:
-    if not hasattr(session_obj, "active_team_id"):
-        msg = (
-            "session model is missing 'active_team_id'. "
-            "Use belgie_alchemy.team.mixins.TeamSessionMixin on your session model."
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=msg,
-        )
-    return session_obj.active_team_id  # type: ignore[attr-defined]
+def _get_active_team_id(session_obj: TeamSessionProtocol) -> UUID | None:
+    return session_obj.active_team_id
