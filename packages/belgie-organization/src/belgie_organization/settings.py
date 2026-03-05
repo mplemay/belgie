@@ -33,7 +33,6 @@ class Organization(BaseSettings):
     ] = Field(exclude=True)
     prefix: str = "/organization"
     allow_user_to_create_organization: bool = True
-    creator_role: str = "owner"
     invitation_expires_in_seconds: int = 60 * 60 * 48
     send_invitation_email: Callable[[InvitationProtocol, OrganizationProtocol], Awaitable[None]] | None = Field(
         default=None,

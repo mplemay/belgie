@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 class InvitationProtocol(Protocol):
     id: UUID
     organization_id: UUID
+    team_id: UUID | None
     email: str
     role: str
     status: str

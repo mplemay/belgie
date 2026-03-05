@@ -1,7 +1,7 @@
 # Belgie Organization + Team Example
 
-This example runs organization and team plugins with a local dev login flow.
-It does not require Google OAuth credentials.
+This example runs organization and team plugins with local login, then exposes app-owned routes that call
+`OrganizationClient` and `TeamClient` via `Depends(...)`.
 
 ## Setup
 
@@ -27,29 +27,22 @@ The app runs at `http://localhost:8000`.
 - `GET /login?email=...&name=...`
 - `GET /me`
 
-### Organization plugin routes
+### App-owned organization routes (client-first)
 
-- `POST /auth/organization/create`
-- `GET /auth/organization/list`
-- `POST /auth/organization/set-active`
-- `GET /auth/organization/active`
-- `GET /auth/organization/full`
-- `GET /auth/organization/active-member`
-- `POST /auth/organization/invite-member`
-- `POST /auth/organization/accept-invitation`
+- `POST /org/create`
+- `GET /org/list`
+- `POST /org/set-active`
+- `GET /org/full`
+- `POST /org/invite`
+- `POST /org/accept-invitation`
 
-### Team plugin routes
+### App-owned team routes (client-first)
 
-- `POST /auth/team/create`
-- `GET /auth/team/list`
-- `POST /auth/team/set-active`
-- `GET /auth/team/active`
-- `POST /auth/team/update`
-- `POST /auth/team/remove`
-- `GET /auth/team/members`
-- `GET /auth/team/user-teams`
-- `POST /auth/team/add-member`
-- `POST /auth/team/remove-member`
+- `POST /team/create`
+- `GET /team/list`
+- `POST /team/add-member`
+- `POST /team/set-active`
+- `GET /team/members`
 
 ### Core signout route
 
@@ -70,13 +63,13 @@ curl -i -c "$COOKIE_JAR" \
   "http://localhost:8000/login?email=owner@example.com&name=Owner"
 ```
 
-2. Create an organization:
+2. Create an organization (role is required):
 
 ```bash
 curl -s -b "$COOKIE_JAR" -X POST \
-  "http://localhost:8000/auth/organization/create" \
+  "http://localhost:8000/org/create" \
   -H "content-type: application/json" \
-  -d '{"name":"Acme Inc","slug":"acme-inc"}'
+  -d '{"name":"Acme Inc","slug":"acme-inc","role":"owner"}'
 ```
 
 Copy the organization ID from the response (`organization.id`) and export it:
@@ -89,7 +82,7 @@ ORG_ID="<organization-id>"
 
 ```bash
 curl -s -b "$COOKIE_JAR" -X POST \
-  "http://localhost:8000/auth/team/create" \
+  "http://localhost:8000/team/create" \
   -H "content-type: application/json" \
   -d "{\"name\":\"Platform\",\"organization_id\":\"$ORG_ID\"}"
 ```
@@ -100,29 +93,25 @@ Copy the created team ID and export it:
 TEAM_ID="<team-id>"
 ```
 
-4. Add the current user to that team:
+4. Invite a user to org + team:
 
 ```bash
-ME_JSON=$(curl -s -b "$COOKIE_JAR" "http://localhost:8000/me")
-echo "$ME_JSON"
-USER_ID="<user-id-from-me>"
-
 curl -s -b "$COOKIE_JAR" -X POST \
-  "http://localhost:8000/auth/team/add-member" \
+  "http://localhost:8000/org/invite" \
   -H "content-type: application/json" \
-  -d "{\"team_id\":\"$TEAM_ID\",\"user_id\":\"$USER_ID\"}"
+  -d "{\"email\":\"member@example.com\",\"role\":\"member\",\"organization_id\":\"$ORG_ID\",\"team_id\":\"$TEAM_ID\"}"
 ```
 
 5. Set active organization and active team:
 
 ```bash
 curl -s -b "$COOKIE_JAR" -X POST \
-  "http://localhost:8000/auth/organization/set-active" \
+  "http://localhost:8000/org/set-active" \
   -H "content-type: application/json" \
   -d "{\"organization_id\":\"$ORG_ID\"}"
 
 curl -s -b "$COOKIE_JAR" -X POST \
-  "http://localhost:8000/auth/team/set-active" \
+  "http://localhost:8000/team/set-active" \
   -H "content-type: application/json" \
   -d "{\"team_id\":\"$TEAM_ID\"}"
 ```
@@ -131,12 +120,7 @@ curl -s -b "$COOKIE_JAR" -X POST \
 
 ```bash
 curl -s -b "$COOKIE_JAR" "http://localhost:8000/me"
-curl -s -b "$COOKIE_JAR" "http://localhost:8000/auth/organization/list"
-curl -s -b "$COOKIE_JAR" "http://localhost:8000/auth/team/list?organization_id=$ORG_ID"
-curl -s -b "$COOKIE_JAR" "http://localhost:8000/auth/team/members?team_id=$TEAM_ID"
+curl -s -b "$COOKIE_JAR" "http://localhost:8000/org/list"
+curl -s -b "$COOKIE_JAR" "http://localhost:8000/team/list?organization_id=$ORG_ID"
+curl -s -b "$COOKIE_JAR" "http://localhost:8000/team/members?team_id=$TEAM_ID"
 ```
-
-## Important Behavior
-
-Creating a team does not automatically add the creator as a team member.
-Call `POST /auth/team/add-member` before team-member-only routes like `set-active` or `members`.

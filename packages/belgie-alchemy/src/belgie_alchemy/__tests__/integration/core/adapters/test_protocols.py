@@ -98,6 +98,7 @@ class ExampleMember:
 class ExampleInvitation:
     id: UUID
     organization_id: UUID
+    team_id: UUID | None
     email: str
     role: str
     status: str
