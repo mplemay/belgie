@@ -75,14 +75,6 @@ For multistep tasks, state a brief plan:
 
 - The targets python versions greater than or equal to 3.12
 - Given the project targets a more modern python, use functionality such as:
-  - The walrus operator (`:=`)
-  - Modern type hints (`dict`)
-  - Type parameters `class MyClass[T: MyParent]: ...`
-  - The `Self` type for return types (`from typing import Self`)
-- Type annotations:
-  - **Do not** annotate `self` parameters - the type is implicit
-  - Use `Self` for return types when returning the instance
-  - Example: `def add_item(self, item: str) -> Self: ...` (note: no type on `self`)
 - Classes and data structures:
   - Use `@dataclass` (from `dataclasses`) instead of manually defining `__init__` for data-holding classes
   - Consider using `slots=True` for memory efficiency and attribute access protection
@@ -110,3 +102,63 @@ For multistep tasks, state a brief plan:
   - Use `urlparse()` and `urlunparse()` for URL composition
   - Example: `urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", urlencode(params), ""))`
   - This ensures proper encoding and avoids common URL injection vulnerabilities
+
+## Style Guide
+
+> [!NOTE]
+> This project targets python >=3.14,<3.15.
+
+### General
+
+- **Control Flow Assignment:** Prefer the walrus operator assigment for control statments (i.e. `if`, `while`, etc.).
+
+```python
+# Do
+if (x := f()) > 10: ...
+
+# Don't
+x = f()
+if x > 10: ...
+```
+
+### Typing
+
+- **Ambiguous Types:** Avoid using `object`, `typing.cast`, and `Any` anywhere in the codebase. In 99%+ of cases, their
+  usage is required due to poor design choices. If there is a requirement due to an upstream dependency and/or a lack of
+  maturity around python's typing, add a brief note using an inline comment.
+- **Modern Templating:** As of `python>=3.12`, `PEP 695` added support
+for a more modern type paramter syntax. Prefer that for type parameters over `TypeVar`.
+
+```python
+# Do
+class A[T: B]:
+  def __init__(self, c: B) -> None ...
+
+# Don't
+T = TypeVar("T", bound=B)
+class A(Generic[T]):
+  def __init__(self, c: T) -> None ...
+```
+
+```python
+# Do
+def fn[T: B](c: B) -> B: ...
+
+# Don't
+T = TypeVar("T", bound=B)
+def fn(c: T) -> T: ...
+```
+
+- **Self References:** The `Self` type for return types (`from typing import Self`) instead of import
+  `from __future__ import annotations` and using the class name directly (note: there is no need to annotate `self`
+  parameters since the typing is implicit).
+
+```python
+# Do
+class MyClass:
+    def fn(self, x: Self) -> Self: ...
+
+# Don't
+class MyClass:
+    def fn(self, x: MyClass) -> MyClass: ...
+```
