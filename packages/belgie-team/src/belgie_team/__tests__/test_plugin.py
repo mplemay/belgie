@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-# ruff: noqa: E402
-import sys
 from datetime import UTC, datetime
-from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -13,14 +10,6 @@ from belgie_proto.team import TeamAdapterProtocol
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
-
-PACKAGES_ROOT = Path(__file__).resolve().parents[4]
-TEAM_SRC = Path(__file__).resolve().parents[2]
-ORGANIZATION_SRC = PACKAGES_ROOT / "belgie-organization" / "src"
-if str(TEAM_SRC) not in sys.path:
-    sys.path.insert(0, str(TEAM_SRC))
-if str(ORGANIZATION_SRC) not in sys.path:
-    sys.path.insert(0, str(ORGANIZATION_SRC))
 
 from belgie_organization.plugin import OrganizationPlugin
 from belgie_team.plugin import TeamPlugin
