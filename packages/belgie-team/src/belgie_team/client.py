@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from belgie_proto.organization.invitation import InvitationProtocol
     from belgie_proto.organization.member import MemberProtocol
     from belgie_proto.organization.organization import OrganizationProtocol
-    from belgie_proto.team.adapter import TeamAdapterProtocol
+    from belgie_proto.team import TeamAdapterProtocol
     from belgie_proto.team.member import TeamMemberProtocol
     from belgie_proto.team.session import TeamSessionProtocol
     from belgie_proto.team.team import TeamProtocol

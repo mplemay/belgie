@@ -15,8 +15,7 @@ from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.alchemy import SqliteSettings
-from belgie.alchemy.adapter import BelgieAdapter
+from belgie.alchemy import BelgieAdapter, SqliteSettings
 from belgie.mcp import Mcp, get_user_from_access_token
 from belgie.oauth.server import OAuthResource, OAuthServer
 

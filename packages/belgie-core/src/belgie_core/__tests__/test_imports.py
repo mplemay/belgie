@@ -28,13 +28,41 @@ def test_old_adapter_export_removed() -> None:
         from belgie import AlchemyAdapter  # noqa: PLC0415, F401
 
 
-def test_adapter_module_exports() -> None:
+def test_adapter_exports_from_alchemy_module() -> None:
     try:
-        from belgie.alchemy.adapter import BelgieAdapter  # noqa: PLC0415
+        from belgie.alchemy import BelgieAdapter  # noqa: PLC0415
     except ImportError:
         return
 
     assert BelgieAdapter is not None
+
+
+def test_team_adapter_exports_from_domain_module() -> None:
+    try:
+        from belgie.alchemy.team import TeamAdapter  # noqa: PLC0415
+    except ImportError:
+        return
+
+    assert TeamAdapter is not None
+
+
+def test_organization_adapter_exports_from_domain_module() -> None:
+    try:
+        from belgie.alchemy.organization import OrganizationAdapter  # noqa: PLC0415
+    except ImportError:
+        return
+
+    assert OrganizationAdapter is not None
+
+
+def test_old_adapter_module_removed() -> None:
+    try:
+        import belgie.alchemy  # noqa: PLC0415, F401
+    except ImportError:
+        return
+
+    with pytest.raises(ModuleNotFoundError):
+        from belgie.alchemy.adapter import BelgieAdapter  # noqa: PLC0415, F401
 
 
 def test_mixins_module_exports() -> None:
@@ -71,6 +99,16 @@ def test_old_alchemy_module_export_removed() -> None:
         from belgie.alchemy import AlchemyAdapter  # noqa: PLC0415, F401
 
 
+def test_team_and_organization_adapters_not_exported_from_alchemy_module() -> None:
+    try:
+        from belgie import alchemy  # noqa: PLC0415
+    except ImportError:
+        return
+
+    assert not hasattr(alchemy, "TeamAdapter")
+    assert not hasattr(alchemy, "OrganizationAdapter")
+
+
 def test_session_exports() -> None:
     assert hasattr(belgie, "SessionManager")
 
@@ -94,14 +132,52 @@ def test_direct_hook_imports_fail() -> None:
         from belgie import Hooks  # noqa: PLC0415, F401
 
 
-def test_protocol_exports() -> None:
+def test_protocol_exports_from_domain_modules() -> None:
+    from belgie.proto.core import (  # noqa: PLC0415
+        AccountProtocol,
+        AdapterProtocol,
+        DatabaseProtocol,
+        OAuthStateProtocol,
+        SessionProtocol,
+        UserProtocol,
+    )
+    from belgie.proto.organization import (  # noqa: PLC0415
+        InvitationProtocol,
+        MemberProtocol,
+        OrganizationAdapterProtocol,
+        OrganizationProtocol,
+        OrganizationSessionProtocol,
+    )
+    from belgie.proto.team import (  # noqa: PLC0415
+        TeamAdapterProtocol,
+        TeamMemberProtocol,
+        TeamProtocol,
+        TeamSessionProtocol,
+    )
+
+    assert AccountProtocol is not None
+    assert AdapterProtocol is not None
+    assert DatabaseProtocol is not None
+    assert OAuthStateProtocol is not None
+    assert SessionProtocol is not None
+    assert UserProtocol is not None
+    assert InvitationProtocol is not None
+    assert MemberProtocol is not None
+    assert OrganizationAdapterProtocol is not None
+    assert OrganizationProtocol is not None
+    assert OrganizationSessionProtocol is not None
+    assert TeamAdapterProtocol is not None
+    assert TeamMemberProtocol is not None
+    assert TeamProtocol is not None
+    assert TeamSessionProtocol is not None
+
+
+def test_flat_proto_reexports_removed() -> None:
     from belgie import proto  # noqa: PLC0415
 
-    assert hasattr(proto, "UserProtocol")
-    assert hasattr(proto, "AccountProtocol")
-    assert hasattr(proto, "DatabaseProtocol")
-    assert hasattr(proto, "SessionProtocol")
-    assert hasattr(proto, "OAuthStateProtocol")
+    assert not hasattr(proto, "UserProtocol")
+    assert not hasattr(proto, "AdapterProtocol")
+    assert not hasattr(proto, "TeamAdapterProtocol")
 
 
 def test_exception_exports() -> None:

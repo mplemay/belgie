@@ -25,7 +25,7 @@ Configure scopes in your `GoogleOAuth`:
 ```python
 from belgie import Belgie, BelgieSettings
 from belgie.alchemy import SqliteSettings
-from belgie.alchemy.adapter import BelgieAdapter
+from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth
 
 settings = BelgieSettings(secret="your-secret", base_url="http://localhost:8000")

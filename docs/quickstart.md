@@ -80,7 +80,7 @@ class OAuthState(Base):
 ```python
 from belgie import Belgie, BelgieSettings
 from belgie.alchemy import SqliteSettings
-from belgie.alchemy.adapter import BelgieAdapter
+from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth
 
 # Configure settings

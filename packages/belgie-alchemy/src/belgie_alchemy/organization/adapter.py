@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING, Any
 from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.user import UserProtocol
-from belgie_proto.organization.adapter import OrganizationAdapterProtocol
+from belgie_proto.organization import OrganizationAdapterProtocol
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.organization.session import OrganizationSessionProtocol
 from sqlalchemy import delete, select
 
-from belgie_alchemy.core.adapter import BelgieAdapter
+from belgie_alchemy.core import BelgieAdapter
 
 if TYPE_CHECKING:
     from uuid import UUID

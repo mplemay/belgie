@@ -16,7 +16,7 @@ from pydantic import SecretStr
 
 from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get_test_session_factory
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
-from belgie_alchemy.core.adapter import BelgieAdapter
+from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.core.settings import SqliteSettings
 
 PACKAGES_ROOT = Path(__file__).resolve().parents[7]

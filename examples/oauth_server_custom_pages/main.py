@@ -8,8 +8,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.alchemy import SqliteSettings
-from belgie.alchemy.adapter import BelgieAdapter
+from belgie.alchemy import BelgieAdapter, SqliteSettings
 from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
 from belgie.oauth.server import OAuthServer, OAuthServerClient
 from examples.alchemy.auth_models import Account, OAuthState, Session, User

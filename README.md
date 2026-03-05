@@ -111,7 +111,7 @@ class OAuthState(Base):
 from belgie import Belgie, BelgieSettings
 from belgie.oauth.google import GoogleOAuth
 from belgie.alchemy import SqliteSettings
-from belgie.alchemy.adapter import BelgieAdapter
+from belgie.alchemy import BelgieAdapter
 
 settings = BelgieSettings(
     secret="your-secret-key",

@@ -6,7 +6,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
-from belgie_alchemy.core.adapter import BelgieAdapter
+from belgie_alchemy.core import BelgieAdapter
 
 
 @pytest_asyncio.fixture
