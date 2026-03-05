@@ -63,6 +63,14 @@ jobs:
         if: steps.tag_check.outputs.on_main == 'true'
         working-directory: packages/belgie-oauth-server
         run: uv version "${{ steps.version.outputs.version }}"
+      - name: Bump belgie-organization version
+        if: steps.tag_check.outputs.on_main == 'true'
+        working-directory: packages/belgie-organization
+        run: uv version "${{ steps.version.outputs.version }}"
+      - name: Bump belgie-team version
+        if: steps.tag_check.outputs.on_main == 'true'
+        working-directory: packages/belgie-team
+        run: uv version "${{ steps.version.outputs.version }}"
       - name: Bump belgie version
         if: steps.tag_check.outputs.on_main == 'true'
         run: uv version "${{ steps.version.outputs.version }}"
