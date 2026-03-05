@@ -2,15 +2,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from belgie_alchemy import BelgieAdapter, SqliteSettings
-from belgie_proto import (
-    AccountProtocol,
-    AdapterProtocol,
-    DatabaseProtocol,
-    OAuthStateProtocol,
-    SessionProtocol,
-    UserProtocol,
-)
+from belgie_proto.core.account import AccountProtocol
+from belgie_proto.core.adapter import AdapterProtocol
+from belgie_proto.core.database import DatabaseProtocol
+from belgie_proto.core.oauth_state import OAuthStateProtocol
+from belgie_proto.core.session import SessionProtocol
+from belgie_proto.core.user import UserProtocol
+
+from belgie_alchemy.core.adapter import BelgieAdapter
+from belgie_alchemy.core.settings import SqliteSettings
 
 
 @dataclass

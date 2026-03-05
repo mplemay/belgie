@@ -3,19 +3,14 @@
 _ALCHEMY_IMPORT_ERROR = "belgie.alchemy.mixins requires the 'alchemy' extra. Install with: uv add belgie[alchemy]"
 
 try:
-    from belgie_alchemy import (  # type: ignore[import-not-found]
-        AccountMixin,
-        OAuthStateMixin,
+    from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
+    from belgie_alchemy.organization.mixins import (
         OrganizationInvitationMixin,
         OrganizationMemberMixin,
         OrganizationMixin,
         OrganizationSessionMixin,
-        SessionMixin,
-        TeamMemberMixin,
-        TeamMixin,
-        TeamSessionMixin,
-        UserMixin,
     )
+    from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin, TeamSessionMixin
 except ModuleNotFoundError as exc:
     raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
 

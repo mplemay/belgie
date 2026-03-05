@@ -11,15 +11,17 @@ from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from belgie_alchemy import BelgieAdapter, SqliteSettings
-from belgie_alchemy.__tests__.fixtures.models import Account, OAuthState, Session, User
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_proto import UserProtocol
+from belgie_proto.core.user import UserProtocol
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.core.adapter import BelgieAdapter
+from belgie_alchemy.core.settings import SqliteSettings
 
 
 class AppScope(StrEnum):

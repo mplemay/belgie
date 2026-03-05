@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID  # noqa: TC003
 
 from belgie_core.core.plugin import PluginClient
-from belgie_proto import OrganizationAdapterProtocol
+from belgie_proto.organization.adapter import OrganizationAdapterProtocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import SecurityScopes
 
@@ -30,14 +30,19 @@ if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto import (
-        InvitationProtocol,
-        MemberProtocol,
-        OrganizationProtocol,
-        OrganizationSessionProtocol,
-    )
+    from belgie_proto.organization.invitation import InvitationProtocol
+    from belgie_proto.organization.member import MemberProtocol
+    from belgie_proto.organization.organization import OrganizationProtocol
+    from belgie_proto.organization.session import OrganizationSessionProtocol
 
     from belgie_organization.settings import Organization
+
+    type OrganizationAdapterCast = OrganizationAdapterProtocol[
+        OrganizationProtocol,
+        MemberProtocol,
+        InvitationProtocol,
+        OrganizationSessionProtocol,
+    ]
 
 
 class OrganizationPlugin(PluginClient):
@@ -53,17 +58,12 @@ class OrganizationPlugin(PluginClient):
             if not isinstance(client.adapter, OrganizationAdapterProtocol):
                 msg = (
                     "organization plugin requires an adapter implementing "
-                    "OrganizationAdapterProtocol. Use belgie_alchemy.OrganizationAdapter "
-                    "or belgie_alchemy.TeamAdapter."
+                    "OrganizationAdapterProtocol. Use "
+                    "belgie_alchemy.organization.adapter.OrganizationAdapter or "
+                    "belgie_alchemy.team.adapter.TeamAdapter."
                 )
                 raise TypeError(msg)
-            adapter = cast(
-                (
-                    "OrganizationAdapterProtocol[OrganizationProtocol, MemberProtocol, "
-                    "InvitationProtocol, OrganizationSessionProtocol]"
-                ),
-                client.adapter,
-            )
+            adapter = cast("OrganizationAdapterCast", client.adapter)
             return OrganizationClient(
                 client=client,
                 settings=self._settings,
@@ -415,7 +415,7 @@ def _get_active_organization_id(session_obj: object) -> UUID | None:
     if not hasattr(session_obj, "active_organization_id"):
         msg = (
             "session model is missing 'active_organization_id'. "
-            "Use belgie_alchemy.OrganizationSessionMixin on your session model."
+            "Use belgie_alchemy.organization.mixins.OrganizationSessionMixin on your session model."
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

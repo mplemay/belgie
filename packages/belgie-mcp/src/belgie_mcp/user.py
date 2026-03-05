@@ -11,7 +11,8 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 
 if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
-    from belgie_proto import DBConnection, UserProtocol
+    from belgie_proto.core.connection import DBConnection
+    from belgie_proto.core.user import UserProtocol
     from mcp.server.auth.provider import AccessToken
 
 
