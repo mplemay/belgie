@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_core import BelgieClient
-    from belgie_proto.organization.adapter import OrganizationAdapterProtocol
+    from belgie_proto.organization import OrganizationAdapterProtocol
     from belgie_proto.organization.invitation import InvitationProtocol
     from belgie_proto.organization.member import MemberProtocol
     from belgie_proto.organization.organization import OrganizationProtocol

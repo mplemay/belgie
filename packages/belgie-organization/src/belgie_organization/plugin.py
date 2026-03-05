@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID  # noqa: TC003
 
 from belgie_core.core.plugin import PluginClient
-from belgie_proto.organization.adapter import OrganizationAdapterProtocol
+from belgie_proto.organization import OrganizationAdapterProtocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import SecurityScopes
 
@@ -59,8 +59,8 @@ class OrganizationPlugin(PluginClient):
                 msg = (
                     "organization plugin requires an adapter implementing "
                     "OrganizationAdapterProtocol. Use "
-                    "belgie_alchemy.organization.adapter.OrganizationAdapter or "
-                    "belgie_alchemy.team.adapter.TeamAdapter."
+                    "belgie_alchemy.organization.OrganizationAdapter or "
+                    "belgie_alchemy.team.TeamAdapter."
                 )
                 raise TypeError(msg)
             adapter = cast("OrganizationAdapterCast", client.adapter)

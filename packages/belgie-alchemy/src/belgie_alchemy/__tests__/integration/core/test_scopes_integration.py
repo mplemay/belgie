@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
-from belgie_alchemy.core.adapter import BelgieAdapter
+from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.core.settings import SqliteSettings
 
 

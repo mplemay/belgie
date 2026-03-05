@@ -10,7 +10,7 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
     OrganizationInvitation,
     OrganizationMember,
 )
-from belgie_alchemy.organization.adapter import OrganizationAdapter
+from belgie_alchemy.organization import OrganizationAdapter
 
 
 @pytest_asyncio.fixture

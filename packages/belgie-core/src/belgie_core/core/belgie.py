@@ -20,7 +20,7 @@ from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.session.manager import SessionManager
 
 if TYPE_CHECKING:
-    from belgie_proto.core.adapter import AdapterProtocol
+    from belgie_proto.core import AdapterProtocol
     from belgie_proto.core.database import DatabaseProtocol
 
 
@@ -81,7 +81,7 @@ class Belgie[
     Example:
         >>> from belgie_core import Belgie, BelgieSettings
         >>> from belgie.alchemy import SqliteSettings
-        >>> from belgie.alchemy.adapter import BelgieAdapter
+        >>> from belgie.alchemy import BelgieAdapter
         >>> from myapp.models import User, Account, Session, OAuthState
         >>>
         >>> settings = BelgieSettings(

@@ -9,7 +9,7 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
     OrganizationMember,
 )
 from belgie_alchemy.__tests__.fixtures.team.models import Team, TeamMember
-from belgie_alchemy.team.adapter import TeamAdapter
+from belgie_alchemy.team import TeamAdapter
 
 
 @pytest_asyncio.fixture

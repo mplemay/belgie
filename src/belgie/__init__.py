@@ -27,7 +27,7 @@ from belgie_core import (
 )
 
 if TYPE_CHECKING:
-    from belgie_alchemy.core.adapter import BelgieAdapter
+    from belgie_alchemy.core import BelgieAdapter
 
 __version__ = "0.1.0"
 
@@ -40,7 +40,7 @@ def __getattr__(name: str) -> object:
         raise AttributeError(msg)
 
     try:
-        module = import_module("belgie_alchemy.core.adapter")
+        module = import_module("belgie_alchemy.core")
     except ModuleNotFoundError as exc:
         raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
 

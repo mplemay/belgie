@@ -185,7 +185,7 @@ from belgie import (
     URLSettings,
 )
 from belgie.alchemy import SqliteSettings
-from belgie.alchemy.adapter import BelgieAdapter
+from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth
 
 settings = BelgieSettings(

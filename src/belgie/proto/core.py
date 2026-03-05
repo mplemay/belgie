@@ -1,0 +1,24 @@
+"""Core protocol re-exports for belgie consumers."""
+
+_PROTO_IMPORT_ERROR = "belgie.proto.core requires belgie-proto. Install with: uv add belgie-proto"
+
+try:
+    from belgie_proto.core import (
+        AccountProtocol,
+        AdapterProtocol,
+        DatabaseProtocol,
+        OAuthStateProtocol,
+        SessionProtocol,
+        UserProtocol,
+    )
+except ModuleNotFoundError as exc:
+    raise ImportError(_PROTO_IMPORT_ERROR) from exc
+
+__all__ = [
+    "AccountProtocol",
+    "AdapterProtocol",
+    "DatabaseProtocol",
+    "OAuthStateProtocol",
+    "SessionProtocol",
+    "UserProtocol",
+]

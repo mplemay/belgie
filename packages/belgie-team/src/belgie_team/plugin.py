@@ -6,7 +6,7 @@ from uuid import UUID  # noqa: TC003
 
 from belgie_core.core.plugin import PluginClient
 from belgie_organization.plugin import OrganizationPlugin
-from belgie_proto.team.adapter import TeamAdapterProtocol
+from belgie_proto.team import TeamAdapterProtocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import SecurityScopes
 
@@ -60,7 +60,7 @@ class TeamPlugin(PluginClient):
             if not isinstance(client.adapter, TeamAdapterProtocol):
                 msg = (
                     "team plugin requires an adapter implementing TeamAdapterProtocol. "
-                    "Use belgie_alchemy.team.adapter.TeamAdapter."
+                    "Use belgie_alchemy.team.TeamAdapter."
                 )
                 raise TypeError(msg)
             adapter = cast("TeamAdapterCast", client.adapter)
