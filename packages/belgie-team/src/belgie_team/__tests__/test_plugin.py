@@ -12,10 +12,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
 from belgie_organization.plugin import OrganizationPlugin
-from belgie_team.plugin import TeamPlugin
-from belgie_team.settings import Team
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from belgie_team.plugin import TeamPlugin
+from belgie_team.settings import Team
 
 
 class DummyBelgie:
