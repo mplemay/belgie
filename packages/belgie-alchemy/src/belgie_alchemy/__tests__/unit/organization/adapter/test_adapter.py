@@ -10,16 +10,25 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
     OrganizationInvitation,
     OrganizationMember,
 )
+from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
 
 
 @pytest_asyncio.fixture
-async def organization_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
-    adapter = OrganizationAdapter(
+async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
+    adapter = BelgieAdapter(
         user=User,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
+    )
+    yield adapter
+
+
+@pytest_asyncio.fixture
+async def organization_adapter(core_adapter: BelgieAdapter, alchemy_session: AsyncSession):  # noqa: ARG001
+    adapter = OrganizationAdapter(
+        core=core_adapter,
         organization=Organization,
         member=OrganizationMember,
         invitation=OrganizationInvitation,
@@ -29,10 +38,11 @@ async def organization_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
 
 @pytest.mark.asyncio
 async def test_create_and_list_organizations(
+    core_adapter: BelgieAdapter,
     organization_adapter: OrganizationAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    user = await organization_adapter.create_user(
+    user = await core_adapter.create_user(
         alchemy_session,
         email="owner@example.com",
     )
@@ -68,14 +78,15 @@ async def test_create_and_list_organizations(
 
 @pytest.mark.asyncio
 async def test_invitation_accept_flow(
+    core_adapter: BelgieAdapter,
     organization_adapter: OrganizationAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    inviter = await organization_adapter.create_user(
+    inviter = await core_adapter.create_user(
         alchemy_session,
         email="inviter@example.com",
     )
-    invited = await organization_adapter.create_user(
+    invited = await core_adapter.create_user(
         alchemy_session,
         email="invited@example.com",
     )

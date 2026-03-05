@@ -13,11 +13,10 @@ from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.organization.session import OrganizationSessionProtocol
 from sqlalchemy import delete, select
 
-from belgie_alchemy.core import BelgieAdapter
-
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from belgie_proto.core import AdapterProtocol
     from belgie_proto.core.connection import DBConnection
 
 
@@ -29,27 +28,16 @@ class OrganizationAdapter[
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
     InvitationT: InvitationProtocol,
-](
-    BelgieAdapter[UserT, AccountT, SessionT, OAuthStateT],
-    OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT, SessionT],
-):
-    def __init__(  # noqa: PLR0913
+](OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT, SessionT]):
+    def __init__(
         self,
         *,
-        user: type[UserT],
-        account: type[AccountT],
-        session: type[SessionT],
-        oauth_state: type[OAuthStateT],
+        core: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
         organization: type[OrganizationT],
         member: type[MemberT],
         invitation: type[InvitationT],
     ) -> None:
-        super().__init__(
-            user=user,
-            account=account,
-            session=session,
-            oauth_state=oauth_state,
-        )
+        self.core = core
         self.organization_model = organization
         self.member_model = member
         self.invitation_model = invitation
@@ -345,7 +333,7 @@ class OrganizationAdapter[
         session_id: UUID,
         organization_id: UUID | None,
     ) -> SessionT | None:
-        session_obj = await self.get_session(session, session_id)
+        session_obj = await self.core.get_session(session, session_id)
         if session_obj is None:
             return None
         if not hasattr(session_obj, "active_organization_id"):
@@ -353,7 +341,7 @@ class OrganizationAdapter[
                 "session model is missing 'active_organization_id'. Use OrganizationSessionMixin on your session model."
             )
             raise AttributeError(msg)
-        return await self.update_session(
+        return await self.core.update_session(
             session,
             session_id,
             active_organization_id=organization_id,
