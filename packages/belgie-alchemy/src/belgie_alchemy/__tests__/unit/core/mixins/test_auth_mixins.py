@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from brussels.base import DataclassBase
 from brussels.types import DateTimeUTC, Json
-from sqlalchemy import Enum as SAEnum, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy import Enum as SAEnum, ForeignKey, MetaData, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, CITEXT, dialect as postgresql_dialect
 from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
 from sqlalchemy.engine import URL
@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, configure_mappers, mapped_column, relationship
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.organization.models import Organization, OrganizationInvitation
 from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
@@ -73,6 +74,16 @@ def test_user_mixin_defaults() -> None:
     assert User.oauth_states.property.back_populates == "user"
 
 
+def test_organization_mixin_defaults() -> None:
+    slug_column = Organization.__table__.c.slug
+    assert slug_column.unique
+    assert slug_column.index
+
+    invitation_email_column = OrganizationInvitation.__table__.c.email
+    assert not invitation_email_column.unique
+    assert invitation_email_column.index
+
+
 def test_citext_variants_on_case_insensitive_fields() -> None:
     postgres = postgresql_dialect()
     sqlite = sqlite_dialect()
@@ -80,14 +91,20 @@ def test_citext_variants_on_case_insensitive_fields() -> None:
     email_type = User.__table__.c.email.type
     provider_type = Account.__table__.c.provider.type
     provider_account_id_type = Account.__table__.c.provider_account_id.type
+    organization_slug_type = Organization.__table__.c.slug.type
+    invitation_email_type = OrganizationInvitation.__table__.c.email.type
 
     assert isinstance(email_type.dialect_impl(postgres), CITEXT)
     assert isinstance(provider_type.dialect_impl(postgres), CITEXT)
     assert isinstance(provider_account_id_type.dialect_impl(postgres), CITEXT)
+    assert isinstance(organization_slug_type.dialect_impl(postgres), CITEXT)
+    assert isinstance(invitation_email_type.dialect_impl(postgres), CITEXT)
 
     assert isinstance(email_type.dialect_impl(sqlite), String)
     assert isinstance(provider_type.dialect_impl(sqlite), Text)
     assert isinstance(provider_account_id_type.dialect_impl(sqlite), Text)
+    assert isinstance(organization_slug_type.dialect_impl(sqlite), Text)
+    assert isinstance(invitation_email_type.dialect_impl(sqlite), Text)
 
 
 def test_account_session_oauthstate_mixin_defaults() -> None:
@@ -100,10 +117,12 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
     unique_constraints = [
         constraint for constraint in Account.__table__.constraints if isinstance(constraint, UniqueConstraint)
     ]
-    assert any(
-        constraint.name == "uq_accounts_provider_provider_account_id"
-        and set(constraint.columns.keys()) == {"provider", "provider_account_id"}
-        for constraint in unique_constraints
+    account_constraint = next(
+        constraint for constraint in unique_constraints if constraint.name == "uq_accounts_provider_provider_account_id"
+    )
+    assert tuple(account_constraint.columns) == (
+        Account.__table__.c.provider,
+        Account.__table__.c.provider_account_id,
     )
 
     assert isinstance(Session.__table__.c.expires_at.type, DateTimeUTC)
@@ -434,10 +453,14 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
         await engine.dispose()
         pytest.skip("citext extension is not installed")
 
-    user_model, account_model, session_model, oauth_state_model = _create_citext_model_classes(uuid4().hex[:8])
+    suffix = uuid4().hex[:8]
+    user_model, account_model, session_model, oauth_state_model = _create_citext_model_classes(suffix)
+    organization_table = Organization.__table__.to_metadata(MetaData(), name=f"citext_organization_{suffix}")
 
     try:
         await _create_citext_tables(engine, user_model, account_model, session_model, oauth_state_model)
+        async with engine.begin() as conn:
+            await conn.run_sync(organization_table.create, checkfirst=True)
 
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -469,6 +492,26 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
             with pytest.raises(IntegrityError):
                 await session.commit()
             await session.rollback()
+
+            organization_slug = f"Slug-{uuid4().hex[:8]}"
+            await session.execute(
+                organization_table.insert().values(
+                    name=f"Organization {suffix}",
+                    slug=organization_slug,
+                ),
+            )
+            await session.commit()
+
+            with pytest.raises(IntegrityError):
+                await session.execute(
+                    organization_table.insert().values(
+                        name=f"Organization Duplicate {suffix}",
+                        slug=organization_slug.lower(),
+                    ),
+                )
+            await session.rollback()
     finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(organization_table.drop, checkfirst=True)
         await _drop_citext_tables(engine, user_model, account_model, session_model, oauth_state_model)
         await engine.dispose()
