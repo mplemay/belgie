@@ -146,8 +146,8 @@ class User(DataclassBase):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Store scopes as JSON (works everywhere)
-    scopes: Mapped[list[str] | None] = mapped_column(Json, default=None)
+    # Store arbitrary structured data as JSON (works everywhere)
+    metadata: Mapped[dict[str, str] | None] = mapped_column("metadata", Json, default=None)
 ```
 
 Features:
@@ -155,13 +155,16 @@ Features:
 - PostgreSQL: Uses `JSONB`
 - SQLite/MySQL: Uses `JSON`
 
-For PostgreSQL with application-specific enum types, you can override:
+Belgie's auth mixins do not use `Json` for `User.scopes` on PostgreSQL. They default to `text[]` on PostgreSQL
+and fall back to `Json` on other dialects.
+
+If your application uses a scope enum, override `UserMixin.scopes` with an enum array:
 
 ```python
 from enum import StrEnum
 from brussels.base import DataclassBase
-from sqlalchemy import ARRAY
-from sqlalchemy.dialects.postgresql import ENUM
+from sqlalchemy import Enum
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 class AppScope(StrEnum):
@@ -173,12 +176,15 @@ class User(DataclassBase):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Option 2: PostgreSQL native ENUM array (type-safe)
+    # PostgreSQL native enum array for list[AppScope]
     scopes: Mapped[list[AppScope] | None] = mapped_column(
-        ARRAY(ENUM(AppScope, name="app_scope", create_type=True)),
+        ARRAY(Enum(AppScope, name="app_scope")),
         default=None,
     )
 ```
+
+Use `ARRAY(Enum(...))` for `list[AppScope]` storage. A bare `Enum(AppScope)` column is scalar and will not store a
+scope list.
 
 ## Auth Model Mixins
 
@@ -203,7 +209,7 @@ class OAuthState(DataclassBase, OAuthStateMixin):
 
 Defaults include:
 
-- User email/profile fields and JSON scopes (`Json`, JSONB on PostgreSQL)
+- User email/profile fields and dialect-aware scopes (`text[]` on PostgreSQL, `Json` elsewhere)
 - Account provider linkage fields and uniqueness constraint
 - Session expiration and metadata fields
 - OAuth state PKCE fields and optional user linkage
@@ -211,6 +217,9 @@ Defaults include:
 - PostgreSQL `CITEXT` variants for case-insensitive `email`, `provider`, and `provider_account_id`
 
 For PostgreSQL deployments, ensure the `citext` extension is installed when using the default mixins.
+
+If you already use the default mixins on PostgreSQL and created `user.scopes` as `jsonb`, migrate that column to
+`text[]` in your own app migration. Belgie does not ship Alembic migrations for application tables.
 
 You can still override any field, relationship, or `__tablename__` in your concrete model classes.
 

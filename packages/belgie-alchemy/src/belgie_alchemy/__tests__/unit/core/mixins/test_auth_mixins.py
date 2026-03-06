@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from enum import StrEnum
 from importlib.util import find_spec
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -8,8 +9,8 @@ from uuid import UUID, uuid4
 import pytest
 from brussels.base import DataclassBase
 from brussels.types import DateTimeUTC, Json
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import CITEXT, dialect as postgresql_dialect
+from sqlalchemy import Enum as SAEnum, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, CITEXT, dialect as postgresql_dialect
 from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError
@@ -20,6 +21,11 @@ from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, S
 from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
+
+
+class Scope(StrEnum):
+    READ = "resource:read"
+    WRITE = "resource:write"
 
 
 def test_auth_mixins_exported() -> None:
@@ -44,12 +50,19 @@ def test_default_tablenames() -> None:
 
 
 def test_user_mixin_defaults() -> None:
+    postgres = postgresql_dialect()
+    sqlite = sqlite_dialect()
+
     email_column = User.__table__.c.email
     assert email_column.unique
     assert email_column.index
 
     scopes_column = User.__table__.c.scopes
-    assert isinstance(scopes_column.type, type(Json))
+    postgres_scopes_type = scopes_column.type.dialect_impl(postgres)
+    sqlite_scopes_type = scopes_column.type.dialect_impl(sqlite)
+    assert isinstance(postgres_scopes_type, PG_ARRAY)
+    assert isinstance(postgres_scopes_type.item_type, Text)
+    assert isinstance(sqlite_scopes_type, type(Json.dialect_impl(sqlite)))
 
     email_verified_column = User.__table__.c.email_verified
     assert email_verified_column.default is not None
@@ -186,6 +199,98 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
 
     custom_oauth_state_fk = next(iter(CustomOAuthState.__table__.c.user_id.foreign_keys))
     assert custom_oauth_state_fk.target_fullname == "custom_users.id"
+
+
+def test_user_mixin_scopes_support_enum_array_override() -> None:
+    suffix = uuid4().hex[:8]
+    user_table = f"enum_scope_user_{suffix}"
+    account_table = f"enum_scope_account_{suffix}"
+    session_table = f"enum_scope_session_{suffix}"
+    oauth_state_table = f"enum_scope_oauth_state_{suffix}"
+
+    class EnumScopedUser(DataclassBase, UserMixin):
+        __tablename__ = user_table
+
+        scopes: Mapped[list[Scope] | None] = mapped_column(
+            PG_ARRAY(SAEnum(Scope, name=f"app_scope_{suffix}")),
+            default=None,
+            kw_only=True,
+        )
+        accounts: Mapped[list[object]] = relationship(
+            "EnumScopedAccount",
+            back_populates="user",
+            cascade="all, delete-orphan",
+            init=False,
+        )
+        sessions: Mapped[list[object]] = relationship(
+            "EnumScopedSession",
+            back_populates="user",
+            cascade="all, delete-orphan",
+            init=False,
+        )
+        oauth_states: Mapped[list[object]] = relationship(
+            "EnumScopedOAuthState",
+            back_populates="user",
+            cascade="all, delete-orphan",
+            init=False,
+        )
+
+    class EnumScopedAccount(DataclassBase, AccountMixin):
+        __tablename__ = account_table
+
+        user_id: Mapped[UUID] = mapped_column(
+            ForeignKey(f"{user_table}.id", ondelete="cascade", onupdate="cascade"),
+            nullable=False,
+            kw_only=True,
+        )
+        user: Mapped[object] = relationship(
+            "EnumScopedUser",
+            back_populates="accounts",
+            lazy="selectin",
+            init=False,
+        )
+
+    class EnumScopedSession(DataclassBase, SessionMixin):
+        __tablename__ = session_table
+
+        user_id: Mapped[UUID] = mapped_column(
+            ForeignKey(f"{user_table}.id", ondelete="cascade", onupdate="cascade"),
+            nullable=False,
+            kw_only=True,
+        )
+        user: Mapped[object] = relationship(
+            "EnumScopedUser",
+            back_populates="sessions",
+            lazy="selectin",
+            init=False,
+        )
+
+    class EnumScopedOAuthState(DataclassBase, OAuthStateMixin):
+        __tablename__ = oauth_state_table
+
+        user_id: Mapped[UUID | None] = mapped_column(
+            ForeignKey(f"{user_table}.id", ondelete="set null", onupdate="cascade"),
+            nullable=True,
+            kw_only=True,
+        )
+        user: Mapped[object | None] = relationship(
+            "EnumScopedUser",
+            back_populates="oauth_states",
+            lazy="selectin",
+            init=False,
+        )
+
+    try:
+        configure_mappers()
+
+        scopes_type = EnumScopedUser.__table__.c.scopes.type.dialect_impl(postgresql_dialect())
+        assert isinstance(scopes_type, PG_ARRAY)
+        assert getattr(scopes_type.item_type, "enum_class", None) is Scope
+    finally:
+        DataclassBase.metadata.remove(EnumScopedOAuthState.__table__)
+        DataclassBase.metadata.remove(EnumScopedSession.__table__)
+        DataclassBase.metadata.remove(EnumScopedAccount.__table__)
+        DataclassBase.metadata.remove(EnumScopedUser.__table__)
 
 
 def _postgres_engine_from_env() -> AsyncEngine | None:
