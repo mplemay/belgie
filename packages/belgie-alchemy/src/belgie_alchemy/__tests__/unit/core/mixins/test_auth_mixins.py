@@ -96,7 +96,7 @@ def test_citext_variants_on_case_insensitive_fields() -> None:
 
     assert isinstance(email_type.dialect_impl(postgres), CITEXT)
     assert isinstance(provider_type.dialect_impl(postgres), CITEXT)
-    assert isinstance(provider_account_id_type.dialect_impl(postgres), CITEXT)
+    assert isinstance(provider_account_id_type.dialect_impl(postgres), Text)
     assert isinstance(organization_slug_type.dialect_impl(postgres), CITEXT)
     assert isinstance(invitation_email_type.dialect_impl(postgres), CITEXT)
 
@@ -486,12 +486,20 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
             duplicate_account = account_model(
                 user_id=user.id,
                 provider=account.provider.lower(),
-                provider_account_id=account.provider_account_id.lower(),
+                provider_account_id=account.provider_account_id,
             )
             session.add(duplicate_account)
             with pytest.raises(IntegrityError):
                 await session.commit()
             await session.rollback()
+
+            case_distinct_account = account_model(
+                user_id=user.id,
+                provider=account.provider.lower(),
+                provider_account_id=account.provider_account_id.lower(),
+            )
+            session.add(case_distinct_account)
+            await session.commit()
 
             organization_slug = f"Slug-{uuid4().hex[:8]}"
             await session.execute(
