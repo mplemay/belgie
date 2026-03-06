@@ -120,8 +120,8 @@ class AccountMixin(PrimaryKeyMixin, TimestampMixin):
     def __table_args__(self) -> tuple[UniqueConstraint]:
         return (
             UniqueConstraint(
-                "provider",
-                "provider_account_id",
+                self.provider,
+                self.provider_account_id,
                 name="uq_accounts_provider_provider_account_id",
             ),
         )
