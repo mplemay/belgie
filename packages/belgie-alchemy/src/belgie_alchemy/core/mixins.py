@@ -4,9 +4,9 @@ from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from brussels.types import DateTimeUTC, Json
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import CITEXT
+from brussels.types import DateTimeUTC
+from sqlalchemy import JSON, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY, CITEXT
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 
@@ -32,7 +32,8 @@ class UserMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def scopes(self) -> Mapped[list[str] | None]:
-        return mapped_column(Json, default=None, kw_only=True)
+        scopes_type = JSON().with_variant(ARRAY(Text()), "postgresql")
+        return mapped_column(scopes_type, default=None, kw_only=True)
 
     @declared_attr
     def accounts(self) -> Mapped[list[object]]:
