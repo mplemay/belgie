@@ -26,7 +26,7 @@ class UserProtocol(Protocol):
     email: str
     name: str | None
     image: str | None
-    email_verified: bool
+    email_verified_at: datetime | None
 
 class AccountProtocol(Protocol):
     id: UUID
@@ -75,7 +75,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(Text, unique=True, index=True)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     image: Mapped[str | None] = mapped_column(Text, nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     # Optional fields
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
@@ -164,7 +164,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(Text, unique=True)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     image: Mapped[str | None] = mapped_column(Text, nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     # Custom fields
     role: Mapped[str] = mapped_column(Text, default="user")
@@ -218,6 +218,9 @@ target_metadata = Base.metadata
 alembic revision --autogenerate -m "create auth tables"
 alembic upgrade head
 ```
+
+If you are upgrading an existing app, add your own migration to rename or backfill `user.email_verified` to
+`user.email_verified_at`.
 
 ## Indexes
 
@@ -297,7 +300,7 @@ class User(models.Model):
     email = models.EmailField(unique=True, db_index=True)
     name = models.CharField(max_length=255, null=True, blank=True)
     image = models.URLField(max_length=500, null=True, blank=True)
-    email_verified = models.BooleanField(default=False)
+    email_verified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 ```
@@ -313,7 +316,7 @@ class User(Model):
     email = fields.CharField(max_length=255, unique=True, index=True)
     name = fields.CharField(max_length=255, null=True)
     image = fields.CharField(max_length=500, null=True)
-    email_verified = fields.BooleanField(default=False)
+    email_verified_at = fields.DatetimeField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
 ```

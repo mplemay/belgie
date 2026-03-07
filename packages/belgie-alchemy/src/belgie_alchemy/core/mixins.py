@@ -19,8 +19,8 @@ class UserMixin(PrimaryKeyMixin, TimestampMixin):
         return mapped_column(email_type, unique=True, index=True, kw_only=True)
 
     @declared_attr
-    def email_verified(self) -> Mapped[bool]:
-        return mapped_column(default=False, kw_only=True)
+    def email_verified_at(self) -> Mapped[datetime | None]:
+        return mapped_column(DateTimeUTC, default=None, kw_only=True)
 
     @declared_attr
     def name(self) -> Mapped[str | None]:

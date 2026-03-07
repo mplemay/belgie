@@ -35,7 +35,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(Text, unique=True, index=True)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     image: Mapped[str | None] = mapped_column(Text, nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
 

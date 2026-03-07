@@ -29,7 +29,7 @@ class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "users"
 
     email: Mapped[str] = mapped_column(Text, unique=True, index=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email_verified_at: Mapped[datetime.datetime | None] = mapped_column(DateTimeUTC, default=None)
     name: Mapped[str | None] = mapped_column(Text, default=None)
     image: Mapped[str | None] = mapped_column(Text, default=None)
     scopes: Mapped[list[str] | None] = mapped_column(JSON, default=None)

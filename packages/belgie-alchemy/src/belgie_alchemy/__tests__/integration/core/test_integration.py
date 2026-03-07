@@ -153,7 +153,7 @@ def test_full_oauth_flow_signin_to_callback(
         assert user is not None
         assert user.email == "integration@example.com"
         assert user.name == "Integration User"
-        assert user.email_verified is True
+        assert user.email_verified_at is not None
 
         session = await auth.session_manager.get_session(db_session, UUID(session_id))
         assert session is not None

@@ -12,7 +12,7 @@ class UserProtocol[S: str](Protocol):
     # Generic over scope type S (must be str or subclass like StrEnum)
     id: UUID
     email: str
-    email_verified: bool
+    email_verified_at: datetime | None
     name: str | None
     image: str | None
     created_at: datetime
