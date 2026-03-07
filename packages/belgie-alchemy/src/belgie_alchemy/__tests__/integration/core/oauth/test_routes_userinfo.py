@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 
@@ -9,7 +11,7 @@ async def _create_user(belgie_instance, db_session, email: str):
         email=email,
         name="Jane Doe",
         image="https://example.com/avatar.png",
-        email_verified=True,
+        email_verified_at=datetime.now(UTC),
     )
 
 

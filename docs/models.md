@@ -26,7 +26,7 @@ class UserProtocol(Protocol):
     email: str
     name: str | None
     image: str | None
-    email_verified: bool
+    email_verified_at: datetime | None
     scopes: list[str]
 
 class AccountProtocol(Protocol):
@@ -58,7 +58,8 @@ class OAuthStateProtocol(Protocol):
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import ForeignKey, Text
+from sqlalchemy import JSON, ForeignKey, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -73,10 +74,10 @@ class User(Base):
 
     # Required by UserProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    image: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     # Optional fields
@@ -98,15 +99,15 @@ class Account(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True
     )
-    provider: Mapped[str] = mapped_column(String(50), index=True)
-    provider_account_id: Mapped[str] = mapped_column(String(255), index=True)
-    access_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    refresh_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(Text, index=True)
+    provider_account_id: Mapped[str] = mapped_column(Text, index=True)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    scope: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    scope: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Optional fields
-    token_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    token_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC),
@@ -128,8 +129,8 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(index=True)
 
     # Optional fields
-    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
-    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC),
@@ -144,7 +145,7 @@ class OAuthState(Base):
 
     # Required by OAuthStateProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    state: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    state: Mapped[str] = mapped_column(Text, unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
 
     # Optional fields
@@ -163,17 +164,17 @@ class User(Base):
 
     # Required fields
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(String(255), unique=True)
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    image: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email: Mapped[str] = mapped_column(Text, unique=True)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     # Custom fields
-    role: Mapped[str] = mapped_column(String(50), default="user")
+    role: Mapped[str] = mapped_column(Text, default="user")
     is_active: Mapped[bool] = mapped_column(default=True)
-    bio: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    timezone: Mapped[str] = mapped_column(String(50), default="UTC")
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timezone: Mapped[str] = mapped_column(Text, default="UTC")
     preferences: Mapped[dict] = mapped_column(JSON, default=dict)
 ```
 
@@ -189,10 +190,10 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(index=True)
 
     # Custom fields for security tracking
-    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
-    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_activity: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    login_method: Mapped[str] = mapped_column(String(50), default="google")
+    login_method: Mapped[str] = mapped_column(Text, default="google")
 ```
 
 ## Database Migrations
@@ -221,6 +222,9 @@ target_metadata = Base.metadata
 alembic revision --autogenerate -m "create auth tables"
 alembic upgrade head
 ```
+
+If you are upgrading an existing app, add your own migration to rename or backfill `user.email_verified` to
+`user.email_verified_at`.
 
 ## Indexes
 
@@ -300,7 +304,7 @@ class User(models.Model):
     email = models.EmailField(unique=True, db_index=True)
     name = models.CharField(max_length=255, null=True, blank=True)
     image = models.URLField(max_length=500, null=True, blank=True)
-    email_verified = models.BooleanField(default=False)
+    email_verified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 ```
@@ -316,7 +320,7 @@ class User(Model):
     email = fields.CharField(max_length=255, unique=True, index=True)
     name = fields.CharField(max_length=255, null=True)
     image = fields.CharField(max_length=500, null=True)
-    email_verified = fields.BooleanField(default=False)
+    email_verified_at = fields.DatetimeField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
 ```

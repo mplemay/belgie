@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import UUID  # noqa: TC003
 
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from sqlalchemy import ForeignKey, UniqueConstraint
+from sqlalchemy import ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 
@@ -12,7 +12,7 @@ class TeamMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def name(self) -> Mapped[str]:
-        return mapped_column(kw_only=True)
+        return mapped_column(Text, kw_only=True)
 
     @declared_attr
     def organization_id(self) -> Mapped[UUID]:

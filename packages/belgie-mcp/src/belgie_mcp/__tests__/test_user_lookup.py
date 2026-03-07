@@ -19,7 +19,7 @@ from mcp.server.auth.middleware.auth_context import auth_context_var
 class FakeUser:
     id: UUID
     email: str
-    email_verified: bool
+    email_verified_at: datetime | None
     name: str | None
     image: str | None
     created_at: datetime
@@ -143,7 +143,7 @@ async def test_get_user_valid_sub_returns_user() -> None:
     user = FakeUser(
         id=uuid4(),
         email="user@example.com",
-        email_verified=True,
+        email_verified_at=datetime.now(UTC),
         name="Test User",
         image=None,
         created_at=datetime.now(UTC),

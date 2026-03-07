@@ -57,7 +57,8 @@ Optional extras: `belgie[mcp]`, `belgie[oauth]`, `belgie[oauth-client]`, or `bel
 ```python
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import ForeignKey, Text
+from sqlalchemy import JSON, ForeignKey, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -68,10 +69,10 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    image: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
@@ -81,12 +82,12 @@ class Account(Base):
     __tablename__ = "accounts"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    provider: Mapped[str] = mapped_column(String(50))
-    provider_account_id: Mapped[str] = mapped_column(String(255))
-    access_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    refresh_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(Text)
+    provider_account_id: Mapped[str] = mapped_column(Text)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    scope: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
 
@@ -101,7 +102,7 @@ class Session(Base):
 class OAuthState(Base):
     __tablename__ = "oauth_states"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    state: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    state: Mapped[str] = mapped_column(Text, unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 ```
@@ -221,6 +222,7 @@ Visit `http://localhost:8000/login/google` to sign in.
 
 - Google is the only built-in provider; more providers and email/password are on the roadmap.
 - You manage your own database migrations and deployment (by design—no third-party control plane).
+- If you upgrade from `email_verified`, rename or backfill that column in your own app migration to `email_verified_at`.
 
 ## Why teams pick Belgie
 

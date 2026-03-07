@@ -20,7 +20,8 @@ Create SQLAlchemy models that implement Belgie's protocols:
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import ForeignKey, Text
+from sqlalchemy import JSON, ForeignKey, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -32,10 +33,10 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    image: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -46,13 +47,13 @@ class Account(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    provider: Mapped[str] = mapped_column(String(50))
-    provider_account_id: Mapped[str] = mapped_column(String(255))
-    access_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    refresh_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(Text)
+    provider_account_id: Mapped[str] = mapped_column(Text)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    token_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    scope: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    token_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scope: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -71,7 +72,7 @@ class OAuthState(Base):
     __tablename__ = "oauth_states"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    state: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    state: Mapped[str] = mapped_column(Text, unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 ```

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -177,7 +178,7 @@ class BelgieClient[
         *,
         name: str | None = None,
         image: str | None = None,
-        email_verified: bool = False,
+        email_verified_at: datetime | None = None,
     ) -> tuple[UserT, bool]:
         if user := await self.adapter.get_user_by_email(self.db, email):
             return user, False
@@ -187,7 +188,7 @@ class BelgieClient[
             email=email,
             name=name,
             image=image,
-            email_verified=email_verified,
+            email_verified_at=email_verified_at,
         )
 
         return user, True
@@ -246,7 +247,7 @@ class BelgieClient[
         request: Request | None = None,
         name: str | None = None,
         image: str | None = None,
-        email_verified: bool = False,
+        email_verified_at: datetime | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> tuple[UserT, SessionT]:
@@ -254,7 +255,7 @@ class BelgieClient[
             email,
             name=name,
             image=image,
-            email_verified=email_verified,
+            email_verified_at=email_verified_at,
         )
         session = await self.sign_in_user(
             user,

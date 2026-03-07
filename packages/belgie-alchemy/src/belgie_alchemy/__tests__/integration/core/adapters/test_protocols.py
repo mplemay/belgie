@@ -19,7 +19,7 @@ from belgie_alchemy.team import TeamAdapter
 class ExampleUser:
     id: UUID
     email: str
-    email_verified: bool
+    email_verified_at: datetime | None
     name: str | None
     image: str | None
     created_at: datetime
@@ -129,7 +129,7 @@ def test_user_protocol_runtime_check() -> None:
     user = ExampleUser(
         id=uuid4(),
         email="test@example.com",
-        email_verified=True,
+        email_verified_at=now,
         name="Test User",
         image="https://example.com/image.jpg",
         created_at=now,
@@ -195,7 +195,7 @@ def test_user_with_custom_fields_satisfies_protocol() -> None:
     user = ExampleUser(
         id=uuid4(),
         email="test@example.com",
-        email_verified=False,
+        email_verified_at=None,
         name=None,
         image=None,
         created_at=now,

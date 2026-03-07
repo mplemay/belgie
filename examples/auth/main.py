@@ -122,10 +122,10 @@ async def dashboard(user: Annotated[User, Depends(belgie.user)]) -> dict[str, st
 
 
 @app.get("/profile/email")
-async def profile_email(user: Annotated[User, Security(belgie.user, scopes=["email"])]) -> dict[str, str]:
+async def profile_email(user: Annotated[User, Security(belgie.user, scopes=["email"])]) -> dict[str, str | None]:
     return {
         "email": user.email,
-        "verified": str(user.email_verified),
+        "email_verified_at": user.email_verified_at.isoformat() if user.email_verified_at else None,
     }
 
 
@@ -138,7 +138,7 @@ async def profile_full(
         "email": user.email,
         "name": user.name,
         "image": user.image,
-        "email_verified": str(user.email_verified),
+        "email_verified_at": user.email_verified_at.isoformat() if user.email_verified_at else None,
     }
 
 
