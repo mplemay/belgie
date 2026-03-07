@@ -9,6 +9,7 @@ relationship, or __tablename__ when your app needs different behavior.
 from __future__ import annotations
 
 from brussels.base import DataclassBase
+from sqlalchemy import Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from belgie.alchemy.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
@@ -16,7 +17,7 @@ from belgie.alchemy.mixins import AccountMixin, OAuthStateMixin, SessionMixin, U
 
 class User(DataclassBase, UserMixin):
     # Example custom field to show extensibility.
-    custom_field: Mapped[str | None] = mapped_column(default=None)
+    custom_field: Mapped[str | None] = mapped_column(Text, default=None)
 
 
 class Account(DataclassBase, AccountMixin):

@@ -15,7 +15,7 @@ class OrganizationMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def name(self) -> Mapped[str]:
-        return mapped_column(kw_only=True)
+        return mapped_column(Text, kw_only=True)
 
     @declared_attr
     def slug(self) -> Mapped[str]:
@@ -24,7 +24,7 @@ class OrganizationMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def logo(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def organization_metadata(self) -> Mapped[dict[str, object] | None]:
@@ -70,7 +70,7 @@ class OrganizationMemberMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def role(self) -> Mapped[str]:
-        return mapped_column(kw_only=True)
+        return mapped_column(Text, kw_only=True)
 
     @declared_attr
     def organization(self) -> Mapped[object]:
@@ -128,11 +128,11 @@ class OrganizationInvitationMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def role(self) -> Mapped[str]:
-        return mapped_column(kw_only=True)
+        return mapped_column(Text, kw_only=True)
 
     @declared_attr
     def status(self) -> Mapped[str]:
-        return mapped_column(default="pending", index=True, kw_only=True)
+        return mapped_column(Text, default="pending", index=True, kw_only=True)
 
     @declared_attr
     def inviter_id(self) -> Mapped[UUID]:

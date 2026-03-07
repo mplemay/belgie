@@ -28,10 +28,10 @@ if TYPE_CHECKING:
 class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "users"
 
-    email: Mapped[str] = mapped_column(unique=True, index=True)
+    email: Mapped[str] = mapped_column(Text, unique=True, index=True)
     email_verified: Mapped[bool] = mapped_column(default=False)
-    name: Mapped[str | None] = mapped_column(default=None)
-    image: Mapped[str | None] = mapped_column(default=None)
+    name: Mapped[str | None] = mapped_column(Text, default=None)
+    image: Mapped[str | None] = mapped_column(Text, default=None)
     scopes: Mapped[list[str] | None] = mapped_column(JSON, default=None)
 
     accounts: Mapped[list[Account]] = relationship(
@@ -60,12 +60,12 @@ class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     )
     provider: Mapped[str] = mapped_column(Text)
     provider_account_id: Mapped[str] = mapped_column(Text)
-    access_token: Mapped[str | None] = mapped_column(default=None)
-    refresh_token: Mapped[str | None] = mapped_column(default=None)
+    access_token: Mapped[str | None] = mapped_column(Text, default=None)
+    refresh_token: Mapped[str | None] = mapped_column(Text, default=None)
     expires_at: Mapped[datetime.datetime | None] = mapped_column(DateTimeUTC, default=None)
-    token_type: Mapped[str | None] = mapped_column(default=None)
-    scope: Mapped[str | None] = mapped_column(default=None)
-    id_token: Mapped[str | None] = mapped_column(default=None)
+    token_type: Mapped[str | None] = mapped_column(Text, default=None)
+    scope: Mapped[str | None] = mapped_column(Text, default=None)
+    id_token: Mapped[str | None] = mapped_column(Text, default=None)
 
     user: Mapped[User] = relationship(
         back_populates="accounts",
@@ -90,8 +90,8 @@ class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin):
         nullable=False,
     )
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTimeUTC)
-    ip_address: Mapped[str | None] = mapped_column(default=None)
-    user_agent: Mapped[str | None] = mapped_column(default=None)
+    ip_address: Mapped[str | None] = mapped_column(Text, default=None)
+    user_agent: Mapped[str | None] = mapped_column(Text, default=None)
 
     user: Mapped[User] = relationship(
         back_populates="sessions",
@@ -103,14 +103,14 @@ class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin):
 class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "oauth_states"
 
-    state: Mapped[str] = mapped_column(unique=True, index=True)
+    state: Mapped[str] = mapped_column(Text, unique=True, index=True)
     user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="set null", onupdate="cascade"),
         nullable=True,
     )
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTimeUTC)
-    code_verifier: Mapped[str | None] = mapped_column(default=None)
-    redirect_url: Mapped[str | None] = mapped_column(default=None)
+    code_verifier: Mapped[str | None] = mapped_column(Text, default=None)
+    redirect_url: Mapped[str | None] = mapped_column(Text, default=None)
 
     user: Mapped[User] | None = relationship(
         back_populates="oauth_states",
