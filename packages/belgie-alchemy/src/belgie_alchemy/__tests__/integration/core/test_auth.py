@@ -268,8 +268,7 @@ async def test_user_dependency_with_insufficient_scopes(auth: Belgie, db_session
 @pytest.mark.asyncio
 async def test_user_dependency_scopes_required_but_user_has_no_scopes(auth: Belgie, db_session: AsyncSession) -> None:
     user = await auth.adapter.create_user(db_session, email="test@example.com")
-    # User has no scopes (None by default)
-    assert user.scopes is None
+    assert user.scopes == []
 
     session = await auth.session_manager.create_session(db_session, user_id=user.id)
 

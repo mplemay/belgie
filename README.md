@@ -57,7 +57,7 @@ Optional extras: `belgie[mcp]`, `belgie[oauth]`, `belgie[oauth-client]`, or `bel
 ```python
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -72,6 +72,7 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image: Mapped[str | None] = mapped_column(String(500), nullable=True)
     email_verified: Mapped[bool] = mapped_column(default=False)
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 

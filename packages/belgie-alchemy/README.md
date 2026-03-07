@@ -177,9 +177,10 @@ class User(DataclassBase):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # PostgreSQL native enum array for list[AppScope]
-    scopes: Mapped[list[AppScope] | None] = mapped_column(
+    scopes: Mapped[list[AppScope]] = mapped_column(
         ARRAY(Enum(AppScope, name="app_scope")),
-        default=None,
+        default_factory=list,
+        nullable=False,
     )
 ```
 
@@ -219,7 +220,8 @@ Defaults include:
 For PostgreSQL deployments, ensure the `citext` extension is installed when using the default mixins.
 
 If you already use the default mixins on PostgreSQL and created `user.scopes` as `jsonb`, migrate that column to
-`text[]` in your own app migration. Belgie does not ship Alembic migrations for application tables.
+`text[]`, backfill any `NULL` rows to `[]`, and then enforce `NOT NULL` in your own app migration. Belgie does not
+ship Alembic migrations for application tables.
 
 You can still override any field, relationship, or `__tablename__` in your concrete model classes.
 

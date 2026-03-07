@@ -27,6 +27,7 @@ class UserProtocol(Protocol):
     name: str | None
     image: str | None
     email_verified: bool
+    scopes: list[str]
 
 class AccountProtocol(Protocol):
     id: UUID
@@ -57,7 +58,7 @@ class OAuthStateProtocol(Protocol):
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -76,6 +77,7 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image: Mapped[str | None] = mapped_column(String(500), nullable=True)
     email_verified: Mapped[bool] = mapped_column(default=False)
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     # Optional fields
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
@@ -165,6 +167,7 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image: Mapped[str | None] = mapped_column(String(500), nullable=True)
     email_verified: Mapped[bool] = mapped_column(default=False)
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     # Custom fields
     role: Mapped[str] = mapped_column(String(50), default="user")

@@ -64,6 +64,7 @@ def test_user_mixin_defaults() -> None:
     assert isinstance(postgres_scopes_type, PG_ARRAY)
     assert isinstance(postgres_scopes_type.item_type, Text)
     assert isinstance(sqlite_scopes_type, type(Json.dialect_impl(sqlite)))
+    assert not scopes_column.nullable
 
     email_verified_column = User.__table__.c.email_verified
     assert email_verified_column.default is not None
@@ -230,9 +231,10 @@ def test_user_mixin_scopes_support_enum_array_override() -> None:
     class EnumScopedUser(DataclassBase, UserMixin):
         __tablename__ = user_table
 
-        scopes: Mapped[list[Scope] | None] = mapped_column(
+        scopes: Mapped[list[Scope]] = mapped_column(
             PG_ARRAY(SAEnum(Scope, name=f"app_scope_{suffix}")),
-            default=None,
+            default_factory=list,
+            nullable=False,
             kw_only=True,
         )
         accounts: Mapped[list[object]] = relationship(

@@ -351,13 +351,14 @@ async def test_user_with_empty_scopes_list(
 
 
 @pytest.mark.asyncio
-async def test_user_with_none_scopes(auth: Belgie, db_session: AsyncSession, auth_settings: BelgieSettings) -> None:
-    """Test that a user with None scopes is denied access to scope-protected resources.
-
-    None scopes should behave identically to empty scopes list.
-    """
+async def test_user_with_default_empty_scopes(
+    auth: Belgie,
+    db_session: AsyncSession,
+    auth_settings: BelgieSettings,
+) -> None:
+    """Test that a new user with default empty scopes is denied access to scope-protected resources."""
     user = await auth.adapter.create_user(db_session, email="test@example.com")
-    user.scopes = None
+    assert user.scopes == []
     await db_session.commit()
 
     session = await auth.adapter.create_session(
@@ -379,14 +380,14 @@ async def test_user_with_none_scopes(auth: Belgie, db_session: AsyncSession, aut
 
 
 @pytest.mark.asyncio
-async def test_user_with_none_scopes_no_requirements(
+async def test_user_with_default_empty_scopes_no_requirements(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
-    """Test that a user with None scopes can access endpoints with no scope requirements."""
+    """Test that a new user with default empty scopes can access endpoints with no scope requirements."""
     user = await auth.adapter.create_user(db_session, email="test@example.com")
-    user.scopes = None
+    assert user.scopes == []
     await db_session.commit()
 
     session = await auth.adapter.create_session(
@@ -404,7 +405,7 @@ async def test_user_with_none_scopes_no_requirements(
     result: UserProtocol = await auth.user(security_scopes, request, db_session)
 
     assert result.id == user.id
-    assert result.scopes is None
+    assert result.scopes == []
 
 
 @pytest.mark.asyncio

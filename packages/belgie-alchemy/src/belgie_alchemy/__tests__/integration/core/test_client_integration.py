@@ -463,15 +463,15 @@ class TestGetUser:
         assert response.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_get_user_none_scopes_with_requirements_returns_403(
+    async def test_get_user_default_scopes_with_requirements_returns_403(
         self,
         client: TestClient,
         create_user_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
-        """Test that user with None scopes cannot access scope-protected endpoint."""
-        user = await create_user_helper("nonescopes@test.com", scopes=None)
+        """Test that user with default empty scopes cannot access scope-protected endpoint."""
+        user = await create_user_helper("defaultscopes@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -515,22 +515,23 @@ class TestGetUser:
         assert response.json()["email"] == "noscopes@test.com"
 
     @pytest.mark.asyncio
-    async def test_get_user_none_scopes_without_requirements_success(
+    async def test_get_user_default_scopes_without_requirements_success(
         self,
         client: TestClient,
         create_user_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
-        """Test that user with None scopes can access non-protected endpoint."""
-        user = await create_user_helper("nonescopes@test.com", scopes=None)
+        """Test that user with default empty scopes can access non-protected endpoint."""
+        user = await create_user_helper("defaultscopes@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
         response = client.get("/me")
 
         assert response.status_code == 200
-        assert response.json()["email"] == "nonescopes@test.com"
+        assert response.json()["email"] == "defaultscopes@test.com"
+        assert response.json()["scopes"] == []
 
 
 class TestGetSession:

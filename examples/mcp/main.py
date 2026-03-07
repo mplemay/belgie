@@ -32,7 +32,7 @@ class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     email_verified: Mapped[bool] = mapped_column(default=False)
     name: Mapped[str | None] = mapped_column(default=None)
     image: Mapped[str | None] = mapped_column(default=None)
-    scopes: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    scopes: Mapped[list[str]] = mapped_column(JSON, default_factory=list, nullable=False)
 
     accounts: Mapped[list[Account]] = relationship(
         back_populates="user",
