@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID  # noqa: TC003
 
@@ -187,7 +188,7 @@ async def login(
         email=email,
         name=name,
         request=request,
-        email_verified=True,
+        email_verified_at=datetime.now(UTC),
     )
     response = RedirectResponse(url=return_to, status_code=302)
     return client.create_session_cookie(session, response)

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from http.cookies import SimpleCookie
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -279,7 +280,26 @@ async def test_get_or_create_user_creates_and_marks_created(client, mock_adapter
         email="new@example.com",
         name="New User",
         image=None,
-        email_verified=False,
+        email_verified_at=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_user_forwards_email_verified_at(client, mock_adapter):
+    user = MagicMock()
+    user.id = uuid4()
+    verified_at = datetime(2024, 1, 1, tzinfo=UTC)
+    mock_adapter.get_user_by_email.return_value = None
+    mock_adapter.create_user.return_value = user
+
+    await client.get_or_create_user("new@example.com", email_verified_at=verified_at)
+
+    mock_adapter.create_user.assert_called_once_with(
+        client.db,
+        email="new@example.com",
+        name=None,
+        image=None,
+        email_verified_at=verified_at,
     )
 
 
@@ -435,7 +455,7 @@ async def test_sign_up_creates_user_sets_cookie_and_returns_user_session(mock_db
         email="user@example.com",
         name="Test User",
         image=None,
-        email_verified=False,
+        email_verified_at=None,
     )
     session_manager.create_session.assert_called_once_with(
         mock_db,
@@ -489,6 +509,42 @@ async def test_sign_up_existing_user_skips_create(mock_db):
         user_id=user.id,
         ip_address=None,
         user_agent=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sign_up_forwards_email_verified_at(mock_db):
+    adapter = AsyncMock()
+    session_manager = AsyncMock()
+    session_manager.max_age = 3600
+    user = MagicMock()
+    user.id = uuid4()
+    session = MagicMock()
+    session.id = uuid4()
+    verified_at = datetime(2024, 1, 1, tzinfo=UTC)
+
+    adapter.get_user_by_email.return_value = None
+    adapter.create_user.return_value = user
+    session_manager.create_session.return_value = session
+
+    client = BelgieClient(
+        db=mock_db,
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_settings=CookieSettings(name="test_session"),
+    )
+
+    await client.sign_up(
+        "user@example.com",
+        email_verified_at=verified_at,
+    )
+
+    adapter.create_user.assert_called_once_with(
+        mock_db,
+        email="user@example.com",
+        name=None,
+        image=None,
+        email_verified_at=verified_at,
     )
 
 

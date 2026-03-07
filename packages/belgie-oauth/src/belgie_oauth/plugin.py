@@ -261,7 +261,7 @@ class GoogleOAuthPlugin(PluginClient):
                 request=request,
                 name=user_info.name,
                 image=user_info.picture,
-                email_verified=user_info.verified_email,
+                email_verified_at=datetime.now(UTC) if user_info.verified_email else None,
             )
 
             await client.upsert_oauth_account(

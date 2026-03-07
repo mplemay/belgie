@@ -22,16 +22,17 @@ async def adapter(alchemy_session: AsyncSession):  # noqa: ARG001
 
 @pytest.mark.asyncio
 async def test_create_user(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
+    verified_at = datetime(2024, 1, 1, tzinfo=UTC)
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
         name="Test User",
-        email_verified=True,
+        email_verified_at=verified_at,
     )
 
     assert user.email == "test@example.com"
     assert user.name == "Test User"
-    assert user.email_verified is True
+    assert user.email_verified_at == verified_at
     assert user.id is not None
     assert user.created_at is not None
 
@@ -79,6 +80,7 @@ async def test_get_user_by_email_not_found(adapter: BelgieAdapter, alchemy_sessi
 
 @pytest.mark.asyncio
 async def test_update_user(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
+    verified_at = datetime(2024, 1, 2, tzinfo=UTC)
     user = await adapter.create_user(
         alchemy_session,
         email="test@example.com",
@@ -89,12 +91,12 @@ async def test_update_user(adapter: BelgieAdapter, alchemy_session: AsyncSession
         alchemy_session,
         user.id,
         name="Updated Name",
-        email_verified=True,
+        email_verified_at=verified_at,
     )
 
     assert updated_user is not None
     assert updated_user.name == "Updated Name"
-    assert updated_user.email_verified is True
+    assert updated_user.email_verified_at == verified_at
 
 
 @pytest.mark.asyncio
@@ -356,7 +358,7 @@ async def test_delete_oauth_state_not_found(adapter: BelgieAdapter, alchemy_sess
 async def test_user_with_custom_fields(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user_data = User(
         email="custom@example.com",
-        email_verified=True,
+        email_verified_at=datetime(2024, 1, 3, tzinfo=UTC),
         name="Custom User",
         image=None,
         custom_field="custom value",

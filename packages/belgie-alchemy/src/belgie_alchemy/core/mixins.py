@@ -5,7 +5,7 @@ from uuid import UUID  # noqa: TC003
 
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC
-from sqlalchemy import JSON, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import JSON, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
@@ -15,20 +15,20 @@ class UserMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def email(self) -> Mapped[str]:
-        email_type = String().with_variant(CITEXT(), "postgresql")
+        email_type = Text().with_variant(CITEXT(), "postgresql")
         return mapped_column(email_type, unique=True, index=True, kw_only=True)
 
     @declared_attr
-    def email_verified(self) -> Mapped[bool]:
-        return mapped_column(default=False, kw_only=True)
+    def email_verified_at(self) -> Mapped[datetime | None]:
+        return mapped_column(DateTimeUTC, default=None, kw_only=True)
 
     @declared_attr
     def name(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def image(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def scopes(self) -> Mapped[list[str] | None]:
@@ -81,16 +81,15 @@ class AccountMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def provider_account_id(self) -> Mapped[str]:
-        provider_account_id_type = Text().with_variant(CITEXT(), "postgresql")
-        return mapped_column(provider_account_id_type, kw_only=True)
+        return mapped_column(Text(), kw_only=True)
 
     @declared_attr
     def access_token(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def refresh_token(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def expires_at(self) -> Mapped[datetime | None]:
@@ -98,15 +97,15 @@ class AccountMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def token_type(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def scope(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def id_token(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def user(self) -> Mapped[object]:
@@ -151,11 +150,11 @@ class SessionMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def ip_address(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def user_agent(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def user(self) -> Mapped[object]:
@@ -172,7 +171,7 @@ class OAuthStateMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def state(self) -> Mapped[str]:
-        return mapped_column(unique=True, index=True, kw_only=True)
+        return mapped_column(Text, unique=True, index=True, kw_only=True)
 
     @declared_attr
     def user_id(self) -> Mapped[UUID | None]:
@@ -188,11 +187,11 @@ class OAuthStateMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def code_verifier(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def redirect_url(self) -> Mapped[str | None]:
-        return mapped_column(default=None, kw_only=True)
+        return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
     def user(self) -> Mapped[object | None]:

@@ -214,12 +214,15 @@ Defaults include:
 - Session expiration and metadata fields
 - OAuth state PKCE fields and optional user linkage
 - UUID primary keys and timestamps on all models
-- PostgreSQL `CITEXT` variants for case-insensitive `email`, `provider`, and `provider_account_id`
+- PostgreSQL `CITEXT` variants for case-insensitive `email`, `provider`, `provider_account_id`, `slug`, and invitation
+  `email`
 
 For PostgreSQL deployments, ensure the `citext` extension is installed when using the default mixins.
 
-If you already use the default mixins on PostgreSQL and created `user.scopes` as `jsonb`, migrate that column to
-`text[]` in your own app migration. Belgie does not ship Alembic migrations for application tables.
+If you already use the default mixins on PostgreSQL, migrate existing app-owned `varchar` auth and organization
+columns to `text` in your own app migration where needed. If you also created `user.scopes` as `jsonb`, migrate that
+column to `text[]` as part of the same application migration. Belgie does not ship Alembic migrations for application
+tables.
 
 You can still override any field, relationship, or `__tablename__` in your concrete model classes.
 
