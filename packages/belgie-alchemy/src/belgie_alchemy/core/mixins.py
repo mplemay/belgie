@@ -81,8 +81,7 @@ class AccountMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def provider_account_id(self) -> Mapped[str]:
-        provider_account_id_type = Text().with_variant(CITEXT(), "postgresql")
-        return mapped_column(provider_account_id_type, kw_only=True)
+        return mapped_column(Text(), kw_only=True)
 
     @declared_attr
     def access_token(self) -> Mapped[str | None]:
