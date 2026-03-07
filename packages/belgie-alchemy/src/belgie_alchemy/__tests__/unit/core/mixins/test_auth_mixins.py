@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from brussels.base import DataclassBase
 from brussels.types import DateTimeUTC, Json
-from sqlalchemy import Enum as SAEnum, ForeignKey, MetaData, Text, UniqueConstraint, text
+from sqlalchemy import Enum as SAEnum, ForeignKey, Index, MetaData, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, CITEXT, dialect as postgresql_dialect
 from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
 from sqlalchemy.engine import URL
@@ -154,18 +154,38 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
         Account.__table__.c.provider,
         Account.__table__.c.provider_account_id,
     )
+    account_index = next(index for index in Account.__table__.indexes if index.name == "ix_account_user_id_provider")
+    assert isinstance(account_index, Index)
+    assert tuple(account_index.columns) == (
+        Account.__table__.c.user_id,
+        Account.__table__.c.provider,
+    )
 
     assert isinstance(Session.__table__.c.expires_at.type, DateTimeUTC)
     session_fk = next(iter(Session.__table__.c.user_id.foreign_keys))
     assert session_fk.target_fullname == "user.id"
     assert session_fk.ondelete == "cascade"
     assert session_fk.onupdate == "cascade"
+    assert Session.__table__.c.user_id.index
+    assert Session.__table__.c.expires_at.index
+    session_user_id_index = next(index for index in Session.__table__.indexes if index.name == "ix_session_user_id")
+    assert isinstance(session_user_id_index, Index)
+    assert tuple(session_user_id_index.columns) == (Session.__table__.c.user_id,)
+    session_expires_at_index = next(
+        index for index in Session.__table__.indexes if index.name == "ix_session_expires_at"
+    )
+    assert isinstance(session_expires_at_index, Index)
+    assert tuple(session_expires_at_index.columns) == (Session.__table__.c.expires_at,)
 
     assert isinstance(OAuthState.__table__.c.expires_at.type, DateTimeUTC)
     oauth_state_fk = next(iter(OAuthState.__table__.c.user_id.foreign_keys))
     assert oauth_state_fk.target_fullname == "user.id"
     assert oauth_state_fk.ondelete == "set null"
     assert oauth_state_fk.onupdate == "cascade"
+    assert OAuthState.__table__.c.state.index
+    oauth_state_index = next(index for index in OAuthState.__table__.indexes if index.name == "ix_oauth_state_state")
+    assert isinstance(oauth_state_index, Index)
+    assert tuple(oauth_state_index.columns) == (OAuthState.__table__.c.state,)
 
 
 def test_mixins_support_relationship_and_tablename_overrides() -> None:
