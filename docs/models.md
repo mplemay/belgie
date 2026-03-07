@@ -122,11 +122,8 @@ class Session(Base):
 
     # Required by SessionProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
-        index=True
-    )
-    expires_at: Mapped[datetime] = mapped_column()
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(index=True)
 
     # Optional fields
     ip_address: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -146,7 +143,7 @@ class OAuthState(Base):
     # Required by OAuthStateProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     state: Mapped[str] = mapped_column(Text, unique=True, index=True)
-    expires_at: Mapped[datetime] = mapped_column(index=True)
+    expires_at: Mapped[datetime] = mapped_column()
 
     # Optional fields
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
@@ -186,7 +183,7 @@ class Session(Base):
 
     # Required fields
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
 
     # Custom fields for security tracking
@@ -346,7 +343,6 @@ async def cleanup_task(auth: Belgie, db: AsyncSession):
     # Clean up expired sessions
     session_count = await auth.session_manager.cleanup_expired_sessions(db)
     print(f"Deleted {session_count} expired sessions")
-
 ```
 
 Schedule this task with your preferred task scheduler (Celery, APScheduler, etc.). If your app adds its own expired

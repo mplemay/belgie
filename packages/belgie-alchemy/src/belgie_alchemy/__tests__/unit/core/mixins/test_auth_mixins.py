@@ -161,6 +161,13 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
         Account.__table__.c.provider,
     )
 
+    account_index = next(index for index in Account.__table__.indexes if index.name == "ix_account_user_id_provider")
+    assert isinstance(account_index, Index)
+    assert tuple(account_index.columns) == (
+        Account.__table__.c.user_id,
+        Account.__table__.c.provider,
+    )
+
     assert isinstance(Session.__table__.c.expires_at.type, DateTimeUTC)
     session_fk = next(iter(Session.__table__.c.user_id.foreign_keys))
     assert session_fk.target_fullname == "user.id"
