@@ -42,11 +42,11 @@ class BelgieAdapter[
         name: str | None = None,
         image: str | None = None,
         *,
-        email_verified: bool = False,
+        email_verified_at: datetime | None = None,
     ) -> UserT:
         user = self.user_model(
             email=email,
-            email_verified=email_verified,
+            email_verified_at=email_verified_at,
             name=name,
             image=image,
         )

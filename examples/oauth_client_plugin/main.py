@@ -121,10 +121,10 @@ async def profile(user: Annotated[User, Depends(belgie.user)]) -> dict[str, str 
 
 
 @app.get("/profile/email")
-async def profile_email(user: Annotated[User, Security(belgie.user, scopes=["email"])]) -> dict[str, str]:
+async def profile_email(user: Annotated[User, Security(belgie.user, scopes=["email"])]) -> dict[str, str | None]:
     return {
         "email": user.email,
-        "email_verified": str(user.email_verified),
+        "email_verified_at": user.email_verified_at.isoformat() if user.email_verified_at else None,
     }
 
 

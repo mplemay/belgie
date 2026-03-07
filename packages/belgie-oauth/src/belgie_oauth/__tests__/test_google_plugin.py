@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Annotated
 from unittest.mock import ANY, AsyncMock, MagicMock
@@ -191,8 +192,11 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
         request=ANY,
         name="Test User",
         image="https://example.com/photo.jpg",
-        email_verified=True,
+        email_verified_at=ANY,
     )
+    verified_at = client_dependency.sign_up.await_args.kwargs["email_verified_at"]
+    assert isinstance(verified_at, datetime)
+    assert verified_at.tzinfo == UTC
 
     client_dependency.upsert_oauth_account.assert_awaited_once_with(
         user_id=user.id,

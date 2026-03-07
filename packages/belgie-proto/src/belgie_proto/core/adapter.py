@@ -30,7 +30,7 @@ class AdapterProtocol[
         name: str | None = None,
         image: str | None = None,
         *,
-        email_verified: bool = False,
+        email_verified_at: datetime | None = None,
     ) -> UserT: ...
 
     async def get_user_by_id(self, session: DBConnection, user_id: UUID) -> UserT | None: ...

@@ -65,9 +65,10 @@ def test_user_mixin_defaults() -> None:
     assert isinstance(postgres_scopes_type.item_type, Text)
     assert isinstance(sqlite_scopes_type, type(Json.dialect_impl(sqlite)))
 
-    email_verified_column = User.__table__.c.email_verified
-    assert email_verified_column.default is not None
-    assert email_verified_column.default.arg is False
+    email_verified_at_column = User.__table__.c.email_verified_at
+    assert isinstance(email_verified_at_column.type, DateTimeUTC)
+    assert email_verified_at_column.nullable
+    assert email_verified_at_column.default is None
 
     assert User.accounts.property.back_populates == "user"
     assert User.sessions.property.back_populates == "user"

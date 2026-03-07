@@ -71,7 +71,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     image: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    email_verified: Mapped[bool] = mapped_column(default=False)
+    email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
@@ -220,6 +220,7 @@ Visit `http://localhost:8000/login/google` to sign in.
 
 - Google is the only built-in provider; more providers and email/password are on the roadmap.
 - You manage your own database migrations and deployment (by design—no third-party control plane).
+- If you upgrade from `email_verified`, rename or backfill that column in your own app migration to `email_verified_at`.
 
 ## Why teams pick Belgie
 

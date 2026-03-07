@@ -45,6 +45,7 @@ from belgie_oauth_server.utils import construct_redirect_uri, create_code_challe
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Mapping
+    from datetime import datetime
 
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
@@ -1143,7 +1144,7 @@ class _UserClaimsSource(Protocol):
     name: str | None
     image: str | None
     email: str
-    email_verified: bool
+    email_verified_at: datetime | None
 
 
 def _build_user_claims(user: _UserClaimsSource, scopes: list[str]) -> dict[str, Any]:
@@ -1163,7 +1164,7 @@ def _build_user_claims(user: _UserClaimsSource, scopes: list[str]) -> dict[str, 
 
     if "email" in scopes:
         payload["email"] = user.email
-        payload["email_verified"] = user.email_verified
+        payload["email_verified"] = user.email_verified_at is not None
 
     return payload
 
