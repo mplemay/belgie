@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from brussels.base import DataclassBase
 from brussels.types import DateTimeUTC, Json
-from sqlalchemy import Enum as SAEnum, ForeignKey, MetaData, String, Text, UniqueConstraint, text
+from sqlalchemy import Enum as SAEnum, ForeignKey, MetaData, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, CITEXT, dialect as postgresql_dialect
 from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
 from sqlalchemy.engine import URL
@@ -18,7 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, configure_mappers, mapped_column, relationship
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
-from belgie_alchemy.__tests__.fixtures.organization.models import Organization, OrganizationInvitation
+from belgie_alchemy.__tests__.fixtures.organization.models import (
+    Organization,
+    OrganizationInvitation,
+    OrganizationMember,
+)
+from belgie_alchemy.__tests__.fixtures.team.models import Team
 from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
@@ -97,15 +102,38 @@ def test_citext_variants_on_case_insensitive_fields() -> None:
 
     assert isinstance(email_type.dialect_impl(postgres), CITEXT)
     assert isinstance(provider_type.dialect_impl(postgres), CITEXT)
-    assert isinstance(provider_account_id_type.dialect_impl(postgres), CITEXT)
+    assert isinstance(provider_account_id_type.dialect_impl(postgres), Text)
     assert isinstance(organization_slug_type.dialect_impl(postgres), CITEXT)
     assert isinstance(invitation_email_type.dialect_impl(postgres), CITEXT)
 
-    assert isinstance(email_type.dialect_impl(sqlite), String)
+    assert isinstance(email_type.dialect_impl(sqlite), Text)
     assert isinstance(provider_type.dialect_impl(sqlite), Text)
     assert isinstance(provider_account_id_type.dialect_impl(sqlite), Text)
     assert isinstance(organization_slug_type.dialect_impl(sqlite), Text)
     assert isinstance(invitation_email_type.dialect_impl(sqlite), Text)
+
+
+def test_explicit_text_types_on_mixin_text_fields() -> None:
+    sqlite = sqlite_dialect()
+
+    text_columns = (
+        User.__table__.c.name,
+        User.__table__.c.image,
+        Account.__table__.c.access_token,
+        Account.__table__.c.scope,
+        Session.__table__.c.ip_address,
+        Session.__table__.c.user_agent,
+        OAuthState.__table__.c.state,
+        OAuthState.__table__.c.redirect_url,
+        Organization.__table__.c.name,
+        Organization.__table__.c.logo,
+        OrganizationMember.__table__.c.role,
+        OrganizationInvitation.__table__.c.status,
+        Team.__table__.c.name,
+    )
+
+    for column in text_columns:
+        assert isinstance(column.type.dialect_impl(sqlite), Text)
 
 
 def test_account_session_oauthstate_mixin_defaults() -> None:
@@ -487,12 +515,20 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
             duplicate_account = account_model(
                 user_id=user.id,
                 provider=account.provider.lower(),
-                provider_account_id=account.provider_account_id.lower(),
+                provider_account_id=account.provider_account_id,
             )
             session.add(duplicate_account)
             with pytest.raises(IntegrityError):
                 await session.commit()
             await session.rollback()
+
+            case_distinct_account = account_model(
+                user_id=user.id,
+                provider=account.provider.lower(),
+                provider_account_id=account.provider_account_id.lower(),
+            )
+            session.add(case_distinct_account)
+            await session.commit()
 
             organization_slug = f"Slug-{uuid4().hex[:8]}"
             await session.execute(
