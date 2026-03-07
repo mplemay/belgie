@@ -5,7 +5,7 @@ from uuid import UUID  # noqa: TC003
 
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC
-from sqlalchemy import JSON, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
@@ -118,12 +118,17 @@ class AccountMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
     @declared_attr.directive
-    def __table_args__(self) -> tuple[UniqueConstraint]:
+    def __table_args__(self) -> tuple[UniqueConstraint, Index]:
         return (
             UniqueConstraint(
                 self.provider,
                 self.provider_account_id,
                 name="uq_accounts_provider_provider_account_id",
+            ),
+            Index(
+                f"ix_{self.__tablename__}_user_id_provider",
+                self.user_id,
+                self.provider,
             ),
         )
 
@@ -135,13 +140,14 @@ class SessionMixin(PrimaryKeyMixin, TimestampMixin):
     def user_id(self) -> Mapped[UUID]:
         return mapped_column(
             ForeignKey("user.id", ondelete="cascade", onupdate="cascade"),
+            index=True,
             nullable=False,
             kw_only=True,
         )
 
     @declared_attr
     def expires_at(self) -> Mapped[datetime]:
-        return mapped_column(DateTimeUTC, kw_only=True)
+        return mapped_column(DateTimeUTC, index=True, kw_only=True)
 
     @declared_attr
     def ip_address(self) -> Mapped[str | None]:

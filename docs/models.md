@@ -57,7 +57,7 @@ class OAuthStateProtocol(Protocol):
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -89,15 +89,16 @@ class Account(Base):
     """OAuth provider account linked to a user."""
 
     __tablename__ = "accounts"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_account_id", name="uq_accounts_provider_provider_account_id"),
+        Index("ix_accounts_user_id_provider", "user_id", "provider"),
+    )
 
     # Required by AccountProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
-        index=True
-    )
-    provider: Mapped[str] = mapped_column(String(50), index=True)
-    provider_account_id: Mapped[str] = mapped_column(String(255), index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    provider: Mapped[str] = mapped_column(String(50))
+    provider_account_id: Mapped[str] = mapped_column(String(255))
     access_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
@@ -119,10 +120,7 @@ class Session(Base):
 
     # Required by SessionProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
-        index=True
-    )
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
 
     # Optional fields
@@ -143,7 +141,7 @@ class OAuthState(Base):
     # Required by OAuthStateProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     state: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    expires_at: Mapped[datetime] = mapped_column(index=True)
+    expires_at: Mapped[datetime] = mapped_column()
 
     # Optional fields
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
@@ -182,7 +180,7 @@ class Session(Base):
 
     # Required fields
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
 
     # Custom fields for security tracking
@@ -221,7 +219,7 @@ alembic upgrade head
 
 ## Indexes
 
-Recommended indexes for performance:
+Belgie's current lookup paths need these indexes:
 
 ```python
 class User(Base):
@@ -233,14 +231,14 @@ class User(Base):
 class Account(Base):
     __tablename__ = "accounts"
     __table_args__ = (
+        UniqueConstraint('provider', 'provider_account_id', name='uq_accounts_provider_provider_account_id'),
         Index('idx_user_provider', 'user_id', 'provider'),
-        Index('idx_provider_account', 'provider', 'provider_account_id'),
     )
 
 class Session(Base):
     __tablename__ = "sessions"
     __table_args__ = (
-        Index('idx_user_expires', 'user_id', 'expires_at'),
+        Index('idx_user_id', 'user_id'),
         Index('idx_expires', 'expires_at'),  # For cleanup queries
     )
 
@@ -248,7 +246,6 @@ class OAuthState(Base):
     __tablename__ = "oauth_states"
     __table_args__ = (
         Index('idx_state', 'state'),
-        Index('idx_expires', 'expires_at'),  # For cleanup queries
     )
 ```
 
@@ -330,7 +327,7 @@ class User(Model):
 
 ## Cleanup Tasks
 
-Periodically clean up expired sessions and OAuth states:
+Belgie ships a cleanup path for expired sessions:
 
 ```python
 from belgie import Belgie
@@ -340,9 +337,7 @@ async def cleanup_task(auth: Belgie, db: AsyncSession):
     # Clean up expired sessions
     session_count = await auth.session_manager.cleanup_expired_sessions(db)
     print(f"Deleted {session_count} expired sessions")
-
-    # Clean up expired OAuth states
-    await auth.adapter.delete_expired_oauth_states(db)
 ```
 
-Schedule this task with your preferred task scheduler (Celery, APScheduler, etc.).
+Schedule this task with your preferred task scheduler (Celery, APScheduler, etc.). If your app adds its own expired
+OAuth state cleanup query, add the corresponding schema/index in your application code.

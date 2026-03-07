@@ -11,7 +11,7 @@ from brussels.types import DateTimeUTC
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from mcp.server.mcpserver import MCPServer
-from sqlalchemy import JSON, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import JSON, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -53,6 +53,14 @@ class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
 
 class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "provider_account_id",
+            name="uq_accounts_provider_provider_account_id",
+        ),
+        Index("ix_accounts_user_id_provider", "user_id", "provider"),
+    )
 
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="cascade", onupdate="cascade"),
@@ -73,23 +81,16 @@ class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
         init=False,
     )
 
-    __table_args__ = (
-        UniqueConstraint(
-            "provider",
-            "provider_account_id",
-            name="uq_accounts_provider_provider_account_id",
-        ),
-    )
-
 
 class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin):
     __tablename__ = "sessions"
 
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="cascade", onupdate="cascade"),
+        index=True,
         nullable=False,
     )
-    expires_at: Mapped[datetime.datetime] = mapped_column(DateTimeUTC)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTimeUTC, index=True)
     ip_address: Mapped[str | None] = mapped_column(default=None)
     user_agent: Mapped[str | None] = mapped_column(default=None)
 
