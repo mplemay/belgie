@@ -57,7 +57,7 @@ Optional extras: `belgie[mcp]`, `belgie[oauth]`, `belgie[oauth-client]`, or `bel
 ```python
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -78,6 +78,11 @@ class User(Base):
 
 class Account(Base):
     __tablename__ = "accounts"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_account_id", name="uq_accounts_provider_provider_account_id"),
+        Index("ix_accounts_user_id_provider", "user_id", "provider"),
+    )
+
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     provider: Mapped[str] = mapped_column(Text)
@@ -92,7 +97,7 @@ class Account(Base):
 class Session(Base):
     __tablename__ = "sessions"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     expires_at: Mapped[datetime] = mapped_column(index=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
@@ -101,7 +106,7 @@ class OAuthState(Base):
     __tablename__ = "oauth_states"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     state: Mapped[str] = mapped_column(Text, unique=True, index=True)
-    expires_at: Mapped[datetime] = mapped_column(index=True)
+    expires_at: Mapped[datetime] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 ```
 
