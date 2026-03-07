@@ -24,7 +24,7 @@ class FakeUser:
     image: str | None
     created_at: datetime
     updated_at: datetime
-    scopes: list[str] | None
+    scopes: list[str]
 
 
 class FakeAdapter:

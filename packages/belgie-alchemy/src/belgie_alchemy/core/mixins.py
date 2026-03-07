@@ -31,9 +31,9 @@ class UserMixin(PrimaryKeyMixin, TimestampMixin):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
-    def scopes(self) -> Mapped[list[str] | None]:
+    def scopes(self) -> Mapped[list[str]]:
         scopes_type = JSON().with_variant(ARRAY(Text()), "postgresql")
-        return mapped_column(scopes_type, default=None, kw_only=True)
+        return mapped_column(scopes_type, default_factory=list, nullable=False, kw_only=True)
 
     @declared_attr
     def accounts(self) -> Mapped[list[object]]:

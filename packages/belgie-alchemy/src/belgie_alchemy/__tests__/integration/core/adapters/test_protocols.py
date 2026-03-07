@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -24,7 +24,7 @@ class ExampleUser:
     image: str | None
     created_at: datetime
     updated_at: datetime
-    scopes: list[str] | None = None
+    scopes: list[str] = field(default_factory=list)
     custom_field: str | None = None
 
 

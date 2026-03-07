@@ -17,8 +17,9 @@ def test_user_model_structure() -> None:
 
 
 def test_user_has_scopes_field() -> None:
-    """Verify User has scopes field that accepts list of strings."""
+    """Verify User has scopes field that defaults to an empty list and accepts list assignment."""
     user = User(email="test@example.com")
+    assert user.scopes == []
     user.scopes = ["read", "write"]
     assert user.scopes == ["read", "write"]
 

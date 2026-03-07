@@ -69,6 +69,7 @@ def test_user_mixin_defaults() -> None:
     assert isinstance(postgres_scopes_type, PG_ARRAY)
     assert isinstance(postgres_scopes_type.item_type, Text)
     assert isinstance(sqlite_scopes_type, type(Json.dialect_impl(sqlite)))
+    assert not scopes_column.nullable
 
     email_verified_at_column = User.__table__.c.email_verified_at
     assert isinstance(email_verified_at_column.type, DateTimeUTC)
@@ -153,6 +154,12 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
         Account.__table__.c.provider,
         Account.__table__.c.provider_account_id,
     )
+    account_index = next(index for index in Account.__table__.indexes if index.name == "ix_account_user_id_provider")
+    assert isinstance(account_index, Index)
+    assert tuple(account_index.columns) == (
+        Account.__table__.c.user_id,
+        Account.__table__.c.provider,
+    )
 
     account_index = next(index for index in Account.__table__.indexes if index.name == "ix_account_user_id_provider")
     assert isinstance(account_index, Index)
@@ -168,11 +175,9 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
     assert session_fk.onupdate == "cascade"
     assert Session.__table__.c.user_id.index
     assert Session.__table__.c.expires_at.index
-
     session_user_id_index = next(index for index in Session.__table__.indexes if index.name == "ix_session_user_id")
     assert isinstance(session_user_id_index, Index)
     assert tuple(session_user_id_index.columns) == (Session.__table__.c.user_id,)
-
     session_expires_at_index = next(
         index for index in Session.__table__.indexes if index.name == "ix_session_expires_at"
     )
@@ -185,7 +190,6 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
     assert oauth_state_fk.ondelete == "set null"
     assert oauth_state_fk.onupdate == "cascade"
     assert OAuthState.__table__.c.state.index
-
     oauth_state_index = next(index for index in OAuthState.__table__.indexes if index.name == "ix_oauth_state_state")
     assert isinstance(oauth_state_index, Index)
     assert tuple(oauth_state_index.columns) == (OAuthState.__table__.c.state,)
@@ -283,9 +287,10 @@ def test_user_mixin_scopes_support_enum_array_override() -> None:
     class EnumScopedUser(DataclassBase, UserMixin):
         __tablename__ = user_table
 
-        scopes: Mapped[list[Scope] | None] = mapped_column(
+        scopes: Mapped[list[Scope]] = mapped_column(
             PG_ARRAY(SAEnum(Scope, name=f"app_scope_{suffix}")),
-            default=None,
+            default_factory=list,
+            nullable=False,
             kw_only=True,
         )
         accounts: Mapped[list[object]] = relationship(
