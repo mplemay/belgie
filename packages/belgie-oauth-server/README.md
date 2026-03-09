@@ -20,6 +20,22 @@ To migrate existing clients:
 - Configure a resource with `resources=[OAuthResource(...)]`.
 - Or stop sending the `resource` parameter.
 
+## Dynamic Client Registration
+
+If `allow_dynamic_client_registration=True`, Belgie serves `POST /auth/oauth/register` for OAuth Dynamic Client
+Registration.
+
+If `allow_unauthenticated_client_registration=True`, anonymous registration is allowed for both:
+
+- public clients (`token_endpoint_auth_method="none"`)
+- confidential clients (`client_secret_post`, `client_secret_basic`, or omitted auth method)
+
+When the auth method is omitted, Belgie preserves provider-side defaulting and registers the client as
+`client_secret_post`.
+
+This setting is intentionally permissive. Any anonymous caller can register a confidential client and receive a client
+secret, so treat it as a development or compatibility escape hatch unless you have separate controls around DCR.
+
 ## ID Token Signing for Public Clients
 
 `id_token` signing and verification use the client secret-derived key for confidential clients. Public clients (with

@@ -333,13 +333,13 @@ class OAuthServerPlugin(PluginClient):
         return router
 
     @staticmethod
-    def _add_register_route(  # noqa: C901
+    def _add_register_route(
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
         settings: OAuthServer,
     ) -> APIRouter:
-        async def register_handler(  # noqa: PLR0911
+        async def register_handler(
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
@@ -371,22 +371,12 @@ class OAuthServerPlugin(PluginClient):
                 if exc.status_code != status.HTTP_401_UNAUTHORIZED:
                     raise
 
-            # Treat omitted auth method like public registration here so MCP clients can
-            # register anonymously; the provider still defaults it later.
-            is_public_client = metadata.token_endpoint_auth_method in {None, "none"}
-            if not authenticated:
-                if not settings.allow_unauthenticated_client_registration:
-                    return _oauth_error(
-                        "invalid_token",
-                        "authentication required for client registration",
-                        status_code=401,
-                    )
-                if not is_public_client:
-                    return _oauth_error(
-                        "invalid_request",
-                        "authentication required for confidential client registration",
-                        status_code=401,
-                    )
+            if not authenticated and not settings.allow_unauthenticated_client_registration:
+                return _oauth_error(
+                    "invalid_token",
+                    "authentication required for client registration",
+                    status_code=401,
+                )
 
             try:
                 client_info = await provider.register_client(metadata)

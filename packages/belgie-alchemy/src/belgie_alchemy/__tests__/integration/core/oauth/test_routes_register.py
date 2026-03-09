@@ -134,9 +134,11 @@ async def test_register_enabled_unauthenticated_allows_omitted_auth_method(
 
 
 @pytest.mark.asyncio
-async def test_register_enabled_unauthenticated_rejects_explicit_confidential_clients(
+@pytest.mark.parametrize("auth_method", ["client_secret_post", "client_secret_basic"])
+async def test_register_enabled_unauthenticated_allows_explicit_confidential_clients(
     belgie_instance,
     oauth_settings: OAuthServer,
+    auth_method: str,
 ) -> None:
     settings_payload = oauth_settings.model_dump(mode="python")
     settings_payload["allow_dynamic_client_registration"] = True
@@ -151,13 +153,42 @@ async def test_register_enabled_unauthenticated_rejects_explicit_confidential_cl
             "/auth/oauth/register",
             json={
                 "redirect_uris": ["http://testserver/callback"],
-                "token_endpoint_auth_method": "client_secret_post",
+                "token_endpoint_auth_method": auth_method,
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["client_secret"] is not None
+    assert payload["token_endpoint_auth_method"] == auth_method
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("auth_method", ["client_secret_post", "client_secret_basic"])
+async def test_register_enabled_without_unauthenticated_registration_rejects_confidential_clients(
+    belgie_instance,
+    oauth_settings: OAuthServer,
+    auth_method: str,
+) -> None:
+    settings_payload = oauth_settings.model_dump(mode="python")
+    settings_payload["allow_dynamic_client_registration"] = True
+    settings = OAuthServer(**settings_payload)
+    belgie_instance.add_plugin(settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/auth/oauth/register",
+            json={
+                "redirect_uris": ["http://testserver/callback"],
+                "token_endpoint_auth_method": auth_method,
             },
         )
 
     assert response.status_code == 401
     payload = response.json()
-    assert payload["error"] == "invalid_request"
+    assert payload["error"] == "invalid_token"
 
 
 @pytest.mark.asyncio

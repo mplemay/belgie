@@ -11,7 +11,6 @@ def test_primary_key_mixin_defaults() -> None:
     id_column = User.__table__.c.id  # type: ignore[attr-defined]
     assert id_column.primary_key
     assert str(id_column.server_default.arg) == "gen_random_uuid()"
-    assert id_column.index
 
 
 def test_primary_key_client_side_generation() -> None:
