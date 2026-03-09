@@ -6,6 +6,7 @@ from urllib.parse import urlparse, urlunparse
 
 from belgie_core.core.plugin import PluginClient
 from fastapi import APIRouter
+from starlette.routing import Route
 
 from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
 
@@ -13,9 +14,17 @@ if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
     from belgie_oauth_server.settings import OAuthServer
+    from fastapi import FastAPI
     from mcp.server.auth.provider import TokenVerifier
     from mcp.server.auth.settings import AuthSettings
+    from mcp.server.mcpserver import MCPServer
+    from mcp.server.streamable_http import EventStore
+    from mcp.server.transport_security import TransportSecuritySettings
     from pydantic import AnyHttpUrl
+    from starlette.applications import Starlette
+    from starlette.types import ASGIApp, Receive, Scope, Send
+
+_STREAMABLE_HTTP_METHODS = ["DELETE", "GET", "POST"]
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
@@ -51,15 +60,62 @@ class McpPlugin(PluginClient):
             introspection_endpoint=settings.introspection_endpoint,
             oauth_strict=settings.oauth_strict,
         )
+        self.server_path = _extract_server_path(resolved_server_url)
 
     auth: AuthSettings
     token_verifier: TokenVerifier
+    server_path: str
 
     def router(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         return APIRouter()
 
     def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
         return None
+
+    def mount_streamable_http(  # noqa: PLR0913
+        self,
+        app: FastAPI | Starlette,
+        server: MCPServer,
+        *,
+        host: str = "127.0.0.1",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+    ) -> Starlette:
+        mcp_app = server.streamable_http_app(
+            streamable_http_path="/",
+            json_response=json_response,
+            stateless_http=stateless_http,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            transport_security=transport_security,
+            host=host,
+        )
+        if self.server_path != "/":
+            app.router.routes.append(
+                Route(
+                    self.server_path,
+                    endpoint=_McpPathAlias(app=mcp_app, mount_path=self.server_path),
+                    methods=_STREAMABLE_HTTP_METHODS,
+                    include_in_schema=False,
+                ),
+            )
+        app.mount(self.server_path, mcp_app)
+        return mcp_app
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class _McpPathAlias:
+    app: ASGIApp
+    mount_path: str
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Rewrite /mcp to the mounted child shape so the request still runs through MCP auth middleware.
+        scope["path"] = "/"
+        scope["root_path"] = _join_root_path(str(scope.get("root_path", "")), self.mount_path)
+        await self.app(scope, receive, send)
 
 
 def _require_base_url(base_url: str | AnyHttpUrl | None) -> str:
@@ -75,3 +131,18 @@ def _build_server_url(base_url: str, server_path: str) -> str:
     path_suffix = server_path.strip("/")
     full_path = (f"{base_path}/{path_suffix}" if base_path else f"/{path_suffix}") if path_suffix else base_path
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
+
+
+def _extract_server_path(server_url: str) -> str:
+    path = urlparse(server_url).path.rstrip("/")
+    return path or "/"
+
+
+def _join_root_path(root_path: str, mount_path: str) -> str:
+    normalized_root_path = root_path.rstrip("/")
+    normalized_mount_path = mount_path.rstrip("/")
+    if not normalized_mount_path:
+        return normalized_root_path or "/"
+    if not normalized_root_path:
+        return normalized_mount_path
+    return f"{normalized_root_path}{normalized_mount_path}"
