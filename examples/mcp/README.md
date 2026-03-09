@@ -27,13 +27,13 @@ The app runs at `http://localhost:8000`.
 - `GET|POST /auth/oauth/authorize`
 - `POST /auth/oauth/token`
 - `POST /auth/oauth/introspect`
-- `POST /mcp` (MCP streamable HTTP endpoint)
+- `POST /mcp` or `POST /mcp/` (MCP streamable HTTP endpoint)
 - `GET /.well-known/oauth-protected-resource/mcp`
 - `GET /.well-known/oauth-protected-resource`
 
 ## Notes
 
-- The MCP server is mounted at `/mcp` and configured via `Mcp`.
+- The MCP server is mounted at `/mcp` and accepts both `/mcp` and `/mcp/`.
 - OAuth discovery serving (`/.well-known/oauth-authorization-server*` and
   `/.well-known/oauth-protected-resource*`) is owned by `OAuthServerPlugin`.
 - Configure `OAuthServer.resources=[OAuthResource(prefix="/mcp", ...)]` so protected
