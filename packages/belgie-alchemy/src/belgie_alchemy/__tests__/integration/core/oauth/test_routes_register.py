@@ -107,7 +107,7 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
 
 
 @pytest.mark.asyncio
-async def test_register_enabled_unauthenticated_rejects_confidential_clients(
+async def test_register_enabled_unauthenticated_allows_omitted_auth_method(
     belgie_instance,
     oauth_settings: OAuthServer,
 ) -> None:
@@ -124,6 +124,34 @@ async def test_register_enabled_unauthenticated_rejects_confidential_clients(
             "/auth/oauth/register",
             json={
                 "redirect_uris": ["http://testserver/callback"],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["client_secret"] is not None
+    assert payload["token_endpoint_auth_method"] == "client_secret_post"  # noqa: S105
+
+
+@pytest.mark.asyncio
+async def test_register_enabled_unauthenticated_rejects_explicit_confidential_clients(
+    belgie_instance,
+    oauth_settings: OAuthServer,
+) -> None:
+    settings_payload = oauth_settings.model_dump(mode="python")
+    settings_payload["allow_dynamic_client_registration"] = True
+    settings_payload["allow_unauthenticated_client_registration"] = True
+    settings = OAuthServer(**settings_payload)
+    belgie_instance.add_plugin(settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/auth/oauth/register",
+            json={
+                "redirect_uris": ["http://testserver/callback"],
+                "token_endpoint_auth_method": "client_secret_post",
             },
         )
 

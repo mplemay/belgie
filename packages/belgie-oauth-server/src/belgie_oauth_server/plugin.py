@@ -371,7 +371,9 @@ class OAuthServerPlugin(PluginClient):
                 if exc.status_code != status.HTTP_401_UNAUTHORIZED:
                     raise
 
-            is_public_client = (metadata.token_endpoint_auth_method or "client_secret_post") == "none"
+            # Treat omitted auth method like public registration here so MCP clients can
+            # register anonymously; the provider still defaults it later.
+            is_public_client = metadata.token_endpoint_auth_method in {None, "none"}
             if not authenticated:
                 if not settings.allow_unauthenticated_client_registration:
                     return _oauth_error(
