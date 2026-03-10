@@ -1,13 +1,21 @@
+from dataclasses import replace
+from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
+
 import pytest
 import respx
 from httpx import Response
+from pydantic import AnyUrl
 
 pytest.importorskip("mcp")
 pytest.importorskip("belgie_oauth_server")
 
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
+from belgie_oauth_server.models import OAuthClientMetadata
+from belgie_oauth_server.provider import AccessToken as OAuthAccessToken, AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import join_url
+from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver import MCPServer
 
 
@@ -68,6 +76,81 @@ async def test_verify_token_active_returns_access_token() -> None:
     assert token.scopes == ["user", "read"]
     assert token.expires_at == 123
     assert token.resource == "https://mcp.local"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_token_local_provider_accepts_dynamic_client_access_tokens() -> None:
+    endpoint = "https://issuer.local/introspect"
+    route = respx.post(endpoint).mock(return_value=Response(500))
+    settings = _oauth_settings()
+    provider = _build_provider(settings)
+    token_value, stored_token = await _issue_dynamic_client_access_token(
+        provider,
+        user_id=str(uuid4()),
+        resource="https://mcp.local/mcp",
+    )
+
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint=endpoint,
+        server_url="https://mcp.local/mcp",
+        provider_resolver=lambda: provider,
+    )
+
+    token = await verifier.verify_token(token_value)
+
+    assert stored_token.client_id != settings.client_id
+    assert token == AccessToken(
+        token=token_value,
+        client_id=stored_token.client_id,
+        scopes=["user"],
+        expires_at=stored_token.expires_at,
+        resource="https://mcp.local/mcp",
+    )
+    assert route.called is False
+
+
+@pytest.mark.asyncio
+async def test_verify_token_local_provider_returns_none_for_missing_tokens() -> None:
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint="https://issuer.local/introspect",
+        server_url="https://mcp.local/mcp",
+        provider_resolver=lambda: _build_provider(_oauth_settings()),
+    )
+
+    assert await verifier.verify_token("missing-token") is None
+
+
+@pytest.mark.asyncio
+async def test_verify_token_local_provider_returns_none_for_expired_tokens() -> None:
+    provider = _build_provider(_oauth_settings())
+    token_value, stored_token = await _issue_dynamic_client_access_token(provider)
+    provider.tokens[token_value] = replace(stored_token, expires_at=0)
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint="https://issuer.local/introspect",
+        server_url="https://mcp.local/mcp",
+        provider_resolver=lambda: provider,
+    )
+
+    assert await verifier.verify_token(token_value) is None
+    assert token_value not in provider.tokens
+
+
+@pytest.mark.asyncio
+async def test_verify_token_local_provider_strict_resource_rejects_mismatch() -> None:
+    provider = _build_provider(_oauth_settings())
+    token_value, _stored_token = await _issue_dynamic_client_access_token(
+        provider,
+        resource="https://other.local/mcp",
+    )
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint="https://issuer.local/introspect",
+        server_url="https://mcp.local/mcp",
+        provider_resolver=lambda: provider,
+        validate_resource=True,
+    )
+
+    assert await verifier.verify_token(token_value) is None
 
 
 @respx.mock
@@ -172,3 +255,55 @@ def test_mcp_server_init_with_bundle() -> None:
     )
 
     assert isinstance(server, MCPServer)
+
+
+def _oauth_settings() -> OAuthServer:
+    return OAuthServer(
+        base_url="https://issuer.local",
+        redirect_uris=["http://localhost:6274/oauth/callback"],
+        client_id="test-client",
+        client_secret="test-secret",
+        default_scope="user",
+    )
+
+
+def _build_provider(settings: OAuthServer) -> SimpleOAuthProvider:
+    return SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+
+async def _issue_dynamic_client_access_token(
+    provider: SimpleOAuthProvider,
+    *,
+    user_id: str | None = None,
+    resource: str | None = None,
+) -> tuple[str, OAuthAccessToken]:
+    client = await provider.register_client(
+        OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:6274/oauth/callback")],
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            scope="user",
+            token_endpoint_auth_method="none",
+        ),
+    )
+    state = await provider.authorize(
+        client,
+        AuthorizationParams(
+            state=None,
+            scopes=["user"],
+            code_challenge="test-challenge",
+            redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
+            redirect_uri_provided_explicitly=True,
+            resource=resource,
+            user_id=user_id,
+            session_id=str(uuid4()),
+        ),
+    )
+    redirect = await provider.issue_authorization_code(state)
+    code = parse_qs(urlparse(redirect).query)["code"][0]
+    authorization_code = await provider.load_authorization_code(code)
+    assert authorization_code is not None
+    token_response = await provider.exchange_authorization_code(authorization_code)
+    stored_token = await provider.load_access_token(token_response.access_token)
+    assert stored_token is not None
+    return token_response.access_token, stored_token

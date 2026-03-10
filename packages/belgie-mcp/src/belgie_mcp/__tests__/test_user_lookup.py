@@ -3,15 +3,22 @@ from __future__ import annotations
 import base64
 import json
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import AnyUrl
 
 pytest.importorskip("mcp")
 
+from belgie_core.core.settings import BelgieSettings
 from belgie_mcp.user import get_user_from_access_token
+from belgie_oauth_server.models import OAuthClientMetadata
+from belgie_oauth_server.plugin import OAuthServerPlugin
+from belgie_oauth_server.provider import AccessToken as OAuthAccessToken, AuthorizationParams, SimpleOAuthProvider
+from belgie_oauth_server.settings import OAuthServer
 from mcp.server.auth.middleware.auth_context import auth_context_var
 
 
@@ -48,9 +55,12 @@ class FakeBelgie:
         self,
         adapter: FakeAdapter,
         database: object,
+        *,
+        plugins: list[OAuthServerPlugin] | None = None,
     ) -> None:
         self.adapter = adapter
         self.database = database
+        self.plugins = [] if plugins is None else plugins
 
     def __call__(self, db: object) -> FakeClient:
         return FakeClient(adapter=self.adapter, db=db)
@@ -87,14 +97,14 @@ def _b64url(payload: dict[str, object]) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
-def _build_belgie(user: FakeUser | None) -> FakeBelgie:
+def _build_belgie(user: FakeUser | None, *, plugins: list[OAuthServerPlugin] | None = None) -> FakeBelgie:
     adapter = FakeAdapter(user)
     db = object()
 
     async def get_db():
         yield db
 
-    return FakeBelgie(adapter, get_db)
+    return FakeBelgie(adapter, get_db, plugins=plugins)
 
 
 @pytest.mark.asyncio
@@ -102,6 +112,66 @@ async def test_get_user_no_token_returns_none() -> None:
     belgie = _build_belgie(user=None)
 
     result = await get_user_from_access_token(belgie)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_user_provider_backed_token_returns_user() -> None:
+    user = FakeUser(
+        id=uuid4(),
+        email="user@example.com",
+        email_verified_at=datetime.now(UTC),
+        name="Test User",
+        image=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        scopes=["user"],
+    )
+    oauth_plugin, provider = _build_oauth_plugin()
+    token, _stored_token = await _issue_dynamic_client_access_token(provider, user_id=str(user.id))
+    belgie = _build_belgie(user=user, plugins=[oauth_plugin])
+
+    with _set_access_token(token):
+        result = await get_user_from_access_token(belgie)
+
+    assert result is user
+
+
+@pytest.mark.asyncio
+async def test_get_user_provider_backed_token_returns_none_without_user_id() -> None:
+    oauth_plugin, provider = _build_oauth_plugin()
+    token, stored_token = await _issue_dynamic_client_access_token(provider, user_id=str(uuid4()))
+    provider.tokens[token] = replace(stored_token, user_id=None)
+    belgie = _build_belgie(user=None, plugins=[oauth_plugin])
+
+    with _set_access_token(token):
+        result = await get_user_from_access_token(belgie)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_user_provider_backed_token_returns_none_for_invalid_user_id() -> None:
+    oauth_plugin, provider = _build_oauth_plugin()
+    token, stored_token = await _issue_dynamic_client_access_token(provider, user_id=str(uuid4()))
+    provider.tokens[token] = replace(stored_token, user_id="not-a-uuid")
+    belgie = _build_belgie(user=None, plugins=[oauth_plugin])
+
+    with _set_access_token(token):
+        result = await get_user_from_access_token(belgie)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_user_provider_backed_token_returns_none_when_user_is_missing() -> None:
+    oauth_plugin, provider = _build_oauth_plugin()
+    token, _stored_token = await _issue_dynamic_client_access_token(provider, user_id=str(uuid4()))
+    belgie = _build_belgie(user=None, plugins=[oauth_plugin])
+
+    with _set_access_token(token):
+        result = await get_user_from_access_token(belgie)
 
     assert result is None
 
@@ -117,29 +187,7 @@ async def test_get_user_malformed_jwt_returns_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_user_missing_sub_returns_none() -> None:
-    belgie = _build_belgie(user=None)
-    token = _build_jwt({"iss": "issuer"})
-
-    with _set_access_token(token):
-        result = await get_user_from_access_token(belgie)
-
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_get_user_non_uuid_sub_returns_none() -> None:
-    belgie = _build_belgie(user=None)
-    token = _build_jwt({"sub": "not-a-uuid"})
-
-    with _set_access_token(token):
-        result = await get_user_from_access_token(belgie)
-
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_get_user_valid_sub_returns_user() -> None:
+async def test_get_user_valid_sub_returns_user_when_no_provider_matches() -> None:
     user = FakeUser(
         id=uuid4(),
         email="user@example.com",
@@ -157,3 +205,60 @@ async def test_get_user_valid_sub_returns_user() -> None:
         result = await get_user_from_access_token(belgie)
 
     assert result is user
+
+
+def _oauth_settings() -> OAuthServer:
+    return OAuthServer(
+        base_url="https://issuer.local",
+        redirect_uris=["http://localhost:6274/oauth/callback"],
+        client_id="test-client",
+        client_secret="test-secret",
+        default_scope="user",
+    )
+
+
+def _build_oauth_plugin() -> tuple[OAuthServerPlugin, SimpleOAuthProvider]:
+    settings = _oauth_settings()
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    plugin = OAuthServerPlugin(
+        BelgieSettings(secret="test-secret", base_url="http://localhost:8000"),
+        settings,
+    )
+    plugin._provider = provider
+    return plugin, provider
+
+
+async def _issue_dynamic_client_access_token(
+    provider: SimpleOAuthProvider,
+    *,
+    user_id: str | None = None,
+) -> tuple[str, OAuthAccessToken]:
+    client = await provider.register_client(
+        OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:6274/oauth/callback")],
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            scope="user",
+            token_endpoint_auth_method="none",
+        ),
+    )
+    state = await provider.authorize(
+        client,
+        AuthorizationParams(
+            state=None,
+            scopes=["user"],
+            code_challenge="test-challenge",
+            redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
+            redirect_uri_provided_explicitly=True,
+            user_id=user_id,
+            session_id=str(uuid4()),
+        ),
+    )
+    redirect = await provider.issue_authorization_code(state)
+    code = parse_qs(urlparse(redirect).query)["code"][0]
+    authorization_code = await provider.load_authorization_code(code)
+    assert authorization_code is not None
+    token_response = await provider.exchange_authorization_code(authorization_code)
+    stored_token = await provider.load_access_token(token_response.access_token)
+    assert stored_token is not None
+    return token_response.access_token, stored_token

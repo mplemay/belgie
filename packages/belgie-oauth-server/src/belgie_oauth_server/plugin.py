@@ -77,6 +77,14 @@ class OAuthServerPlugin(PluginClient):
         self._metadata_router: APIRouter | None = None
         self._resolve_client: Callable[..., Coroutine[object, object, OAuthServerClient]] | None = None
 
+    @property
+    def settings(self) -> OAuthServer:
+        return self._settings
+
+    @property
+    def provider(self) -> SimpleOAuthProvider | None:
+        return self._provider
+
     def _ensure_dependency_resolver(self, belgie: Belgie, provider: SimpleOAuthProvider, issuer_url: str) -> None:
         if self._resolve_client is not None:
             return

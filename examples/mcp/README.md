@@ -1,7 +1,8 @@
 # Belgie MCP + OAuth Example
 
 This example hosts the Belgie OAuth authorization server and an MCP resource server on a **single FastAPI app**.
-The MCP server validates bearer tokens by introspecting against the co-located OAuth server.
+The MCP server validates bearer tokens against the co-located OAuth provider state when available, and falls back to
+HTTP introspection for external OAuth deployments.
 
 ## Setup
 
@@ -34,8 +35,12 @@ The app runs at `http://localhost:8000`.
 ## Notes
 
 - The MCP server is mounted at `/mcp` and accepts both `/mcp` and `/mcp/`.
+- Streamable HTTP transport security is derived from the configured MCP resource URL, so production hosts no longer
+  need a custom `host="localhost"` override.
 - OAuth discovery serving (`/.well-known/oauth-authorization-server*` and
   `/.well-known/oauth-protected-resource*`) is owned by `OAuthServerPlugin`.
 - Configure `OAuthServer.resources=[OAuthResource(prefix="/mcp", ...)]` so protected
   resource metadata is published at the RFC9728 well-known endpoint.
+- `SimpleOAuthProvider` keeps clients and tokens in memory, so deploys and restarts invalidate previously issued
+  tokens.
 - The example uses SQLite and will create `./belgie_mcp_example.db` in the working directory.

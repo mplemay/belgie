@@ -207,7 +207,7 @@ mcp_server = MCPServer(
 
 app.include_router(belgie.router)
 
-_ = mcp_plugin.mount_streamable_http(app, mcp_server, host="localhost")
+_ = mcp_plugin.mount_streamable_http(app, mcp_server)
 
 
 @mcp_server.tool()

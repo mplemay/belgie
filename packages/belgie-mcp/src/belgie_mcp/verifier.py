@@ -1,6 +1,8 @@
 import logging
+from collections.abc import Callable
 from typing import Any
 
+from belgie_oauth_server.provider import SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import join_url
 from httpx import AsyncClient, HTTPError, Limits, Timeout
@@ -20,14 +22,37 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
         introspection_endpoint: str,
         server_url: str,
         *,
+        provider_resolver: Callable[[], SimpleOAuthProvider | None] | None = None,
         validate_resource: bool = False,
     ) -> None:
         self.introspection_endpoint = str(introspection_endpoint)
         self.server_url = str(server_url)
+        self.provider_resolver = provider_resolver
         self.validate_resource = validate_resource
         self.resource_url = resource_url_from_server_url(self.server_url)
 
     async def verify_token(self, token: str) -> AccessToken | None:
+        if self.provider_resolver is not None and (provider := self.provider_resolver()) is not None:
+            return await self._verify_token_locally(provider, token)
+        return await self._verify_token_via_introspection(token)
+
+    async def _verify_token_locally(self, provider: SimpleOAuthProvider, token: str) -> AccessToken | None:
+        if (stored_token := await provider.load_access_token(token)) is None:
+            return None
+
+        if self.validate_resource and not self._validate_resource_value(stored_token.resource):
+            logger.warning("Token resource validation failed. Expected: %s", self.resource_url)
+            return None
+
+        return AccessToken(
+            token=token,
+            client_id=stored_token.client_id,
+            scopes=stored_token.scopes,
+            expires_at=stored_token.expires_at,
+            resource=_normalize_resource(stored_token.resource),
+        )
+
+    async def _verify_token_via_introspection(self, token: str) -> AccessToken | None:
         if not _is_safe_introspection_endpoint(self.introspection_endpoint):
             logger.warning("Rejecting introspection endpoint with unsafe scheme: %s", self.introspection_endpoint)
             return None
@@ -67,18 +92,20 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
             client_id=data.get("client_id", "unknown"),
             scopes=scopes.split() if scopes else [],
             expires_at=data.get("exp"),
-            resource=data.get("aud"),
+            resource=_normalize_resource(data.get("aud")),
         )
 
     def _validate_resource(self, token_data: dict[str, Any]) -> bool:
         if not self.server_url or not self.resource_url:
             return False
 
-        aud: list[str] | str | None = token_data.get("aud")
-        if isinstance(aud, list):
-            return any(self._is_valid_resource(audience) for audience in aud)
-        if aud:
-            return self._is_valid_resource(aud)
+        return self._validate_resource_value(token_data.get("aud"))
+
+    def _validate_resource_value(self, resource: list[str] | str | None) -> bool:
+        if isinstance(resource, list):
+            return any(self._is_valid_resource(audience) for audience in resource)
+        if resource:
+            return self._is_valid_resource(resource)
         return False
 
     def _is_valid_resource(self, resource: str) -> bool:
@@ -108,12 +135,14 @@ def mcp_token_verifier(
     server_url: str | AnyHttpUrl,
     introspection_endpoint: str | None = None,
     oauth_strict: bool = False,
+    provider_resolver: Callable[[], SimpleOAuthProvider | None] | None = None,
 ) -> TokenVerifier:
     issuer_url = _require_issuer_url(settings)
     endpoint = join_url(issuer_url, "introspect") if introspection_endpoint is None else introspection_endpoint
     return BelgieOAuthTokenVerifier(
         introspection_endpoint=endpoint,
         server_url=str(server_url),
+        provider_resolver=provider_resolver,
         validate_resource=oauth_strict,
     )
 
@@ -131,3 +160,9 @@ def _require_issuer_url(settings: OAuthServer) -> str:
         msg = "OAuthServer.issuer_url is required to build MCP AuthSettings"
         raise ValueError(msg)
     return str(settings.issuer_url)
+
+
+def _normalize_resource(resource: list[str] | str | None) -> str | None:
+    if isinstance(resource, list):
+        return None if not resource else resource[0]
+    return resource
