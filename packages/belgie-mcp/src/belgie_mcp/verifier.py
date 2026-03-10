@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from belgie_oauth_server.provider import SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer
@@ -14,6 +15,12 @@ from pydantic import AnyHttpUrl
 logger = logging.getLogger(__name__)
 
 _HTTP_OK = 200
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _LocalTokenVerification:
+    status: Literal["not_found", "rejected", "verified"]
+    token: AccessToken | None = None
 
 
 class BelgieOAuthTokenVerifier(TokenVerifier):
@@ -33,23 +40,34 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
 
     async def verify_token(self, token: str) -> AccessToken | None:
         if self.provider_resolver is not None and (provider := self.provider_resolver()) is not None:
-            return await self._verify_token_locally(provider, token)
+            local_result = await self._verify_token_locally(provider, token)
+            if local_result.status == "verified":
+                return local_result.token
+            if local_result.status == "rejected":
+                return None
         return await self._verify_token_via_introspection(token)
 
-    async def _verify_token_locally(self, provider: SimpleOAuthProvider, token: str) -> AccessToken | None:
+    async def _verify_token_locally(
+        self,
+        provider: SimpleOAuthProvider,
+        token: str,
+    ) -> _LocalTokenVerification:
         if (stored_token := await provider.load_access_token(token)) is None:
-            return None
+            return _LocalTokenVerification(status="not_found")
 
         if self.validate_resource and not self._validate_resource_value(stored_token.resource):
             logger.warning("Token resource validation failed. Expected: %s", self.resource_url)
-            return None
+            return _LocalTokenVerification(status="rejected")
 
-        return AccessToken(
-            token=token,
-            client_id=stored_token.client_id,
-            scopes=stored_token.scopes,
-            expires_at=stored_token.expires_at,
-            resource=_normalize_resource(stored_token.resource),
+        return _LocalTokenVerification(
+            status="verified",
+            token=AccessToken(
+                token=token,
+                client_id=stored_token.client_id,
+                scopes=stored_token.scopes,
+                expires_at=stored_token.expires_at,
+                resource=_normalize_resource(stored_token.resource),
+            ),
         )
 
     async def _verify_token_via_introspection(self, token: str) -> AccessToken | None:

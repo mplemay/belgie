@@ -110,47 +110,78 @@ async def test_verify_token_local_provider_accepts_dynamic_client_access_tokens(
     assert route.called is False
 
 
+@respx.mock
 @pytest.mark.asyncio
-async def test_verify_token_local_provider_returns_none_for_missing_tokens() -> None:
+async def test_verify_token_local_provider_falls_back_to_introspection_for_missing_tokens() -> None:
+    endpoint = "https://issuer.local/introspect"
+    route = respx.post(endpoint).mock(
+        return_value=Response(
+            200,
+            json={
+                "active": True,
+                "client_id": "client",
+                "scope": "user",
+                "exp": 123,
+                "aud": "https://mcp.local",
+            },
+        ),
+    )
     verifier = BelgieOAuthTokenVerifier(
-        introspection_endpoint="https://issuer.local/introspect",
+        introspection_endpoint=endpoint,
         server_url="https://mcp.local/mcp",
         provider_resolver=lambda: _build_provider(_oauth_settings()),
     )
 
-    assert await verifier.verify_token("missing-token") is None
+    token = await verifier.verify_token("missing-token")
+
+    assert token == AccessToken(
+        token="missing-token",
+        client_id="client",
+        scopes=["user"],
+        expires_at=123,
+        resource="https://mcp.local",
+    )
+    assert route.called is True
 
 
+@respx.mock
 @pytest.mark.asyncio
 async def test_verify_token_local_provider_returns_none_for_expired_tokens() -> None:
+    endpoint = "https://issuer.local/introspect"
+    route = respx.post(endpoint).mock(return_value=Response(200, json={"active": False}))
     provider = _build_provider(_oauth_settings())
     token_value, stored_token = await _issue_dynamic_client_access_token(provider)
     provider.tokens[token_value] = replace(stored_token, expires_at=0)
     verifier = BelgieOAuthTokenVerifier(
-        introspection_endpoint="https://issuer.local/introspect",
+        introspection_endpoint=endpoint,
         server_url="https://mcp.local/mcp",
         provider_resolver=lambda: provider,
     )
 
     assert await verifier.verify_token(token_value) is None
     assert token_value not in provider.tokens
+    assert route.called is True
 
 
+@respx.mock
 @pytest.mark.asyncio
 async def test_verify_token_local_provider_strict_resource_rejects_mismatch() -> None:
+    endpoint = "https://issuer.local/introspect"
+    route = respx.post(endpoint).mock(return_value=Response(500))
     provider = _build_provider(_oauth_settings())
     token_value, _stored_token = await _issue_dynamic_client_access_token(
         provider,
         resource="https://other.local/mcp",
     )
     verifier = BelgieOAuthTokenVerifier(
-        introspection_endpoint="https://issuer.local/introspect",
+        introspection_endpoint=endpoint,
         server_url="https://mcp.local/mcp",
         provider_resolver=lambda: provider,
         validate_resource=True,
     )
 
     assert await verifier.verify_token(token_value) is None
+    assert route.called is False
 
 
 @respx.mock
