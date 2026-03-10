@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Final, TypeGuard
 from uuid import UUID
 
+from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_proto.core.connection import DBConnection
 from mcp.server.auth.middleware.auth_context import get_access_token
 
@@ -24,27 +25,27 @@ class UserLookup:
     MIN_PARTS: ClassVar[Final[int]] = 2
 
     async def get_user_from_access_token(self, belgie: Belgie) -> UserProtocol | None:
-        access_token = get_access_token()
-        if access_token is None:
+        if (access_token := get_access_token()) is None:
             return None
 
-        token_value = self._extract_token_value(access_token)
-        if token_value is None:
+        if (token_value := self._extract_token_value(access_token)) is None:
             return None
 
-        payload = self._decode_jwt_payload(token_value)
-        if payload is None:
-            return None
+        user_id = None
+        provider_matched, provider_user_id = await self._resolve_provider_user_id(belgie, token_value)
+        if provider_matched:
+            user_id = provider_user_id
+        elif (payload := self._decode_jwt_payload(token_value)) is not None and isinstance(
+            claim_value := payload.get(self.claim),
+            str,
+        ):
+            try:
+                user_id = UUID(claim_value)
+            except ValueError:
+                user_id = None
 
-        claim_value = payload.get(self.claim)
-        if not isinstance(claim_value, str):
+        if user_id is None:
             return None
-
-        try:
-            user_id = UUID(claim_value)
-        except ValueError:
-            return None
-
         return await self._load_user_from_belgie(belgie, user_id)
 
     @staticmethod
@@ -53,6 +54,23 @@ class UserLookup:
         if isinstance(token_value, str) and token_value:
             return token_value
         return None
+
+    @staticmethod
+    async def _resolve_provider_user_id(belgie: Belgie, token: str) -> tuple[bool, UUID | None]:
+        for plugin in belgie.plugins:
+            if not isinstance(plugin, OAuthServerPlugin):
+                continue
+            if plugin.provider is None:
+                continue
+            if (stored_token := await plugin.provider.load_access_token(token)) is None:
+                continue
+            if stored_token.user_id is None:
+                return True, None
+            try:
+                return True, UUID(stored_token.user_id)
+            except ValueError:
+                return True, None
+        return False, None
 
     @classmethod
     def _decode_jwt_payload(cls, token: str) -> dict[str, Any] | None:
