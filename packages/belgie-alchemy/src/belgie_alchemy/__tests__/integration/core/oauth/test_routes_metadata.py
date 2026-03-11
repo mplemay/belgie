@@ -1,5 +1,5 @@
 from belgie_core.core.belgie import Belgie
-from belgie_oauth_server import OAuthServer
+from belgie_oauth_server import OAuthResource, OAuthServer
 from belgie_oauth_server.metadata import _ROOT_OAUTH_METADATA_PATH, _ROOT_OPENID_METADATA_PATH
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -64,6 +64,34 @@ def test_protected_resource_metadata_endpoint(client: TestClient) -> None:
 
     payload = response.json()
     assert payload["resource"] == RESOURCE_BASE_URL
+    assert payload["authorization_servers"] == [AUTH_BASE_URL]
+    assert payload["scopes_supported"] == ["user"]
+
+
+def test_protected_resource_metadata_endpoint_without_trailing_slash_alias(
+    belgie_instance: Belgie,
+) -> None:
+    settings = OAuthServer(
+        base_url="http://testserver",
+        prefix="/oauth",
+        login_url="/login/google",
+        client_id="test-client",
+        client_secret=SecretStr("test-secret"),
+        redirect_uris=["http://testserver/callback"],
+        default_scope="user",
+        resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],
+    )
+    belgie_instance.add_plugin(settings)
+
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+
+    with TestClient(app) as client:
+        response = client.get("/.well-known/oauth-protected-resource/mcp", follow_redirects=False)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["resource"] == "http://testserver/mcp/"
     assert payload["authorization_servers"] == [AUTH_BASE_URL]
     assert payload["scopes_supported"] == ["user"]
 

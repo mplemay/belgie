@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
+from belgie_oauth_server import OAuthResource, OAuthServer
 from belgie_oauth_server.models import OAuthClientInformationFull
 from belgie_oauth_server.provider import AuthorizationParams
 from belgie_oauth_server.utils import create_code_challenge
+from fastapi import FastAPI
+from pydantic import SecretStr
 
 BEARER = "Bearer"
 
@@ -277,6 +281,66 @@ async def test_token_authorization_code_rejects_mismatched_bound_resource(
 
     assert response.status_code == 400
     assert response.json()["error"] == "invalid_target"
+
+
+@pytest.mark.asyncio
+async def test_token_authorization_code_accepts_resource_without_trailing_slash_for_trailing_slash_configuration(
+    belgie_instance,
+    db_session,
+    oauth_settings,
+    create_user_session,
+) -> None:
+    settings = OAuthServer(
+        base_url=oauth_settings.base_url,
+        prefix=oauth_settings.prefix,
+        login_url=oauth_settings.login_url,
+        signup_url=oauth_settings.signup_url,
+        client_id=oauth_settings.client_id,
+        client_secret=SecretStr("test-secret"),
+        redirect_uris=oauth_settings.redirect_uris,
+        default_scope=oauth_settings.default_scope,
+        resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],
+    )
+    oauth_plugin = belgie_instance.add_plugin(settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        session_id = await create_user_session(belgie_instance, db_session, "token-trailing-resource@test.com")
+        client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+
+        code_verifier = "trailing-resource-verifier"
+        authorize_response = await client.get(
+            "/auth/oauth/authorize",
+            params={
+                "response_type": "code",
+                "client_id": settings.client_id,
+                "redirect_uri": str(settings.redirect_uris[0]),
+                "code_challenge": create_code_challenge(code_verifier),
+                "state": "state-trailing-resource",
+                "resource": "http://testserver/mcp",
+            },
+            follow_redirects=False,
+        )
+        assert authorize_response.status_code == 302
+        code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
+
+        token_response = await client.post(
+            "/auth/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": settings.client_id,
+                "client_secret": settings.client_secret.get_secret_value(),
+                "code": code,
+                "redirect_uri": str(settings.redirect_uris[0]),
+                "code_verifier": code_verifier,
+                "resource": "http://testserver/mcp",
+            },
+        )
+
+    assert token_response.status_code == 200
+    access_token = token_response.json()["access_token"]
+    assert oauth_plugin._provider.tokens[access_token].resource == "http://testserver/mcp/"
 
 
 @pytest.mark.asyncio

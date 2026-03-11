@@ -30,6 +30,7 @@ from belgie_oauth_server.metadata import (
     build_openid_metadata,
     build_openid_metadata_well_known_path,
     build_protected_resource_metadata,
+    build_protected_resource_metadata_well_known_alias_path,
     build_protected_resource_metadata_well_known_path,
 )
 from belgie_oauth_server.models import (
@@ -190,6 +191,12 @@ class OAuthServerPlugin(PluginClient):
                 protected_resource_metadata_handler,
                 methods=["GET"],
             )
+            if (alias_path := build_protected_resource_metadata_well_known_alias_path(resource_url)) is not None:
+                router.add_api_route(
+                    alias_path,
+                    protected_resource_metadata_handler,
+                    methods=["GET"],
+                )
 
             if (
                 self._settings.include_root_resource_metadata_fallback
@@ -739,8 +746,7 @@ async def _parse_authorize_params(
     if code_challenge_method != "S256":
         raise HTTPException(status_code=400, detail="unsupported code_challenge_method")
 
-    resource = _get_str(data, "resource")
-    _validate_authorize_resource(settings, belgie_base_url, resource)
+    resource = _validate_authorize_resource(settings, belgie_base_url, _get_str(data, "resource"))
 
     state = _get_str(data, "state") or secrets.token_hex(16)
     prompt = _normalize_prompt(_get_str(data, "prompt"))
@@ -759,21 +765,44 @@ async def _parse_authorize_params(
     return oauth_client, params
 
 
+def _normalize_resource_path(path: str) -> str:
+    if path in {"", "/"}:
+        return "/"
+    if path.endswith("/"):
+        return path.removesuffix("/")
+    return path
+
+
+def _resource_urls_match(left_resource: str, right_resource: str) -> bool:
+    left = urlparse(left_resource)
+    right = urlparse(right_resource)
+    return (
+        left.scheme == right.scheme
+        and left.netloc == right.netloc
+        and _normalize_resource_path(left.path) == _normalize_resource_path(right.path)
+        and left.params == right.params
+        and left.query == right.query
+        and left.fragment == right.fragment
+    )
+
+
 def _validate_authorize_resource(
     settings: OAuthServer,
     belgie_base_url: str,
     resource: str | None,
-) -> None:
+) -> str | None:
     if resource is None:
-        return
+        return None
 
     configured_resource = settings.resolve_resource(belgie_base_url)
     if configured_resource is None:
         raise HTTPException(status_code=400, detail="invalid_target")
 
     resource_url, _resource_scopes = configured_resource
-    if resource != str(resource_url):
+    configured_resource_url = str(resource_url)
+    if not _resource_urls_match(configured_resource_url, resource):
         raise HTTPException(status_code=400, detail="invalid_target")
+    return configured_resource_url
 
 
 async def _authorize_state(
@@ -1266,21 +1295,33 @@ def _resolve_token_resource(
     require_bound_match: bool = False,
 ) -> tuple[str | None, JSONResponse | None]:
     configured_resource = settings.resolve_resource(belgie_base_url)
+    configured_resource_url = str(configured_resource[0]) if configured_resource is not None else None
+    canonical_bound_resource = bound_resource
+    if (
+        configured_resource_url is not None
+        and bound_resource is not None
+        and _resource_urls_match(configured_resource_url, bound_resource)
+    ):
+        canonical_bound_resource = configured_resource_url
 
     if requested_resource is not None:
-        if configured_resource is None:
+        if configured_resource_url is None:
             return None, _oauth_error("invalid_target", status_code=400)
-        resource_url, _resource_scopes = configured_resource
-        if requested_resource != str(resource_url):
+        if not _resource_urls_match(configured_resource_url, requested_resource):
             return None, _oauth_error("invalid_target", status_code=400)
+        requested_resource = configured_resource_url
 
     if require_bound_match and requested_resource is not None and bound_resource is None:
         return None, _oauth_error("invalid_target", status_code=400)
-    if bound_resource is not None and requested_resource is not None and requested_resource != bound_resource:
+    if (
+        canonical_bound_resource is not None
+        and requested_resource is not None
+        and not _resource_urls_match(requested_resource, canonical_bound_resource)
+    ):
         return None, _oauth_error("invalid_target", status_code=400)
 
-    if bound_resource is not None:
-        return bound_resource, None
+    if canonical_bound_resource is not None:
+        return canonical_bound_resource, None
     return requested_resource, None
 
 
