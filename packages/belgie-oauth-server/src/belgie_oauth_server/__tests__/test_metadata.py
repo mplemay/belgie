@@ -42,6 +42,11 @@ def test_build_protected_resource_metadata_well_known_path_with_path() -> None:
     assert path == f"{_ROOT_RESOURCE_METADATA_PATH}/mcp"
 
 
+def test_build_protected_resource_metadata_well_known_path_preserves_trailing_slash() -> None:
+    path = build_protected_resource_metadata_well_known_path("https://mcp.local/mcp/")
+    assert path == f"{_ROOT_RESOURCE_METADATA_PATH}/mcp/"
+
+
 def test_build_protected_resource_metadata_well_known_path_root() -> None:
     path = build_protected_resource_metadata_well_known_path("https://mcp.local")
     assert path == _ROOT_RESOURCE_METADATA_PATH

@@ -90,6 +90,28 @@ def test_mcp_plugin_builds_server_url_from_base_url() -> None:
     assert str(plugin.auth.resource_server_url) == "https://example.com/mcp"
 
 
+def test_mcp_plugin_preserves_trailing_slash_in_server_path() -> None:
+    settings = OAuthServer(
+        base_url="https://auth.local",
+        redirect_uris=["http://localhost/callback"],
+        client_id="client",
+        client_secret="secret",
+        default_scope="user",
+    )
+
+    plugin = McpPlugin(
+        _belgie_settings(),
+        Mcp(
+            oauth=settings,
+            base_url="https://example.com",
+            server_path="/mcp/",
+        ),
+    )
+
+    assert plugin.server_path == "/mcp/"
+    assert str(plugin.auth.resource_server_url) == "https://example.com/mcp/"
+
+
 def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
     settings = OAuthServer(
         base_url="https://auth.local",
@@ -108,6 +130,27 @@ def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
     )
 
     assert str(plugin.auth.resource_server_url) == "https://example.com/mcp"
+
+
+def test_mcp_plugin_preserves_trailing_slash_in_server_url() -> None:
+    settings = OAuthServer(
+        base_url="https://auth.local",
+        redirect_uris=["http://localhost/callback"],
+        client_id="client",
+        client_secret="secret",
+        default_scope="user",
+    )
+
+    plugin = McpPlugin(
+        _belgie_settings(),
+        Mcp(
+            oauth=settings,
+            server_url="https://mcp.local/mcp/",
+        ),
+    )
+
+    assert plugin.server_path == "/mcp/"
+    assert str(plugin.auth.resource_server_url) == "https://mcp.local/mcp/"
 
 
 @pytest.mark.asyncio
@@ -160,6 +203,45 @@ def test_mount_streamable_http_accepts_alias_path_without_redirect() -> None:
         Mcp(
             oauth=settings,
             server_path="/mcp",
+        ),
+    )
+    server = MCPServer(name="Belgie MCP")
+    app = _build_test_app(plugin, server)
+
+    with TestClient(app, base_url="https://example.com") as client:
+        alias_response = client.post(
+            "/mcp",
+            headers={"Content-Type": "application/json"},
+            content="{}",
+            follow_redirects=False,
+        )
+        mounted_response = client.post(
+            "/mcp/",
+            headers={"Content-Type": "application/json"},
+            content="{}",
+            follow_redirects=False,
+        )
+
+    assert alias_response.status_code == 400
+    assert mounted_response.status_code == 400
+    assert alias_response.headers.get("location") is None
+    assert mounted_response.headers.get("location") is None
+    assert alias_response.json() == mounted_response.json()
+
+
+def test_mount_streamable_http_preserves_trailing_slash_canonical_path() -> None:
+    settings = OAuthServer(
+        base_url="https://auth.local",
+        redirect_uris=["http://localhost/callback"],
+        client_id="client",
+        client_secret="secret",
+        default_scope="user",
+    )
+    plugin = McpPlugin(
+        _belgie_settings(),
+        Mcp(
+            oauth=settings,
+            server_path="/mcp/",
         ),
     )
     server = MCPServer(name="Belgie MCP")

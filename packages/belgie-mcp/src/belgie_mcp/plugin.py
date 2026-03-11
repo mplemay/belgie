@@ -106,10 +106,10 @@ class McpPlugin(PluginClient):
             transport_security=transport_security,
             host=host,
         )
-        if self.server_path != "/":
+        if self.server_path != "/" and (alias_path := self.server_path.rstrip("/")):
             app.router.routes.append(
                 Route(
-                    self.server_path,
+                    alias_path,
                     endpoint=_McpPathAlias(app=mcp_app, mount_path=self.server_path),
                     methods=_STREAMABLE_HTTP_METHODS,
                     include_in_schema=False,
@@ -128,7 +128,7 @@ class _McpPathAlias:
     mount_path: str
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # Rewrite /mcp to the mounted child shape so the request still runs through MCP auth middleware.
+        # Rewrite the slashless alias to the mounted child shape so the request still runs through MCP auth middleware.
         scope["path"] = "/"
         scope["root_path"] = _join_root_path(str(scope.get("root_path", "")), self.mount_path)
         await self.app(scope, receive, send)
@@ -144,14 +144,12 @@ def _require_base_url(base_url: str | AnyHttpUrl | None) -> str:
 def _build_server_url(base_url: str, server_path: str) -> str:
     parsed = urlparse(base_url)
     base_path = parsed.path.rstrip("/")
-    path_suffix = server_path.strip("/")
-    full_path = (f"{base_path}/{path_suffix}" if base_path else f"/{path_suffix}") if path_suffix else base_path
+    full_path = f"{base_path}{server_path}" if base_path else server_path
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
 
 
 def _extract_server_path(server_url: str) -> str:
-    path = urlparse(server_url).path.rstrip("/")
-    return path or "/"
+    return urlparse(server_url).path or "/"
 
 
 def _join_root_path(root_path: str, mount_path: str) -> str:
