@@ -28,15 +28,17 @@ The app runs at `http://localhost:8000`.
 - `GET|POST /auth/oauth/authorize`
 - `POST /auth/oauth/token`
 - `POST /auth/oauth/introspect`
-- `POST /mcp` or `POST /mcp/` (MCP streamable HTTP endpoint)
+- `POST /mcp/` (MCP streamable HTTP endpoint)
 - `GET /.well-known/oauth-protected-resource/mcp`
 - `GET /.well-known/oauth-protected-resource`
 
 ## Notes
 
-- The MCP server is mounted at `/mcp` and accepts both `/mcp` and `/mcp/`.
-- Streamable HTTP transport security is derived from the configured MCP resource URL, so production hosts no longer
-  need a custom `host="localhost"` override.
+- The example mounts the MCP SDK's `streamable_http_app(...)` directly with `app.mount(mcp_plugin.server_path, ...)`.
+- `McpPlugin` now only provides `auth`, `token_verifier`, and the derived `server_path`/`server_url`; mounting and
+  streamable HTTP transport configuration are owned by the application.
+- If you need transport security settings such as allowed hosts/origins, pass them directly to
+  `mcp_server.streamable_http_app(...)`.
 - OAuth discovery serving (`/.well-known/oauth-authorization-server*` and
   `/.well-known/oauth-protected-resource*`) is owned by `OAuthServerPlugin`.
 - Configure `OAuthServer.resources=[OAuthResource(prefix="/mcp", ...)]` so protected

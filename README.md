@@ -214,6 +214,9 @@ Visit `http://localhost:8000/login/google` to sign in.
 
 - `bind()` has been removed from plugins.
 - Register plugins with callable config objects: `auth.add_plugin(GoogleOAuth(...))`.
+- `McpPlugin.mount_streamable_http()` has been removed.
+- Mount and configure the MCP SDK streamable HTTP app in your FastAPI/Starlette app directly, using
+  `plugin.auth`, `plugin.token_verifier`, and `plugin.server_path`.
 
 ## Router endpoints
 
