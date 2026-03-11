@@ -32,13 +32,7 @@ class OAuthResource(BaseModel):
     def resolve_url(self, base_url: str | AnyHttpUrl) -> AnyHttpUrl:
         parsed = urlparse(str(base_url))
         base_path = parsed.path.rstrip("/")
-        prefix_path = self.prefix.strip("/")
-        if not prefix_path:
-            full_path = base_path or "/"
-        elif base_path:
-            full_path = f"{base_path}/{prefix_path}"
-        else:
-            full_path = f"/{prefix_path}"
+        full_path = f"{base_path}{self.prefix}" if base_path else self.prefix
         return AnyHttpUrl(urlunparse(parsed._replace(path=full_path, query="", fragment="")))
 
 

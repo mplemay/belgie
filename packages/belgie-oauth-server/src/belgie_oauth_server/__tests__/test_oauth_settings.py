@@ -90,6 +90,18 @@ def test_oauth_settings_accepts_resource_metadata_settings() -> None:
     assert resource_scopes == ["user", "files:read"]
 
 
+def test_oauth_settings_preserves_resource_trailing_slash() -> None:
+    settings = OAuthServer(
+        base_url="http://example.com",
+        redirect_uris=["http://example.com/callback"],
+        resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],
+    )
+
+    resource_url, resource_scopes = settings.resolve_resource()
+    assert str(resource_url) == "http://example.com/mcp/"
+    assert resource_scopes == ["user"]
+
+
 def test_oauth_settings_accepts_signup_url() -> None:
     settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
