@@ -3,7 +3,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from belgie_core.core.belgie import Belgie
-from belgie_oauth_server.settings import OAuthServer
+from belgie_oauth_server.settings import OAuthResource, OAuthServer
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import FastAPI
 from pydantic import SecretStr
@@ -236,4 +236,48 @@ async def test_authorize_accepts_configured_resource_when_authenticated(
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
     assert query["state"][0] == "state-with-resource"
+    assert "code" in query
+
+
+@pytest.mark.asyncio
+async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_slash_configuration(
+    belgie_instance: Belgie,
+    db_session: AsyncSession,
+    oauth_settings: OAuthServer,
+    create_user_session,
+) -> None:
+    settings = OAuthServer(
+        base_url=oauth_settings.base_url,
+        prefix=oauth_settings.prefix,
+        login_url=oauth_settings.login_url,
+        signup_url=oauth_settings.signup_url,
+        client_id=oauth_settings.client_id,
+        client_secret=SecretStr("test-secret"),
+        redirect_uris=oauth_settings.redirect_uris,
+        default_scope=oauth_settings.default_scope,
+        resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],
+    )
+    belgie_instance.add_plugin(settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        session_id = await create_user_session(belgie_instance, db_session, "trailing-resource@test.com")
+        client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+
+        params = _authorize_params(
+            settings,
+            create_code_challenge("verifier"),
+            state="state-trailing-resource",
+            resource="http://testserver/mcp",
+        )
+        response = await client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "testserver"
+    assert query["state"][0] == "state-trailing-resource"
     assert "code" in query
