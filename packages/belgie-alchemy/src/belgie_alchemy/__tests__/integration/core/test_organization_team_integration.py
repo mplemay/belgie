@@ -624,7 +624,7 @@ async def test_reinviting_after_expiry_marks_old_invitation_expired(
         role="member",
         organization_id=organization.id,
     )
-    invitations = await owner_org_client.list_invitations(organization_id=organization.id)
+    invitations = await owner_org_client.invitations(organization_id=organization.id)
 
     assert replacement_invitation.id != expired_invitation.id
     assert {invitation.id: invitation.status for invitation in invitations} == {
@@ -671,4 +671,4 @@ async def test_only_admins_can_read_invitation_lists(
     )
 
     with pytest.raises(HTTPException, match="insufficient organization permissions"):
-        await member_org_client.list_invitations(organization_id=organization.id)
+        await member_org_client.invitations(organization_id=organization.id)

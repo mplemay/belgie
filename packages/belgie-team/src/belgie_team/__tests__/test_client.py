@@ -76,18 +76,18 @@ async def test_create_auto_adds_creator_to_team() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_user_teams_uses_current_user() -> None:
+async def test_for_user_uses_current_user() -> None:
     user = SimpleNamespace(id=uuid4(), email="member@example.com")
     adapter = FakeTeamAdapter(list_teams_for_user=AsyncMock(return_value=[]))
     team_client = _build_client(adapter=adapter, current_user=user)
 
-    await team_client.list_user_teams()
+    await team_client.for_user()
 
     adapter.list_teams_for_user.assert_awaited_once_with(team_client.client.db, user_id=user.id)
 
 
 @pytest.mark.asyncio
-async def test_get_active_returns_none_for_stale_team() -> None:
+async def test_active_returns_none_for_stale_team() -> None:
     active_organization_id = uuid4()
     stale_team = SimpleNamespace(
         id=uuid4(),
@@ -108,11 +108,11 @@ async def test_get_active_returns_none_for_stale_team() -> None:
         ),
     )
 
-    assert await team_client.get_active() is None
+    assert await team_client.active() is None
 
 
 @pytest.mark.asyncio
-async def test_list_members_requires_explicit_team_when_active_team_is_stale() -> None:
+async def test_members_requires_explicit_team_when_active_team_is_stale() -> None:
     active_organization_id = uuid4()
     stale_team = SimpleNamespace(
         id=uuid4(),
@@ -135,6 +135,6 @@ async def test_list_members_requires_explicit_team_when_active_team_is_stale() -
     )
 
     with pytest.raises(HTTPException, match="team_id is required"):
-        await team_client.list_members()
+        await team_client.members()
 
     adapter.list_team_members.assert_not_awaited()

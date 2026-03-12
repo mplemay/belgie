@@ -50,15 +50,15 @@ async def create_team(
 
 ## Core client methods
 
-- `create`, `list`, `update`, `remove`, `set_active`, `get_active`
-- `list_user_teams`, `list_members`, `add_member`, `remove_member`
+- `create`, `teams`, `update`, `delete`, `set_active`, `active`
+- `for_user`, `members`, `add_member`, `remove_member`
 
 ## Behavior
 
 - Team creation automatically adds the creator as a team member.
-- `list_user_teams()` is self-only.
+- `for_user()` is self-only.
 - Calls that omit `organization_id` or `team_id` rely on the current session's active organization/team.
 - `set_active(team_id=...)` updates both `active_team_id` and `active_organization_id`.
-- `get_active()` and `list_members(team_id=None)` ignore a stale active team when it does not belong to the current
+- `active()` and `members(team_id=None)` ignore a stale active team when it does not belong to the current
   active organization.
 - The full runnable example lives at [`examples/organization_team`](../../examples/organization_team/README.md).

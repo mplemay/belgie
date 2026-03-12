@@ -48,10 +48,10 @@ async def invite_member(
 
 ## Core client methods
 
-- `create`, `check_slug`, `list_for_user`, `set_active`, `get_active`, `get_full`, `update`, `delete`
-- `list_members`, `add_member`, `remove_member`, `update_member_role`, `get_active_member`, `leave`
-- `invite`, `accept_invitation`, `cancel_invitation`, `reject_invitation`, `get_invitation`, `list_invitations`,
-  `list_user_invitations`
+- `create`, `check_slug`, `for_user`, `set_active`, `active`, `details`, `update`, `delete`
+- `members`, `add_member`, `remove_member`, `update_member_role`, `active_member`, `leave`
+- `invite`, `accept_invitation`, `cancel_invitation`, `reject_invitation`, `invitation`, `invitations`,
+  `user_invitations`
 
 ## Roles
 
