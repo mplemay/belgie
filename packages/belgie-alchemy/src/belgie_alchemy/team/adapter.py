@@ -41,7 +41,6 @@ class TeamAdapter[
         InvitationT,
         TeamT,
         TeamMemberT,
-        SessionT,
     ],
 ):
     def __init__(

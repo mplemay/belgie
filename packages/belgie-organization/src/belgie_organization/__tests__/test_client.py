@@ -14,7 +14,15 @@ from belgie_proto.organization import (
 )
 from fastapi import HTTPException
 
+from belgie_organization.__tests__.fakes import (
+    FakeInvitationRow,
+    FakeMemberRow,
+    FakeOrganizationRow,
+    FakeTeamMemberRow,
+    FakeTeamRow,
+)
 from belgie_organization.client import OrganizationClient
+from belgie_organization.settings import Organization
 
 
 class OrganizationRole(StrEnum):
@@ -23,7 +31,7 @@ class OrganizationRole(StrEnum):
     MEMBER = "member"
 
 
-class FakeOrganizationAdapter(OrganizationAdapterProtocol):
+class FakeOrganizationAdapter(OrganizationAdapterProtocol[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow]):
     def __init__(self, **methods: AsyncMock) -> None:
         self._methods: dict[str, AsyncMock] = methods
         for name, method in methods.items():
@@ -35,7 +43,15 @@ class FakeOrganizationAdapter(OrganizationAdapterProtocol):
         return AsyncMock(side_effect=AssertionError(f"unexpected adapter call: {name}"))
 
 
-class FakeOrganizationTeamAdapter(OrganizationTeamAdapterProtocol):
+class FakeOrganizationTeamAdapter(
+    OrganizationTeamAdapterProtocol[
+        FakeOrganizationRow,
+        FakeMemberRow,
+        FakeInvitationRow,
+        FakeTeamRow,
+        FakeTeamMemberRow,
+    ],
+):
     def __init__(self, **methods: AsyncMock) -> None:
         self._methods: dict[str, AsyncMock] = methods
         for name, method in methods.items():
@@ -62,7 +78,8 @@ def _build_client(
     )
     return OrganizationClient(
         client=SimpleNamespace(db=SimpleNamespace(), adapter=client_adapter),
-        settings=SimpleNamespace(
+        settings=Organization(
+            adapter=adapter,
             allow_user_to_create_organization=True,
             invitation_expires_in_seconds=3600,
             send_invitation_email=send_invitation_email,

@@ -6,6 +6,11 @@ from typing import TYPE_CHECKING
 from belgie_core.core.plugin import PluginClient
 from belgie_organization.plugin import OrganizationPlugin
 from belgie_proto.organization import OrganizationTeamAdapterProtocol
+from belgie_proto.organization.invitation import InvitationProtocol
+from belgie_proto.organization.member import MemberProtocol
+from belgie_proto.organization.organization import OrganizationProtocol
+from belgie_proto.team.member import TeamMemberProtocol
+from belgie_proto.team.team import TeamProtocol
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import SecurityScopes
 
@@ -21,10 +26,26 @@ if TYPE_CHECKING:
     from belgie_team.settings import Team
 
 
-class TeamPlugin(PluginClient):
-    def __init__(self, _belgie_settings: BelgieSettings, settings: Team) -> None:
+class TeamPlugin[
+    OrganizationT: OrganizationProtocol,
+    MemberT: MemberProtocol,
+    InvitationT: InvitationProtocol,
+    TeamT: TeamProtocol,
+    TeamMemberT: TeamMemberProtocol,
+](PluginClient):
+    def __init__(
+        self,
+        _belgie_settings: BelgieSettings,
+        settings: Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT],
+    ) -> None:
         self._settings = settings
-        self._resolve_client: Callable[..., Awaitable[TeamClient]] | None = None
+        self._resolve_client: (
+            Callable[
+                ...,
+                Awaitable[TeamClient[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]],
+            ]
+            | None
+        ) = None
 
     def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
         if self._resolve_client is not None:
@@ -33,7 +54,7 @@ class TeamPlugin(PluginClient):
         async def resolve_client(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
-        ) -> TeamClient:
+        ) -> TeamClient[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]:
             user = await client.get_user(SecurityScopes(), request)
             return TeamClient(
                 client=client,
@@ -47,10 +68,14 @@ class TeamPlugin(PluginClient):
         self.__signature__ = inspect.signature(resolve_client)
 
     @property
-    def settings(self) -> Team:
+    def settings(self) -> Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]:
         return self._settings
 
-    async def __call__(self, *args: object, **kwargs: object) -> TeamClient:
+    async def __call__(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> TeamClient[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]:
         if self._resolve_client is None:
             msg = "TeamPlugin dependency requires router initialization (call app.include_router(belgie.router) first)"
             raise RuntimeError(msg)

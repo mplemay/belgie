@@ -8,10 +8,26 @@ from uuid import uuid4
 import pytest
 from belgie_proto.team import TeamAdapterProtocol
 
+from belgie_team.__tests__.fakes import (
+    FakeInvitationRow,
+    FakeMemberRow,
+    FakeOrganizationRow,
+    FakeTeamMemberRow,
+    FakeTeamRow,
+)
 from belgie_team.client import TeamClient
+from belgie_team.settings import Team
 
 
-class FakeTeamAdapter(TeamAdapterProtocol):
+class FakeTeamAdapter(
+    TeamAdapterProtocol[
+        FakeOrganizationRow,
+        FakeMemberRow,
+        FakeInvitationRow,
+        FakeTeamRow,
+        FakeTeamMemberRow,
+    ],
+):
     def __init__(self, **methods: AsyncMock) -> None:
         self._methods: dict[str, AsyncMock] = methods
         for name, method in methods.items():
@@ -27,7 +43,8 @@ def _build_client(*, adapter, current_user=None) -> TeamClient:
     user = current_user or SimpleNamespace(id=uuid4(), email="owner@example.com")
     return TeamClient(
         client=SimpleNamespace(db=SimpleNamespace()),
-        settings=SimpleNamespace(
+        settings=Team(
+            adapter=adapter,
             maximum_teams_per_organization=None,
             maximum_members_per_team=None,
         ),

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from belgie_proto.core.session import SessionProtocol  # noqa: TC002
-from belgie_proto.organization.invitation import InvitationProtocol  # noqa: TC002
-from belgie_proto.organization.member import MemberProtocol  # noqa: TC002
-from belgie_proto.organization.organization import OrganizationProtocol  # noqa: TC002
+from belgie_proto.organization.invitation import InvitationProtocol
+from belgie_proto.organization.member import MemberProtocol
+from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.team import TeamAdapterProtocol
-from belgie_proto.team.member import TeamMemberProtocol  # noqa: TC002
-from belgie_proto.team.team import TeamProtocol  # noqa: TC002
+from belgie_proto.team.member import TeamMemberProtocol
+from belgie_proto.team.team import TeamProtocol
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,7 +17,13 @@ if TYPE_CHECKING:
     from belgie_team.plugin import TeamPlugin
 
 
-class Team(BaseSettings):
+class Team[
+    OrganizationT: OrganizationProtocol,
+    MemberT: MemberProtocol,
+    InvitationT: InvitationProtocol,
+    TeamT: TeamProtocol,
+    TeamMemberT: TeamMemberProtocol,
+](BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_TEAM_",
         env_file=".env",
@@ -26,14 +31,7 @@ class Team(BaseSettings):
         arbitrary_types_allowed=True,
     )
 
-    adapter: TeamAdapterProtocol[
-        OrganizationProtocol,
-        MemberProtocol,
-        InvitationProtocol,
-        TeamProtocol,
-        TeamMemberProtocol,
-        SessionProtocol,
-    ] = Field(exclude=True)
+    adapter: TeamAdapterProtocol[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT] = Field(exclude=True)
     maximum_teams_per_organization: int | None = None
     maximum_members_per_team: int | None = None
 
@@ -41,27 +39,17 @@ class Team(BaseSettings):
     @classmethod
     def validate_adapter(
         cls,
-        value: TeamAdapterProtocol[
-            OrganizationProtocol,
-            MemberProtocol,
-            InvitationProtocol,
-            TeamProtocol,
-            TeamMemberProtocol,
-            SessionProtocol,
-        ],
-    ) -> TeamAdapterProtocol[
-        OrganizationProtocol,
-        MemberProtocol,
-        InvitationProtocol,
-        TeamProtocol,
-        TeamMemberProtocol,
-        SessionProtocol,
-    ]:
+        value: TeamAdapterProtocol[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT],
+    ) -> TeamAdapterProtocol[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]:
         if not isinstance(value, TeamAdapterProtocol):
             msg = "adapter must implement TeamAdapterProtocol"
             raise TypeError(msg)
         return value
 
-    def __call__(self, belgie_settings: BelgieSettings) -> TeamPlugin:
-        plugin_class = __import__("belgie_team.plugin", fromlist=["TeamPlugin"]).TeamPlugin
-        return plugin_class(belgie_settings, self)
+    def __call__(
+        self,
+        belgie_settings: BelgieSettings,
+    ) -> TeamPlugin[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]:
+        from belgie_team.plugin import TeamPlugin  # noqa: PLC0415
+
+        return TeamPlugin(belgie_settings, self)

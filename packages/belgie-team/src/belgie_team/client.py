@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from belgie_proto.organization.invitation import InvitationProtocol
+from belgie_proto.organization.member import MemberProtocol
+from belgie_proto.organization.organization import OrganizationProtocol
+from belgie_proto.team.member import TeamMemberProtocol
+from belgie_proto.team.team import TeamProtocol
 from fastapi import HTTPException, status
 
 if TYPE_CHECKING:
@@ -10,30 +15,23 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_core import BelgieClient
-    from belgie_proto.core.session import SessionProtocol
     from belgie_proto.core.user import UserProtocol
-    from belgie_proto.organization.invitation import InvitationProtocol
-    from belgie_proto.organization.member import MemberProtocol
-    from belgie_proto.organization.organization import OrganizationProtocol
     from belgie_proto.team import TeamAdapterProtocol
-    from belgie_proto.team.member import TeamMemberProtocol
-    from belgie_proto.team.team import TeamProtocol
 
     from belgie_team.settings import Team
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class TeamClient:
+class TeamClient[
+    OrganizationT: OrganizationProtocol,
+    MemberT: MemberProtocol,
+    InvitationT: InvitationProtocol,
+    TeamT: TeamProtocol,
+    TeamMemberT: TeamMemberProtocol,
+]:
     client: BelgieClient
-    settings: Team
-    adapter: TeamAdapterProtocol[
-        OrganizationProtocol,
-        MemberProtocol,
-        InvitationProtocol,
-        TeamProtocol,
-        TeamMemberProtocol,
-        SessionProtocol,
-    ]
+    settings: Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]
+    adapter: TeamAdapterProtocol[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]
     current_user: UserProtocol[str]
 
     async def create(
@@ -41,7 +39,7 @@ class TeamClient:
         *,
         name: str,
         organization_id: UUID,
-    ) -> TeamProtocol:
+    ) -> TeamT:
         await self._require_default_admin_role(organization_id=organization_id)
 
         if self.settings.maximum_teams_per_organization is not None and (
@@ -80,14 +78,14 @@ class TeamClient:
 
         return team
 
-    async def teams(self, *, organization_id: UUID) -> builtins.list[TeamProtocol]:
+    async def teams(self, *, organization_id: UUID) -> builtins.list[TeamT]:
         await self._require_organization_membership(organization_id=organization_id)
         return await self.adapter.list_teams(
             self.client.db,
             organization_id=organization_id,
         )
 
-    async def update(self, *, team_id: UUID, name: str) -> TeamProtocol:
+    async def update(self, *, team_id: UUID, name: str) -> TeamT:
         team = await self.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
@@ -114,10 +112,10 @@ class TeamClient:
         await self._require_default_admin_role(organization_id=team.organization_id)
         return await self.adapter.remove_team(self.client.db, team_id=team_id)
 
-    async def for_user(self) -> builtins.list[TeamProtocol]:
+    async def for_user(self) -> builtins.list[TeamT]:
         return await self.adapter.list_teams_for_user(self.client.db, user_id=self.current_user.id)
 
-    async def members(self, *, team_id: UUID) -> builtins.list[TeamMemberProtocol]:
+    async def members(self, *, team_id: UUID) -> builtins.list[TeamMemberT]:
         team = await self.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
@@ -128,7 +126,7 @@ class TeamClient:
         await self._require_team_membership(team_id=team.id)
         return await self.adapter.list_team_members(self.client.db, team_id=team.id)
 
-    async def add_member(self, *, team_id: UUID, user_id: UUID) -> TeamMemberProtocol:
+    async def add_member(self, *, team_id: UUID, user_id: UUID) -> TeamMemberT:
         team = await self.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
@@ -194,7 +192,7 @@ class TeamClient:
             user_id=user_id,
         )
 
-    async def _require_organization_membership(self, *, organization_id: UUID) -> MemberProtocol:
+    async def _require_organization_membership(self, *, organization_id: UUID) -> MemberT:
         if (
             member := await self.adapter.get_member(
                 self.client.db,
@@ -208,7 +206,7 @@ class TeamClient:
             )
         return member
 
-    async def _require_default_admin_role(self, *, organization_id: UUID) -> MemberProtocol:
+    async def _require_default_admin_role(self, *, organization_id: UUID) -> MemberT:
         member = await self._require_organization_membership(organization_id=organization_id)
         if not _has_any_role(member.role, ["owner", "admin"]):
             raise HTTPException(
@@ -217,7 +215,7 @@ class TeamClient:
             )
         return member
 
-    async def _require_team_membership(self, *, team_id: UUID) -> TeamMemberProtocol:
+    async def _require_team_membership(self, *, team_id: UUID) -> TeamMemberT:
         if (
             team_member := await self.adapter.get_team_member(
                 self.client.db,
