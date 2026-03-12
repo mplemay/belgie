@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from belgie_proto.core.session import SessionProtocol
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
-from belgie_proto.organization.session import OrganizationSessionProtocol
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -19,7 +19,7 @@ class OrganizationAdapterProtocol[
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
     InvitationT: InvitationProtocol,
-    SessionT: OrganizationSessionProtocol,
+    SessionT: SessionProtocol,
 ](Protocol):
     async def create_organization(
         self,
@@ -159,11 +159,3 @@ class OrganizationAdapterProtocol[
         invitation_id: UUID,
         status: str,
     ) -> InvitationT | None: ...
-
-    async def set_active_organization(
-        self,
-        session: DBConnection,
-        *,
-        session_id: UUID,
-        organization_id: UUID | None,
-    ) -> SessionT | None: ...

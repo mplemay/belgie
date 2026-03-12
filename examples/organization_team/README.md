@@ -31,7 +31,6 @@ The app runs at `http://localhost:8000`.
 
 - `POST /org/create`
 - `GET /org/list`
-- `POST /org/set-active`
 - `GET /org/full`
 - `GET /org/my-invitations`
 - `POST /org/invite`
@@ -42,7 +41,6 @@ The app runs at `http://localhost:8000`.
 - `POST /team/create`
 - `GET /team/list`
 - `POST /team/add-member`
-- `POST /team/set-active`
 - `GET /team/members`
 
 ### Core signout route
@@ -129,8 +127,7 @@ curl -s -b "$MEMBER_COOKIE_JAR" -X POST \
   -d "{\"invitation_id\":\"$INVITATION_ID\"}"
 ```
 
-7. Verify the invited user now has org membership, inherited team membership, and an active organization. The active
-team stays unset until the user chooses one:
+7. Verify the invited user now has org membership and inherited team membership:
 
 ```bash
 curl -s -b "$MEMBER_COOKIE_JAR" "http://localhost:8000/me"
@@ -139,21 +136,7 @@ curl -s -b "$MEMBER_COOKIE_JAR" "http://localhost:8000/team/list?organization_id
 curl -s -b "$MEMBER_COOKIE_JAR" "http://localhost:8000/team/members?team_id=$TEAM_ID"
 ```
 
-8. Set the owner session active organization and active team:
-
-```bash
-curl -s -b "$OWNER_COOKIE_JAR" -X POST \
-  "http://localhost:8000/org/set-active" \
-  -H "content-type: application/json" \
-  -d "{\"organization_id\":\"$ORG_ID\"}"
-
-curl -s -b "$OWNER_COOKIE_JAR" -X POST \
-  "http://localhost:8000/team/set-active" \
-  -H "content-type: application/json" \
-  -d "{\"team_id\":\"$TEAM_ID\"}"
-```
-
-9. Verify owner state and list resources:
+8. Verify owner state and list resources:
 
 ```bash
 curl -s -b "$OWNER_COOKIE_JAR" "http://localhost:8000/me"

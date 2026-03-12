@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Any
 
 from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
+from belgie_proto.core.session import SessionProtocol
 from belgie_proto.core.user import UserProtocol
 from belgie_proto.organization import OrganizationAdapterProtocol, PendingInvitationConflictError
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
-from belgie_proto.organization.session import OrganizationSessionProtocol
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 class OrganizationAdapter[
     UserT: UserProtocol,
     AccountT: AccountProtocol,
-    SessionT: OrganizationSessionProtocol,
+    SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
@@ -385,24 +385,3 @@ class OrganizationAdapter[
             await session.rollback()
             raise
         return invitation
-
-    async def set_active_organization(
-        self,
-        session: DBConnection,
-        *,
-        session_id: UUID,
-        organization_id: UUID | None,
-    ) -> SessionT | None:
-        session_obj = await self.core.get_session(session, session_id)
-        if session_obj is None:
-            return None
-        if not hasattr(session_obj, "active_organization_id"):
-            msg = (
-                "session model is missing 'active_organization_id'. Use OrganizationSessionMixin on your session model."
-            )
-            raise AttributeError(msg)
-        return await self.core.update_session(
-            session,
-            session_id,
-            active_organization_id=organization_id,
-        )

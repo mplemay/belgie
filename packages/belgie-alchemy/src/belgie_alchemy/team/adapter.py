@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 
 from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
+from belgie_proto.core.session import SessionProtocol
 from belgie_proto.core.user import UserProtocol
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.team import TeamAdapterProtocol
 from belgie_proto.team.member import TeamMemberProtocol
-from belgie_proto.team.session import TeamSessionProtocol
 from belgie_proto.team.team import TeamProtocol
 from sqlalchemy import delete, select
 
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 class TeamAdapter[
     UserT: UserProtocol,
     AccountT: AccountProtocol,
-    SessionT: TeamSessionProtocol,
+    SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
@@ -282,36 +282,6 @@ class TeamAdapter[
             status=status,
         )
 
-    async def set_active_organization(
-        self,
-        session: DBConnection,
-        *,
-        session_id: UUID,
-        organization_id: UUID | None,
-    ) -> SessionT | None:
-        session_obj = await self.core.get_session(session, session_id)
-        if session_obj is None:
-            return None
-        if not hasattr(session_obj, "active_organization_id"):
-            msg = (
-                "session model is missing 'active_organization_id'. Use OrganizationSessionMixin on your session model."
-            )
-            raise AttributeError(msg)
-        if not hasattr(session_obj, "active_team_id"):
-            msg = "session model is missing 'active_team_id'. Use TeamSessionMixin on your session model."
-            raise AttributeError(msg)
-
-        active_team_id = session_obj.active_team_id
-        if organization_id is None or session_obj.active_organization_id != organization_id:
-            active_team_id = None
-
-        return await self.core.update_session(
-            session,
-            session_id,
-            active_organization_id=organization_id,
-            active_team_id=active_team_id,
-        )
-
     async def create_team(
         self,
         session: DBConnection,
@@ -465,35 +435,3 @@ class TeamAdapter[
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
-
-    async def set_active_team(
-        self,
-        session: DBConnection,
-        *,
-        session_id: UUID,
-        team_id: UUID | None,
-    ) -> SessionT | None:
-        session_obj = await self.core.get_session(session, session_id)
-        if session_obj is None:
-            return None
-        if not hasattr(session_obj, "active_organization_id"):
-            msg = (
-                "session model is missing 'active_organization_id'. Use OrganizationSessionMixin on your session model."
-            )
-            raise AttributeError(msg)
-        if not hasattr(session_obj, "active_team_id"):
-            msg = "session model is missing 'active_team_id'. Use TeamSessionMixin on your session model."
-            raise AttributeError(msg)
-
-        active_organization_id = session_obj.active_organization_id
-        if team_id is not None:
-            if (team := await self.get_team_by_id(session, team_id)) is None:
-                return None
-            active_organization_id = team.organization_id
-
-        return await self.core.update_session(
-            session,
-            session_id,
-            active_team_id=team_id,
-            active_organization_id=active_organization_id,
-        )

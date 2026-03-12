@@ -10,7 +10,6 @@ try:
         MemberProtocol,
         OrganizationAdapterProtocol,
         OrganizationProtocol,
-        OrganizationSessionProtocol,
         OrganizationTeamAdapterProtocol,
         PendingInvitationConflictError,
     )
@@ -22,7 +21,6 @@ __all__ = [
     "MemberProtocol",
     "OrganizationAdapterProtocol",
     "OrganizationProtocol",
-    "OrganizationSessionProtocol",
     "OrganizationTeamAdapterProtocol",
     "PendingInvitationConflictError",
 ]

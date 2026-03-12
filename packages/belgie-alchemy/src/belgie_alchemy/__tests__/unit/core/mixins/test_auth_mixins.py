@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import inspect
 import os
-from datetime import datetime  # noqa: TC003 - SQLAlchemy resolves these local class annotations at runtime
 from enum import StrEnum
 from importlib.util import find_spec
 from urllib.parse import urlparse
@@ -18,7 +16,7 @@ from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column, relationship
+from sqlalchemy.orm import Mapped, configure_mappers, mapped_column, relationship
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
 from belgie_alchemy.__tests__.fixtures.organization.models import (
@@ -32,9 +30,8 @@ from belgie_alchemy.organization.mixins import (
     OrganizationInvitationMixin,
     OrganizationMemberMixin,
     OrganizationMixin,
-    OrganizationSessionMixin,
 )
-from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin, TeamSessionMixin
+from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
 
@@ -88,34 +85,6 @@ def test_fixture_models_compose_brussels_mixins_explicitly() -> None:
     ):
         assert issubclass(model, PrimaryKeyMixin)
         assert issubclass(model, TimestampMixin)
-
-
-def test_organization_session_mixin_supports_plain_declarative_models() -> None:
-    class Base(DeclarativeBase):
-        pass
-
-    class PlainOrganizationSession(Base, OrganizationSessionMixin):
-        __tablename__ = f"plain_organization_session_{uuid4().hex[:8]}"
-
-        id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-        expires_at: Mapped[datetime] = mapped_column(DateTimeUTC)
-
-    assert str(inspect.signature(PlainOrganizationSession)) == "(**kwargs)"
-    assert "active_organization_id" in PlainOrganizationSession.__table__.c
-
-
-def test_team_session_mixin_supports_plain_declarative_models() -> None:
-    class Base(DeclarativeBase):
-        pass
-
-    class PlainTeamSession(Base, TeamSessionMixin):
-        __tablename__ = f"plain_team_session_{uuid4().hex[:8]}"
-
-        id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-        expires_at: Mapped[datetime] = mapped_column(DateTimeUTC)
-
-    assert str(inspect.signature(PlainTeamSession)) == "(**kwargs)"
-    assert "active_team_id" in PlainTeamSession.__table__.c
 
 
 def test_default_tablenames() -> None:

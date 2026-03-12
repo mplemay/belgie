@@ -51,13 +51,11 @@ def _build_client(
     *,
     adapter,
     current_user=None,
-    current_session=None,
     core_adapter=None,
     send_invitation_email=None,
     maximum_members_per_team=None,
 ) -> OrganizationClient:
     user = current_user or SimpleNamespace(id=uuid4(), email="owner@example.com")
-    session = current_session or SimpleNamespace(id=uuid4(), active_organization_id=None)
     client_adapter = core_adapter or SimpleNamespace(
         get_user_by_email=AsyncMock(return_value=None),
         get_user_by_id=AsyncMock(return_value=None),
@@ -71,7 +69,6 @@ def _build_client(
         ),
         adapter=adapter,
         current_user=user,
-        current_session=session,
         maximum_members_per_team=maximum_members_per_team,
     )
 
@@ -82,6 +79,19 @@ async def test_create_requires_explicit_role() -> None:
 
     with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'role'"):
         await organization_client.create(name="Acme", slug="acme")
+
+
+@pytest.mark.asyncio
+async def test_create_does_not_accept_removed_active_organization_flag() -> None:
+    organization_client = _build_client(adapter=FakeOrganizationAdapter())
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'keep_current_active_organization'"):
+        await organization_client.create(
+            name="Acme",
+            slug="acme",
+            role="owner",
+            keep_current_active_organization=True,
+        )
 
 
 @pytest.mark.asyncio
@@ -96,15 +106,20 @@ async def test_for_user_uses_current_user() -> None:
 
 
 @pytest.mark.asyncio
+async def test_details_requires_explicit_selector() -> None:
+    organization_client = _build_client(adapter=FakeOrganizationAdapter())
+
+    with pytest.raises(HTTPException, match="organization_id or organization_slug is required"):
+        await organization_client.details()
+
+
+@pytest.mark.asyncio
 async def test_details_requires_admin_role() -> None:
     organization_id = uuid4()
     adapter = FakeOrganizationAdapter(
         get_member=AsyncMock(return_value=SimpleNamespace(role="member")),
     )
-    organization_client = _build_client(
-        adapter=adapter,
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
-    )
+    organization_client = _build_client(adapter=adapter)
 
     with pytest.raises(HTTPException, match="insufficient organization permissions"):
         await organization_client.details(organization_id=organization_id)
@@ -146,13 +161,13 @@ async def test_invite_normalizes_roles_and_supports_team_id() -> None:
             get_user_by_id=AsyncMock(return_value=None),
         ),
         current_user=SimpleNamespace(id=inviter_id, email="owner@example.com"),
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
         send_invitation_email=send_invitation_email,
     )
 
     result = await organization_client.invite(
         email="member@example.com",
         role=[OrganizationRole.MEMBER],
+        organization_id=organization_id,
         team_id=team_id,
     )
 
@@ -170,15 +185,13 @@ async def test_invite_with_team_id_requires_team_capable_adapter() -> None:
         get_member=AsyncMock(return_value=SimpleNamespace(role="owner")),
         get_pending_invitation=AsyncMock(return_value=None),
     )
-    organization_client = _build_client(
-        adapter=adapter,
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
-    )
+    organization_client = _build_client(adapter=adapter)
 
     with pytest.raises(HTTPException, match="team operations are not enabled"):
         await organization_client.invite(
             email="member@example.com",
             role="member",
+            organization_id=organization_id,
             team_id=uuid4(),
         )
 
@@ -191,13 +204,14 @@ async def test_invite_translates_pending_invitation_conflict() -> None:
         get_pending_invitation=AsyncMock(return_value=None),
         create_invitation=AsyncMock(side_effect=PendingInvitationConflictError),
     )
-    organization_client = _build_client(
-        adapter=adapter,
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
-    )
+    organization_client = _build_client(adapter=adapter)
 
     with pytest.raises(HTTPException, match="user is already invited to this organization"):
-        await organization_client.invite(email="member@example.com", role="member")
+        await organization_client.invite(
+            email="member@example.com",
+            role="member",
+            organization_id=organization_id,
+        )
 
 
 @pytest.mark.asyncio
@@ -237,13 +251,11 @@ async def test_accept_invitation_adds_team_membership() -> None:
         get_team_member=AsyncMock(return_value=None),
         add_team_member=AsyncMock(),
         set_invitation_status=AsyncMock(return_value=accepted_invitation),
-        set_active_organization=AsyncMock(),
     )
 
     organization_client = _build_client(
         adapter=adapter,
         current_user=SimpleNamespace(id=user_id, email="member@example.com"),
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=None),
     )
 
     accepted, member = await organization_client.accept_invitation(invitation_id=pending_invitation.id)
@@ -255,7 +267,6 @@ async def test_accept_invitation_adds_team_membership() -> None:
         team_id=team_id,
         user_id=user_id,
     )
-    adapter.set_active_organization.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -265,7 +276,6 @@ async def test_add_member_rejects_full_team() -> None:
     user_id = uuid4()
     adapter = FakeOrganizationTeamAdapter(
         get_member=AsyncMock(side_effect=[SimpleNamespace(role="owner"), None]),
-        get_user_by_id=AsyncMock(return_value=SimpleNamespace(id=user_id)),
         get_team_by_id=AsyncMock(return_value=SimpleNamespace(id=team_id, organization_id=organization_id)),
         get_team_member=AsyncMock(return_value=None),
         list_team_members=AsyncMock(return_value=[SimpleNamespace(id=uuid4())]),
@@ -278,12 +288,16 @@ async def test_add_member_rejects_full_team() -> None:
             get_user_by_email=AsyncMock(return_value=None),
             get_user_by_id=AsyncMock(return_value=SimpleNamespace(id=user_id)),
         ),
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
         maximum_members_per_team=1,
     )
 
     with pytest.raises(HTTPException, match="team member limit reached"):
-        await organization_client.add_member(user_id=user_id, role="member", team_id=team_id)
+        await organization_client.add_member(
+            user_id=user_id,
+            role="member",
+            organization_id=organization_id,
+            team_id=team_id,
+        )
 
     adapter.create_member.assert_not_awaited()
     adapter.add_team_member.assert_not_awaited()
@@ -316,12 +330,10 @@ async def test_accept_invitation_rejects_full_team() -> None:
         create_member=AsyncMock(),
         add_team_member=AsyncMock(),
         set_invitation_status=AsyncMock(),
-        set_active_organization=AsyncMock(),
     )
     organization_client = _build_client(
         adapter=adapter,
         current_user=SimpleNamespace(id=user_id, email="member@example.com"),
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=None),
         maximum_members_per_team=1,
     )
 
@@ -367,10 +379,7 @@ async def test_list_invitations_requires_admin_role() -> None:
     adapter = FakeOrganizationAdapter(
         get_member=AsyncMock(return_value=SimpleNamespace(role="member")),
     )
-    organization_client = _build_client(
-        adapter=adapter,
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
-    )
+    organization_client = _build_client(adapter=adapter)
 
     with pytest.raises(HTTPException, match="insufficient organization permissions"):
         await organization_client.invitations(organization_id=organization_id)
@@ -387,7 +396,6 @@ async def test_remove_member_blocks_last_owner_removal() -> None:
     organization_client = _build_client(
         adapter=adapter,
         current_user=SimpleNamespace(id=owner.user_id, email="owner@example.com"),
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
     )
 
     with pytest.raises(HTTPException, match="organization must keep at least one owner"):
@@ -406,10 +414,7 @@ async def test_update_member_role_blocks_last_owner_demotion() -> None:
         get_member_by_id=AsyncMock(return_value=owner),
         list_members=AsyncMock(return_value=[owner]),
     )
-    organization_client = _build_client(
-        adapter=adapter,
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
-    )
+    organization_client = _build_client(adapter=adapter)
 
     with pytest.raises(HTTPException, match="organization must keep at least one owner"):
         await organization_client.update_member_role(

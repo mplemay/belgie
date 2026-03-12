@@ -69,18 +69,12 @@ class CreateOrganizationPayload(BaseModel):
     role: str
     logo: str | None = None
     metadata: dict[str, object] | None = None
-    keep_current_active_organization: bool = False
-
-
-class SetActiveOrganizationPayload(BaseModel):
-    organization_id: UUID | None = None
-    organization_slug: str | None = None
 
 
 class InvitePayload(BaseModel):
     email: str
     role: str
-    organization_id: UUID | None = None
+    organization_id: UUID
     team_id: UUID | None = None
 
 
@@ -90,16 +84,12 @@ class AcceptInvitationPayload(BaseModel):
 
 class CreateTeamPayload(BaseModel):
     name: str = Field(min_length=1)
-    organization_id: UUID | None = None
+    organization_id: UUID
 
 
 class AddTeamMemberPayload(BaseModel):
     team_id: UUID
     user_id: UUID
-
-
-class SetActiveTeamPayload(BaseModel):
-    team_id: UUID | None = None
 
 
 app = FastAPI(title="Belgie Organization + Team Example", lifespan=lifespan)
@@ -163,7 +153,6 @@ async def home() -> dict[str, str]:
         "me": "/me",
         "organization_create": "/org/create",
         "organization_list": "/org/list",
-        "organization_set_active": "/org/set-active",
         "organization_full": "/org/full",
         "organization_my_invitations": "/org/my-invitations",
         "organization_invite": "/org/invite",
@@ -171,7 +160,6 @@ async def home() -> dict[str, str]:
         "team_create": "/team/create",
         "team_list": "/team/list",
         "team_add_member": "/team/add-member",
-        "team_set_active": "/team/set-active",
         "team_members": "/team/members",
         "signout": "/auth/signout",
     }
@@ -205,8 +193,6 @@ async def me(
         "email": user.email,
         "name": user.name,
         "session_id": str(session.id),
-        "active_organization_id": str(session.active_organization_id) if session.active_organization_id else None,
-        "active_team_id": str(session.active_team_id) if session.active_team_id else None,
     }
 
 
@@ -221,7 +207,6 @@ async def create_organization(
         role=payload.role,
         logo=payload.logo,
         metadata=payload.metadata,
-        keep_current_active_organization=payload.keep_current_active_organization,
     )
     return OrganizationFullView(
         organization=OrganizationView.model_validate(org_row),
@@ -234,24 +219,8 @@ async def create_organization(
 async def list_organizations(
     organization: Annotated[OrganizationClient, Depends(organization_plugin)],
 ) -> list[OrganizationView]:
-    rows = await organization.list_for_user()
+    rows = await organization.for_user()
     return [OrganizationView.model_validate(row) for row in rows]
-
-
-@app.post("/org/set-active", response_model=OrganizationView | None)
-async def set_active_organization(
-    payload: SetActiveOrganizationPayload,
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
-) -> OrganizationView | None:
-    organization_id = payload.organization_id
-    if organization_id is not None:
-        resolved = await organization.set_active(organization_id=organization_id)
-    else:
-        resolved = await organization.set_active(organization_slug=payload.organization_slug)
-
-    if resolved is None:
-        return None
-    return OrganizationView.model_validate(resolved)
 
 
 @app.get("/org/full", response_model=OrganizationFullView | None)
@@ -260,7 +229,7 @@ async def get_full_organization(
     organization_id: UUID | None = None,
     organization_slug: str | None = None,
 ) -> OrganizationFullView | None:
-    full = await organization.get_full(
+    full = await organization.details(
         organization_id=organization_id,
         organization_slug=organization_slug,
     )
@@ -278,7 +247,7 @@ async def get_full_organization(
 async def list_my_invitations(
     organization: Annotated[OrganizationClient, Depends(organization_plugin)],
 ) -> list[InvitationView]:
-    invitations = await organization.list_user_invitations()
+    invitations = await organization.user_invitations()
     return [InvitationView.model_validate(row) for row in invitations]
 
 
@@ -320,9 +289,9 @@ async def create_team(
 @app.get("/team/list", response_model=list[TeamView])
 async def list_teams(
     team: Annotated[TeamClient, Depends(team_plugin)],
-    organization_id: UUID | None = None,
+    organization_id: UUID,
 ) -> list[TeamView]:
-    rows = await team.list(organization_id=organization_id)
+    rows = await team.teams(organization_id=organization_id)
     return [TeamView.model_validate(row) for row in rows]
 
 
@@ -335,23 +304,12 @@ async def add_team_member(
     return TeamMemberView.model_validate(member)
 
 
-@app.post("/team/set-active", response_model=TeamView | None)
-async def set_active_team(
-    payload: SetActiveTeamPayload,
-    team: Annotated[TeamClient, Depends(team_plugin)],
-) -> TeamView | None:
-    active = await team.set_active(team_id=payload.team_id)
-    if active is None:
-        return None
-    return TeamView.model_validate(active)
-
-
 @app.get("/team/members", response_model=list[TeamMemberView])
 async def list_team_members(
     team: Annotated[TeamClient, Depends(team_plugin)],
-    team_id: UUID | None = None,
+    team_id: UUID,
 ) -> list[TeamMemberView]:
-    members = await team.list_members(team_id=team_id)
+    members = await team.members(team_id=team_id)
     return [TeamMemberView.model_validate(member) for member in members]
 
 

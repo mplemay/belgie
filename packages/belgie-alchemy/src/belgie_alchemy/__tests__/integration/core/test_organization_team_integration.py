@@ -69,14 +69,6 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTimeUTC, index=True)
     ip_address: Mapped[str | None] = mapped_column(Text, default=None)
     user_agent: Mapped[str | None] = mapped_column(Text, default=None)
-    active_organization_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("organization.id", ondelete="set null"),
-        default=None,
-    )
-    active_team_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("team.id", ondelete="set null"),
-        default=None,
-    )
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
 
@@ -237,7 +229,6 @@ def _organization_client(
     core_adapter: BelgieAdapter,
     adapter: TeamAdapter,
     current_user: User,
-    current_session: Session,
 ) -> OrganizationClient:
     return OrganizationClient(
         client=SimpleNamespace(db=db_session, adapter=core_adapter),
@@ -248,7 +239,6 @@ def _organization_client(
         ),
         adapter=adapter,
         current_user=current_user,
-        current_session=current_session,
     )
 
 
@@ -257,7 +247,6 @@ def _team_client(
     db_session: AsyncSession,
     adapter: TeamAdapter,
     current_user: User,
-    current_session: Session,
 ) -> TeamClient:
     return TeamClient(
         client=SimpleNamespace(db=db_session),
@@ -267,40 +256,27 @@ def _team_client(
         ),
         adapter=adapter,
         current_user=current_user,
-        current_session=current_session,
     )
 
 
 @pytest.mark.asyncio
-async def test_invitation_acceptance_assigns_team_and_sets_active_organization(
+async def test_invitation_acceptance_assigns_team_membership(
     core_adapter: BelgieAdapter,
     team_adapter: TeamAdapter,
     team_org_session: AsyncSession,
 ) -> None:
     owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
     invited = await core_adapter.create_user(team_org_session, email="member@example.com")
-    owner_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=owner.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
-    invited_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=invited.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
     owner_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
         current_user=owner,
-        current_session=owner_session,
     )
     owner_team_client = _team_client(
         db_session=team_org_session,
         adapter=team_adapter,
         current_user=owner,
-        current_session=owner_session,
     )
 
     organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
@@ -317,137 +293,32 @@ async def test_invitation_acceptance_assigns_team_and_sets_active_organization(
         core_adapter=core_adapter,
         adapter=team_adapter,
         current_user=invited,
-        current_session=invited_session,
     )
     accepted_invitation, member = await invited_org_client.accept_invitation(invitation_id=invitation.id)
-    refreshed_session = await core_adapter.get_session(team_org_session, invited_session.id)
 
     assert accepted_invitation.status == "accepted"
     assert member.organization_id == organization.id
-    assert refreshed_session is not None
-    assert refreshed_session.active_organization_id == organization.id
-    assert refreshed_session.active_team_id is None
     assert await team_adapter.get_team_member(team_org_session, team_id=team.id, user_id=invited.id) is not None
 
 
 @pytest.mark.asyncio
-async def test_switching_active_organization_clears_active_team(
-    core_adapter: BelgieAdapter,
-    team_adapter: TeamAdapter,
-    team_org_session: AsyncSession,
-) -> None:
-    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
-    owner_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=owner.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
-    org_client = _organization_client(
-        db_session=team_org_session,
-        core_adapter=core_adapter,
-        adapter=team_adapter,
-        current_user=owner,
-        current_session=owner_session,
-    )
-    team_client = _team_client(
-        db_session=team_org_session,
-        adapter=team_adapter,
-        current_user=owner,
-        current_session=owner_session,
-    )
-
-    first_org, _ = await org_client.create(name="First", slug="first", role="owner")
-    team = await team_client.create(name="Platform", organization_id=first_org.id)
-    await team_client.set_active(team_id=team.id)
-    second_org, _ = await org_client.create(
-        name="Second",
-        slug="second",
-        role="owner",
-        keep_current_active_organization=True,
-    )
-
-    await org_client.set_active(organization_id=second_org.id)
-    refreshed_session = await core_adapter.get_session(team_org_session, owner_session.id)
-
-    assert refreshed_session is not None
-    assert refreshed_session.active_organization_id == second_org.id
-    assert refreshed_session.active_team_id is None
-
-
-@pytest.mark.asyncio
-async def test_setting_active_team_updates_active_organization(
-    core_adapter: BelgieAdapter,
-    team_adapter: TeamAdapter,
-    team_org_session: AsyncSession,
-) -> None:
-    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
-    owner_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=owner.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
-    org_client = _organization_client(
-        db_session=team_org_session,
-        core_adapter=core_adapter,
-        adapter=team_adapter,
-        current_user=owner,
-        current_session=owner_session,
-    )
-    team_client = _team_client(
-        db_session=team_org_session,
-        adapter=team_adapter,
-        current_user=owner,
-        current_session=owner_session,
-    )
-
-    first_org, _ = await org_client.create(name="First", slug="first", role="owner")
-    second_org, _ = await org_client.create(
-        name="Second",
-        slug="second",
-        role="owner",
-        keep_current_active_organization=True,
-    )
-    await team_client.create(name="Core", organization_id=first_org.id)
-    second_team = await team_client.create(name="Platform", organization_id=second_org.id)
-
-    await team_client.set_active(team_id=second_team.id)
-    refreshed_session = await core_adapter.get_session(team_org_session, owner_session.id)
-
-    assert refreshed_session is not None
-    assert refreshed_session.active_organization_id == second_org.id
-    assert refreshed_session.active_team_id == second_team.id
-
-
-@pytest.mark.asyncio
-async def test_leaving_active_organization_clears_active_org_and_team(
+async def test_leaving_organization_removes_team_membership(
     core_adapter: BelgieAdapter,
     team_adapter: TeamAdapter,
     team_org_session: AsyncSession,
 ) -> None:
     owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
     member = await core_adapter.create_user(team_org_session, email="member@example.com")
-    owner_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=owner.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
-    member_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=member.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
     owner_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
         current_user=owner,
-        current_session=owner_session,
     )
     owner_team_client = _team_client(
         db_session=team_org_session,
         adapter=team_adapter,
         current_user=owner,
-        current_session=owner_session,
     )
 
     organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
@@ -459,29 +330,13 @@ async def test_leaving_active_organization_clears_active_org_and_team(
         team_id=team.id,
     )
 
-    member_team_client = _team_client(
-        db_session=team_org_session,
-        adapter=team_adapter,
-        current_user=member,
-        current_session=member_session,
-    )
-    await member_team_client.set_active(team_id=team.id)
-    refreshed_member_session = await core_adapter.get_session(team_org_session, member_session.id)
-    assert refreshed_member_session is not None
-
     member_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
         current_user=member,
-        current_session=refreshed_member_session,
     )
     assert await member_org_client.leave(organization_id=organization.id) is True
-    refreshed_session = await core_adapter.get_session(team_org_session, member_session.id)
-
-    assert refreshed_session is not None
-    assert refreshed_session.active_organization_id is None
-    assert refreshed_session.active_team_id is None
     assert await team_adapter.get_member(team_org_session, organization_id=organization.id, user_id=member.id) is None
     assert await team_adapter.get_team_member(team_org_session, team_id=team.id, user_id=member.id) is None
 
@@ -493,17 +348,11 @@ async def test_duplicate_pending_invitations_are_rejected(
     team_org_session: AsyncSession,
 ) -> None:
     owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
-    owner_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=owner.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
     org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
         current_user=owner,
-        current_session=owner_session,
     )
     organization, _ = await org_client.create(name="Acme", slug="acme", role="owner")
     expires_at = datetime.now(UTC) + timedelta(hours=1)
@@ -596,17 +445,11 @@ async def test_reinviting_after_expiry_marks_old_invitation_expired(
     team_org_session: AsyncSession,
 ) -> None:
     owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
-    owner_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=owner.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
     owner_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
         current_user=owner,
-        current_session=owner_session,
     )
     organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
 
@@ -641,22 +484,11 @@ async def test_only_admins_can_read_invitation_lists(
 ) -> None:
     owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
     member = await core_adapter.create_user(team_org_session, email="member@example.com")
-    owner_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=owner.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
-    member_session = await core_adapter.create_session(
-        team_org_session,
-        user_id=member.id,
-        expires_at=datetime.now(UTC) + timedelta(hours=1),
-    )
     owner_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
         current_user=owner,
-        current_session=owner_session,
     )
     organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
     await owner_org_client.add_member(user_id=member.id, role="member", organization_id=organization.id)
@@ -667,7 +499,6 @@ async def test_only_admins_can_read_invitation_lists(
         core_adapter=core_adapter,
         adapter=team_adapter,
         current_user=member,
-        current_session=member_session,
     )
 
     with pytest.raises(HTTPException, match="insufficient organization permissions"):

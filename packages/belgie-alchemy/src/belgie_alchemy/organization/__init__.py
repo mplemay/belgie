@@ -3,7 +3,6 @@ from belgie_alchemy.organization.mixins import (
     OrganizationInvitationMixin,
     OrganizationMemberMixin,
     OrganizationMixin,
-    OrganizationSessionMixin,
 )
 
 __all__ = [
@@ -11,5 +10,4 @@ __all__ = [
     "OrganizationInvitationMixin",
     "OrganizationMemberMixin",
     "OrganizationMixin",
-    "OrganizationSessionMixin",
 ]
