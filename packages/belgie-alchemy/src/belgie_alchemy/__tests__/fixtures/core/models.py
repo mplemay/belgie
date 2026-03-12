@@ -8,24 +8,25 @@ their own models.
 from __future__ import annotations
 
 from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from sqlalchemy.orm import Mapped, mapped_column
 
 from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
 
-class User(DataclassBase, UserMixin):
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
     """Test User model."""
 
     custom_field: Mapped[str | None] = mapped_column(default=None)
 
 
-class Account(DataclassBase, AccountMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
     """Test Account model."""
 
 
-class Session(DataclassBase, SessionMixin):
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
     """Test Session model."""
 
 
-class OAuthState(DataclassBase, OAuthStateMixin):
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
     """Test OAuthState model."""

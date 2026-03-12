@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC, Json
 from sqlalchemy import Enum as SAEnum, ForeignKey, Index, MetaData, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, CITEXT, dialect as postgresql_dialect
@@ -23,8 +24,10 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
     OrganizationInvitation,
     OrganizationMember,
 )
-from belgie_alchemy.__tests__.fixtures.team.models import Team
+from belgie_alchemy.__tests__.fixtures.team.models import Team, TeamMember
 from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
+from belgie_alchemy.organization.mixins import OrganizationInvitationMixin, OrganizationMemberMixin, OrganizationMixin
+from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
 
@@ -46,6 +49,38 @@ def test_fixture_models_use_auth_mixins() -> None:
     assert issubclass(Account, AccountMixin)
     assert issubclass(Session, SessionMixin)
     assert issubclass(OAuthState, OAuthStateMixin)
+
+
+def test_belgie_mixins_are_domain_only() -> None:
+    for mixin in (
+        UserMixin,
+        AccountMixin,
+        SessionMixin,
+        OAuthStateMixin,
+        OrganizationMixin,
+        OrganizationMemberMixin,
+        OrganizationInvitationMixin,
+        TeamMixin,
+        TeamMemberMixin,
+    ):
+        assert not issubclass(mixin, PrimaryKeyMixin)
+        assert not issubclass(mixin, TimestampMixin)
+
+
+def test_fixture_models_compose_brussels_mixins_explicitly() -> None:
+    for model in (
+        User,
+        Account,
+        Session,
+        OAuthState,
+        Organization,
+        OrganizationMember,
+        OrganizationInvitation,
+        Team,
+        TeamMember,
+    ):
+        assert issubclass(model, PrimaryKeyMixin)
+        assert issubclass(model, TimestampMixin)
 
 
 def test_default_tablenames() -> None:
@@ -196,7 +231,7 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
 
 
 def test_mixins_support_relationship_and_tablename_overrides() -> None:
-    class CustomUser(DataclassBase, UserMixin):
+    class CustomUser(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
         __tablename__ = "custom_users"
 
         accounts: Mapped[list[object]] = relationship(
@@ -218,7 +253,7 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
             init=False,
         )
 
-    class CustomAccount(DataclassBase, AccountMixin):
+    class CustomAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
         __tablename__ = "custom_accounts"
 
         user_id: Mapped[UUID] = mapped_column(
@@ -232,7 +267,7 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
             init=False,
         )
 
-    class CustomSession(DataclassBase, SessionMixin):
+    class CustomSession(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
         __tablename__ = "custom_sessions"
 
         user_id: Mapped[UUID] = mapped_column(
@@ -246,7 +281,7 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
             init=False,
         )
 
-    class CustomOAuthState(DataclassBase, OAuthStateMixin):
+    class CustomOAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
         __tablename__ = "custom_oauth_states"
 
         user_id: Mapped[UUID | None] = mapped_column(
@@ -284,7 +319,7 @@ def test_user_mixin_scopes_support_enum_array_override() -> None:
     session_table = f"enum_scope_session_{suffix}"
     oauth_state_table = f"enum_scope_oauth_state_{suffix}"
 
-    class EnumScopedUser(DataclassBase, UserMixin):
+    class EnumScopedUser(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
         __tablename__ = user_table
 
         scopes: Mapped[list[Scope]] = mapped_column(
@@ -312,7 +347,7 @@ def test_user_mixin_scopes_support_enum_array_override() -> None:
             init=False,
         )
 
-    class EnumScopedAccount(DataclassBase, AccountMixin):
+    class EnumScopedAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
         __tablename__ = account_table
 
         user_id: Mapped[UUID] = mapped_column(
@@ -327,7 +362,7 @@ def test_user_mixin_scopes_support_enum_array_override() -> None:
             init=False,
         )
 
-    class EnumScopedSession(DataclassBase, SessionMixin):
+    class EnumScopedSession(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
         __tablename__ = session_table
 
         user_id: Mapped[UUID] = mapped_column(
@@ -342,7 +377,7 @@ def test_user_mixin_scopes_support_enum_array_override() -> None:
             init=False,
         )
 
-    class EnumScopedOAuthState(DataclassBase, OAuthStateMixin):
+    class EnumScopedOAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
         __tablename__ = oauth_state_table
 
         user_id: Mapped[UUID | None] = mapped_column(
@@ -400,7 +435,7 @@ def _create_citext_model_classes(
     session_table = f"citext_session_{suffix}"
     oauth_state_table = f"citext_oauth_state_{suffix}"
 
-    class CitextUser(DataclassBase, UserMixin):
+    class CitextUser(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
         __tablename__ = user_table
 
         accounts: Mapped[list[object]] = relationship(
@@ -422,7 +457,7 @@ def _create_citext_model_classes(
             init=False,
         )
 
-    class CitextAccount(DataclassBase, AccountMixin):
+    class CitextAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
         __tablename__ = account_table
 
         user_id: Mapped[UUID] = mapped_column(
@@ -437,7 +472,7 @@ def _create_citext_model_classes(
             init=False,
         )
 
-    class CitextSession(DataclassBase, SessionMixin):
+    class CitextSession(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
         __tablename__ = session_table
 
         user_id: Mapped[UUID] = mapped_column(
@@ -452,7 +487,7 @@ def _create_citext_model_classes(
             init=False,
         )
 
-    class CitextOAuthState(DataclassBase, OAuthStateMixin):
+    class CitextOAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
         __tablename__ = oauth_state_table
 
         user_id: Mapped[UUID | None] = mapped_column(

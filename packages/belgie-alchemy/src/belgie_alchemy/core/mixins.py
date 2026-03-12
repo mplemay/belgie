@@ -3,14 +3,14 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
-from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC
 from sqlalchemy import JSON, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT
-from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
+from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
 
 
-class UserMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class UserMixin(MappedAsDataclass):
     __tablename__ = "user"
 
     @declared_attr
@@ -63,7 +63,8 @@ class UserMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
 
-class AccountMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class AccountMixin(MappedAsDataclass):
     __tablename__ = "account"
 
     @declared_attr
@@ -132,7 +133,8 @@ class AccountMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
 
-class SessionMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class SessionMixin(MappedAsDataclass):
     __tablename__ = "session"
 
     @declared_attr
@@ -166,7 +168,8 @@ class SessionMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
 
-class OAuthStateMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class OAuthStateMixin(MappedAsDataclass):
     __tablename__ = "oauth_state"
 
     @declared_attr
