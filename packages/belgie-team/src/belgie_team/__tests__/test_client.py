@@ -7,7 +7,6 @@ from uuid import uuid4
 
 import pytest
 from belgie_proto.team import TeamAdapterProtocol
-from fastapi import HTTPException
 
 from belgie_team.client import TeamClient
 
@@ -24,9 +23,8 @@ class FakeTeamAdapter(TeamAdapterProtocol):
         return AsyncMock(side_effect=AssertionError(f"unexpected adapter call: {name}"))
 
 
-def _build_client(*, adapter, current_user=None, current_session=None) -> TeamClient:
+def _build_client(*, adapter, current_user=None) -> TeamClient:
     user = current_user or SimpleNamespace(id=uuid4(), email="owner@example.com")
-    session = current_session or SimpleNamespace(id=uuid4(), active_organization_id=None, active_team_id=None)
     return TeamClient(
         client=SimpleNamespace(db=SimpleNamespace()),
         settings=SimpleNamespace(
@@ -35,8 +33,15 @@ def _build_client(*, adapter, current_user=None, current_session=None) -> TeamCl
         ),
         adapter=adapter,
         current_user=user,
-        current_session=session,
     )
+
+
+@pytest.mark.asyncio
+async def test_create_requires_explicit_organization_id() -> None:
+    team_client = _build_client(adapter=FakeTeamAdapter())
+
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'organization_id'"):
+        await team_client.create(name="Platform")
 
 
 @pytest.mark.asyncio
@@ -62,10 +67,9 @@ async def test_create_auto_adds_creator_to_team() -> None:
     team_client = _build_client(
         adapter=adapter,
         current_user=SimpleNamespace(id=user_id, email="owner@example.com"),
-        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id, active_team_id=None),
     )
 
-    created = await team_client.create(name="Platform")
+    created = await team_client.create(name="Platform", organization_id=organization_id)
 
     assert created.id == team.id
     adapter.add_team_member.assert_awaited_once_with(
@@ -73,6 +77,14 @@ async def test_create_auto_adds_creator_to_team() -> None:
         team_id=team.id,
         user_id=user_id,
     )
+
+
+@pytest.mark.asyncio
+async def test_teams_require_explicit_organization_id() -> None:
+    team_client = _build_client(adapter=FakeTeamAdapter())
+
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'organization_id'"):
+        await team_client.teams()
 
 
 @pytest.mark.asyncio
@@ -87,54 +99,8 @@ async def test_for_user_uses_current_user() -> None:
 
 
 @pytest.mark.asyncio
-async def test_active_returns_none_for_stale_team() -> None:
-    active_organization_id = uuid4()
-    stale_team = SimpleNamespace(
-        id=uuid4(),
-        organization_id=uuid4(),
-        name="Stale",
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-    )
-    adapter = FakeTeamAdapter(
-        get_team_by_id=AsyncMock(return_value=stale_team),
-    )
-    team_client = _build_client(
-        adapter=adapter,
-        current_session=SimpleNamespace(
-            id=uuid4(),
-            active_organization_id=active_organization_id,
-            active_team_id=stale_team.id,
-        ),
-    )
+async def test_members_require_explicit_team_id() -> None:
+    team_client = _build_client(adapter=FakeTeamAdapter())
 
-    assert await team_client.active() is None
-
-
-@pytest.mark.asyncio
-async def test_members_requires_explicit_team_when_active_team_is_stale() -> None:
-    active_organization_id = uuid4()
-    stale_team = SimpleNamespace(
-        id=uuid4(),
-        organization_id=uuid4(),
-        name="Stale",
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-    )
-    adapter = FakeTeamAdapter(
-        get_team_by_id=AsyncMock(return_value=stale_team),
-        list_team_members=AsyncMock(),
-    )
-    team_client = _build_client(
-        adapter=adapter,
-        current_session=SimpleNamespace(
-            id=uuid4(),
-            active_organization_id=active_organization_id,
-            active_team_id=stale_team.id,
-        ),
-    )
-
-    with pytest.raises(HTTPException, match="team_id is required"):
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'team_id'"):
         await team_client.members()
-
-    adapter.list_team_members.assert_not_awaited()

@@ -180,20 +180,8 @@ class OrganizationInvitationMixin(MappedAsDataclass):
         )
 
 
-@declarative_mixin
-class OrganizationSessionMixin:
-    @declared_attr
-    def active_organization_id(self) -> Mapped[UUID | None]:
-        return mapped_column(
-            ForeignKey("organization.id", ondelete="set null", onupdate="cascade"),
-            nullable=True,
-            default=None,
-        )
-
-
 __all__ = [
     "OrganizationInvitationMixin",
     "OrganizationMemberMixin",
     "OrganizationMixin",
-    "OrganizationSessionMixin",
 ]

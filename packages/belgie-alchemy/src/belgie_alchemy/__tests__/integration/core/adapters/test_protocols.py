@@ -56,12 +56,6 @@ class ExampleSession:
 
 
 @dataclass
-class ExampleTeamSession(ExampleSession):
-    active_organization_id: UUID | None = None
-    active_team_id: UUID | None = None
-
-
-@dataclass
 class ExampleOAuthState:
     id: UUID
     state: str
@@ -244,7 +238,7 @@ def test_organization_adapter_satisfies_organization_protocol_only() -> None:
     core_adapter = BelgieAdapter(
         user=ExampleUser,
         account=ExampleAccount,
-        session=ExampleTeamSession,
+        session=ExampleSession,
         oauth_state=ExampleOAuthState,
     )
     organization_adapter = OrganizationAdapter(
@@ -259,14 +253,13 @@ def test_organization_adapter_satisfies_organization_protocol_only() -> None:
     assert not isinstance(organization_adapter, AdapterProtocol)
     assert callable(organization_adapter.create_organization)
     assert callable(organization_adapter.create_member)
-    assert callable(organization_adapter.set_active_organization)
 
 
 def test_team_adapter_satisfies_team_protocol_only() -> None:
     core_adapter = BelgieAdapter(
         user=ExampleUser,
         account=ExampleAccount,
-        session=ExampleTeamSession,
+        session=ExampleSession,
         oauth_state=ExampleOAuthState,
     )
     organization_adapter = OrganizationAdapter(
@@ -288,4 +281,3 @@ def test_team_adapter_satisfies_team_protocol_only() -> None:
     assert not isinstance(team_adapter, AdapterProtocol)
     assert callable(team_adapter.create_organization)
     assert callable(team_adapter.create_team)
-    assert callable(team_adapter.set_active_team)

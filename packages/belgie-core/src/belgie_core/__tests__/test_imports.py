@@ -144,13 +144,11 @@ def test_protocol_exports_from_domain_modules() -> None:
         MemberProtocol,
         OrganizationAdapterProtocol,
         OrganizationProtocol,
-        OrganizationSessionProtocol,
     )
     from belgie.proto.team import (  # noqa: PLC0415
         TeamAdapterProtocol,
         TeamMemberProtocol,
         TeamProtocol,
-        TeamSessionProtocol,
     )
 
     assert AccountProtocol is not None
@@ -162,11 +160,19 @@ def test_protocol_exports_from_domain_modules() -> None:
     assert MemberProtocol is not None
     assert OrganizationAdapterProtocol is not None
     assert OrganizationProtocol is not None
-    assert OrganizationSessionProtocol is not None
     assert TeamAdapterProtocol is not None
     assert TeamMemberProtocol is not None
     assert TeamProtocol is not None
-    assert TeamSessionProtocol is not None
+
+
+def test_removed_team_and_organization_session_exports() -> None:
+    from belgie.alchemy import mixins  # noqa: PLC0415
+    from belgie.proto import organization, team  # noqa: PLC0415
+
+    assert not hasattr(organization, "OrganizationSessionProtocol")
+    assert not hasattr(team, "TeamSessionProtocol")
+    assert not hasattr(mixins, "OrganizationSessionMixin")
+    assert not hasattr(mixins, "TeamSessionMixin")
 
 
 def test_flat_proto_reexports_removed() -> None:

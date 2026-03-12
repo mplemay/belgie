@@ -247,24 +247,15 @@ from belgie_alchemy import (
     OrganizationInvitationMixin,
     OrganizationMemberMixin,
     OrganizationMixin,
-    OrganizationSessionMixin,
     SessionMixin,
     TeamMemberMixin,
     TeamMixin,
-    TeamSessionMixin,
     UserMixin,
 )
 
 class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin): ...
 class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin): ...
-class Session(
-    DataclassBase,
-    PrimaryKeyMixin,
-    TimestampMixin,
-    SessionMixin,
-    OrganizationSessionMixin,
-    TeamSessionMixin,
-): ...
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin): ...
 class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin): ...
 class Organization(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMixin): ...
 class OrganizationMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMemberMixin): ...
@@ -272,9 +263,6 @@ class OrganizationInvitation(DataclassBase, PrimaryKeyMixin, TimestampMixin, Org
 class Team(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMixin): ...
 class TeamMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMemberMixin): ...
 ```
-
-`OrganizationSessionMixin` and `TeamSessionMixin` also work on plain `DeclarativeBase` session models when you only
-need the extra active-organization or active-team foreign key columns.
 
 Adapter wiring is explicit:
 
@@ -314,6 +302,10 @@ Notes:
 
 - Pure organization-only installs can stop at `OrganizationAdapter` and pass it directly to `OrganizationSettings`.
 - Combined organization + team installs must use the team-capable adapter for both plugins.
+- Organization/team state is explicit at the client layer; applications should pass `organization_id` and `team_id`
+  instead of relying on session-scoped active selections.
+- If your app previously stored `active_organization_id` or `active_team_id` on its session table, drop those
+  application-owned columns in your own migration.
 - Pending invitations are unique per `(organization_id, email)` while status is `pending`.
 - The runnable reference app lives at `examples/organization_team`.
 

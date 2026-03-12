@@ -3,11 +3,11 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable  # noqa: TC003
 from typing import TYPE_CHECKING
 
+from belgie_proto.core.session import SessionProtocol  # noqa: TC002
 from belgie_proto.organization import OrganizationAdapterProtocol
 from belgie_proto.organization.invitation import InvitationProtocol  # noqa: TC002
 from belgie_proto.organization.member import MemberProtocol  # noqa: TC002
 from belgie_proto.organization.organization import OrganizationProtocol  # noqa: TC002
-from belgie_proto.organization.session import OrganizationSessionProtocol  # noqa: TC002
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -29,7 +29,7 @@ class Organization(BaseSettings):
         OrganizationProtocol,
         MemberProtocol,
         InvitationProtocol,
-        OrganizationSessionProtocol,
+        SessionProtocol,
     ] = Field(exclude=True)
     allow_user_to_create_organization: bool = True
     invitation_expires_in_seconds: int = 60 * 60 * 48
@@ -46,13 +46,13 @@ class Organization(BaseSettings):
             OrganizationProtocol,
             MemberProtocol,
             InvitationProtocol,
-            OrganizationSessionProtocol,
+            SessionProtocol,
         ],
     ) -> OrganizationAdapterProtocol[
         OrganizationProtocol,
         MemberProtocol,
         InvitationProtocol,
-        OrganizationSessionProtocol,
+        SessionProtocol,
     ]:
         if not isinstance(value, OrganizationAdapterProtocol):
             msg = "adapter must implement OrganizationAdapterProtocol"

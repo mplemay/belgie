@@ -47,13 +47,11 @@ class OrganizationPlugin(PluginClient):
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> OrganizationClient:
             user = await client.get_user(SecurityScopes(), request)
-            session = await client.get_session(request)
             return OrganizationClient(
                 client=client,
                 settings=self._settings,
                 adapter=self._settings.adapter,
                 current_user=user,
-                current_session=session,
                 maximum_members_per_team=None if team_plugin is None else team_plugin.settings.maximum_members_per_team,
             )
 

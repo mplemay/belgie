@@ -42,16 +42,20 @@ async def invite_member(
     invitation = await org_client.invite(
         email="member@example.com",
         role="member",
+        organization_id=organization_id,
     )
     return {"invitation_id": str(invitation.id)}
 ```
 
 ## Core client methods
 
-- `create`, `check_slug`, `for_user`, `set_active`, `active`, `details`, `update`, `delete`
-- `members`, `add_member`, `remove_member`, `update_member_role`, `active_member`, `leave`
+- `create`, `check_slug`, `for_user`, `details`, `update`, `delete`
+- `members`, `add_member`, `remove_member`, `update_member_role`, `leave`
 - `invite`, `accept_invitation`, `cancel_invitation`, `reject_invitation`, `invitation`, `invitations`,
   `user_invitations`
+
+Organization-scoped operations now require an explicit `organization_id`, except `details`, which may also resolve by
+`organization_slug`.
 
 ## Roles
 

@@ -32,16 +32,12 @@ class DummyBelgie:
 
 
 class FakeBelgieClient:
-    def __init__(self, *, user, session) -> None:
+    def __init__(self, *, user) -> None:
         self.user = user
-        self.session = session
         self.db = SimpleNamespace()
 
     async def get_user(self, _security_scopes, _request):
         return self.user
-
-    async def get_session(self, _request):
-        return self.session
 
 
 class FakeTeamAdapter(TeamAdapterProtocol):
@@ -63,8 +59,7 @@ class FakeOrganizationAdapter(OrganizationAdapterProtocol):
 def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
     settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
     user = SimpleNamespace(id=uuid4(), email="member@example.com")
-    session = SimpleNamespace(id=uuid4(), active_organization_id=None, active_team_id=None)
-    belgie_client = FakeBelgieClient(user=user, session=session)
+    belgie_client = FakeBelgieClient(user=user)
     adapter = FakeTeamAdapter()
 
     organization_plugin = OrganizationPlugin(settings, OrganizationSettings(adapter=adapter))
@@ -76,10 +71,7 @@ def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
 
     @app.get("/team-client")
     async def get_team_client(team: TeamClient = Depends(team_plugin)) -> dict[str, str]:
-        return {
-            "user_id": str(team.current_user.id),
-            "session_id": str(team.current_session.id),
-        }
+        return {"user_id": str(team.current_user.id)}
 
     return TestClient(app), belgie_client
 
@@ -90,10 +82,7 @@ def test_plugin_injects_team_client() -> None:
     response = client.get("/team-client")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "user_id": str(belgie_client.user.id),
-        "session_id": str(belgie_client.session.id),
-    }
+    assert response.json() == {"user_id": str(belgie_client.user.id)}
 
 
 def test_legacy_team_routes_removed() -> None:
@@ -108,10 +97,7 @@ def test_team_plugin_requires_organization_plugin_registration() -> None:
     settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
     team_plugin = TeamPlugin(settings, Team(adapter=FakeTeamAdapter()))
     belgie = DummyBelgie(
-        FakeBelgieClient(
-            user=SimpleNamespace(id=uuid4(), email="member@example.com"),
-            session=SimpleNamespace(id=uuid4(), active_organization_id=None, active_team_id=None),
-        ),
+        FakeBelgieClient(user=SimpleNamespace(id=uuid4(), email="member@example.com")),
         plugins=[team_plugin],
     )
 
@@ -124,10 +110,7 @@ def test_team_plugin_requires_team_capable_organization_adapter() -> None:
     organization_plugin = OrganizationPlugin(settings, OrganizationSettings(adapter=FakeOrganizationAdapter()))
     team_plugin = TeamPlugin(settings, Team(adapter=FakeTeamAdapter()))
     belgie = DummyBelgie(
-        FakeBelgieClient(
-            user=SimpleNamespace(id=uuid4(), email="member@example.com"),
-            session=SimpleNamespace(id=uuid4(), active_organization_id=None, active_team_id=None),
-        ),
+        FakeBelgieClient(user=SimpleNamespace(id=uuid4(), email="member@example.com")),
         plugins=[organization_plugin, team_plugin],
     )
 

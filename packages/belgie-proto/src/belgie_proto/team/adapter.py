@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from belgie_proto.core.session import SessionProtocol
 from belgie_proto.organization import OrganizationTeamAdapterProtocol
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.team.member import TeamMemberProtocol
-from belgie_proto.team.session import TeamSessionProtocol
 from belgie_proto.team.team import TeamProtocol
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ class TeamAdapterProtocol[
     InvitationT: InvitationProtocol,
     TeamT: TeamProtocol,
     TeamMemberT: TeamMemberProtocol,
-    SessionT: TeamSessionProtocol,
+    SessionT: SessionProtocol,
 ](OrganizationTeamAdapterProtocol[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT, SessionT], Protocol):
     async def create_team(
         self,
@@ -76,11 +76,3 @@ class TeamAdapterProtocol[
         *,
         user_id: UUID,
     ) -> list[TeamT]: ...
-
-    async def set_active_team(
-        self,
-        session: DBConnection,
-        *,
-        session_id: UUID,
-        team_id: UUID | None,
-    ) -> SessionT | None: ...

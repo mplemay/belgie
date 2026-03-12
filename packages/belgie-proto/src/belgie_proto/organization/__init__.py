@@ -3,7 +3,6 @@ from belgie_proto.organization.errors import PendingInvitationConflictError
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
-from belgie_proto.organization.session import OrganizationSessionProtocol
 from belgie_proto.organization.team_adapter import OrganizationTeamAdapterProtocol
 
 __all__ = [
@@ -11,7 +10,6 @@ __all__ = [
     "MemberProtocol",
     "OrganizationAdapterProtocol",
     "OrganizationProtocol",
-    "OrganizationSessionProtocol",
     "OrganizationTeamAdapterProtocol",
     "PendingInvitationConflictError",
 ]

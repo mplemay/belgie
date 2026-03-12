@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from belgie_proto.core.session import SessionProtocol
 from belgie_proto.organization.adapter import OrganizationAdapterProtocol
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
-from belgie_proto.organization.session import OrganizationSessionProtocol
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -21,7 +21,7 @@ class OrganizationTeamAdapterProtocol[
     InvitationT: InvitationProtocol,
     TeamT,
     TeamMemberT,
-    SessionT: OrganizationSessionProtocol,
+    SessionT: SessionProtocol,
 ](OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT, SessionT], Protocol):
     async def get_team_by_id(
         self,

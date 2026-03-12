@@ -9,11 +9,9 @@ from belgie.alchemy.mixins import (
     OrganizationInvitationMixin,
     OrganizationMemberMixin,
     OrganizationMixin,
-    OrganizationSessionMixin,
     SessionMixin,
     TeamMemberMixin,
     TeamMixin,
-    TeamSessionMixin,
     UserMixin,
 )
 
@@ -26,14 +24,7 @@ class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
     pass
 
 
-class Session(
-    DataclassBase,
-    PrimaryKeyMixin,
-    TimestampMixin,
-    SessionMixin,
-    OrganizationSessionMixin,
-    TeamSessionMixin,
-):
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
     pass
 
 
