@@ -30,7 +30,6 @@ from belgie_oauth_server.metadata import (
     build_openid_metadata,
     build_openid_metadata_well_known_path,
     build_protected_resource_metadata,
-    build_protected_resource_metadata_well_known_alias_path,
     build_protected_resource_metadata_well_known_path,
 )
 from belgie_oauth_server.models import (
@@ -191,12 +190,6 @@ class OAuthServerPlugin(PluginClient):
                 protected_resource_metadata_handler,
                 methods=["GET"],
             )
-            if (alias_path := build_protected_resource_metadata_well_known_alias_path(resource_url)) is not None:
-                router.add_api_route(
-                    alias_path,
-                    protected_resource_metadata_handler,
-                    methods=["GET"],
-                )
 
             if (
                 self._settings.include_root_resource_metadata_fallback

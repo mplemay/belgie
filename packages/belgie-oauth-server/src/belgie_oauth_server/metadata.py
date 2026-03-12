@@ -111,10 +111,3 @@ def build_protected_resource_metadata_well_known_path(resource_server_url: str |
     parsed = urlparse(str(resource_server_url))
     resource_path = parsed.path if parsed.path != "/" else ""
     return f"{_ROOT_RESOURCE_METADATA_PATH}{resource_path}"
-
-
-def build_protected_resource_metadata_well_known_alias_path(resource_server_url: str | AnyHttpUrl) -> str | None:
-    canonical_path = build_protected_resource_metadata_well_known_path(resource_server_url)
-    if canonical_path == _ROOT_RESOURCE_METADATA_PATH or not canonical_path.endswith("/"):
-        return None
-    return canonical_path.removesuffix("/")
