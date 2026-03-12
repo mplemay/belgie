@@ -3,14 +3,14 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
-from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC, Json
 from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import CITEXT
-from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
+from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
 
 
-class OrganizationMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class OrganizationMixin(MappedAsDataclass):
     __tablename__ = "organization"
 
     @declared_attr
@@ -49,7 +49,8 @@ class OrganizationMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
 
-class OrganizationMemberMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class OrganizationMemberMixin(MappedAsDataclass):
     __tablename__ = "organization_member"
 
     @declared_attr
@@ -100,7 +101,8 @@ class OrganizationMemberMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
 
-class OrganizationInvitationMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class OrganizationInvitationMixin(MappedAsDataclass):
     __tablename__ = "organization_invitation"
 
     @declared_attr
@@ -178,6 +180,7 @@ class OrganizationInvitationMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
 
+@declarative_mixin
 class OrganizationSessionMixin:
     @declared_attr
     def active_organization_id(self) -> Mapped[UUID | None]:
@@ -185,7 +188,6 @@ class OrganizationSessionMixin:
             ForeignKey("organization.id", ondelete="set null", onupdate="cascade"),
             nullable=True,
             default=None,
-            kw_only=True,
         )
 
 

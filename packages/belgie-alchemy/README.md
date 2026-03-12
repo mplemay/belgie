@@ -193,18 +193,19 @@ Use the built-in auth mixins for a minimal model setup:
 
 ```python
 from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from belgie_alchemy import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
-class User(DataclassBase, UserMixin):
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
     pass
 
-class Account(DataclassBase, AccountMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
     pass
 
-class Session(DataclassBase, SessionMixin):
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
     pass
 
-class OAuthState(DataclassBase, OAuthStateMixin):
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
     pass
 ```
 
@@ -214,7 +215,8 @@ Defaults include:
 - Account provider linkage fields and uniqueness constraint
 - Session expiration and metadata fields
 - OAuth state PKCE fields and optional user linkage
-- UUID primary keys and timestamps on all models
+- Explicit composition with Brussels `PrimaryKeyMixin` and `TimestampMixin` for `id`, `created_at`, `updated_at`,
+  `deleted_at`, and `mark_deleted()`
 - PostgreSQL `CITEXT` variants for case-insensitive `email`, `provider`, `provider_account_id`, `slug`, and invitation
   `email`
 
@@ -224,6 +226,9 @@ If you already use the default mixins on PostgreSQL, migrate existing app-owned 
 columns to `text` in your own app migration where needed. If you also created `user.scopes` as `jsonb`, migrate that
 column to `text[]`, backfill any `NULL` rows to `[]`, and then enforce `NOT NULL` as part of the same application
 migration. Belgie does not ship Alembic migrations for application tables.
+
+Belgie's mixins only provide Belgie-owned fields, relationships, indexes, and constraints. Your concrete models must
+compose whatever primary key and timestamp policy you want; the examples above use Brussels defaults.
 
 You can still override any field, relationship, or `__tablename__` in your concrete model classes.
 
@@ -235,6 +240,7 @@ Use the organization and team mixins together when your app needs both plugins:
 
 ```python
 from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from belgie_alchemy import (
     AccountMixin,
     OAuthStateMixin,
@@ -249,16 +255,26 @@ from belgie_alchemy import (
     UserMixin,
 )
 
-class User(DataclassBase, UserMixin): ...
-class Account(DataclassBase, AccountMixin): ...
-class Session(DataclassBase, SessionMixin, OrganizationSessionMixin, TeamSessionMixin): ...
-class OAuthState(DataclassBase, OAuthStateMixin): ...
-class Organization(DataclassBase, OrganizationMixin): ...
-class OrganizationMember(DataclassBase, OrganizationMemberMixin): ...
-class OrganizationInvitation(DataclassBase, OrganizationInvitationMixin): ...
-class Team(DataclassBase, TeamMixin): ...
-class TeamMember(DataclassBase, TeamMemberMixin): ...
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin): ...
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin): ...
+class Session(
+    DataclassBase,
+    PrimaryKeyMixin,
+    TimestampMixin,
+    SessionMixin,
+    OrganizationSessionMixin,
+    TeamSessionMixin,
+): ...
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin): ...
+class Organization(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMixin): ...
+class OrganizationMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMemberMixin): ...
+class OrganizationInvitation(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationInvitationMixin): ...
+class Team(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMixin): ...
+class TeamMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMemberMixin): ...
 ```
+
+`OrganizationSessionMixin` and `TeamSessionMixin` also work on plain `DeclarativeBase` session models when you only
+need the extra active-organization or active-team foreign key columns.
 
 Adapter wiring is explicit:
 
@@ -324,10 +340,11 @@ from belgie_alchemy.impl.auth import User, Account, Session, OAuthState
 ```python
 # Build your own concrete classes from mixins:
 from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from belgie_alchemy import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
-class User(DataclassBase, UserMixin): ...
-class Account(DataclassBase, AccountMixin): ...
-class Session(DataclassBase, SessionMixin): ...
-class OAuthState(DataclassBase, OAuthStateMixin): ...
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin): ...
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin): ...
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin): ...
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin): ...
 ```

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from uuid import UUID  # noqa: TC003
 
-from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from sqlalchemy import ForeignKey, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
+from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
 
 
-class TeamMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class TeamMixin(MappedAsDataclass):
     __tablename__ = "team"
 
     @declared_attr
@@ -51,7 +51,8 @@ class TeamMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
 
-class TeamMemberMixin(PrimaryKeyMixin, TimestampMixin):
+@declarative_mixin
+class TeamMemberMixin(MappedAsDataclass):
     __tablename__ = "team_member"
 
     @declared_attr
@@ -100,6 +101,7 @@ class TeamMemberMixin(PrimaryKeyMixin, TimestampMixin):
         )
 
 
+@declarative_mixin
 class TeamSessionMixin:
     @declared_attr
     def active_team_id(self) -> Mapped[UUID | None]:
@@ -107,7 +109,6 @@ class TeamSessionMixin:
             ForeignKey("team.id", ondelete="set null", onupdate="cascade"),
             nullable=True,
             default=None,
-            kw_only=True,
         )
 
 

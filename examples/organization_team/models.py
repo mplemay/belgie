@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from brussels.base import DataclassBase
+from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 
 from belgie.alchemy.mixins import (
     AccountMixin,
@@ -17,39 +18,46 @@ from belgie.alchemy.mixins import (
 )
 
 
-class User(DataclassBase, UserMixin):
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
     pass
 
 
-class Account(DataclassBase, AccountMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
     pass
 
 
-class Session(DataclassBase, SessionMixin, OrganizationSessionMixin, TeamSessionMixin):
+class Session(
+    DataclassBase,
+    PrimaryKeyMixin,
+    TimestampMixin,
+    SessionMixin,
+    OrganizationSessionMixin,
+    TeamSessionMixin,
+):
     pass
 
 
-class OAuthState(DataclassBase, OAuthStateMixin):
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
     pass
 
 
-class Organization(DataclassBase, OrganizationMixin):
+class Organization(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMixin):
     pass
 
 
-class OrganizationMember(DataclassBase, OrganizationMemberMixin):
+class OrganizationMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMemberMixin):
     pass
 
 
-class OrganizationInvitation(DataclassBase, OrganizationInvitationMixin):
+class OrganizationInvitation(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationInvitationMixin):
     pass
 
 
-class Team(DataclassBase, TeamMixin):
+class Team(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMixin):
     pass
 
 
-class TeamMember(DataclassBase, TeamMemberMixin):
+class TeamMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMemberMixin):
     pass
 
 
