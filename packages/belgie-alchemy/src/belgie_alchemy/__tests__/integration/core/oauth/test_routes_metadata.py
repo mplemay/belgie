@@ -68,7 +68,7 @@ def test_protected_resource_metadata_endpoint(client: TestClient) -> None:
     assert payload["scopes_supported"] == ["user"]
 
 
-def test_protected_resource_metadata_endpoint_without_trailing_slash_alias(
+def test_protected_resource_metadata_endpoint_preserves_trailing_slash_canonical_path(
     belgie_instance: Belgie,
 ) -> None:
     settings = OAuthServer(
@@ -87,13 +87,16 @@ def test_protected_resource_metadata_endpoint_without_trailing_slash_alias(
     app.include_router(belgie_instance.router)
 
     with TestClient(app) as client:
-        response = client.get("/.well-known/oauth-protected-resource/mcp", follow_redirects=False)
+        response = client.get("/.well-known/oauth-protected-resource/mcp/", follow_redirects=False)
+        alias_response = client.get("/.well-known/oauth-protected-resource/mcp", follow_redirects=False)
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["resource"] == "http://testserver/mcp/"
     assert payload["authorization_servers"] == [AUTH_BASE_URL]
     assert payload["scopes_supported"] == ["user"]
+    assert alias_response.status_code == 307
+    assert alias_response.headers["location"] == "http://testserver/.well-known/oauth-protected-resource/mcp/"
 
 
 def test_protected_resource_metadata_root_fallback(client: TestClient) -> None:
