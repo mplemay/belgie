@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from belgie_core.core.plugin import PluginClient
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
+    from belgie_team.plugin import TeamPlugin
 
     from belgie_organization.settings import Organization
 
@@ -28,6 +30,18 @@ class OrganizationPlugin(PluginClient):
         if self._resolve_client is not None:
             return
 
+        team_plugin: TeamPlugin | None = None
+        try:
+            team_plugin_type = import_module("belgie_team.plugin").TeamPlugin
+        except ModuleNotFoundError:
+            team_plugin_type = None
+
+        if team_plugin_type is not None:
+            team_plugin = next(
+                (plugin for plugin in belgie.plugins if isinstance(plugin, team_plugin_type)),
+                None,
+            )
+
         async def resolve_client(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
@@ -40,6 +54,7 @@ class OrganizationPlugin(PluginClient):
                 adapter=self._settings.adapter,
                 current_user=user,
                 current_session=session,
+                maximum_members_per_team=None if team_plugin is None else team_plugin.settings.maximum_members_per_team,
             )
 
         resolve_client.__annotations__["request"] = Request

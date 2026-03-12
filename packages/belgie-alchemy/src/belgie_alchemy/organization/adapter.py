@@ -256,10 +256,18 @@ class OrganizationAdapter[
         inviter_id: UUID,
         expires_at: datetime,
     ) -> InvitationT:
+        normalized_email = email.lower()
+        now = datetime.now(UTC)
+        await self._expire_pending_invitations(
+            session,
+            organization_id=organization_id,
+            email=normalized_email,
+            now=now,
+        )
         invitation = self.invitation_model(
             organization_id=organization_id,
             team_id=team_id,
-            email=email.lower(),
+            email=normalized_email,
             role=role,
             status="pending",
             inviter_id=inviter_id,
@@ -275,7 +283,7 @@ class OrganizationAdapter[
                 pending_invitation := await self.get_pending_invitation(
                     session,
                     organization_id=organization_id,
-                    email=email,
+                    email=normalized_email,
                 )
             ) is not None and pending_invitation.id != invitation.id:
                 raise PendingInvitationConflictError from exc
@@ -284,6 +292,30 @@ class OrganizationAdapter[
             await session.rollback()
             raise
         return invitation
+
+    async def _expire_pending_invitations(
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+        email: str,
+        now: datetime,
+    ) -> None:
+        stmt = select(self.invitation_model).where(
+            self.invitation_model.organization_id == organization_id,
+            self.invitation_model.email == email,
+            self.invitation_model.status == "pending",
+            self.invitation_model.expires_at <= now,
+        )
+        result = await session.execute(stmt)
+        expired_invitations = list(result.scalars().all())
+
+        for invitation in expired_invitations:
+            invitation.status = "expired"
+            invitation.updated_at = now
+
+        if expired_invitations:
+            await session.flush()
 
     async def get_invitation(
         self,

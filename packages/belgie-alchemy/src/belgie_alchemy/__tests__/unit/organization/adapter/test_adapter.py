@@ -177,3 +177,49 @@ async def test_invitation_team_id_and_list_user_invitations(
     assert invitation.team_id == team.id
     assert len(user_invitations) == 1
     assert user_invitations[0].id == invitation.id
+
+
+@pytest.mark.asyncio
+async def test_expired_pending_invitation_is_reissued(
+    core_adapter: BelgieAdapter,
+    organization_adapter: OrganizationAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    inviter = await core_adapter.create_user(alchemy_session, email="inviter3@example.com")
+    organization = await organization_adapter.create_organization(
+        alchemy_session,
+        name="Org4",
+        slug="org4",
+    )
+    await organization_adapter.create_member(
+        alchemy_session,
+        organization_id=organization.id,
+        user_id=inviter.id,
+        role="owner",
+    )
+
+    expired_invitation = await organization_adapter.create_invitation(
+        alchemy_session,
+        organization_id=organization.id,
+        team_id=None,
+        email="invitee3@example.com",
+        role="member",
+        inviter_id=inviter.id,
+        expires_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+    replacement_invitation = await organization_adapter.create_invitation(
+        alchemy_session,
+        organization_id=organization.id,
+        team_id=None,
+        email="invitee3@example.com",
+        role="member",
+        inviter_id=inviter.id,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    invitations = await organization_adapter.list_invitations(
+        alchemy_session,
+        organization_id=organization.id,
+    )
+
+    assert expired_invitation.id != replacement_invitation.id
+    assert sorted(invitation.status for invitation in invitations) == ["expired", "pending"]

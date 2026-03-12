@@ -54,6 +54,7 @@ def _build_client(
     current_session=None,
     core_adapter=None,
     send_invitation_email=None,
+    maximum_members_per_team=None,
 ) -> OrganizationClient:
     user = current_user or SimpleNamespace(id=uuid4(), email="owner@example.com")
     session = current_session or SimpleNamespace(id=uuid4(), active_organization_id=None)
@@ -71,6 +72,7 @@ def _build_client(
         adapter=adapter,
         current_user=user,
         current_session=session,
+        maximum_members_per_team=maximum_members_per_team,
     )
 
 
@@ -254,6 +256,81 @@ async def test_accept_invitation_adds_team_membership() -> None:
         user_id=user_id,
     )
     adapter.set_active_organization.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_add_member_rejects_full_team() -> None:
+    organization_id = uuid4()
+    team_id = uuid4()
+    user_id = uuid4()
+    adapter = FakeOrganizationTeamAdapter(
+        get_member=AsyncMock(side_effect=[SimpleNamespace(role="owner"), None]),
+        get_user_by_id=AsyncMock(return_value=SimpleNamespace(id=user_id)),
+        get_team_by_id=AsyncMock(return_value=SimpleNamespace(id=team_id, organization_id=organization_id)),
+        get_team_member=AsyncMock(return_value=None),
+        list_team_members=AsyncMock(return_value=[SimpleNamespace(id=uuid4())]),
+        create_member=AsyncMock(),
+        add_team_member=AsyncMock(),
+    )
+    organization_client = _build_client(
+        adapter=adapter,
+        core_adapter=SimpleNamespace(
+            get_user_by_email=AsyncMock(return_value=None),
+            get_user_by_id=AsyncMock(return_value=SimpleNamespace(id=user_id)),
+        ),
+        current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id),
+        maximum_members_per_team=1,
+    )
+
+    with pytest.raises(HTTPException, match="team member limit reached"):
+        await organization_client.add_member(user_id=user_id, role="member", team_id=team_id)
+
+    adapter.create_member.assert_not_awaited()
+    adapter.add_team_member.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_accept_invitation_rejects_full_team() -> None:
+    organization_id = uuid4()
+    team_id = uuid4()
+    user_id = uuid4()
+    now = datetime.now(UTC)
+    pending_invitation = SimpleNamespace(
+        id=uuid4(),
+        organization_id=organization_id,
+        team_id=team_id,
+        email="member@example.com",
+        role="member",
+        status="pending",
+        inviter_id=uuid4(),
+        expires_at=now + timedelta(hours=1),
+        created_at=now,
+        updated_at=now,
+    )
+    adapter = FakeOrganizationTeamAdapter(
+        get_invitation=AsyncMock(return_value=pending_invitation),
+        get_team_by_id=AsyncMock(return_value=SimpleNamespace(id=team_id, organization_id=organization_id)),
+        get_team_member=AsyncMock(return_value=None),
+        list_team_members=AsyncMock(return_value=[SimpleNamespace(id=uuid4())]),
+        get_member=AsyncMock(return_value=None),
+        create_member=AsyncMock(),
+        add_team_member=AsyncMock(),
+        set_invitation_status=AsyncMock(),
+        set_active_organization=AsyncMock(),
+    )
+    organization_client = _build_client(
+        adapter=adapter,
+        current_user=SimpleNamespace(id=user_id, email="member@example.com"),
+        current_session=SimpleNamespace(id=uuid4(), active_organization_id=None),
+        maximum_members_per_team=1,
+    )
+
+    with pytest.raises(HTTPException, match="team member limit reached"):
+        await organization_client.accept_invitation(invitation_id=pending_invitation.id)
+
+    adapter.create_member.assert_not_awaited()
+    adapter.add_team_member.assert_not_awaited()
+    adapter.set_invitation_status.assert_not_awaited()
 
 
 @pytest.mark.asyncio

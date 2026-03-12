@@ -7,6 +7,9 @@ from uuid import uuid4
 import pytest
 from belgie_core.core.settings import BelgieSettings
 from belgie_proto.organization import OrganizationAdapterProtocol
+from belgie_proto.team import TeamAdapterProtocol
+from belgie_team.plugin import TeamPlugin
+from belgie_team.settings import Team
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
@@ -22,7 +25,7 @@ if TYPE_CHECKING:
 class DummyBelgie:
     def __init__(self, client: FakeBelgieClient) -> None:
         self._client = client
-        self.plugins: list[OrganizationPlugin] = []
+        self.plugins: list[OrganizationPlugin | TeamPlugin] = []
 
     async def __call__(self) -> FakeBelgieClient:
         return self._client
@@ -42,6 +45,14 @@ class FakeBelgieClient:
 
 
 class FakeOrganizationAdapter(OrganizationAdapterProtocol):
+    def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
+        async def _unexpected(*_args: int, **_kwargs: int) -> None:
+            return None
+
+        return _unexpected
+
+
+class FakeOrganizationTeamAdapter(TeamAdapterProtocol):
     def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
             return None
@@ -91,6 +102,34 @@ def test_legacy_plugin_routes_removed() -> None:
     response = client.get("/organization/active")
 
     assert response.status_code == 404
+
+
+def test_plugin_injects_team_member_limit_from_team_plugin() -> None:
+    settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
+    user = SimpleNamespace(id=uuid4(), email="member@example.com")
+    session = SimpleNamespace(id=uuid4(), active_organization_id=None)
+    belgie_client = FakeBelgieClient(user=user, session=session)
+    belgie = DummyBelgie(belgie_client)
+    adapter = FakeOrganizationTeamAdapter()
+
+    organization_plugin = OrganizationPlugin(settings, Organization(adapter=adapter))
+    team_plugin = TeamPlugin(settings, Team(adapter=adapter, maximum_members_per_team=3))
+    belgie.plugins = [organization_plugin, team_plugin]
+
+    app = FastAPI()
+    app.include_router(organization_plugin.router(belgie))
+
+    @app.get("/organization-limit")
+    async def get_org_limit(
+        organization: OrganizationClient = Depends(organization_plugin),
+    ) -> dict[str, int | None]:
+        return {"maximum_members_per_team": organization.maximum_members_per_team}
+
+    client = TestClient(app)
+    response = client.get("/organization-limit")
+
+    assert response.status_code == 200
+    assert response.json() == {"maximum_members_per_team": 3}
 
 
 @pytest.mark.asyncio

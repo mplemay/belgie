@@ -39,6 +39,7 @@ class OrganizationClient:
     ]
     current_user: UserProtocol[str]
     current_session: OrganizationSessionProtocol
+    maximum_members_per_team: int | None = None
 
     async def create(  # noqa: PLR0913
         self,
@@ -238,6 +239,14 @@ class OrganizationClient:
                 detail="user not found",
             )
 
+        team_membership = None
+        if team_id is not None:
+            team_membership = await self._prepare_team_membership(
+                organization_id=resolved_organization_id,
+                team_id=team_id,
+                user_id=user_id,
+            )
+
         if (
             existing_member := await self.adapter.get_member(
                 self.client.db,
@@ -254,12 +263,10 @@ class OrganizationClient:
                 role=normalize_roles(role),
             )
 
-        if team_id is not None:
-            await self._add_user_to_team(
-                organization_id=resolved_organization_id,
-                team_id=team_id,
-                user_id=user_id,
-            )
+        if team_membership is not None:
+            team_adapter, existing_team_member = team_membership
+            if existing_team_member is None:
+                await team_adapter.add_team_member(self.client.db, team_id=team_id, user_id=user_id)
         return member
 
     async def remove_member(
@@ -509,6 +516,14 @@ class OrganizationClient:
                 detail="you are not the recipient of this invitation",
             )
 
+        team_membership = None
+        if invitation.team_id is not None:
+            team_membership = await self._prepare_team_membership(
+                organization_id=invitation.organization_id,
+                team_id=invitation.team_id,
+                user_id=self.current_user.id,
+            )
+
         member = await self.adapter.get_member(
             self.client.db,
             organization_id=invitation.organization_id,
@@ -522,12 +537,14 @@ class OrganizationClient:
                 role=normalize_roles(invitation.role),
             )
 
-        if invitation.team_id is not None:
-            await self._add_user_to_team(
-                organization_id=invitation.organization_id,
-                team_id=invitation.team_id,
-                user_id=self.current_user.id,
-            )
+        if team_membership is not None:
+            team_adapter, existing_team_member = team_membership
+            if existing_team_member is None:
+                await team_adapter.add_team_member(
+                    self.client.db,
+                    team_id=invitation.team_id,
+                    user_id=self.current_user.id,
+                )
 
         if (
             accepted_invitation := await self.adapter.set_invitation_status(
@@ -752,13 +769,23 @@ class OrganizationClient:
                 detail="team not found in organization",
             )
 
-    async def _add_user_to_team(
+    async def _prepare_team_membership(
         self,
         *,
         organization_id: UUID,
         team_id: UUID,
         user_id: UUID,
-    ) -> None:
+    ) -> tuple[
+        OrganizationTeamAdapterProtocol[
+            OrganizationProtocol,
+            MemberProtocol,
+            InvitationProtocol,
+            TeamProtocol,
+            TeamMemberProtocol,
+            OrganizationSessionProtocol,
+        ],
+        TeamMemberProtocol | None,
+    ]:
         team_adapter = self._require_team_adapter()
         team = await team_adapter.get_team_by_id(self.client.db, team_id)
         if team is None or team.organization_id != organization_id:
@@ -767,8 +794,24 @@ class OrganizationClient:
                 detail="team not found in organization",
             )
 
-        if await team_adapter.get_team_member(self.client.db, team_id=team_id, user_id=user_id) is None:
-            await team_adapter.add_team_member(self.client.db, team_id=team_id, user_id=user_id)
+        if (
+            existing_team_member := await team_adapter.get_team_member(
+                self.client.db,
+                team_id=team_id,
+                user_id=user_id,
+            )
+        ) is not None:
+            return team_adapter, existing_team_member
+
+        if self.maximum_members_per_team is not None and (
+            len(await team_adapter.list_team_members(self.client.db, team_id=team_id)) >= self.maximum_members_per_team
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="team member limit reached",
+            )
+
+        return team_adapter, None
 
 
 def _coerce_uuid(value: str) -> UUID | None:

@@ -590,6 +590,50 @@ async def test_org_team_uniqueness_constraints_hold(
 
 
 @pytest.mark.asyncio
+async def test_reinviting_after_expiry_marks_old_invitation_expired(
+    core_adapter: BelgieAdapter,
+    team_adapter: TeamAdapter,
+    team_org_session: AsyncSession,
+) -> None:
+    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
+    owner_session = await core_adapter.create_session(
+        team_org_session,
+        user_id=owner.id,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    owner_org_client = _organization_client(
+        db_session=team_org_session,
+        core_adapter=core_adapter,
+        adapter=team_adapter,
+        current_user=owner,
+        current_session=owner_session,
+    )
+    organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
+
+    expired_invitation = await team_adapter.create_invitation(
+        team_org_session,
+        organization_id=organization.id,
+        team_id=None,
+        email="member@example.com",
+        role="member",
+        inviter_id=owner.id,
+        expires_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+    replacement_invitation = await owner_org_client.invite(
+        email="member@example.com",
+        role="member",
+        organization_id=organization.id,
+    )
+    invitations = await owner_org_client.list_invitations(organization_id=organization.id)
+
+    assert replacement_invitation.id != expired_invitation.id
+    assert {invitation.id: invitation.status for invitation in invitations} == {
+        expired_invitation.id: "expired",
+        replacement_invitation.id: "pending",
+    }
+
+
+@pytest.mark.asyncio
 async def test_only_admins_can_read_invitation_lists(
     core_adapter: BelgieAdapter,
     team_adapter: TeamAdapter,
