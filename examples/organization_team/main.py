@@ -149,7 +149,7 @@ belgie = Belgie(
     database=get_db,
 )
 
-organization_plugin = belgie.add_plugin(OrganizationSettings(adapter=organization_adapter))
+organization_plugin = belgie.add_plugin(OrganizationSettings(adapter=team_adapter))
 team_plugin = belgie.add_plugin(TeamSettings(adapter=team_adapter))
 
 app.include_router(belgie.router)
@@ -165,6 +165,7 @@ async def home() -> dict[str, str]:
         "organization_list": "/org/list",
         "organization_set_active": "/org/set-active",
         "organization_full": "/org/full",
+        "organization_my_invitations": "/org/my-invitations",
         "organization_invite": "/org/invite",
         "organization_accept_invitation": "/org/accept-invitation",
         "team_create": "/team/create",
@@ -271,6 +272,14 @@ async def get_full_organization(
         members=[MemberView.model_validate(row) for row in members],
         invitations=[InvitationView.model_validate(row) for row in invitations],
     )
+
+
+@app.get("/org/my-invitations", response_model=list[InvitationView])
+async def list_my_invitations(
+    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+) -> list[InvitationView]:
+    invitations = await organization.list_user_invitations()
+    return [InvitationView.model_validate(row) for row in invitations]
 
 
 @app.post("/org/invite", response_model=InvitationView)

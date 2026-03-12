@@ -289,10 +289,27 @@ class TeamAdapter[
         session_id: UUID,
         organization_id: UUID | None,
     ) -> SessionT | None:
-        return await self.organization_adapter.set_active_organization(
+        session_obj = await self.core.get_session(session, session_id)
+        if session_obj is None:
+            return None
+        if not hasattr(session_obj, "active_organization_id"):
+            msg = (
+                "session model is missing 'active_organization_id'. Use OrganizationSessionMixin on your session model."
+            )
+            raise AttributeError(msg)
+        if not hasattr(session_obj, "active_team_id"):
+            msg = "session model is missing 'active_team_id'. Use TeamSessionMixin on your session model."
+            raise AttributeError(msg)
+
+        active_team_id = session_obj.active_team_id
+        if organization_id is None or session_obj.active_organization_id != organization_id:
+            active_team_id = None
+
+        return await self.core.update_session(
             session,
-            session_id=session_id,
-            organization_id=organization_id,
+            session_id,
+            active_organization_id=organization_id,
+            active_team_id=active_team_id,
         )
 
     async def create_team(
@@ -459,11 +476,24 @@ class TeamAdapter[
         session_obj = await self.core.get_session(session, session_id)
         if session_obj is None:
             return None
+        if not hasattr(session_obj, "active_organization_id"):
+            msg = (
+                "session model is missing 'active_organization_id'. Use OrganizationSessionMixin on your session model."
+            )
+            raise AttributeError(msg)
         if not hasattr(session_obj, "active_team_id"):
             msg = "session model is missing 'active_team_id'. Use TeamSessionMixin on your session model."
             raise AttributeError(msg)
+
+        active_organization_id = session_obj.active_organization_id
+        if team_id is not None:
+            if (team := await self.get_team_by_id(session, team_id)) is None:
+                return None
+            active_organization_id = team.organization_id
+
         return await self.core.update_session(
             session,
             session_id,
             active_team_id=team_id,
+            active_organization_id=active_organization_id,
         )

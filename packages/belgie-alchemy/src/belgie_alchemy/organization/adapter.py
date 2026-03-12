@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING, Any
 from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.user import UserProtocol
-from belgie_proto.organization import OrganizationAdapterProtocol
+from belgie_proto.organization import OrganizationAdapterProtocol, PendingInvitationConflictError
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.organization.session import OrganizationSessionProtocol
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -255,10 +256,18 @@ class OrganizationAdapter[
         inviter_id: UUID,
         expires_at: datetime,
     ) -> InvitationT:
+        normalized_email = email.lower()
+        now = datetime.now(UTC)
+        await self._expire_pending_invitations(
+            session,
+            organization_id=organization_id,
+            email=normalized_email,
+            now=now,
+        )
         invitation = self.invitation_model(
             organization_id=organization_id,
             team_id=team_id,
-            email=email.lower(),
+            email=normalized_email,
             role=role,
             status="pending",
             inviter_id=inviter_id,
@@ -268,10 +277,45 @@ class OrganizationAdapter[
         try:
             await session.commit()
             await session.refresh(invitation)
+        except IntegrityError as exc:
+            await session.rollback()
+            if (
+                pending_invitation := await self.get_pending_invitation(
+                    session,
+                    organization_id=organization_id,
+                    email=normalized_email,
+                )
+            ) is not None and pending_invitation.id != invitation.id:
+                raise PendingInvitationConflictError from exc
+            raise
         except Exception:
             await session.rollback()
             raise
         return invitation
+
+    async def _expire_pending_invitations(
+        self,
+        session: DBConnection,
+        *,
+        organization_id: UUID,
+        email: str,
+        now: datetime,
+    ) -> None:
+        stmt = select(self.invitation_model).where(
+            self.invitation_model.organization_id == organization_id,
+            self.invitation_model.email == email,
+            self.invitation_model.status == "pending",
+            self.invitation_model.expires_at <= now,
+        )
+        result = await session.execute(stmt)
+        expired_invitations = list(result.scalars().all())
+
+        for invitation in expired_invitations:
+            invitation.status = "expired"
+            invitation.updated_at = now
+
+        if expired_invitations:
+            await session.flush()
 
     async def get_invitation(
         self,

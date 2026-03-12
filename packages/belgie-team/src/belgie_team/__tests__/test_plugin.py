@@ -8,6 +8,7 @@ import pytest
 from belgie_core.core.settings import BelgieSettings
 from belgie_organization.plugin import OrganizationPlugin
 from belgie_organization.settings import Organization as OrganizationSettings
+from belgie_proto.organization import OrganizationAdapterProtocol
 from belgie_proto.team import TeamAdapterProtocol
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -44,6 +45,14 @@ class FakeBelgieClient:
 
 
 class FakeTeamAdapter(TeamAdapterProtocol):
+    def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
+        async def _unexpected(*_args: int, **_kwargs: int) -> None:
+            return None
+
+        return _unexpected
+
+
+class FakeOrganizationAdapter(OrganizationAdapterProtocol):
     def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
             return None
@@ -107,6 +116,22 @@ def test_team_plugin_requires_organization_plugin_registration() -> None:
     )
 
     with pytest.raises(RuntimeError, match="requires organization plugin"):
+        team_plugin.router(belgie)
+
+
+def test_team_plugin_requires_team_capable_organization_adapter() -> None:
+    settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
+    organization_plugin = OrganizationPlugin(settings, OrganizationSettings(adapter=FakeOrganizationAdapter()))
+    team_plugin = TeamPlugin(settings, Team(adapter=FakeTeamAdapter()))
+    belgie = DummyBelgie(
+        FakeBelgieClient(
+            user=SimpleNamespace(id=uuid4(), email="member@example.com"),
+            session=SimpleNamespace(id=uuid4(), active_organization_id=None, active_team_id=None),
+        ),
+        plugins=[organization_plugin, team_plugin],
+    )
+
+    with pytest.raises(TypeError, match="team-capable adapter"):
         team_plugin.router(belgie)
 
 

@@ -229,6 +229,78 @@ You can still override any field, relationship, or `__tablename__` in your concr
 
 See `examples/alchemy/auth_models.py` for a complete reference implementation.
 
+## Organization + Team Setup
+
+Use the organization and team mixins together when your app needs both plugins:
+
+```python
+from brussels.base import DataclassBase
+from belgie_alchemy import (
+    AccountMixin,
+    OAuthStateMixin,
+    OrganizationInvitationMixin,
+    OrganizationMemberMixin,
+    OrganizationMixin,
+    OrganizationSessionMixin,
+    SessionMixin,
+    TeamMemberMixin,
+    TeamMixin,
+    TeamSessionMixin,
+    UserMixin,
+)
+
+class User(DataclassBase, UserMixin): ...
+class Account(DataclassBase, AccountMixin): ...
+class Session(DataclassBase, SessionMixin, OrganizationSessionMixin, TeamSessionMixin): ...
+class OAuthState(DataclassBase, OAuthStateMixin): ...
+class Organization(DataclassBase, OrganizationMixin): ...
+class OrganizationMember(DataclassBase, OrganizationMemberMixin): ...
+class OrganizationInvitation(DataclassBase, OrganizationInvitationMixin): ...
+class Team(DataclassBase, TeamMixin): ...
+class TeamMember(DataclassBase, TeamMemberMixin): ...
+```
+
+Adapter wiring is explicit:
+
+```python
+from belgie.alchemy import BelgieAdapter
+from belgie.alchemy.organization import OrganizationAdapter
+from belgie.alchemy.team import TeamAdapter
+from belgie.organization import Organization as OrganizationSettings
+from belgie.team import Team as TeamSettings
+
+core_adapter = BelgieAdapter(
+    user=User,
+    account=Account,
+    session=Session,
+    oauth_state=OAuthState,
+)
+
+organization_adapter = OrganizationAdapter(
+    core=core_adapter,
+    organization=Organization,
+    member=OrganizationMember,
+    invitation=OrganizationInvitation,
+)
+
+team_adapter = TeamAdapter(
+    core=core_adapter,
+    organization_adapter=organization_adapter,
+    team=Team,
+    team_member=TeamMember,
+)
+
+organization_plugin = auth.add_plugin(OrganizationSettings(adapter=team_adapter))
+team_plugin = auth.add_plugin(TeamSettings(adapter=team_adapter))
+```
+
+Notes:
+
+- Pure organization-only installs can stop at `OrganizationAdapter` and pass it directly to `OrganizationSettings`.
+- Combined organization + team installs must use the team-capable adapter for both plugins.
+- Pending invitations are unique per `(organization_id, email)` while status is `pending`.
+- The runnable reference app lives at `examples/organization_team`.
+
 ## Design Principles
 
 1. **Building blocks, not frameworks** - You own your models completely

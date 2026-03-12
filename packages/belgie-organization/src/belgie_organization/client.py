@@ -5,6 +5,11 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from belgie_proto.organization import (
+    OrganizationAdapterProtocol,
+    OrganizationTeamAdapterProtocol,
+    PendingInvitationConflictError,
+)
 from fastapi import HTTPException, status
 
 from belgie_organization.roles import RoleValue, has_any_role, has_role, normalize_roles
@@ -12,11 +17,12 @@ from belgie_organization.roles import RoleValue, has_any_role, has_role, normali
 if TYPE_CHECKING:
     from belgie_core import BelgieClient
     from belgie_proto.core.user import UserProtocol
-    from belgie_proto.organization import OrganizationAdapterProtocol
     from belgie_proto.organization.invitation import InvitationProtocol
     from belgie_proto.organization.member import MemberProtocol
     from belgie_proto.organization.organization import OrganizationProtocol
     from belgie_proto.organization.session import OrganizationSessionProtocol
+    from belgie_proto.team.member import TeamMemberProtocol
+    from belgie_proto.team.team import TeamProtocol
 
     from belgie_organization.settings import Organization
 
@@ -33,6 +39,7 @@ class OrganizationClient:
     ]
     current_user: UserProtocol[str]
     current_session: OrganizationSessionProtocol
+    maximum_members_per_team: int | None = None
 
     async def create(  # noqa: PLR0913
         self,
@@ -82,9 +89,8 @@ class OrganizationClient:
     async def check_slug(self, *, slug: str) -> bool:
         return await self.adapter.get_organization_by_slug(self.client.db, slug) is not None
 
-    async def list_for_user(self, *, user_id: UUID | None = None) -> list[OrganizationProtocol]:
-        resolved_user_id = user_id or self.current_user.id
-        return await self.adapter.list_organizations_for_user(self.client.db, resolved_user_id)
+    async def list_for_user(self) -> list[OrganizationProtocol]:
+        return await self.adapter.list_organizations_for_user(self.client.db, self.current_user.id)
 
     async def set_active(
         self,
@@ -154,7 +160,7 @@ class OrganizationClient:
         if resolved_organization_id is None:
             return None
 
-        await self._require_organization_membership(organization_id=resolved_organization_id)
+        await self._require_default_admin_role(organization_id=resolved_organization_id)
         organization = await self.adapter.get_organization_by_id(self.client.db, resolved_organization_id)
         if organization is None:
             return None
@@ -233,6 +239,14 @@ class OrganizationClient:
                 detail="user not found",
             )
 
+        team_membership = None
+        if team_id is not None:
+            team_membership = await self._prepare_team_membership(
+                organization_id=resolved_organization_id,
+                team_id=team_id,
+                user_id=user_id,
+            )
+
         if (
             existing_member := await self.adapter.get_member(
                 self.client.db,
@@ -249,12 +263,10 @@ class OrganizationClient:
                 role=normalize_roles(role),
             )
 
-        if team_id is not None:
-            await self._add_user_to_team(
-                organization_id=resolved_organization_id,
-                team_id=team_id,
-                user_id=user_id,
-            )
+        if team_membership is not None:
+            team_adapter, existing_team_member = team_membership
+            if existing_team_member is None:
+                await team_adapter.add_team_member(self.client.db, team_id=team_id, user_id=user_id)
         return member
 
     async def remove_member(
@@ -291,6 +303,10 @@ class OrganizationClient:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="only owners can remove owners",
             )
+        await self._require_owner_membership_can_change(
+            organization_id=resolved_organization_id,
+            target_member=target_member,
+        )
 
         removed = await self.adapter.remove_member(
             self.client.db,
@@ -339,6 +355,11 @@ class OrganizationClient:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="only owners can grant owner role",
             )
+        await self._require_owner_membership_can_change(
+            organization_id=resolved_organization_id,
+            target_member=target_member,
+            next_role=normalized_role,
+        )
 
         if (
             updated := await self.adapter.update_member_role(
@@ -384,6 +405,10 @@ class OrganizationClient:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="member not found",
             )
+        await self._require_owner_membership_can_change(
+            organization_id=organization_id,
+            target_member=member,
+        )
 
         removed = await self.adapter.remove_member(
             self.client.db,
@@ -447,15 +472,21 @@ class OrganizationClient:
             )
 
         expires_at = datetime.now(UTC) + timedelta(seconds=self.settings.invitation_expires_in_seconds)
-        invitation = await self.adapter.create_invitation(
-            self.client.db,
-            organization_id=resolved_organization_id,
-            team_id=team_id,
-            email=email,
-            role=normalize_roles(role),
-            inviter_id=self.current_user.id,
-            expires_at=expires_at,
-        )
+        try:
+            invitation = await self.adapter.create_invitation(
+                self.client.db,
+                organization_id=resolved_organization_id,
+                team_id=team_id,
+                email=email,
+                role=normalize_roles(role),
+                inviter_id=self.current_user.id,
+                expires_at=expires_at,
+            )
+        except PendingInvitationConflictError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="user is already invited to this organization",
+            ) from exc
 
         organization = await self.adapter.get_organization_by_id(self.client.db, resolved_organization_id)
         if self.settings.send_invitation_email and organization is not None:
@@ -485,6 +516,14 @@ class OrganizationClient:
                 detail="you are not the recipient of this invitation",
             )
 
+        team_membership = None
+        if invitation.team_id is not None:
+            team_membership = await self._prepare_team_membership(
+                organization_id=invitation.organization_id,
+                team_id=invitation.team_id,
+                user_id=self.current_user.id,
+            )
+
         member = await self.adapter.get_member(
             self.client.db,
             organization_id=invitation.organization_id,
@@ -498,12 +537,14 @@ class OrganizationClient:
                 role=normalize_roles(invitation.role),
             )
 
-        if invitation.team_id is not None:
-            await self._add_user_to_team(
-                organization_id=invitation.organization_id,
-                team_id=invitation.team_id,
-                user_id=self.current_user.id,
-            )
+        if team_membership is not None:
+            team_adapter, existing_team_member = team_membership
+            if existing_team_member is None:
+                await team_adapter.add_team_member(
+                    self.client.db,
+                    team_id=invitation.team_id,
+                    user_id=self.current_user.id,
+                )
 
         if (
             accepted_invitation := await self.adapter.set_invitation_status(
@@ -595,24 +636,12 @@ class OrganizationClient:
         if invitation.email.lower() == self.current_user.email.lower():
             return invitation
 
-        if (
-            await self.adapter.get_member(
-                self.client.db,
-                organization_id=invitation.organization_id,
-                user_id=self.current_user.id,
-            )
-            is None
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="you are not allowed to access this invitation",
-            )
-
+        await self._require_default_admin_role(organization_id=invitation.organization_id)
         return invitation
 
     async def list_invitations(self, *, organization_id: UUID | None = None) -> list[InvitationProtocol]:
         resolved_organization_id = await self._resolve_required_organization_id(organization_id=organization_id)
-        await self._require_organization_membership(organization_id=resolved_organization_id)
+        await self._require_default_admin_role(organization_id=resolved_organization_id)
         return await self.adapter.list_invitations(self.client.db, organization_id=resolved_organization_id)
 
     async def list_user_invitations(self, *, email: str | None = None) -> list[InvitationProtocol]:
@@ -685,45 +714,104 @@ class OrganizationClient:
             )
         return member
 
-    def _supports_team_adapter(self) -> bool:
-        return all(hasattr(self.adapter, method) for method in ("get_team_by_id", "get_team_member", "add_team_member"))
-
-    async def _validate_team_for_organization(self, *, organization_id: UUID, team_id: UUID) -> None:
-        if not self._supports_team_adapter():
+    def _require_team_adapter(
+        self,
+    ) -> OrganizationTeamAdapterProtocol[
+        OrganizationProtocol,
+        MemberProtocol,
+        InvitationProtocol,
+        TeamProtocol,
+        TeamMemberProtocol,
+        OrganizationSessionProtocol,
+    ]:
+        if not isinstance(self.adapter, OrganizationTeamAdapterProtocol):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="team operations are not enabled for this adapter",
             )
+        return self.adapter
 
-        team = await self.adapter.get_team_by_id(self.client.db, team_id)  # type: ignore[attr-defined]
+    async def _require_owner_membership_can_change(
+        self,
+        *,
+        organization_id: UUID,
+        target_member: MemberProtocol,
+        next_role: str | None = None,
+    ) -> None:
+        if not has_role(target_member.role, "owner"):
+            return
+        if next_role is None:
+            if await self._organization_owner_count(organization_id=organization_id) > 1:
+                return
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="organization must keep at least one owner",
+            )
+        if has_role(next_role, "owner"):
+            return
+        if await self._organization_owner_count(organization_id=organization_id) > 1:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="organization must keep at least one owner",
+        )
+
+    async def _organization_owner_count(self, *, organization_id: UUID) -> int:
+        members = await self.adapter.list_members(self.client.db, organization_id=organization_id)
+        return sum(1 for member in members if has_role(member.role, "owner"))
+
+    async def _validate_team_for_organization(self, *, organization_id: UUID, team_id: UUID) -> None:
+        team_adapter = self._require_team_adapter()
+        team = await team_adapter.get_team_by_id(self.client.db, team_id)
         if team is None or team.organization_id != organization_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="team not found in organization",
             )
 
-    async def _add_user_to_team(
+    async def _prepare_team_membership(
         self,
         *,
         organization_id: UUID,
         team_id: UUID,
         user_id: UUID,
-    ) -> None:
-        if not self._supports_team_adapter():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="team operations are not enabled for this adapter",
-            )
-
-        team = await self.adapter.get_team_by_id(self.client.db, team_id)  # type: ignore[attr-defined]
+    ) -> tuple[
+        OrganizationTeamAdapterProtocol[
+            OrganizationProtocol,
+            MemberProtocol,
+            InvitationProtocol,
+            TeamProtocol,
+            TeamMemberProtocol,
+            OrganizationSessionProtocol,
+        ],
+        TeamMemberProtocol | None,
+    ]:
+        team_adapter = self._require_team_adapter()
+        team = await team_adapter.get_team_by_id(self.client.db, team_id)
         if team is None or team.organization_id != organization_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="team not found in organization",
             )
 
-        if await self.adapter.get_team_member(self.client.db, team_id=team_id, user_id=user_id) is None:  # type: ignore[attr-defined]
-            await self.adapter.add_team_member(self.client.db, team_id=team_id, user_id=user_id)  # type: ignore[attr-defined]
+        if (
+            existing_team_member := await team_adapter.get_team_member(
+                self.client.db,
+                team_id=team_id,
+                user_id=user_id,
+            )
+        ) is not None:
+            return team_adapter, existing_team_member
+
+        if self.maximum_members_per_team is not None and (
+            len(await team_adapter.list_team_members(self.client.db, team_id=team_id)) >= self.maximum_members_per_team
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="team member limit reached",
+            )
+
+        return team_adapter, None
 
 
 def _coerce_uuid(value: str) -> UUID | None:

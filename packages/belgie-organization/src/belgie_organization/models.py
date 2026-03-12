@@ -6,7 +6,7 @@ from uuid import UUID  # noqa: TC003
 
 from pydantic import BaseModel, ConfigDict, Field
 
-type InvitationStatus = Literal["pending", "accepted", "rejected", "canceled"]
+type InvitationStatus = Literal["pending", "accepted", "rejected", "canceled", "expired"]
 
 
 class OrganizationView(BaseModel):

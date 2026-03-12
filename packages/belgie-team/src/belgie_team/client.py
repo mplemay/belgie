@@ -122,6 +122,8 @@ class TeamClient:
         team = await self.adapter.get_team_by_id(self.client.db, self.current_session.active_team_id)
         if team is None:
             return None
+        if team.organization_id != self.current_session.active_organization_id:
+            return None
 
         if (
             await self.adapter.get_member(
@@ -179,20 +181,27 @@ class TeamClient:
             )
         return removed
 
-    async def list_user_teams(self, *, user_id: UUID | None = None) -> builtins.list[TeamProtocol]:
-        resolved_user_id = user_id or self.current_user.id
-        return await self.adapter.list_teams_for_user(self.client.db, user_id=resolved_user_id)
+    async def list_user_teams(self) -> builtins.list[TeamProtocol]:
+        return await self.adapter.list_teams_for_user(self.client.db, user_id=self.current_user.id)
 
     async def list_members(self, *, team_id: UUID | None = None) -> builtins.list[TeamMemberProtocol]:
-        resolved_team_id = team_id or self.current_session.active_team_id
-        if resolved_team_id is None:
+        if team_id is None and (active_team := await self.get_active()) is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="team_id is required",
             )
+        if team_id is None:
+            return await self.adapter.list_team_members(self.client.db, team_id=active_team.id)
 
-        await self._require_team_membership(team_id=resolved_team_id)
-        return await self.adapter.list_team_members(self.client.db, team_id=resolved_team_id)
+        team = await self.adapter.get_team_by_id(self.client.db, team_id)
+        if team is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="team not found",
+            )
+        await self._require_organization_membership(organization_id=team.organization_id)
+        await self._require_team_membership(team_id=team.id)
+        return await self.adapter.list_team_members(self.client.db, team_id=team.id)
 
     async def add_member(self, *, team_id: UUID, user_id: UUID) -> TeamMemberProtocol:
         team = await self.adapter.get_team_by_id(self.client.db, team_id)

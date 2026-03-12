@@ -31,25 +31,12 @@ class Organization(BaseSettings):
         InvitationProtocol,
         OrganizationSessionProtocol,
     ] = Field(exclude=True)
-    prefix: str = "/organization"
     allow_user_to_create_organization: bool = True
     invitation_expires_in_seconds: int = 60 * 60 * 48
     send_invitation_email: Callable[[InvitationProtocol, OrganizationProtocol], Awaitable[None]] | None = Field(
         default=None,
         exclude=True,
     )
-
-    @field_validator("prefix")
-    @classmethod
-    def validate_prefix(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            msg = "prefix must be a non-empty path"
-            raise ValueError(msg)
-        if not normalized.startswith("/"):
-            msg = "prefix must start with '/'"
-            raise ValueError(msg)
-        return normalized
 
     @field_validator("adapter")
     @classmethod

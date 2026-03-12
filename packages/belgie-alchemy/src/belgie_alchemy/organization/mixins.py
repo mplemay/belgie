@@ -5,7 +5,7 @@ from uuid import UUID  # noqa: TC003
 
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC, Json
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
@@ -161,6 +161,20 @@ class OrganizationInvitationMixin(PrimaryKeyMixin, TimestampMixin):
             "User",
             lazy="selectin",
             init=False,
+        )
+
+    @declared_attr.directive
+    def __table_args__(self) -> tuple[Index]:
+        pending_condition = self.status == "pending"
+        return (
+            Index(
+                "uq_organization_invitation_pending_org_email",
+                self.organization_id,
+                self.email,
+                unique=True,
+                postgresql_where=pending_condition,
+                sqlite_where=pending_condition,
+            ),
         )
 
 

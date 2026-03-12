@@ -6,8 +6,37 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from belgie_proto.team import TeamAdapterProtocol
+from fastapi import HTTPException
 
 from belgie_team.client import TeamClient
+
+
+class FakeTeamAdapter(TeamAdapterProtocol):
+    def __init__(self, **methods: AsyncMock) -> None:
+        self._methods: dict[str, AsyncMock] = methods
+        for name, method in methods.items():
+            setattr(self, name, method)
+
+    def __getattr__(self, name: str) -> AsyncMock:
+        if name in self._methods:
+            return self._methods[name]
+        return AsyncMock(side_effect=AssertionError(f"unexpected adapter call: {name}"))
+
+
+def _build_client(*, adapter, current_user=None, current_session=None) -> TeamClient:
+    user = current_user or SimpleNamespace(id=uuid4(), email="owner@example.com")
+    session = current_session or SimpleNamespace(id=uuid4(), active_organization_id=None, active_team_id=None)
+    return TeamClient(
+        client=SimpleNamespace(db=SimpleNamespace()),
+        settings=SimpleNamespace(
+            maximum_teams_per_organization=None,
+            maximum_members_per_team=None,
+        ),
+        adapter=adapter,
+        current_user=user,
+        current_session=session,
+    )
 
 
 @pytest.mark.asyncio
@@ -22,7 +51,7 @@ async def test_create_auto_adds_creator_to_team() -> None:
         updated_at=datetime.now(UTC),
     )
 
-    adapter = SimpleNamespace(
+    adapter = FakeTeamAdapter(
         get_member=AsyncMock(return_value=SimpleNamespace(role="owner")),
         list_teams=AsyncMock(return_value=[]),
         create_team=AsyncMock(return_value=team),
@@ -30,12 +59,7 @@ async def test_create_auto_adds_creator_to_team() -> None:
         add_team_member=AsyncMock(),
     )
 
-    team_client = TeamClient(
-        client=SimpleNamespace(db=SimpleNamespace()),
-        settings=SimpleNamespace(
-            maximum_teams_per_organization=None,
-            maximum_members_per_team=None,
-        ),
+    team_client = _build_client(
         adapter=adapter,
         current_user=SimpleNamespace(id=user_id, email="owner@example.com"),
         current_session=SimpleNamespace(id=uuid4(), active_organization_id=organization_id, active_team_id=None),
@@ -49,3 +73,68 @@ async def test_create_auto_adds_creator_to_team() -> None:
         team_id=team.id,
         user_id=user_id,
     )
+
+
+@pytest.mark.asyncio
+async def test_list_user_teams_uses_current_user() -> None:
+    user = SimpleNamespace(id=uuid4(), email="member@example.com")
+    adapter = FakeTeamAdapter(list_teams_for_user=AsyncMock(return_value=[]))
+    team_client = _build_client(adapter=adapter, current_user=user)
+
+    await team_client.list_user_teams()
+
+    adapter.list_teams_for_user.assert_awaited_once_with(team_client.client.db, user_id=user.id)
+
+
+@pytest.mark.asyncio
+async def test_get_active_returns_none_for_stale_team() -> None:
+    active_organization_id = uuid4()
+    stale_team = SimpleNamespace(
+        id=uuid4(),
+        organization_id=uuid4(),
+        name="Stale",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    adapter = FakeTeamAdapter(
+        get_team_by_id=AsyncMock(return_value=stale_team),
+    )
+    team_client = _build_client(
+        adapter=adapter,
+        current_session=SimpleNamespace(
+            id=uuid4(),
+            active_organization_id=active_organization_id,
+            active_team_id=stale_team.id,
+        ),
+    )
+
+    assert await team_client.get_active() is None
+
+
+@pytest.mark.asyncio
+async def test_list_members_requires_explicit_team_when_active_team_is_stale() -> None:
+    active_organization_id = uuid4()
+    stale_team = SimpleNamespace(
+        id=uuid4(),
+        organization_id=uuid4(),
+        name="Stale",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    adapter = FakeTeamAdapter(
+        get_team_by_id=AsyncMock(return_value=stale_team),
+        list_team_members=AsyncMock(),
+    )
+    team_client = _build_client(
+        adapter=adapter,
+        current_session=SimpleNamespace(
+            id=uuid4(),
+            active_organization_id=active_organization_id,
+            active_team_id=stale_team.id,
+        ),
+    )
+
+    with pytest.raises(HTTPException, match="team_id is required"):
+        await team_client.list_members()
+
+    adapter.list_team_members.assert_not_awaited()
