@@ -1,0 +1,2 @@
+class PendingInvitationConflictError(Exception):
+    pass

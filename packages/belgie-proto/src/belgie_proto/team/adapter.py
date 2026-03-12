@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from belgie_proto.organization import OrganizationAdapterProtocol
+from belgie_proto.organization import OrganizationTeamAdapterProtocol
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
@@ -24,7 +24,7 @@ class TeamAdapterProtocol[
     TeamT: TeamProtocol,
     TeamMemberT: TeamMemberProtocol,
     SessionT: TeamSessionProtocol,
-](OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT, SessionT], Protocol):
+](OrganizationTeamAdapterProtocol[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT, SessionT], Protocol):
     async def create_team(
         self,
         session: DBConnection,
@@ -32,12 +32,6 @@ class TeamAdapterProtocol[
         organization_id: UUID,
         name: str,
     ) -> TeamT: ...
-
-    async def get_team_by_id(
-        self,
-        session: DBConnection,
-        team_id: UUID,
-    ) -> TeamT | None: ...
 
     async def list_teams(
         self,
@@ -61,14 +55,6 @@ class TeamAdapterProtocol[
         team_id: UUID,
     ) -> bool: ...
 
-    async def add_team_member(
-        self,
-        session: DBConnection,
-        *,
-        team_id: UUID,
-        user_id: UUID,
-    ) -> TeamMemberT: ...
-
     async def remove_team_member(
         self,
         session: DBConnection,
@@ -76,14 +62,6 @@ class TeamAdapterProtocol[
         team_id: UUID,
         user_id: UUID,
     ) -> bool: ...
-
-    async def get_team_member(
-        self,
-        session: DBConnection,
-        *,
-        team_id: UUID,
-        user_id: UUID,
-    ) -> TeamMemberT | None: ...
 
     async def list_team_members(
         self,

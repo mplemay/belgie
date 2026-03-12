@@ -34,21 +34,8 @@ class Team(BaseSettings):
         TeamMemberProtocol,
         TeamSessionProtocol,
     ] = Field(exclude=True)
-    prefix: str = "/team"
     maximum_teams_per_organization: int | None = None
     maximum_members_per_team: int | None = None
-
-    @field_validator("prefix")
-    @classmethod
-    def validate_prefix(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            msg = "prefix must be a non-empty path"
-            raise ValueError(msg)
-        if not normalized.startswith("/"):
-            msg = "prefix must start with '/'"
-            raise ValueError(msg)
-        return normalized
 
     @field_validator("adapter")
     @classmethod

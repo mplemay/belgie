@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING, Any
 from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.user import UserProtocol
-from belgie_proto.organization import OrganizationAdapterProtocol
+from belgie_proto.organization import OrganizationAdapterProtocol, PendingInvitationConflictError
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.organization.session import OrganizationSessionProtocol
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -268,6 +269,17 @@ class OrganizationAdapter[
         try:
             await session.commit()
             await session.refresh(invitation)
+        except IntegrityError as exc:
+            await session.rollback()
+            if (
+                pending_invitation := await self.get_pending_invitation(
+                    session,
+                    organization_id=organization_id,
+                    email=email,
+                )
+            ) is not None and pending_invitation.id != invitation.id:
+                raise PendingInvitationConflictError from exc
+            raise
         except Exception:
             await session.rollback()
             raise

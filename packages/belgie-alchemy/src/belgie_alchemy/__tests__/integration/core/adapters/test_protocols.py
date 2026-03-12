@@ -7,7 +7,7 @@ from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.core.user import UserProtocol
-from belgie_proto.organization import OrganizationAdapterProtocol
+from belgie_proto.organization import OrganizationAdapterProtocol, OrganizationTeamAdapterProtocol
 from belgie_proto.team import TeamAdapterProtocol
 
 from belgie_alchemy.core import BelgieAdapter
@@ -255,6 +255,7 @@ def test_organization_adapter_satisfies_organization_protocol_only() -> None:
     )
 
     assert isinstance(organization_adapter, OrganizationAdapterProtocol)
+    assert not isinstance(organization_adapter, OrganizationTeamAdapterProtocol)
     assert not isinstance(organization_adapter, AdapterProtocol)
     assert callable(organization_adapter.create_organization)
     assert callable(organization_adapter.create_member)
@@ -283,6 +284,7 @@ def test_team_adapter_satisfies_team_protocol_only() -> None:
 
     assert isinstance(team_adapter, TeamAdapterProtocol)
     assert isinstance(team_adapter, OrganizationAdapterProtocol)
+    assert isinstance(team_adapter, OrganizationTeamAdapterProtocol)
     assert not isinstance(team_adapter, AdapterProtocol)
     assert callable(team_adapter.create_organization)
     assert callable(team_adapter.create_team)

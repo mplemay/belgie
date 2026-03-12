@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from belgie_core.core.plugin import PluginClient
 from belgie_organization.plugin import OrganizationPlugin
+from belgie_proto.organization import OrganizationTeamAdapterProtocol
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import SecurityScopes
 
@@ -47,6 +48,10 @@ class TeamPlugin(PluginClient):
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
+    @property
+    def settings(self) -> Team:
+        return self._settings
+
     async def __call__(self, *args: object, **kwargs: object) -> TeamClient:
         if self._resolve_client is None:
             msg = "TeamPlugin dependency requires router initialization (call app.include_router(belgie.router) first)"
@@ -54,12 +59,19 @@ class TeamPlugin(PluginClient):
         return await self._resolve_client(*args, **kwargs)
 
     def router(self, belgie: Belgie) -> APIRouter:
-        if not any(isinstance(plugin, OrganizationPlugin) for plugin in belgie.plugins):
+        organization_plugin = next(
+            (plugin for plugin in belgie.plugins if isinstance(plugin, OrganizationPlugin)),
+            None,
+        )
+        if organization_plugin is None:
             msg = "team plugin requires organization plugin to be registered"
             raise RuntimeError(msg)
+        if not isinstance(organization_plugin.settings.adapter, OrganizationTeamAdapterProtocol):
+            msg = "team plugin requires organization plugin to use a team-capable adapter"
+            raise TypeError(msg)
 
         self._ensure_dependency_resolver(belgie)
-        return APIRouter(prefix=self._settings.prefix, tags=["team"])
+        return APIRouter(tags=["team"])
 
     def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
         return None

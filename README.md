@@ -48,7 +48,22 @@ pip install belgie[alchemy]
 uv add belgie[alchemy]
 ```
 
-Optional extras: `belgie[mcp]`, `belgie[oauth]`, `belgie[oauth-client]`, or `belgie[all]`.
+For organization + team support with SQLAlchemy:
+
+```bash
+pip install belgie[alchemy,organization,team]
+# or with uv
+uv add belgie[alchemy,organization,team]
+```
+
+Optional extras: `belgie[organization]`, `belgie[team]`, `belgie[mcp]`, `belgie[oauth]`,
+`belgie[oauth-client]`, or `belgie[all]`.
+
+## Organization + Team
+
+Belgie ships client-first organization and team plugins for app-owned route design. For a runnable FastAPI example that
+shows the required shared team-capable adapter wiring, session mixins, invitation acceptance, and active-org/team
+behavior, see [`examples/organization_team`](./examples/organization_team/README.md).
 
 ## Quick start
 

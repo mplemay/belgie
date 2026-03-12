@@ -11,6 +11,8 @@ try:
         OrganizationAdapterProtocol,
         OrganizationProtocol,
         OrganizationSessionProtocol,
+        OrganizationTeamAdapterProtocol,
+        PendingInvitationConflictError,
     )
 except ModuleNotFoundError as exc:
     raise ImportError(_PROTO_IMPORT_ERROR) from exc
@@ -21,4 +23,6 @@ __all__ = [
     "OrganizationAdapterProtocol",
     "OrganizationProtocol",
     "OrganizationSessionProtocol",
+    "OrganizationTeamAdapterProtocol",
+    "PendingInvitationConflictError",
 ]

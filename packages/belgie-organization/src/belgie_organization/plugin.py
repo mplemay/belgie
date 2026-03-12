@@ -46,6 +46,10 @@ class OrganizationPlugin(PluginClient):
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
+    @property
+    def settings(self) -> Organization:
+        return self._settings
+
     async def __call__(self, *args: object, **kwargs: object) -> OrganizationClient:
         if self._resolve_client is None:
             msg = (
@@ -57,7 +61,7 @@ class OrganizationPlugin(PluginClient):
 
     def router(self, belgie: Belgie) -> APIRouter:
         self._ensure_dependency_resolver(belgie)
-        return APIRouter(prefix=self._settings.prefix, tags=["organization"])
+        return APIRouter(tags=["organization"])
 
     def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
         return None
