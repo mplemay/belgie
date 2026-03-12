@@ -273,6 +273,9 @@ class Team(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMixin): ...
 class TeamMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMemberMixin): ...
 ```
 
+`OrganizationSessionMixin` and `TeamSessionMixin` also work on plain `DeclarativeBase` session models when you only
+need the extra active-organization or active-team foreign key columns.
+
 Adapter wiring is explicit:
 
 ```python

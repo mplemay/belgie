@@ -102,14 +102,13 @@ class TeamMemberMixin(MappedAsDataclass):
 
 
 @declarative_mixin
-class TeamSessionMixin(MappedAsDataclass):
+class TeamSessionMixin:
     @declared_attr
     def active_team_id(self) -> Mapped[UUID | None]:
         return mapped_column(
             ForeignKey("team.id", ondelete="set null", onupdate="cascade"),
             nullable=True,
             default=None,
-            kw_only=True,
         )
 
 
