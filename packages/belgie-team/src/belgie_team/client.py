@@ -82,7 +82,7 @@ class TeamClient:
 
         return team
 
-    async def list(self, *, organization_id: UUID | None = None) -> builtins.list[TeamProtocol]:
+    async def teams(self, *, organization_id: UUID | None = None) -> builtins.list[TeamProtocol]:
         resolved_organization_id = self._resolve_required_organization_id(organization_id=organization_id)
         await self._require_organization_membership(organization_id=resolved_organization_id)
         return await self.adapter.list_teams(
@@ -115,7 +115,7 @@ class TeamClient:
         )
         return team
 
-    async def get_active(self) -> TeamProtocol | None:
+    async def active(self) -> TeamProtocol | None:
         if self.current_session.active_team_id is None:
             return None
 
@@ -163,7 +163,7 @@ class TeamClient:
             )
         return updated
 
-    async def remove(self, *, team_id: UUID) -> bool:
+    async def delete(self, *, team_id: UUID) -> bool:
         team = await self.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
@@ -181,11 +181,11 @@ class TeamClient:
             )
         return removed
 
-    async def list_user_teams(self) -> builtins.list[TeamProtocol]:
+    async def for_user(self) -> builtins.list[TeamProtocol]:
         return await self.adapter.list_teams_for_user(self.client.db, user_id=self.current_user.id)
 
-    async def list_members(self, *, team_id: UUID | None = None) -> builtins.list[TeamMemberProtocol]:
-        if team_id is None and (active_team := await self.get_active()) is None:
+    async def members(self, *, team_id: UUID | None = None) -> builtins.list[TeamMemberProtocol]:
+        if team_id is None and (active_team := await self.active()) is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="team_id is required",

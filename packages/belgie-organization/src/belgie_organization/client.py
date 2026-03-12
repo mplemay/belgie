@@ -89,7 +89,7 @@ class OrganizationClient:
     async def check_slug(self, *, slug: str) -> bool:
         return await self.adapter.get_organization_by_slug(self.client.db, slug) is not None
 
-    async def list_for_user(self) -> list[OrganizationProtocol]:
+    async def for_user(self) -> list[OrganizationProtocol]:
         return await self.adapter.list_organizations_for_user(self.client.db, self.current_user.id)
 
     async def set_active(
@@ -130,7 +130,7 @@ class OrganizationClient:
         )
         return await self.adapter.get_organization_by_id(self.client.db, resolved_organization_id)
 
-    async def get_active(self) -> OrganizationProtocol | None:
+    async def active(self) -> OrganizationProtocol | None:
         if (active_organization_id := self.current_session.active_organization_id) is None:
             return None
         organization = await self.adapter.get_organization_by_id(self.client.db, active_organization_id)
@@ -147,7 +147,7 @@ class OrganizationClient:
             return None
         return organization
 
-    async def get_full(
+    async def details(
         self,
         *,
         organization_id: UUID | None = None,
@@ -217,7 +217,7 @@ class OrganizationClient:
             )
         return deleted
 
-    async def list_members(self, *, organization_id: UUID | None = None) -> list[MemberProtocol]:
+    async def members(self, *, organization_id: UUID | None = None) -> list[MemberProtocol]:
         resolved_organization_id = await self._resolve_required_organization_id(organization_id=organization_id)
         await self._require_organization_membership(organization_id=resolved_organization_id)
         return await self.adapter.list_members(self.client.db, organization_id=resolved_organization_id)
@@ -374,7 +374,7 @@ class OrganizationClient:
             )
         return updated
 
-    async def get_active_member(self) -> MemberProtocol:
+    async def active_member(self) -> MemberProtocol:
         if (organization_id := self.current_session.active_organization_id) is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -625,7 +625,7 @@ class OrganizationClient:
             )
         return rejected
 
-    async def get_invitation(self, *, invitation_id: UUID) -> InvitationProtocol:
+    async def invitation(self, *, invitation_id: UUID) -> InvitationProtocol:
         invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
@@ -639,12 +639,12 @@ class OrganizationClient:
         await self._require_default_admin_role(organization_id=invitation.organization_id)
         return invitation
 
-    async def list_invitations(self, *, organization_id: UUID | None = None) -> list[InvitationProtocol]:
+    async def invitations(self, *, organization_id: UUID | None = None) -> list[InvitationProtocol]:
         resolved_organization_id = await self._resolve_required_organization_id(organization_id=organization_id)
         await self._require_default_admin_role(organization_id=resolved_organization_id)
         return await self.adapter.list_invitations(self.client.db, organization_id=resolved_organization_id)
 
-    async def list_user_invitations(self, *, email: str | None = None) -> list[InvitationProtocol]:
+    async def user_invitations(self, *, email: str | None = None) -> list[InvitationProtocol]:
         resolved_email = email or self.current_user.email
         if resolved_email.lower() != self.current_user.email.lower():
             raise HTTPException(

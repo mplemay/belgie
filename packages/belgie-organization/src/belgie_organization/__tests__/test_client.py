@@ -85,18 +85,18 @@ async def test_create_requires_explicit_role() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_for_user_uses_current_user() -> None:
+async def test_for_user_uses_current_user() -> None:
     user = SimpleNamespace(id=uuid4(), email="owner@example.com")
     adapter = FakeOrganizationAdapter(list_organizations_for_user=AsyncMock(return_value=[]))
     organization_client = _build_client(adapter=adapter, current_user=user)
 
-    await organization_client.list_for_user()
+    await organization_client.for_user()
 
     adapter.list_organizations_for_user.assert_awaited_once_with(organization_client.client.db, user.id)
 
 
 @pytest.mark.asyncio
-async def test_get_full_requires_admin_role() -> None:
+async def test_details_requires_admin_role() -> None:
     organization_id = uuid4()
     adapter = FakeOrganizationAdapter(
         get_member=AsyncMock(return_value=SimpleNamespace(role="member")),
@@ -107,7 +107,7 @@ async def test_get_full_requires_admin_role() -> None:
     )
 
     with pytest.raises(HTTPException, match="insufficient organization permissions"):
-        await organization_client.get_full(organization_id=organization_id)
+        await organization_client.details(organization_id=organization_id)
 
 
 @pytest.mark.asyncio
@@ -358,7 +358,7 @@ async def test_get_invitation_rejects_non_admin_member() -> None:
     )
 
     with pytest.raises(HTTPException, match="insufficient organization permissions"):
-        await organization_client.get_invitation(invitation_id=invitation.id)
+        await organization_client.invitation(invitation_id=invitation.id)
 
 
 @pytest.mark.asyncio
@@ -373,7 +373,7 @@ async def test_list_invitations_requires_admin_role() -> None:
     )
 
     with pytest.raises(HTTPException, match="insufficient organization permissions"):
-        await organization_client.list_invitations(organization_id=organization_id)
+        await organization_client.invitations(organization_id=organization_id)
 
 
 @pytest.mark.asyncio
