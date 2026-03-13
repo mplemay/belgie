@@ -13,6 +13,13 @@ from belgie_team.settings import Team
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from belgie_organization.__tests__.fakes import (
+    FakeInvitationRow,
+    FakeMemberRow,
+    FakeOrganizationRow,
+    FakeTeamMemberRow,
+    FakeTeamRow,
+)
 from belgie_organization.plugin import OrganizationPlugin
 from belgie_organization.settings import Organization
 
@@ -40,7 +47,7 @@ class FakeBelgieClient:
         return self.user
 
 
-class FakeOrganizationAdapter(OrganizationAdapterProtocol):
+class FakeOrganizationAdapter(OrganizationAdapterProtocol[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow]):
     def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
             return None
@@ -48,7 +55,15 @@ class FakeOrganizationAdapter(OrganizationAdapterProtocol):
         return _unexpected
 
 
-class FakeOrganizationTeamAdapter(TeamAdapterProtocol):
+class FakeOrganizationTeamAdapter(
+    TeamAdapterProtocol[
+        FakeOrganizationRow,
+        FakeMemberRow,
+        FakeInvitationRow,
+        FakeTeamRow,
+        FakeTeamMemberRow,
+    ],
+):
     def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
             return None
@@ -69,7 +84,7 @@ def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
 
     @app.get("/organization-client")
     async def get_org_client(
-        organization: OrganizationClient = Depends(plugin),
+        organization: OrganizationClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow] = Depends(plugin),
     ) -> dict[str, str]:
         return {"user_id": str(organization.current_user.id)}
 
@@ -109,7 +124,9 @@ def test_plugin_injects_team_member_limit_from_team_plugin() -> None:
 
     @app.get("/organization-limit")
     async def get_org_limit(
-        organization: OrganizationClient = Depends(organization_plugin),
+        organization: OrganizationClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow] = Depends(
+            organization_plugin,
+        ),
     ) -> dict[str, int | None]:
         return {"maximum_members_per_team": organization.maximum_members_per_team}
 

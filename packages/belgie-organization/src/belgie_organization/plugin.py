@@ -5,6 +5,9 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 from belgie_core.core.plugin import PluginClient
+from belgie_proto.organization.invitation import InvitationProtocol
+from belgie_proto.organization.member import MemberProtocol
+from belgie_proto.organization.organization import OrganizationProtocol
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import SecurityScopes
 
@@ -21,10 +24,20 @@ if TYPE_CHECKING:
     from belgie_organization.settings import Organization
 
 
-class OrganizationPlugin(PluginClient):
-    def __init__(self, _belgie_settings: BelgieSettings, settings: Organization) -> None:
+class OrganizationPlugin[
+    OrganizationT: OrganizationProtocol,
+    MemberT: MemberProtocol,
+    InvitationT: InvitationProtocol,
+](PluginClient):
+    def __init__(
+        self,
+        _belgie_settings: BelgieSettings,
+        settings: Organization[OrganizationT, MemberT, InvitationT],
+    ) -> None:
         self._settings = settings
-        self._resolve_client: Callable[..., Awaitable[OrganizationClient]] | None = None
+        self._resolve_client: (
+            Callable[..., Awaitable[OrganizationClient[OrganizationT, MemberT, InvitationT]]] | None
+        ) = None
 
     def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
         if self._resolve_client is not None:
@@ -45,7 +58,7 @@ class OrganizationPlugin(PluginClient):
         async def resolve_client(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
-        ) -> OrganizationClient:
+        ) -> OrganizationClient[OrganizationT, MemberT, InvitationT]:
             user = await client.get_user(SecurityScopes(), request)
             return OrganizationClient(
                 client=client,
@@ -60,10 +73,14 @@ class OrganizationPlugin(PluginClient):
         self.__signature__ = inspect.signature(resolve_client)
 
     @property
-    def settings(self) -> Organization:
+    def settings(self) -> Organization[OrganizationT, MemberT, InvitationT]:
         return self._settings
 
-    async def __call__(self, *args: object, **kwargs: object) -> OrganizationClient:
+    async def __call__(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> OrganizationClient[OrganizationT, MemberT, InvitationT]:
         if self._resolve_client is None:
             msg = (
                 "OrganizationPlugin dependency requires router initialization "

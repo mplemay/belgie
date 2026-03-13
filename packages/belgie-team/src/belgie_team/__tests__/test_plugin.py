@@ -13,6 +13,13 @@ from belgie_proto.team import TeamAdapterProtocol
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from belgie_team.__tests__.fakes import (
+    FakeInvitationRow,
+    FakeMemberRow,
+    FakeOrganizationRow,
+    FakeTeamMemberRow,
+    FakeTeamRow,
+)
 from belgie_team.plugin import TeamPlugin
 from belgie_team.settings import Team
 
@@ -40,7 +47,15 @@ class FakeBelgieClient:
         return self.user
 
 
-class FakeTeamAdapter(TeamAdapterProtocol):
+class FakeTeamAdapter(
+    TeamAdapterProtocol[
+        FakeOrganizationRow,
+        FakeMemberRow,
+        FakeInvitationRow,
+        FakeTeamRow,
+        FakeTeamMemberRow,
+    ],
+):
     def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
             return None
@@ -48,7 +63,7 @@ class FakeTeamAdapter(TeamAdapterProtocol):
         return _unexpected
 
 
-class FakeOrganizationAdapter(OrganizationAdapterProtocol):
+class FakeOrganizationAdapter(OrganizationAdapterProtocol[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow]):
     def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
             return None
@@ -70,7 +85,11 @@ def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
     app.include_router(team_plugin.router(belgie))
 
     @app.get("/team-client")
-    async def get_team_client(team: TeamClient = Depends(team_plugin)) -> dict[str, str]:
+    async def get_team_client(
+        team: TeamClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow, FakeTeamRow, FakeTeamMemberRow] = (
+            Depends(team_plugin)
+        ),
+    ) -> dict[str, str]:
         return {"user_id": str(team.current_user.id)}
 
     return TestClient(app), belgie_client

@@ -10,17 +10,16 @@ from belgie_proto.organization import (
     OrganizationTeamAdapterProtocol,
     PendingInvitationConflictError,
 )
+from belgie_proto.organization.invitation import InvitationProtocol
+from belgie_proto.organization.member import MemberProtocol
+from belgie_proto.organization.organization import OrganizationProtocol
 from fastapi import HTTPException, status
 
 from belgie_organization.roles import RoleValue, has_any_role, has_role, normalize_roles
 
 if TYPE_CHECKING:
     from belgie_core import BelgieClient
-    from belgie_proto.core.session import SessionProtocol
     from belgie_proto.core.user import UserProtocol
-    from belgie_proto.organization.invitation import InvitationProtocol
-    from belgie_proto.organization.member import MemberProtocol
-    from belgie_proto.organization.organization import OrganizationProtocol
     from belgie_proto.team.member import TeamMemberProtocol
     from belgie_proto.team.team import TeamProtocol
 
@@ -28,15 +27,14 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class OrganizationClient:
+class OrganizationClient[
+    OrganizationT: OrganizationProtocol,
+    MemberT: MemberProtocol,
+    InvitationT: InvitationProtocol,
+]:
     client: BelgieClient
-    settings: Organization
-    adapter: OrganizationAdapterProtocol[
-        OrganizationProtocol,
-        MemberProtocol,
-        InvitationProtocol,
-        SessionProtocol,
-    ]
+    settings: Organization[OrganizationT, MemberT, InvitationT]
+    adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT]
     current_user: UserProtocol[str]
     maximum_members_per_team: int | None = None
 
@@ -49,7 +47,7 @@ class OrganizationClient:
         logo: str | None = None,
         metadata: dict[str, object] | None = None,
         user_id: UUID | None = None,
-    ) -> tuple[OrganizationProtocol, MemberProtocol]:
+    ) -> tuple[OrganizationT, MemberT]:
         creator_user_id = user_id or self.current_user.id
         if user_id is not None and user_id != self.current_user.id:
             raise HTTPException(
@@ -85,7 +83,7 @@ class OrganizationClient:
     async def check_slug(self, *, slug: str) -> bool:
         return await self.adapter.get_organization_by_slug(self.client.db, slug) is not None
 
-    async def for_user(self) -> list[OrganizationProtocol]:
+    async def for_user(self) -> list[OrganizationT]:
         return await self.adapter.list_organizations_for_user(self.client.db, self.current_user.id)
 
     async def details(
@@ -93,7 +91,7 @@ class OrganizationClient:
         *,
         organization_id: UUID | None = None,
         organization_slug: str | None = None,
-    ) -> tuple[OrganizationProtocol, list[MemberProtocol], list[InvitationProtocol]] | None:
+    ) -> tuple[OrganizationT, list[MemberT], list[InvitationT]] | None:
         resolved_organization_id = await self._resolve_organization_id(
             organization_id=organization_id,
             organization_slug=organization_slug,
@@ -115,7 +113,7 @@ class OrganizationClient:
         slug: str | None = None,
         logo: str | None = None,
         metadata: dict[str, object] | None = None,
-    ) -> OrganizationProtocol:
+    ) -> OrganizationT:
         await self._require_default_admin_role(organization_id=organization_id)
 
         if (
@@ -148,7 +146,7 @@ class OrganizationClient:
         await self._require_owner_role(organization_id=organization_id)
         return await self.adapter.delete_organization(self.client.db, organization_id)
 
-    async def members(self, *, organization_id: UUID) -> list[MemberProtocol]:
+    async def members(self, *, organization_id: UUID) -> list[MemberT]:
         await self._require_organization_membership(organization_id=organization_id)
         return await self.adapter.list_members(self.client.db, organization_id=organization_id)
 
@@ -159,7 +157,7 @@ class OrganizationClient:
         role: RoleValue[str],
         organization_id: UUID,
         team_id: UUID | None = None,
-    ) -> MemberProtocol:
+    ) -> MemberT:
         await self._require_default_admin_role(organization_id=organization_id)
 
         if await self.client.adapter.get_user_by_id(self.client.db, user_id) is None:
@@ -248,7 +246,7 @@ class OrganizationClient:
         member_id: UUID,
         role: RoleValue[str],
         organization_id: UUID,
-    ) -> MemberProtocol:
+    ) -> MemberT:
         acting_member = await self._require_default_admin_role(organization_id=organization_id)
 
         target_member = await self.adapter.get_member_by_id(self.client.db, member_id)
@@ -318,7 +316,7 @@ class OrganizationClient:
         organization_id: UUID,
         resend: bool = False,
         team_id: UUID | None = None,
-    ) -> InvitationProtocol:
+    ) -> InvitationT:
         await self._require_default_admin_role(organization_id=organization_id)
 
         if team_id is not None:
@@ -384,7 +382,7 @@ class OrganizationClient:
         self,
         *,
         invitation_id: UUID,
-    ) -> tuple[InvitationProtocol, MemberProtocol]:
+    ) -> tuple[InvitationT, MemberT]:
         invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
@@ -446,7 +444,7 @@ class OrganizationClient:
 
         return accepted_invitation, member
 
-    async def cancel_invitation(self, *, invitation_id: UUID) -> InvitationProtocol:
+    async def cancel_invitation(self, *, invitation_id: UUID) -> InvitationT:
         invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
@@ -474,7 +472,7 @@ class OrganizationClient:
             )
         return canceled
 
-    async def reject_invitation(self, *, invitation_id: UUID) -> InvitationProtocol:
+    async def reject_invitation(self, *, invitation_id: UUID) -> InvitationT:
         invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
@@ -505,7 +503,7 @@ class OrganizationClient:
             )
         return rejected
 
-    async def invitation(self, *, invitation_id: UUID) -> InvitationProtocol:
+    async def invitation(self, *, invitation_id: UUID) -> InvitationT:
         invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
@@ -519,11 +517,11 @@ class OrganizationClient:
         await self._require_default_admin_role(organization_id=invitation.organization_id)
         return invitation
 
-    async def invitations(self, *, organization_id: UUID) -> list[InvitationProtocol]:
+    async def invitations(self, *, organization_id: UUID) -> list[InvitationT]:
         await self._require_default_admin_role(organization_id=organization_id)
         return await self.adapter.list_invitations(self.client.db, organization_id=organization_id)
 
-    async def user_invitations(self, *, email: str | None = None) -> list[InvitationProtocol]:
+    async def user_invitations(self, *, email: str | None = None) -> list[InvitationT]:
         resolved_email = email or self.current_user.email
         if resolved_email.lower() != self.current_user.email.lower():
             raise HTTPException(
@@ -553,7 +551,7 @@ class OrganizationClient:
             detail="organization_id or organization_slug is required",
         )
 
-    async def _require_organization_membership(self, *, organization_id: UUID) -> MemberProtocol:
+    async def _require_organization_membership(self, *, organization_id: UUID) -> MemberT:
         if (
             member := await self.adapter.get_member(
                 self.client.db,
@@ -567,7 +565,7 @@ class OrganizationClient:
             )
         return member
 
-    async def _require_default_admin_role(self, *, organization_id: UUID) -> MemberProtocol:
+    async def _require_default_admin_role(self, *, organization_id: UUID) -> MemberT:
         member = await self._require_organization_membership(organization_id=organization_id)
         if not has_any_role(member.role, ["owner", "admin"]):
             raise HTTPException(
@@ -576,7 +574,7 @@ class OrganizationClient:
             )
         return member
 
-    async def _require_owner_role(self, *, organization_id: UUID) -> MemberProtocol:
+    async def _require_owner_role(self, *, organization_id: UUID) -> MemberT:
         member = await self._require_organization_membership(organization_id=organization_id)
         if not has_role(member.role, "owner"):
             raise HTTPException(
@@ -588,12 +586,11 @@ class OrganizationClient:
     def _require_team_adapter(
         self,
     ) -> OrganizationTeamAdapterProtocol[
-        OrganizationProtocol,
-        MemberProtocol,
-        InvitationProtocol,
+        OrganizationT,
+        MemberT,
+        InvitationT,
         TeamProtocol,
         TeamMemberProtocol,
-        SessionProtocol,
     ]:
         if not isinstance(self.adapter, OrganizationTeamAdapterProtocol):
             raise HTTPException(
@@ -606,7 +603,7 @@ class OrganizationClient:
         self,
         *,
         organization_id: UUID,
-        target_member: MemberProtocol,
+        target_member: MemberT,
         next_role: str | None = None,
     ) -> None:
         if not has_role(target_member.role, "owner"):
@@ -648,12 +645,11 @@ class OrganizationClient:
         user_id: UUID,
     ) -> tuple[
         OrganizationTeamAdapterProtocol[
-            OrganizationProtocol,
-            MemberProtocol,
-            InvitationProtocol,
+            OrganizationT,
+            MemberT,
+            InvitationT,
             TeamProtocol,
             TeamMemberProtocol,
-            SessionProtocol,
         ],
         TeamMemberProtocol | None,
     ]:

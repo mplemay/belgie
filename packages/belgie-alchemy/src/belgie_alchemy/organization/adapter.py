@@ -29,7 +29,7 @@ class OrganizationAdapter[
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
     InvitationT: InvitationProtocol,
-](OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT, SessionT]):
+](OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT]):
     def __init__(
         self,
         *,

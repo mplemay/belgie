@@ -6,10 +6,11 @@ import pytest
 from belgie_proto.organization import OrganizationAdapterProtocol
 from pydantic import ValidationError
 
+from belgie_organization.__tests__.fakes import FakeInvitationRow, FakeMemberRow, FakeOrganizationRow
 from belgie_organization.settings import Organization
 
 
-class FakeOrganizationAdapter(OrganizationAdapterProtocol):
+class FakeOrganizationAdapter(OrganizationAdapterProtocol[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow]):
     def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
             msg = "unexpected adapter call in Organization settings test"

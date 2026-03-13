@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, assert_type
 from uuid import UUID  # noqa: TC003
 
 from brussels.base import DataclassBase
@@ -22,9 +22,10 @@ from belgie.organization import (
     Organization as OrganizationSettings,
     OrganizationClient,
     OrganizationFullView,
+    OrganizationPlugin,
     OrganizationView,
 )
-from belgie.team import Team as TeamSettings, TeamClient, TeamMemberView, TeamView
+from belgie.team import Team as TeamSettings, TeamClient, TeamMemberView, TeamPlugin, TeamView
 from examples.organization_team.models import (
     Account,
     OAuthState,
@@ -39,6 +40,9 @@ from examples.organization_team.models import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
+
+type OrganizationExampleClient = OrganizationClient[Organization, OrganizationMember, OrganizationInvitation]
+type TeamExampleClient = TeamClient[Organization, OrganizationMember, OrganizationInvitation, Team, TeamMember]
 
 DB_PATH = "./belgie_organization_team_example.db"
 
@@ -141,6 +145,8 @@ belgie = Belgie(
 
 organization_plugin = belgie.add_plugin(OrganizationSettings(adapter=team_adapter))
 team_plugin = belgie.add_plugin(TeamSettings(adapter=team_adapter))
+assert_type(organization_plugin, OrganizationPlugin[Organization, OrganizationMember, OrganizationInvitation])
+assert_type(team_plugin, TeamPlugin[Organization, OrganizationMember, OrganizationInvitation, Team, TeamMember])
 
 app.include_router(belgie.router)
 
@@ -199,7 +205,7 @@ async def me(
 @app.post("/org/create", response_model=OrganizationFullView)
 async def create_organization(
     payload: CreateOrganizationPayload,
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
 ) -> OrganizationFullView:
     org_row, member = await organization.create(
         name=payload.name,
@@ -208,6 +214,8 @@ async def create_organization(
         logo=payload.logo,
         metadata=payload.metadata,
     )
+    assert_type(org_row, Organization)
+    assert_type(member, OrganizationMember)
     return OrganizationFullView(
         organization=OrganizationView.model_validate(org_row),
         members=[MemberView.model_validate(member)],
@@ -217,15 +225,16 @@ async def create_organization(
 
 @app.get("/org/list", response_model=list[OrganizationView])
 async def list_organizations(
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
 ) -> list[OrganizationView]:
     rows = await organization.for_user()
+    assert_type(rows, list[Organization])
     return [OrganizationView.model_validate(row) for row in rows]
 
 
 @app.get("/org/full", response_model=OrganizationFullView | None)
 async def get_full_organization(
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
     organization_id: UUID | None = None,
     organization_slug: str | None = None,
 ) -> OrganizationFullView | None:
@@ -236,6 +245,9 @@ async def get_full_organization(
     if full is None:
         return None
     org_row, members, invitations = full
+    assert_type(org_row, Organization)
+    assert_type(members, list[OrganizationMember])
+    assert_type(invitations, list[OrganizationInvitation])
     return OrganizationFullView(
         organization=OrganizationView.model_validate(org_row),
         members=[MemberView.model_validate(row) for row in members],
@@ -245,16 +257,17 @@ async def get_full_organization(
 
 @app.get("/org/my-invitations", response_model=list[InvitationView])
 async def list_my_invitations(
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
 ) -> list[InvitationView]:
     invitations = await organization.user_invitations()
+    assert_type(invitations, list[OrganizationInvitation])
     return [InvitationView.model_validate(row) for row in invitations]
 
 
 @app.post("/org/invite", response_model=InvitationView)
 async def invite_member(
     payload: InvitePayload,
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
 ) -> InvitationView:
     invitation = await organization.invite(
         email=payload.email,
@@ -262,54 +275,61 @@ async def invite_member(
         organization_id=payload.organization_id,
         team_id=payload.team_id,
     )
+    assert_type(invitation, OrganizationInvitation)
     return InvitationView.model_validate(invitation)
 
 
 @app.post("/org/accept-invitation", response_model=InvitationView)
 async def accept_invitation(
     payload: AcceptInvitationPayload,
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
 ) -> InvitationView:
-    invitation, _member = await organization.accept_invitation(invitation_id=payload.invitation_id)
+    invitation, member = await organization.accept_invitation(invitation_id=payload.invitation_id)
+    assert_type(invitation, OrganizationInvitation)
+    assert_type(member, OrganizationMember)
     return InvitationView.model_validate(invitation)
 
 
 @app.post("/team/create", response_model=TeamView)
 async def create_team(
     payload: CreateTeamPayload,
-    team: Annotated[TeamClient, Depends(team_plugin)],
+    team: Annotated[TeamExampleClient, Depends(team_plugin)],
 ) -> TeamView:
     created = await team.create(
         name=payload.name,
         organization_id=payload.organization_id,
     )
+    assert_type(created, Team)
     return TeamView.model_validate(created)
 
 
 @app.get("/team/list", response_model=list[TeamView])
 async def list_teams(
-    team: Annotated[TeamClient, Depends(team_plugin)],
+    team: Annotated[TeamExampleClient, Depends(team_plugin)],
     organization_id: UUID,
 ) -> list[TeamView]:
     rows = await team.teams(organization_id=organization_id)
+    assert_type(rows, list[Team])
     return [TeamView.model_validate(row) for row in rows]
 
 
 @app.post("/team/add-member", response_model=TeamMemberView)
 async def add_team_member(
     payload: AddTeamMemberPayload,
-    team: Annotated[TeamClient, Depends(team_plugin)],
+    team: Annotated[TeamExampleClient, Depends(team_plugin)],
 ) -> TeamMemberView:
     member = await team.add_member(team_id=payload.team_id, user_id=payload.user_id)
+    assert_type(member, TeamMember)
     return TeamMemberView.model_validate(member)
 
 
 @app.get("/team/members", response_model=list[TeamMemberView])
 async def list_team_members(
-    team: Annotated[TeamClient, Depends(team_plugin)],
+    team: Annotated[TeamExampleClient, Depends(team_plugin)],
     team_id: UUID,
 ) -> list[TeamMemberView]:
     members = await team.members(team_id=team_id)
+    assert_type(members, list[TeamMember])
     return [TeamMemberView.model_validate(member) for member in members]
 
 

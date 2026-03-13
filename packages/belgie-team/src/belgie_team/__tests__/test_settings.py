@@ -6,10 +6,25 @@ import pytest
 from belgie_proto.team import TeamAdapterProtocol
 from pydantic import ValidationError
 
+from belgie_team.__tests__.fakes import (
+    FakeInvitationRow,
+    FakeMemberRow,
+    FakeOrganizationRow,
+    FakeTeamMemberRow,
+    FakeTeamRow,
+)
 from belgie_team.settings import Team
 
 
-class FakeTeamAdapter(TeamAdapterProtocol):
+class FakeTeamAdapter(
+    TeamAdapterProtocol[
+        FakeOrganizationRow,
+        FakeMemberRow,
+        FakeInvitationRow,
+        FakeTeamRow,
+        FakeTeamMemberRow,
+    ],
+):
     def __getattr__(self, _name: str) -> Callable[..., Awaitable[None]]:
         async def _unexpected(*_args: int, **_kwargs: int) -> None:
             msg = "unexpected adapter call in Team settings test"
