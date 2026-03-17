@@ -1,248 +1,99 @@
-# belgie-alchemy
+# Belgie Alchemy
 
-SQLAlchemy 2.0 utilities for Belgie.
+> [!WARNING]
+> Belgie Alchemy is a low-level SQLAlchemy layer. You own the concrete models, migrations, and schema changes in your
+> app. It provides mixins and adapters, not a database framework.
 
-## Overview
+Belgie Alchemy is the SQLAlchemy package behind Belgie's auth, organization, and team features. It gives you explicit
+adapter wiring and small composable mixins so you can build app-owned models without giving up type safety or clear
+schema boundaries.
 
-`belgie-alchemy` provides the `BelgieAdapter` and auth model mixins for Belgie.
-For SQLAlchemy building blocks (Base, low-level mixins, types), use `brussels`:
+## Installation
 
-- **Base**: Declarative base with dataclass mapping and sensible defaults
-- **Mixins**: `PrimaryKeyMixin` (UUID), `TimestampMixin` (created/updated/deleted timestamps)
-- **Types**: `DateTimeUTC` (timezone-aware datetimes), `Json` (dialect-specific JSON storage)
+```bash
+uv add belgie[alchemy]
+```
 
-The examples below keep model ownership in your app while reducing boilerplate.
+```bash
+uv add belgie[alchemy,organization,team]
+```
+
+> [!NOTE]
+> Application code should import from `belgie.alchemy`. The implementation package is `belgie_alchemy`, but the
+> public re-exports live under `belgie.alchemy`.
+
+## What It Provides
+
+- `BelgieAdapter` for core auth records.
+- `OrganizationAdapter` for organization membership and invitations.
+- `TeamAdapter` for organization-scoped teams.
+- `UserMixin`, `AccountMixin`, `SessionMixin`, and `OAuthStateMixin` for auth models.
+- `OrganizationMixin`, `OrganizationMemberMixin`, and `OrganizationInvitationMixin` for organization models.
+- `TeamMixin` and `TeamMemberMixin` for team models.
 
 ## Quick Start
 
 ```python
-from datetime import datetime
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from brussels.types import DateTimeUTC
-from sqlalchemy.orm import Mapped, mapped_column
 
-class Article(DataclassBase, PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "articles"
+from belgie.alchemy import AccountMixin, BelgieAdapter, OAuthStateMixin, SessionMixin, UserMixin
 
-    title: Mapped[str]
-    published_at: Mapped[datetime] = mapped_column(DateTimeUTC)
-```
-
-This gives you:
-
-- UUID primary key with server-side generation
-- Automatic `created_at`, `updated_at`, `deleted_at` timestamps
-- Timezone-aware datetime handling
-- Dataclass-style `__init__`, `__repr__`, `__eq__`
-
-## Building Blocks
-
-### Base
-
-Declarative base with dataclass mapping enabled:
-
-```python
-from brussels.base import DataclassBase
-from sqlalchemy.orm import Mapped, mapped_column
-
-class MyModel(DataclassBase):
-    __tablename__ = "my_models"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
-
-# Dataclass-style instantiation
-model = MyModel(id=1, name="example")
-```
-
-Features:
-
-- Consistent naming conventions for constraints
-- Automatic type annotation mapping (`datetime` → `DateTimeUTC`)
-- Dataclass mapping for convenient instantiation
-
-### Mixins
-
-#### PrimaryKeyMixin
-
-Adds a UUID primary key with server-side generation:
-
-```python
-from brussels.base import DataclassBase
-from brussels.mixins import PrimaryKeyMixin
-
-class MyModel(DataclassBase, PrimaryKeyMixin):
-    __tablename__ = "my_models"
-    # Automatically includes: id: Mapped[UUID]
-```
-
-The `id` field:
-
-- Type: `UUID`
-- Server-generated using `gen_random_uuid()`
-- Indexed and unique
-- Primary key
-
-#### TimestampMixin
-
-Adds automatic timestamp tracking:
-
-```python
-from brussels.base import DataclassBase
-from brussels.mixins import TimestampMixin
-
-class MyModel(DataclassBase, TimestampMixin):
-    __tablename__ = "my_models"
-    # Automatically includes:
-    # - created_at: Mapped[datetime]
-    # - updated_at: Mapped[datetime] (auto-updates on changes)
-    # - deleted_at: Mapped[datetime | None]
-```
-
-Features:
-
-- `created_at` set automatically on insert
-- `updated_at` auto-updates on row changes
-- `deleted_at` for soft deletion
-- `mark_deleted()` method to set `deleted_at`
-
-### Types
-
-#### DateTimeUTC
-
-Timezone-aware datetime storage:
-
-```python
-from datetime import datetime
-from brussels.base import DataclassBase
-from brussels.types import DateTimeUTC
-from sqlalchemy.orm import Mapped, mapped_column
-
-class Event(DataclassBase):
-    __tablename__ = "events"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    happened_at: Mapped[datetime] = mapped_column(DateTimeUTC)
-```
-
-Features:
-
-- Automatically converts naive datetimes to UTC
-- Preserves timezone-aware datetimes
-- Always returns UTC-aware datetimes from database
-- Works with PostgreSQL, SQLite, MySQL
-
-#### Json
-
-Dialect-specific JSON storage (JSONB on PostgreSQL):
-
-```python
-from brussels.base import DataclassBase
-from brussels.types import Json
-from sqlalchemy.orm import Mapped, mapped_column
-
-class User(DataclassBase):
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # Store arbitrary structured data as JSON (works everywhere)
-    metadata: Mapped[dict[str, str] | None] = mapped_column("metadata", Json, default=None)
-```
-
-Features:
-
-- PostgreSQL: Uses `JSONB`
-- SQLite/MySQL: Uses `JSON`
-
-Belgie's auth mixins do not use `Json` for `User.scopes` on PostgreSQL. They default to `text[]` on PostgreSQL
-and fall back to `Json` on other dialects.
-
-If your application uses a scope enum, override `UserMixin.scopes` with an enum array:
-
-```python
-from enum import StrEnum
-from brussels.base import DataclassBase
-from sqlalchemy import Enum
-from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.orm import Mapped, mapped_column
-
-class AppScope(StrEnum):
-    READ = "resource:read"
-    WRITE = "resource:write"
-    ADMIN = "admin"
-
-class User(DataclassBase):
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    # PostgreSQL native enum array for list[AppScope]
-    scopes: Mapped[list[AppScope]] = mapped_column(
-        ARRAY(Enum(AppScope, name="app_scope")),
-        default_factory=list,
-        nullable=False,
-    )
-```
-
-Use `ARRAY(Enum(...))` for `list[AppScope]` storage. A bare `Enum(AppScope)` column is scalar and will not store a
-scope list.
-
-## Auth Model Mixins
-
-Use the built-in auth mixins for a minimal model setup:
-
-```python
-from brussels.base import DataclassBase
-from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from belgie_alchemy import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
 
 class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
     pass
 
+
 class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
     pass
+
 
 class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
     pass
 
+
 class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
     pass
+
+
+adapter = BelgieAdapter(
+    user=User,
+    account=Account,
+    session=Session,
+    oauth_state=OAuthState,
+)
 ```
 
-Defaults include:
+This keeps your schema in your application while Belgie handles the adapter contract. You can add custom columns and
+relationships on top of the mixins without changing how the adapter works.
 
-- User email/profile fields and dialect-aware scopes (`text[]` on PostgreSQL, `Json` elsewhere)
-- Account provider linkage fields and uniqueness constraint
-- Session expiration and metadata fields
-- OAuth state PKCE fields and optional user linkage
-- Explicit composition with Brussels `PrimaryKeyMixin` and `TimestampMixin` for `id`, `created_at`, `updated_at`,
-  `deleted_at`, and `mark_deleted()`
-- PostgreSQL `CITEXT` variants for case-insensitive `email`, `provider`, `provider_account_id`, `slug`, and invitation
-  `email`
+## Auth Models
 
-For PostgreSQL deployments, ensure the `citext` extension is installed when using the default mixins.
+The auth mixins map to the common Belgie records:
 
-If you already use the default mixins on PostgreSQL, migrate existing app-owned `varchar` auth and organization
-columns to `text` in your own app migration where needed. If you also created `user.scopes` as `jsonb`, migrate that
-column to `text[]`, backfill any `NULL` rows to `[]`, and then enforce `NOT NULL` as part of the same application
-migration. Belgie does not ship Alembic migrations for application tables.
+- `UserMixin` adds email, profile, scopes, and related account/session/state relationships.
+- `AccountMixin` stores provider linkage and token fields.
+- `SessionMixin` stores session expiry plus request metadata.
+- `OAuthStateMixin` stores OAuth state, PKCE verifier, redirect URL, and optional user linkage.
 
-Belgie's mixins only provide Belgie-owned fields, relationships, indexes, and constraints. Your concrete models must
-compose whatever primary key and timestamp policy you want; the examples above use Brussels defaults.
+The default PostgreSQL variants use `CITEXT` for case-insensitive `email`, `provider`, and `provider_account_id`
+columns.
 
-You can still override any field, relationship, or `__tablename__` in your concrete model classes.
+> [!NOTE]
+> If you use the default PostgreSQL column variants, make sure the `citext` extension is installed in your database.
 
-See `examples/alchemy/auth_models.py` for a complete reference implementation.
+## Organization And Team
 
-## Organization + Team Setup
+Use the organization and team mixins when your app needs shared org membership plus team-scoped access:
 
-Use the organization and team mixins together when your app needs both plugins:
+> [!NOTE]
+> The snippet below assumes you have already defined `User`, `Account`, `Session`, `OAuthState`, `Organization`,
+> `OrganizationMember`, `OrganizationInvitation`, `Team`, and `TeamMember` from the mixins above.
 
 ```python
-from brussels.base import DataclassBase
-from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from belgie_alchemy import (
+from belgie.alchemy import (
     AccountMixin,
+    BelgieAdapter,
     OAuthStateMixin,
     OrganizationInvitationMixin,
     OrganizationMemberMixin,
@@ -252,26 +103,8 @@ from belgie_alchemy import (
     TeamMixin,
     UserMixin,
 )
-
-class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin): ...
-class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin): ...
-class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin): ...
-class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin): ...
-class Organization(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMixin): ...
-class OrganizationMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMemberMixin): ...
-class OrganizationInvitation(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationInvitationMixin): ...
-class Team(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMixin): ...
-class TeamMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMemberMixin): ...
-```
-
-Adapter wiring is explicit:
-
-```python
-from belgie.alchemy import BelgieAdapter
 from belgie.alchemy.organization import OrganizationAdapter
 from belgie.alchemy.team import TeamAdapter
-from belgie.organization import Organization as OrganizationSettings
-from belgie.team import Team as TeamSettings
 
 core_adapter = BelgieAdapter(
     user=User,
@@ -293,50 +126,15 @@ team_adapter = TeamAdapter(
     team=Team,
     team_member=TeamMember,
 )
-
-organization_plugin = auth.add_plugin(OrganizationSettings(adapter=team_adapter))
-team_plugin = auth.add_plugin(TeamSettings(adapter=team_adapter))
 ```
 
-Notes:
+When you enable both plugins, use the team-capable adapter for both. If you only need organizations, the organization
+adapter is sufficient.
 
-- Pure organization-only installs can stop at `OrganizationAdapter` and pass it directly to `OrganizationSettings`.
-- Combined organization + team installs must use the team-capable adapter for both plugins.
-- Organization/team state is explicit at the client layer; applications should pass `organization_id` and `team_id`
-  instead of relying on session-scoped active selections.
-- If your app previously stored `active_organization_id` or `active_team_id` on its session table, drop those
-  application-owned columns in your own migration.
-- Pending invitations are unique per `(organization_id, email)` while status is `pending`.
-- The runnable reference app lives at `examples/organization_team`.
+The default PostgreSQL variants also use `CITEXT` for organization `slug` values and pending invitation `email`
+addresses. Pending invitations are unique per `(organization_id, email)` while their status is `pending`.
 
-## Design Principles
+## Examples
 
-1. **Building blocks, not frameworks** - You own your models completely
-2. **Sensible defaults** - UTC datetimes, UUIDs, timestamps by default
-3. **Dataclass-friendly** - Clean instantiation and repr
-4. **Dialect-aware** - Use the best type for each database
-5. **Minimal magic** - Clear, explicit behavior
-
-## Migration from impl/auth.py
-
-If you previously imported models from `belgie_alchemy.impl.auth`:
-
-**Before:**
-
-```python
-from belgie_alchemy.impl.auth import User, Account, Session, OAuthState
-```
-
-**After:**
-
-```python
-# Build your own concrete classes from mixins:
-from brussels.base import DataclassBase
-from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from belgie_alchemy import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
-
-class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin): ...
-class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin): ...
-class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin): ...
-class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin): ...
-```
+- [`examples/alchemy/auth_models.py`](../../examples/alchemy/auth_models.py) for a compact auth-model reference.
+- [`examples/organization_team`](../../examples/organization_team) for a runnable organization + team app.
