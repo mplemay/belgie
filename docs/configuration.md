@@ -152,6 +152,42 @@ Common Google OAuth scopes:
 
 See [Google OAuth Scopes](https://developers.google.com/identity/protocols/oauth2/scopes) for full list.
 
+## Microsoft OAuth Settings
+
+Configure Microsoft Entra ID OAuth 2.0:
+
+```python
+from belgie.oauth.microsoft import MicrosoftOAuth
+
+microsoft = MicrosoftOAuth(
+    client_id="your-client-id",
+    client_secret="your-client-secret",
+    tenant="common",
+)
+```
+
+### Getting Credentials
+
+1. Go to the [Microsoft Entra admin center](https://entra.microsoft.com/)
+2. Register a new application or choose an existing one
+3. Add a Web redirect URI
+4. Add Microsoft Graph delegated permissions for `User.Read`
+5. Grant consent for `openid`, `profile`, `email`, and `offline_access` as needed
+
+### Environment Variables
+
+```bash
+BELGIE_MICROSOFT_CLIENT_ID=your-client-id
+BELGIE_MICROSOFT_CLIENT_SECRET=your-secret
+BELGIE_MICROSOFT_TENANT=common
+BELGIE_MICROSOFT_SCOPES=openid,profile,email,offline_access,User.Read
+```
+
+Microsoft callback URL is fixed to `<BELGIE_BASE_URL>/auth/provider/microsoft/callback`.
+
+Microsoft uses the Microsoft identity platform v2 authorization and token endpoints and the Microsoft Graph OIDC
+userinfo endpoint.
+
 ## URL Settings
 
 Configure redirect URLs after authentication:

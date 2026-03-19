@@ -1,3 +1,4 @@
+from belgie_oauth.microsoft import MicrosoftOAuth, MicrosoftOAuthClient, MicrosoftOAuthPlugin, MicrosoftUserInfo
 from belgie_oauth.plugin import GoogleOAuth, GoogleOAuthClient, GoogleOAuthPlugin, GoogleUserInfo
 
 __all__ = [
@@ -5,4 +6,8 @@ __all__ = [
     "GoogleOAuthClient",
     "GoogleOAuthPlugin",
     "GoogleUserInfo",
+    "MicrosoftOAuth",
+    "MicrosoftOAuthClient",
+    "MicrosoftOAuthPlugin",
+    "MicrosoftUserInfo",
 ]

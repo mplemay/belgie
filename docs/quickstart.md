@@ -166,6 +166,33 @@ async def profile(user: User = Security(auth.user, scopes=["profile"])):
     return {"name": user.name, "email": user.email}
 ```
 
+### Microsoft Sign-In
+
+Swap in the Microsoft provider if you want to sign users in with Microsoft Entra ID instead of Google:
+
+```python
+from belgie.oauth.microsoft import MicrosoftOAuth, MicrosoftOAuthClient
+
+microsoft_oauth_plugin = auth.add_plugin(
+    MicrosoftOAuth(
+        client_id="your-microsoft-client-id",
+        client_secret="your-microsoft-client-secret",
+        tenant="common",
+    ),
+)
+
+
+@app.get("/login/microsoft")
+async def login_microsoft(
+    microsoft: Annotated[MicrosoftOAuthClient, Depends(microsoft_oauth_plugin)],
+    return_to: str | None = None,
+):
+    auth_url = await microsoft.signin_url(return_to=return_to)
+    return RedirectResponse(url=auth_url, status_code=302)
+```
+
+Register the callback URI `http://localhost:8000/auth/provider/microsoft/callback` in Microsoft Entra ID.
+
 ## Next Steps
 
 - [Configuration Guide](configuration.md) - Detailed configuration options

@@ -8,9 +8,9 @@ The name "Belgie" is a nod to Belgium's role as a crossroads for languages, trad
 spirit, Belgie is built to sit at the center of a FastAPI application and connect authentication, session management,
 OAuth flows, and optional app-specific plugins without forcing you into a hosted identity platform.
 
-Belgie brings Google OAuth, signed sliding-window sessions, route protection, and typed extension points into a single
-Python-first workflow. It is designed for teams that want app-owned auth routes, SQLAlchemy-friendly persistence, and a
-small surface area that stays easy to reason about in production.
+Belgie brings Google and Microsoft OAuth, signed sliding-window sessions, route protection, and typed extension
+points into a single Python-first workflow. It is designed for teams that want app-owned auth routes,
+SQLAlchemy-friendly persistence, and a small surface area that stays easy to reason about in production.
 
 Belgie combines a focused core package with optional workspace packages for SQLAlchemy adapters, OAuth client and
 server flows, organization and team management, and MCP integration. Whether you need a minimal Google sign-in flow
@@ -44,7 +44,8 @@ Optional extras: `alchemy`, `mcp`, `oauth`, `oauth-client`, `organization`, `tea
 
 - **[belgie-core](packages/belgie-core/README.md):** Core auth client, settings, session manager, and plugin system.
 - **[belgie-alchemy](packages/belgie-alchemy/README.md):** SQLAlchemy adapters and mixins for Belgie models.
-- **[belgie-oauth](packages/belgie-oauth/README.md):** OAuth client plugins, including Google sign-in support.
+- **[belgie-oauth](packages/belgie-oauth/README.md):** OAuth client plugins, including Google and Microsoft
+  sign-in support.
 - **[belgie-oauth-server](packages/belgie-oauth-server/README.md):** OAuth 2.1 authorization server building blocks.
 - **[belgie-organization](packages/belgie-organization/README.md):** Organization plugin and request-scoped client APIs.
 - **[belgie-team](packages/belgie-team/README.md):** Team plugin and team management client APIs.
@@ -211,6 +212,9 @@ async def profile(user: User = Security(auth.user, scopes=["profile"])):
 Belgie gives you the auth router, session validation, and request dependencies from one `Belgie(...)` instance. Add a
 plugin such as `GoogleOAuth(...)`, include `auth.router`, and then protect routes with `Depends(auth.user)` or
 `Security(auth.user, scopes=[...])`.
+
+Microsoft uses the same pattern with `MicrosoftOAuth(...)`, `MicrosoftOAuthClient`, and the callback route at
+`/auth/provider/microsoft/callback`.
 
 Run the app with `uvicorn main:app --reload`, visit `/login/google`, and Belgie will handle the OAuth callback,
 session creation, and subsequent authenticated requests.
