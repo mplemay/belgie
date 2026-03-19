@@ -97,7 +97,7 @@ class MicrosoftOAuthPlugin(PluginClient):
 
     def __init__(self, belgie_settings: BelgieSettings, settings: MicrosoftOAuth) -> None:
         self.settings = settings
-        self._redirect_uri = _build_provider_callback_url(
+        self._redirect_uri = self._build_provider_callback_url(
             belgie_settings.base_url,
             provider_id=self.provider_id,
         )
@@ -304,10 +304,10 @@ class MicrosoftOAuthPlugin(PluginClient):
     def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
         return APIRouter()
 
-
-def _build_provider_callback_url(base_url: str, *, provider_id: str) -> str:
-    parsed = urlparse(base_url)
-    base_path = parsed.path.rstrip("/")
-    callback_path = f"/auth/provider/{provider_id}/callback"
-    full_path = f"{base_path}{callback_path}" if base_path else callback_path
-    return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
+    @staticmethod
+    def _build_provider_callback_url(base_url: str, *, provider_id: str) -> str:
+        parsed = urlparse(base_url)
+        base_path = parsed.path.rstrip("/")
+        callback_path = f"/auth/provider/{provider_id}/callback"
+        full_path = f"{base_path}{callback_path}" if base_path else callback_path
+        return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
