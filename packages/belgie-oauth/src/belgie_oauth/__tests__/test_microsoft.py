@@ -97,6 +97,17 @@ def test_microsoft_provider_settings_custom_values() -> None:
     assert settings.scopes == ["openid", "email"]
 
 
+def test_microsoft_provider_settings_reads_scopes_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BELGIE_MICROSOFT_SCOPES", "openid,profile,email,offline_access,User.Read")
+
+    settings = MicrosoftOAuth(
+        client_id="test-client-id",
+        client_secret="test-secret",
+    )
+
+    assert settings.scopes == ["openid", "profile", "email", "offline_access", "User.Read"]
+
+
 def test_microsoft_provider_settings_rejects_empty_client_id() -> None:
     with pytest.raises(ValidationError) as exc_info:
         MicrosoftOAuth(

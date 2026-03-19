@@ -11,10 +11,11 @@ from belgie_core.core.client import BelgieClient
 from belgie_core.core.exceptions import InvalidStateError, OAuthError
 from belgie_core.core.plugin import PluginClient
 from belgie_core.utils.crypto import generate_state_token
+from belgie_core.utils.scopes import parse_scopes
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -33,7 +34,9 @@ class MicrosoftOAuth(BaseSettings):
     client_id: str
     client_secret: SecretStr
     tenant: str = Field(default="common")
-    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "offline_access", "User.Read"])
+    scopes: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["openid", "profile", "email", "offline_access", "User.Read"],
+    )
 
     @field_validator("client_id", "tenant")
     @classmethod
@@ -51,6 +54,13 @@ class MicrosoftOAuth(BaseSettings):
             msg = "client_secret must be a non-empty string"
             raise ValueError(msg)
         return SecretStr(secret.strip())
+
+    @field_validator("scopes", mode="before")
+    @classmethod
+    def parse_scopes_value(cls, value: str | list[str]) -> list[str]:
+        if isinstance(value, str):
+            return parse_scopes(value)
+        return value
 
     def __call__(self, belgie_settings: BelgieSettings) -> MicrosoftOAuthPlugin:
         return MicrosoftOAuthPlugin(belgie_settings, self)
@@ -275,7 +285,7 @@ class MicrosoftOAuthPlugin(PluginClient):
                 request=request,
                 name=user_info.name,
                 image=user_info.picture,
-                email_verified_at=datetime.now(UTC),
+                email_verified_at=None,
             )
 
             await client.upsert_oauth_account(
