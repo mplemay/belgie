@@ -1,3 +1,5 @@
+"""SSO protocol re-exports for belgie consumers."""
+
 from belgie_proto.sso import (
     OIDCClaimMapping,
     OIDCProviderConfig,

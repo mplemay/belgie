@@ -27,6 +27,7 @@ all = [
     "belgie-oauth",
     "belgie-oauth-server",
     "belgie-organization",
+    "belgie-sso",
     "belgie-team",
 ]
 examples = [
@@ -43,6 +44,9 @@ oauth-client = [
 ]
 organization = [
     "belgie-organization",
+]
+sso = [
+    "belgie-sso",
 ]
 team = [
     "belgie-team",
@@ -74,6 +78,7 @@ belgie-oauth = { workspace = true }
 belgie-oauth-server = { workspace = true }
 belgie-organization = { workspace = true }
 belgie-proto = { workspace = true }
+belgie-sso = { workspace = true }
 belgie-team = { workspace = true }
 belgie-alchemy = { workspace = true }
 
@@ -86,6 +91,7 @@ members = [
     "packages/belgie-oauth-server",
     "packages/belgie-organization",
     "packages/belgie-proto",
+    "packages/belgie-sso",
     "packages/belgie-team",
 ]
 
