@@ -268,7 +268,6 @@ def build_client() -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapt
     client = SSOClient(
         client=SimpleNamespace(db=object()),
         settings=settings,
-        adapter=sso_adapter,
         organization_adapter=organization_adapter,
         current_user=admin_user,
     )
@@ -380,7 +379,9 @@ async def test_verify_domain_marks_domain_as_verified(monkeypatch) -> None:
         client_secret="client-secret",
         domains=["example.com"],
     )
-    domain = (await sso_client.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
+    domain = (
+        await sso_client.settings.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
+    )[0]
     monkeypatch.setattr(
         "belgie_sso.client.lookup_txt_records",
         AsyncMock(return_value=[domain.verification_token]),
@@ -417,10 +418,10 @@ async def test_create_domain_challenge_rotates_token_and_clears_verification(mon
         domains=["example.com"],
     )
     existing_domain = (
-        await sso_client.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
+        await sso_client.settings.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
     )[0]
     existing_token = existing_domain.verification_token
-    await sso_client.adapter.update_domain(
+    await sso_client.settings.adapter.update_domain(
         sso_client.client.db,
         domain_id=existing_domain.id,
         verified_at=datetime.now(UTC),
@@ -466,7 +467,7 @@ async def test_update_oidc_provider_replaces_domains(monkeypatch) -> None:
         client_secret="new-client-secret",
     )
 
-    stored_domains = await sso_client.adapter.list_domains_for_provider(
+    stored_domains = await sso_client.settings.adapter.list_domains_for_provider(
         sso_client.client.db,
         sso_provider_id=provider.id,
     )
@@ -500,11 +501,11 @@ async def test_update_oidc_provider_preserves_verified_domains_when_domain_list_
         domains=["example.com"],
     )
     existing_domain = (
-        await sso_client.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
+        await sso_client.settings.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
     )[0]
     verified_at = datetime.now(UTC)
     token_before = existing_domain.verification_token
-    await sso_client.adapter.update_domain(
+    await sso_client.settings.adapter.update_domain(
         sso_client.client.db,
         domain_id=existing_domain.id,
         verified_at=verified_at,
@@ -531,7 +532,9 @@ async def test_update_oidc_provider_preserves_verified_domains_when_domain_list_
         client_secret="new-client-secret",
     )
 
-    stored = (await sso_client.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
+    stored = (
+        await sso_client.settings.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
+    )[0]
     assert stored.domain == "example.com"
     assert stored.verification_token == token_before
     assert stored.verified_at == verified_at
@@ -603,5 +606,9 @@ async def test_delete_provider_removes_provider_and_domains(monkeypatch) -> None
     deleted = await sso_client.delete_provider(provider_id=provider.provider_id)
 
     assert deleted is True
-    assert await sso_client.adapter.get_provider_by_provider_id(sso_client.client.db, provider_id="acme") is None
-    assert (await sso_client.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)) == []
+    assert (
+        await sso_client.settings.adapter.get_provider_by_provider_id(sso_client.client.db, provider_id="acme") is None
+    )
+    assert (
+        await sso_client.settings.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
+    ) == []

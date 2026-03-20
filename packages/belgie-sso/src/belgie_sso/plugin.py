@@ -112,7 +112,6 @@ class SSOPlugin[
             return SSOClient(
                 client=client,
                 settings=self._settings,
-                adapter=self._settings.adapter,
                 organization_adapter=organization_plugin.settings.adapter,
                 current_user=current_user,
             )

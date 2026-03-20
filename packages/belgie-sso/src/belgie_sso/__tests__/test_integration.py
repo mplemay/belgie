@@ -18,7 +18,7 @@ from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
 from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin
 from belgie_core import Belgie, BelgieClient, BelgieSettings
-from belgie_organization import Organization as OrganizationPlugin
+from belgie_organization import Organization
 from belgie_proto.sso import OIDCProviderConfig
 from belgie_sso import EnterpriseSSO
 from belgie_sso.client import SSOClient
@@ -95,7 +95,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
         database=database,
     )
     belgie.add_plugin(
-        OrganizationPlugin(
+        Organization(
             adapter=organization_adapter,
         ),
     )
@@ -129,7 +129,6 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
                 cookie_settings=belgie.settings.cookie,
             ),
             settings=sso_settings,
-            adapter=sso_adapter,
             organization_adapter=organization_adapter,
             current_user=owner,
         )

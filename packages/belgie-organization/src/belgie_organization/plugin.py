@@ -63,7 +63,6 @@ class OrganizationPlugin[
             return OrganizationClient(
                 client=client,
                 settings=self._settings,
-                adapter=self._settings.adapter,
                 current_user=user,
                 maximum_members_per_team=None if team_plugin is None else team_plugin.settings.maximum_members_per_team,
             )

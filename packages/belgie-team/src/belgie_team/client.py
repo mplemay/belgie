@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
     from belgie_core import BelgieClient
     from belgie_proto.core.user import UserProtocol
-    from belgie_proto.team import TeamAdapterProtocol
 
     from belgie_team.settings import Team
 
@@ -31,7 +30,6 @@ class TeamClient[
 ]:
     client: BelgieClient
     settings: Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]
-    adapter: TeamAdapterProtocol[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]
     current_user: UserProtocol[str]
 
     async def create(
@@ -44,7 +42,7 @@ class TeamClient[
 
         if self.settings.maximum_teams_per_organization is not None and (
             len(
-                await self.adapter.list_teams(
+                await self.settings.adapter.list_teams(
                     self.client.db,
                     organization_id=organization_id,
                 ),
@@ -56,21 +54,21 @@ class TeamClient[
                 detail="maximum teams reached for this organization",
             )
 
-        team = await self.adapter.create_team(
+        team = await self.settings.adapter.create_team(
             self.client.db,
             organization_id=organization_id,
             name=name,
         )
 
         if (
-            await self.adapter.get_team_member(
+            await self.settings.adapter.get_team_member(
                 self.client.db,
                 team_id=team.id,
                 user_id=self.current_user.id,
             )
             is None
         ):
-            await self.adapter.add_team_member(
+            await self.settings.adapter.add_team_member(
                 self.client.db,
                 team_id=team.id,
                 user_id=self.current_user.id,
@@ -80,13 +78,13 @@ class TeamClient[
 
     async def teams(self, *, organization_id: UUID) -> builtins.list[TeamT]:
         await self._require_organization_membership(organization_id=organization_id)
-        return await self.adapter.list_teams(
+        return await self.settings.adapter.list_teams(
             self.client.db,
             organization_id=organization_id,
         )
 
     async def update(self, *, team_id: UUID, name: str) -> TeamT:
-        team = await self.adapter.get_team_by_id(self.client.db, team_id)
+        team = await self.settings.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -94,7 +92,7 @@ class TeamClient[
             )
 
         await self._require_default_admin_role(organization_id=team.organization_id)
-        if (updated := await self.adapter.update_team(self.client.db, team_id=team_id, name=name)) is None:
+        if (updated := await self.settings.adapter.update_team(self.client.db, team_id=team_id, name=name)) is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="team not found",
@@ -102,7 +100,7 @@ class TeamClient[
         return updated
 
     async def delete(self, *, team_id: UUID) -> bool:
-        team = await self.adapter.get_team_by_id(self.client.db, team_id)
+        team = await self.settings.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -110,13 +108,13 @@ class TeamClient[
             )
 
         await self._require_default_admin_role(organization_id=team.organization_id)
-        return await self.adapter.remove_team(self.client.db, team_id=team_id)
+        return await self.settings.adapter.remove_team(self.client.db, team_id=team_id)
 
     async def for_user(self) -> builtins.list[TeamT]:
-        return await self.adapter.list_teams_for_user(self.client.db, user_id=self.current_user.id)
+        return await self.settings.adapter.list_teams_for_user(self.client.db, user_id=self.current_user.id)
 
     async def members(self, *, team_id: UUID) -> builtins.list[TeamMemberT]:
-        team = await self.adapter.get_team_by_id(self.client.db, team_id)
+        team = await self.settings.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -124,10 +122,10 @@ class TeamClient[
             )
         await self._require_organization_membership(organization_id=team.organization_id)
         await self._require_team_membership(team_id=team.id)
-        return await self.adapter.list_team_members(self.client.db, team_id=team.id)
+        return await self.settings.adapter.list_team_members(self.client.db, team_id=team.id)
 
     async def add_member(self, *, team_id: UUID, user_id: UUID) -> TeamMemberT:
-        team = await self.adapter.get_team_by_id(self.client.db, team_id)
+        team = await self.settings.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -136,7 +134,7 @@ class TeamClient[
 
         await self._require_default_admin_role(organization_id=team.organization_id)
         if (
-            await self.adapter.get_member(
+            await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=team.organization_id,
                 user_id=user_id,
@@ -150,7 +148,7 @@ class TeamClient[
 
         if self.settings.maximum_members_per_team is not None and (
             len(
-                await self.adapter.list_team_members(
+                await self.settings.adapter.list_team_members(
                     self.client.db,
                     team_id=team_id,
                 ),
@@ -163,7 +161,7 @@ class TeamClient[
             )
 
         if (
-            existing := await self.adapter.get_team_member(
+            existing := await self.settings.adapter.get_team_member(
                 self.client.db,
                 team_id=team_id,
                 user_id=user_id,
@@ -171,14 +169,14 @@ class TeamClient[
         ) is not None:
             return existing
 
-        return await self.adapter.add_team_member(
+        return await self.settings.adapter.add_team_member(
             self.client.db,
             team_id=team_id,
             user_id=user_id,
         )
 
     async def remove_member(self, *, team_id: UUID, user_id: UUID) -> bool:
-        team = await self.adapter.get_team_by_id(self.client.db, team_id)
+        team = await self.settings.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -186,7 +184,7 @@ class TeamClient[
             )
 
         await self._require_default_admin_role(organization_id=team.organization_id)
-        return await self.adapter.remove_team_member(
+        return await self.settings.adapter.remove_team_member(
             self.client.db,
             team_id=team_id,
             user_id=user_id,
@@ -194,7 +192,7 @@ class TeamClient[
 
     async def _require_organization_membership(self, *, organization_id: UUID) -> MemberT:
         if (
-            member := await self.adapter.get_member(
+            member := await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=organization_id,
                 user_id=self.current_user.id,
@@ -217,7 +215,7 @@ class TeamClient[
 
     async def _require_team_membership(self, *, team_id: UUID) -> TeamMemberT:
         if (
-            team_member := await self.adapter.get_team_member(
+            team_member := await self.settings.adapter.get_team_member(
                 self.client.db,
                 team_id=team_id,
                 user_id=self.current_user.id,

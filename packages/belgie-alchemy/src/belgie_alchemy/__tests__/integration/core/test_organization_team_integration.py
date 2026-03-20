@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import belgie_organization.settings as org_belgie_settings
+import belgie_team.settings as team_belgie_settings
 import pytest
 import pytest_asyncio
 from belgie_organization.client import OrganizationClient
@@ -230,12 +232,12 @@ def _organization_client(
 ) -> OrganizationClient:
     return OrganizationClient(
         client=SimpleNamespace(db=db_session, adapter=core_adapter),
-        settings=SimpleNamespace(
+        settings=org_belgie_settings.Organization(
+            adapter=adapter,
             allow_user_to_create_organization=True,
             invitation_expires_in_seconds=3600,
             send_invitation_email=None,
         ),
-        adapter=adapter,
         current_user=current_user,
     )
 
@@ -248,11 +250,11 @@ def _team_client(
 ) -> TeamClient:
     return TeamClient(
         client=SimpleNamespace(db=db_session),
-        settings=SimpleNamespace(
+        settings=team_belgie_settings.Team(
+            adapter=adapter,
             maximum_teams_per_organization=None,
             maximum_members_per_team=None,
         ),
-        adapter=adapter,
         current_user=current_user,
     )
 

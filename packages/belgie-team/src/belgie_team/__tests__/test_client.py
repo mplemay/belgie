@@ -48,7 +48,6 @@ def _build_client(*, adapter, current_user=None) -> TeamClient:
             maximum_teams_per_organization=None,
             maximum_members_per_team=None,
         ),
-        adapter=adapter,
         current_user=user,
     )
 
