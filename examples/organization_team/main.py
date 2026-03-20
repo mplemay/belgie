@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy.core import BelgieAdapter
-from belgie.alchemy.organization import OrganizationAdapter
 from belgie.alchemy.team import TeamAdapter
 from belgie.organization import (
     InvitationView,
@@ -123,16 +122,10 @@ core_adapter = BelgieAdapter(
     oauth_state=OAuthState,
 )
 
-organization_adapter = OrganizationAdapter(
-    core=core_adapter,
+team_adapter = TeamAdapter(
     organization=Organization,
     member=OrganizationMember,
     invitation=OrganizationInvitation,
-)
-
-team_adapter = TeamAdapter(
-    core=core_adapter,
-    organization_adapter=organization_adapter,
     team=Team,
     team_member=TeamMember,
 )

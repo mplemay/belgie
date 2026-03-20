@@ -74,7 +74,6 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
         oauth_state=OAuthState,
     )
     organization_adapter = OrganizationAdapter(
-        core=core_adapter,
         organization=OrganizationModel,
         member=OrganizationMember,
         invitation=OrganizationInvitation,

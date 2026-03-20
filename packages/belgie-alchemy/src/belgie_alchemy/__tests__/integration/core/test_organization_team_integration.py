@@ -198,9 +198,8 @@ async def core_adapter(team_org_session: AsyncSession):  # noqa: ARG001
 
 
 @pytest_asyncio.fixture
-async def organization_adapter(core_adapter: BelgieAdapter, team_org_session: AsyncSession):  # noqa: ARG001
+async def organization_adapter(team_org_session: AsyncSession):  # noqa: ARG001
     adapter = OrganizationAdapter(
-        core=core_adapter,
         organization=Organization,
         member=OrganizationMember,
         invitation=OrganizationInvitation,
@@ -210,13 +209,12 @@ async def organization_adapter(core_adapter: BelgieAdapter, team_org_session: As
 
 @pytest_asyncio.fixture
 async def team_adapter(
-    core_adapter: BelgieAdapter,
-    organization_adapter: OrganizationAdapter,
     team_org_session: AsyncSession,  # noqa: ARG001
 ):
     adapter = TeamAdapter(
-        core=core_adapter,
-        organization_adapter=organization_adapter,
+        organization=Organization,
+        member=OrganizationMember,
+        invitation=OrganizationInvitation,
         team=Team,
         team_member=TeamMember,
     )

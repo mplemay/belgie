@@ -30,7 +30,6 @@ async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
 @pytest_asyncio.fixture
 async def organization_adapter(core_adapter: BelgieAdapter, alchemy_session: AsyncSession):  # noqa: ARG001
     adapter = OrganizationAdapter(
-        core=core_adapter,
         organization=Organization,
         member=OrganizationMember,
         invitation=OrganizationInvitation,
@@ -76,6 +75,79 @@ async def test_create_and_list_organizations(
     assert listed[0].id == organization.id
     assert fetched_member is not None
     assert fetched_member.role == "owner"
+
+
+@pytest.mark.asyncio
+async def test_update_organization(
+    organization_adapter: OrganizationAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    organization = await organization_adapter.create_organization(
+        alchemy_session,
+        name="Acme",
+        slug="acme",
+    )
+    before = organization.updated_at
+    updated = await organization_adapter.update_organization(
+        alchemy_session,
+        organization.id,
+        name="Acme Corp",
+        slug="acme-corp",
+    )
+    assert updated is not None
+    assert updated.name == "Acme Corp"
+    assert updated.slug == "acme-corp"
+    assert updated.updated_at >= before
+
+
+@pytest.mark.asyncio
+async def test_update_organization_missing_returns_none(
+    organization_adapter: OrganizationAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    missing = await organization_adapter.update_organization(
+        alchemy_session,
+        uuid4(),
+        name="Ghost",
+    )
+    assert missing is None
+
+
+@pytest.mark.asyncio
+async def test_update_member_role(
+    core_adapter: BelgieAdapter,
+    organization_adapter: OrganizationAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    user = await core_adapter.create_user(
+        alchemy_session,
+        email="member-role@example.com",
+    )
+    organization = await organization_adapter.create_organization(
+        alchemy_session,
+        name="RoleOrg",
+        slug="role-org",
+    )
+    member = await organization_adapter.create_member(
+        alchemy_session,
+        organization_id=organization.id,
+        user_id=user.id,
+        role="member",
+    )
+    updated = await organization_adapter.update_member_role(
+        alchemy_session,
+        member_id=member.id,
+        role="owner",
+    )
+    assert updated is not None
+    assert updated.role == "owner"
+    fetched = await organization_adapter.get_member(
+        alchemy_session,
+        organization_id=organization.id,
+        user_id=user.id,
+    )
+    assert fetched is not None
+    assert fetched.role == "owner"
 
 
 @pytest.mark.asyncio
@@ -128,6 +200,7 @@ async def test_invitation_accept_flow(
     assert pending.id == invitation.id
     assert accepted is not None
     assert accepted.status == "accepted"
+    assert accepted.updated_at is not None
 
 
 @pytest.mark.asyncio

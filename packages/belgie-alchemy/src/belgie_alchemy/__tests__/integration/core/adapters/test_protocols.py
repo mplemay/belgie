@@ -292,14 +292,7 @@ def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
 
 
 def test_organization_adapter_satisfies_organization_protocol_only() -> None:
-    core_adapter = BelgieAdapter(
-        user=ExampleUser,
-        account=ExampleAccount,
-        session=ExampleSession,
-        oauth_state=ExampleOAuthState,
-    )
     organization_adapter = OrganizationAdapter(
-        core=core_adapter,
         organization=ExampleOrganization,
         member=ExampleMember,
         invitation=ExampleInvitation,
@@ -313,21 +306,10 @@ def test_organization_adapter_satisfies_organization_protocol_only() -> None:
 
 
 def test_team_adapter_satisfies_team_protocol_only() -> None:
-    core_adapter = BelgieAdapter(
-        user=ExampleUser,
-        account=ExampleAccount,
-        session=ExampleSession,
-        oauth_state=ExampleOAuthState,
-    )
-    organization_adapter = OrganizationAdapter(
-        core=core_adapter,
+    team_adapter = TeamAdapter(
         organization=ExampleOrganization,
         member=ExampleMember,
         invitation=ExampleInvitation,
-    )
-    team_adapter = TeamAdapter(
-        core=core_adapter,
-        organization_adapter=organization_adapter,
         team=ExampleTeam,
         team_member=ExampleTeamMember,
     )

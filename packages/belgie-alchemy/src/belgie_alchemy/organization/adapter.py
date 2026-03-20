@@ -3,29 +3,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from belgie_proto.core.account import AccountProtocol
-from belgie_proto.core.oauth_state import OAuthStateProtocol
-from belgie_proto.core.session import SessionProtocol
-from belgie_proto.core.user import UserProtocol
 from belgie_proto.organization import OrganizationAdapterProtocol, PendingInvitationConflictError
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from belgie_proto.core import AdapterProtocol
     from belgie_proto.core.connection import DBConnection
 
 
 class OrganizationAdapter[
-    UserT: UserProtocol,
-    AccountT: AccountProtocol,
-    SessionT: SessionProtocol,
-    OAuthStateT: OAuthStateProtocol,
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
     InvitationT: InvitationProtocol,
@@ -33,12 +24,10 @@ class OrganizationAdapter[
     def __init__(
         self,
         *,
-        core: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT],
         organization: type[OrganizationT],
         member: type[MemberT],
         invitation: type[InvitationT],
     ) -> None:
-        self.core = core
         self.organization_model = organization
         self.member_model = member
         self.invitation_model = invitation
@@ -95,31 +84,35 @@ class OrganizationAdapter[
         logo: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> OrganizationT | None:
-        organization = await self.get_organization_by_id(session, organization_id)
-        if organization is None:
-            return None
-
-        updates: dict[str, Any] = {}
+        values: dict[str, Any] = {"updated_at": datetime.now(UTC)}
         if name is not None:
-            updates["name"] = name
+            values["name"] = name
         if slug is not None:
-            updates["slug"] = slug
+            values["slug"] = slug
         if logo is not None:
-            updates["logo"] = logo
+            values["logo"] = logo
         if metadata is not None:
-            updates["organization_metadata"] = metadata
+            values["organization_metadata"] = metadata
 
-        for key, value in updates.items():
-            setattr(organization, key, value)
-
-        organization.updated_at = datetime.now(UTC)
+        stmt = (
+            update(self.organization_model)
+            .where(self.organization_model.id == organization_id)
+            .values(**values)
+            .returning(self.organization_model)
+        )
         try:
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            # If RETURNING is empty, still commit: rollback would drop unrelated pending ORM
+            # work that may exist on the same session alongside this call.
             await session.commit()
-            await session.refresh(organization)
+            if row is None:
+                return None
+            await session.refresh(row)
         except Exception:
             await session.rollback()
             raise
-        return organization
+        return row
 
     async def delete_organization(
         self,
@@ -213,18 +206,25 @@ class OrganizationAdapter[
         member_id: UUID,
         role: str,
     ) -> MemberT | None:
-        member = await self.get_member_by_id(session, member_id)
-        if member is None:
-            return None
-        member.role = role
-        member.updated_at = datetime.now(UTC)
+        stmt = (
+            update(self.member_model)
+            .where(self.member_model.id == member_id)
+            .values(role=role, updated_at=datetime.now(UTC))
+            .returning(self.member_model)
+        )
         try:
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            # If RETURNING is empty, still commit: rollback would drop unrelated pending ORM
+            # work that may exist on the same session alongside this call.
             await session.commit()
-            await session.refresh(member)
+            if row is None:
+                return None
+            await session.refresh(row)
         except Exception:
             await session.rollback()
             raise
-        return member
+        return row
 
     async def remove_member(
         self,
@@ -301,21 +301,17 @@ class OrganizationAdapter[
         email: str,
         now: datetime,
     ) -> None:
-        stmt = select(self.invitation_model).where(
-            self.invitation_model.organization_id == organization_id,
-            self.invitation_model.email == email,
-            self.invitation_model.status == "pending",
-            self.invitation_model.expires_at <= now,
+        stmt = (
+            update(self.invitation_model)
+            .where(
+                self.invitation_model.organization_id == organization_id,
+                self.invitation_model.email == email,
+                self.invitation_model.status == "pending",
+                self.invitation_model.expires_at <= now,
+            )
+            .values(status="expired", updated_at=now)
         )
-        result = await session.execute(stmt)
-        expired_invitations = list(result.scalars().all())
-
-        for invitation in expired_invitations:
-            invitation.status = "expired"
-            invitation.updated_at = now
-
-        if expired_invitations:
-            await session.flush()
+        await session.execute(stmt)
 
     async def get_invitation(
         self,
@@ -373,15 +369,22 @@ class OrganizationAdapter[
         invitation_id: UUID,
         status: str,
     ) -> InvitationT | None:
-        invitation = await self.get_invitation(session, invitation_id)
-        if invitation is None:
-            return None
-        invitation.status = status
-        invitation.updated_at = datetime.now(UTC)
+        stmt = (
+            update(self.invitation_model)
+            .where(self.invitation_model.id == invitation_id)
+            .values(status=status, updated_at=datetime.now(UTC))
+            .returning(self.invitation_model)
+        )
         try:
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            # If RETURNING is empty, still commit: rollback would drop unrelated pending ORM
+            # work that may exist on the same session alongside this call.
             await session.commit()
-            await session.refresh(invitation)
+            if row is None:
+                return None
+            await session.refresh(row)
         except Exception:
             await session.rollback()
             raise
-        return invitation
+        return row

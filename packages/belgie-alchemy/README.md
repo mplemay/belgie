@@ -113,16 +113,18 @@ core_adapter = BelgieAdapter(
     oauth_state=OAuthState,
 )
 
+# Organizations only (no team plugin)
 organization_adapter = OrganizationAdapter(
-    core=core_adapter,
     organization=Organization,
     member=OrganizationMember,
     invitation=OrganizationInvitation,
 )
 
+# Organization + team plugins: one adapter for both plugins
 team_adapter = TeamAdapter(
-    core=core_adapter,
-    organization_adapter=organization_adapter,
+    organization=Organization,
+    member=OrganizationMember,
+    invitation=OrganizationInvitation,
     team=Team,
     team_member=TeamMember,
 )
