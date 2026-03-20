@@ -148,6 +148,11 @@ class FakeSSOAdapter:
         domain.updated_at = datetime.now(UTC)
         return domain
 
+    async def delete_domain(self, _db: object, *, domain_id: UUID) -> bool:
+        before = len(self.domains)
+        self.domains = [item for item in self.domains if item.id != domain_id]
+        return len(self.domains) < before
+
     async def delete_domains_for_provider(self, _db: object, *, sso_provider_id: UUID) -> int:
         removed = [item for item in self.domains if item.sso_provider_id == sso_provider_id]
         self.domains = [item for item in self.domains if item.sso_provider_id != sso_provider_id]
@@ -225,6 +230,61 @@ def test_router_requires_organization_plugin() -> None:
 
     with pytest.raises(RuntimeError, match="belgie-organization"):
         plugin.router(belgie)
+
+
+def test_signin_invalid_provider_id_returns_400(monkeypatch) -> None:
+    plugin, _, organization_adapter = build_plugin()
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=SimpleNamespace(create_oauth_state=AsyncMock()),
+    )
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(
+        plugin,
+        "_ensure_organization_plugin",
+        lambda _belgie: SimpleNamespace(settings=SimpleNamespace(adapter=organization_adapter)),
+    )
+
+    app = FastAPI()
+    app.include_router(plugin.router(belgie), prefix="/auth")
+
+    response = TestClient(app).get(
+        "/auth/provider/sso/signin?provider_id=acme!",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+
+
+def test_callback_invalid_provider_id_returns_400(monkeypatch) -> None:
+    plugin, _, organization_adapter = build_plugin()
+    adapter = SimpleNamespace(
+        get_oauth_state=AsyncMock(return_value=SimpleNamespace(redirect_url=None)),
+        delete_oauth_state=AsyncMock(return_value=True),
+    )
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=adapter,
+        sign_up=AsyncMock(),
+        upsert_oauth_account=AsyncMock(),
+        create_session_cookie=MagicMock(),
+    )
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(
+        plugin,
+        "_ensure_organization_plugin",
+        lambda _belgie: SimpleNamespace(settings=SimpleNamespace(adapter=organization_adapter)),
+    )
+
+    app = FastAPI()
+    app.include_router(plugin.router(belgie), prefix="/auth")
+
+    response = TestClient(app).get(
+        "/auth/provider/sso/callback/acme!?code=test-code&state=test-state",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
 
 
 def test_signin_redirects_using_verified_domain_lookup(monkeypatch) -> None:

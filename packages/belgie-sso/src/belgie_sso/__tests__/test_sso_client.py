@@ -185,6 +185,12 @@ class MemorySSOAdapter:
         sso_domain.updated_at = datetime.now(UTC)
         return sso_domain
 
+    async def delete_domain(self, _session: object, *, domain_id: UUID) -> bool:
+        if domain_id not in self.domains:
+            return False
+        self.domains.pop(domain_id)
+        return True
+
     async def delete_domains_for_provider(self, _session: object, *, sso_provider_id: UUID) -> int:
         domain_ids = [item.id for item in self.domains.values() if item.sso_provider_id == sso_provider_id]
         for domain_id in domain_ids:
@@ -304,6 +310,29 @@ async def test_register_oidc_provider_discovers_and_persists_domains(monkeypatch
     assert stored_provider.oidc_config == serialize_oidc_config(discovery.config)
     stored_domains = await sso_adapter.list_domains_for_provider(object(), sso_provider_id=provider.id)
     assert [domain.domain for domain in stored_domains] == ["example.com", "dept.example.com"]
+
+
+@pytest.mark.asyncio
+async def test_register_oidc_provider_rejects_malformed_provider_id() -> None:
+    sso_client, _, _, organization, _ = build_client()
+    with pytest.raises(HTTPException) as exc_info:
+        await sso_client.register_oidc_provider(
+            organization_id=organization.id,
+            provider_id="acme!",
+            issuer="https://idp.example.com",
+            client_id="client-id",
+            client_secret="client-secret",
+            domains=["example.com"],
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_get_provider_rejects_malformed_provider_id() -> None:
+    sso_client, _, _, _, _ = build_client()
+    with pytest.raises(HTTPException) as exc_info:
+        await sso_client.get_provider(provider_id="acme!")
+    assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -443,6 +472,69 @@ async def test_update_oidc_provider_replaces_domains(monkeypatch) -> None:
     )
     assert updated.id == provider.id
     assert [domain.domain for domain in stored_domains] == ["dept.example.com"]
+
+
+@pytest.mark.asyncio
+async def test_update_oidc_provider_preserves_verified_domains_when_domain_list_unchanged(monkeypatch) -> None:
+    sso_client, _, _, organization, _ = build_client()
+    discovery = OIDCDiscoveryResult(
+        issuer="https://idp.example.com",
+        config=OIDCProviderConfig(
+            client_id="client-id",
+            client_secret="client-secret",
+            authorization_endpoint="https://idp.example.com/authorize",
+            token_endpoint="https://idp.example.com/token",
+            userinfo_endpoint="https://idp.example.com/userinfo",
+        ),
+    )
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(return_value=discovery),
+    )
+    provider = await sso_client.register_oidc_provider(
+        organization_id=organization.id,
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        domains=["example.com"],
+    )
+    existing_domain = (
+        await sso_client.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
+    )[0]
+    verified_at = datetime.now(UTC)
+    token_before = existing_domain.verification_token
+    await sso_client.adapter.update_domain(
+        sso_client.client.db,
+        domain_id=existing_domain.id,
+        verified_at=verified_at,
+    )
+
+    updated_discovery = OIDCDiscoveryResult(
+        issuer="https://idp.example.com",
+        config=OIDCProviderConfig(
+            client_id="new-client-id",
+            client_secret="new-client-secret",
+            authorization_endpoint="https://idp.example.com/authorize",
+            token_endpoint="https://idp.example.com/token",
+            userinfo_endpoint="https://idp.example.com/userinfo",
+        ),
+    )
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(return_value=updated_discovery),
+    )
+    await sso_client.update_oidc_provider(
+        provider_id=provider.provider_id,
+        domains=["example.com"],
+        client_id="new-client-id",
+        client_secret="new-client-secret",
+    )
+
+    stored = (await sso_client.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
+    assert stored.domain == "example.com"
+    assert stored.verification_token == token_before
+    assert stored.verified_at == verified_at
 
 
 @pytest.mark.asyncio

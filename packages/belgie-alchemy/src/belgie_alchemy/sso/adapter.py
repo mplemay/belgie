@@ -212,6 +212,21 @@ class SSOAdapter[
             raise
         return sso_domain
 
+    async def delete_domain(
+        self,
+        session: DBConnection,
+        *,
+        domain_id: UUID,
+    ) -> bool:
+        stmt = delete(self.sso_domain_model).where(self.sso_domain_model.id == domain_id)
+        result = await session.execute(stmt)
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        return result.rowcount > 0  # type: ignore[attr-defined]
+
     async def delete_domains_for_provider(
         self,
         session: DBConnection,

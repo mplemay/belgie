@@ -110,6 +110,13 @@ class SSOAdapterProtocol[
         verified_at: datetime | None = None,
     ) -> DomainT | None: ...
 
+    async def delete_domain(
+        self,
+        session: DBConnection,
+        *,
+        domain_id: UUID,
+    ) -> bool: ...
+
     async def delete_domains_for_provider(
         self,
         session: DBConnection,

@@ -178,6 +178,15 @@ class SSOPlugin[
                 filtered[str(key)] = value
         return filtered
 
+    def _normalize_provider_id_or_400(self, provider_id: str) -> str:
+        try:
+            return normalize_provider_id(provider_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
     def router(self, belgie: Belgie) -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         organization_plugin = self._ensure_organization_plugin(belgie)
@@ -239,9 +248,10 @@ class SSOPlugin[
                 raise InvalidStateError(msg)
             await client.adapter.delete_oauth_state(client.db, state)
 
+            normalized_id = self._normalize_provider_id_or_400(provider_id)
             provider = await self._settings.adapter.get_provider_by_provider_id(
                 client.db,
-                provider_id=normalize_provider_id(provider_id),
+                provider_id=normalized_id,
             )
             if provider is None:
                 msg = "SSO provider not found"
@@ -332,7 +342,7 @@ class SSOPlugin[
         if provider_id:
             provider = await self._settings.adapter.get_provider_by_provider_id(
                 client.db,
-                provider_id=normalize_provider_id(provider_id),
+                provider_id=self._normalize_provider_id_or_400(provider_id),
             )
             if provider is None:
                 raise HTTPException(

@@ -13,6 +13,7 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
     OrganizationInvitation,
     OrganizationMember,
 )
+from belgie_alchemy.__tests__.fixtures.team.models import Team, TeamMember  # noqa: F401
 from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
 from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin

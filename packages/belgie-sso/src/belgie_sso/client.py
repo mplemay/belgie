@@ -61,7 +61,7 @@ class SSOClient[
     ) -> ProviderT:
         await self._require_org_admin(organization_id=organization_id)
 
-        normalized_provider_id = normalize_provider_id(provider_id)
+        normalized_provider_id = self._normalize_provider_id_or_400(provider_id)
         if await self.adapter.get_provider_by_provider_id(self.client.db, provider_id=normalized_provider_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -157,17 +157,23 @@ class SSOClient[
         if domains is not None:
             normalized_domains = self._normalize_domains(domains)
             await self._ensure_domains_are_available(normalized_domains, sso_provider_id=provider.id)
-            await self.adapter.delete_domains_for_provider(
+            existing = await self.adapter.list_domains_for_provider(
                 self.client.db,
                 sso_provider_id=provider.id,
             )
-            for domain in normalized_domains:
-                await self.adapter.create_domain(
-                    self.client.db,
-                    sso_provider_id=provider.id,
-                    domain=domain,
-                    verification_token=self._generate_verification_token(),
-                )
+            existing_by_name = {d.domain: d for d in existing}
+            new_set = set(normalized_domains)
+            for row in existing:
+                if row.domain not in new_set:
+                    await self.adapter.delete_domain(self.client.db, domain_id=row.id)
+            for name in normalized_domains:
+                if name not in existing_by_name:
+                    await self.adapter.create_domain(
+                        self.client.db,
+                        sso_provider_id=provider.id,
+                        domain=name,
+                        verification_token=self._generate_verification_token(),
+                    )
 
         return updated_provider
 
@@ -254,8 +260,17 @@ class SSOClient[
             )
         return verified_domain
 
+    def _normalize_provider_id_or_400(self, provider_id: str) -> str:
+        try:
+            return normalize_provider_id(provider_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
     async def _get_provider_or_404(self, provider_id: str) -> ProviderT:
-        normalized_provider_id = normalize_provider_id(provider_id)
+        normalized_provider_id = self._normalize_provider_id_or_400(provider_id)
         provider = await self.adapter.get_provider_by_provider_id(
             self.client.db,
             provider_id=normalized_provider_id,

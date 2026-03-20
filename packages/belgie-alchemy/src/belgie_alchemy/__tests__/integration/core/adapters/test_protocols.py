@@ -359,4 +359,5 @@ def test_sso_adapter_satisfies_protocol() -> None:
     assert callable(adapter.get_verified_domain)
     assert callable(adapter.list_domains_for_provider)
     assert callable(adapter.update_domain)
+    assert callable(adapter.delete_domain)
     assert callable(adapter.delete_domains_for_provider)
