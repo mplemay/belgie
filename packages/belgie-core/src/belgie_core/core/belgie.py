@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator, Callable, Coroutine  # noqa: TC003
 from inspect import signature
 from typing import TYPE_CHECKING, Annotated, Any, cast
@@ -15,12 +16,15 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
-from belgie_core.core.plugin import Plugin, PluginClient
+from belgie_core.core.plugin import AfterAuthenticateHook, AuthenticatedProfile, Plugin, PluginClient
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.session.manager import SessionManager
 
 if TYPE_CHECKING:
     from belgie_proto.core import AdapterProtocol
+
+
+logger = logging.getLogger(__name__)
 
 
 class _BelgieCallable:
@@ -269,6 +273,34 @@ class Belgie[
         """
         client = self.__call__(db)
         return await client.sign_out(session_id)
+
+    async def after_authenticate(
+        self,
+        *,
+        client: BelgieClient,
+        request: Request,
+        user: UserProtocol[str],
+        profile: AuthenticatedProfile,
+    ) -> None:
+        for plugin in self.plugins:
+            if not isinstance(plugin, AfterAuthenticateHook):
+                continue
+            try:
+                await plugin.after_authenticate(
+                    belgie=self,
+                    client=client,
+                    request=request,
+                    user=user,
+                    profile=profile,
+                )
+            except Exception:
+                logger.exception(
+                    "after_authenticate hook failed",
+                    extra={
+                        "provider": profile.provider,
+                        "plugin": plugin.__class__.__name__,
+                    },
+                )
 
     async def _get_session_from_cookie(
         self,

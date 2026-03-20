@@ -19,6 +19,7 @@ class DummyBelgie:
             base_url="http://localhost:8000",
             urls=SimpleNamespace(signin_redirect="/dashboard"),
         )
+        self.after_authenticate = AsyncMock()
 
     async def __call__(self) -> object:
         return self._client
@@ -176,8 +177,9 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
         ),
     )
 
+    belgie = DummyBelgie(client_dependency)
     app = FastAPI()
-    app.include_router(plugin.router(DummyBelgie(client_dependency)), prefix="/auth")
+    app.include_router(plugin.router(belgie), prefix="/auth")
 
     response = TestClient(app).get(
         "/auth/provider/google/callback?code=test-code&state=test-state",
@@ -211,6 +213,11 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
     )
 
     client_dependency.create_session_cookie.assert_called_once_with(session, ANY)
+    belgie.after_authenticate.assert_awaited_once()
+    profile = belgie.after_authenticate.await_args.kwargs["profile"]
+    assert profile.provider == "google"
+    assert profile.email == "person@example.com"
+    assert profile.email_verified is True
 
 
 def test_callback_falls_back_to_signin_redirect(monkeypatch) -> None:
@@ -260,8 +267,9 @@ def test_callback_falls_back_to_signin_redirect(monkeypatch) -> None:
         ),
     )
 
+    belgie = DummyBelgie(client_dependency)
     app = FastAPI()
-    app.include_router(plugin.router(DummyBelgie(client_dependency)), prefix="/auth")
+    app.include_router(plugin.router(belgie), prefix="/auth")
 
     response = TestClient(app).get(
         "/auth/provider/google/callback?code=test-code&state=test-state",
@@ -270,6 +278,7 @@ def test_callback_falls_back_to_signin_redirect(monkeypatch) -> None:
 
     assert response.status_code == 302
     assert response.headers["location"] == "/dashboard"
+    belgie.after_authenticate.assert_awaited_once()
 
 
 def test_callback_invalid_state_raises() -> None:

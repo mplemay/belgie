@@ -10,6 +10,7 @@ try:
         OrganizationMemberMixin,
         OrganizationMixin,
     )
+    from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin
     from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 except ModuleNotFoundError as exc:
     raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
@@ -21,6 +22,9 @@ __all__ = [
     "OrganizationInvitationMixin",
     "OrganizationMemberMixin",
     "OrganizationMixin",
+    "SSOAdapter",
+    "SSODomainMixin",
+    "SSOProviderMixin",
     "SessionMixin",
     "TeamMemberMixin",
     "TeamMixin",

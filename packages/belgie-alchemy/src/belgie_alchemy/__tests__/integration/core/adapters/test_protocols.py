@@ -8,10 +8,12 @@ from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.core.user import UserProtocol
 from belgie_proto.organization import OrganizationAdapterProtocol, OrganizationTeamAdapterProtocol
+from belgie_proto.sso import SSOAdapterProtocol, SSODomainProtocol, SSOProviderProtocol
 from belgie_proto.team import TeamAdapterProtocol
 
 from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
+from belgie_alchemy.sso import SSOAdapter
 from belgie_alchemy.team import TeamAdapter
 
 
@@ -118,6 +120,28 @@ class ExampleTeamMember:
     updated_at: datetime
 
 
+@dataclass
+class ExampleSSOProvider:
+    id: UUID
+    organization_id: UUID
+    provider_id: str
+    issuer: str
+    oidc_config: dict[str, str | list[str] | dict[str, str]]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
+class ExampleSSODomain:
+    id: UUID
+    sso_provider_id: UUID
+    domain: str
+    verification_token: str
+    verified_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
 def test_user_protocol_runtime_check() -> None:
     now = datetime.now(UTC)
     user = ExampleUser(
@@ -201,6 +225,39 @@ def test_user_with_custom_fields_satisfies_protocol() -> None:
     assert isinstance(user, UserProtocol)
 
 
+def test_sso_protocol_runtime_checks() -> None:
+    now = datetime.now(UTC)
+    provider = ExampleSSOProvider(
+        id=uuid4(),
+        organization_id=uuid4(),
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        oidc_config={
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "authorization_endpoint": "https://idp.example.com/authorize",
+            "token_endpoint": "https://idp.example.com/token",
+            "userinfo_endpoint": "https://idp.example.com/userinfo",
+            "claim_mapping": {"subject": "sub", "email": "email"},
+            "scopes": ["openid", "email", "profile"],
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    domain = ExampleSSODomain(
+        id=uuid4(),
+        sso_provider_id=provider.id,
+        domain="example.com",
+        verification_token="token",
+        verified_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+    assert isinstance(provider, SSOProviderProtocol)
+    assert isinstance(domain, SSODomainProtocol)
+
+
 def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     """Verify BelgieAdapter implements AdapterProtocol using runtime checks."""
 
@@ -281,3 +338,25 @@ def test_team_adapter_satisfies_team_protocol_only() -> None:
     assert not isinstance(team_adapter, AdapterProtocol)
     assert callable(team_adapter.create_organization)
     assert callable(team_adapter.create_team)
+
+
+def test_sso_adapter_satisfies_protocol() -> None:
+    adapter = SSOAdapter(
+        sso_provider=ExampleSSOProvider,
+        sso_domain=ExampleSSODomain,
+    )
+
+    assert isinstance(adapter, SSOAdapterProtocol)
+    assert callable(adapter.create_provider)
+    assert callable(adapter.get_provider_by_id)
+    assert callable(adapter.get_provider_by_provider_id)
+    assert callable(adapter.list_providers_for_organization)
+    assert callable(adapter.update_provider)
+    assert callable(adapter.delete_provider)
+    assert callable(adapter.create_domain)
+    assert callable(adapter.get_domain)
+    assert callable(adapter.get_domain_by_name)
+    assert callable(adapter.get_verified_domain)
+    assert callable(adapter.list_domains_for_provider)
+    assert callable(adapter.update_domain)
+    assert callable(adapter.delete_domains_for_provider)

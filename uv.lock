@@ -16,6 +16,7 @@ members = [
     "belgie-oauth-server",
     "belgie-organization",
     "belgie-proto",
+    "belgie-sso",
     "belgie-team",
 ]
 
@@ -92,6 +93,7 @@ all = [
     { name = "belgie-oauth" },
     { name = "belgie-oauth-server" },
     { name = "belgie-organization" },
+    { name = "belgie-sso" },
     { name = "belgie-team" },
 ]
 examples = [
@@ -108,6 +110,9 @@ oauth-client = [
 ]
 organization = [
     { name = "belgie-organization" },
+]
+sso = [
+    { name = "belgie-sso" },
 ]
 team = [
     { name = "belgie-team" },
@@ -139,6 +144,8 @@ requires-dist = [
     { name = "belgie-organization", marker = "extra == 'all'", editable = "packages/belgie-organization" },
     { name = "belgie-organization", marker = "extra == 'organization'", editable = "packages/belgie-organization" },
     { name = "belgie-proto", editable = "packages/belgie-proto" },
+    { name = "belgie-sso", marker = "extra == 'all'", editable = "packages/belgie-sso" },
+    { name = "belgie-sso", marker = "extra == 'sso'", editable = "packages/belgie-sso" },
     { name = "belgie-team", marker = "extra == 'all'", editable = "packages/belgie-team" },
     { name = "belgie-team", marker = "extra == 'team'", editable = "packages/belgie-team" },
     { name = "fastapi", specifier = ">=0.100" },
@@ -148,7 +155,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'examples'", specifier = ">=0.38.0" },
 ]
-provides-extras = ["alchemy", "all", "examples", "mcp", "oauth", "oauth-client", "organization", "team"]
+provides-extras = ["alchemy", "all", "examples", "mcp", "oauth", "oauth-client", "organization", "sso", "team"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -278,6 +285,33 @@ requires-dist = [
 name = "belgie-proto"
 version = "0.1.0"
 source = { editable = "packages/belgie-proto" }
+
+[[package]]
+name = "belgie-sso"
+version = "0.1.0"
+source = { editable = "packages/belgie-sso" }
+dependencies = [
+    { name = "belgie-core" },
+    { name = "belgie-organization" },
+    { name = "belgie-proto" },
+    { name = "dnspython" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "belgie-core", editable = "packages/belgie-core" },
+    { name = "belgie-organization", editable = "packages/belgie-organization" },
+    { name = "belgie-proto", editable = "packages/belgie-proto" },
+    { name = "dnspython", specifier = ">=2.7.0" },
+    { name = "fastapi", specifier = ">=0.100" },
+    { name = "httpx", specifier = ">=0.24" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.0" },
+]
 
 [[package]]
 name = "belgie-team"
@@ -536,6 +570,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/96/93/682d2b43c1d5f1406ed048f377c0fc9fc8f7b0447a478d5c65ab3d3a66eb/cryptography-46.0.5-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:ced80795227d70549a411a4ab66e8ce307899fad2220ce5ab2f296e687eacde9", size = 4667123, upload-time = "2026-02-10T19:18:15.886Z" },
     { url = "https://files.pythonhosted.org/packages/45/2d/9c5f2926cb5300a8eefc3f4f0b3f3df39db7f7ce40c8365444c49363cbda/cryptography-46.0.5-cp38-abi3-win32.whl", hash = "sha256:02f547fce831f5096c9a567fd41bc12ca8f11df260959ecc7c3202555cc47a72", size = 3010220, upload-time = "2026-02-10T19:18:17.361Z" },
     { url = "https://files.pythonhosted.org/packages/48/ef/0c2f4a8e31018a986949d34a01115dd057bf536905dca38897bacd21fac3/cryptography-46.0.5-cp38-abi3-win_amd64.whl", hash = "sha256:556e106ee01aa13484ce9b0239bca667be5004efb0aabbed28d353df86445595", size = 3467050, upload-time = "2026-02-10T19:18:18.899Z" },
+]
+
+[[package]]
+name = "dnspython"
+version = "2.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/8b/57666417c0f90f08bcafa776861060426765fdb422eb10212086fb811d26/dnspython-2.8.0.tar.gz", hash = "sha256:181d3c6996452cb1189c4046c61599b84a5a86e099562ffde77d26984ff26d0f", size = 368251, upload-time = "2025-09-07T18:58:00.022Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/5a/18ad964b0086c6e62e2e7500f7edc89e3faa45033c71c1893d34eed2b2de/dnspython-2.8.0-py3-none-any.whl", hash = "sha256:01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af", size = 331094, upload-time = "2025-09-07T18:57:58.071Z" },
 ]
 
 [[package]]

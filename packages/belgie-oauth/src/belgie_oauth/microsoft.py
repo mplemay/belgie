@@ -9,7 +9,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import httpx
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.exceptions import InvalidStateError, OAuthError
-from belgie_core.core.plugin import PluginClient
+from belgie_core.core.plugin import AuthenticatedProfile, PluginClient
 from belgie_core.utils.crypto import generate_state_token
 from belgie_core.utils.scopes import parse_scopes
 from fastapi import APIRouter, Depends, Request
@@ -76,6 +76,7 @@ class MicrosoftUserInfo(BaseModel):
     given_name: str | None = None
     family_name: str | None = None
     picture: str | None = None
+    email_verified: bool | None = None
 
     @property
     def resolved_email(self) -> str | None:
@@ -298,6 +299,19 @@ class MicrosoftOAuthPlugin(PluginClient):
                 scope=tokens.get("scope"),
                 token_type=tokens.get("token_type"),
                 id_token=tokens.get("id_token"),
+            )
+            await belgie.after_authenticate(
+                client=client,
+                request=request,
+                user=user,
+                profile=AuthenticatedProfile(
+                    provider=self.provider_id,
+                    provider_account_id=user_info.sub,
+                    email=email,
+                    email_verified=bool(user_info.email_verified),
+                    name=user_info.name,
+                    image=user_info.picture,
+                ),
             )
 
             response = RedirectResponse(
