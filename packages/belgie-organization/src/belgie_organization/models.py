@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID  # noqa: TC003
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 type InvitationStatus = Literal["pending", "accepted", "rejected", "canceled", "expired"]
 
@@ -16,11 +16,6 @@ class OrganizationView(BaseModel):
     name: str
     slug: str
     logo: str | None = None
-    metadata: dict[str, Any] | None = Field(
-        default=None,
-        validation_alias="organization_metadata",
-        serialization_alias="metadata",
-    )
     created_at: datetime
     updated_at: datetime
 

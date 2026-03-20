@@ -77,7 +77,6 @@ class CreateOrganizationPayload(BaseModel):
     slug: str = Field(min_length=1)
     role: str
     logo: str | None = None
-    metadata: dict[str, object] | None = None
 
 
 class InvitePayload(BaseModel):
@@ -226,7 +225,6 @@ async def create_organization(
         slug=payload.slug,
         role=payload.role,
         logo=payload.logo,
-        metadata=payload.metadata,
     )
     assert_type(org_row, OrganizationModel)
     assert_type(member, OrganizationMember)

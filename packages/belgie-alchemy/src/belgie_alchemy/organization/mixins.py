@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
-from brussels.types import DateTimeUTC, Json
+from brussels.types import DateTimeUTC
 from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
@@ -25,10 +25,6 @@ class OrganizationMixin(MappedAsDataclass):
     @declared_attr
     def logo(self) -> Mapped[str | None]:
         return mapped_column(Text, default=None, kw_only=True)
-
-    @declared_attr
-    def organization_metadata(self) -> Mapped[dict[str, object] | None]:
-        return mapped_column("metadata", Json, default=None, kw_only=True)
 
     @declared_attr
     def members(self) -> Mapped[list[object]]:
