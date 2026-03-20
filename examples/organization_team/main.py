@@ -128,22 +128,34 @@ core_adapter = BelgieAdapter(
     oauth_state=OAuthState,
 )
 
-team_adapter = TeamAdapter(
-    organization=OrganizationModel,
-    member=OrganizationMember,
-    invitation=OrganizationInvitation,
-    team=TeamModel,
-    team_member=TeamMember,
-)
-
 belgie = Belgie(
     settings=settings,
     adapter=core_adapter,
     database=get_db,
 )
 
-organization_plugin = belgie.add_plugin(Organization(adapter=team_adapter))
-team_plugin = belgie.add_plugin(Team(adapter=team_adapter))
+organization_plugin = belgie.add_plugin(
+    Organization(
+        adapter=TeamAdapter(
+            organization=OrganizationModel,
+            member=OrganizationMember,
+            invitation=OrganizationInvitation,
+            team=TeamModel,
+            team_member=TeamMember,
+        ),
+    ),
+)
+team_plugin = belgie.add_plugin(
+    Team(
+        adapter=TeamAdapter(
+            organization=OrganizationModel,
+            member=OrganizationMember,
+            invitation=OrganizationInvitation,
+            team=TeamModel,
+            team_member=TeamMember,
+        ),
+    ),
+)
 assert_type(organization_plugin, OrganizationPlugin[OrganizationModel, OrganizationMember, OrganizationInvitation])
 assert_type(
     team_plugin,
