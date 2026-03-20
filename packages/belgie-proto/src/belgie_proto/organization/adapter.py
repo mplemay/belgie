@@ -26,7 +26,6 @@ class OrganizationAdapterProtocol[
         name: str,
         slug: str,
         logo: str | None = None,
-        metadata: dict[str, object] | None = None,
     ) -> OrganizationT: ...
 
     async def get_organization_by_id(
@@ -41,7 +40,7 @@ class OrganizationAdapterProtocol[
         slug: str,
     ) -> OrganizationT | None: ...
 
-    async def update_organization(  # noqa: PLR0913
+    async def update_organization(
         self,
         session: DBConnection,
         organization_id: UUID,
@@ -49,7 +48,6 @@ class OrganizationAdapterProtocol[
         name: str | None = None,
         slug: str | None = None,
         logo: str | None = None,
-        metadata: dict[str, object] | None = None,
     ) -> OrganizationT | None: ...
 
     async def delete_organization(

@@ -33,14 +33,13 @@ class OrganizationClient[
     current_user: UserProtocol[str]
     maximum_members_per_team: int | None = None
 
-    async def create(  # noqa: PLR0913
+    async def create(
         self,
         *,
         name: str,
         slug: str,
         role: RoleValue[str],
         logo: str | None = None,
-        metadata: dict[str, object] | None = None,
         user_id: UUID | None = None,
     ) -> tuple[OrganizationT, MemberT]:
         creator_user_id = user_id or self.current_user.id
@@ -65,7 +64,6 @@ class OrganizationClient[
             name=name,
             slug=slug,
             logo=logo,
-            metadata=metadata,
         )
         member = await self.settings.adapter.create_member(
             self.client.db,
@@ -110,7 +108,6 @@ class OrganizationClient[
         name: str | None = None,
         slug: str | None = None,
         logo: str | None = None,
-        metadata: dict[str, object] | None = None,
     ) -> OrganizationT:
         await self._require_default_admin_role(organization_id=organization_id)
 
@@ -131,7 +128,6 @@ class OrganizationClient[
                 name=name,
                 slug=slug,
                 logo=logo,
-                metadata=metadata,
             )
         ) is None:
             raise HTTPException(

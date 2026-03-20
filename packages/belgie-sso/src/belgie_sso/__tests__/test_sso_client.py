@@ -33,7 +33,6 @@ class FakeOrganization:
     name: str
     slug: str
     logo: str | None
-    organization_metadata: dict[str, object] | None
     created_at: datetime
     updated_at: datetime
 
@@ -250,7 +249,6 @@ def build_client() -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapt
         name="Acme",
         slug="acme",
         logo=None,
-        organization_metadata=None,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )

@@ -12,7 +12,6 @@ class FakeOrganizationRow:
     name: str
     slug: str
     logo: str | None
-    organization_metadata: dict[str, object] | None
     created_at: datetime
     updated_at: datetime
 

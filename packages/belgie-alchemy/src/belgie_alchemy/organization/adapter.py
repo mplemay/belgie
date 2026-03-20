@@ -39,13 +39,11 @@ class OrganizationAdapter[
         name: str,
         slug: str,
         logo: str | None = None,
-        metadata: dict[str, object] | None = None,
     ) -> OrganizationT:
         organization = self.organization_model(
             name=name,
             slug=slug,
             logo=logo,
-            organization_metadata=metadata,
         )
         session.add(organization)
         try:
@@ -74,7 +72,7 @@ class OrganizationAdapter[
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update_organization(  # noqa: PLR0913
+    async def update_organization(
         self,
         session: DBConnection,
         organization_id: UUID,
@@ -82,7 +80,6 @@ class OrganizationAdapter[
         name: str | None = None,
         slug: str | None = None,
         logo: str | None = None,
-        metadata: dict[str, object] | None = None,
     ) -> OrganizationT | None:
         values: dict[str, Any] = {"updated_at": datetime.now(UTC)}
         if name is not None:
@@ -91,8 +88,6 @@ class OrganizationAdapter[
             values["slug"] = slug
         if logo is not None:
             values["logo"] = logo
-        if metadata is not None:
-            values["organization_metadata"] = metadata
 
         stmt = (
             update(self.organization_model)

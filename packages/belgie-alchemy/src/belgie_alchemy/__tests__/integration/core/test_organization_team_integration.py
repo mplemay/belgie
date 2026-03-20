@@ -93,7 +93,6 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(Text)
     slug: Mapped[str] = mapped_column(Text, unique=True, index=True)
     logo: Mapped[str | None] = mapped_column(Text, default=None)
-    organization_metadata: Mapped[dict[str, object] | None] = mapped_column("metadata", JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
 
