@@ -84,7 +84,6 @@ def _build_client(
             invitation_expires_in_seconds=3600,
             send_invitation_email=send_invitation_email,
         ),
-        adapter=adapter,
         current_user=user,
         maximum_members_per_team=maximum_members_per_team,
     )

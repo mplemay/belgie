@@ -9,7 +9,7 @@ from belgie_organization.roles import has_any_role
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
-from belgie_proto.sso import OIDCClaimMapping, SSOAdapterProtocol, SSODomainProtocol, SSOProviderProtocol
+from belgie_proto.sso import OIDCClaimMapping, SSODomainProtocol, SSOProviderProtocol
 from fastapi import HTTPException, status
 
 from belgie_sso.discovery import discover_oidc_configuration
@@ -42,7 +42,6 @@ class SSOClient[
 ]:
     client: BelgieClient
     settings: EnterpriseSSO[ProviderT, DomainT]
-    adapter: SSOAdapterProtocol[ProviderT, DomainT]
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT]
     current_user: UserProtocol[str]
 
@@ -62,7 +61,7 @@ class SSOClient[
         await self._require_org_admin(organization_id=organization_id)
 
         normalized_provider_id = self._normalize_provider_id_or_400(provider_id)
-        if await self.adapter.get_provider_by_provider_id(self.client.db, provider_id=normalized_provider_id):
+        if await self.settings.adapter.get_provider_by_provider_id(self.client.db, provider_id=normalized_provider_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="provider_id already exists",
@@ -87,7 +86,7 @@ class SSOClient[
             timeout_seconds=self.settings.discovery_timeout_seconds,
         )
 
-        provider = await self.adapter.create_provider(
+        provider = await self.settings.adapter.create_provider(
             self.client.db,
             organization_id=organization_id,
             provider_id=normalized_provider_id,
@@ -97,14 +96,14 @@ class SSOClient[
 
         try:
             for domain in normalized_domains:
-                await self.adapter.create_domain(
+                await self.settings.adapter.create_domain(
                     self.client.db,
                     sso_provider_id=provider.id,
                     domain=domain,
                     verification_token=self._generate_verification_token(),
                 )
         except Exception:
-            await self.adapter.delete_provider(self.client.db, sso_provider_id=provider.id)
+            await self.settings.adapter.delete_provider(self.client.db, sso_provider_id=provider.id)
             raise
 
         return provider
@@ -142,7 +141,7 @@ class SSOClient[
             timeout_seconds=self.settings.discovery_timeout_seconds,
         )
 
-        updated_provider = await self.adapter.update_provider(
+        updated_provider = await self.settings.adapter.update_provider(
             self.client.db,
             sso_provider_id=provider.id,
             issuer=discovery.issuer,
@@ -157,7 +156,7 @@ class SSOClient[
         if domains is not None:
             normalized_domains = self._normalize_domains(domains)
             await self._ensure_domains_are_available(normalized_domains, sso_provider_id=provider.id)
-            existing = await self.adapter.list_domains_for_provider(
+            existing = await self.settings.adapter.list_domains_for_provider(
                 self.client.db,
                 sso_provider_id=provider.id,
             )
@@ -165,10 +164,10 @@ class SSOClient[
             new_set = set(normalized_domains)
             for row in existing:
                 if row.domain not in new_set:
-                    await self.adapter.delete_domain(self.client.db, domain_id=row.id)
+                    await self.settings.adapter.delete_domain(self.client.db, domain_id=row.id)
             for name in normalized_domains:
                 if name not in existing_by_name:
-                    await self.adapter.create_domain(
+                    await self.settings.adapter.create_domain(
                         self.client.db,
                         sso_provider_id=provider.id,
                         domain=name,
@@ -180,7 +179,7 @@ class SSOClient[
     async def delete_provider(self, *, provider_id: str) -> bool:
         provider = await self._get_provider_or_404(provider_id)
         await self._require_org_admin(organization_id=provider.organization_id)
-        return await self.adapter.delete_provider(self.client.db, sso_provider_id=provider.id)
+        return await self.settings.adapter.delete_provider(self.client.db, sso_provider_id=provider.id)
 
     async def get_provider(self, *, provider_id: str) -> ProviderT:
         provider = await self._get_provider_or_404(provider_id)
@@ -189,7 +188,7 @@ class SSOClient[
 
     async def list_providers(self, *, organization_id: UUID) -> list[ProviderT]:
         await self._require_org_admin(organization_id=organization_id)
-        return await self.adapter.list_providers_for_organization(
+        return await self.settings.adapter.list_providers_for_organization(
             self.client.db,
             organization_id=organization_id,
         )
@@ -199,10 +198,10 @@ class SSOClient[
         await self._require_org_admin(organization_id=provider.organization_id)
 
         normalized_domain = normalize_domain(domain)
-        existing = await self.adapter.get_domain_by_name(self.client.db, domain=normalized_domain)
+        existing = await self.settings.adapter.get_domain_by_name(self.client.db, domain=normalized_domain)
         token = self._generate_verification_token()
         if existing is None:
-            return await self.adapter.create_domain(
+            return await self.settings.adapter.create_domain(
                 self.client.db,
                 sso_provider_id=provider.id,
                 domain=normalized_domain,
@@ -215,7 +214,7 @@ class SSOClient[
                 detail="domain is already registered to another provider",
             )
 
-        updated = await self.adapter.update_domain(
+        updated = await self.settings.adapter.update_domain(
             self.client.db,
             domain_id=existing.id,
             verification_token=token,
@@ -233,7 +232,7 @@ class SSOClient[
         await self._require_org_admin(organization_id=provider.organization_id)
 
         normalized_domain = normalize_domain(domain)
-        sso_domain = await self.adapter.get_domain_by_name(self.client.db, domain=normalized_domain)
+        sso_domain = await self.settings.adapter.get_domain_by_name(self.client.db, domain=normalized_domain)
         if sso_domain is None or sso_domain.sso_provider_id != provider.id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -248,7 +247,7 @@ class SSOClient[
                 detail="verification token not found in DNS TXT records",
             )
 
-        verified_domain = await self.adapter.update_domain(
+        verified_domain = await self.settings.adapter.update_domain(
             self.client.db,
             domain_id=sso_domain.id,
             verified_at=datetime.now(UTC),
@@ -271,7 +270,7 @@ class SSOClient[
 
     async def _get_provider_or_404(self, provider_id: str) -> ProviderT:
         normalized_provider_id = self._normalize_provider_id_or_400(provider_id)
-        provider = await self.adapter.get_provider_by_provider_id(
+        provider = await self.settings.adapter.get_provider_by_provider_id(
             self.client.db,
             provider_id=normalized_provider_id,
         )
@@ -301,7 +300,7 @@ class SSOClient[
         sso_provider_id: UUID | None = None,
     ) -> None:
         for domain in domains:
-            if existing := await self.adapter.get_domain_by_name(self.client.db, domain=domain):
+            if existing := await self.settings.adapter.get_domain_by_name(self.client.db, domain=domain):
                 if sso_provider_id is not None and existing.sso_provider_id == sso_provider_id:
                     continue
                 raise HTTPException(

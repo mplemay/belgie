@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from belgie_core.core.settings import BelgieSettings
 from belgie_organization.plugin import OrganizationPlugin
-from belgie_organization.settings import Organization as OrganizationSettings
+from belgie_organization.settings import Organization
 from belgie_proto.organization import OrganizationAdapterProtocol
 from belgie_proto.team import TeamAdapterProtocol
 from fastapi import Depends, FastAPI
@@ -77,7 +77,7 @@ def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
     belgie_client = FakeBelgieClient(user=user)
     adapter = FakeTeamAdapter()
 
-    organization_plugin = OrganizationPlugin(settings, OrganizationSettings(adapter=adapter))
+    organization_plugin = OrganizationPlugin(settings, Organization(adapter=adapter))
     team_plugin = TeamPlugin(settings, Team(adapter=adapter))
     belgie = DummyBelgie(belgie_client, plugins=[organization_plugin, team_plugin])
 
@@ -126,7 +126,7 @@ def test_team_plugin_requires_organization_plugin_registration() -> None:
 
 def test_team_plugin_requires_team_capable_organization_adapter() -> None:
     settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
-    organization_plugin = OrganizationPlugin(settings, OrganizationSettings(adapter=FakeOrganizationAdapter()))
+    organization_plugin = OrganizationPlugin(settings, Organization(adapter=FakeOrganizationAdapter()))
     team_plugin = TeamPlugin(settings, Team(adapter=FakeTeamAdapter()))
     belgie = DummyBelgie(
         FakeBelgieClient(user=SimpleNamespace(id=uuid4(), email="member@example.com")),

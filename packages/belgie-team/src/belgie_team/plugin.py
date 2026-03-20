@@ -59,7 +59,6 @@ class TeamPlugin[
             return TeamClient(
                 client=client,
                 settings=self._settings,
-                adapter=self._settings.adapter,
                 current_user=user,
             )
 

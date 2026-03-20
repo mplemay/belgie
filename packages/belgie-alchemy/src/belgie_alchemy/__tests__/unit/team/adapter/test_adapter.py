@@ -10,7 +10,6 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
 )
 from belgie_alchemy.__tests__.fixtures.team.models import Team, TeamMember
 from belgie_alchemy.core import BelgieAdapter
-from belgie_alchemy.organization import OrganizationAdapter
 from belgie_alchemy.team import TeamAdapter
 
 
@@ -25,29 +24,55 @@ async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
     yield adapter
 
 
-@pytest_asyncio.fixture
-async def organization_adapter(core_adapter: BelgieAdapter, alchemy_session: AsyncSession):  # noqa: ARG001
-    adapter = OrganizationAdapter(
-        core=core_adapter,
+@pytest.fixture
+def team_adapter() -> TeamAdapter:
+    return TeamAdapter(
         organization=Organization,
         member=OrganizationMember,
         invitation=OrganizationInvitation,
-    )
-    yield adapter
-
-
-@pytest_asyncio.fixture
-async def team_adapter(
-    core_adapter: BelgieAdapter,
-    organization_adapter: OrganizationAdapter,
-):
-    adapter = TeamAdapter(
-        core=core_adapter,
-        organization_adapter=organization_adapter,
         team=Team,
         team_member=TeamMember,
     )
-    yield adapter
+
+
+@pytest.mark.asyncio
+async def test_update_team(
+    core_adapter: BelgieAdapter,
+    team_adapter: TeamAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    owner = await core_adapter.create_user(
+        alchemy_session,
+        email="team-update@example.com",
+    )
+    organization = await team_adapter.create_organization(
+        alchemy_session,
+        name="TeamOrg",
+        slug="team-org",
+    )
+    await team_adapter.create_member(
+        alchemy_session,
+        organization_id=organization.id,
+        user_id=owner.id,
+        role="owner",
+    )
+    team = await team_adapter.create_team(
+        alchemy_session,
+        organization_id=organization.id,
+        name="Eng",
+    )
+    before = team.updated_at
+    updated = await team_adapter.update_team(
+        alchemy_session,
+        team_id=team.id,
+        name="Engineering",
+    )
+    assert updated is not None
+    assert updated.name == "Engineering"
+    assert updated.updated_at >= before
+    fetched = await team_adapter.get_team_by_id(alchemy_session, team.id)
+    assert fetched is not None
+    assert fetched.name == "Engineering"
 
 
 @pytest.mark.asyncio

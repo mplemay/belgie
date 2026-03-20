@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import belgie_organization.settings as org_belgie_settings
+import belgie_team.settings as team_belgie_settings
 import pytest
 import pytest_asyncio
 from belgie_organization.client import OrganizationClient
@@ -198,9 +200,8 @@ async def core_adapter(team_org_session: AsyncSession):  # noqa: ARG001
 
 
 @pytest_asyncio.fixture
-async def organization_adapter(core_adapter: BelgieAdapter, team_org_session: AsyncSession):  # noqa: ARG001
+async def organization_adapter(team_org_session: AsyncSession):  # noqa: ARG001
     adapter = OrganizationAdapter(
-        core=core_adapter,
         organization=Organization,
         member=OrganizationMember,
         invitation=OrganizationInvitation,
@@ -210,13 +211,12 @@ async def organization_adapter(core_adapter: BelgieAdapter, team_org_session: As
 
 @pytest_asyncio.fixture
 async def team_adapter(
-    core_adapter: BelgieAdapter,
-    organization_adapter: OrganizationAdapter,
     team_org_session: AsyncSession,  # noqa: ARG001
 ):
     adapter = TeamAdapter(
-        core=core_adapter,
-        organization_adapter=organization_adapter,
+        organization=Organization,
+        member=OrganizationMember,
+        invitation=OrganizationInvitation,
         team=Team,
         team_member=TeamMember,
     )
@@ -232,12 +232,12 @@ def _organization_client(
 ) -> OrganizationClient:
     return OrganizationClient(
         client=SimpleNamespace(db=db_session, adapter=core_adapter),
-        settings=SimpleNamespace(
+        settings=org_belgie_settings.Organization(
+            adapter=adapter,
             allow_user_to_create_organization=True,
             invitation_expires_in_seconds=3600,
             send_invitation_email=None,
         ),
-        adapter=adapter,
         current_user=current_user,
     )
 
@@ -250,11 +250,11 @@ def _team_client(
 ) -> TeamClient:
     return TeamClient(
         client=SimpleNamespace(db=db_session),
-        settings=SimpleNamespace(
+        settings=team_belgie_settings.Team(
+            adapter=adapter,
             maximum_teams_per_organization=None,
             maximum_members_per_team=None,
         ),
-        adapter=adapter,
         current_user=current_user,
     )
 

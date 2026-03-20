@@ -14,26 +14,25 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy.core import BelgieAdapter
-from belgie.alchemy.organization import OrganizationAdapter
 from belgie.alchemy.team import TeamAdapter
 from belgie.organization import (
     InvitationView,
     MemberView,
-    Organization as OrganizationSettings,
+    Organization,
     OrganizationClient,
     OrganizationFullView,
     OrganizationPlugin,
     OrganizationView,
 )
-from belgie.team import Team as TeamSettings, TeamClient, TeamMemberView, TeamPlugin, TeamView
+from belgie.team import Team, TeamClient, TeamMemberView, TeamPlugin, TeamView
 from examples.organization_team.models import (
     Account,
     OAuthState,
-    Organization,
+    Organization as OrganizationModel,
     OrganizationInvitation,
     OrganizationMember,
     Session,
-    Team,
+    Team as TeamModel,
     TeamMember,
     User,
 )
@@ -41,8 +40,14 @@ from examples.organization_team.models import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
 
-type OrganizationExampleClient = OrganizationClient[Organization, OrganizationMember, OrganizationInvitation]
-type TeamExampleClient = TeamClient[Organization, OrganizationMember, OrganizationInvitation, Team, TeamMember]
+type OrganizationExampleClient = OrganizationClient[OrganizationModel, OrganizationMember, OrganizationInvitation]
+type TeamExampleClient = TeamClient[
+    OrganizationModel,
+    OrganizationMember,
+    OrganizationInvitation,
+    TeamModel,
+    TeamMember,
+]
 
 DB_PATH = "./belgie_organization_team_example.db"
 
@@ -123,30 +128,39 @@ core_adapter = BelgieAdapter(
     oauth_state=OAuthState,
 )
 
-organization_adapter = OrganizationAdapter(
-    core=core_adapter,
-    organization=Organization,
-    member=OrganizationMember,
-    invitation=OrganizationInvitation,
-)
-
-team_adapter = TeamAdapter(
-    core=core_adapter,
-    organization_adapter=organization_adapter,
-    team=Team,
-    team_member=TeamMember,
-)
-
 belgie = Belgie(
     settings=settings,
     adapter=core_adapter,
     database=get_db,
 )
 
-organization_plugin = belgie.add_plugin(OrganizationSettings(adapter=team_adapter))
-team_plugin = belgie.add_plugin(TeamSettings(adapter=team_adapter))
-assert_type(organization_plugin, OrganizationPlugin[Organization, OrganizationMember, OrganizationInvitation])
-assert_type(team_plugin, TeamPlugin[Organization, OrganizationMember, OrganizationInvitation, Team, TeamMember])
+organization_plugin = belgie.add_plugin(
+    Organization(
+        adapter=TeamAdapter(
+            organization=OrganizationModel,
+            member=OrganizationMember,
+            invitation=OrganizationInvitation,
+            team=TeamModel,
+            team_member=TeamMember,
+        ),
+    ),
+)
+team_plugin = belgie.add_plugin(
+    Team(
+        adapter=TeamAdapter(
+            organization=OrganizationModel,
+            member=OrganizationMember,
+            invitation=OrganizationInvitation,
+            team=TeamModel,
+            team_member=TeamMember,
+        ),
+    ),
+)
+assert_type(organization_plugin, OrganizationPlugin[OrganizationModel, OrganizationMember, OrganizationInvitation])
+assert_type(
+    team_plugin,
+    TeamPlugin[OrganizationModel, OrganizationMember, OrganizationInvitation, TeamModel, TeamMember],
+)
 
 app.include_router(belgie.router)
 
@@ -214,7 +228,7 @@ async def create_organization(
         logo=payload.logo,
         metadata=payload.metadata,
     )
-    assert_type(org_row, Organization)
+    assert_type(org_row, OrganizationModel)
     assert_type(member, OrganizationMember)
     return OrganizationFullView(
         organization=OrganizationView.model_validate(org_row),
@@ -228,7 +242,7 @@ async def list_organizations(
     organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
 ) -> list[OrganizationView]:
     rows = await organization.for_user()
-    assert_type(rows, list[Organization])
+    assert_type(rows, list[OrganizationModel])
     return [OrganizationView.model_validate(row) for row in rows]
 
 
@@ -245,7 +259,7 @@ async def get_full_organization(
     if full is None:
         return None
     org_row, members, invitations = full
-    assert_type(org_row, Organization)
+    assert_type(org_row, OrganizationModel)
     assert_type(members, list[OrganizationMember])
     assert_type(invitations, list[OrganizationInvitation])
     return OrganizationFullView(
@@ -299,7 +313,7 @@ async def create_team(
         name=payload.name,
         organization_id=payload.organization_id,
     )
-    assert_type(created, Team)
+    assert_type(created, TeamModel)
     return TeamView.model_validate(created)
 
 
@@ -309,7 +323,7 @@ async def list_teams(
     organization_id: UUID,
 ) -> list[TeamView]:
     rows = await team.teams(organization_id=organization_id)
-    assert_type(rows, list[Team])
+    assert_type(rows, list[TeamModel])
     return [TeamView.model_validate(row) for row in rows]
 
 

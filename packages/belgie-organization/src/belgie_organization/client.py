@@ -5,11 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from belgie_proto.organization import (
-    OrganizationAdapterProtocol,
-    OrganizationTeamAdapterProtocol,
-    PendingInvitationConflictError,
-)
+from belgie_proto.organization import OrganizationTeamAdapterProtocol, PendingInvitationConflictError
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
@@ -34,7 +30,6 @@ class OrganizationClient[
 ]:
     client: BelgieClient
     settings: Organization[OrganizationT, MemberT, InvitationT]
-    adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT]
     current_user: UserProtocol[str]
     maximum_members_per_team: int | None = None
 
@@ -65,14 +60,14 @@ class OrganizationClient[
                 detail="organization slug already taken",
             )
 
-        organization = await self.adapter.create_organization(
+        organization = await self.settings.adapter.create_organization(
             self.client.db,
             name=name,
             slug=slug,
             logo=logo,
             metadata=metadata,
         )
-        member = await self.adapter.create_member(
+        member = await self.settings.adapter.create_member(
             self.client.db,
             organization_id=organization.id,
             user_id=creator_user_id,
@@ -81,10 +76,10 @@ class OrganizationClient[
         return organization, member
 
     async def check_slug(self, *, slug: str) -> bool:
-        return await self.adapter.get_organization_by_slug(self.client.db, slug) is not None
+        return await self.settings.adapter.get_organization_by_slug(self.client.db, slug) is not None
 
     async def for_user(self) -> list[OrganizationT]:
-        return await self.adapter.list_organizations_for_user(self.client.db, self.current_user.id)
+        return await self.settings.adapter.list_organizations_for_user(self.client.db, self.current_user.id)
 
     async def details(
         self,
@@ -98,11 +93,14 @@ class OrganizationClient[
         )
 
         await self._require_default_admin_role(organization_id=resolved_organization_id)
-        organization = await self.adapter.get_organization_by_id(self.client.db, resolved_organization_id)
+        organization = await self.settings.adapter.get_organization_by_id(self.client.db, resolved_organization_id)
         if organization is None:
             return None
-        members = await self.adapter.list_members(self.client.db, organization_id=resolved_organization_id)
-        invitations = await self.adapter.list_invitations(self.client.db, organization_id=resolved_organization_id)
+        members = await self.settings.adapter.list_members(self.client.db, organization_id=resolved_organization_id)
+        invitations = await self.settings.adapter.list_invitations(
+            self.client.db,
+            organization_id=resolved_organization_id,
+        )
         return organization, members, invitations
 
     async def update(
@@ -118,7 +116,7 @@ class OrganizationClient[
 
         if (
             slug is not None
-            and (existing := await self.adapter.get_organization_by_slug(self.client.db, slug))
+            and (existing := await self.settings.adapter.get_organization_by_slug(self.client.db, slug))
             and existing.id != organization_id
         ):
             raise HTTPException(
@@ -127,7 +125,7 @@ class OrganizationClient[
             )
 
         if (
-            updated := await self.adapter.update_organization(
+            updated := await self.settings.adapter.update_organization(
                 self.client.db,
                 organization_id,
                 name=name,
@@ -144,11 +142,11 @@ class OrganizationClient[
 
     async def delete(self, *, organization_id: UUID) -> bool:
         await self._require_owner_role(organization_id=organization_id)
-        return await self.adapter.delete_organization(self.client.db, organization_id)
+        return await self.settings.adapter.delete_organization(self.client.db, organization_id)
 
     async def members(self, *, organization_id: UUID) -> list[MemberT]:
         await self._require_organization_membership(organization_id=organization_id)
-        return await self.adapter.list_members(self.client.db, organization_id=organization_id)
+        return await self.settings.adapter.list_members(self.client.db, organization_id=organization_id)
 
     async def add_member(
         self,
@@ -175,7 +173,7 @@ class OrganizationClient[
             )
 
         if (
-            existing_member := await self.adapter.get_member(
+            existing_member := await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=organization_id,
                 user_id=user_id,
@@ -183,7 +181,7 @@ class OrganizationClient[
         ) is not None:
             member = existing_member
         else:
-            member = await self.adapter.create_member(
+            member = await self.settings.adapter.create_member(
                 self.client.db,
                 organization_id=organization_id,
                 user_id=user_id,
@@ -213,7 +211,7 @@ class OrganizationClient[
                 )
             target_user_id = user.id
 
-        target_member = await self.adapter.get_member(
+        target_member = await self.settings.adapter.get_member(
             self.client.db,
             organization_id=organization_id,
             user_id=target_user_id,
@@ -234,7 +232,7 @@ class OrganizationClient[
             target_member=target_member,
         )
 
-        return await self.adapter.remove_member(
+        return await self.settings.adapter.remove_member(
             self.client.db,
             organization_id=organization_id,
             user_id=target_user_id,
@@ -249,7 +247,7 @@ class OrganizationClient[
     ) -> MemberT:
         acting_member = await self._require_default_admin_role(organization_id=organization_id)
 
-        target_member = await self.adapter.get_member_by_id(self.client.db, member_id)
+        target_member = await self.settings.adapter.get_member_by_id(self.client.db, member_id)
         if target_member is None or target_member.organization_id != organization_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -274,7 +272,7 @@ class OrganizationClient[
         )
 
         if (
-            updated := await self.adapter.update_member_role(
+            updated := await self.settings.adapter.update_member_role(
                 self.client.db,
                 member_id=member_id,
                 role=normalized_role,
@@ -287,7 +285,7 @@ class OrganizationClient[
         return updated
 
     async def leave(self, *, organization_id: UUID) -> bool:
-        member = await self.adapter.get_member(
+        member = await self.settings.adapter.get_member(
             self.client.db,
             organization_id=organization_id,
             user_id=self.current_user.id,
@@ -302,7 +300,7 @@ class OrganizationClient[
             target_member=member,
         )
 
-        return await self.adapter.remove_member(
+        return await self.settings.adapter.remove_member(
             self.client.db,
             organization_id=organization_id,
             user_id=self.current_user.id,
@@ -326,7 +324,7 @@ class OrganizationClient[
             )
 
         if (existing_user := await self.client.adapter.get_user_by_email(self.client.db, email)) is not None and (
-            await self.adapter.get_member(
+            await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=organization_id,
                 user_id=existing_user.id,
@@ -338,7 +336,7 @@ class OrganizationClient[
                 detail="user is already a member of this organization",
             )
 
-        existing_invitation = await self.adapter.get_pending_invitation(
+        existing_invitation = await self.settings.adapter.get_pending_invitation(
             self.client.db,
             organization_id=organization_id,
             email=email,
@@ -349,7 +347,7 @@ class OrganizationClient[
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="user is already invited to this organization",
                 )
-            await self.adapter.set_invitation_status(
+            await self.settings.adapter.set_invitation_status(
                 self.client.db,
                 invitation_id=existing_invitation.id,
                 status="canceled",
@@ -357,7 +355,7 @@ class OrganizationClient[
 
         expires_at = datetime.now(UTC) + timedelta(seconds=self.settings.invitation_expires_in_seconds)
         try:
-            invitation = await self.adapter.create_invitation(
+            invitation = await self.settings.adapter.create_invitation(
                 self.client.db,
                 organization_id=organization_id,
                 team_id=team_id,
@@ -372,7 +370,7 @@ class OrganizationClient[
                 detail="user is already invited to this organization",
             ) from exc
 
-        organization = await self.adapter.get_organization_by_id(self.client.db, organization_id)
+        organization = await self.settings.adapter.get_organization_by_id(self.client.db, organization_id)
         if self.settings.send_invitation_email and organization is not None:
             await self.settings.send_invitation_email(invitation, organization)
 
@@ -383,7 +381,7 @@ class OrganizationClient[
         *,
         invitation_id: UUID,
     ) -> tuple[InvitationT, MemberT]:
-        invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
+        invitation = await self.settings.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -408,13 +406,13 @@ class OrganizationClient[
                 user_id=self.current_user.id,
             )
 
-        member = await self.adapter.get_member(
+        member = await self.settings.adapter.get_member(
             self.client.db,
             organization_id=invitation.organization_id,
             user_id=self.current_user.id,
         )
         if member is None:
-            member = await self.adapter.create_member(
+            member = await self.settings.adapter.create_member(
                 self.client.db,
                 organization_id=invitation.organization_id,
                 user_id=self.current_user.id,
@@ -431,7 +429,7 @@ class OrganizationClient[
                 )
 
         if (
-            accepted_invitation := await self.adapter.set_invitation_status(
+            accepted_invitation := await self.settings.adapter.set_invitation_status(
                 self.client.db,
                 invitation_id=invitation.id,
                 status="accepted",
@@ -445,7 +443,7 @@ class OrganizationClient[
         return accepted_invitation, member
 
     async def cancel_invitation(self, *, invitation_id: UUID) -> InvitationT:
-        invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
+        invitation = await self.settings.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -460,7 +458,7 @@ class OrganizationClient[
             )
 
         if (
-            canceled := await self.adapter.set_invitation_status(
+            canceled := await self.settings.adapter.set_invitation_status(
                 self.client.db,
                 invitation_id=invitation_id,
                 status="canceled",
@@ -473,7 +471,7 @@ class OrganizationClient[
         return canceled
 
     async def reject_invitation(self, *, invitation_id: UUID) -> InvitationT:
-        invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
+        invitation = await self.settings.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -491,7 +489,7 @@ class OrganizationClient[
             )
 
         if (
-            rejected := await self.adapter.set_invitation_status(
+            rejected := await self.settings.adapter.set_invitation_status(
                 self.client.db,
                 invitation_id=invitation_id,
                 status="rejected",
@@ -504,7 +502,7 @@ class OrganizationClient[
         return rejected
 
     async def invitation(self, *, invitation_id: UUID) -> InvitationT:
-        invitation = await self.adapter.get_invitation(self.client.db, invitation_id)
+        invitation = await self.settings.adapter.get_invitation(self.client.db, invitation_id)
         if invitation is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -519,7 +517,7 @@ class OrganizationClient[
 
     async def invitations(self, *, organization_id: UUID) -> list[InvitationT]:
         await self._require_default_admin_role(organization_id=organization_id)
-        return await self.adapter.list_invitations(self.client.db, organization_id=organization_id)
+        return await self.settings.adapter.list_invitations(self.client.db, organization_id=organization_id)
 
     async def user_invitations(self, *, email: str | None = None) -> list[InvitationT]:
         resolved_email = email or self.current_user.email
@@ -528,7 +526,7 @@ class OrganizationClient[
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="cannot list invitations for another user",
             )
-        return await self.adapter.list_user_invitations(self.client.db, email=resolved_email)
+        return await self.settings.adapter.list_user_invitations(self.client.db, email=resolved_email)
 
     async def _resolve_organization_id(
         self,
@@ -539,7 +537,7 @@ class OrganizationClient[
         if organization_id is not None:
             return organization_id
         if organization_slug is not None:
-            organization = await self.adapter.get_organization_by_slug(self.client.db, organization_slug)
+            organization = await self.settings.adapter.get_organization_by_slug(self.client.db, organization_slug)
             if organization is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -553,7 +551,7 @@ class OrganizationClient[
 
     async def _require_organization_membership(self, *, organization_id: UUID) -> MemberT:
         if (
-            member := await self.adapter.get_member(
+            member := await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=organization_id,
                 user_id=self.current_user.id,
@@ -592,12 +590,12 @@ class OrganizationClient[
         TeamProtocol,
         TeamMemberProtocol,
     ]:
-        if not isinstance(self.adapter, OrganizationTeamAdapterProtocol):
+        if not isinstance(self.settings.adapter, OrganizationTeamAdapterProtocol):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="team operations are not enabled for this adapter",
             )
-        return self.adapter
+        return self.settings.adapter
 
     async def _require_owner_membership_can_change(
         self,
@@ -625,7 +623,7 @@ class OrganizationClient[
         )
 
     async def _organization_owner_count(self, *, organization_id: UUID) -> int:
-        members = await self.adapter.list_members(self.client.db, organization_id=organization_id)
+        members = await self.settings.adapter.list_members(self.client.db, organization_id=organization_id)
         return sum(1 for member in members if has_role(member.role, "owner"))
 
     async def _validate_team_for_organization(self, *, organization_id: UUID, team_id: UUID) -> None:
