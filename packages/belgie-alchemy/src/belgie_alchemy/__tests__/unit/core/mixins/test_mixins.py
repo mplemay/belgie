@@ -8,9 +8,10 @@ from belgie_alchemy.__tests__.fixtures.core.models import User
 
 
 def test_primary_key_mixin_defaults() -> None:
+    # Brussels 0.5+: PrimaryKeyMixin uses client-side UUIDs only (no DB server_default).
     id_column = User.__table__.c.id  # type: ignore[attr-defined]
     assert id_column.primary_key
-    assert str(id_column.server_default.arg) == "gen_random_uuid()"
+    assert id_column.server_default is None
 
 
 def test_primary_key_client_side_generation() -> None:
