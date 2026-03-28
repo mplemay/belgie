@@ -72,7 +72,7 @@ class OrganizationAdapter[
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update_organization(
+    async def update_organization(  # noqa: PLR0913
         self,
         session: DBConnection,
         organization_id: UUID,
@@ -80,6 +80,7 @@ class OrganizationAdapter[
         name: str | None = None,
         slug: str | None = None,
         logo: str | None = None,
+        stripe_customer_id: str | None = None,
     ) -> OrganizationT | None:
         values: dict[str, Any] = {"updated_at": datetime.now(UTC)}
         if name is not None:
@@ -88,6 +89,8 @@ class OrganizationAdapter[
             values["slug"] = slug
         if logo is not None:
             values["logo"] = logo
+        if stripe_customer_id is not None:
+            values["stripe_customer_id"] = stripe_customer_id
 
         stmt = (
             update(self.organization_model)

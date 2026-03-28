@@ -13,6 +13,7 @@ from belgie_core.core.exceptions import (
     OAuthError,
     SessionExpiredError,
 )
+from belgie_core.core.plugin import AfterAuthenticateHook, AfterSignUpHook, AuthenticatedProfile
 from belgie_core.core.settings import (
     BelgieSettings,
     CookieSettings,
@@ -36,6 +37,9 @@ __all__ = [  # noqa: RUF022
     "SessionSettings",
     "CookieSettings",
     "URLSettings",
+    "AfterAuthenticateHook",
+    "AfterSignUpHook",
+    "AuthenticatedProfile",
     # Exceptions
     "BelgieError",
     "AuthenticationError",

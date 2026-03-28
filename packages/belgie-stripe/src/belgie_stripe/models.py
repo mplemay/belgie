@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime  # noqa: TC003
+from typing import Literal, Self
+from uuid import UUID  # noqa: TC003
+
+from belgie_proto.stripe import StripeSubscriptionProtocol
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+type JSONScalar = str | int | float | bool | None
+type StripeAction = Literal[
+    "billing-portal",
+    "cancel-subscription",
+    "list-subscription",
+    "restore-subscription",
+    "upgrade-subscription",
+]
+
+
+class StripePlan(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    price_id: str | None = None
+    lookup_key: str | None = None
+    annual_price_id: str | None = None
+    annual_lookup_key: str | None = None
+    limits: dict[str, JSONScalar] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_plan_source(self) -> Self:
+        if not self.price_id and not self.lookup_key:
+            msg = "stripe plan requires price_id or lookup_key"
+            raise ValueError(msg)
+        return self
+
+
+class UpgradeSubscriptionRequest(BaseModel):
+    plan: str
+    annual: bool = False
+    reference_id: UUID | None = None
+    customer_type: Literal["user", "organization"] = "user"
+    success_url: str
+    cancel_url: str
+    return_url: str | None = None
+    disable_redirect: bool = False
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class ListSubscriptionsRequest(BaseModel):
+    reference_id: UUID | None = None
+    customer_type: Literal["user", "organization"] = "user"
+
+
+class CancelSubscriptionRequest(BaseModel):
+    reference_id: UUID | None = None
+    customer_type: Literal["user", "organization"] = "user"
+    return_url: str
+    disable_redirect: bool = False
+
+
+class RestoreSubscriptionRequest(BaseModel):
+    reference_id: UUID | None = None
+    customer_type: Literal["user", "organization"] = "user"
+
+
+class BillingPortalRequest(BaseModel):
+    reference_id: UUID | None = None
+    customer_type: Literal["user", "organization"] = "user"
+    return_url: str | None = None
+    disable_redirect: bool = False
+
+
+class StripeRedirectResponse(BaseModel):
+    url: str
+    redirect: bool = True
+
+
+class SubscriptionView(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    plan: str
+    reference_id: UUID
+    customer_type: Literal["user", "organization"]
+    stripe_customer_id: str | None = None
+    stripe_subscription_id: str | None = None
+    status: str
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    cancel_at_period_end: bool
+    cancel_at: datetime | None = None
+    canceled_at: datetime | None = None
+    ended_at: datetime | None = None
+    billing_interval: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_subscription[T: StripeSubscriptionProtocol](cls, subscription: T) -> Self:
+        return cls.model_validate(subscription)
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class ReferenceAuthorizationContext[UserT, SessionT]:
+    action: StripeAction
+    customer_type: Literal["user", "organization"]
+    reference_id: UUID
+    user: UserT
+    session: SessionT
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class CustomerCreateContext[TargetT]:
+    customer_type: Literal["user", "organization"]
+    reference_id: UUID
+    target: TargetT
+    stripe_customer_id: str
+    metadata: dict[str, str]
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class CheckoutSessionContext[SubscriptionT, UserT, SessionT]:
+    customer_type: Literal["user", "organization"]
+    reference_id: UUID
+    plan: StripePlan
+    subscription: SubscriptionT
+    user: UserT
+    session: SessionT
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class SubscriptionEventContext[SubscriptionT]:
+    event_type: str
+    plan: StripePlan | None
+    raw_event: object
+    subscription: SubscriptionT

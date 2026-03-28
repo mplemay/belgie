@@ -11,6 +11,7 @@ try:
         OrganizationMixin,
     )
     from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin
+    from belgie_alchemy.stripe import StripeAdapter, StripeOrganizationMixin, StripeSubscriptionMixin, StripeUserMixin
     from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 except ModuleNotFoundError as exc:
     raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
@@ -26,6 +27,10 @@ __all__ = [
     "SSODomainMixin",
     "SSOProviderMixin",
     "SessionMixin",
+    "StripeAdapter",
+    "StripeOrganizationMixin",
+    "StripeSubscriptionMixin",
+    "StripeUserMixin",
     "TeamMemberMixin",
     "TeamMixin",
     "UserMixin",

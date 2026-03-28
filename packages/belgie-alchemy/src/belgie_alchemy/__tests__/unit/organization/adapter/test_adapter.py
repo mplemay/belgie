@@ -101,6 +101,27 @@ async def test_update_organization(
 
 
 @pytest.mark.asyncio
+async def test_update_organization_persists_stripe_customer_id(
+    organization_adapter: OrganizationAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    organization = await organization_adapter.create_organization(
+        alchemy_session,
+        name="Stripe Org",
+        slug="stripe-org",
+    )
+
+    updated = await organization_adapter.update_organization(
+        alchemy_session,
+        organization.id,
+        stripe_customer_id="cus_org_123",
+    )
+
+    assert updated is not None
+    assert updated.stripe_customer_id == "cus_org_123"
+
+
+@pytest.mark.asyncio
 async def test_update_organization_missing_returns_none(
     organization_adapter: OrganizationAdapter,
     alchemy_session: AsyncSession,

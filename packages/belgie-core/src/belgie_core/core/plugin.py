@@ -49,6 +49,18 @@ class AfterAuthenticateHook(Protocol):
 
 
 @runtime_checkable
+class AfterSignUpHook(Protocol):
+    async def after_sign_up(
+        self,
+        *,
+        belgie: Belgie,
+        client: BelgieClient,
+        request: Request | None,
+        user: UserProtocol[str],
+    ) -> None: ...
+
+
+@runtime_checkable
 class Plugin[P: PluginClient](Protocol):
     """Protocol for Belgie plugin configuration callables."""
 

@@ -35,7 +35,7 @@ For organization and team support:
 uv add belgie[alchemy,organization,team]
 ```
 
-Optional extras: `alchemy`, `mcp`, `oauth`, `oauth-client`, `organization`, `team`, and `all`.
+Optional extras: `alchemy`, `mcp`, `oauth`, `oauth-client`, `organization`, `sso`, `stripe`, `team`, and `all`.
 
 > [!NOTE]
 > This workspace targets Python `>=3.12,<3.15`.
@@ -48,6 +48,8 @@ Optional extras: `alchemy`, `mcp`, `oauth`, `oauth-client`, `organization`, `tea
   sign-in support.
 - **[belgie-oauth-server](packages/belgie-oauth-server/README.md):** OAuth 2.1 authorization server building blocks.
 - **[belgie-organization](packages/belgie-organization/README.md):** Organization plugin and request-scoped client APIs.
+- **[belgie-stripe](packages/belgie-stripe/README.md):** Stripe billing plugin with Checkout, Customer Portal, and
+  webhook-backed subscription sync.
 - **[belgie-team](packages/belgie-team/README.md):** Team plugin and team management client APIs.
 - **[belgie-mcp](packages/belgie-mcp/README.md):** MCP integration for authenticated server deployments.
 - **[belgie-proto](packages/belgie-proto/README.md):** Shared protocol interfaces used across the workspace.

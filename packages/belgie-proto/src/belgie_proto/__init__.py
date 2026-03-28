@@ -5,6 +5,15 @@ from belgie_proto.sso import (
     SSODomainProtocol,
     SSOProviderProtocol,
 )
+from belgie_proto.stripe import (
+    StripeAdapterProtocol,
+    StripeBillingInterval,
+    StripeCustomerType,
+    StripeOrganizationProtocol,
+    StripeSubscriptionProtocol,
+    StripeSubscriptionStatus,
+    StripeUserProtocol,
+)
 
 __all__ = [
     "OIDCClaimMapping",
@@ -12,4 +21,11 @@ __all__ = [
     "SSOAdapterProtocol",
     "SSODomainProtocol",
     "SSOProviderProtocol",
+    "StripeAdapterProtocol",
+    "StripeBillingInterval",
+    "StripeCustomerType",
+    "StripeOrganizationProtocol",
+    "StripeSubscriptionProtocol",
+    "StripeSubscriptionStatus",
+    "StripeUserProtocol",
 ]

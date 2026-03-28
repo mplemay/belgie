@@ -16,7 +16,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes  # noqa: TC002
 
 from belgie_core.core.client import BelgieClient
-from belgie_core.core.plugin import AfterAuthenticateHook, AuthenticatedProfile, Plugin, PluginClient
+from belgie_core.core.plugin import AfterAuthenticateHook, AfterSignUpHook, AuthenticatedProfile, Plugin, PluginClient
 from belgie_core.core.settings import BelgieSettings  # noqa: TC001
 from belgie_core.session.manager import SessionManager
 
@@ -51,6 +51,7 @@ class _BelgieCallable:
                 adapter=obj.adapter,
                 session_manager=obj.session_manager,
                 cookie_settings=obj.settings.cookie,
+                after_sign_up=obj.after_sign_up,
             )
 
         __call__.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
@@ -300,6 +301,29 @@ class Belgie[
                         "provider": profile.provider,
                         "plugin": plugin.__class__.__name__,
                     },
+                )
+
+    async def after_sign_up(
+        self,
+        *,
+        client: BelgieClient,
+        request: Request | None,
+        user: UserProtocol[str],
+    ) -> None:
+        for plugin in self.plugins:
+            if not isinstance(plugin, AfterSignUpHook):
+                continue
+            try:
+                await plugin.after_sign_up(
+                    belgie=self,
+                    client=client,
+                    request=request,
+                    user=user,
+                )
+            except Exception:
+                logger.exception(
+                    "after_sign_up hook failed",
+                    extra={"plugin": plugin.__class__.__name__},
                 )
 
     async def _get_session_from_cookie(
