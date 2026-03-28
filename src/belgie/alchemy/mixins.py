@@ -9,6 +9,7 @@ try:
         OrganizationMemberMixin,
         OrganizationMixin,
     )
+    from belgie_alchemy.stripe import StripeOrganizationMixin, StripeSubscriptionMixin, StripeUserMixin
     from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 except ModuleNotFoundError as exc:
     raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
@@ -20,6 +21,9 @@ __all__ = [
     "OrganizationMemberMixin",
     "OrganizationMixin",
     "SessionMixin",
+    "StripeOrganizationMixin",
+    "StripeSubscriptionMixin",
+    "StripeUserMixin",
     "TeamMemberMixin",
     "TeamMixin",
     "UserMixin",

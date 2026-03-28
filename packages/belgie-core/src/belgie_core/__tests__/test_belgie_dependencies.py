@@ -195,3 +195,14 @@ def test_security_scope_forwarding_uses_security_scopes(belgie_instance: Belgie)
     security_scopes = mock_client.get_user.await_args.args[0]
     assert isinstance(security_scopes, SecurityScopes)
     assert "admin" in security_scopes.scopes
+
+
+def test_call_dependency_threads_after_sign_up_hook(
+    db_provider: tuple[Callable[[], Mock], Mock],
+    belgie_instance: Belgie,
+) -> None:
+    _dependency, db = db_provider
+
+    client = belgie_instance(db)
+
+    assert client.after_sign_up == belgie_instance.after_sign_up

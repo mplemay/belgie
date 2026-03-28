@@ -1,6 +1,7 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from belgie_proto.core import AdapterProtocol
@@ -15,6 +16,15 @@ from fastapi.security import SecurityScopes
 from belgie_core.core.settings import CookieSettings
 from belgie_core.session.manager import SessionManager
 from belgie_core.utils.scopes import validate_scopes
+
+if TYPE_CHECKING:
+    from belgie_proto.core.user import UserProtocol
+
+
+type AfterSignUpCallback[UserT: UserProtocol] = Callable[
+    ...,
+    Awaitable[None],
+]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -59,6 +69,7 @@ class BelgieClient[
     adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]
     session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
     cookie_settings: CookieSettings = field(default_factory=CookieSettings)
+    after_sign_up: AfterSignUpCallback[UserT] | None = None
 
     async def _get_session_from_cookie(self, request: Request) -> SessionT | None:
         """Extract and validate session from request cookies.
@@ -251,7 +262,7 @@ class BelgieClient[
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> tuple[UserT, SessionT]:
-        user, _ = await self.get_or_create_user(
+        user, created = await self.get_or_create_user(
             email,
             name=name,
             image=image,
@@ -263,6 +274,12 @@ class BelgieClient[
             ip_address=ip_address,
             user_agent=user_agent,
         )
+        if created and self.after_sign_up is not None:
+            await self.after_sign_up(
+                client=self,
+                request=request,
+                user=user,
+            )
         return user, session
 
     def create_session_cookie[R: Response](self, session: SessionT, response: R) -> R:

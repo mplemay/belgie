@@ -584,3 +584,61 @@ async def test_sign_up_derives_ip_and_user_agent_from_request(mock_db):
         ip_address="127.0.0.1",
         user_agent="test-agent",
     )
+
+
+@pytest.mark.asyncio
+async def test_sign_up_calls_after_sign_up_for_new_user(mock_db):
+    adapter = AsyncMock()
+    session_manager = AsyncMock()
+    session_manager.max_age = 3600
+    user = MagicMock()
+    user.id = uuid4()
+    session = MagicMock()
+    request = MagicMock()
+    after_sign_up = AsyncMock()
+
+    adapter.get_user_by_email.return_value = None
+    adapter.create_user.return_value = user
+    session_manager.create_session.return_value = session
+
+    client = BelgieClient(
+        db=mock_db,
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_settings=CookieSettings(name="test_session"),
+        after_sign_up=after_sign_up,
+    )
+
+    await client.sign_up("user@example.com", request=request)
+
+    after_sign_up.assert_awaited_once_with(
+        client=client,
+        request=request,
+        user=user,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sign_up_skips_after_sign_up_for_existing_user(mock_db):
+    adapter = AsyncMock()
+    session_manager = AsyncMock()
+    session_manager.max_age = 3600
+    user = MagicMock()
+    user.id = uuid4()
+    session = MagicMock()
+    after_sign_up = AsyncMock()
+
+    adapter.get_user_by_email.return_value = user
+    session_manager.create_session.return_value = session
+
+    client = BelgieClient(
+        db=mock_db,
+        adapter=adapter,
+        session_manager=session_manager,
+        cookie_settings=CookieSettings(name="test_session"),
+        after_sign_up=after_sign_up,
+    )
+
+    await client.sign_up("user@example.com")
+
+    after_sign_up.assert_not_awaited()
