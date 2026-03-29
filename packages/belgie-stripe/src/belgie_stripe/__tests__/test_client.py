@@ -40,6 +40,8 @@ def _build_client(
     organization_adapter: FakeOrganizationAdapter | None = None,
     organization: StripeOrganization | None = None,
     authorize_reference=None,
+    get_customer_create_params=None,
+    organization_get_customer_create_params=None,
     on_subscription_created=None,
 ) -> tuple[StripeClient[FakeSubscription], FakeBelgieClient, FakeStripeSDK, InMemoryStripeAdapter]:
     settings = BelgieSettings(secret="test-secret", base_url=base_url)
@@ -56,13 +58,26 @@ def _build_client(
         settings=Stripe(
             stripe=stripe_sdk,
             stripe_webhook_secret="whsec_test",
+            get_customer_create_params=get_customer_create_params,
             subscription=StripeSubscription(
                 adapter=adapter,
                 plans=plans,
                 authorize_reference=authorize_reference,
                 on_subscription_created=on_subscription_created,
             ),
-            organization=organization,
+            organization=(
+                None
+                if organization is None
+                else StripeOrganization(
+                    enabled=organization.enabled,
+                    get_customer_create_params=(
+                        organization_get_customer_create_params
+                        if organization_get_customer_create_params is not None
+                        else organization.get_customer_create_params
+                    ),
+                    on_customer_create=organization.on_customer_create,
+                )
+            ),
         ),
         current_user=user,
         current_session=session,
@@ -113,6 +128,41 @@ async def test_ensure_user_customer_lazily_creates_and_persists_customer() -> No
 
 
 @pytest.mark.asyncio
+async def test_ensure_user_customer_preserves_reserved_metadata_keys() -> None:
+    hook = AsyncMock(
+        return_value={
+            "description": "custom customer",
+            "metadata": {
+                "customer_type": "organization",
+                "reference_id": str(uuid4()),
+                "hook_only": "present",
+            },
+        },
+    )
+    client, belgie_client, stripe_sdk, _adapter = _build_client(
+        get_customer_create_params=hook,
+    )
+
+    customer_id = await client.ensure_user_customer(metadata={"source": "test"})
+
+    assert customer_id == "cus_1"
+    assert stripe_sdk.created_customers == [
+        {
+            "email": belgie_client.user.email,
+            "name": belgie_client.user.name,
+            "description": "custom customer",
+            "metadata": {
+                "customer_type": "user",
+                "reference_id": str(belgie_client.user.id),
+                "hook_only": "present",
+                "source": "test",
+            },
+        },
+    ]
+    hook.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_ensure_organization_customer_creates_customer() -> None:
     organization = make_organization()
     organization_adapter = FakeOrganizationAdapter(organizations={organization.id: organization})
@@ -138,6 +188,48 @@ async def test_ensure_organization_customer_creates_customer() -> None:
             },
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_ensure_organization_customer_preserves_reserved_metadata_keys() -> None:
+    organization = make_organization()
+    organization_adapter = FakeOrganizationAdapter(organizations={organization.id: organization})
+    hook = AsyncMock(
+        return_value={
+            "description": "custom organization",
+            "metadata": {
+                "customer_type": "user",
+                "reference_id": str(uuid4()),
+                "hook_only": "present",
+            },
+        },
+    )
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(
+        organization_adapter=organization_adapter,
+        organization=StripeOrganization(enabled=True),
+        organization_get_customer_create_params=hook,
+    )
+
+    customer_id = await client.ensure_organization_customer(
+        reference_id=organization.id,
+        metadata={"source": "test"},
+    )
+
+    assert customer_id == "cus_1"
+    assert organization.stripe_customer_id == "cus_1"
+    assert stripe_sdk.created_customers == [
+        {
+            "name": organization.name,
+            "description": "custom organization",
+            "metadata": {
+                "customer_type": "organization",
+                "reference_id": str(organization.id),
+                "hook_only": "present",
+                "source": "test",
+            },
+        },
+    ]
+    hook.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -167,6 +259,35 @@ async def test_upgrade_same_plan_same_cadence_does_not_create_customer() -> None
     assert stripe_sdk.created_customers == []
     assert client.current_user is not None
     assert client.current_user.stripe_customer_id is None
+
+
+@pytest.mark.asyncio
+async def test_upgrade_same_plan_without_billing_interval_is_rejected() -> None:
+    user = make_user(stripe_customer_id=None)
+    client, _belgie_client, stripe_sdk, adapter = _build_client(user=user)
+    await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        reference_id=user.id,
+        customer_type="user",
+        stripe_customer_id=None,
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval=None,
+    )
+
+    with pytest.raises(HTTPException, match="already subscribed to this plan"):
+        await client.upgrade(
+            data=UpgradeSubscriptionRequest(
+                plan="pro",
+                success_url="/dashboard",
+                cancel_url="/pricing",
+            ),
+        )
+
+    assert stripe_sdk.created_customers == []
+    assert stripe_sdk.created_checkout_sessions == []
+    assert stripe_sdk.created_billing_portal_sessions == []
 
 
 @pytest.mark.asyncio

@@ -112,13 +112,12 @@ class StripeClient[
             reference_id=reference_id,
             customer_type=data.customer_type,
         )
-        if (
-            active_subscription
-            and active_subscription.plan.lower() == plan.name.lower()
-            and (billing_interval := active_subscription.billing_interval) is not None
-            and ((data.annual and billing_interval == "year") or (not data.annual and billing_interval != "year"))
-        ):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="already subscribed to this plan")
+        if active_subscription and active_subscription.plan.lower() == plan.name.lower():
+            billing_interval = active_subscription.billing_interval
+            if billing_interval is None or (
+                (data.annual and billing_interval == "year") or (not data.annual and billing_interval != "year")
+            ):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="already subscribed to this plan")
 
         price_id = await self._resolve_price_id(plan=plan, annual=data.annual)
         customer_id = active_subscription.stripe_customer_id if active_subscription else None
@@ -457,20 +456,23 @@ class StripeClient[
             metadata=metadata,
         )
         extra_params = (
-            await maybe_await(self.settings.get_customer_create_params(context))
+            dict(await maybe_await(self.settings.get_customer_create_params(context)) or {})
             if self.settings.get_customer_create_params
-            else None
+            else {}
         )
+        hook_metadata = extra_params.pop("metadata", {})
+        payload_metadata = {}
+        if isinstance(hook_metadata, dict):
+            payload_metadata.update(hook_metadata)
+        payload_metadata.update(metadata)
+        payload_metadata["customer_type"] = "user"
+        payload_metadata["reference_id"] = str(user.id)
         payload = {
             "email": user.email,
             "name": user.name,
-            "metadata": {
-                "customer_type": "user",
-                "reference_id": str(user.id),
-                **metadata,
-            },
+            "metadata": payload_metadata,
         }
-        payload.update(extra_params or {})
+        payload.update(extra_params)
         customer = await call_external(self.stripe.Customer.create, **payload)
         customer_id = stripe_str(customer, "id")
         if customer_id is None:
@@ -522,19 +524,22 @@ class StripeClient[
             metadata=metadata,
         )
         extra_params = (
-            await maybe_await(self.settings.organization.get_customer_create_params(context))
+            dict(await maybe_await(self.settings.organization.get_customer_create_params(context)) or {})
             if self.settings.organization.get_customer_create_params
-            else None
+            else {}
         )
+        hook_metadata = extra_params.pop("metadata", {})
+        payload_metadata = {}
+        if isinstance(hook_metadata, dict):
+            payload_metadata.update(hook_metadata)
+        payload_metadata.update(metadata)
+        payload_metadata["customer_type"] = "organization"
+        payload_metadata["reference_id"] = str(reference_id)
         payload = {
             "name": organization.name,
-            "metadata": {
-                "customer_type": "organization",
-                "reference_id": str(reference_id),
-                **metadata,
-            },
+            "metadata": payload_metadata,
         }
-        payload.update(extra_params or {})
+        payload.update(extra_params)
         customer = await call_external(self.stripe.Customer.create, **payload)
         customer_id = stripe_str(customer, "id")
         if customer_id is None:
