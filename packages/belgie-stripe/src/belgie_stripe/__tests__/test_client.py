@@ -130,6 +130,34 @@ async def test_ensure_organization_customer_creates_customer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_upgrade_same_plan_does_not_create_customer() -> None:
+    user = make_user(stripe_customer_id=None)
+    client, _belgie_client, stripe_sdk, adapter = _build_client(user=user)
+    await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        reference_id=user.id,
+        customer_type="user",
+        stripe_customer_id=None,
+        stripe_subscription_id="sub_existing",
+        status="active",
+    )
+
+    with pytest.raises(HTTPException, match="already subscribed to this plan"):
+        await client.upgrade(
+            data=UpgradeSubscriptionRequest(
+                plan="pro",
+                success_url="/dashboard",
+                cancel_url="/pricing",
+            ),
+        )
+
+    assert stripe_sdk.created_customers == []
+    assert client.current_user is not None
+    assert client.current_user.stripe_customer_id is None
+
+
+@pytest.mark.asyncio
 async def test_list_subscriptions_requires_reference_for_organization() -> None:
     authorize_reference = AsyncMock(return_value=True)
     client, _belgie_client, _stripe_sdk, _adapter = _build_client(
@@ -226,6 +254,147 @@ async def test_handle_webhook_verifies_signature_and_upserts_subscription() -> N
     assert stored.reference_id == user.id
     assert stored.status == "active"
     assert stored.billing_interval == "month"
+    hook.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_rejects_invalid_local_subscription_id() -> None:
+    stripe_sdk = FakeStripeSDK()
+    stripe_sdk.event = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "subscription": "sub_123",
+                "metadata": {
+                    "local_subscription_id": "not-a-uuid",
+                },
+            },
+        },
+    }
+    client, _belgie_client, _stripe_sdk, _adapter = _build_client(stripe_sdk=stripe_sdk)
+    request = MagicMock()
+    request.body = AsyncMock(return_value=b"{}")
+    request.headers = {"stripe-signature": "sig_test"}
+
+    with pytest.raises(HTTPException, match="local_subscription_id"):
+        await client.handle_webhook(request=request)
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_rejects_invalid_reference_id() -> None:
+    stripe_sdk = FakeStripeSDK()
+    stripe_sdk.event = {
+        "type": "customer.subscription.created",
+        "data": {
+            "object": {
+                "id": "sub_123",
+                "customer": "cus_123",
+                "status": "active",
+                "metadata": {
+                    "reference_id": "not-a-uuid",
+                    "customer_type": "user",
+                    "plan": "pro",
+                },
+                "items": {
+                    "data": [
+                        {
+                            "price": {
+                                "id": "price_pro",
+                                "recurring": {"interval": "month"},
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    }
+    client, _belgie_client, _stripe_sdk, _adapter = _build_client(stripe_sdk=stripe_sdk)
+    request = MagicMock()
+    request.body = AsyncMock(return_value=b"{}")
+    request.headers = {"stripe-signature": "sig_test"}
+
+    with pytest.raises(HTTPException, match="reference_id"):
+        await client.handle_webhook(request=request)
+
+
+@pytest.mark.asyncio
+async def test_checkout_completed_does_not_double_fire_created_hook() -> None:
+    hook = AsyncMock()
+    stripe_sdk = FakeStripeSDK()
+    user = make_user()
+    client, _belgie_client, _stripe_sdk, adapter = _build_client(
+        stripe_sdk=stripe_sdk,
+        user=user,
+        on_subscription_created=hook,
+    )
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        reference_id=user.id,
+        customer_type="user",
+        status="incomplete",
+    )
+    stripe_subscription = {
+        "id": "sub_123",
+        "customer": "cus_123",
+        "status": "active",
+        "current_period_start": 1_710_000_000,
+        "current_period_end": 1_712_592_000,
+        "cancel_at_period_end": False,
+        "cancel_at": None,
+        "canceled_at": None,
+        "ended_at": None,
+        "metadata": {
+            "local_subscription_id": str(subscription.id),
+            "reference_id": str(user.id),
+            "customer_type": "user",
+            "plan": "pro",
+        },
+        "items": {
+            "data": [
+                {
+                    "price": {
+                        "id": "price_pro",
+                        "recurring": {"interval": "month"},
+                    },
+                },
+            ],
+        },
+    }
+    stripe_sdk.subscription_responses["sub_123"] = stripe_subscription
+    request = MagicMock()
+    request.body = AsyncMock(return_value=b"{}")
+    request.headers = {"stripe-signature": "sig_test"}
+
+    stripe_sdk.event = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "subscription": "sub_123",
+                "metadata": {
+                    "local_subscription_id": str(subscription.id),
+                },
+            },
+        },
+    }
+    checkout_result = await client.handle_webhook(request=request)
+
+    stripe_sdk.event = {
+        "type": "customer.subscription.created",
+        "data": {
+            "object": stripe_subscription,
+        },
+    }
+    created_result = await client.handle_webhook(request=request)
+    stored = await adapter.get_subscription_by_stripe_subscription_id(
+        client.client.db,
+        stripe_subscription_id="sub_123",
+    )
+
+    assert checkout_result == {"received": True}
+    assert created_result == {"received": True}
+    assert stored is not None
+    assert stored.status == "active"
     hook.assert_awaited_once()
 
 

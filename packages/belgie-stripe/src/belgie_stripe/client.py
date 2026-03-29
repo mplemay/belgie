@@ -100,11 +100,6 @@ class StripeClient[
         cancel_url = self._validated_url(data.cancel_url)
         return_url = self._validated_url(data.return_url) if data.return_url else success_url
 
-        customer_id = await self._ensure_customer(
-            customer_type=data.customer_type,
-            reference_id=reference_id,
-            metadata=data.metadata,
-        )
         active_subscription = await self.subscription_adapter.get_active_subscription(
             self.client.db,
             reference_id=reference_id,
@@ -112,6 +107,14 @@ class StripeClient[
         )
         if active_subscription and active_subscription.plan.lower() == plan.name.lower():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="already subscribed to this plan")
+
+        customer_id = active_subscription.stripe_customer_id if active_subscription else None
+        if customer_id is None:
+            customer_id = await self._ensure_customer(
+                customer_type=data.customer_type,
+                reference_id=reference_id,
+                metadata=data.metadata,
+            )
 
         price_id = await self._resolve_price_id(plan=plan, annual=data.annual)
         if active_subscription and active_subscription.stripe_subscription_id:
@@ -356,9 +359,13 @@ class StripeClient[
             local_subscription_id = metadata.get("local_subscription_id")
             local_subscription = None
             if isinstance(local_subscription_id, str):
+                parsed_subscription_id = self._coerce_stripe_uuid(
+                    local_subscription_id,
+                    field_name="local_subscription_id",
+                )
                 local_subscription = await self.subscription_adapter.get_subscription_by_id(
                     self.client.db,
-                    UUID(local_subscription_id),
+                    parsed_subscription_id,
                 )
             if subscription_id is not None:
                 stripe_subscription = await call_external(self._subscriptions_api().retrieve, subscription_id)
@@ -622,6 +629,13 @@ class StripeClient[
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="url must be relative or same-origin")
         return normalized
 
+    def _coerce_stripe_uuid(self, value: str, *, field_name: str) -> UUID:
+        try:
+            return UUID(value)
+        except ValueError as exc:
+            detail = f"stripe metadata {field_name} must be a valid UUID"
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+
     async def _construct_event(self, *, payload: bytes, signature: str) -> object:
         webhooks_api = getattr(self.settings.stripe_client, "webhooks", None)
         if webhooks_api is None:
@@ -654,11 +668,16 @@ class StripeClient[
         metadata = stripe_mapping(stripe_subscription, "metadata") or {}
         metadata_subscription_id = metadata.get("local_subscription_id")
         subscription = existing_subscription
-        if subscription is None and isinstance(metadata_subscription_id, str):
-            subscription = await self.subscription_adapter.get_subscription_by_id(
-                self.client.db,
-                UUID(metadata_subscription_id),
+        if isinstance(metadata_subscription_id, str):
+            parsed_subscription_id = self._coerce_stripe_uuid(
+                metadata_subscription_id,
+                field_name="local_subscription_id",
             )
+            if subscription is None:
+                subscription = await self.subscription_adapter.get_subscription_by_id(
+                    self.client.db,
+                    parsed_subscription_id,
+                )
 
         customer_type = metadata.get("customer_type")
         reference_id_raw = metadata.get("reference_id")
@@ -670,7 +689,7 @@ class StripeClient[
                 )
             customer_type = subscription.customer_type
         if isinstance(reference_id_raw, str):
-            reference_id = UUID(reference_id_raw)
+            reference_id = self._coerce_stripe_uuid(reference_id_raw, field_name="reference_id")
         elif subscription is not None:
             reference_id = subscription.reference_id
         else:
@@ -758,11 +777,6 @@ class StripeClient[
                 await maybe_await(self.settings.subscription.on_subscription_deleted(hook_context))
             if self.settings.subscription.on_subscription_canceled is not None:
                 await maybe_await(self.settings.subscription.on_subscription_canceled(hook_context))
-        elif (
-            event_type == "checkout.session.completed"
-            and self.settings.subscription.on_subscription_created is not None
-        ):
-            await maybe_await(self.settings.subscription.on_subscription_created(hook_context))
         return subscription
 
     async def _match_plan(self, *, plan_name: str | None, stripe_subscription: object) -> StripePlan:
