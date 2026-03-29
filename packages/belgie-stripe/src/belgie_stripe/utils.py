@@ -5,17 +5,13 @@ import hashlib
 import hmac
 import inspect
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Mapping
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from uuid import UUID
-
-
-async def call_async[T](fn: Callable[..., Awaitable[T]], /, *args: object, **kwargs: object) -> T:
-    return await fn(*args, **kwargs)
 
 
 async def maybe_await[T](value: T | Awaitable[T]) -> T:

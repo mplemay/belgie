@@ -32,7 +32,6 @@ from belgie_stripe.models import (
 from belgie_stripe.utils import (
     absolute_url,
     append_query_params,
-    call_async,
     maybe_await,
     normalize_relative_or_same_origin_url,
     sign_success_token,
@@ -159,7 +158,8 @@ class StripeClient[
                     },
                 },
             }
-            portal_session = await call_async(self.stripe.v1.billing_portal.sessions.create_async, payload)
+            # Stripe's generated param stubs do not model this merged payload precisely.
+            portal_session = await self.stripe.v1.billing_portal.sessions.create_async(payload)  # ty: ignore
             url = stripe_str(portal_session, "url")
             if url is None:
                 raise HTTPException(
@@ -237,7 +237,8 @@ class StripeClient[
             },
         }
         payload = _merge_checkout_params(extra_params or {}, base_payload)
-        checkout_session = await call_async(self.stripe.v1.checkout.sessions.create_async, payload)
+        # Stripe's generated param stubs do not model this merged payload precisely.
+        checkout_session = await self.stripe.v1.checkout.sessions.create_async(payload)  # ty: ignore
         url = stripe_str(checkout_session, "url")
         if url is None:
             raise HTTPException(
@@ -276,8 +277,7 @@ class StripeClient[
             reference_id=reference_id,
             metadata={},
         )
-        portal_session = await call_async(
-            self.stripe.v1.billing_portal.sessions.create_async,
+        portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
             {
                 "customer": customer_id,
                 "return_url": (
@@ -315,8 +315,7 @@ class StripeClient[
                 detail="subscription is not pending cancellation",
             )
 
-        stripe_subscription = await call_async(
-            self.stripe.v1.subscriptions.update_async,
+        stripe_subscription = await self.stripe.v1.subscriptions.update_async(
             subscription.stripe_subscription_id,
             {"cancel_at_period_end": False},
         )
@@ -343,8 +342,7 @@ class StripeClient[
             reference_id=reference_id,
             metadata={},
         )
-        portal_session = await call_async(
-            self.stripe.v1.billing_portal.sessions.create_async,
+        portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
             {
                 "customer": customer_id,
                 "return_url": (
@@ -399,7 +397,7 @@ class StripeClient[
                     parsed_subscription_id,
                 )
             if subscription_id is not None:
-                stripe_subscription = await call_async(self.stripe.v1.subscriptions.retrieve_async, subscription_id)
+                stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(subscription_id)
                 await self._sync_subscription(
                     stripe_subscription=stripe_subscription,
                     event_type=event_type,
@@ -488,7 +486,8 @@ class StripeClient[
             "metadata": payload_metadata,
         }
         payload.update(extra_params)
-        customer = await call_async(self.stripe.v1.customers.create_async, payload)
+        # Stripe's generated param stubs do not model the merged customer payload precisely.
+        customer = await self.stripe.v1.customers.create_async(payload)  # ty: ignore
         customer_id = stripe_str(customer, "id")
         if customer_id is None:
             raise HTTPException(
@@ -555,7 +554,8 @@ class StripeClient[
             "metadata": payload_metadata,
         }
         payload.update(extra_params)
-        customer = await call_async(self.stripe.v1.customers.create_async, payload)
+        # Stripe's generated param stubs do not model the merged customer payload precisely.
+        customer = await self.stripe.v1.customers.create_async(payload)  # ty: ignore
         customer_id = stripe_str(customer, "id")
         if customer_id is None:
             raise HTTPException(
@@ -654,10 +654,7 @@ class StripeClient[
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plan is missing a stripe price")
 
     async def _resolve_lookup_key(self, lookup_key: str) -> str:
-        price_list = await call_async(
-            self.stripe.v1.prices.list_async,
-            {"lookup_keys": [lookup_key], "active": True, "limit": 1},
-        )
+        price_list = await self.stripe.v1.prices.list_async({"lookup_keys": [lookup_key], "active": True, "limit": 1})
         for price in stripe_iterable(price_list, "data"):
             price_id = stripe_str(price, "id")
             if price_id is not None:
