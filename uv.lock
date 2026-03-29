@@ -358,7 +358,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.100" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "stripe", extras = ["async"], specifier = ">=13.0.1" },
+    { name = "stripe", extras = ["async"], specifier = ">=15,<16" },
 ]
 
 [[package]]

@@ -14,7 +14,7 @@ dependencies = [
     "fastapi>=0.100",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-    "stripe[async]>=13.0.1",
+    "stripe[async]>=15,<16",
 ]
 
 [build-system]
