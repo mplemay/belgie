@@ -41,6 +41,7 @@ def _build_client(
     organization: StripeOrganization | None = None,
     authorize_reference=None,
     get_customer_create_params=None,
+    get_checkout_session_params=None,
     organization_get_customer_create_params=None,
     on_subscription_created=None,
 ) -> tuple[StripeClient[FakeSubscription], FakeBelgieClient, FakeStripeSDK, InMemoryStripeAdapter]:
@@ -63,6 +64,7 @@ def _build_client(
                 adapter=adapter,
                 plans=plans,
                 authorize_reference=authorize_reference,
+                get_checkout_session_params=get_checkout_session_params,
                 on_subscription_created=on_subscription_created,
             ),
             organization=(
@@ -402,6 +404,68 @@ async def test_upgrade_checkout_metadata_keeps_reserved_keys() -> None:
 
 
 @pytest.mark.asyncio
+async def test_upgrade_merges_hook_checkout_params() -> None:
+    hook = AsyncMock(
+        return_value={
+            "metadata": {
+                "source": "hook",
+                "plan": "hook",
+            },
+            "subscription_data": {
+                "trial_period_days": 14,
+                "metadata": {
+                    "source": "hook-subscription",
+                    "plan": "hook",
+                },
+            },
+            "payment_method_collection": "always",
+        },
+    )
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        get_checkout_session_params=hook,
+    )
+    assert client.current_user is not None
+
+    result = await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="pro",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    subscription = await adapter.get_incomplete_subscription(
+        client.client.db,
+        reference_id=client.current_user.id,
+        customer_type="user",
+    )
+    assert subscription is not None
+    assert result.url == "https://checkout.stripe.test/session"
+    assert stripe_sdk.created_checkout_sessions
+
+    checkout_session = stripe_sdk.created_checkout_sessions[0]
+    assert checkout_session["payment_method_collection"] == "always"
+    assert checkout_session["metadata"] == {
+        "source": "hook",
+        "plan": "pro",
+        "local_subscription_id": str(subscription.id),
+        "reference_id": str(client.current_user.id),
+        "customer_type": "user",
+    }
+    assert checkout_session["subscription_data"] == {
+        "trial_period_days": 14,
+        "metadata": {
+            "source": "hook-subscription",
+            "plan": "pro",
+            "local_subscription_id": str(subscription.id),
+            "reference_id": str(client.current_user.id),
+            "customer_type": "user",
+        },
+    }
+    hook.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_list_subscriptions_requires_reference_for_organization() -> None:
     authorize_reference = AsyncMock(return_value=True)
     client, _belgie_client, _stripe_sdk, _adapter = _build_client(
@@ -474,7 +538,7 @@ async def test_handle_webhook_verifies_signature_and_upserts_subscription() -> N
         key="evt_1",
     )
     construct_event.return_value = stripe_sdk.event
-    stripe_sdk.Webhook.construct_event = construct_event
+    stripe_sdk.construct_event = construct_event
     client, _belgie_client, _stripe_sdk, adapter = _build_client(
         stripe_sdk=stripe_sdk,
         user=user,
@@ -507,7 +571,7 @@ async def test_handle_webhook_verifies_signature_and_upserts_subscription() -> N
 @pytest.mark.asyncio
 async def test_handle_webhook_returns_400_for_signature_verification_failure() -> None:
     stripe_sdk = FakeStripeSDK()
-    stripe_sdk.Webhook.construct_event = MagicMock(
+    stripe_sdk.construct_event = MagicMock(
         side_effect=stripe.error.SignatureVerificationError("bad signature", "sig_test"),
     )
     client, _belgie_client, _stripe_sdk, _adapter = _build_client(stripe_sdk=stripe_sdk)

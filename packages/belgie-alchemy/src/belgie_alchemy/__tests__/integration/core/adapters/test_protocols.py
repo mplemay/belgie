@@ -11,8 +11,11 @@ from belgie_proto.organization import OrganizationAdapterProtocol, OrganizationT
 from belgie_proto.sso import SSOAdapterProtocol, SSODomainProtocol, SSOProviderProtocol
 from belgie_proto.stripe import (
     StripeAdapterProtocol,
+    StripeBillingInterval,
+    StripeCustomerType,
     StripeOrganizationProtocol,
     StripeSubscriptionProtocol,
+    StripeSubscriptionStatus,
     StripeUserProtocol,
 )
 from belgie_proto.team import TeamAdapterProtocol
@@ -155,17 +158,17 @@ class ExampleStripeSubscription:
     id: UUID
     plan: str
     reference_id: UUID
-    customer_type: str
+    customer_type: StripeCustomerType
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
-    status: str
+    status: StripeSubscriptionStatus
     period_start: datetime | None
     period_end: datetime | None
     cancel_at_period_end: bool
     cancel_at: datetime | None
     canceled_at: datetime | None
     ended_at: datetime | None
-    billing_interval: str | None
+    billing_interval: StripeBillingInterval | None
     created_at: datetime
     updated_at: datetime
 

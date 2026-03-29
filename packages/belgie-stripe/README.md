@@ -37,8 +37,13 @@ import stripe
 
 from belgie_stripe import Stripe, StripePlan, StripeSubscription
 
+stripe_client = stripe.StripeClient(
+    "sk_test_...",
+    http_client=stripe.HTTPXClient(),
+)
+
 plugin = Stripe(
-    stripe=stripe,
+    stripe=stripe_client,
     stripe_webhook_secret="whsec_...",
     subscription=StripeSubscription(
         adapter=subscription_adapter,
@@ -75,5 +80,5 @@ definitions that live in your application code.
 - Organization subscriptions require the Belgie organization plugin and an explicit `reference_id`.
 - Customer creation supports both lazy creation on first billing action and automatic creation during `client.sign_up()`
   when `create_customer_on_sign_up=True`.
-- Injected `StripeClient` instances expose the raw Stripe SDK as `client.stripe` for app-owned SDK calls.
+- Injected `StripeClient` instances expose the raw async Stripe SDK as `client.stripe` for app-owned SDK calls.
 - The package is designed around Stripe Billing APIs, Checkout Sessions, and Customer Portal.

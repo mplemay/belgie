@@ -180,9 +180,12 @@ class StripeAdapter[
         for field_name, value in updates.items():
             if value is not None:
                 setattr(subscription, field_name, value)
-        subscription.cancel_at = cancel_at
-        subscription.canceled_at = canceled_at
-        subscription.ended_at = ended_at
+        if cancel_at is not None:
+            subscription.cancel_at = cancel_at
+        if canceled_at is not None:
+            subscription.canceled_at = canceled_at
+        if ended_at is not None:
+            subscription.ended_at = ended_at
         subscription.updated_at = datetime.now(UTC)
 
         try:

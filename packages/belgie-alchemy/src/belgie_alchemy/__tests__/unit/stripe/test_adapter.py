@@ -161,3 +161,39 @@ async def test_update_subscription_persists_fields(
     assert updated.period_end == period_end
     assert updated.cancel_at_period_end is True
     assert updated.billing_interval == "month"
+
+
+@pytest.mark.asyncio
+async def test_update_subscription_preserves_cancellation_timestamps(
+    adapter: StripeAdapter[Subscription],
+    alchemy_session: AsyncSession,
+) -> None:
+    reference_id = uuid4()
+    cancel_at = datetime(2026, 3, 1, tzinfo=UTC)
+    canceled_at = datetime(2026, 3, 2, tzinfo=UTC)
+    ended_at = datetime(2026, 3, 3, tzinfo=UTC)
+    original = await adapter.create_subscription(
+        alchemy_session,
+        plan="starter",
+        reference_id=reference_id,
+        customer_type="user",
+        status="canceled",
+        cancel_at_period_end=True,
+        cancel_at=cancel_at,
+        canceled_at=canceled_at,
+        ended_at=ended_at,
+    )
+
+    updated = await adapter.update_subscription(
+        alchemy_session,
+        subscription_id=original.id,
+        plan="pro",
+        status="active",
+    )
+
+    assert updated is not None
+    assert updated.plan == "pro"
+    assert updated.status == "active"
+    assert updated.cancel_at == cancel_at
+    assert updated.canceled_at == canceled_at
+    assert updated.ended_at == ended_at

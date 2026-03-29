@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import hmac
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Mapping
-from functools import partial
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -16,10 +14,8 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
-async def call_external[T](fn: Callable[..., T] | Callable[..., Awaitable[T]], /, *args: object, **kwargs: object) -> T:
-    if inspect.iscoroutinefunction(fn):
-        return await fn(*args, **kwargs)
-    return await asyncio.to_thread(partial(fn, *args, **kwargs))
+async def call_async[T](fn: Callable[..., Awaitable[T]], /, *args: object, **kwargs: object) -> T:
+    return await fn(*args, **kwargs)
 
 
 async def maybe_await[T](value: T | Awaitable[T]) -> T:

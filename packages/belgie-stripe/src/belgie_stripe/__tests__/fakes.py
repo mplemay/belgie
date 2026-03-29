@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import stripe
+
 
 @dataclass(slots=True)
 class FakeUser:
@@ -336,17 +338,9 @@ class InMemoryStripeAdapter:
         return updated
 
 
-class FakeStripeSDK:
+class FakeStripeSDK(stripe.StripeClient):
     def __init__(self) -> None:
-        self.Customer = SimpleNamespace(create=self._create_customer)
-        self.checkout = SimpleNamespace(Session=SimpleNamespace(create=self._create_checkout_session))
-        self.billing_portal = SimpleNamespace(Session=SimpleNamespace(create=self._create_billing_portal_session))
-        self.Subscription = SimpleNamespace(
-            retrieve=self._retrieve_subscription,
-            modify=self._modify_subscription,
-        )
-        self.Price = SimpleNamespace(list=self._list_prices)
-        self.Webhook = SimpleNamespace(construct_event=self._construct_event)
+        super().__init__("sk_test", http_client=stripe.HTTPXClient())
 
         self.created_customers: list[dict[str, object]] = []
         self.created_checkout_sessions: list[dict[str, object]] = []
@@ -356,28 +350,61 @@ class FakeStripeSDK:
         self.price_lookup: dict[str, str] = {}
         self.event: dict[str, object] | None = None
 
-    def _create_customer(self, **payload: object) -> dict[str, str]:
+        self.v1.customers.create_async = self._create_customer
+        self.v1.checkout.sessions.create_async = self._create_checkout_session
+        self.v1.billing_portal.sessions.create_async = self._create_billing_portal_session
+        self.v1.subscriptions.retrieve_async = self._retrieve_subscription
+        self.v1.subscriptions.update_async = self._update_subscription
+        self.v1.prices.list_async = self._list_prices
+        self.construct_event = self._construct_event
+
+    async def _create_customer(self, params: object | None = None, _options: object | None = None) -> dict[str, str]:
+        payload = dict(params or {})
         self.created_customers.append(payload)
         return {"id": f"cus_{len(self.created_customers)}"}
 
-    def _create_checkout_session(self, **payload: object) -> dict[str, str]:
+    async def _create_checkout_session(
+        self,
+        params: object | None = None,
+        _options: object | None = None,
+    ) -> dict[str, str]:
+        payload = dict(params or {})
         self.created_checkout_sessions.append(payload)
         return {"url": "https://checkout.stripe.test/session"}
 
-    def _create_billing_portal_session(self, **payload: object) -> dict[str, str]:
+    async def _create_billing_portal_session(
+        self,
+        params: object | None = None,
+        _options: object | None = None,
+    ) -> dict[str, str]:
+        payload = dict(params or {})
         self.created_billing_portal_sessions.append(payload)
         return {"url": "https://billing.stripe.test/session"}
 
-    def _retrieve_subscription(self, subscription_id: str) -> dict[str, object]:
+    async def _retrieve_subscription(
+        self,
+        subscription_id: str,
+        _params: object | None = None,
+        _options: object | None = None,
+    ) -> dict[str, object]:
         return self.subscription_responses[subscription_id]
 
-    def _modify_subscription(self, subscription_id: str, **payload: object) -> dict[str, object]:
+    async def _update_subscription(
+        self,
+        subscription_id: str,
+        params: object | None = None,
+        _options: object | None = None,
+    ) -> dict[str, object]:
+        payload = dict(params or {})
         self.modified_subscriptions.append((subscription_id, payload))
         subscription = self.subscription_responses[subscription_id]
         subscription.update(payload)
         return subscription
 
-    def _list_prices(self, *, lookup_keys: list[str], **_payload: object) -> dict[str, object]:
+    async def _list_prices(self, params: object | None = None, _options: object | None = None) -> dict[str, object]:
+        lookup_keys: list[str] = []
+        if isinstance(params, dict):
+            lookup_keys = list(params.get("lookup_keys", []))
         return {
             "data": [
                 {"id": price_id}
