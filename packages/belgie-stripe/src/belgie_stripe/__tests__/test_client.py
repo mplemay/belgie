@@ -210,6 +210,52 @@ async def test_upgrade_same_plan_allows_switch_to_annual_billing() -> None:
 
 
 @pytest.mark.asyncio
+async def test_upgrade_checkout_metadata_keeps_reserved_keys() -> None:
+    client, _belgie_client, stripe_sdk, adapter = _build_client()
+    assert client.current_user is not None
+
+    result = await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="pro",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+            metadata={
+                "local_subscription_id": "user-supplied",
+                "reference_id": "user-supplied",
+                "customer_type": "organization",
+                "plan": "starter",
+                "source": "test",
+            },
+        ),
+    )
+
+    subscription = await adapter.get_incomplete_subscription(
+        client.client.db,
+        reference_id=client.current_user.id,
+        customer_type="user",
+    )
+    assert subscription is not None
+    assert result.url == "https://checkout.stripe.test/session"
+    assert stripe_sdk.created_checkout_sessions
+    checkout_session = stripe_sdk.created_checkout_sessions[0]
+    assert checkout_session["metadata"] == {
+        "local_subscription_id": str(subscription.id),
+        "reference_id": str(client.current_user.id),
+        "customer_type": "user",
+        "plan": "pro",
+        "source": "test",
+    }
+    assert checkout_session["subscription_data"] == {
+        "metadata": {
+            "local_subscription_id": str(subscription.id),
+            "reference_id": str(client.current_user.id),
+            "customer_type": "user",
+            "plan": "pro",
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_list_subscriptions_requires_reference_for_organization() -> None:
     authorize_reference = AsyncMock(return_value=True)
     client, _belgie_client, _stripe_sdk, _adapter = _build_client(

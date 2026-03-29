@@ -117,6 +117,22 @@ def test_upgrade_route_returns_json_when_redirect_disabled() -> None:
     }
 
 
+def test_list_subscriptions_rejects_invalid_customer_type() -> None:
+    plugin, belgie, _belgie_client, _stripe_sdk, _adapter = _build_plugin()
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+
+    response = TestClient(app).get(
+        "/auth/subscription/list",
+        params={"customer_type": "invalid"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_plugin_requires_organization_plugin_when_enabled() -> None:
     plugin, belgie, _belgie_client, _stripe_sdk, _adapter = _build_plugin(
         organization=StripeOrganization(enabled=True),

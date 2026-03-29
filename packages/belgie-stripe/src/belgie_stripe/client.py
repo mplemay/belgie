@@ -179,6 +179,12 @@ class StripeClient[
                     detail="failed to update subscription",
                 )
 
+        internal_metadata = {
+            "local_subscription_id": str(subscription.id),
+            "reference_id": str(reference_id),
+            "customer_type": data.customer_type,
+            "plan": plan.name.lower(),
+        }
         checkout_context = CheckoutSessionContext(
             customer_type=data.customer_type,
             reference_id=reference_id,
@@ -208,19 +214,11 @@ class StripeClient[
             "success_url": internal_success_url,
             "cancel_url": absolute_url(self.belgie_settings.base_url, cancel_url),
             "metadata": {
-                "local_subscription_id": str(subscription.id),
-                "reference_id": str(reference_id),
-                "customer_type": data.customer_type,
-                "plan": plan.name.lower(),
                 **data.metadata,
+                **internal_metadata,
             },
             "subscription_data": {
-                "metadata": {
-                    "local_subscription_id": str(subscription.id),
-                    "reference_id": str(reference_id),
-                    "customer_type": data.customer_type,
-                    "plan": plan.name.lower(),
-                },
+                "metadata": dict(internal_metadata),
             },
         }
         payload = {**(extra_params or {}), **base_payload}

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         OrganizationAdapterProtocol,
         OrganizationProtocol,
     )
-    from belgie_proto.stripe import StripeSubscriptionProtocol, StripeUserProtocol
+    from belgie_proto.stripe import StripeCustomerType, StripeSubscriptionProtocol, StripeUserProtocol
 
     from belgie_stripe.settings import Stripe
 
@@ -154,7 +154,7 @@ class StripePlugin[
         async def list_subscriptions(
             stripe: StripeClient = Depends(self),  # noqa: B008, FAST002
             reference_id: UUID | None = None,
-            customer_type: str = "user",
+            customer_type: StripeCustomerType = "user",
         ) -> list[SubscriptionView]:
             query = ListSubscriptionsRequest(
                 reference_id=reference_id,
