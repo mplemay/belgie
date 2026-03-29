@@ -338,20 +338,20 @@ class InMemoryStripeAdapter:
 
 class FakeStripeSDK:
     def __init__(self) -> None:
-        self.customers = SimpleNamespace(create=self._create_customer)
-        self.checkout = SimpleNamespace(sessions=SimpleNamespace(create=self._create_checkout_session))
-        self.billing_portal = SimpleNamespace(sessions=SimpleNamespace(create=self._create_billing_portal_session))
-        self.subscriptions = SimpleNamespace(
+        self.Customer = SimpleNamespace(create=self._create_customer)
+        self.checkout = SimpleNamespace(Session=SimpleNamespace(create=self._create_checkout_session))
+        self.billing_portal = SimpleNamespace(Session=SimpleNamespace(create=self._create_billing_portal_session))
+        self.Subscription = SimpleNamespace(
             retrieve=self._retrieve_subscription,
-            update=self._update_subscription,
+            modify=self._modify_subscription,
         )
-        self.prices = SimpleNamespace(list=self._list_prices)
-        self.webhooks = SimpleNamespace(construct_event=self._construct_event)
+        self.Price = SimpleNamespace(list=self._list_prices)
+        self.Webhook = SimpleNamespace(construct_event=self._construct_event)
 
         self.created_customers: list[dict[str, object]] = []
         self.created_checkout_sessions: list[dict[str, object]] = []
         self.created_billing_portal_sessions: list[dict[str, object]] = []
-        self.updated_subscriptions: list[tuple[str, dict[str, object]]] = []
+        self.modified_subscriptions: list[tuple[str, dict[str, object]]] = []
         self.subscription_responses: dict[str, dict[str, object]] = {}
         self.price_lookup: dict[str, str] = {}
         self.event: dict[str, object] | None = None
@@ -371,8 +371,8 @@ class FakeStripeSDK:
     def _retrieve_subscription(self, subscription_id: str) -> dict[str, object]:
         return self.subscription_responses[subscription_id]
 
-    def _update_subscription(self, subscription_id: str, **payload: object) -> dict[str, object]:
-        self.updated_subscriptions.append((subscription_id, payload))
+    def _modify_subscription(self, subscription_id: str, **payload: object) -> dict[str, object]:
+        self.modified_subscriptions.append((subscription_id, payload))
         subscription = self.subscription_responses[subscription_id]
         subscription.update(payload)
         return subscription

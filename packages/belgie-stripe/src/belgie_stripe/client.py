@@ -60,6 +60,8 @@ if TYPE_CHECKING:
 
 SUCCESS_POLL_ATTEMPTS = 20
 SUCCESS_POLL_INTERVAL_SECONDS = 0.05
+SUCCESSFUL_SUBSCRIPTION_STATUSES = ("active", "past_due", "paused", "trialing", "unpaid")
+TERMINAL_SUBSCRIPTION_STATUSES = ("canceled", "incomplete_expired")
 
 
 @dataclass(slots=True, kw_only=True)
@@ -78,6 +80,10 @@ class StripeClient[
     @property
     def subscription_adapter(self) -> StripeAdapterProtocol[SubscriptionT]:
         return self.settings.subscription.adapter
+
+    @property
+    def stripe(self) -> object:
+        return self.settings.stripe
 
     async def upgrade(
         self,
@@ -105,7 +111,12 @@ class StripeClient[
             reference_id=reference_id,
             customer_type=data.customer_type,
         )
-        if active_subscription and active_subscription.plan.lower() == plan.name.lower():
+        if (
+            active_subscription
+            and active_subscription.plan.lower() == plan.name.lower()
+            and (billing_interval := active_subscription.billing_interval) is not None
+            and ((data.annual and billing_interval == "year") or (not data.annual and billing_interval != "year"))
+        ):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="already subscribed to this plan")
 
         customer_id = active_subscription.stripe_customer_id if active_subscription else None
@@ -133,7 +144,7 @@ class StripeClient[
                     },
                 },
             }
-            portal_session = await call_external(self._billing_portal_sessions().create, **payload)
+            portal_session = await call_external(self.stripe.billing_portal.Session.create, **payload)
             url = stripe_str(portal_session, "url")
             if url is None:
                 raise HTTPException(
@@ -213,7 +224,7 @@ class StripeClient[
             },
         }
         payload = {**(extra_params or {}), **base_payload}
-        checkout_session = await call_external(self._checkout_sessions().create, **payload)
+        checkout_session = await call_external(self.stripe.checkout.Session.create, **payload)
         url = stripe_str(checkout_session, "url")
         if url is None:
             raise HTTPException(
@@ -253,7 +264,7 @@ class StripeClient[
             metadata={},
         )
         portal_session = await call_external(
-            self._billing_portal_sessions().create,
+            self.stripe.billing_portal.Session.create,
             customer=customer_id,
             return_url=(
                 absolute_url(self.belgie_settings.base_url, self._validated_url(data.return_url))
@@ -290,7 +301,7 @@ class StripeClient[
             )
 
         stripe_subscription = await call_external(
-            self._subscriptions_api().update,
+            self.stripe.Subscription.modify,
             subscription.stripe_subscription_id,
             cancel_at_period_end=False,
         )
@@ -318,7 +329,7 @@ class StripeClient[
             metadata={},
         )
         portal_session = await call_external(
-            self._billing_portal_sessions().create,
+            self.stripe.billing_portal.Session.create,
             customer=customer_id,
             return_url=(
                 absolute_url(self.belgie_settings.base_url, self._validated_url(data.return_url))
@@ -339,7 +350,12 @@ class StripeClient[
         signature = request.headers.get("stripe-signature")
         if signature is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing stripe-signature header")
-        event = await self._construct_event(payload=payload, signature=signature)
+        event = await call_external(
+            self.stripe.Webhook.construct_event,
+            payload,
+            signature,
+            self.settings.stripe_webhook_secret,
+        )
         if self.settings.on_event is not None:
             await maybe_await(self.settings.on_event(event))
 
@@ -368,7 +384,7 @@ class StripeClient[
                     parsed_subscription_id,
                 )
             if subscription_id is not None:
-                stripe_subscription = await call_external(self._subscriptions_api().retrieve, subscription_id)
+                stripe_subscription = await call_external(self.stripe.Subscription.retrieve, subscription_id)
                 await self._sync_subscription(
                     stripe_subscription=stripe_subscription,
                     event_type=event_type,
@@ -407,7 +423,15 @@ class StripeClient[
                 self.client.db,
                 UUID(subscription_id_str),
             )
-            if subscription and subscription.status != "incomplete" and subscription.stripe_subscription_id is not None:
+            if subscription is None or subscription.status == "incomplete":
+                await asyncio.sleep(SUCCESS_POLL_INTERVAL_SECONDS)
+                continue
+            if subscription.status in TERMINAL_SUBSCRIPTION_STATUSES:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="subscription could not be finalized")
+            if (
+                subscription.status in SUCCESSFUL_SUBSCRIPTION_STATUSES
+                and subscription.stripe_subscription_id is not None
+            ):
                 return RedirectResponse(
                     url=absolute_url(self.belgie_settings.base_url, redirect_to),
                     status_code=status.HTTP_302_FOUND,
@@ -446,7 +470,7 @@ class StripeClient[
             },
         }
         payload.update(extra_params or {})
-        customer = await call_external(self._customers_api().create, **payload)
+        customer = await call_external(self.stripe.Customer.create, **payload)
         customer_id = stripe_str(customer, "id")
         if customer_id is None:
             raise HTTPException(
@@ -510,7 +534,7 @@ class StripeClient[
             },
         }
         payload.update(extra_params or {})
-        customer = await call_external(self._customers_api().create, **payload)
+        customer = await call_external(self.stripe.Customer.create, **payload)
         customer_id = stripe_str(customer, "id")
         if customer_id is None:
             raise HTTPException(
@@ -606,7 +630,7 @@ class StripeClient[
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plan is missing a stripe price")
 
     async def _resolve_lookup_key(self, lookup_key: str) -> str:
-        price_list = await call_external(self._prices_api().list, lookup_keys=[lookup_key], active=True, limit=1)
+        price_list = await call_external(self.stripe.Price.list, lookup_keys=[lookup_key], active=True, limit=1)
         for price in stripe_iterable(price_list, "data"):
             price_id = stripe_str(price, "id")
             if price_id is not None:
@@ -635,28 +659,6 @@ class StripeClient[
         except ValueError as exc:
             detail = f"stripe metadata {field_name} must be a valid UUID"
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
-
-    async def _construct_event(self, *, payload: bytes, signature: str) -> object:
-        webhooks_api = getattr(self.settings.stripe_client, "webhooks", None)
-        if webhooks_api is None:
-            msg = "stripe_client must expose webhooks.construct_event"
-            raise RuntimeError(msg)
-        if hasattr(webhooks_api, "construct_event"):
-            return await call_external(
-                webhooks_api.construct_event,
-                payload,
-                signature,
-                self.settings.stripe_webhook_secret,
-            )
-        if hasattr(webhooks_api, "construct_event_async"):
-            return await call_external(
-                webhooks_api.construct_event_async,
-                payload,
-                signature,
-                self.settings.stripe_webhook_secret,
-            )
-        msg = "stripe_client webhooks helper is missing construct_event"
-        raise RuntimeError(msg)
 
     async def _sync_subscription(  # noqa: C901, PLR0912, PLR0915
         self,
@@ -841,22 +843,3 @@ class StripeClient[
         if self.current_session is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
         return user, self.current_session
-
-    def _customers_api(self) -> object:
-        return self.settings.stripe_client.customers
-
-    def _checkout_sessions(self) -> object:
-        checkout = self.settings.stripe_client.checkout
-        return checkout.sessions
-
-    def _billing_portal_sessions(self) -> object:
-        billing_portal = getattr(self.settings.stripe_client, "billing_portal", None)
-        if billing_portal is None:
-            billing_portal = getattr(self.settings.stripe_client, "billingPortal", None)
-        return billing_portal.sessions
-
-    def _subscriptions_api(self) -> object:
-        return self.settings.stripe_client.subscriptions
-
-    def _prices_api(self) -> object:
-        return self.settings.stripe_client.prices

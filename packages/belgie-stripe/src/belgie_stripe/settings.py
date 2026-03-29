@@ -114,7 +114,7 @@ class Stripe[
         arbitrary_types_allowed=True,
     )
 
-    stripe_client: object = Field(exclude=True)
+    stripe: object = Field(exclude=True)
     stripe_webhook_secret: str
     create_customer_on_sign_up: bool = False
     get_customer_create_params: UserCustomerParamsHook | None = Field(default=None, exclude=True)

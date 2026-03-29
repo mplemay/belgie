@@ -30,6 +30,23 @@ uv add belgie[alchemy,stripe,organization]
 - `StripePlan` and request/response models
 - `StripeAdapter` and SQLAlchemy mixins for subscription persistence
 
+## Configuration
+
+```python
+import stripe
+
+from belgie_stripe import Stripe, StripePlan, StripeSubscription
+
+plugin = Stripe(
+    stripe=stripe,
+    stripe_webhook_secret="whsec_...",
+    subscription=StripeSubscription(
+        adapter=subscription_adapter,
+        plans=[StripePlan(name="pro", price_id="price_pro", annual_price_id="price_pro_year")],
+    ),
+)
+```
+
 ## Route Surface
 
 Mounted under `/auth`:
@@ -58,4 +75,5 @@ definitions that live in your application code.
 - Organization subscriptions require the Belgie organization plugin and an explicit `reference_id`.
 - Customer creation supports both lazy creation on first billing action and automatic creation during `client.sign_up()`
   when `create_customer_on_sign_up=True`.
+- Injected `StripeClient` instances expose the raw Stripe SDK as `client.stripe` for app-owned SDK calls.
 - The package is designed around Stripe Billing APIs, Checkout Sessions, and Customer Portal.

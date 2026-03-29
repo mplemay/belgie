@@ -34,12 +34,12 @@ def _build_plugin(
     plugin = StripePlugin(
         settings,
         Stripe(
-            stripe_client=stripe_sdk,
+            stripe=stripe_sdk,
             stripe_webhook_secret="whsec_test",
             create_customer_on_sign_up=create_customer_on_sign_up,
             subscription=StripeSubscription(
                 adapter=adapter,
-                plans=[StripePlan(name="pro", price_id="price_pro")],
+                plans=[StripePlan(name="pro", price_id="price_pro", annual_price_id="price_pro_year")],
             ),
             organization=organization,
         ),
@@ -162,11 +162,11 @@ def test_plugin_uses_registered_organization_adapter() -> None:
     stripe_plugin = StripePlugin(
         settings,
         Stripe(
-            stripe_client=stripe_sdk,
+            stripe=stripe_sdk,
             stripe_webhook_secret="whsec_test",
             subscription=StripeSubscription(
                 adapter=stripe_adapter,
-                plans=[StripePlan(name="pro", price_id="price_pro")],
+                plans=[StripePlan(name="pro", price_id="price_pro", annual_price_id="price_pro_year")],
             ),
             organization=StripeOrganization(enabled=True),
         ),

@@ -131,12 +131,12 @@ class StripePlugin[
     ) -> None:
         if not self._settings.create_customer_on_sign_up:
             return
-        stripe_client = self._build_client(
+        billing_client = self._build_client(
             belgie_client=client,
             current_user=user,
             current_session=None,
         )
-        await stripe_client.ensure_user_customer(metadata={})
+        await billing_client.ensure_user_customer(metadata={})
 
     def router(self, belgie: Belgie) -> APIRouter:
         self._ensure_dependency_resolver(belgie)
@@ -190,16 +190,16 @@ class StripePlugin[
             token: str,
             client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
         ) -> RedirectResponse:
-            stripe_client = self._build_client(belgie_client=client)
-            return await stripe_client.subscription_success(token=token)
+            billing_client = self._build_client(belgie_client=client)
+            return await billing_client.subscription_success(token=token)
 
         @router.post("/stripe/webhook")
         async def stripe_webhook(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
         ) -> dict[str, bool]:
-            stripe_client = self._build_client(belgie_client=client)
-            return await stripe_client.handle_webhook(request=request)
+            billing_client = self._build_client(belgie_client=client)
+            return await billing_client.handle_webhook(request=request)
 
         return router
 

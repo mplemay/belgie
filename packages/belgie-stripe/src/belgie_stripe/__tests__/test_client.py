@@ -49,11 +49,11 @@ def _build_client(
         client=belgie_client,
         belgie_settings=settings,
         settings=Stripe(
-            stripe_client=stripe_sdk,
+            stripe=stripe_sdk,
             stripe_webhook_secret="whsec_test",
             subscription=StripeSubscription(
                 adapter=adapter,
-                plans=[StripePlan(name="pro", price_id="price_pro")],
+                plans=[StripePlan(name="pro", price_id="price_pro", annual_price_id="price_pro_year")],
                 authorize_reference=authorize_reference,
                 on_subscription_created=on_subscription_created,
             ),
@@ -64,6 +64,12 @@ def _build_client(
         organization_adapter=organization_adapter,
     )
     return client, belgie_client, stripe_sdk, adapter
+
+
+def test_client_exposes_raw_stripe_sdk() -> None:
+    client, _belgie_client, stripe_sdk, _adapter = _build_client()
+
+    assert client.stripe is stripe_sdk
 
 
 @pytest.mark.asyncio
@@ -130,7 +136,7 @@ async def test_ensure_organization_customer_creates_customer() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upgrade_same_plan_does_not_create_customer() -> None:
+async def test_upgrade_same_plan_same_cadence_does_not_create_customer() -> None:
     user = make_user(stripe_customer_id=None)
     client, _belgie_client, stripe_sdk, adapter = _build_client(user=user)
     await adapter.create_subscription(
@@ -141,6 +147,7 @@ async def test_upgrade_same_plan_does_not_create_customer() -> None:
         stripe_customer_id=None,
         stripe_subscription_id="sub_existing",
         status="active",
+        billing_interval="month",
     )
 
     with pytest.raises(HTTPException, match="already subscribed to this plan"):
@@ -155,6 +162,51 @@ async def test_upgrade_same_plan_does_not_create_customer() -> None:
     assert stripe_sdk.created_customers == []
     assert client.current_user is not None
     assert client.current_user.stripe_customer_id is None
+
+
+@pytest.mark.asyncio
+async def test_upgrade_same_plan_allows_switch_to_annual_billing() -> None:
+    client, _belgie_client, stripe_sdk, adapter = _build_client()
+    assert client.current_user is not None
+    await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        reference_id=client.current_user.id,
+        customer_type="user",
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+
+    result = await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="pro",
+            annual=True,
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    assert result.url == "https://billing.stripe.test/session"
+    assert stripe_sdk.created_checkout_sessions == []
+    assert stripe_sdk.created_billing_portal_sessions == [
+        {
+            "customer": "cus_existing",
+            "return_url": "http://localhost:8000/dashboard",
+            "flow_data": {
+                "type": "subscription_update_confirm",
+                "after_completion": {
+                    "type": "redirect",
+                    "redirect": {"return_url": "http://localhost:8000/dashboard"},
+                },
+                "subscription_update_confirm": {
+                    "subscription": "sub_existing",
+                    "items": [{"price": "price_pro_year"}],
+                },
+            },
+        },
+    ]
 
 
 @pytest.mark.asyncio
@@ -227,7 +279,7 @@ async def test_handle_webhook_verifies_signature_and_upserts_subscription() -> N
         },
     }
     construct_event.return_value = stripe_sdk.event
-    stripe_sdk.webhooks.construct_event = construct_event
+    stripe_sdk.Webhook.construct_event = construct_event
     client, _belgie_client, _stripe_sdk, adapter = _build_client(
         stripe_sdk=stripe_sdk,
         user=user,
@@ -453,3 +505,79 @@ async def test_subscription_success_polls_until_subscription_ready() -> None:
 
     assert response.status_code == 302
     assert response.headers["location"] == "http://localhost:8000/dashboard"
+
+
+@pytest.mark.asyncio
+async def test_subscription_success_returns_conflict_for_canceled_subscription() -> None:
+    client, _belgie_client, _stripe_sdk, adapter = _build_client()
+    subscription_id = uuid4()
+    now = datetime.now(UTC)
+    assert client.current_user is not None
+    adapter.get_subscription_by_id = AsyncMock(
+        return_value=FakeSubscription(
+            id=subscription_id,
+            plan="pro",
+            reference_id=client.current_user.id,
+            customer_type="user",
+            stripe_customer_id="cus_1",
+            stripe_subscription_id="sub_123",
+            status="canceled",
+            period_start=now,
+            period_end=now,
+            cancel_at_period_end=False,
+            cancel_at=None,
+            canceled_at=now,
+            ended_at=now,
+            billing_interval="month",
+            created_at=now,
+            updated_at=now,
+        ),
+    )
+    token = sign_success_token(
+        secret="test-secret",
+        subscription_id=subscription_id,
+        redirect_to="/dashboard",
+    )
+
+    with pytest.raises(HTTPException, match="could not be finalized") as exc_info:
+        await client.subscription_success(token=token)
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_subscription_success_returns_conflict_for_incomplete_expired_subscription() -> None:
+    client, _belgie_client, _stripe_sdk, adapter = _build_client()
+    subscription_id = uuid4()
+    now = datetime.now(UTC)
+    assert client.current_user is not None
+    adapter.get_subscription_by_id = AsyncMock(
+        return_value=FakeSubscription(
+            id=subscription_id,
+            plan="pro",
+            reference_id=client.current_user.id,
+            customer_type="user",
+            stripe_customer_id="cus_1",
+            stripe_subscription_id=None,
+            status="incomplete_expired",
+            period_start=None,
+            period_end=None,
+            cancel_at_period_end=False,
+            cancel_at=None,
+            canceled_at=None,
+            ended_at=now,
+            billing_interval=None,
+            created_at=now,
+            updated_at=now,
+        ),
+    )
+    token = sign_success_token(
+        secret="test-secret",
+        subscription_id=subscription_id,
+        redirect_to="/dashboard",
+    )
+
+    with pytest.raises(HTTPException, match="could not be finalized") as exc_info:
+        await client.subscription_success(token=token)
+
+    assert exc_info.value.status_code == 409
