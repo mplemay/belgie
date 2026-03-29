@@ -3,17 +3,24 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, overload
 from uuid import UUID
 
 import stripe
 from belgie_proto.stripe import (
+    StripeBillingInterval,
+    StripeCustomerType,
     StripeOrganizationProtocol,
     StripeSubscriptionProtocol,
+    StripeSubscriptionStatus,
     StripeUserProtocol,
 )
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from stripe import Event, StripeClient as StripeSDKClient, Subscription
+from stripe._stripe_object import StripeObject
+from stripe.checkout import Session as CheckoutSession
+from stripe.params import CustomerCreateParams, PriceListParams, SubscriptionUpdateParams, billing_portal, checkout
 
 from belgie_stripe.models import (
     BillingPortalRequest,
@@ -23,6 +30,7 @@ from belgie_stripe.models import (
     ListSubscriptionsRequest,
     ReferenceAuthorizationContext,
     RestoreSubscriptionRequest,
+    StripeAction,
     StripePlan,
     StripeRedirectResponse,
     SubscriptionEventContext,
@@ -30,68 +38,147 @@ from belgie_stripe.models import (
     UpgradeSubscriptionRequest,
 )
 from belgie_stripe.utils import (
+    _is_awaitable,
     absolute_url,
     append_query_params,
     maybe_await,
     normalize_relative_or_same_origin_url,
     sign_success_token,
-    stripe_bool,
-    stripe_iterable,
-    stripe_mapping,
-    stripe_str,
-    stripe_value,
     unsign_success_token,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Awaitable, Callable
 
-    from belgie_core.core.client import BelgieClient
     from belgie_core.core.settings import BelgieSettings
     from belgie_proto.core.session import SessionProtocol
-    from belgie_proto.organization import (
-        InvitationProtocol,
-        MemberProtocol,
-        OrganizationAdapterProtocol,
-        OrganizationProtocol,
-    )
-    from belgie_proto.stripe import StripeAdapterProtocol, StripeSubscriptionStatus
-    from stripe import StripeClient as StripeSDKClient
+    from belgie_proto.stripe import StripeAdapterProtocol
 
+    from belgie_stripe._protocols import BelgieClientProtocol, StripeOrganizationAdapterProtocol
     from belgie_stripe.settings import Stripe
+
+
+type PlansResolver = Callable[[], list[StripePlan] | Awaitable[list[StripePlan]]]
 
 
 SUCCESS_POLL_ATTEMPTS = 20
 SUCCESS_POLL_INTERVAL_SECONDS = 0.05
 SUCCESSFUL_SUBSCRIPTION_STATUSES = ("active", "past_due", "paused", "trialing", "unpaid")
 TERMINAL_SUBSCRIPTION_STATUSES = ("canceled", "incomplete_expired")
+NORMALIZED_SUBSCRIPTION_STATUSES: dict[str, StripeSubscriptionStatus] = {
+    "active": "active",
+    "canceled": "canceled",
+    "incomplete": "incomplete",
+    "incomplete_expired": "incomplete_expired",
+    "past_due": "past_due",
+    "paused": "paused",
+    "trialing": "trialing",
+    "unpaid": "unpaid",
+}
 
 
-def _merge_checkout_params(
-    extra_params: Mapping[str, object],
-    base_params: Mapping[str, object],
-) -> dict[str, object]:
-    merged = dict(extra_params)
-    for key, value in base_params.items():
-        if isinstance(existing := merged.get(key), dict) and isinstance(value, dict):
-            merged[key] = _merge_checkout_params(existing, value)
-        else:
-            merged[key] = value
-    return merged
+class _HasID(Protocol):
+    id: str
+
+
+def _copy_customer_create_params(params: CustomerCreateParams | None) -> CustomerCreateParams:
+    if params is None:
+        return CustomerCreateParams()
+    return CustomerCreateParams(params)
+
+
+def _copy_checkout_session_params(params: checkout.SessionCreateParams | None) -> checkout.SessionCreateParams:
+    if params is None:
+        return checkout.SessionCreateParams()
+    return checkout.SessionCreateParams(params)
+
+
+def _copy_checkout_subscription_data(
+    params: checkout.SessionCreateParamsSubscriptionData | None,
+) -> checkout.SessionCreateParamsSubscriptionData:
+    if params is None:
+        return checkout.SessionCreateParamsSubscriptionData()
+    return checkout.SessionCreateParamsSubscriptionData(params)
+
+
+def _metadata_dict(metadata: StripeObject | dict[str, str] | None) -> dict[str, str]:
+    if metadata is None:
+        return {}
+    if isinstance(metadata, StripeObject):
+        raw_metadata = metadata.to_dict()
+        return {key: value for key, value in raw_metadata.items() if isinstance(value, str)}
+    return metadata
+
+
+@overload
+async def _resolve_plans(plans: list[StripePlan]) -> list[StripePlan]: ...
+
+
+@overload
+async def _resolve_plans(plans: PlansResolver) -> list[StripePlan]: ...
+
+
+async def _resolve_plans(plans):
+    if isinstance(plans, list):
+        return plans
+    resolved = plans()
+    if _is_awaitable(resolved):
+        return await resolved
+    return resolved
+
+
+@overload
+async def _resolve_customer_create_params(params: CustomerCreateParams | None) -> CustomerCreateParams | None: ...
+
+
+@overload
+async def _resolve_customer_create_params(
+    params: Awaitable[CustomerCreateParams | None],
+) -> CustomerCreateParams | None: ...
+
+
+async def _resolve_customer_create_params(params):
+    if _is_awaitable(params):
+        return await params
+    return params
+
+
+@overload
+async def _resolve_checkout_session_params(
+    params: checkout.SessionCreateParams | None,
+) -> checkout.SessionCreateParams | None: ...
+
+
+@overload
+async def _resolve_checkout_session_params(
+    params: Awaitable[checkout.SessionCreateParams | None],
+) -> checkout.SessionCreateParams | None: ...
+
+
+async def _resolve_checkout_session_params(params):
+    if _is_awaitable(params):
+        return await params
+    return params
+
+
+def _expandable_id(value: str | _HasID | None) -> str | None:
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return None
+    return value.id
 
 
 @dataclass(slots=True, kw_only=True)
 class StripeClient[
     SubscriptionT: StripeSubscriptionProtocol,
 ]:
-    client: BelgieClient
+    client: BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol]
     belgie_settings: BelgieSettings
     settings: Stripe[SubscriptionT]
     current_user: StripeUserProtocol[str] | None = None
     current_session: SessionProtocol | None = None
-    organization_adapter: (
-        OrganizationAdapterProtocol[OrganizationProtocol, MemberProtocol, InvitationProtocol] | None
-    ) = None
+    organization_adapter: StripeOrganizationAdapterProtocol[StripeOrganizationProtocol] | None = None
 
     @property
     def subscription_adapter(self) -> StripeAdapterProtocol[SubscriptionT]:
@@ -143,30 +230,15 @@ class StripeClient[
                 metadata=data.metadata,
             )
         if active_subscription and active_subscription.stripe_subscription_id:
-            payload = {
-                "customer": customer_id,
-                "return_url": absolute_url(self.belgie_settings.base_url, return_url),
-                "flow_data": {
-                    "type": "subscription_update_confirm",
-                    "after_completion": {
-                        "type": "redirect",
-                        "redirect": {"return_url": absolute_url(self.belgie_settings.base_url, return_url)},
-                    },
-                    "subscription_update_confirm": {
-                        "subscription": active_subscription.stripe_subscription_id,
-                        "items": [{"price": price_id}],
-                    },
-                },
-            }
-            # Stripe's generated param stubs do not model this merged payload precisely.
-            portal_session = await self.stripe.v1.billing_portal.sessions.create_async(payload)  # ty: ignore
-            url = stripe_str(portal_session, "url")
-            if url is None:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="stripe portal session did not return a url",
-                )
-            return StripeRedirectResponse(url=url, redirect=not data.disable_redirect)
+            portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
+                await self._build_upgrade_portal_params(
+                    customer_id=customer_id,
+                    return_url=absolute_url(self.belgie_settings.base_url, return_url),
+                    subscription_id=active_subscription.stripe_subscription_id,
+                    price_id=price_id,
+                ),
+            )
+            return StripeRedirectResponse(url=portal_session.url, redirect=not data.disable_redirect)
 
         pending_subscription = await self.subscription_adapter.get_incomplete_subscription(
             self.client.db,
@@ -209,7 +281,9 @@ class StripeClient[
             session=session,
         )
         extra_params = (
-            await maybe_await(self.settings.subscription.get_checkout_session_params(checkout_context))
+            await _resolve_checkout_session_params(
+                self.settings.subscription.get_checkout_session_params(checkout_context),
+            )
             if self.settings.subscription.get_checkout_session_params
             else None
         )
@@ -222,30 +296,27 @@ class StripeClient[
             absolute_url(self.belgie_settings.base_url, "/auth/subscription/success"),
             token=success_token,
         )
-        base_payload = {
-            "mode": "subscription",
-            "customer": customer_id,
-            "line_items": [{"price": price_id, "quantity": 1}],
-            "success_url": internal_success_url,
-            "cancel_url": absolute_url(self.belgie_settings.base_url, cancel_url),
-            "metadata": {
-                **data.metadata,
-                **internal_metadata,
-            },
-            "subscription_data": {
-                "metadata": dict(internal_metadata),
-            },
-        }
-        payload = _merge_checkout_params(extra_params or {}, base_payload)
-        # Stripe's generated param stubs do not model this merged payload precisely.
-        checkout_session = await self.stripe.v1.checkout.sessions.create_async(payload)  # ty: ignore
-        url = stripe_str(checkout_session, "url")
-        if url is None:
+        checkout_session = await self.stripe.v1.checkout.sessions.create_async(
+            self._build_checkout_session_params(
+                extra_params=extra_params,
+                customer_id=customer_id,
+                price_id=price_id,
+                redirect_urls=(
+                    internal_success_url,
+                    absolute_url(self.belgie_settings.base_url, cancel_url),
+                ),
+                metadata={
+                    **data.metadata,
+                    **internal_metadata,
+                },
+            ),
+        )
+        if checkout_session.url is None:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="stripe checkout session did not return a url",
             )
-        return StripeRedirectResponse(url=url, redirect=not data.disable_redirect)
+        return StripeRedirectResponse(url=checkout_session.url, redirect=not data.disable_redirect)
 
     async def list_subscriptions(self, *, data: ListSubscriptionsRequest) -> list[SubscriptionView]:
         reference_id = self._resolve_reference_id(reference_id=data.reference_id, customer_type=data.customer_type)
@@ -278,22 +349,16 @@ class StripeClient[
             metadata={},
         )
         portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
-            {
-                "customer": customer_id,
-                "return_url": (
+            self._build_billing_portal_params(
+                customer_id=customer_id,
+                return_url=(
                     absolute_url(self.belgie_settings.base_url, self._validated_url(data.return_url))
                     if data.return_url
                     else absolute_url(self.belgie_settings.base_url, "/")
                 ),
-            },
+            ),
         )
-        url = stripe_str(portal_session, "url")
-        if url is None:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="stripe portal session did not return a url",
-            )
-        return StripeRedirectResponse(url=url, redirect=not data.disable_redirect)
+        return StripeRedirectResponse(url=portal_session.url, redirect=not data.disable_redirect)
 
     async def restore(self, *, data: RestoreSubscriptionRequest) -> SubscriptionView:
         reference_id = self._resolve_reference_id(reference_id=data.reference_id, customer_type=data.customer_type)
@@ -317,7 +382,7 @@ class StripeClient[
 
         stripe_subscription = await self.stripe.v1.subscriptions.update_async(
             subscription.stripe_subscription_id,
-            {"cancel_at_period_end": False},
+            SubscriptionUpdateParams(cancel_at_period_end=False),
         )
         updated = await self._sync_subscription(
             stripe_subscription=stripe_subscription,
@@ -343,24 +408,18 @@ class StripeClient[
             metadata={},
         )
         portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
-            {
-                "customer": customer_id,
-                "return_url": (
+            self._build_billing_portal_params(
+                customer_id=customer_id,
+                return_url=(
                     absolute_url(self.belgie_settings.base_url, self._validated_url(data.return_url))
                     if data.return_url
                     else absolute_url(self.belgie_settings.base_url, "/")
                 ),
-            },
+            ),
         )
-        url = stripe_str(portal_session, "url")
-        if url is None:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="stripe portal session did not return a url",
-            )
-        return StripeRedirectResponse(url=url, redirect=not data.disable_redirect)
+        return StripeRedirectResponse(url=portal_session.url, redirect=not data.disable_redirect)
 
-    async def handle_webhook(self, *, request: Request) -> dict[str, bool]:  # noqa: C901
+    async def handle_webhook(self, *, request: Request) -> dict[str, bool]:
         payload = await request.body()
         signature = request.headers.get("stripe-signature")
         if signature is None:
@@ -372,22 +431,13 @@ class StripeClient[
         if self.settings.on_event is not None:
             await maybe_await(self.settings.on_event(event))
 
-        event_type = stripe_str(event, "type")
-        if event_type is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="stripe event missing type")
-        event_data = stripe_mapping(event, "data")
-        if event_data is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="stripe event missing data")
-        event_object = stripe_mapping(event_data, "object")
-        if event_object is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="stripe event missing object")
-
-        if event_type == "checkout.session.completed":
-            subscription_id = stripe_str(event_object, "subscription")
-            metadata = stripe_mapping(event_object, "metadata") or {}
+        if event.type == "checkout.session.completed":
+            checkout_session = self._coerce_checkout_session_event(event)
+            subscription_id = _expandable_id(checkout_session.subscription)
+            metadata = _metadata_dict(checkout_session.metadata)
             local_subscription_id = metadata.get("local_subscription_id")
             local_subscription = None
-            if isinstance(local_subscription_id, str):
+            if local_subscription_id is not None:
                 parsed_subscription_id = self._coerce_stripe_uuid(
                     local_subscription_id,
                     field_name="local_subscription_id",
@@ -400,24 +450,24 @@ class StripeClient[
                 stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(subscription_id)
                 await self._sync_subscription(
                     stripe_subscription=stripe_subscription,
-                    event_type=event_type,
+                    event_type=event.type,
                     existing_subscription=local_subscription,
                 )
-        elif event_type in {
+        elif event.type in {
             "customer.subscription.created",
             "customer.subscription.updated",
             "customer.subscription.deleted",
         }:
+            stripe_subscription = self._coerce_subscription_event(event)
             existing_subscription = None
-            stripe_subscription_id = stripe_str(event_object, "id")
-            if stripe_subscription_id is not None:
+            if stripe_subscription.id:
                 existing_subscription = await self.subscription_adapter.get_subscription_by_stripe_subscription_id(
                     self.client.db,
-                    stripe_subscription_id=stripe_subscription_id,
+                    stripe_subscription_id=stripe_subscription.id,
                 )
             await self._sync_subscription(
-                stripe_subscription=event_object,
-                event_type=event_type,
+                stripe_subscription=stripe_subscription,
+                event_type=event.type,
                 existing_subscription=existing_subscription,
             )
         return {"received": True}
@@ -469,31 +519,22 @@ class StripeClient[
             metadata=metadata,
         )
         extra_params = (
-            dict(await maybe_await(self.settings.get_customer_create_params(context)) or {})
+            await _resolve_customer_create_params(self.settings.get_customer_create_params(context))
             if self.settings.get_customer_create_params
-            else {}
+            else None
         )
-        hook_metadata = extra_params.pop("metadata", {})
-        payload_metadata = {}
-        if isinstance(hook_metadata, dict):
-            payload_metadata.update(hook_metadata)
-        payload_metadata.update(metadata)
-        payload_metadata["customer_type"] = "user"
-        payload_metadata["reference_id"] = str(user.id)
-        payload = {
-            "email": user.email,
-            "name": user.name,
-            "metadata": payload_metadata,
+        payload = _copy_customer_create_params(extra_params)
+        payload["email"] = user.email
+        if user.name is not None:
+            payload["name"] = user.name
+        payload["metadata"] = {
+            **(payload.get("metadata") or {}),
+            **metadata,
+            "customer_type": "user",
+            "reference_id": str(user.id),
         }
-        payload.update(extra_params)
-        # Stripe's generated param stubs do not model the merged customer payload precisely.
-        customer = await self.stripe.v1.customers.create_async(payload)  # ty: ignore
-        customer_id = stripe_str(customer, "id")
-        if customer_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="stripe customer creation did not return an id",
-            )
+        customer = await self.stripe.v1.customers.create_async(payload)
+        customer_id = customer.id
         await self.client.adapter.update_user(self.client.db, user.id, stripe_customer_id=customer_id)
         if self.settings.on_customer_create is not None:
             await maybe_await(
@@ -538,30 +579,22 @@ class StripeClient[
             metadata=metadata,
         )
         extra_params = (
-            dict(await maybe_await(self.settings.organization.get_customer_create_params(context)) or {})
-            if self.settings.organization.get_customer_create_params
-            else {}
-        )
-        hook_metadata = extra_params.pop("metadata", {})
-        payload_metadata = {}
-        if isinstance(hook_metadata, dict):
-            payload_metadata.update(hook_metadata)
-        payload_metadata.update(metadata)
-        payload_metadata["customer_type"] = "organization"
-        payload_metadata["reference_id"] = str(reference_id)
-        payload = {
-            "name": organization.name,
-            "metadata": payload_metadata,
-        }
-        payload.update(extra_params)
-        # Stripe's generated param stubs do not model the merged customer payload precisely.
-        customer = await self.stripe.v1.customers.create_async(payload)  # ty: ignore
-        customer_id = stripe_str(customer, "id")
-        if customer_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="stripe customer creation did not return an id",
+            await _resolve_customer_create_params(
+                self.settings.organization.get_customer_create_params(context),
             )
+            if self.settings.organization.get_customer_create_params
+            else None
+        )
+        payload = _copy_customer_create_params(extra_params)
+        payload["name"] = organization.name
+        payload["metadata"] = {
+            **(payload.get("metadata") or {}),
+            **metadata,
+            "customer_type": "organization",
+            "reference_id": str(reference_id),
+        }
+        customer = await self.stripe.v1.customers.create_async(payload)
+        customer_id = customer.id
         await self.organization_adapter.update_organization(
             self.client.db,
             reference_id,
@@ -584,7 +617,7 @@ class StripeClient[
     async def _ensure_customer(
         self,
         *,
-        customer_type: str,
+        customer_type: StripeCustomerType,
         reference_id: UUID,
         metadata: dict[str, str],
     ) -> str:
@@ -595,9 +628,9 @@ class StripeClient[
     async def _authorize_reference(
         self,
         *,
-        action: str,
+        action: StripeAction,
         reference_id: UUID,
-        customer_type: str,
+        customer_type: StripeCustomerType,
     ) -> None:
         user, session = self._require_authenticated()
         if customer_type == "user":
@@ -634,10 +667,7 @@ class StripeClient[
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="subscription plan not found")
 
     async def _get_plans(self) -> list[StripePlan]:
-        plans = self.settings.subscription.plans
-        if callable(plans):
-            return await maybe_await(plans())
-        return plans
+        return await _resolve_plans(self.settings.subscription.plans)
 
     async def _resolve_price_id(self, *, plan: StripePlan, annual: bool) -> str:
         if annual:
@@ -654,14 +684,19 @@ class StripeClient[
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="plan is missing a stripe price")
 
     async def _resolve_lookup_key(self, lookup_key: str) -> str:
-        price_list = await self.stripe.v1.prices.list_async({"lookup_keys": [lookup_key], "active": True, "limit": 1})
-        for price in stripe_iterable(price_list, "data"):
-            price_id = stripe_str(price, "id")
-            if price_id is not None:
-                return price_id
+        price_list = await self.stripe.v1.prices.list_async(
+            PriceListParams(lookup_keys=[lookup_key], active=True, limit=1),
+        )
+        for price in price_list.data:
+            return price.id
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="stripe price not found")
 
-    def _resolve_reference_id(self, *, reference_id: UUID | None, customer_type: str) -> UUID:
+    def _resolve_reference_id(
+        self,
+        *,
+        reference_id: UUID | None,
+        customer_type: StripeCustomerType,
+    ) -> UUID:
         user, _session = self._require_authenticated()
         if customer_type == "organization":
             if reference_id is None:
@@ -684,17 +719,105 @@ class StripeClient[
             detail = f"stripe metadata {field_name} must be a valid UUID"
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
 
-    async def _sync_subscription(  # noqa: C901, PLR0912, PLR0915
+    def _build_billing_portal_params(
         self,
         *,
-        stripe_subscription: object,
+        customer_id: str,
+        return_url: str,
+    ) -> billing_portal.SessionCreateParams:
+        return billing_portal.SessionCreateParams(
+            customer=customer_id,
+            return_url=return_url,
+        )
+
+    async def _build_upgrade_portal_params(
+        self,
+        *,
+        customer_id: str,
+        return_url: str,
+        subscription_id: str,
+        price_id: str,
+    ) -> billing_portal.SessionCreateParams:
+        stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(subscription_id)
+        if not stripe_subscription.items.data:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="stripe subscription missing items",
+            )
+
+        return billing_portal.SessionCreateParams(
+            customer=customer_id,
+            return_url=return_url,
+            flow_data=billing_portal.SessionCreateParamsFlowData(
+                type="subscription_update_confirm",
+                after_completion=billing_portal.SessionCreateParamsFlowDataAfterCompletion(
+                    type="redirect",
+                    redirect=billing_portal.SessionCreateParamsFlowDataAfterCompletionRedirect(
+                        return_url=return_url,
+                    ),
+                ),
+                subscription_update_confirm=billing_portal.SessionCreateParamsFlowDataSubscriptionUpdateConfirm(
+                    subscription=subscription_id,
+                    items=[
+                        billing_portal.SessionCreateParamsFlowDataSubscriptionUpdateConfirmItem(
+                            id=stripe_subscription.items.data[0].id,
+                            price=price_id,
+                        ),
+                    ],
+                ),
+            ),
+        )
+
+    def _build_checkout_session_params(
+        self,
+        *,
+        extra_params: checkout.SessionCreateParams | None,
+        customer_id: str,
+        price_id: str,
+        redirect_urls: tuple[str, str],
+        metadata: dict[str, str],
+    ) -> checkout.SessionCreateParams:
+        success_url, cancel_url = redirect_urls
+        payload = _copy_checkout_session_params(extra_params)
+        payload["mode"] = "subscription"
+        payload["customer"] = customer_id
+        payload["line_items"] = [
+            checkout.SessionCreateParamsLineItem(price=price_id, quantity=1),
+        ]
+        payload["success_url"] = success_url
+        payload["cancel_url"] = cancel_url
+        payload["metadata"] = {
+            **(payload.get("metadata") or {}),
+            **metadata,
+        }
+
+        subscription_data = _copy_checkout_subscription_data(payload.get("subscription_data"))
+        subscription_data["metadata"] = {
+            **(subscription_data.get("metadata") or {}),
+            **metadata,
+        }
+        payload["subscription_data"] = subscription_data
+        return payload
+
+    def _coerce_checkout_session_event(self, event: Event) -> CheckoutSession:
+        # Stripe models `event.data.object` as `dict[str, Any]` even for known v1 event shapes.
+        return CheckoutSession.construct_from(event.data.object, key=None)
+
+    def _coerce_subscription_event(self, event: Event) -> Subscription:
+        # Stripe models `event.data.object` as `dict[str, Any]` even for known v1 event shapes.
+        return Subscription.construct_from(event.data.object, key=None)
+
+    async def _sync_subscription(  # noqa: C901, PLR0912
+        self,
+        *,
+        stripe_subscription: Subscription,
         event_type: str,
         existing_subscription: SubscriptionT | None,
     ) -> SubscriptionT:
-        metadata = stripe_mapping(stripe_subscription, "metadata") or {}
+        metadata = _metadata_dict(stripe_subscription.metadata)
         metadata_subscription_id = metadata.get("local_subscription_id")
         subscription = existing_subscription
-        if isinstance(metadata_subscription_id, str):
+        if metadata_subscription_id is not None:
             parsed_subscription_id = self._coerce_stripe_uuid(
                 metadata_subscription_id,
                 field_name="local_subscription_id",
@@ -707,14 +830,16 @@ class StripeClient[
 
         customer_type = metadata.get("customer_type")
         reference_id_raw = metadata.get("reference_id")
-        if not isinstance(customer_type, str) or customer_type not in {"user", "organization"}:
+        if customer_type is None:
             if subscription is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="stripe subscription metadata missing customer_type",
                 )
             customer_type = subscription.customer_type
-        if isinstance(reference_id_raw, str):
+        else:
+            customer_type = self._normalize_customer_type(customer_type)
+        if reference_id_raw is not None:
             reference_id = self._coerce_stripe_uuid(reference_id_raw, field_name="reference_id")
         elif subscription is not None:
             reference_id = subscription.reference_id
@@ -724,23 +849,16 @@ class StripeClient[
                 detail="stripe subscription metadata missing reference_id",
             )
 
-        plan_name = metadata.get("plan") if isinstance(metadata.get("plan"), str) else None
+        plan_name = metadata.get("plan")
         plan = await self._match_plan(plan_name=plan_name, stripe_subscription=stripe_subscription)
-        stripe_subscription_id = stripe_str(stripe_subscription, "id")
-        if stripe_subscription_id is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="stripe subscription missing id")
-        stripe_customer_id = stripe_str(stripe_subscription, "customer")
-        status_value = stripe_str(stripe_subscription, "status")
-        if status_value is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="stripe subscription missing status")
-
         recurring = self._extract_primary_recurring(stripe_subscription)
-        cancel_at_period_end = stripe_bool(stripe_subscription, "cancel_at_period_end") or False
-        period_start = self._timestamp_to_datetime(stripe_value(stripe_subscription, "current_period_start"))
-        period_end = self._timestamp_to_datetime(stripe_value(stripe_subscription, "current_period_end"))
-        cancel_at = self._timestamp_to_datetime(stripe_value(stripe_subscription, "cancel_at"))
-        canceled_at = self._timestamp_to_datetime(stripe_value(stripe_subscription, "canceled_at"))
-        ended_at = self._timestamp_to_datetime(stripe_value(stripe_subscription, "ended_at"))
+        stripe_customer_id = _expandable_id(stripe_subscription.customer)
+        period_start = self._timestamp_to_datetime(getattr(stripe_subscription, "current_period_start", None))
+        period_end = self._timestamp_to_datetime(getattr(stripe_subscription, "current_period_end", None))
+        cancel_at = self._timestamp_to_datetime(stripe_subscription.cancel_at)
+        canceled_at = self._timestamp_to_datetime(stripe_subscription.canceled_at)
+        ended_at = self._timestamp_to_datetime(stripe_subscription.ended_at)
+        normalized_status = self._normalize_status(stripe_subscription.status)
 
         if subscription is None:
             subscription = await self.subscription_adapter.create_subscription(
@@ -749,11 +867,11 @@ class StripeClient[
                 reference_id=reference_id,
                 customer_type=customer_type,
                 stripe_customer_id=stripe_customer_id,
-                stripe_subscription_id=stripe_subscription_id,
-                status=self._normalize_status(status_value),
+                stripe_subscription_id=stripe_subscription.id,
+                status=normalized_status,
                 period_start=period_start,
                 period_end=period_end,
-                cancel_at_period_end=cancel_at_period_end,
+                cancel_at_period_end=stripe_subscription.cancel_at_period_end,
                 cancel_at=cancel_at,
                 canceled_at=canceled_at,
                 ended_at=ended_at,
@@ -765,11 +883,11 @@ class StripeClient[
                 subscription_id=subscription.id,
                 plan=plan.name.lower(),
                 stripe_customer_id=stripe_customer_id,
-                stripe_subscription_id=stripe_subscription_id,
-                status=self._normalize_status(status_value),
+                stripe_subscription_id=stripe_subscription.id,
+                status=normalized_status,
                 period_start=period_start,
                 period_end=period_end,
-                cancel_at_period_end=cancel_at_period_end,
+                cancel_at_period_end=stripe_subscription.cancel_at_period_end,
                 cancel_at=cancel_at,
                 canceled_at=canceled_at,
                 ended_at=ended_at,
@@ -805,49 +923,54 @@ class StripeClient[
                 await maybe_await(self.settings.subscription.on_subscription_canceled(hook_context))
         return subscription
 
-    async def _match_plan(self, *, plan_name: str | None, stripe_subscription: object) -> StripePlan:
+    async def _match_plan(self, *, plan_name: str | None, stripe_subscription: Subscription) -> StripePlan:
         if plan_name is not None:
             return await self._get_plan(plan_name)
         plans = await self._get_plans()
-        items = stripe_mapping(stripe_subscription, "items")
-        for item in stripe_iterable(items or {}, "data"):
-            price = stripe_mapping(item, "price")
-            if price is None:
-                continue
-            price_id = stripe_str(price, "id")
-            lookup_key = stripe_str(price, "lookup_key")
+        for item in stripe_subscription.items.data:
+            price = item.price
             for plan in plans:
-                if price_id in {plan.price_id, plan.annual_price_id}:
+                if price.id in {plan.price_id, plan.annual_price_id}:
                     return plan
-                if lookup_key in {plan.lookup_key, plan.annual_lookup_key}:
+                if price.lookup_key in {plan.lookup_key, plan.annual_lookup_key}:
                     return plan
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="subscription plan not found")
 
-    def _extract_primary_recurring(self, stripe_subscription: object) -> str | None:
-        items = stripe_mapping(stripe_subscription, "items")
-        for item in stripe_iterable(items or {}, "data"):
-            price = stripe_mapping(item, "price")
-            recurring = stripe_mapping(price or {}, "recurring")
-            interval = stripe_str(recurring or {}, "interval")
-            if interval is not None:
-                return interval
+    def _extract_primary_recurring(self, stripe_subscription: Subscription) -> StripeBillingInterval | None:
+        for item in stripe_subscription.items.data:
+            if (recurring := item.price.recurring) is not None:
+                return self._normalize_billing_interval(recurring.interval)
         return None
 
     def _normalize_status(self, status_value: str) -> StripeSubscriptionStatus:
-        allowed_statuses = {
-            "active",
-            "canceled",
-            "incomplete",
-            "incomplete_expired",
-            "past_due",
-            "paused",
-            "trialing",
-            "unpaid",
-        }
-        if status_value not in allowed_statuses:
-            msg = f"unsupported stripe subscription status: {status_value}"
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
-        return status_value
+        if (normalized_status := NORMALIZED_SUBSCRIPTION_STATUSES.get(status_value)) is not None:
+            return normalized_status
+        msg = f"unsupported stripe subscription status: {status_value}"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+    def _normalize_customer_type(self, customer_type: str) -> StripeCustomerType:
+        match customer_type:
+            case "organization":
+                return "organization"
+            case "user":
+                return "user"
+            case _:
+                msg = f"unsupported stripe customer type: {customer_type}"
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+    def _normalize_billing_interval(self, interval: str) -> StripeBillingInterval:
+        match interval:
+            case "day":
+                return "day"
+            case "month":
+                return "month"
+            case "week":
+                return "week"
+            case "year":
+                return "year"
+            case _:
+                msg = f"unsupported stripe billing interval: {interval}"
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
     def _timestamp_to_datetime(self, value: object) -> datetime | None:
         if not isinstance(value, (int, float)):

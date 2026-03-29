@@ -8,7 +8,6 @@ import pytest
 import stripe
 from belgie_core.core.settings import BelgieSettings
 from fastapi import HTTPException
-from stripe._stripe_object import StripeObject
 
 from belgie_stripe import Stripe, StripeOrganization, StripePlan, StripeSubscription
 from belgie_stripe.__tests__.fakes import (
@@ -17,8 +16,11 @@ from belgie_stripe.__tests__.fakes import (
     FakeStripeSDK,
     FakeSubscription,
     InMemoryStripeAdapter,
+    make_checkout_completed_event,
     make_organization,
     make_session,
+    make_stripe_subscription,
+    make_subscription_event,
     make_user,
 )
 from belgie_stripe.client import StripeClient
@@ -296,6 +298,14 @@ async def test_upgrade_same_plan_without_billing_interval_is_rejected() -> None:
 async def test_upgrade_same_plan_allows_switch_to_annual_billing() -> None:
     client, _belgie_client, stripe_sdk, adapter = _build_client()
     assert client.current_user is not None
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        customer_id="cus_existing",
+        status="active",
+        price_id="price_pro",
+        interval="month",
+        item_id="si_existing",
+    )
     await adapter.create_subscription(
         client.client.db,
         plan="pro",
@@ -330,7 +340,7 @@ async def test_upgrade_same_plan_allows_switch_to_annual_billing() -> None:
                 },
                 "subscription_update_confirm": {
                     "subscription": "sub_existing",
-                    "items": [{"price": "price_pro_year"}],
+                    "items": [{"id": "si_existing", "price": "price_pro_year"}],
                 },
             },
         },
@@ -399,6 +409,7 @@ async def test_upgrade_checkout_metadata_keeps_reserved_keys() -> None:
             "reference_id": str(client.current_user.id),
             "customer_type": "user",
             "plan": "pro",
+            "source": "test",
         },
     }
 
@@ -501,44 +512,17 @@ async def test_billing_portal_defaults_return_url() -> None:
 async def test_handle_webhook_verifies_signature_and_upserts_subscription() -> None:
     hook = AsyncMock()
     stripe_sdk = FakeStripeSDK()
-    construct_event = MagicMock()
     user = make_user()
-    stripe_sdk.event = StripeObject.construct_from(
-        {
-            "type": "customer.subscription.created",
-            "data": {
-                "object": {
-                    "id": "sub_123",
-                    "customer": "cus_123",
-                    "status": "active",
-                    "current_period_start": 1_710_000_000,
-                    "current_period_end": 1_712_592_000,
-                    "cancel_at_period_end": False,
-                    "cancel_at": None,
-                    "canceled_at": None,
-                    "ended_at": None,
-                    "metadata": {
-                        "reference_id": str(user.id),
-                        "customer_type": "user",
-                        "plan": "pro",
-                    },
-                    "items": {
-                        "data": [
-                            {
-                                "price": {
-                                    "id": "price_pro",
-                                    "recurring": {"interval": "month"},
-                                },
-                            },
-                        ],
-                    },
-                },
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.created",
+        subscription=make_stripe_subscription(
+            metadata={
+                "reference_id": str(user.id),
+                "customer_type": "user",
+                "plan": "pro",
             },
-        },
-        key="evt_1",
+        ),
     )
-    construct_event.return_value = stripe_sdk.event
-    stripe_sdk.construct_event = construct_event
     client, _belgie_client, _stripe_sdk, adapter = _build_client(
         stripe_sdk=stripe_sdk,
         user=user,
@@ -555,11 +539,9 @@ async def test_handle_webhook_verifies_signature_and_upserts_subscription() -> N
     )
 
     assert result == {"received": True}
-    construct_event.assert_called_once_with(
-        b"{}",
-        "sig_test",
-        "whsec_test",
-    )
+    assert stripe_sdk.construct_event_calls == [
+        (b"{}", "sig_test", "whsec_test", stripe.Webhook.DEFAULT_TOLERANCE),
+    ]
     assert stored is not None
     assert stored.plan == "pro"
     assert stored.reference_id == user.id
@@ -571,9 +553,7 @@ async def test_handle_webhook_verifies_signature_and_upserts_subscription() -> N
 @pytest.mark.asyncio
 async def test_handle_webhook_returns_400_for_signature_verification_failure() -> None:
     stripe_sdk = FakeStripeSDK()
-    stripe_sdk.construct_event = MagicMock(
-        side_effect=stripe.error.SignatureVerificationError("bad signature", "sig_test"),
-    )
+    stripe_sdk.construct_event_error = stripe.error.SignatureVerificationError("bad signature", "sig_test")
     client, _belgie_client, _stripe_sdk, _adapter = _build_client(stripe_sdk=stripe_sdk)
     request = MagicMock()
     request.body = AsyncMock(return_value=b"{}")
@@ -588,17 +568,10 @@ async def test_handle_webhook_returns_400_for_signature_verification_failure() -
 @pytest.mark.asyncio
 async def test_handle_webhook_rejects_invalid_local_subscription_id() -> None:
     stripe_sdk = FakeStripeSDK()
-    stripe_sdk.event = {
-        "type": "checkout.session.completed",
-        "data": {
-            "object": {
-                "subscription": "sub_123",
-                "metadata": {
-                    "local_subscription_id": "not-a-uuid",
-                },
-            },
-        },
-    }
+    stripe_sdk.event = make_checkout_completed_event(
+        subscription_id="sub_123",
+        metadata={"local_subscription_id": "not-a-uuid"},
+    )
     client, _belgie_client, _stripe_sdk, _adapter = _build_client(stripe_sdk=stripe_sdk)
     request = MagicMock()
     request.body = AsyncMock(return_value=b"{}")
@@ -611,31 +584,16 @@ async def test_handle_webhook_rejects_invalid_local_subscription_id() -> None:
 @pytest.mark.asyncio
 async def test_handle_webhook_rejects_invalid_reference_id() -> None:
     stripe_sdk = FakeStripeSDK()
-    stripe_sdk.event = {
-        "type": "customer.subscription.created",
-        "data": {
-            "object": {
-                "id": "sub_123",
-                "customer": "cus_123",
-                "status": "active",
-                "metadata": {
-                    "reference_id": "not-a-uuid",
-                    "customer_type": "user",
-                    "plan": "pro",
-                },
-                "items": {
-                    "data": [
-                        {
-                            "price": {
-                                "id": "price_pro",
-                                "recurring": {"interval": "month"},
-                            },
-                        },
-                    ],
-                },
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.created",
+        subscription=make_stripe_subscription(
+            metadata={
+                "reference_id": "not-a-uuid",
+                "customer_type": "user",
+                "plan": "pro",
             },
-        },
-    }
+        ),
+    )
     client, _belgie_client, _stripe_sdk, _adapter = _build_client(stripe_sdk=stripe_sdk)
     request = MagicMock()
     request.body = AsyncMock(return_value=b"{}")
@@ -662,57 +620,29 @@ async def test_checkout_completed_does_not_double_fire_created_hook() -> None:
         customer_type="user",
         status="incomplete",
     )
-    stripe_subscription = {
-        "id": "sub_123",
-        "customer": "cus_123",
-        "status": "active",
-        "current_period_start": 1_710_000_000,
-        "current_period_end": 1_712_592_000,
-        "cancel_at_period_end": False,
-        "cancel_at": None,
-        "canceled_at": None,
-        "ended_at": None,
-        "metadata": {
+    stripe_subscription = make_stripe_subscription(
+        metadata={
             "local_subscription_id": str(subscription.id),
             "reference_id": str(user.id),
             "customer_type": "user",
             "plan": "pro",
         },
-        "items": {
-            "data": [
-                {
-                    "price": {
-                        "id": "price_pro",
-                        "recurring": {"interval": "month"},
-                    },
-                },
-            ],
-        },
-    }
+    )
     stripe_sdk.subscription_responses["sub_123"] = stripe_subscription
     request = MagicMock()
     request.body = AsyncMock(return_value=b"{}")
     request.headers = {"stripe-signature": "sig_test"}
 
-    stripe_sdk.event = {
-        "type": "checkout.session.completed",
-        "data": {
-            "object": {
-                "subscription": "sub_123",
-                "metadata": {
-                    "local_subscription_id": str(subscription.id),
-                },
-            },
-        },
-    }
+    stripe_sdk.event = make_checkout_completed_event(
+        subscription_id="sub_123",
+        metadata={"local_subscription_id": str(subscription.id)},
+    )
     checkout_result = await client.handle_webhook(request=request)
 
-    stripe_sdk.event = {
-        "type": "customer.subscription.created",
-        "data": {
-            "object": stripe_subscription,
-        },
-    }
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.created",
+        subscription=stripe_subscription,
+    )
     created_result = await client.handle_webhook(request=request)
     stored = await adapter.get_subscription_by_stripe_subscription_id(
         client.client.db,
@@ -731,46 +661,45 @@ async def test_subscription_success_polls_until_subscription_ready() -> None:
     client, _belgie_client, _stripe_sdk, adapter = _build_client(base_url="http://localhost:8000/app")
     subscription_id = uuid4()
     now = datetime.now(UTC)
-    adapter.get_subscription_by_id = AsyncMock(
-        side_effect=[
-            FakeSubscription(
-                id=subscription_id,
-                plan="pro",
-                reference_id=client.current_user.id,
-                customer_type="user",
-                stripe_customer_id="cus_1",
-                stripe_subscription_id=None,
-                status="incomplete",
-                period_start=None,
-                period_end=None,
-                cancel_at_period_end=False,
-                cancel_at=None,
-                canceled_at=None,
-                ended_at=None,
-                billing_interval=None,
-                created_at=now,
-                updated_at=now,
-            ),
-            FakeSubscription(
-                id=subscription_id,
-                plan="pro",
-                reference_id=client.current_user.id,
-                customer_type="user",
-                stripe_customer_id="cus_1",
-                stripe_subscription_id="sub_123",
-                status="active",
-                period_start=now,
-                period_end=now,
-                cancel_at_period_end=False,
-                cancel_at=None,
-                canceled_at=None,
-                ended_at=None,
-                billing_interval="month",
-                created_at=now,
-                updated_at=now,
-            ),
-        ],
-    )
+    assert client.current_user is not None
+    adapter.subscription_by_id_responses[subscription_id] = [
+        FakeSubscription(
+            id=subscription_id,
+            plan="pro",
+            reference_id=client.current_user.id,
+            customer_type="user",
+            stripe_customer_id="cus_1",
+            stripe_subscription_id=None,
+            status="incomplete",
+            period_start=None,
+            period_end=None,
+            cancel_at_period_end=False,
+            cancel_at=None,
+            canceled_at=None,
+            ended_at=None,
+            billing_interval=None,
+            created_at=now,
+            updated_at=now,
+        ),
+        FakeSubscription(
+            id=subscription_id,
+            plan="pro",
+            reference_id=client.current_user.id,
+            customer_type="user",
+            stripe_customer_id="cus_1",
+            stripe_subscription_id="sub_123",
+            status="active",
+            period_start=now,
+            period_end=now,
+            cancel_at_period_end=False,
+            cancel_at=None,
+            canceled_at=None,
+            ended_at=None,
+            billing_interval="month",
+            created_at=now,
+            updated_at=now,
+        ),
+    ]
     token = sign_success_token(
         secret="test-secret",
         subscription_id=subscription_id,
@@ -789,25 +718,23 @@ async def test_subscription_success_returns_conflict_for_canceled_subscription()
     subscription_id = uuid4()
     now = datetime.now(UTC)
     assert client.current_user is not None
-    adapter.get_subscription_by_id = AsyncMock(
-        return_value=FakeSubscription(
-            id=subscription_id,
-            plan="pro",
-            reference_id=client.current_user.id,
-            customer_type="user",
-            stripe_customer_id="cus_1",
-            stripe_subscription_id="sub_123",
-            status="canceled",
-            period_start=now,
-            period_end=now,
-            cancel_at_period_end=False,
-            cancel_at=None,
-            canceled_at=now,
-            ended_at=now,
-            billing_interval="month",
-            created_at=now,
-            updated_at=now,
-        ),
+    adapter.subscriptions[subscription_id] = FakeSubscription(
+        id=subscription_id,
+        plan="pro",
+        reference_id=client.current_user.id,
+        customer_type="user",
+        stripe_customer_id="cus_1",
+        stripe_subscription_id="sub_123",
+        status="canceled",
+        period_start=now,
+        period_end=now,
+        cancel_at_period_end=False,
+        cancel_at=None,
+        canceled_at=now,
+        ended_at=now,
+        billing_interval="month",
+        created_at=now,
+        updated_at=now,
     )
     token = sign_success_token(
         secret="test-secret",
@@ -827,25 +754,23 @@ async def test_subscription_success_returns_conflict_for_incomplete_expired_subs
     subscription_id = uuid4()
     now = datetime.now(UTC)
     assert client.current_user is not None
-    adapter.get_subscription_by_id = AsyncMock(
-        return_value=FakeSubscription(
-            id=subscription_id,
-            plan="pro",
-            reference_id=client.current_user.id,
-            customer_type="user",
-            stripe_customer_id="cus_1",
-            stripe_subscription_id=None,
-            status="incomplete_expired",
-            period_start=None,
-            period_end=None,
-            cancel_at_period_end=False,
-            cancel_at=None,
-            canceled_at=None,
-            ended_at=now,
-            billing_interval=None,
-            created_at=now,
-            updated_at=now,
-        ),
+    adapter.subscriptions[subscription_id] = FakeSubscription(
+        id=subscription_id,
+        plan="pro",
+        reference_id=client.current_user.id,
+        customer_type="user",
+        stripe_customer_id="cus_1",
+        stripe_subscription_id=None,
+        status="incomplete_expired",
+        period_start=None,
+        period_end=None,
+        cancel_at_period_end=False,
+        cancel_at=None,
+        canceled_at=None,
+        ended_at=now,
+        billing_interval=None,
+        created_at=now,
+        updated_at=now,
     )
     token = sign_success_token(
         secret="test-secret",

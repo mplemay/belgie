@@ -58,6 +58,7 @@ def test_plugin_injects_stripe_client() -> None:
 
     @app.get("/stripe-client")
     async def stripe_client_route(stripe: StripeClient = Depends(plugin)) -> dict[str, str]:
+        assert stripe.current_user is not None
         return {"user_id": str(stripe.current_user.id)}
 
     response = TestClient(app).get("/stripe-client")

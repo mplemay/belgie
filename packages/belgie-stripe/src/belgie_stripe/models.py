@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
-from typing import Literal, Self
+from typing import TYPE_CHECKING, Literal, Self
 from uuid import UUID  # noqa: TC003
 
-from belgie_proto.stripe import StripeSubscriptionProtocol
+from belgie_proto.stripe import (
+    StripeBillingInterval,
+    StripeCustomerType,
+    StripeSubscriptionProtocol,
+    StripeSubscriptionStatus,
+)
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+if TYPE_CHECKING:
+    from stripe import Subscription
 
 type JSONScalar = str | int | float | bool | None
 type StripeAction = Literal[
@@ -83,17 +91,17 @@ class SubscriptionView(BaseModel):
     id: UUID
     plan: str
     reference_id: UUID
-    customer_type: Literal["user", "organization"]
+    customer_type: StripeCustomerType
     stripe_customer_id: str | None = None
     stripe_subscription_id: str | None = None
-    status: str
+    status: StripeSubscriptionStatus
     period_start: datetime | None = None
     period_end: datetime | None = None
     cancel_at_period_end: bool
     cancel_at: datetime | None = None
     canceled_at: datetime | None = None
     ended_at: datetime | None = None
-    billing_interval: str | None = None
+    billing_interval: StripeBillingInterval | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -134,5 +142,5 @@ class CheckoutSessionContext[SubscriptionT, UserT, SessionT]:
 class SubscriptionEventContext[SubscriptionT]:
     event_type: str
     plan: StripePlan | None
-    raw_event: object
+    raw_event: Subscription
     subscription: SubscriptionT

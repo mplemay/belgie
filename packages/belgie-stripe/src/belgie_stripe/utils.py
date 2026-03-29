@@ -5,19 +5,28 @@ import hashlib
 import hmac
 import inspect
 import json
-from collections.abc import Awaitable, Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+from typing_extensions import TypeIs
+
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Awaitable
     from uuid import UUID
 
 
-async def maybe_await[T](value: T | Awaitable[T]) -> T:
-    if inspect.isawaitable(value):
-        return await value
-    return value
+@overload
+async def maybe_await[T](value: Awaitable[T]) -> T: ...
+
+
+@overload
+async def maybe_await[T](value: T) -> T: ...
+
+
+async def maybe_await(value):
+    if not _is_awaitable(value):
+        return value
+    return await value
 
 
 def normalize_relative_or_same_origin_url(url: str, *, base_url: str) -> str | None:
@@ -87,41 +96,6 @@ def append_query_params(url: str, **params: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(current_params)))
 
 
-def stripe_value(source: Mapping[str, object] | object, key: str) -> object | None:
-    # Stripe SDK objects are attribute-based in some versions and mapping-like in others.
-    if isinstance(source, Mapping):
-        return source.get(key)
-    return getattr(source, key, None)
-
-
-def stripe_str(source: Mapping[str, object] | object, key: str) -> str | None:
-    value = stripe_value(source, key)
-    return value if isinstance(value, str) else None
-
-
-def stripe_bool(source: Mapping[str, object] | object, key: str) -> bool | None:
-    value = stripe_value(source, key)
-    return value if isinstance(value, bool) else None
-
-
-def stripe_mapping(source: Mapping[str, object] | object, key: str) -> Mapping[str, object] | None:
-    value = stripe_value(source, key)
-    if isinstance(value, Mapping):
-        return value
-    if (to_dict := getattr(value, "to_dict", None)) and callable(to_dict):
-        mapped_value = to_dict()
-        if isinstance(mapped_value, Mapping):
-            return mapped_value
-    return None
-
-
-def stripe_iterable(source: Mapping[str, object] | object, key: str) -> Iterable[object]:
-    value = stripe_value(source, key)
-    if isinstance(value, list):
-        return value
-    return ()
-
-
 def _urlsafe_encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode().rstrip("=")
 
@@ -129,3 +103,7 @@ def _urlsafe_encode(value: bytes) -> str:
 def _urlsafe_decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(f"{value}{padding}")
+
+
+def _is_awaitable[T](value: T | Awaitable[T]) -> TypeIs[Awaitable[T]]:
+    return inspect.isawaitable(value)

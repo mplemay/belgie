@@ -12,12 +12,12 @@ from belgie_proto.stripe import (
 )
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from stripe import StripeClient as StripeSDKClient  # noqa: TC002
+from stripe import Event, StripeClient as StripeSDKClient
+from stripe.params import CustomerCreateParams, checkout
 
 from belgie_stripe.models import (
     CheckoutSessionContext,
     CustomerCreateContext,
-    JSONScalar,
     ReferenceAuthorizationContext,
     StripePlan,
     SubscriptionEventContext,
@@ -28,8 +28,6 @@ if TYPE_CHECKING:
 
     from belgie_stripe.plugin import StripePlugin
 
-
-type JSONParams = dict[str, JSONScalar | dict[str, JSONScalar]]
 type MaybeAwaitable[T] = T | Awaitable[T]
 type PlansResolver = Callable[[], list[StripePlan] | Awaitable[list[StripePlan]]]
 type ReferenceAuthorizationHook = Callable[
@@ -38,11 +36,11 @@ type ReferenceAuthorizationHook = Callable[
 ]
 type UserCustomerParamsHook = Callable[
     [CustomerCreateContext[StripeUserProtocol[str]]],
-    MaybeAwaitable[JSONParams | None],
+    MaybeAwaitable[CustomerCreateParams | None],
 ]
 type OrganizationCustomerParamsHook = Callable[
     [CustomerCreateContext[StripeOrganizationProtocol]],
-    MaybeAwaitable[JSONParams | None],
+    MaybeAwaitable[CustomerCreateParams | None],
 ]
 type UserCustomerCreateHook = Callable[[CustomerCreateContext[StripeUserProtocol[str]]], MaybeAwaitable[None]]
 type OrganizationCustomerCreateHook = Callable[
@@ -51,13 +49,13 @@ type OrganizationCustomerCreateHook = Callable[
 ]
 type CheckoutParamsHook[SubscriptionT: StripeSubscriptionProtocol] = Callable[
     [CheckoutSessionContext[SubscriptionT, StripeUserProtocol[str], SessionProtocol]],
-    MaybeAwaitable[JSONParams | None],
+    MaybeAwaitable[checkout.SessionCreateParams | None],
 ]
 type SubscriptionEventHook[SubscriptionT: StripeSubscriptionProtocol] = Callable[
     [SubscriptionEventContext[SubscriptionT]],
     MaybeAwaitable[None],
 ]
-type RawEventHook = Callable[[object], MaybeAwaitable[None]]
+type RawEventHook = Callable[[Event], MaybeAwaitable[None]]
 
 
 class StripeOrganization(BaseSettings):
