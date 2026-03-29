@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+import stripe
 from belgie_proto.stripe import (
     StripeOrganizationProtocol,
     StripeSubscriptionProtocol,
@@ -119,6 +120,7 @@ class StripeClient[
         ):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="already subscribed to this plan")
 
+        price_id = await self._resolve_price_id(plan=plan, annual=data.annual)
         customer_id = active_subscription.stripe_customer_id if active_subscription else None
         if customer_id is None:
             customer_id = await self._ensure_customer(
@@ -126,8 +128,6 @@ class StripeClient[
                 reference_id=reference_id,
                 metadata=data.metadata,
             )
-
-        price_id = await self._resolve_price_id(plan=plan, annual=data.annual)
         if active_subscription and active_subscription.stripe_subscription_id:
             payload = {
                 "customer": customer_id,
@@ -348,12 +348,15 @@ class StripeClient[
         signature = request.headers.get("stripe-signature")
         if signature is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing stripe-signature header")
-        event = await call_external(
-            self.stripe.Webhook.construct_event,
-            payload,
-            signature,
-            self.settings.stripe_webhook_secret,
-        )
+        try:
+            event = await call_external(
+                self.stripe.Webhook.construct_event,
+                payload,
+                signature,
+                self.settings.stripe_webhook_secret,
+            )
+        except (stripe.error.SignatureVerificationError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid stripe webhook") from exc
         if self.settings.on_event is not None:
             await maybe_await(self.settings.on_event(event))
 
@@ -617,10 +620,13 @@ class StripeClient[
         return plans
 
     async def _resolve_price_id(self, *, plan: StripePlan, annual: bool) -> str:
-        if annual and plan.annual_price_id:
-            return plan.annual_price_id
-        if annual and plan.annual_lookup_key:
-            return await self._resolve_lookup_key(plan.annual_lookup_key)
+        if annual:
+            if plan.annual_price_id:
+                return plan.annual_price_id
+            if plan.annual_lookup_key:
+                return await self._resolve_lookup_key(plan.annual_lookup_key)
+            msg = "plan is missing an annual stripe price"
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
         if plan.price_id:
             return plan.price_id
         if plan.lookup_key:

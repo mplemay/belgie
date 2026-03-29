@@ -49,8 +49,10 @@ def absolute_url(base_url: str, path_or_url: str) -> str:
     if parsed.scheme and parsed.netloc:
         return path_or_url
     base = urlparse(base_url)
-    path = path_or_url if path_or_url.startswith("/") else f"/{path_or_url}"
-    return urlunparse((base.scheme, base.netloc, path, "", "", ""))
+    base_path = base.path.rstrip("/")
+    relative_path = parsed.path if parsed.path.startswith("/") else f"/{parsed.path}"
+    path = f"{base_path}{relative_path}" if base_path else relative_path
+    return urlunparse((base.scheme, base.netloc, path, parsed.params, parsed.query, parsed.fragment))
 
 
 def sign_success_token(*, secret: str, subscription_id: UUID, redirect_to: str) -> str:
@@ -114,6 +116,10 @@ def stripe_mapping(source: Mapping[str, object] | object, key: str) -> Mapping[s
     value = stripe_value(source, key)
     if isinstance(value, Mapping):
         return value
+    if (to_dict := getattr(value, "to_dict", None)) and callable(to_dict):
+        mapped_value = to_dict()
+        if isinstance(mapped_value, Mapping):
+            return mapped_value
     return None
 
 
