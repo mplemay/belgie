@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID  # noqa: TC003
 
 from belgie_core.core.client import BelgieClient  # noqa: TC002
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         OrganizationAdapterProtocol,
         OrganizationProtocol,
     )
-    from belgie_proto.stripe import StripeCustomerType, StripeSubscriptionProtocol, StripeUserProtocol
+    from belgie_proto.stripe import StripeSubscriptionProtocol, StripeUserProtocol
 
     from belgie_stripe.settings import Stripe
 
@@ -154,7 +154,7 @@ class StripePlugin[
         async def list_subscriptions(
             stripe: StripeClient = Depends(self),  # noqa: B008, FAST002
             reference_id: UUID | None = None,
-            customer_type: StripeCustomerType = "user",
+            customer_type: Literal["user", "organization"] = "user",
         ) -> list[SubscriptionView]:
             query = ListSubscriptionsRequest(
                 reference_id=reference_id,
