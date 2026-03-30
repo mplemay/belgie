@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12,<3.15"
 dependencies = [
+    "asyncer>=0.0.17",
     "belgie-core",
     "belgie-proto",
     "fastapi>=0.100",
@@ -28,6 +29,7 @@ all = [
     "belgie-oauth-server",
     "belgie-organization",
     "belgie-sso",
+    "belgie-stripe",
     "belgie-team",
 ]
 examples = [
@@ -48,12 +50,15 @@ organization = [
 sso = [
     "belgie-sso",
 ]
+stripe = [
+    "belgie-stripe",
+]
 team = [
     "belgie-team",
 ]
 
 [build-system]
-requires = ["uv_build>=0.10.0,<0.11.0"]
+requires = ["uv_build>=0.11.0,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -79,6 +84,7 @@ belgie-oauth-server = { workspace = true }
 belgie-organization = { workspace = true }
 belgie-proto = { workspace = true }
 belgie-sso = { workspace = true }
+belgie-stripe = { workspace = true }
 belgie-team = { workspace = true }
 belgie-alchemy = { workspace = true }
 
@@ -92,6 +98,7 @@ members = [
     "packages/belgie-organization",
     "packages/belgie-proto",
     "packages/belgie-sso",
+    "packages/belgie-stripe",
     "packages/belgie-team",
 ]
 

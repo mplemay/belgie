@@ -9,9 +9,10 @@ from belgie_alchemy.organization.mixins import (
     OrganizationMemberMixin,
     OrganizationMixin,
 )
+from belgie_alchemy.stripe.mixins import StripeOrganizationMixin
 
 
-class Organization(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMixin):
+class Organization(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMixin, StripeOrganizationMixin):
     pass
 
 

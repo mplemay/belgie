@@ -12,9 +12,10 @@ from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from sqlalchemy.orm import Mapped, mapped_column
 
 from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
+from belgie_alchemy.stripe.mixins import StripeUserMixin
 
 
-class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
+class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin, StripeUserMixin):
     """Test User model."""
 
     custom_field: Mapped[str | None] = mapped_column(default=None)

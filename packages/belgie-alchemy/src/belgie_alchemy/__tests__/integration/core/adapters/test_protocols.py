@@ -9,11 +9,21 @@ from belgie_proto.core.session import SessionProtocol
 from belgie_proto.core.user import UserProtocol
 from belgie_proto.organization import OrganizationAdapterProtocol, OrganizationTeamAdapterProtocol
 from belgie_proto.sso import SSOAdapterProtocol, SSODomainProtocol, SSOProviderProtocol
+from belgie_proto.stripe import (
+    StripeAdapterProtocol,
+    StripeBillingInterval,
+    StripeCustomerType,
+    StripeOrganizationProtocol,
+    StripeSubscriptionProtocol,
+    StripeSubscriptionStatus,
+    StripeUserProtocol,
+)
 from belgie_proto.team import TeamAdapterProtocol
 
 from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
 from belgie_alchemy.sso import SSOAdapter
+from belgie_alchemy.stripe import StripeAdapter
 from belgie_alchemy.team import TeamAdapter
 
 
@@ -115,6 +125,50 @@ class ExampleTeamMember:
     id: UUID
     team_id: UUID
     user_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
+class ExampleStripeUser:
+    id: UUID
+    email: str
+    email_verified_at: datetime | None
+    name: str | None
+    image: str | None
+    created_at: datetime
+    updated_at: datetime
+    scopes: list[str]
+    stripe_customer_id: str | None
+
+
+@dataclass
+class ExampleStripeOrganization:
+    id: UUID
+    name: str
+    slug: str
+    logo: str | None
+    created_at: datetime
+    updated_at: datetime
+    stripe_customer_id: str | None
+
+
+@dataclass
+class ExampleStripeSubscription:
+    id: UUID
+    plan: str
+    reference_id: UUID
+    customer_type: StripeCustomerType
+    stripe_customer_id: str | None
+    stripe_subscription_id: str | None
+    status: StripeSubscriptionStatus
+    period_start: datetime | None
+    period_end: datetime | None
+    cancel_at_period_end: bool
+    cancel_at: datetime | None
+    canceled_at: datetime | None
+    ended_at: datetime | None
+    billing_interval: StripeBillingInterval | None
     created_at: datetime
     updated_at: datetime
 
@@ -257,6 +311,52 @@ def test_sso_protocol_runtime_checks() -> None:
     assert isinstance(domain, SSODomainProtocol)
 
 
+def test_stripe_protocol_runtime_checks() -> None:
+    now = datetime.now(UTC)
+    user = ExampleStripeUser(
+        id=uuid4(),
+        email="stripe-user@example.com",
+        email_verified_at=None,
+        name=None,
+        image=None,
+        created_at=now,
+        updated_at=now,
+        scopes=[],
+        stripe_customer_id="cus_123",
+    )
+    organization = ExampleStripeOrganization(
+        id=uuid4(),
+        name="Acme",
+        slug="acme",
+        logo=None,
+        created_at=now,
+        updated_at=now,
+        stripe_customer_id="cus_org_123",
+    )
+    subscription = ExampleStripeSubscription(
+        id=uuid4(),
+        plan="pro",
+        reference_id=user.id,
+        customer_type="user",
+        stripe_customer_id="cus_123",
+        stripe_subscription_id="sub_123",
+        status="active",
+        period_start=now,
+        period_end=now,
+        cancel_at_period_end=False,
+        cancel_at=None,
+        canceled_at=None,
+        ended_at=None,
+        billing_interval="month",
+        created_at=now,
+        updated_at=now,
+    )
+
+    assert isinstance(user, StripeUserProtocol)
+    assert isinstance(organization, StripeOrganizationProtocol)
+    assert isinstance(subscription, StripeSubscriptionProtocol)
+
+
 def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     """Verify BelgieAdapter implements AdapterProtocol using runtime checks."""
 
@@ -342,3 +442,16 @@ def test_sso_adapter_satisfies_protocol() -> None:
     assert callable(adapter.update_domain)
     assert callable(adapter.delete_domain)
     assert callable(adapter.delete_domains_for_provider)
+
+
+def test_stripe_adapter_satisfies_protocol() -> None:
+    adapter = StripeAdapter(subscription=ExampleStripeSubscription)
+
+    assert isinstance(adapter, StripeAdapterProtocol)
+    assert callable(adapter.create_subscription)
+    assert callable(adapter.get_subscription_by_id)
+    assert callable(adapter.get_subscription_by_stripe_subscription_id)
+    assert callable(adapter.list_subscriptions)
+    assert callable(adapter.get_active_subscription)
+    assert callable(adapter.get_incomplete_subscription)
+    assert callable(adapter.update_subscription)

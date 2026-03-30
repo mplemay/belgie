@@ -100,6 +100,23 @@ async def test_update_user(adapter: BelgieAdapter, alchemy_session: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_update_user_persists_stripe_customer_id(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
+    user = await adapter.create_user(
+        alchemy_session,
+        email="stripe-user@example.com",
+    )
+
+    updated_user = await adapter.update_user(
+        alchemy_session,
+        user.id,
+        stripe_customer_id="cus_123",
+    )
+
+    assert updated_user is not None
+    assert updated_user.stripe_customer_id == "cus_123"
+
+
+@pytest.mark.asyncio
 async def test_update_user_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     updated_user = await adapter.update_user(
         alchemy_session,

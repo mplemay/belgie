@@ -40,7 +40,7 @@ class OrganizationAdapterProtocol[
         slug: str,
     ) -> OrganizationT | None: ...
 
-    async def update_organization(
+    async def update_organization(  # noqa: PLR0913
         self,
         session: DBConnection,
         organization_id: UUID,
@@ -48,6 +48,7 @@ class OrganizationAdapterProtocol[
         name: str | None = None,
         slug: str | None = None,
         logo: str | None = None,
+        stripe_customer_id: str | None = None,
     ) -> OrganizationT | None: ...
 
     async def delete_organization(
