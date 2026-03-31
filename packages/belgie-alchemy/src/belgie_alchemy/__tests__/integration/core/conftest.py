@@ -1,24 +1,18 @@
 """Shared fixtures for integration tests that require SQLAlchemy."""
 
-from __future__ import annotations
-
 import sys
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import pytest
 import pytest_asyncio
+from belgie_core.core.belgie import Belgie
 from fastapi import Depends, FastAPI, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get_test_session_factory
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
-
-    from belgie_core.core.belgie import Belgie
-    from belgie_oauth.plugin import GoogleOAuthClient
-    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 PACKAGES_ROOT = Path(__file__).resolve().parents[7]
 OAUTH_CLIENT_SRC = PACKAGES_ROOT / "belgie-oauth" / "src"
