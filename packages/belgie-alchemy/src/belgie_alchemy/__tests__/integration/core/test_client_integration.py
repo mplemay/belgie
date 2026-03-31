@@ -17,7 +17,7 @@ from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 # ==================== Fixtures ====================
@@ -56,7 +56,8 @@ async def adapter(db_session: AsyncSession):  # noqa: ARG001
     """Adapter with test database dependency."""
 
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -81,45 +82,45 @@ def app(auth: Belgie) -> FastAPI:
     """FastAPI app with test endpoints using BelgieClient."""
     app = FastAPI()
 
-    # User Authentication Endpoints
+    # Individual Authentication Endpoints
     @app.get("/me")
-    async def get_current_user(
+    async def get_current_individual(
         request: Request,
         client: BelgieClient = Depends(auth),
     ):
-        """Get user without scope requirements."""
-        user = await client.get_user(SecurityScopes(), request)
-        return {"id": str(user.id), "email": user.email, "scopes": user.scopes}
+        """Get an individual without scope requirements."""
+        individual = await client.get_individual(SecurityScopes(), request)
+        return {"id": str(individual.id), "email": individual.email, "scopes": individual.scopes}
 
     @app.get("/me/with-read-scope")
-    async def get_user_with_read(
+    async def get_individual_with_read(
         request: Request,
         client: BelgieClient = Depends(auth),
     ):
-        """Get user with READ scope requirement."""
-        user = await client.get_user(SecurityScopes(scopes=["resource:read"]), request)
-        return {"email": user.email}
+        """Get an individual with READ scope requirement."""
+        individual = await client.get_individual(SecurityScopes(scopes=["resource:read"]), request)
+        return {"email": individual.email}
 
     @app.get("/me/with-admin-scope")
-    async def get_user_with_admin(
+    async def get_individual_with_admin(
         request: Request,
         client: BelgieClient = Depends(auth),
     ):
-        """Get user with ADMIN scope requirement."""
-        user = await client.get_user(SecurityScopes(scopes=["admin"]), request)
-        return {"email": user.email}
+        """Get an individual with ADMIN scope requirement."""
+        individual = await client.get_individual(SecurityScopes(scopes=["admin"]), request)
+        return {"email": individual.email}
 
     @app.get("/me/with-multiple-scopes")
-    async def get_user_with_multiple(
+    async def get_individual_with_multiple(
         request: Request,
         client: BelgieClient = Depends(auth),
     ):
-        """Get user with multiple scope requirements."""
-        user = await client.get_user(
+        """Get an individual with multiple scope requirements."""
+        individual = await client.get_individual(
             SecurityScopes(scopes=["resource:read", "resource:write"]),
             request,
         )
-        return {"email": user.email}
+        return {"email": individual.email}
 
     # Session Management
     @app.get("/session/info")
@@ -131,19 +132,19 @@ def app(auth: Belgie) -> FastAPI:
         session = await client.get_session(request)
         return {
             "id": str(session.id),
-            "user_id": str(session.user_id),
+            "individual_id": str(session.individual_id),
             "expires_at": session.expires_at.isoformat(),
         }
 
-    # User Management
+    # Individual Management
     @app.delete("/account")
     async def delete_account(
         request: Request,
         client: BelgieClient = Depends(auth),
     ):
         """Delete user account (cascade)."""
-        user = await client.get_user(SecurityScopes(), request)
-        success = await client.delete_user(user)
+        user = await client.get_individual(SecurityScopes(), request)
+        success = await client.delete_individual(user)
         return {"deleted": success}
 
     # Admin Endpoints
@@ -157,14 +158,14 @@ def app(auth: Belgie) -> FastAPI:
         return {"signed_out": success}
 
     @app.get("/admin/get-user-by-session/{session_id}")
-    async def admin_get_user(
+    async def admin_get_individual(
         session_id: UUID,
         client: BelgieClient = Depends(auth),
     ):
         """Get user by session ID."""
-        user = await client.get_user_from_session(session_id)
+        user = await client.get_individual_from_session(session_id)
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="Individual not found")
         return {"id": str(user.id), "email": user.email}
 
     return app
@@ -180,11 +181,11 @@ def client(app: FastAPI) -> TestClient:
 
 
 @pytest_asyncio.fixture
-async def create_user_helper(adapter: BelgieAdapter, db_session: AsyncSession):
+async def create_individual_helper(adapter: BelgieAdapter, db_session: AsyncSession):
     """Factory for creating users with scopes."""
 
-    async def _create(email: str, scopes: list[str] | None = None, name: str = "Test User") -> User:
-        user = await adapter.create_user(db_session, email=email, name=name)
+    async def _create(email: str, scopes: list[str] | None = None, name: str = "Test Individual") -> Individual:
+        user = await adapter.create_individual(db_session, email=email, name=name)
         if scopes is not None:
             user.scopes = scopes
             await db_session.commit()
@@ -199,7 +200,7 @@ async def create_session_helper(adapter: BelgieAdapter, db_session: AsyncSession
     """Factory for creating sessions with custom expiration."""
 
     async def _create(
-        user_id: UUID,
+        individual_id: UUID,
         expires_at: datetime | None = None,
         ip_address: str = "127.0.0.1",
         user_agent: str = "Test Client",
@@ -209,7 +210,7 @@ async def create_session_helper(adapter: BelgieAdapter, db_session: AsyncSession
 
         return await adapter.create_session(
             db_session,
-            user_id=user_id,
+            individual_id=individual_id,
             expires_at=expires_at,
             ip_address=ip_address,
             user_agent=user_agent,
@@ -223,7 +224,7 @@ async def create_account_helper(adapter: BelgieAdapter, db_session: AsyncSession
     """Factory for creating OAuth accounts."""
 
     async def _create(
-        user_id: UUID,
+        individual_id: UUID,
         provider: str = "google",
         provider_account_id: str | None = None,
     ) -> Account:
@@ -232,7 +233,7 @@ async def create_account_helper(adapter: BelgieAdapter, db_session: AsyncSession
 
         return await adapter.create_account(
             db_session,
-            user_id=user_id,
+            individual_id=individual_id,
             provider=provider,
             provider_account_id=provider_account_id,
             access_token="test-token",
@@ -255,8 +256,8 @@ def make_request_with_cookie(auth_settings: BelgieSettings):
 # ==================== Tests ====================
 
 
-class TestGetUser:
-    """Tests for BelgieClient.get_user() method."""
+class TestGetIndividual:
+    """Tests for BelgieClient.get_individual() method."""
 
     # Success cases
 
@@ -264,12 +265,12 @@ class TestGetUser:
     async def test_get_user_success_without_scopes(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test getting authenticated user without scope requirements."""
-        user = await create_user_helper("user@test.com")
+        user = await create_individual_helper("user@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -283,12 +284,12 @@ class TestGetUser:
     async def test_get_user_success_with_valid_single_scope(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test getting user when they have required scope."""
-        user = await create_user_helper("reader@test.com", scopes=["resource:read", "resource:write"])
+        user = await create_individual_helper("reader@test.com", scopes=["resource:read", "resource:write"])
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -301,12 +302,12 @@ class TestGetUser:
     async def test_get_user_success_with_multiple_scopes(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test getting user when they have all required scopes."""
-        user = await create_user_helper(
+        user = await create_individual_helper(
             "power@test.com",
             scopes=["resource:read", "resource:write", "admin"],
         )
@@ -322,12 +323,12 @@ class TestGetUser:
     async def test_get_user_success_with_extra_scopes(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test getting user when they have more scopes than required."""
-        user = await create_user_helper(
+        user = await create_individual_helper(
             "extra@test.com",
             scopes=["resource:read", "resource:write", "admin", "superuser"],
         )
@@ -367,12 +368,12 @@ class TestGetUser:
     async def test_get_user_expired_session_returns_401(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that expired session returns 401."""
-        user = await create_user_helper("expired@test.com")
+        user = await create_individual_helper("expired@test.com")
         expired_time = datetime.now(UTC) - timedelta(hours=1)
         session = await create_session_helper(user.id, expires_at=expired_time)
         make_request_with_cookie(client, session.id)
@@ -385,7 +386,7 @@ class TestGetUser:
     async def test_get_user_session_exists_but_user_deleted_returns_401(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
         adapter: BelgieAdapter,
@@ -394,13 +395,13 @@ class TestGetUser:
         """Test that session with deleted user returns 401.
 
         Note: Due to CASCADE delete, when user is deleted, their sessions are also deleted.
-        So this returns 'not authenticated' instead of 'user not found'.
+        So this returns 'not authenticated' instead of 'individual not found'.
         """
-        user = await create_user_helper("deleted@test.com")
+        user = await create_individual_helper("deleted@test.com")
         session = await create_session_helper(user.id)
 
         # Delete user (cascade also deletes session)
-        await adapter.delete_user(db_session, user.id)
+        await adapter.delete_individual(db_session, user.id)
 
         make_request_with_cookie(client, session.id)
         response = client.get("/me")
@@ -414,12 +415,12 @@ class TestGetUser:
     async def test_get_user_insufficient_scope_returns_403(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that user without required scope gets 403."""
-        user = await create_user_helper("limited@test.com", scopes=["resource:read"])
+        user = await create_individual_helper("limited@test.com", scopes=["resource:read"])
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -432,12 +433,12 @@ class TestGetUser:
     async def test_get_user_missing_one_of_multiple_scopes_returns_403(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that user missing one of multiple required scopes gets 403."""
-        user = await create_user_helper("partial@test.com", scopes=["resource:read"])
+        user = await create_individual_helper("partial@test.com", scopes=["resource:read"])
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -449,12 +450,12 @@ class TestGetUser:
     async def test_get_user_empty_scopes_with_requirements_returns_403(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that user with empty scopes cannot access scope-protected endpoint."""
-        user = await create_user_helper("noscopes@test.com", scopes=[])
+        user = await create_individual_helper("noscopes@test.com", scopes=[])
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -466,12 +467,12 @@ class TestGetUser:
     async def test_get_user_default_scopes_with_requirements_returns_403(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that user with default empty scopes cannot access scope-protected endpoint."""
-        user = await create_user_helper("defaultscopes@test.com")
+        user = await create_individual_helper("defaultscopes@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -483,12 +484,12 @@ class TestGetUser:
     async def test_get_user_wrong_scopes_returns_403(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that user with wrong scopes gets 403."""
-        user = await create_user_helper("wrong@test.com", scopes=["different:scope"])
+        user = await create_individual_helper("wrong@test.com", scopes=["different:scope"])
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -500,12 +501,12 @@ class TestGetUser:
     async def test_get_user_empty_scopes_without_requirements_success(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that user with empty scopes can access non-protected endpoint."""
-        user = await create_user_helper("noscopes@test.com", scopes=[])
+        user = await create_individual_helper("noscopes@test.com", scopes=[])
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -518,12 +519,12 @@ class TestGetUser:
     async def test_get_user_default_scopes_without_requirements_success(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that user with default empty scopes can access non-protected endpoint."""
-        user = await create_user_helper("defaultscopes@test.com")
+        user = await create_individual_helper("defaultscopes@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -541,12 +542,12 @@ class TestGetSession:
     async def test_get_session_success(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test getting session information."""
-        user = await create_user_helper("session@test.com")
+        user = await create_individual_helper("session@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -555,7 +556,7 @@ class TestGetSession:
         assert response.status_code == 200
         json = response.json()
         assert json["id"] == str(session.id)
-        assert json["user_id"] == str(user.id)
+        assert json["individual_id"] == str(user.id)
         assert "expires_at" in json
 
     @pytest.mark.asyncio
@@ -582,12 +583,12 @@ class TestGetSession:
     async def test_get_session_expired_returns_401(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that expired session returns 401."""
-        user = await create_user_helper("expired@test.com")
+        user = await create_individual_helper("expired@test.com")
         expired_time = datetime.now(UTC) - timedelta(hours=1)
         session = await create_session_helper(user.id, expires_at=expired_time)
         make_request_with_cookie(client, session.id)
@@ -600,14 +601,14 @@ class TestGetSession:
     async def test_get_session_sliding_window_refresh(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
         adapter: BelgieAdapter,
         db_session_factory: async_sessionmaker[AsyncSession],
     ):
         """Test that session is refreshed when within update_age threshold."""
-        user = await create_user_helper("refresh@test.com")
+        user = await create_individual_helper("refresh@test.com")
 
         # Create session that expires in 10 minutes (less than update_age of 15 min)
         nearly_expired = datetime.now(UTC) + timedelta(minutes=10)
@@ -626,21 +627,21 @@ class TestGetSession:
             assert refreshed_expires > nearly_expired
 
 
-class TestDeleteUser:
-    """Tests for BelgieClient.delete_user() method."""
+class TestDeleteIndividual:
+    """Tests for BelgieClient.delete_individual() method."""
 
     @pytest.mark.asyncio
-    async def test_delete_user_success(
+    async def test_delete_individual_success(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
         adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test successful user deletion."""
-        user = await create_user_helper("delete@test.com")
+        user = await create_individual_helper("delete@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -650,21 +651,21 @@ class TestDeleteUser:
         assert response.json()["deleted"] is True
 
         # Verify user is deleted from database
-        deleted_user = await adapter.get_user_by_id(db_session, user.id)
+        deleted_user = await adapter.get_individual_by_id(db_session, user.id)
         assert deleted_user is None
 
     @pytest.mark.asyncio
-    async def test_delete_user_cascade_deletes_sessions(
+    async def test_delete_individual_cascade_deletes_sessions(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
         adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test that deleting user also deletes their sessions."""
-        user = await create_user_helper("cascade@test.com")
+        user = await create_individual_helper("cascade@test.com")
         session1 = await create_session_helper(user.id)
         session2 = await create_session_helper(user.id)
         make_request_with_cookie(client, session1.id)
@@ -680,10 +681,10 @@ class TestDeleteUser:
         assert deleted_session2 is None
 
     @pytest.mark.asyncio
-    async def test_delete_user_cascade_deletes_single_account(
+    async def test_delete_individual_cascade_deletes_single_account(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         create_account_helper,
         make_request_with_cookie,
@@ -691,7 +692,7 @@ class TestDeleteUser:
         db_session: AsyncSession,
     ):
         """Test that deleting user also deletes their OAuth account."""
-        user = await create_user_helper("accountdel@test.com")
+        user = await create_individual_helper("accountdel@test.com")
         session = await create_session_helper(user.id)
         account = await create_account_helper(user.id, provider="google")
         make_request_with_cookie(client, session.id)
@@ -701,14 +702,14 @@ class TestDeleteUser:
         assert response.status_code == 200
 
         # Verify account is deleted
-        deleted_account = await adapter.get_account_by_user_and_provider(db_session, user.id, "google")
+        deleted_account = await adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
         assert deleted_account is None
 
     @pytest.mark.asyncio
-    async def test_delete_user_cascade_deletes_multiple_accounts(
+    async def test_delete_individual_cascade_deletes_multiple_accounts(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         create_account_helper,
         make_request_with_cookie,
@@ -716,7 +717,7 @@ class TestDeleteUser:
         db_session: AsyncSession,
     ):
         """Test that all OAuth accounts are deleted when user is deleted."""
-        user = await create_user_helper("multi@test.com")
+        user = await create_individual_helper("multi@test.com")
         session = await create_session_helper(user.id)
         google_account = await create_account_helper(user.id, provider="google")
         github_account = await create_account_helper(user.id, provider="github")
@@ -727,16 +728,16 @@ class TestDeleteUser:
         assert response.status_code == 200
 
         # Verify both accounts are deleted
-        deleted_google = await adapter.get_account_by_user_and_provider(db_session, user.id, "google")
-        deleted_github = await adapter.get_account_by_user_and_provider(db_session, user.id, "github")
+        deleted_google = await adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
+        deleted_github = await adapter.get_account_by_individual_and_provider(db_session, user.id, "github")
         assert deleted_google is None
         assert deleted_github is None
 
     @pytest.mark.asyncio
-    async def test_delete_user_cascade_deletes_all_related_data(
+    async def test_delete_individual_cascade_deletes_all_related_data(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         create_account_helper,
         make_request_with_cookie,
@@ -744,7 +745,7 @@ class TestDeleteUser:
         db_session: AsyncSession,
     ):
         """Test comprehensive cascade deletion."""
-        user = await create_user_helper("fullcascade@test.com")
+        user = await create_individual_helper("fullcascade@test.com")
         session1 = await create_session_helper(user.id)
         session2 = await create_session_helper(user.id)
         google_account = await create_account_helper(user.id, provider="google")
@@ -756,11 +757,11 @@ class TestDeleteUser:
         assert response.status_code == 200
 
         # Verify everything is deleted
-        deleted_user = await adapter.get_user_by_id(db_session, user.id)
+        deleted_user = await adapter.get_individual_by_id(db_session, user.id)
         deleted_session1 = await adapter.get_session(db_session, session1.id)
         deleted_session2 = await adapter.get_session(db_session, session2.id)
-        deleted_google = await adapter.get_account_by_user_and_provider(db_session, user.id, "google")
-        deleted_github = await adapter.get_account_by_user_and_provider(db_session, user.id, "github")
+        deleted_google = await adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
+        deleted_github = await adapter.get_account_by_individual_and_provider(db_session, user.id, "github")
 
         assert deleted_user is None
         assert deleted_session1 is None
@@ -769,18 +770,18 @@ class TestDeleteUser:
         assert deleted_github is None
 
 
-class TestGetUserFromSession:
-    """Tests for BelgieClient.get_user_from_session() method."""
+class TestGetIndividualFromSession:
+    """Tests for BelgieClient.get_individual_from_session() method."""
 
     @pytest.mark.asyncio
-    async def test_get_user_from_session_success(
+    async def test_get_individual_from_session_success(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
     ):
         """Test retrieving user by session ID."""
-        user = await create_user_helper("lookup@test.com")
+        user = await create_individual_helper("lookup@test.com")
         session = await create_session_helper(user.id)
 
         response = client.get(f"/admin/get-user-by-session/{session.id}")
@@ -791,7 +792,7 @@ class TestGetUserFromSession:
         assert json["email"] == "lookup@test.com"
 
     @pytest.mark.asyncio
-    async def test_get_user_from_session_not_found(self, client: TestClient):
+    async def test_get_individual_from_session_not_found(self, client: TestClient):
         """Test that nonexistent session returns 404."""
         fake_session_id = uuid4()
 
@@ -800,14 +801,14 @@ class TestGetUserFromSession:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_get_user_from_session_expired_returns_404(
+    async def test_get_individual_from_session_expired_returns_404(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
     ):
         """Test that expired session returns 404."""
-        user = await create_user_helper("expired@test.com")
+        user = await create_individual_helper("expired@test.com")
         expired_time = datetime.now(UTC) - timedelta(hours=1)
         session = await create_session_helper(user.id, expires_at=expired_time)
 
@@ -823,13 +824,13 @@ class TestSignOut:
     async def test_sign_out_success(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test signing out successfully deletes session."""
-        user = await create_user_helper("signout@test.com")
+        user = await create_individual_helper("signout@test.com")
         session = await create_session_helper(user.id)
 
         response = client.post(f"/admin/signout-user/{session.id}")
@@ -855,13 +856,13 @@ class TestSignOut:
     async def test_sign_out_user_still_exists(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
         """Test that signing out doesn't delete the user."""
-        user = await create_user_helper("staysalive@test.com")
+        user = await create_individual_helper("staysalive@test.com")
         session = await create_session_helper(user.id)
 
         response = client.post(f"/admin/signout-user/{session.id}")
@@ -869,7 +870,7 @@ class TestSignOut:
         assert response.status_code == 200
 
         # Verify user still exists
-        existing_user = await adapter.get_user_by_id(db_session, user.id)
+        existing_user = await adapter.get_individual_by_id(db_session, user.id)
         assert existing_user is not None
         assert existing_user.email == "staysalive@test.com"
 
@@ -881,12 +882,12 @@ class TestCookieHandling:
     async def test_cookie_extraction_success(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that valid cookie is extracted correctly."""
-        user = await create_user_helper("cookie@test.com")
+        user = await create_individual_helper("cookie@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -898,11 +899,11 @@ class TestCookieHandling:
     async def test_cookie_with_different_name_ignored(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
     ):
         """Test that cookie with wrong name is ignored."""
-        user = await create_user_helper("wrongcookie@test.com")
+        user = await create_individual_helper("wrongcookie@test.com")
         session = await create_session_helper(user.id)
         client.cookies.set("wrong_cookie_name", str(session.id))
 
@@ -952,12 +953,12 @@ class TestEdgeCases:
     async def test_concurrent_requests_same_session(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test multiple concurrent requests with same session."""
-        user = await create_user_helper("concurrent@test.com")
+        user = await create_individual_helper("concurrent@test.com")
         session = await create_session_helper(user.id)
         make_request_with_cookie(client, session.id)
 
@@ -975,12 +976,12 @@ class TestEdgeCases:
     async def test_user_with_multiple_active_sessions(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test that user can have multiple active sessions."""
-        user = await create_user_helper("multisession@test.com")
+        user = await create_individual_helper("multisession@test.com")
         session1 = await create_session_helper(user.id)
         session2 = await create_session_helper(user.id)
 
@@ -999,12 +1000,12 @@ class TestEdgeCases:
     async def test_session_near_expiry_boundary(
         self,
         client: TestClient,
-        create_user_helper,
+        create_individual_helper,
         create_session_helper,
         make_request_with_cookie,
     ):
         """Test session behavior exactly at update_age threshold."""
-        user = await create_user_helper("boundary@test.com")
+        user = await create_individual_helper("boundary@test.com")
 
         # Session expires in exactly 15 minutes (the update_age threshold)
         boundary_time = datetime.now(UTC) + timedelta(minutes=15)

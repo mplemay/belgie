@@ -27,7 +27,7 @@ uv add belgie[alchemy,organization,team]
 - `BelgieAdapter` for core auth records.
 - `OrganizationAdapter` for organization membership and invitations.
 - `TeamAdapter` for organization-scoped teams.
-- `UserMixin`, `AccountMixin`, `SessionMixin`, and `OAuthStateMixin` for auth models.
+- `IndividualMixin`, `AccountMixin`, `SessionMixin`, and `OAuthStateMixin` for auth models.
 - `OrganizationMixin`, `OrganizationMemberMixin`, and `OrganizationInvitationMixin` for organization models.
 - `TeamMixin` and `TeamMemberMixin` for team models.
 
@@ -37,10 +37,10 @@ uv add belgie[alchemy,organization,team]
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 
-from belgie.alchemy import AccountMixin, BelgieAdapter, OAuthStateMixin, SessionMixin, UserMixin
+from belgie.alchemy import AccountMixin, BelgieAdapter, OAuthStateMixin, SessionMixin, IndividualMixin
 
 
-class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
+class Individual(DataclassBase, PrimaryKeyMixin, TimestampMixin, IndividualMixin):
     pass
 
 
@@ -57,7 +57,7 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin
 
 
 adapter = BelgieAdapter(
-    user=User,
+    user=Individual,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
@@ -71,7 +71,7 @@ relationships on top of the mixins without changing how the adapter works.
 
 The auth mixins map to the common Belgie records:
 
-- `UserMixin` adds email, profile, scopes, and related account/session/state relationships.
+- `IndividualMixin` adds email, profile, scopes, and related account/session/state relationships.
 - `AccountMixin` stores provider linkage and token fields.
 - `SessionMixin` stores session expiry plus request metadata.
 - `OAuthStateMixin` stores OAuth state, PKCE verifier, redirect URL, and optional user linkage.
@@ -87,7 +87,7 @@ columns.
 Use the organization and team mixins when your app needs shared org membership plus team-scoped access:
 
 > [!NOTE]
-> The snippet below assumes you have already defined `User`, `Account`, `Session`, `OAuthState`, `Organization`,
+> The snippet below assumes you have already defined `Individual`, `Account`, `Session`, `OAuthState`, `Organization`,
 > `OrganizationMember`, `OrganizationInvitation`, `Team`, and `TeamMember` from the mixins above.
 
 ```python
@@ -101,13 +101,13 @@ from belgie.alchemy import (
     SessionMixin,
     TeamMemberMixin,
     TeamMixin,
-    UserMixin,
+    IndividualMixin,
 )
 from belgie.alchemy.organization import OrganizationAdapter
 from belgie.alchemy.team import TeamAdapter
 
 core_adapter = BelgieAdapter(
-    user=User,
+    user=Individual,
     account=Account,
     session=Session,
     oauth_state=OAuthState,

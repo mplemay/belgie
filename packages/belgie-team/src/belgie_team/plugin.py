@@ -55,11 +55,11 @@ class TeamPlugin[
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> TeamClient[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]:
-            user = await client.get_user(SecurityScopes(), request)
+            individual = await client.get_individual(SecurityScopes(), request)
             return TeamClient(
                 client=client,
                 settings=self._settings,
-                current_user=user,
+                current_individual=individual,
             )
 
         resolve_client.__annotations__["request"] = Request

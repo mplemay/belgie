@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 @runtime_checkable
 class AccountProtocol(Protocol):
     id: UUID
-    user_id: UUID
+    individual_id: UUID
     provider: str
     provider_account_id: str
     access_token: str | None

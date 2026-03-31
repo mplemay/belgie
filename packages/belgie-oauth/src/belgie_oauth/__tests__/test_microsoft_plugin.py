@@ -156,7 +156,7 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
                 "access_token": "test-access-token",
                 "token_type": "Bearer",
                 "refresh_token": "test-refresh-token",
-                "scope": "openid profile email offline_access User.Read",
+                "scope": "openid profile email offline_access Individual.Read",
                 "id_token": "test-id-token",
                 "expires_at": None,
             },
@@ -169,7 +169,7 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
             return_value=MicrosoftUserInfo(
                 sub="microsoft-user-123",
                 preferred_username="person@example.com",
-                name="Test User",
+                name="Test Individual",
                 picture="https://example.com/photo.jpg",
             ),
         ),
@@ -190,19 +190,19 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
     client_dependency.sign_up.assert_awaited_once_with(
         "person@example.com",
         request=ANY,
-        name="Test User",
+        name="Test Individual",
         image="https://example.com/photo.jpg",
         email_verified_at=None,
     )
 
     client_dependency.upsert_oauth_account.assert_awaited_once_with(
-        user_id=user.id,
+        individual_id=user.id,
         provider="microsoft",
         provider_account_id="microsoft-user-123",
         access_token="test-access-token",
         refresh_token="test-refresh-token",
         expires_at=None,
-        scope="openid profile email offline_access User.Read",
+        scope="openid profile email offline_access Individual.Read",
         token_type="Bearer",
         id_token="test-id-token",
     )
@@ -242,7 +242,7 @@ def test_callback_falls_back_to_signin_redirect(monkeypatch) -> None:
                 "access_token": "test-access-token",
                 "token_type": "Bearer",
                 "refresh_token": "test-refresh-token",
-                "scope": "openid profile email offline_access User.Read",
+                "scope": "openid profile email offline_access Individual.Read",
                 "id_token": "test-id-token",
                 "expires_at": None,
             },
@@ -255,7 +255,7 @@ def test_callback_falls_back_to_signin_redirect(monkeypatch) -> None:
             return_value=MicrosoftUserInfo(
                 sub="microsoft-user-123",
                 email="person@example.com",
-                name="Test User",
+                name="Test Individual",
                 picture="https://example.com/photo.jpg",
             ),
         ),

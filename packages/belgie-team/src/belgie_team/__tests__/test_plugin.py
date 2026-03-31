@@ -43,7 +43,7 @@ class FakeBelgieClient:
         self.user = user
         self.db = SimpleNamespace()
 
-    async def get_user(self, _security_scopes, _request):
+    async def get_individual(self, _security_scopes, _request):
         return self.user
 
 
@@ -90,7 +90,7 @@ def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
             Depends(team_plugin)
         ),
     ) -> dict[str, str]:
-        return {"user_id": str(team.current_user.id)}
+        return {"individual_id": str(team.current_individual.id)}
 
     return TestClient(app), belgie_client
 
@@ -101,7 +101,7 @@ def test_plugin_injects_team_client() -> None:
     response = client.get("/team-client")
 
     assert response.status_code == 200
-    assert response.json() == {"user_id": str(belgie_client.user.id)}
+    assert response.json() == {"individual_id": str(belgie_client.user.id)}
 
 
 def test_legacy_team_routes_removed() -> None:

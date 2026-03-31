@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from belgie_proto.organization import OrganizationAdapterProtocol, PendingInvitationConflictError
 from belgie_proto.organization.invitation import InvitationProtocol
@@ -82,54 +82,49 @@ class OrganizationAdapter[
         logo: str | None = None,
         stripe_customer_id: str | None = None,
     ) -> OrganizationT | None:
-        values: dict[str, Any] = {"updated_at": datetime.now(UTC)}
-        if name is not None:
-            values["name"] = name
-        if slug is not None:
-            values["slug"] = slug
-        if logo is not None:
-            values["logo"] = logo
-        if stripe_customer_id is not None:
-            values["stripe_customer_id"] = stripe_customer_id
+        organization = await self.get_organization_by_id(session, organization_id)
+        if organization is None:
+            return None
 
-        stmt = (
-            update(self.organization_model)
-            .where(self.organization_model.id == organization_id)
-            .values(**values)
-            .returning(self.organization_model)
-        )
+        if name is not None:
+            organization.name = name
+        if slug is not None:
+            organization.slug = slug
+        if logo is not None:
+            organization.logo = logo
+        if stripe_customer_id is not None and hasattr(organization, "stripe_customer_id"):
+            organization.stripe_customer_id = stripe_customer_id
+        organization.updated_at = datetime.now(UTC)
+
         try:
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            # If RETURNING is empty, still commit: rollback would drop unrelated pending ORM
-            # work that may exist on the same session alongside this call.
             await session.commit()
-            if row is None:
-                return None
-            await session.refresh(row)
+            await session.refresh(organization)
         except Exception:
             await session.rollback()
             raise
-        return row
+        return organization
 
     async def delete_organization(
         self,
         session: DBConnection,
         organization_id: UUID,
     ) -> bool:
-        stmt = delete(self.organization_model).where(self.organization_model.id == organization_id)
-        result = await session.execute(stmt)
+        organization = await self.get_organization_by_id(session, organization_id)
+        if organization is None:
+            return False
+
+        await session.delete(organization)
         try:
             await session.commit()
         except Exception:
             await session.rollback()
             raise
-        return result.rowcount > 0  # type: ignore[attr-defined]
+        return True
 
-    async def list_organizations_for_user(
+    async def list_organizations_for_individual(
         self,
         session: DBConnection,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> list[OrganizationT]:
         stmt = (
             select(self.organization_model)
@@ -137,7 +132,7 @@ class OrganizationAdapter[
                 self.member_model,
                 self.member_model.organization_id == self.organization_model.id,
             )
-            .where(self.member_model.user_id == user_id)
+            .where(self.member_model.individual_id == individual_id)
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
@@ -147,12 +142,12 @@ class OrganizationAdapter[
         session: DBConnection,
         *,
         organization_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
         role: str,
     ) -> MemberT:
         member = self.member_model(
             organization_id=organization_id,
-            user_id=user_id,
+            individual_id=individual_id,
             role=role,
         )
         session.add(member)
@@ -169,11 +164,11 @@ class OrganizationAdapter[
         session: DBConnection,
         *,
         organization_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> MemberT | None:
         stmt = select(self.member_model).where(
             self.member_model.organization_id == organization_id,
-            self.member_model.user_id == user_id,
+            self.member_model.individual_id == individual_id,
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
@@ -229,11 +224,11 @@ class OrganizationAdapter[
         session: DBConnection,
         *,
         organization_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> bool:
         stmt = delete(self.member_model).where(
             self.member_model.organization_id == organization_id,
-            self.member_model.user_id == user_id,
+            self.member_model.individual_id == individual_id,
         )
         result = await session.execute(stmt)
         try:
@@ -251,7 +246,7 @@ class OrganizationAdapter[
         team_id: UUID | None,
         email: str,
         role: str,
-        inviter_id: UUID,
+        inviter_individual_id: UUID,
         expires_at: datetime,
     ) -> InvitationT:
         normalized_email = email.lower()
@@ -268,7 +263,7 @@ class OrganizationAdapter[
             email=normalized_email,
             role=role,
             status="pending",
-            inviter_id=inviter_id,
+            inviter_individual_id=inviter_individual_id,
             expires_at=expires_at,
         )
         session.add(invitation)
@@ -346,7 +341,7 @@ class OrganizationAdapter[
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def list_user_invitations(
+    async def list_individual_invitations(
         self,
         session: DBConnection,
         *,

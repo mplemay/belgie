@@ -13,7 +13,7 @@ from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, Session
 from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
 from belgie.oauth.server import OAuthServer, OAuthServerClient
-from examples.alchemy.auth_models import Account, OAuthState, Session, User
+from examples.alchemy.auth_models import Account, Customer, Individual, OAuthState, Session
 
 DB_PATH = "./belgie_oauth_custom_pages_example.db"
 
@@ -58,7 +58,8 @@ settings = BelgieSettings(
 )
 
 adapter = BelgieAdapter(
-    user=User,
+    customer=Customer,
+    individual=Individual,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
@@ -137,7 +138,7 @@ async def signup(
     response = RedirectResponse(url=redirect_target, status_code=302)
     _user, session = await client.sign_up(
         "dev@example.com",
-        name="Dev User",
+        name="Dev Individual",
         request=request,
     )
     return client.create_session_cookie(session, response)

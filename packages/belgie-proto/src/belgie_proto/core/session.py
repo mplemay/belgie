@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 @runtime_checkable
 class SessionProtocol(Protocol):
     id: UUID
-    user_id: UUID
+    individual_id: UUID
     expires_at: datetime
     ip_address: str | None
     user_agent: str | None

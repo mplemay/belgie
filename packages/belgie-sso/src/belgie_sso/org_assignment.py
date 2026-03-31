@@ -6,7 +6,7 @@ from belgie_sso.utils import extract_email_domain
 
 if TYPE_CHECKING:
     from belgie_proto.core.connection import DBConnection
-    from belgie_proto.core.user import UserProtocol
+    from belgie_proto.core.individual import IndividualProtocol
     from belgie_proto.organization import OrganizationAdapterProtocol
     from belgie_proto.organization.invitation import InvitationProtocol
     from belgie_proto.organization.member import MemberProtocol
@@ -31,7 +31,7 @@ async def provider_matches_verified_domain[
     return any(item.domain == domain and item.verified_at is not None for item in domains)
 
 
-async def assign_user_to_provider_organization[
+async def assign_individual_to_provider_organization[
     ProviderT: SSOProviderProtocol,
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
@@ -41,7 +41,7 @@ async def assign_user_to_provider_organization[
     db: DBConnection,
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT],
     provider: ProviderT,
-    user: UserProtocol[str],
+    individual: IndividualProtocol[str],
 ) -> bool:
     if await organization_adapter.get_organization_by_id(db, provider.organization_id) is None:
         return False
@@ -49,20 +49,20 @@ async def assign_user_to_provider_organization[
     if await organization_adapter.get_member(
         db,
         organization_id=provider.organization_id,
-        user_id=user.id,
+        individual_id=individual.id,
     ):
         return False
 
     await organization_adapter.create_member(
         db,
         organization_id=provider.organization_id,
-        user_id=user.id,
+        individual_id=individual.id,
         role="member",
     )
     return True
 
 
-async def assign_user_by_verified_domain[
+async def assign_individual_by_verified_domain[
     ProviderT: SSOProviderProtocol,
     DomainT: SSODomainProtocol,
     OrganizationT: OrganizationProtocol,
@@ -73,7 +73,7 @@ async def assign_user_by_verified_domain[
     db: DBConnection,
     adapter: SSOAdapterProtocol[ProviderT, DomainT],
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT],
-    user: UserProtocol[str],
+    individual: IndividualProtocol[str],
     email: str,
 ) -> bool:
     if not (domain := extract_email_domain(email)):
@@ -87,9 +87,9 @@ async def assign_user_by_verified_domain[
     if provider is None:
         return False
 
-    return await assign_user_to_provider_organization(
+    return await assign_individual_to_provider_organization(
         db=db,
         organization_adapter=organization_adapter,
         provider=provider,
-        user=user,
+        individual=individual,
     )

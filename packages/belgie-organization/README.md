@@ -77,7 +77,7 @@ async def create_organization(
 async def list_organizations(
     org: Annotated[OrganizationClient, Depends(organization_plugin)],
 ) -> dict[str, int]:
-    organizations = await org.for_user()
+    organizations = await org.for_individual()
     return {"count": len(organizations)}
 ```
 
@@ -87,10 +87,10 @@ The pattern is simple: include `belgie.router`, depend on the plugin, and call t
 
 `OrganizationClient` exposes the main organization workflows:
 
-- `create`, `check_slug`, `for_user`, `details`, `update`, `delete`
+- `create`, `check_slug`, `for_individual`, `details`, `update`, `delete`
 - `members`, `add_member`, `remove_member`, `update_member_role`, `leave`
 - `invite`, `accept_invitation`, `cancel_invitation`, `reject_invitation`, `invitation`, `invitations`,
-  `user_invitations`
+  `individual_invitations`
 
 Organization-scoped operations require an explicit `organization_id`. The `details` method also accepts
 `organization_slug` when you want to resolve an organization by slug instead.

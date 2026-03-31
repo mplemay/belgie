@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.__tests__.fixtures.organization.models import (
     Organization,
     OrganizationInvitation,
@@ -19,7 +19,8 @@ from belgie_alchemy.organization import OrganizationAdapter
 @pytest_asyncio.fixture
 async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -43,7 +44,7 @@ async def test_create_and_list_organizations(
     organization_adapter: OrganizationAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    user = await core_adapter.create_user(
+    user = await core_adapter.create_individual(
         alchemy_session,
         email="owner@example.com",
     )
@@ -56,18 +57,18 @@ async def test_create_and_list_organizations(
     member = await organization_adapter.create_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=user.id,
+        individual_id=user.id,
         role="owner",
     )
 
-    listed = await organization_adapter.list_organizations_for_user(
+    listed = await organization_adapter.list_organizations_for_individual(
         alchemy_session,
         user.id,
     )
     fetched_member = await organization_adapter.get_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=user.id,
+        individual_id=user.id,
     )
 
     assert member.organization_id == organization.id
@@ -140,7 +141,7 @@ async def test_update_member_role(
     organization_adapter: OrganizationAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    user = await core_adapter.create_user(
+    user = await core_adapter.create_individual(
         alchemy_session,
         email="member-role@example.com",
     )
@@ -152,7 +153,7 @@ async def test_update_member_role(
     member = await organization_adapter.create_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=user.id,
+        individual_id=user.id,
         role="member",
     )
     updated = await organization_adapter.update_member_role(
@@ -165,7 +166,7 @@ async def test_update_member_role(
     fetched = await organization_adapter.get_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=user.id,
+        individual_id=user.id,
     )
     assert fetched is not None
     assert fetched.role == "owner"
@@ -177,11 +178,11 @@ async def test_invitation_accept_flow(
     organization_adapter: OrganizationAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    inviter = await core_adapter.create_user(
+    inviter = await core_adapter.create_individual(
         alchemy_session,
         email="inviter@example.com",
     )
-    invited = await core_adapter.create_user(
+    invited = await core_adapter.create_individual(
         alchemy_session,
         email="invited@example.com",
     )
@@ -193,7 +194,7 @@ async def test_invitation_accept_flow(
     await organization_adapter.create_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=inviter.id,
+        individual_id=inviter.id,
         role="owner",
     )
 
@@ -203,7 +204,7 @@ async def test_invitation_accept_flow(
         team_id=None,
         email=invited.email,
         role="member",
-        inviter_id=inviter.id,
+        inviter_individual_id=inviter.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     pending = await organization_adapter.get_pending_invitation(
@@ -225,16 +226,16 @@ async def test_invitation_accept_flow(
 
 
 @pytest.mark.asyncio
-async def test_invitation_team_id_and_list_user_invitations(
+async def test_invitation_team_id_and_list_individual_invitations(
     core_adapter: BelgieAdapter,
     organization_adapter: OrganizationAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    inviter = await core_adapter.create_user(
+    inviter = await core_adapter.create_individual(
         alchemy_session,
         email="inviter2@example.com",
     )
-    invited = await core_adapter.create_user(
+    invited = await core_adapter.create_individual(
         alchemy_session,
         email="invited2@example.com",
     )
@@ -246,7 +247,7 @@ async def test_invitation_team_id_and_list_user_invitations(
     await organization_adapter.create_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=inviter.id,
+        individual_id=inviter.id,
         role="owner",
     )
     team = Team(name=f"team-{uuid4()}", organization_id=organization.id)
@@ -260,17 +261,17 @@ async def test_invitation_team_id_and_list_user_invitations(
         team_id=team.id,
         email=invited.email,
         role="member",
-        inviter_id=inviter.id,
+        inviter_individual_id=inviter.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
-    user_invitations = await organization_adapter.list_user_invitations(
+    individual_invitations = await organization_adapter.list_individual_invitations(
         alchemy_session,
         email=invited.email,
     )
 
     assert invitation.team_id == team.id
-    assert len(user_invitations) == 1
-    assert user_invitations[0].id == invitation.id
+    assert len(individual_invitations) == 1
+    assert individual_invitations[0].id == invitation.id
 
 
 @pytest.mark.asyncio
@@ -279,7 +280,7 @@ async def test_expired_pending_invitation_is_reissued(
     organization_adapter: OrganizationAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    inviter = await core_adapter.create_user(alchemy_session, email="inviter3@example.com")
+    inviter = await core_adapter.create_individual(alchemy_session, email="inviter3@example.com")
     organization = await organization_adapter.create_organization(
         alchemy_session,
         name="Org4",
@@ -288,7 +289,7 @@ async def test_expired_pending_invitation_is_reissued(
     await organization_adapter.create_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=inviter.id,
+        individual_id=inviter.id,
         role="owner",
     )
 
@@ -298,7 +299,7 @@ async def test_expired_pending_invitation_is_reissued(
         team_id=None,
         email="invitee3@example.com",
         role="member",
-        inviter_id=inviter.id,
+        inviter_individual_id=inviter.id,
         expires_at=datetime.now(UTC) - timedelta(hours=1),
     )
     replacement_invitation = await organization_adapter.create_invitation(
@@ -307,7 +308,7 @@ async def test_expired_pending_invitation_is_reissued(
         team_id=None,
         email="invitee3@example.com",
         role="member",
-        inviter_id=inviter.id,
+        inviter_individual_id=inviter.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     invitations = await organization_adapter.list_invitations(

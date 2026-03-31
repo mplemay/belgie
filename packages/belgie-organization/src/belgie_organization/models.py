@@ -25,7 +25,7 @@ class MemberView(BaseModel):
 
     id: UUID
     organization_id: UUID
-    user_id: UUID
+    individual_id: UUID
     role: str
     created_at: datetime
     updated_at: datetime
@@ -40,7 +40,7 @@ class InvitationView(BaseModel):
     email: str
     role: str
     status: InvitationStatus
-    inviter_id: UUID
+    inviter_individual_id: UUID
     expires_at: datetime
     created_at: datetime
     updated_at: datetime

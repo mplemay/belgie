@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 import pytest_asyncio
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.__tests__.fixtures.organization.models import (
     Organization as OrganizationModel,
     OrganizationInvitation,
@@ -68,7 +68,8 @@ async def session_factory(tmp_path) -> AsyncGenerator[async_sessionmaker[AsyncSe
 @pytest.mark.asyncio
 async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, session_factory) -> None:
     core_adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -103,7 +104,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
     sso_plugin = belgie.add_plugin(sso_settings)
 
     async with session_factory() as session:
-        owner = await core_adapter.create_user(
+        owner = await core_adapter.create_individual(
             session,
             email="owner@example.com",
             name="Owner",
@@ -117,7 +118,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
         await organization_adapter.create_member(
             session,
             organization_id=organization.id,
-            user_id=owner.id,
+            individual_id=owner.id,
             role="owner",
         )
 
@@ -130,7 +131,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
             ),
             settings=sso_settings,
             organization_adapter=organization_adapter,
-            current_user=owner,
+            current_individual=owner,
         )
 
         monkeypatch.setattr(
@@ -211,12 +212,12 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
     assert callback_response.headers["location"] == "/dashboard"
 
     async with session_factory() as session:
-        created_user = await core_adapter.get_user_by_email(session, "person@example.com")
+        created_user = await core_adapter.get_individual_by_email(session, "person@example.com")
         assert created_user is not None
         member = await organization_adapter.get_member(
             session,
             organization_id=organization.id,
-            user_id=created_user.id,
+            individual_id=created_user.id,
         )
         assert member is not None
         assert member.role == "member"

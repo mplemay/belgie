@@ -68,9 +68,9 @@ def test_mixins_module_exports() -> None:
     try:
         from belgie.alchemy.mixins import (  # noqa: PLC0415
             AccountMixin,
+            IndividualMixin,
             OAuthStateMixin,
             SessionMixin,
-            UserMixin,
         )
     except ImportError:
         return
@@ -78,19 +78,19 @@ def test_mixins_module_exports() -> None:
     assert AccountMixin is not None
     assert OAuthStateMixin is not None
     assert SessionMixin is not None
-    assert UserMixin is not None
+    assert IndividualMixin is not None
 
 
 def test_mixins_exports_from_alchemy_module() -> None:
     try:
-        from belgie.alchemy import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin  # noqa: PLC0415
+        from belgie.alchemy import AccountMixin, IndividualMixin, OAuthStateMixin, SessionMixin  # noqa: PLC0415
     except ImportError:
         return
 
     assert AccountMixin is not None
     assert OAuthStateMixin is not None
     assert SessionMixin is not None
-    assert UserMixin is not None
+    assert IndividualMixin is not None
 
 
 def test_old_alchemy_module_export_removed() -> None:
@@ -135,9 +135,9 @@ def test_protocol_exports_from_domain_modules() -> None:
     from belgie.proto.core import (  # noqa: PLC0415
         AccountProtocol,
         AdapterProtocol,
+        IndividualProtocol,
         OAuthStateProtocol,
         SessionProtocol,
-        UserProtocol,
     )
     from belgie.proto.organization import (  # noqa: PLC0415
         InvitationProtocol,
@@ -155,7 +155,7 @@ def test_protocol_exports_from_domain_modules() -> None:
     assert AdapterProtocol is not None
     assert OAuthStateProtocol is not None
     assert SessionProtocol is not None
-    assert UserProtocol is not None
+    assert IndividualProtocol is not None
     assert InvitationProtocol is not None
     assert MemberProtocol is not None
     assert OrganizationAdapterProtocol is not None
@@ -178,7 +178,7 @@ def test_removed_team_and_organization_session_exports() -> None:
 def test_flat_proto_reexports_removed() -> None:
     from belgie import proto  # noqa: PLC0415
 
-    assert not hasattr(proto, "UserProtocol")
+    assert not hasattr(proto, "IndividualProtocol")
     assert not hasattr(proto, "AdapterProtocol")
     assert not hasattr(proto, "TeamAdapterProtocol")
 

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class MemberProtocol(Protocol):
     id: UUID
     organization_id: UUID
-    user_id: UUID
+    individual_id: UUID
     role: str
     created_at: datetime
     updated_at: datetime

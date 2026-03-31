@@ -16,7 +16,7 @@ class Scope(StrEnum):
     RESOURCE_WRITE = "resource:write"
     RESOURCE_DELETE = "resource:delete"
 
-    # User management
+    # Individual management
     USER_READ = "user:read"
     USER_WRITE = "user:write"
     USER_DELETE = "user:delete"

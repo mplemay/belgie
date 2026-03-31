@@ -39,8 +39,8 @@ class FakeTeamAdapter(
         return AsyncMock(side_effect=AssertionError(f"unexpected adapter call: {name}"))
 
 
-def _build_client(*, adapter, current_user=None) -> TeamClient:
-    user = current_user or SimpleNamespace(id=uuid4(), email="owner@example.com")
+def _build_client(*, adapter, current_individual=None) -> TeamClient:
+    user = current_individual or SimpleNamespace(id=uuid4(), email="owner@example.com")
     return TeamClient(
         client=SimpleNamespace(db=SimpleNamespace()),
         settings=Team(
@@ -48,7 +48,7 @@ def _build_client(*, adapter, current_user=None) -> TeamClient:
             maximum_teams_per_organization=None,
             maximum_members_per_team=None,
         ),
-        current_user=user,
+        current_individual=user,
     )
 
 
@@ -63,7 +63,7 @@ async def test_create_requires_explicit_organization_id() -> None:
 @pytest.mark.asyncio
 async def test_create_auto_adds_creator_to_team() -> None:
     organization_id = uuid4()
-    user_id = uuid4()
+    individual_id = uuid4()
     team = SimpleNamespace(
         id=uuid4(),
         organization_id=organization_id,
@@ -82,7 +82,7 @@ async def test_create_auto_adds_creator_to_team() -> None:
 
     team_client = _build_client(
         adapter=adapter,
-        current_user=SimpleNamespace(id=user_id, email="owner@example.com"),
+        current_individual=SimpleNamespace(id=individual_id, email="owner@example.com"),
     )
 
     created = await team_client.create(name="Platform", organization_id=organization_id)
@@ -91,7 +91,7 @@ async def test_create_auto_adds_creator_to_team() -> None:
     adapter.add_team_member.assert_awaited_once_with(
         team_client.client.db,
         team_id=team.id,
-        user_id=user_id,
+        individual_id=individual_id,
     )
 
 
@@ -104,14 +104,14 @@ async def test_teams_require_explicit_organization_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_for_user_uses_current_user() -> None:
+async def test_for_individual_uses_current_individual() -> None:
     user = SimpleNamespace(id=uuid4(), email="member@example.com")
-    adapter = FakeTeamAdapter(list_teams_for_user=AsyncMock(return_value=[]))
-    team_client = _build_client(adapter=adapter, current_user=user)
+    adapter = FakeTeamAdapter(list_teams_for_individual=AsyncMock(return_value=[]))
+    team_client = _build_client(adapter=adapter, current_individual=user)
 
-    await team_client.for_user()
+    await team_client.for_individual()
 
-    adapter.list_teams_for_user.assert_awaited_once_with(team_client.client.db, user_id=user.id)
+    adapter.list_teams_for_individual.assert_awaited_once_with(team_client.client.db, individual_id=user.id)
 
 
 @pytest.mark.asyncio

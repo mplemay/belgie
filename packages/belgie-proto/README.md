@@ -4,9 +4,9 @@
 > `belgie-proto` is intentionally low-level. It defines the contracts that other Belgie packages depend on, so changes
 > here can ripple across adapters, plugins, and app code that implements these protocols directly.
 
-`belgie-proto` is the contract layer for the Belgie workspace. It defines the runtime-checkable protocols for users,
-accounts, sessions, OAuth state, adapters, organizations, invitations, teams, and database connections so the rest of
-the stack can stay typed without hard-coding a particular ORM or persistence model.
+`belgie-proto` is the contract layer for the Belgie workspace. It defines the runtime-checkable protocols for
+customers, individuals, accounts, sessions, OAuth state, adapters, organizations, invitations, teams, and database
+connections so the rest of the stack can stay typed without hard-coding a particular ORM or persistence model.
 
 Use it when you are implementing your own adapter, building custom integrations on top of `belgie-core`, or depending
 on shared interfaces across multiple Belgie packages. If you want a working SQLAlchemy implementation, start with
@@ -24,7 +24,7 @@ uv add belgie-proto
 
 ## What It Defines
 
-- Core auth protocols for `User`, `Account`, `Session`, and `OAuthState`.
+- Core auth protocols for `Customer`, `Individual`, `Account`, `Session`, and `OAuthState`.
 - `DBConnection` for the async database/session object passed through Belgie.
 - `AdapterProtocol` for core auth persistence operations.
 - `OrganizationAdapterProtocol` and `OrganizationTeamAdapterProtocol` for org-aware adapters.
@@ -37,18 +37,18 @@ uv add belgie-proto
 Here is a minimal adapter surface using the core protocols:
 
 ```python
-from belgie_proto.core import AdapterProtocol, DBConnection, UserProtocol
+from belgie_proto.core import AdapterProtocol, DBConnection, IndividualProtocol
 
 
-class MyUser(UserProtocol):
+class MyIndividual(IndividualProtocol):
     ...
 
 
 class MyAdapter(AdapterProtocol):
-    async def get_user_by_email(self, session: DBConnection, email: str) -> MyUser | None:
+    async def get_individual_by_email(self, session: DBConnection, email: str) -> MyIndividual | None:
         ...
 
-    async def create_user(
+    async def create_individual(
         self,
         session: DBConnection,
         email: str,
@@ -56,7 +56,7 @@ class MyAdapter(AdapterProtocol):
         image: str | None = None,
         *,
         email_verified_at=None,
-    ) -> MyUser:
+    ) -> MyIndividual:
         ...
 
     # implement the rest of AdapterProtocol

@@ -10,7 +10,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, mapped_column
 
-from belgie_alchemy.__tests__.fixtures.core.models import User
+from belgie_alchemy.__tests__.fixtures.core.models import Individual
 
 
 def test_type_annotation_map_uses_datetimeutc() -> None:
@@ -36,7 +36,7 @@ def test_naming_convention_applied() -> None:
 
 
 def test_dataclass_kw_only_init() -> None:
-    user = User(email="a@b.com")
+    user = Individual(email="a@b.com")
     assert user.email == "a@b.com"
 
 
@@ -57,19 +57,19 @@ async def test_file_based_sqlite_database() -> None:
         # Test basic operations
         async with session_factory() as session:
             # Create user
-            user = User(email="file_db_test@example.com", name="Test User")
+            user = Individual(email="file_db_test@example.com", name="Test Individual")
             session.add(user)
             await session.commit()
 
-            user_id = user.id
+            individual_id = user.id
 
         # Verify persistence by reading in new session
         async with session_factory() as session:
-            result = await session.execute(select(User).where(User.id == user_id))
+            result = await session.execute(select(Individual).where(Individual.id == individual_id))
             retrieved_user = result.scalar_one()
 
             assert retrieved_user.email == "file_db_test@example.com"
-            assert retrieved_user.name == "Test User"
+            assert retrieved_user.name == "Test Individual"
             assert retrieved_user.created_at is not None
             assert retrieved_user.created_at.tzinfo is UTC
 

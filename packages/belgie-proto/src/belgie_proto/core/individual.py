@@ -2,19 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from belgie_proto.core.customer import CustomerProtocol
+
 if TYPE_CHECKING:
     from datetime import datetime
-    from uuid import UUID
 
 
 @runtime_checkable
-class UserProtocol[S: str](Protocol):
-    # Generic over scope type S (must be str or subclass like StrEnum)
-    id: UUID
+class IndividualProtocol[S: str](CustomerProtocol, Protocol):
     email: str
     email_verified_at: datetime | None
     name: str | None
     image: str | None
-    created_at: datetime
-    updated_at: datetime
-    scopes: list[S]  # User's application-level scopes
+    scopes: list[S]

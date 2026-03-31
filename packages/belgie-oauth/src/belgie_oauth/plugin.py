@@ -256,7 +256,7 @@ class GoogleOAuthPlugin(PluginClient):
             tokens = await self.exchange_code_for_tokens(code)
             user_info = await self.get_user_info(tokens["access_token"])
 
-            user, session = await client.sign_up(
+            individual, session = await client.sign_up(
                 user_info.email,
                 request=request,
                 name=user_info.name,
@@ -265,7 +265,7 @@ class GoogleOAuthPlugin(PluginClient):
             )
 
             await client.upsert_oauth_account(
-                user_id=user.id,
+                individual_id=individual.id,
                 provider=self.provider_id,
                 provider_account_id=user_info.id,
                 access_token=tokens["access_token"],
@@ -278,7 +278,7 @@ class GoogleOAuthPlugin(PluginClient):
             await belgie.after_authenticate(
                 client=client,
                 request=request,
-                user=user,
+                individual=individual,
                 profile=AuthenticatedProfile(
                     provider=self.provider_id,
                     provider_account_id=user_info.id,

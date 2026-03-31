@@ -21,6 +21,6 @@ class TeamMemberView(BaseModel):
 
     id: UUID
     team_id: UUID
-    user_id: UUID
+    individual_id: UUID
     created_at: datetime
     updated_at: datetime

@@ -5,11 +5,11 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
-from belgie_sso.org_assignment import assign_user_by_verified_domain, provider_matches_verified_domain
+from belgie_sso.org_assignment import assign_individual_by_verified_domain, provider_matches_verified_domain
 
 
 @dataclass
-class FakeUser:
+class FakeIndividual:
     id: UUID
     email: str
     email_verified_at: datetime | None
@@ -71,18 +71,18 @@ class FakeOrganizationAdapter:
             return object()
         return None
 
-    async def get_member(self, _db: object, *, organization_id: UUID, user_id: UUID) -> object | None:
+    async def get_member(self, _db: object, *, organization_id: UUID, individual_id: UUID) -> object | None:
         return next(
             (
                 object()
                 for existing_organization_id, existing_user_id, _role in self.members
-                if existing_organization_id == organization_id and existing_user_id == user_id
+                if existing_organization_id == organization_id and existing_user_id == individual_id
             ),
             None,
         )
 
-    async def create_member(self, _db: object, *, organization_id: UUID, user_id: UUID, role: str) -> object:
-        self.members.append((organization_id, user_id, role))
+    async def create_member(self, _db: object, *, organization_id: UUID, individual_id: UUID, role: str) -> object:
+        self.members.append((organization_id, individual_id, role))
         return object()
 
 
@@ -127,7 +127,7 @@ async def test_provider_matches_verified_domain_requires_exact_verified_domain()
 
 
 @pytest.mark.asyncio
-async def test_assign_user_by_verified_domain_is_idempotent() -> None:
+async def test_assign_individual_by_verified_domain_is_idempotent() -> None:
     organization_id = uuid4()
     provider = FakeProvider(
         id=uuid4(),
@@ -149,7 +149,7 @@ async def test_assign_user_by_verified_domain_is_idempotent() -> None:
     )
     adapter = FakeSSOAdapter(provider, [domain])
     organization_adapter = FakeOrganizationAdapter(organization_id)
-    user = FakeUser(
+    individual = FakeIndividual(
         id=uuid4(),
         email="person@example.com",
         email_verified_at=datetime.now(UTC),
@@ -160,25 +160,25 @@ async def test_assign_user_by_verified_domain_is_idempotent() -> None:
         scopes=[],
     )
 
-    assert await assign_user_by_verified_domain(
+    assert await assign_individual_by_verified_domain(
         db=object(),
         adapter=adapter,
         organization_adapter=organization_adapter,
-        user=user,
-        email=user.email,
+        individual=individual,
+        email=individual.email,
     )
-    assert not await assign_user_by_verified_domain(
+    assert not await assign_individual_by_verified_domain(
         db=object(),
         adapter=adapter,
         organization_adapter=organization_adapter,
-        user=user,
-        email=user.email,
+        individual=individual,
+        email=individual.email,
     )
-    assert organization_adapter.members == [(organization_id, user.id, "member")]
+    assert organization_adapter.members == [(organization_id, individual.id, "member")]
 
 
 @pytest.mark.asyncio
-async def test_assign_user_by_verified_domain_skips_deleted_provider() -> None:
+async def test_assign_individual_by_verified_domain_skips_deleted_provider() -> None:
     organization_id = uuid4()
     provider = FakeProvider(
         id=uuid4(),
@@ -200,7 +200,7 @@ async def test_assign_user_by_verified_domain_skips_deleted_provider() -> None:
     )
     adapter = FakeSSOAdapter(provider, [domain])
     organization_adapter = FakeOrganizationAdapter(organization_id)
-    user = FakeUser(
+    individual = FakeIndividual(
         id=uuid4(),
         email="person@example.com",
         email_verified_at=datetime.now(UTC),
@@ -221,11 +221,11 @@ async def test_assign_user_by_verified_domain_skips_deleted_provider() -> None:
         updated_at=datetime.now(UTC),
     )
 
-    assert not await assign_user_by_verified_domain(
+    assert not await assign_individual_by_verified_domain(
         db=object(),
         adapter=adapter,
         organization_adapter=organization_adapter,
-        user=user,
-        email=user.email,
+        individual=individual,
+        email=individual.email,
     )
     assert organization_adapter.members == []

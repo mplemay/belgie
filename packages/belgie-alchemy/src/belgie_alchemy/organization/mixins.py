@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
-from uuid import UUID  # noqa: TC003
+from uuid import UUID, uuid4
 
+from belgie_proto.core.customer import CustomerType
 from brussels.types import DateTimeUTC
 from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import CITEXT
@@ -14,8 +15,14 @@ class OrganizationMixin(MappedAsDataclass):
     __tablename__ = "organization"
 
     @declared_attr
-    def name(self) -> Mapped[str]:
-        return mapped_column(Text, kw_only=True)
+    def id(self) -> Mapped[UUID]:
+        return mapped_column(
+            ForeignKey("customer.id", ondelete="cascade", onupdate="cascade"),
+            primary_key=True,
+            default_factory=uuid4,
+            insert_default=uuid4,
+            init=False,
+        )
 
     @declared_attr
     def slug(self) -> Mapped[str]:
@@ -44,6 +51,10 @@ class OrganizationMixin(MappedAsDataclass):
             init=False,
         )
 
+    @declared_attr.directive
+    def __mapper_args__(self) -> dict[str, object]:
+        return {"polymorphic_identity": CustomerType.ORGANIZATION}
+
 
 @declarative_mixin
 class OrganizationMemberMixin(MappedAsDataclass):
@@ -58,9 +69,9 @@ class OrganizationMemberMixin(MappedAsDataclass):
         )
 
     @declared_attr
-    def user_id(self) -> Mapped[UUID]:
+    def individual_id(self) -> Mapped[UUID]:
         return mapped_column(
-            ForeignKey("user.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("individual.id", ondelete="cascade", onupdate="cascade"),
             nullable=False,
             kw_only=True,
         )
@@ -79,9 +90,9 @@ class OrganizationMemberMixin(MappedAsDataclass):
         )
 
     @declared_attr
-    def user(self) -> Mapped[object]:
+    def individual(self) -> Mapped[object]:
         return relationship(
-            "User",
+            "Individual",
             lazy="selectin",
             init=False,
         )
@@ -91,8 +102,8 @@ class OrganizationMemberMixin(MappedAsDataclass):
         return (
             UniqueConstraint(
                 "organization_id",
-                "user_id",
-                name="uq_organization_member_org_user",
+                "individual_id",
+                name="uq_organization_member_org_individual",
             ),
         )
 
@@ -133,9 +144,9 @@ class OrganizationInvitationMixin(MappedAsDataclass):
         return mapped_column(Text, default="pending", index=True, kw_only=True)
 
     @declared_attr
-    def inviter_id(self) -> Mapped[UUID]:
+    def inviter_individual_id(self) -> Mapped[UUID]:
         return mapped_column(
-            ForeignKey("user.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("individual.id", ondelete="cascade", onupdate="cascade"),
             nullable=False,
             kw_only=True,
         )
@@ -154,9 +165,9 @@ class OrganizationInvitationMixin(MappedAsDataclass):
         )
 
     @declared_attr
-    def inviter(self) -> Mapped[object]:
+    def inviter_individual(self) -> Mapped[object]:
         return relationship(
-            "User",
+            "Individual",
             lazy="selectin",
             init=False,
         )

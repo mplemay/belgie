@@ -56,7 +56,7 @@ async def test_provider_authorize_state_carries_nonce_user_and_session() -> None
         nonce="nonce-123",
         prompt="create",
         intent="create",
-        user_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        individual_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     )
     await provider.authorize(oauth_client, params)
@@ -71,7 +71,7 @@ async def test_provider_authorize_state_carries_nonce_user_and_session() -> None
 
     assert authorization_code is not None
     assert authorization_code.nonce == "nonce-123"
-    assert authorization_code.user_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert authorization_code.individual_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     assert authorization_code.session_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     assert authorization_code.resource == "http://example.com/mcp"
 
@@ -374,7 +374,7 @@ async def test_exchange_refresh_token_preserves_resource_binding() -> None:
         client_id="test-client",
         scopes=["openid", "offline_access"],
         resource="http://example.com/mcp",
-        user_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        individual_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     )
 
@@ -388,7 +388,7 @@ async def test_exchange_refresh_token_preserves_resource_binding() -> None:
     assert token.refresh_token is not None
     rotated_refresh = provider.refresh_tokens[token.refresh_token]
     assert rotated_refresh.resource == "http://example.com/mcp"
-    assert rotated_refresh.user_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert rotated_refresh.individual_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     assert rotated_refresh.session_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
 

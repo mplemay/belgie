@@ -15,7 +15,7 @@ class InvitationProtocol(Protocol):
     email: str
     role: str
     status: str
-    inviter_id: UUID
+    inviter_individual_id: UUID
     expires_at: datetime
     created_at: datetime
     updated_at: datetime

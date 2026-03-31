@@ -8,14 +8,12 @@ from uuid import UUID, uuid4
 
 import stripe
 from belgie_proto.core.connection import DBConnection
+from belgie_proto.core.customer import CustomerType
 from belgie_proto.core.session import SessionProtocol
-from belgie_proto.organization import OrganizationAdapterProtocol
 from belgie_proto.stripe import (
     StripeAdapterProtocol,
     StripeBillingInterval,
-    StripeCustomerType,
     StripeSubscriptionStatus,
-    StripeUserProtocol,
 )
 from stripe import Customer, Event, ListObject, Price, Subscription
 from stripe._billing_portal_service import BillingPortalService
@@ -30,12 +28,7 @@ from stripe.checkout import Session as CheckoutSession
 from stripe.checkout._session_service import SessionService as CheckoutSessionService
 from stripe.params import CustomerCreateParams, PriceListParams, SubscriptionUpdateParams, billing_portal, checkout
 
-from belgie_stripe._protocols import (
-    BelgieClientProtocol,
-    BelgieRuntimeProtocol,
-    StripeOrganizationAdapterProtocol,
-    UserUpdateAdapterProtocol,
-)
+from belgie_stripe._protocols import BelgieClientProtocol, BelgieRuntimeProtocol, StripeCoreAdapterProtocol
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -43,8 +36,8 @@ if TYPE_CHECKING:
     from stripe._request_options import RequestOptions
 
 
-@dataclass(slots=True)
-class FakeUser:
+@dataclass(slots=True, kw_only=True)
+class FakeIndividual:
     id: UUID
     email: str
     email_verified_at: datetime | None
@@ -52,22 +45,12 @@ class FakeUser:
     image: str | None
     created_at: datetime
     updated_at: datetime
+    customer_type: CustomerType = CustomerType.INDIVIDUAL
     scopes: list[str] = field(default_factory=list)
     stripe_customer_id: str | None = None
 
 
-@dataclass(slots=True)
-class FakeSession:
-    id: UUID
-    user_id: UUID
-    expires_at: datetime
-    ip_address: str | None
-    user_agent: str | None
-    created_at: datetime
-    updated_at: datetime
-
-
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class FakeOrganization:
     id: UUID
     name: str
@@ -75,39 +58,40 @@ class FakeOrganization:
     logo: str | None
     created_at: datetime
     updated_at: datetime
+    customer_type: CustomerType = CustomerType.ORGANIZATION
     stripe_customer_id: str | None = None
 
 
-@dataclass(slots=True)
-class FakeMember:
+@dataclass(slots=True, kw_only=True)
+class FakeTeam:
     id: UUID
     organization_id: UUID
-    user_id: UUID
-    role: str
+    name: str
     created_at: datetime
     updated_at: datetime
+    customer_type: CustomerType = CustomerType.TEAM
+    stripe_customer_id: str | None = None
 
 
-@dataclass(slots=True)
-class FakeInvitation:
+type FakeCustomer = FakeIndividual | FakeOrganization | FakeTeam
+
+
+@dataclass(slots=True, kw_only=True)
+class FakeSession:
     id: UUID
-    organization_id: UUID
-    team_id: UUID | None
-    email: str
-    role: str
-    status: str
-    inviter_id: UUID
+    individual_id: UUID
     expires_at: datetime
+    ip_address: str | None
+    user_agent: str | None
     created_at: datetime
     updated_at: datetime
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class FakeSubscription:
     id: UUID
     plan: str
-    reference_id: UUID
-    customer_type: StripeCustomerType
+    customer_id: UUID
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
     status: StripeSubscriptionStatus
@@ -133,38 +117,57 @@ class FakeDB(DBConnection):
         return None
 
 
-class FakeCoreAdapter(UserUpdateAdapterProtocol[StripeUserProtocol[str]]):
-    def __init__(self, *, users: dict[UUID, FakeUser]) -> None:
-        self.users = users
+class FakeCoreAdapter(StripeCoreAdapterProtocol[FakeCustomer]):
+    def __init__(self, *, customers: dict[UUID, FakeCustomer]) -> None:
+        self.customers = customers
 
-    async def update_user(
+    async def get_customer_by_id(
         self,
         session: DBConnection,
-        user_id: UUID,
-        **updates: str | None,
-    ) -> FakeUser | None:
+        customer_id: UUID,
+    ) -> FakeCustomer | None:
         assert session
-        user = self.users.get(user_id)
-        if user is None:
+        return self.customers.get(customer_id)
+
+    async def update_customer(
+        self,
+        session: DBConnection,
+        customer_id: UUID,
+        **updates: str | None,
+    ) -> FakeCustomer | None:
+        assert session
+        customer = self.customers.get(customer_id)
+        if customer is None:
             return None
         for key, value in updates.items():
-            if hasattr(user, key):
-                setattr(user, key, value)
-        user.updated_at = datetime.now(UTC)
-        return user
+            if hasattr(customer, key):
+                setattr(customer, key, value)
+        customer.updated_at = datetime.now(UTC)
+        return customer
 
 
-class FakeBelgieClient(BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol]):
-    def __init__(self, *, user: FakeUser, session: FakeSession | None) -> None:
-        self.user = user
+class FakeBelgieClient(BelgieClientProtocol[FakeCustomer, FakeIndividual, FakeSession]):
+    def __init__(
+        self,
+        *,
+        individual: FakeIndividual,
+        customers: dict[UUID, FakeCustomer] | None = None,
+        session: FakeSession | None,
+    ) -> None:
+        self.individual = individual
         self.session = session
         self.db = FakeDB()
-        self.adapter = FakeCoreAdapter(users={user.id: user})
+        self.customers = {individual.id: individual, **({} if customers is None else customers)}
+        self.adapter = FakeCoreAdapter(customers=self.customers)
 
-    async def get_user(self, security_scopes: SecurityScopes, request: Request) -> FakeUser:
+    async def get_individual(
+        self,
+        security_scopes: SecurityScopes,
+        request: Request,
+    ) -> FakeIndividual:
         assert security_scopes is not None
         assert request
-        return self.user
+        return self.individual
 
     async def get_session(self, request: Request) -> FakeSession:
         assert request
@@ -174,7 +177,7 @@ class FakeBelgieClient(BelgieClientProtocol[StripeUserProtocol[str], SessionProt
         return self.session
 
 
-class DummyBelgie(BelgieRuntimeProtocol[BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol]]):
+class DummyBelgie(BelgieRuntimeProtocol[BelgieClientProtocol[FakeCustomer, FakeIndividual, SessionProtocol]]):
     def __init__(self, client: FakeBelgieClient, *, plugins: list[object] | None = None) -> None:
         self._client = client
         self.plugins = [] if plugins is None else plugins
@@ -182,235 +185,6 @@ class DummyBelgie(BelgieRuntimeProtocol[BelgieClientProtocol[StripeUserProtocol[
 
     def __call__(self, *_args: object, **_kwargs: object) -> FakeBelgieClient:
         return self._client
-
-
-class FakeOrganizationAdapter(
-    OrganizationAdapterProtocol[FakeOrganization, FakeMember, FakeInvitation],
-    StripeOrganizationAdapterProtocol[FakeOrganization],
-):
-    def __init__(self, *, organizations: dict[UUID, FakeOrganization] | None = None) -> None:
-        self.organizations = {} if organizations is None else organizations
-        self.members: dict[UUID, FakeMember] = {}
-        self.invitations: dict[UUID, FakeInvitation] = {}
-
-    async def create_organization(
-        self,
-        session: DBConnection,
-        *,
-        name: str,
-        slug: str,
-        logo: str | None = None,
-    ) -> FakeOrganization:
-        assert session
-        organization = FakeOrganization(
-            id=uuid4(),
-            name=name,
-            slug=slug,
-            logo=logo,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
-        self.organizations[organization.id] = organization
-        return organization
-
-    async def get_organization_by_id(
-        self,
-        session: DBConnection,
-        organization_id: UUID,
-    ) -> FakeOrganization | None:
-        assert session
-        return self.organizations.get(organization_id)
-
-    async def get_organization_by_slug(self, session: DBConnection, slug: str) -> FakeOrganization | None:
-        assert session
-        return next((organization for organization in self.organizations.values() if organization.slug == slug), None)
-
-    async def update_organization(
-        self,
-        session: DBConnection,
-        organization_id: UUID,
-        *,
-        name: str | None = None,
-        slug: str | None = None,
-        logo: str | None = None,
-        stripe_customer_id: str | None = None,
-    ) -> FakeOrganization | None:
-        assert session
-        organization = self.organizations.get(organization_id)
-        if organization is None:
-            return None
-        if name is not None:
-            organization.name = name
-        if slug is not None:
-            organization.slug = slug
-        if logo is not None:
-            organization.logo = logo
-        if stripe_customer_id is not None:
-            organization.stripe_customer_id = stripe_customer_id
-        organization.updated_at = datetime.now(UTC)
-        return organization
-
-    async def delete_organization(self, session: DBConnection, organization_id: UUID) -> bool:
-        assert session
-        return self.organizations.pop(organization_id, None) is not None
-
-    async def list_organizations_for_user(
-        self,
-        session: DBConnection,
-        user_id: UUID,
-    ) -> list[FakeOrganization]:
-        assert session
-        _ = user_id
-        return list(self.organizations.values())
-
-    async def create_member(
-        self,
-        session: DBConnection,
-        *,
-        organization_id: UUID,
-        user_id: UUID,
-        role: str,
-    ) -> FakeMember:
-        assert session
-        now = datetime.now(UTC)
-        member = FakeMember(
-            id=uuid4(),
-            organization_id=organization_id,
-            user_id=user_id,
-            role=role,
-            created_at=now,
-            updated_at=now,
-        )
-        self.members[member.id] = member
-        return member
-
-    async def get_member(
-        self,
-        session: DBConnection,
-        *,
-        organization_id: UUID,
-        user_id: UUID,
-    ) -> FakeMember | None:
-        assert session
-        return next(
-            (
-                member
-                for member in self.members.values()
-                if member.organization_id == organization_id and member.user_id == user_id
-            ),
-            None,
-        )
-
-    async def get_member_by_id(self, session: DBConnection, member_id: UUID) -> FakeMember | None:
-        assert session
-        return self.members.get(member_id)
-
-    async def list_members(self, session: DBConnection, *, organization_id: UUID) -> list[FakeMember]:
-        assert session
-        return [member for member in self.members.values() if member.organization_id == organization_id]
-
-    async def update_member_role(
-        self,
-        session: DBConnection,
-        *,
-        member_id: UUID,
-        role: str,
-    ) -> FakeMember | None:
-        assert session
-        member = self.members.get(member_id)
-        if member is None:
-            return None
-        member.role = role
-        member.updated_at = datetime.now(UTC)
-        return member
-
-    async def remove_member(
-        self,
-        session: DBConnection,
-        *,
-        organization_id: UUID,
-        user_id: UUID,
-    ) -> bool:
-        assert session
-        for member_id, member in list(self.members.items()):
-            if member.organization_id == organization_id and member.user_id == user_id:
-                del self.members[member_id]
-                return True
-        return False
-
-    async def create_invitation(
-        self,
-        session: DBConnection,
-        *,
-        organization_id: UUID,
-        team_id: UUID | None,
-        email: str,
-        role: str,
-        inviter_id: UUID,
-        expires_at: datetime,
-    ) -> FakeInvitation:
-        assert session
-        now = datetime.now(UTC)
-        invitation = FakeInvitation(
-            id=uuid4(),
-            organization_id=organization_id,
-            team_id=team_id,
-            email=email,
-            role=role,
-            status="pending",
-            inviter_id=inviter_id,
-            expires_at=expires_at,
-            created_at=now,
-            updated_at=now,
-        )
-        self.invitations[invitation.id] = invitation
-        return invitation
-
-    async def get_invitation(self, session: DBConnection, invitation_id: UUID) -> FakeInvitation | None:
-        assert session
-        return self.invitations.get(invitation_id)
-
-    async def get_pending_invitation(
-        self,
-        session: DBConnection,
-        *,
-        organization_id: UUID,
-        email: str,
-    ) -> FakeInvitation | None:
-        assert session
-        return next(
-            (
-                invitation
-                for invitation in self.invitations.values()
-                if invitation.organization_id == organization_id
-                and invitation.email == email
-                and invitation.status == "pending"
-            ),
-            None,
-        )
-
-    async def list_invitations(self, session: DBConnection, *, organization_id: UUID) -> list[FakeInvitation]:
-        assert session
-        return [invitation for invitation in self.invitations.values() if invitation.organization_id == organization_id]
-
-    async def list_user_invitations(self, session: DBConnection, *, email: str) -> list[FakeInvitation]:
-        assert session
-        return [invitation for invitation in self.invitations.values() if invitation.email == email]
-
-    async def set_invitation_status(
-        self,
-        session: DBConnection,
-        *,
-        invitation_id: UUID,
-        status: str,
-    ) -> FakeInvitation | None:
-        assert session
-        invitation = self.invitations.get(invitation_id)
-        if invitation is None:
-            return None
-        invitation.status = status
-        invitation.updated_at = datetime.now(UTC)
-        return invitation
 
 
 class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
@@ -423,8 +197,7 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         session: DBConnection,
         *,
         plan: str,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
         stripe_customer_id: str | None = None,
         stripe_subscription_id: str | None = None,
         status: StripeSubscriptionStatus = "incomplete",
@@ -441,8 +214,7 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         subscription = FakeSubscription(
             id=uuid4(),
             plan=plan,
-            reference_id=reference_id,
-            customer_type=customer_type,
+            customer_id=customer_id,
             stripe_customer_id=stripe_customer_id,
             stripe_subscription_id=stripe_subscription_id,
             status=status,
@@ -492,14 +264,11 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> list[FakeSubscription]:
         assert session
         subscriptions = [
-            subscription
-            for subscription in self.subscriptions.values()
-            if subscription.reference_id == reference_id and subscription.customer_type == customer_type
+            subscription for subscription in self.subscriptions.values() if subscription.customer_id == customer_id
         ]
         return sorted(subscriptions, key=lambda subscription: subscription.created_at, reverse=True)
 
@@ -507,14 +276,9 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> FakeSubscription | None:
-        for subscription in await self.list_subscriptions(
-            session,
-            reference_id=reference_id,
-            customer_type=customer_type,
-        ):
+        for subscription in await self.list_subscriptions(session, customer_id=customer_id):
             if subscription.status in {"active", "past_due", "paused", "trialing", "unpaid"}:
                 return subscription
         return None
@@ -523,14 +287,9 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> FakeSubscription | None:
-        for subscription in await self.list_subscriptions(
-            session,
-            reference_id=reference_id,
-            customer_type=customer_type,
-        ):
+        for subscription in await self.list_subscriptions(session, customer_id=customer_id):
             if subscription.status == "incomplete":
                 return subscription
         return None
@@ -762,13 +521,13 @@ class FakeStripeSDK(stripe.StripeClient):
         return self.event
 
 
-def make_user(*, stripe_customer_id: str | None = None) -> FakeUser:
+def make_individual(*, stripe_customer_id: str | None = None) -> FakeIndividual:
     now = datetime.now(UTC)
-    return FakeUser(
+    return FakeIndividual(
         id=uuid4(),
-        email="user@example.com",
+        email="individual@example.com",
         email_verified_at=now,
-        name="Stripe User",
+        name="Stripe Individual",
         image=None,
         created_at=now,
         updated_at=now,
@@ -777,11 +536,11 @@ def make_user(*, stripe_customer_id: str | None = None) -> FakeUser:
     )
 
 
-def make_session(*, user_id: UUID) -> FakeSession:
+def make_session(*, individual_id: UUID) -> FakeSession:
     now = datetime.now(UTC)
     return FakeSession(
         id=uuid4(),
-        user_id=user_id,
+        individual_id=individual_id,
         expires_at=now + timedelta(days=1),
         ip_address="127.0.0.1",
         user_agent="pytest",
@@ -801,6 +560,23 @@ def make_organization(
         name="Acme",
         slug="acme",
         logo=None,
+        created_at=now,
+        updated_at=now,
+        stripe_customer_id=stripe_customer_id,
+    )
+
+
+def make_team(
+    *,
+    organization_id: UUID | None = None,
+    team_id: UUID | None = None,
+    stripe_customer_id: str | None = None,
+) -> FakeTeam:
+    now = datetime.now(UTC)
+    return FakeTeam(
+        id=uuid4() if team_id is None else team_id,
+        organization_id=uuid4() if organization_id is None else organization_id,
+        name="Platform",
         created_at=now,
         updated_at=now,
         stripe_customer_id=stripe_customer_id,

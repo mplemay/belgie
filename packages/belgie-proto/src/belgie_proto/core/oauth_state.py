@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 class OAuthStateProtocol(Protocol):
     id: UUID
     state: str
+    individual_id: UUID | None
     code_verifier: str | None
     redirect_url: str | None
     created_at: datetime

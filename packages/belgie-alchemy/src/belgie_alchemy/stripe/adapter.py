@@ -11,11 +11,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_proto.core.connection import DBConnection
-    from belgie_proto.stripe.subscription import (
-        StripeBillingInterval,
-        StripeCustomerType,
-        StripeSubscriptionStatus,
-    )
+    from belgie_proto.stripe.subscription import StripeBillingInterval, StripeSubscriptionStatus
 
 
 ACTIVE_SUBSCRIPTION_STATUSES = ("active", "past_due", "paused", "trialing", "unpaid")
@@ -32,8 +28,7 @@ class StripeAdapter[
         session: DBConnection,
         *,
         plan: str,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
         stripe_customer_id: str | None = None,
         stripe_subscription_id: str | None = None,
         status: StripeSubscriptionStatus = "incomplete",
@@ -47,8 +42,7 @@ class StripeAdapter[
     ) -> SubscriptionT:
         subscription = self.subscription_model(
             plan=plan,
-            reference_id=reference_id,
-            customer_type=customer_type,
+            customer_id=customer_id,
             stripe_customer_id=stripe_customer_id,
             stripe_subscription_id=stripe_subscription_id,
             status=status,
@@ -94,15 +88,11 @@ class StripeAdapter[
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> list[SubscriptionT]:
         stmt = (
             select(self.subscription_model)
-            .where(
-                self.subscription_model.reference_id == reference_id,
-                self.subscription_model.customer_type == customer_type,
-            )
+            .where(self.subscription_model.customer_id == customer_id)
             .order_by(self.subscription_model.created_at.desc())
         )
         result = await session.execute(stmt)
@@ -112,14 +102,12 @@ class StripeAdapter[
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> SubscriptionT | None:
         stmt = (
             select(self.subscription_model)
             .where(
-                self.subscription_model.reference_id == reference_id,
-                self.subscription_model.customer_type == customer_type,
+                self.subscription_model.customer_id == customer_id,
                 self.subscription_model.status.in_(ACTIVE_SUBSCRIPTION_STATUSES),
             )
             .order_by(self.subscription_model.created_at.desc())
@@ -131,14 +119,12 @@ class StripeAdapter[
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> SubscriptionT | None:
         stmt = (
             select(self.subscription_model)
             .where(
-                self.subscription_model.reference_id == reference_id,
-                self.subscription_model.customer_type == customer_type,
+                self.subscription_model.customer_id == customer_id,
                 self.subscription_model.status == "incomplete",
             )
             .order_by(self.subscription_model.created_at.desc())

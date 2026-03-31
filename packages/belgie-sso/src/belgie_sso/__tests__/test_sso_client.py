@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 
 @dataclass
-class FakeUser:
+class FakeIndividual:
     id: UUID
     email: str
     email_verified_at: datetime | None
@@ -41,7 +41,7 @@ class FakeOrganization:
 class FakeMember:
     id: UUID
     organization_id: UUID
-    user_id: UUID
+    individual_id: UUID
     role: str
     created_at: datetime
     updated_at: datetime
@@ -208,23 +208,30 @@ class MemoryOrganizationAdapter:
             return self.organization
         return None
 
-    async def get_member(self, _session: object, *, organization_id: UUID, user_id: UUID) -> FakeMember | None:
-        if organization_id == self.member.organization_id and user_id == self.member.user_id:
+    async def get_member(self, _session: object, *, organization_id: UUID, individual_id: UUID) -> FakeMember | None:
+        if organization_id == self.member.organization_id and individual_id == self.member.individual_id:
             return self.member
         return next(
             (
                 member
                 for member in self.created_members
-                if member.organization_id == organization_id and member.user_id == user_id
+                if member.organization_id == organization_id and member.individual_id == individual_id
             ),
             None,
         )
 
-    async def create_member(self, _session: object, *, organization_id: UUID, user_id: UUID, role: str) -> FakeMember:
+    async def create_member(
+        self,
+        _session: object,
+        *,
+        organization_id: UUID,
+        individual_id: UUID,
+        role: str,
+    ) -> FakeMember:
         member = FakeMember(
             id=uuid4(),
             organization_id=organization_id,
-            user_id=user_id,
+            individual_id=individual_id,
             role=role,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -233,8 +240,8 @@ class MemoryOrganizationAdapter:
         return member
 
 
-def build_client() -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapter, FakeOrganization, FakeUser]:
-    admin_user = FakeUser(
+def build_client() -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapter, FakeOrganization, FakeIndividual]:
+    admin_individual = FakeIndividual(
         id=uuid4(),
         email="owner@example.com",
         email_verified_at=datetime.now(UTC),
@@ -255,7 +262,7 @@ def build_client() -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapt
     member = FakeMember(
         id=uuid4(),
         organization_id=organization.id,
-        user_id=admin_user.id,
+        individual_id=admin_individual.id,
         role="owner",
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
@@ -267,9 +274,9 @@ def build_client() -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapt
         client=SimpleNamespace(db=object()),
         settings=settings,
         organization_adapter=organization_adapter,
-        current_user=admin_user,
+        current_individual=admin_individual,
     )
-    return client, sso_adapter, organization_adapter, organization, admin_user
+    return client, sso_adapter, organization_adapter, organization, admin_individual
 
 
 @pytest.mark.asyncio

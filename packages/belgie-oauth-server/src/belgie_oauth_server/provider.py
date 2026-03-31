@@ -25,7 +25,7 @@ class AuthorizationParams:
     nonce: str | None = None
     prompt: str | None = None
     intent: Literal["login", "create"] = "login"
-    user_id: str | None = None
+    individual_id: str | None = None
     session_id: str | None = None
 
 
@@ -40,7 +40,7 @@ class AuthorizationCode:
     redirect_uri_provided_explicitly: bool
     resource: str | None = None
     nonce: str | None = None
-    user_id: str | None = None
+    individual_id: str | None = None
     session_id: str | None = None
 
 
@@ -51,7 +51,7 @@ class RefreshToken:
     scopes: list[str]
     created_at: int
     expires_at: int | None = None
-    user_id: str | None = None
+    individual_id: str | None = None
     session_id: str | None = None
     resource: str | None = None
 
@@ -65,7 +65,7 @@ class AccessToken:
     expires_at: int | None = None
     resource: str | list[str] | None = None
     refresh_token: str | None = None
-    user_id: str | None = None
+    individual_id: str | None = None
     session_id: str | None = None
 
 
@@ -81,7 +81,7 @@ class StateEntry:
     nonce: str | None = None
     prompt: str | None = None
     intent: Literal["login", "create"] = "login"
-    user_id: str | None = None
+    individual_id: str | None = None
     session_id: str | None = None
 
 
@@ -150,12 +150,12 @@ class SimpleOAuthProvider:
             nonce=params.nonce,
             prompt=params.prompt,
             intent=params.intent,
-            user_id=params.user_id,
+            individual_id=params.individual_id,
             session_id=params.session_id,
         )
         return state
 
-    async def bind_authorization_state(self, state: str, *, user_id: str, session_id: str) -> None:
+    async def bind_authorization_state(self, state: str, *, individual_id: str, session_id: str) -> None:
         self._purge_state_mapping()
         state_data = self.state_mapping.get(state)
         if state_data is None:
@@ -172,7 +172,7 @@ class SimpleOAuthProvider:
             nonce=state_data.nonce,
             prompt=state_data.prompt,
             intent=state_data.intent,
-            user_id=user_id,
+            individual_id=individual_id,
             session_id=session_id,
         )
 
@@ -209,7 +209,7 @@ class SimpleOAuthProvider:
             code_challenge=code_challenge,
             resource=resource,
             nonce=state_data.nonce,
-            user_id=state_data.user_id,
+            individual_id=state_data.individual_id,
             session_id=state_data.session_id,
         )
         self.auth_codes[new_code] = auth_code
@@ -236,7 +236,7 @@ class SimpleOAuthProvider:
             client_id=authorization_code.client_id,
             scopes=authorization_code.scopes,
             resource=effective_resource,
-            user_id=authorization_code.user_id,
+            individual_id=authorization_code.individual_id,
             session_id=authorization_code.session_id,
         )
         refresh_token_value = None
@@ -244,7 +244,7 @@ class SimpleOAuthProvider:
             refresh_token = self._issue_refresh_token(
                 client_id=authorization_code.client_id,
                 scopes=authorization_code.scopes,
-                user_id=authorization_code.user_id,
+                individual_id=authorization_code.individual_id,
                 session_id=authorization_code.session_id,
                 resource=authorization_code.resource,
             )
@@ -322,7 +322,7 @@ class SimpleOAuthProvider:
         new_refresh_token = self._issue_refresh_token(
             client_id=stored_refresh_token.client_id,
             scopes=scopes,
-            user_id=stored_refresh_token.user_id,
+            individual_id=stored_refresh_token.individual_id,
             session_id=stored_refresh_token.session_id,
             resource=stored_refresh_token.resource if refresh_token_resource is None else refresh_token_resource,
         )
@@ -332,7 +332,7 @@ class SimpleOAuthProvider:
             scopes=scopes,
             resource=effective_resource,
             refresh_token=new_refresh_token.token,
-            user_id=stored_refresh_token.user_id,
+            individual_id=stored_refresh_token.individual_id,
             session_id=stored_refresh_token.session_id,
         )
 
@@ -391,7 +391,7 @@ class SimpleOAuthProvider:
         scopes: list[str],
         resource: str | list[str] | None = None,
         refresh_token: str | None = None,
-        user_id: str | None = None,
+        individual_id: str | None = None,
         session_id: str | None = None,
     ) -> AccessToken:
         now = int(time.time())
@@ -404,7 +404,7 @@ class SimpleOAuthProvider:
             expires_at=now + self.settings.access_token_ttl_seconds,
             resource=resource,
             refresh_token=refresh_token,
-            user_id=user_id,
+            individual_id=individual_id,
             session_id=session_id,
         )
         self.tokens[token_value] = access_token
@@ -415,7 +415,7 @@ class SimpleOAuthProvider:
         *,
         client_id: str,
         scopes: list[str],
-        user_id: str | None = None,
+        individual_id: str | None = None,
         session_id: str | None = None,
         resource: str | None = None,
     ) -> RefreshToken:
@@ -427,7 +427,7 @@ class SimpleOAuthProvider:
             scopes=scopes,
             created_at=now,
             expires_at=now + self.settings.refresh_token_ttl_seconds,
-            user_id=user_id,
+            individual_id=individual_id,
             session_id=session_id,
             resource=resource,
         )

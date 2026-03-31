@@ -19,8 +19,8 @@ from fastapi.security import SecurityScopes
 
 from belgie_sso.client import SSOClient
 from belgie_sso.org_assignment import (
-    assign_user_by_verified_domain,
-    assign_user_to_provider_organization,
+    assign_individual_by_verified_domain,
+    assign_individual_to_provider_organization,
     provider_matches_verified_domain,
 )
 from belgie_sso.utils import (
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto.core.user import UserProtocol
+    from belgie_proto.core.individual import IndividualProtocol
     from belgie_proto.organization.invitation import InvitationProtocol
     from belgie_proto.organization.member import MemberProtocol
     from belgie_proto.organization.organization import OrganizationProtocol
@@ -108,12 +108,12 @@ class SSOPlugin[
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> SSOClient[ProviderT, DomainT, OrganizationProtocol, MemberProtocol, InvitationProtocol]:
-            current_user = await client.get_user(SecurityScopes(), request)
+            current_individual = await client.get_individual(SecurityScopes(), request)
             return SSOClient(
                 client=client,
                 settings=self._settings,
                 organization_adapter=organization_plugin.settings.adapter,
-                current_user=current_user,
+                current_individual=current_individual,
             )
 
         resolve_client.__annotations__["request"] = Request
@@ -137,18 +137,18 @@ class SSOPlugin[
         belgie: Belgie,
         client: BelgieClient,
         request: Request,  # noqa: ARG002
-        user: UserProtocol[str],
+        individual: IndividualProtocol[str],
         profile: AuthenticatedProfile,
     ) -> None:
         if profile.provider not in {"google", "microsoft"} or not profile.email_verified:
             return
 
         organization_plugin = self._ensure_organization_plugin(belgie)
-        await assign_user_by_verified_domain(
+        await assign_individual_by_verified_domain(
             db=client.db,
             adapter=self._settings.adapter,
             organization_adapter=organization_plugin.settings.adapter,
-            user=user,
+            individual=individual,
             email=profile.email,
         )
 
@@ -297,7 +297,7 @@ class SSOPlugin[
             )
 
             await client.upsert_oauth_account(
-                user_id=user.id,
+                individual_id=user.id,
                 provider=as_account_provider(provider.provider_id),
                 provider_account_id=subject,
                 access_token=tokens.access_token,
@@ -308,11 +308,11 @@ class SSOPlugin[
                 id_token=tokens.id_token,
             )
 
-            await assign_user_to_provider_organization(
+            await assign_individual_to_provider_organization(
                 db=client.db,
                 organization_adapter=organization_plugin.settings.adapter,
                 provider=provider,
-                user=user,
+                individual=user,
             )
 
             response = RedirectResponse(

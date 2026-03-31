@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
@@ -52,7 +52,8 @@ def database(
 @pytest_asyncio.fixture
 async def adapter(db_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -130,7 +131,7 @@ def test_full_oauth_flow_signin_to_callback(
         "id": "google-integration-123",
         "email": "integration@example.com",
         "verified_email": True,
-        "name": "Integration User",
+        "name": "Integration Individual",
         "picture": "https://example.com/photo.jpg",
     }
 
@@ -149,17 +150,17 @@ def test_full_oauth_flow_signin_to_callback(
     session_id = callback_response.cookies["belgie_session"]
 
     async def verify_user_and_session_created() -> None:
-        user = await auth.adapter.get_user_by_email(db_session, "integration@example.com")
+        user = await auth.adapter.get_individual_by_email(db_session, "integration@example.com")
         assert user is not None
         assert user.email == "integration@example.com"
-        assert user.name == "Integration User"
+        assert user.name == "Integration Individual"
         assert user.email_verified_at is not None
 
         session = await auth.session_manager.get_session(db_session, UUID(session_id))
         assert session is not None
-        assert session.user_id == user.id
+        assert session.individual_id == user.id
 
-        account = await auth.adapter.get_account_by_user_and_provider(db_session, user.id, "google")
+        account = await auth.adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
         assert account is not None
         assert account.provider_account_id == "google-integration-123"
         assert account.access_token == "integration-access-token"  # noqa: S105
@@ -230,10 +231,14 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
     import asyncio  # noqa: PLC0415
 
     async def create_existing_user() -> str:
-        user = await auth.adapter.create_user(db_session, email="existing@example.com", name="Existing User")
+        user = await auth.adapter.create_individual(
+            db_session,
+            email="existing@example.com",
+            name="Existing Individual",
+        )
         return str(user.id)
 
-    user_id = asyncio.run(create_existing_user())
+    individual_id = asyncio.run(create_existing_user())
 
     signin_response = client.get("/login/google", follow_redirects=False)
     location = signin_response.headers["location"]
@@ -250,7 +255,7 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
         "id": "google-existing-404",
         "email": "existing@example.com",
         "verified_email": True,
-        "name": "Existing User",
+        "name": "Existing Individual",
     }
 
     respx.post(GoogleOAuthPlugin.TOKEN_URL).mock(return_value=httpx.Response(200, json=mock_token_response))
@@ -264,11 +269,11 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
     assert callback_response.status_code == 302
 
     async def verify_existing_user_reused() -> None:
-        user = await auth.adapter.get_user_by_email(db_session, "existing@example.com")
+        user = await auth.adapter.get_individual_by_email(db_session, "existing@example.com")
         assert user is not None
-        assert str(user.id) == user_id
+        assert str(user.id) == individual_id
 
-        account = await auth.adapter.get_account_by_user_and_provider(db_session, user.id, "google")
+        account = await auth.adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
         assert account is not None
         assert account.provider_account_id == "google-existing-404"
 
@@ -328,6 +333,6 @@ def test_multiple_concurrent_sessions(client: TestClient, auth: Belgie, db_sessi
 
         assert session1 is not None
         assert session2 is not None
-        assert session1.user_id == session2.user_id
+        assert session1.individual_id == session2.individual_id
 
     asyncio.run(verify_both_sessions_same_user())

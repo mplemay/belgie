@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 import pytest
 
 
-async def _create_user(belgie_instance, db_session, email: str):
-    return await belgie_instance.adapter.create_user(
+async def _create_individual(belgie_instance, db_session, email: str):
+    return await belgie_instance.adapter.create_individual(
         db_session,
         email=email,
         name="Jane Doe",
@@ -31,11 +31,11 @@ async def test_userinfo_rejects_token_without_openid_scope(
     belgie_instance,
     db_session,
 ) -> None:
-    user = await _create_user(belgie_instance, db_session, "userinfo-no-openid@test.com")
+    user = await _create_individual(belgie_instance, db_session, "userinfo-no-openid@test.com")
     access_token = oauth_plugin._provider._issue_access_token(
         client_id=oauth_settings.client_id,
         scopes=[oauth_settings.default_scope],
-        user_id=str(user.id),
+        individual_id=str(user.id),
     )
 
     response = await async_client.get(
@@ -75,12 +75,12 @@ async def test_userinfo_filters_claims_by_scope(
     belgie_instance,
     db_session,
 ) -> None:
-    user = await _create_user(belgie_instance, db_session, "userinfo-claims@test.com")
+    user = await _create_individual(belgie_instance, db_session, "userinfo-claims@test.com")
 
     profile_token = oauth_plugin._provider._issue_access_token(
         client_id=oauth_settings.client_id,
         scopes=["openid", "profile"],
-        user_id=str(user.id),
+        individual_id=str(user.id),
     )
     profile_response = await async_client.get(
         "/auth/oauth/userinfo",
@@ -99,7 +99,7 @@ async def test_userinfo_filters_claims_by_scope(
     email_token = oauth_plugin._provider._issue_access_token(
         client_id=oauth_settings.client_id,
         scopes=["openid", "email"],
-        user_id=str(user.id),
+        individual_id=str(user.id),
     )
     email_response = await async_client.get(
         "/auth/oauth/userinfo",

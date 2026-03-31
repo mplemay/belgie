@@ -38,8 +38,8 @@ class FakeAdapter:
     def __init__(self, user: FakeUser | None) -> None:
         self.user = user
 
-    async def get_user_by_id(self, _session: object, user_id: UUID) -> FakeUser | None:
-        if self.user and self.user.id == user_id:
+    async def get_individual_by_id(self, _session: object, individual_id: UUID) -> FakeUser | None:
+        if self.user and self.user.id == individual_id:
             return self.user
         return None
 
@@ -122,14 +122,14 @@ async def test_get_user_provider_backed_token_returns_user() -> None:
         id=uuid4(),
         email="user@example.com",
         email_verified_at=datetime.now(UTC),
-        name="Test User",
+        name="Test Individual",
         image=None,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
         scopes=["user"],
     )
     oauth_plugin, provider = _build_oauth_plugin()
-    token, _stored_token = await _issue_dynamic_client_access_token(provider, user_id=str(user.id))
+    token, _stored_token = await _issue_dynamic_client_access_token(provider, individual_id=str(user.id))
     belgie = _build_belgie(user=user, plugins=[oauth_plugin])
 
     with _set_access_token(token):
@@ -141,8 +141,8 @@ async def test_get_user_provider_backed_token_returns_user() -> None:
 @pytest.mark.asyncio
 async def test_get_user_provider_backed_token_returns_none_without_user_id() -> None:
     oauth_plugin, provider = _build_oauth_plugin()
-    token, stored_token = await _issue_dynamic_client_access_token(provider, user_id=str(uuid4()))
-    provider.tokens[token] = replace(stored_token, user_id=None)
+    token, stored_token = await _issue_dynamic_client_access_token(provider, individual_id=str(uuid4()))
+    provider.tokens[token] = replace(stored_token, individual_id=None)
     belgie = _build_belgie(user=None, plugins=[oauth_plugin])
 
     with _set_access_token(token):
@@ -154,8 +154,8 @@ async def test_get_user_provider_backed_token_returns_none_without_user_id() -> 
 @pytest.mark.asyncio
 async def test_get_user_provider_backed_token_returns_none_for_invalid_user_id() -> None:
     oauth_plugin, provider = _build_oauth_plugin()
-    token, stored_token = await _issue_dynamic_client_access_token(provider, user_id=str(uuid4()))
-    provider.tokens[token] = replace(stored_token, user_id="not-a-uuid")
+    token, stored_token = await _issue_dynamic_client_access_token(provider, individual_id=str(uuid4()))
+    provider.tokens[token] = replace(stored_token, individual_id="not-a-uuid")
     belgie = _build_belgie(user=None, plugins=[oauth_plugin])
 
     with _set_access_token(token):
@@ -167,7 +167,7 @@ async def test_get_user_provider_backed_token_returns_none_for_invalid_user_id()
 @pytest.mark.asyncio
 async def test_get_user_provider_backed_token_returns_none_when_user_is_missing() -> None:
     oauth_plugin, provider = _build_oauth_plugin()
-    token, _stored_token = await _issue_dynamic_client_access_token(provider, user_id=str(uuid4()))
+    token, _stored_token = await _issue_dynamic_client_access_token(provider, individual_id=str(uuid4()))
     belgie = _build_belgie(user=None, plugins=[oauth_plugin])
 
     with _set_access_token(token):
@@ -192,7 +192,7 @@ async def test_get_user_valid_sub_returns_user_when_no_provider_matches() -> Non
         id=uuid4(),
         email="user@example.com",
         email_verified_at=datetime.now(UTC),
-        name="Test User",
+        name="Test Individual",
         image=None,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
@@ -231,7 +231,7 @@ def _build_oauth_plugin() -> tuple[OAuthServerPlugin, SimpleOAuthProvider]:
 async def _issue_dynamic_client_access_token(
     provider: SimpleOAuthProvider,
     *,
-    user_id: str | None = None,
+    individual_id: str | None = None,
 ) -> tuple[str, OAuthAccessToken]:
     client = await provider.register_client(
         OAuthClientMetadata(
@@ -250,7 +250,7 @@ async def _issue_dynamic_client_access_token(
             code_challenge="test-challenge",
             redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
             redirect_uri_provided_explicitly=True,
-            user_id=user_id,
+            individual_id=individual_id,
             session_id=str(uuid4()),
         ),
     )

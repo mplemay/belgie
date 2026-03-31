@@ -169,7 +169,7 @@ async def test_mcp_plugin_verifier_uses_linked_oauth_plugin_provider() -> None:
     _ = plugin.router(SimpleNamespace(plugins=[oauth_plugin, plugin]))
     token_value, stored_token = await _issue_dynamic_client_access_token(
         provider,
-        user_id=str(uuid4()),
+        individual_id=str(uuid4()),
         resource="https://mcp.local/mcp",
     )
 
@@ -187,7 +187,7 @@ async def test_mcp_plugin_verifier_uses_linked_oauth_plugin_provider() -> None:
 async def _issue_dynamic_client_access_token(
     provider: SimpleOAuthProvider,
     *,
-    user_id: str | None = None,
+    individual_id: str | None = None,
     resource: str | None = None,
 ) -> tuple[str, OAuthAccessToken]:
     client = await provider.register_client(
@@ -208,7 +208,7 @@ async def _issue_dynamic_client_access_token(
             redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
             redirect_uri_provided_explicitly=True,
             resource=resource,
-            user_id=user_id,
+            individual_id=individual_id,
             session_id=str(uuid4()),
         ),
     )

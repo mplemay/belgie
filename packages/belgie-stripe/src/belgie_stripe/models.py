@@ -7,7 +7,7 @@ from uuid import UUID  # noqa: TC003
 
 from belgie_proto.stripe import (
     StripeBillingInterval,
-    StripeCustomerType,
+    StripeCustomerProtocol,
     StripeSubscriptionProtocol,
     StripeSubscriptionStatus,
 )
@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 if TYPE_CHECKING:
     from stripe import Subscription
+
 
 type JSONScalar = str | int | float | bool | None
 type StripeAction = Literal[
@@ -47,8 +48,7 @@ class StripePlan(BaseModel):
 class UpgradeSubscriptionRequest(BaseModel):
     plan: str
     annual: bool = False
-    reference_id: UUID | None = None
-    customer_type: Literal["user", "organization"] = "user"
+    customer_id: UUID | None = None
     success_url: str
     cancel_url: str
     return_url: str | None = None
@@ -57,25 +57,21 @@ class UpgradeSubscriptionRequest(BaseModel):
 
 
 class ListSubscriptionsRequest(BaseModel):
-    reference_id: UUID | None = None
-    customer_type: Literal["user", "organization"] = "user"
+    customer_id: UUID | None = None
 
 
 class CancelSubscriptionRequest(BaseModel):
-    reference_id: UUID | None = None
-    customer_type: Literal["user", "organization"] = "user"
+    customer_id: UUID | None = None
     return_url: str
     disable_redirect: bool = False
 
 
 class RestoreSubscriptionRequest(BaseModel):
-    reference_id: UUID | None = None
-    customer_type: Literal["user", "organization"] = "user"
+    customer_id: UUID | None = None
 
 
 class BillingPortalRequest(BaseModel):
-    reference_id: UUID | None = None
-    customer_type: Literal["user", "organization"] = "user"
+    customer_id: UUID | None = None
     return_url: str | None = None
     disable_redirect: bool = False
 
@@ -90,8 +86,7 @@ class SubscriptionView(BaseModel):
 
     id: UUID
     plan: str
-    reference_id: UUID
-    customer_type: StripeCustomerType
+    customer_id: UUID
     stripe_customer_id: str | None = None
     stripe_subscription_id: str | None = None
     status: StripeSubscriptionStatus
@@ -111,36 +106,37 @@ class SubscriptionView(BaseModel):
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class ReferenceAuthorizationContext[UserT, SessionT]:
+class CustomerAuthorizationContext[CustomerT, IndividualT, SessionT]:
     action: StripeAction
-    customer_type: Literal["user", "organization"]
-    reference_id: UUID
-    user: UserT
+    customer: CustomerT
+    individual: IndividualT
     session: SessionT
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class CustomerCreateContext[TargetT]:
-    customer_type: Literal["user", "organization"]
-    reference_id: UUID
-    target: TargetT
+class CustomerCreateContext[CustomerT]:
+    customer: CustomerT
     stripe_customer_id: str
     metadata: dict[str, str]
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class CheckoutSessionContext[SubscriptionT, UserT, SessionT]:
-    customer_type: Literal["user", "organization"]
-    reference_id: UUID
+class CheckoutSessionContext[SubscriptionT, CustomerT, IndividualT, SessionT]:
+    customer: CustomerT
     plan: StripePlan
     subscription: SubscriptionT
-    user: UserT
+    individual: IndividualT
     session: SessionT
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class SubscriptionEventContext[SubscriptionT]:
+class SubscriptionEventContext[SubscriptionT, CustomerT]:
     event_type: str
     plan: StripePlan | None
     raw_event: Subscription
     subscription: SubscriptionT
+    customer: CustomerT
+
+
+def customer_type_label(customer: StripeCustomerProtocol) -> str:
+    return customer.customer_type.value

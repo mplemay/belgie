@@ -114,7 +114,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServer,
-    create_user_session,
+    create_individual_session,
 ) -> None:
     settings = OAuthServer(
         base_url=oauth_settings.base_url,
@@ -130,7 +130,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
+        session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
         params = _authorize_params(settings, create_code_challenge("verifier"), state="state-auth")
@@ -152,9 +152,9 @@ async def test_authorize_issues_code_when_authenticated(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServer,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     params = _authorize_params(oauth_settings, create_code_challenge("verifier"), state="state-auth")
@@ -176,9 +176,9 @@ async def test_authorize_issues_code_when_authenticated_via_post(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServer,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     form_data = _authorize_params(oauth_settings, create_code_challenge("verifier"), state="state-auth-post")
@@ -216,9 +216,9 @@ async def test_authorize_accepts_configured_resource_when_authenticated(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServer,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     params = _authorize_params(
@@ -244,7 +244,7 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServer,
-    create_user_session,
+    create_individual_session,
 ) -> None:
     settings = OAuthServer(
         base_url=oauth_settings.base_url,
@@ -262,7 +262,7 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        session_id = await create_user_session(belgie_instance, db_session, "trailing-resource@test.com")
+        session_id = await create_individual_session(belgie_instance, db_session, "trailing-resource@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
         params = _authorize_params(

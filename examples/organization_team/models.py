@@ -5,6 +5,8 @@ from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 
 from belgie.alchemy.mixins import (
     AccountMixin,
+    CustomerMixin,
+    IndividualMixin,
     OAuthStateMixin,
     OrganizationInvitationMixin,
     OrganizationMemberMixin,
@@ -12,11 +14,14 @@ from belgie.alchemy.mixins import (
     SessionMixin,
     TeamMemberMixin,
     TeamMixin,
-    UserMixin,
 )
 
 
-class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
+class Customer(DataclassBase, CustomerMixin):
+    pass
+
+
+class Individual(IndividualMixin, Customer):
     pass
 
 
@@ -32,7 +37,7 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin
     pass
 
 
-class Organization(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMixin):
+class Organization(OrganizationMixin, Customer):
     pass
 
 
@@ -44,7 +49,7 @@ class OrganizationInvitation(DataclassBase, PrimaryKeyMixin, TimestampMixin, Org
     pass
 
 
-class Team(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMixin):
+class Team(TeamMixin, Customer):
     pass
 
 
@@ -54,6 +59,8 @@ class TeamMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMemberMixin
 
 __all__ = [
     "Account",
+    "Customer",
+    "Individual",
     "OAuthState",
     "Organization",
     "OrganizationInvitation",
@@ -61,5 +68,4 @@ __all__ = [
     "Session",
     "Team",
     "TeamMember",
-    "User",
 ]

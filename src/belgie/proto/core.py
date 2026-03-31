@@ -6,9 +6,12 @@ try:
     from belgie_proto.core import (
         AccountProtocol,
         AdapterProtocol,
+        CustomerAdapterProtocol,
+        CustomerProtocol,
+        CustomerType,
+        IndividualProtocol,
         OAuthStateProtocol,
         SessionProtocol,
-        UserProtocol,
     )
 except ModuleNotFoundError as exc:
     raise ImportError(_PROTO_IMPORT_ERROR) from exc
@@ -16,7 +19,10 @@ except ModuleNotFoundError as exc:
 __all__ = [
     "AccountProtocol",
     "AdapterProtocol",
+    "CustomerAdapterProtocol",
+    "CustomerProtocol",
+    "CustomerType",
+    "IndividualProtocol",
     "OAuthStateProtocol",
     "SessionProtocol",
-    "UserProtocol",
 ]

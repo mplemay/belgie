@@ -53,7 +53,7 @@ def _build_custom_pages_app(belgie_instance: Belgie) -> tuple[FastAPI, OAuthServ
         context = await oauth.try_resolve_login_context(request)
         redirect_target = context.return_to if context is not None else belgie_instance.settings.urls.signin_redirect
         response = RedirectResponse(url=redirect_target, status_code=302)
-        _user, session = await client.sign_up("signup@example.com", request=request, name="Signup User")
+        _user, session = await client.sign_up("signup@example.com", request=request, name="Signup Individual")
         return client.create_session_cookie(session, response)
 
     @app.get("/login/google")
@@ -70,7 +70,7 @@ def _build_custom_pages_app(belgie_instance: Belgie) -> tuple[FastAPI, OAuthServ
                 status_code=302,
             )
         response = RedirectResponse(url=context.return_to, status_code=302)
-        _user, session = await client.sign_up("google@example.com", request=request, name="Google User")
+        _user, session = await client.sign_up("google@example.com", request=request, name="Google Individual")
         return client.create_session_cookie(session, response)
 
     return app, settings
@@ -82,9 +82,9 @@ async def test_full_oauth_flow(
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_settings: OAuthServer,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     code_verifier = "verifier"

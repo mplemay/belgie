@@ -12,7 +12,7 @@ from fastapi import HTTPException, Request
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
@@ -52,7 +52,8 @@ def database(
 @pytest_asyncio.fixture
 async def adapter():
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -113,11 +114,11 @@ def test_register_provider_invalidates_router_cache(auth: Belgie) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_user_from_session_valid(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+async def test_get_individual_from_session_valid(auth: Belgie, db_session: AsyncSession) -> None:
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
+    session = await auth.session_manager.create_session(db_session, individual_id=user.id)
 
-    retrieved_user = await auth.get_user_from_session(db_session, session.id)
+    retrieved_user = await auth.get_individual_from_session(db_session, session.id)
 
     assert retrieved_user is not None
     assert retrieved_user.id == user.id
@@ -125,28 +126,28 @@ async def test_get_user_from_session_valid(auth: Belgie, db_session: AsyncSessio
 
 
 @pytest.mark.asyncio
-async def test_get_user_from_session_invalid(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.get_user_from_session(db_session, uuid4())
+async def test_get_individual_from_session_invalid(auth: Belgie, db_session: AsyncSession) -> None:
+    user = await auth.get_individual_from_session(db_session, uuid4())
     assert user is None
 
 
 @pytest.mark.asyncio
-async def test_get_user_from_session_expired(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+async def test_get_individual_from_session_expired(auth: Belgie, db_session: AsyncSession) -> None:
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     expired_session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) - timedelta(hours=1),
     )
 
-    retrieved_user = await auth.get_user_from_session(db_session, expired_session.id)
+    retrieved_user = await auth.get_individual_from_session(db_session, expired_session.id)
     assert retrieved_user is None
 
 
 @pytest.mark.asyncio
 async def test_sign_out_success(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
+    session = await auth.session_manager.create_session(db_session, individual_id=user.id)
 
     result = await auth.sign_out(db_session, session.id)
     assert result is True
@@ -162,54 +163,54 @@ async def test_sign_out_nonexistent_session(auth: Belgie, db_session: AsyncSessi
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_authenticated(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+async def test_individual_dependency_authenticated(auth: Belgie, db_session: AsyncSession) -> None:
+    individual = await auth.adapter.create_individual(db_session, email="test@example.com")
+    session = await auth.session_manager.create_session(db_session, individual_id=individual.id)
 
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes()
 
-    retrieved_user = await auth.user(security_scopes, request, db_session)
+    retrieved_individual = await auth.individual(security_scopes, request, db_session)
 
-    assert retrieved_user.id == user.id
-    assert retrieved_user.email == "test@example.com"
+    assert retrieved_individual.id == individual.id
+    assert retrieved_individual.email == "test@example.com"
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_missing_cookie(auth: Belgie, db_session: AsyncSession) -> None:
+async def test_individual_dependency_missing_cookie(auth: Belgie, db_session: AsyncSession) -> None:
     request = MagicMock(spec=Request)
     request.cookies = {}
 
     security_scopes = SecurityScopes()
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
     assert "not authenticated" in str(exc_info.value.detail)  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_invalid_session(auth: Belgie, db_session: AsyncSession) -> None:
+async def test_individual_dependency_invalid_session(auth: Belgie, db_session: AsyncSession) -> None:
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.cookie.name: str(uuid4())}
 
     security_scopes = SecurityScopes()
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_expired_session(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+async def test_individual_dependency_expired_session(auth: Belgie, db_session: AsyncSession) -> None:
+    individual = await auth.adapter.create_individual(db_session, email="test@example.com")
     expired_session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=individual.id,
         expires_at=datetime.now(UTC) - timedelta(hours=1),
     )
 
@@ -219,39 +220,39 @@ async def test_user_dependency_expired_session(auth: Belgie, db_session: AsyncSe
     security_scopes = SecurityScopes()
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 401  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_with_valid_scopes(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
-    # Assign user-level scopes
-    user.scopes = ["openid", "email", "profile", "admin"]
+async def test_individual_dependency_with_valid_scopes(auth: Belgie, db_session: AsyncSession) -> None:
+    individual = await auth.adapter.create_individual(db_session, email="test@example.com")
+    # Assign individual-level scopes.
+    individual.scopes = ["openid", "email", "profile", "admin"]
     await db_session.commit()
-    await db_session.refresh(user)
+    await db_session.refresh(individual)
 
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+    session = await auth.session_manager.create_session(db_session, individual_id=individual.id)
 
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.cookie.name: str(session.id)}
 
     security_scopes = SecurityScopes(scopes=["email", "profile"])
 
-    retrieved_user = await auth.user(security_scopes, request, db_session)
-    assert retrieved_user.id == user.id
+    retrieved_individual = await auth.individual(security_scopes, request, db_session)
+    assert retrieved_individual.id == individual.id
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_with_insufficient_scopes(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
-    # Assign user-level scopes (missing 'admin')
-    user.scopes = ["openid", "email"]
+async def test_individual_dependency_with_insufficient_scopes(auth: Belgie, db_session: AsyncSession) -> None:
+    individual = await auth.adapter.create_individual(db_session, email="test@example.com")
+    # Assign individual-level scopes (missing 'admin').
+    individual.scopes = ["openid", "email"]
     await db_session.commit()
-    await db_session.refresh(user)
+    await db_session.refresh(individual)
 
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+    session = await auth.session_manager.create_session(db_session, individual_id=individual.id)
 
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.cookie.name: str(session.id)}
@@ -259,18 +260,21 @@ async def test_user_dependency_with_insufficient_scopes(auth: Belgie, db_session
     security_scopes = SecurityScopes(scopes=["admin"])
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
     assert exc_info.value.detail == "Insufficient permissions"  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_scopes_required_but_user_has_no_scopes(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
-    assert user.scopes == []
+async def test_individual_dependency_scopes_required_but_individual_has_no_scopes(
+    auth: Belgie,
+    db_session: AsyncSession,
+) -> None:
+    individual = await auth.adapter.create_individual(db_session, email="test@example.com")
+    assert individual.scopes == []
 
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+    session = await auth.session_manager.create_session(db_session, individual_id=individual.id)
 
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.cookie.name: str(session.id)}
@@ -278,15 +282,15 @@ async def test_user_dependency_scopes_required_but_user_has_no_scopes(auth: Belg
     security_scopes = SecurityScopes(scopes=["admin"])
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
 async def test_session_dependency_valid(auth: Belgie, db_session: AsyncSession) -> None:
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
-    session = await auth.session_manager.create_session(db_session, user_id=user.id)
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
+    session = await auth.session_manager.create_session(db_session, individual_id=user.id)
 
     request = MagicMock(spec=Request)
     request.cookies = {auth.settings.cookie.name: str(session.id)}
@@ -294,7 +298,7 @@ async def test_session_dependency_valid(auth: Belgie, db_session: AsyncSession) 
     retrieved_session = await auth.session(request, db_session)
 
     assert retrieved_session.id == session.id
-    assert retrieved_session.user_id == user.id
+    assert retrieved_session.individual_id == user.id
 
 
 @pytest.mark.asyncio

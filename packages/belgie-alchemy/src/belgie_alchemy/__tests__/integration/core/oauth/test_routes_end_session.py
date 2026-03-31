@@ -14,13 +14,13 @@ async def _issue_id_token(
     oauth_plugin,
     belgie_instance,
     db_session,
-    create_user_session,
+    create_individual_session,
     *,
     email: str,
     enable_end_session: bool,
     post_logout_redirect_uris: list[str] | None = None,
 ) -> tuple[str, str]:
-    session_id = await create_user_session(belgie_instance, db_session, email)
+    session_id = await create_individual_session(belgie_instance, db_session, email)
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     oauth_client = oauth_plugin._provider.clients[oauth_settings.client_id]
@@ -79,7 +79,7 @@ async def test_end_session_rejects_clients_without_permission(
     oauth_plugin,
     belgie_instance,
     db_session,
-    create_user_session,
+    create_individual_session,
 ) -> None:
     id_token, _session_id = await _issue_id_token(
         async_client,
@@ -87,7 +87,7 @@ async def test_end_session_rejects_clients_without_permission(
         oauth_plugin,
         belgie_instance,
         db_session,
-        create_user_session,
+        create_individual_session,
         email="end-session-disabled@test.com",
         enable_end_session=False,
     )
@@ -108,7 +108,7 @@ async def test_end_session_signs_out_session_and_redirects(
     oauth_plugin,
     belgie_instance,
     db_session,
-    create_user_session,
+    create_individual_session,
 ) -> None:
     redirect_uri = "http://testserver/logout-complete"
     id_token, session_id = await _issue_id_token(
@@ -117,7 +117,7 @@ async def test_end_session_signs_out_session_and_redirects(
         oauth_plugin,
         belgie_instance,
         db_session,
-        create_user_session,
+        create_individual_session,
         email="end-session-success@test.com",
         enable_end_session=True,
         post_logout_redirect_uris=[redirect_uri],
@@ -146,7 +146,7 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
     oauth_plugin,
     belgie_instance,
     db_session,
-    create_user_session,
+    create_individual_session,
 ) -> None:
     id_token, session_id = await _issue_id_token(
         async_client,
@@ -154,7 +154,7 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
         oauth_plugin,
         belgie_instance,
         db_session,
-        create_user_session,
+        create_individual_session,
         email="end-session-invalid-redirect@test.com",
         enable_end_session=True,
         post_logout_redirect_uris=["http://testserver/logout-complete"],
@@ -181,9 +181,9 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
     oauth_plugin,
     belgie_instance,
     db_session,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "end-session-public@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "end-session-public@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     oauth_plugin._provider.clients["public-end-session"] = OAuthClientInformationFull(
@@ -246,9 +246,9 @@ async def test_end_session_rejects_public_client_without_logout_permission(
     oauth_plugin,
     belgie_instance,
     db_session,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "end-session-public-disabled@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "end-session-public-disabled@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     oauth_plugin._provider.clients["public-end-session-disabled"] = OAuthClientInformationFull(

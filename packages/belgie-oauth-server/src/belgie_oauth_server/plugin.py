@@ -248,7 +248,7 @@ class OAuthServerPlugin(PluginClient):
             oauth_client, params = await _parse_authorize_params(data, provider, settings, belgie.settings.base_url)
 
             try:
-                user = await client.get_user(SecurityScopes(), request)
+                individual = await client.get_individual(SecurityScopes(), request)
                 session = await client.get_session(request)
             except HTTPException as exc:
                 if exc.status_code == status.HTTP_401_UNAUTHORIZED:
@@ -269,7 +269,7 @@ class OAuthServerPlugin(PluginClient):
 
             params_with_principal = _with_authorization_principal(
                 params,
-                user_id=str(user.id),
+                individual_id=str(individual.id),
                 session_id=str(session.id),
             )
             state_value = await _authorize_state(provider, oauth_client, params_with_principal)
@@ -373,7 +373,7 @@ class OAuthServerPlugin(PluginClient):
 
             authenticated = False
             try:
-                await client.get_user(SecurityScopes(), request)
+                await client.get_individual(SecurityScopes(), request)
                 authenticated = True
             except HTTPException as exc:
                 if exc.status_code != status.HTTP_401_UNAUTHORIZED:
@@ -462,15 +462,15 @@ class OAuthServerPlugin(PluginClient):
             if "openid" not in access_token.scopes:
                 return _oauth_error("invalid_scope", "Missing required scope", status_code=400)
 
-            if access_token.user_id is None:
+            if access_token.individual_id is None:
                 return _oauth_error("invalid_request", "user not found", status_code=400)
 
             try:
-                user_id = UUID(access_token.user_id)
+                individual_id = UUID(access_token.individual_id)
             except ValueError:
                 return _oauth_error("invalid_request", "user not found", status_code=400)
 
-            user = await client.adapter.get_user_by_id(client.db, user_id)
+            user = await client.adapter.get_individual_by_id(client.db, individual_id)
             if user is None:
                 return _oauth_error("invalid_request", "user not found", status_code=400)
 
@@ -605,7 +605,7 @@ class OAuthServerPlugin(PluginClient):
                 raise HTTPException(status_code=400, detail="missing state")
 
             try:
-                user = await client.get_user(SecurityScopes(), request)
+                individual = await client.get_individual(SecurityScopes(), request)
                 session = await client.get_session(request)
             except HTTPException as exc:
                 if exc.status_code == status.HTTP_401_UNAUTHORIZED:
@@ -613,7 +613,11 @@ class OAuthServerPlugin(PluginClient):
                 raise
 
             try:
-                await provider.bind_authorization_state(state, user_id=str(user.id), session_id=str(session.id))
+                await provider.bind_authorization_state(
+                    state,
+                    individual_id=str(individual.id),
+                    session_id=str(session.id),
+                )
                 redirect_url = await provider.issue_authorization_code(state)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1017,7 +1021,7 @@ async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> Respons
         oauth_client,
         fallback_signing_secret=ctx.fallback_signing_secret,
         scopes=authorization_code.scopes,
-        user_id=authorization_code.user_id,
+        individual_id=authorization_code.individual_id,
         nonce=authorization_code.nonce,
         session_id=authorization_code.session_id,
     )
@@ -1095,7 +1099,7 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> Response:  #
         oauth_client,
         fallback_signing_secret=ctx.fallback_signing_secret,
         scopes=scopes,
-        user_id=refresh_token.user_id,
+        individual_id=refresh_token.individual_id,
         session_id=refresh_token.session_id,
     )
     return JSONResponse(token_payload)
@@ -1199,29 +1203,29 @@ async def _maybe_build_id_token(  # noqa: PLR0913
     *,
     fallback_signing_secret: str,
     scopes: list[str],
-    user_id: str | None,
+    individual_id: str | None,
     nonce: str | None = None,
     session_id: str | None = None,
 ) -> str | None:
     if "openid" not in scopes:
         return None
-    if user_id is None:
+    if individual_id is None:
         return None
 
     try:
-        parsed_user_id = UUID(user_id)
+        parsed_individual_id = UUID(individual_id)
     except ValueError:
         return None
 
-    user = await client.adapter.get_user_by_id(client.db, parsed_user_id)
-    if user is None:
+    individual = await client.adapter.get_individual_by_id(client.db, parsed_individual_id)
+    if individual is None:
         return None
 
     return _build_id_token(
         settings,
         issuer_url,
         oauth_client,
-        user=user,
+        user=individual,
         scopes=scopes,
         fallback_signing_secret=fallback_signing_secret,
         nonce=nonce,
@@ -1271,10 +1275,15 @@ def _resolve_id_token_signing_secret(oauth_client: OAuthClientInformationFull, f
     return fallback_secret
 
 
-def _with_authorization_principal(params: AuthorizationParams, *, user_id: str, session_id: str) -> AuthorizationParams:
+def _with_authorization_principal(
+    params: AuthorizationParams,
+    *,
+    individual_id: str,
+    session_id: str,
+) -> AuthorizationParams:
     return replace(
         params,
-        user_id=user_id,
+        individual_id=individual_id,
         session_id=session_id,
     )
 

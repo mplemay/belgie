@@ -86,7 +86,7 @@ app.mount(
 async def get_user_email() -> dict[str, str | None]:
     user = await get_user_from_access_token(belgie)
     return {
-        "user_id": str(user.id) if user else None,
+        "individual_id": str(user.id) if user else None,
         "user_email": user.email if user else None,
     }
 ```

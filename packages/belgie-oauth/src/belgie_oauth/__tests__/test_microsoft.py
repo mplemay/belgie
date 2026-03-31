@@ -41,16 +41,16 @@ def test_microsoft_user_info_valid() -> None:
         sub="123456",
         email="test@example.com",
         preferred_username="test@example.com",
-        name="Test User",
+        name="Test Individual",
         given_name="Test",
-        family_name="User",
+        family_name="Individual",
         picture="https://example.com/photo.jpg",
     )
 
     assert user_info.sub == "123456"
     assert user_info.email == "test@example.com"
     assert user_info.resolved_email == "test@example.com"
-    assert user_info.name == "Test User"
+    assert user_info.name == "Test Individual"
 
 
 def test_microsoft_user_info_prefers_preferred_username() -> None:
@@ -82,7 +82,7 @@ def test_microsoft_provider_settings_defaults() -> None:
     assert settings.client_id == "test-client-id"
     assert settings.client_secret.get_secret_value() == "test-secret"
     assert settings.tenant == "common"
-    assert settings.scopes == ["openid", "profile", "email", "offline_access", "User.Read"]
+    assert settings.scopes == ["openid", "profile", "email", "offline_access", "Individual.Read"]
 
 
 def test_microsoft_provider_settings_custom_values() -> None:
@@ -98,14 +98,14 @@ def test_microsoft_provider_settings_custom_values() -> None:
 
 
 def test_microsoft_provider_settings_reads_scopes_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BELGIE_MICROSOFT_SCOPES", "openid,profile,email,offline_access,User.Read")
+    monkeypatch.setenv("BELGIE_MICROSOFT_SCOPES", "openid,profile,email,offline_access,Individual.Read")
 
     settings = MicrosoftOAuth(
         client_id="test-client-id",
         client_secret="test-secret",
     )
 
-    assert settings.scopes == ["openid", "profile", "email", "offline_access", "User.Read"]
+    assert settings.scopes == ["openid", "profile", "email", "offline_access", "Individual.Read"]
 
 
 def test_microsoft_provider_settings_rejects_empty_client_id() -> None:
@@ -183,7 +183,7 @@ def test_generate_authorization_url_format() -> None:
     assert query_params["redirect_uri"][0] == plugin.redirect_uri
     assert query_params["response_type"][0] == "code"
     assert query_params["response_mode"][0] == "query"
-    assert query_params["scope"][0] == "openid profile email offline_access User.Read"
+    assert query_params["scope"][0] == "openid profile email offline_access Individual.Read"
     assert query_params["state"][0] == state
 
 
@@ -203,7 +203,7 @@ async def test_exchange_code_for_tokens_success(microsoft_provider: MicrosoftOAu
         "access_token": "ya29.test_access_token",
         "expires_in": 3600,
         "token_type": "Bearer",
-        "scope": "openid profile email offline_access User.Read",
+        "scope": "openid profile email offline_access Individual.Read",
         "refresh_token": "1//test_refresh_token",
         "id_token": "eyJhbGciOi.test_id_token",
     }
@@ -214,7 +214,7 @@ async def test_exchange_code_for_tokens_success(microsoft_provider: MicrosoftOAu
 
     assert result["access_token"] == "ya29.test_access_token"  # noqa: S105
     assert result["token_type"] == "Bearer"  # noqa: S105
-    assert result["scope"] == "openid profile email offline_access User.Read"
+    assert result["scope"] == "openid profile email offline_access Individual.Read"
     assert result["refresh_token"] == "1//test_refresh_token"  # noqa: S105
     assert result["id_token"] == "eyJhbGciOi.test_id_token"  # noqa: S105
     assert result["expires_at"] is not None
@@ -236,9 +236,9 @@ async def test_get_user_info_success(microsoft_provider: MicrosoftOAuthPlugin) -
         "sub": "123456789",
         "email": "testuser@example.com",
         "preferred_username": "testuser@example.com",
-        "name": "Test User",
+        "name": "Test Individual",
         "given_name": "Test",
-        "family_name": "User",
+        "family_name": "Individual",
         "picture": "https://graph.microsoft.com/photo.jpg",
     }
 
@@ -250,7 +250,7 @@ async def test_get_user_info_success(microsoft_provider: MicrosoftOAuthPlugin) -
     assert user_info.sub == "123456789"
     assert user_info.email == "testuser@example.com"
     assert user_info.resolved_email == "testuser@example.com"
-    assert user_info.name == "Test User"
+    assert user_info.name == "Test Individual"
     assert user_info.picture == "https://graph.microsoft.com/photo.jpg"
 
 

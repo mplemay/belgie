@@ -65,7 +65,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from belgie import Belgie, BelgieClient, BelgieSettings
 from belgie.alchemy import BelgieAdapter
 from belgie.oauth.server import OAuthServer, OAuthServerClient
-from yourapp.models import Account, OAuthState, Session, User
+from yourapp.models import Account, OAuthState, Session, Individual
 
 app = FastAPI()
 
@@ -84,7 +84,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 adapter = BelgieAdapter(
-    user=User,
+    user=Individual,
     account=Account,
     session=Session,
     oauth_state=OAuthState,

@@ -13,13 +13,13 @@ import pytest
 import pytest_asyncio
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_proto.core.user import UserProtocol
+from belgie_proto.core.individual import IndividualProtocol
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
@@ -72,7 +72,8 @@ def database(
 @pytest_asyncio.fixture
 async def adapter():
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -107,71 +108,80 @@ def app(auth: Belgie, db_session: AsyncSession) -> FastAPI:  # noqa: C901
 
     # Create Security dependencies with scopes that delegate to auth.user
     # These avoid Pydantic validation issues by wrapping the auth.user call
-    async def get_user_with_read_scope(
+    async def get_individual_with_read_scope(
         security_scopes: SecurityScopes,
         request: Request,
         db: AsyncSession = Depends(get_test_db),
-    ) -> UserProtocol:
+    ) -> IndividualProtocol:
         # Merge the READ scope with any parent scopes
         all_scopes = list(set(security_scopes.scopes) | {AppScope.READ})
         security_scopes.scopes = all_scopes
-        return await auth.user(security_scopes, request, db)
+        return await auth.individual(security_scopes, request, db)
 
-    async def get_user_with_write_scope(
+    async def get_individual_with_write_scope(
         security_scopes: SecurityScopes,
         request: Request,
         db: AsyncSession = Depends(get_test_db),
-    ) -> UserProtocol:
+    ) -> IndividualProtocol:
         all_scopes = list(set(security_scopes.scopes) | {AppScope.WRITE})
         security_scopes.scopes = all_scopes
-        return await auth.user(security_scopes, request, db)
+        return await auth.individual(security_scopes, request, db)
 
-    async def get_user_with_admin_scope(
+    async def get_individual_with_admin_scope(
         security_scopes: SecurityScopes,
         request: Request,
         db: AsyncSession = Depends(get_test_db),
-    ) -> UserProtocol:
+    ) -> IndividualProtocol:
         all_scopes = list(set(security_scopes.scopes) | {AppScope.ADMIN})
         security_scopes.scopes = all_scopes
-        return await auth.user(security_scopes, request, db)
+        return await auth.individual(security_scopes, request, db)
 
-    async def get_authenticated_user(
+    async def get_authenticated_individual(
         security_scopes: SecurityScopes,
         request: Request,
         db: AsyncSession = Depends(get_test_db),
-    ) -> UserProtocol:
-        return await auth.user(security_scopes, request, db)
+    ) -> IndividualProtocol:
+        return await auth.individual(security_scopes, request, db)
 
     # Type aliases for Security dependencies
-    ReadUser = Annotated[UserProtocol, Security(get_user_with_read_scope, scopes=[AppScope.READ])]  # noqa: N806
-    WriteUser = Annotated[UserProtocol, Security(get_user_with_write_scope, scopes=[AppScope.WRITE])]  # noqa: N806
-    AdminUser = Annotated[UserProtocol, Security(get_user_with_admin_scope, scopes=[AppScope.ADMIN])]  # noqa: N806
-    ReadWriteUser = Annotated[  # noqa: N806
-        UserProtocol,
-        Security(get_user_with_read_scope, scopes=[AppScope.READ, AppScope.WRITE]),
+    ReadIndividual = Annotated[  # noqa: N806
+        IndividualProtocol,
+        Security(get_individual_with_read_scope, scopes=[AppScope.READ]),
     ]
-    AuthenticatedUser = Annotated[UserProtocol, Depends(get_authenticated_user)]  # noqa: N806
+    WriteIndividual = Annotated[  # noqa: N806
+        IndividualProtocol,
+        Security(get_individual_with_write_scope, scopes=[AppScope.WRITE]),
+    ]
+    AdminIndividual = Annotated[  # noqa: N806
+        IndividualProtocol,
+        Security(get_individual_with_admin_scope, scopes=[AppScope.ADMIN]),
+    ]
+    ReadWriteIndividual = Annotated[  # noqa: N806
+        IndividualProtocol,
+        Security(get_individual_with_read_scope, scopes=[AppScope.READ, AppScope.WRITE]),
+    ]
+    AuthenticatedIndividual = Annotated[IndividualProtocol, Depends(get_authenticated_individual)]  # noqa: N806
 
     # Add test endpoints using Security with scopes
     @app.get("/api/read")
-    async def read_resource(user: ReadUser) -> dict:
-        return {"message": "read access granted", "user_email": user.email}
+    async def read_resource(individual: ReadIndividual) -> dict:
+        return {"message": "read access granted", "individual_email": individual.email}
 
     @app.get("/api/write")
-    async def write_resource(user: WriteUser) -> dict:
-        return {"message": "write access granted", "user_email": user.email}
+    async def write_resource(individual: WriteIndividual) -> dict:
+        return {"message": "write access granted", "individual_email": individual.email}
 
     @app.get("/api/admin")
-    async def admin_resource(user: AdminUser) -> dict:
-        return {"message": "admin access granted", "user_email": user.email}
+    async def admin_resource(individual: AdminIndividual) -> dict:
+        return {"message": "admin access granted", "individual_email": individual.email}
 
     @app.get("/api/read-write")
-    async def read_write_resource(user: ReadWriteUser) -> dict:
-        return {"message": "read-write access granted", "user_email": user.email}
+    async def read_write_resource(individual: ReadWriteIndividual) -> dict:
+        return {"message": "read-write access granted", "individual_email": individual.email}
 
     @app.get("/api/public")
-    async def public_resource(user: AuthenticatedUser) -> dict:
-        return {"message": "public access granted", "user_email": user.email}
+    async def public_resource(individual: AuthenticatedIndividual) -> dict:
+        return {"message": "public access granted", "individual_email": individual.email}
 
     return app
 
@@ -183,17 +193,17 @@ def client(app: FastAPI) -> TestClient:
 
 
 @pytest_asyncio.fixture
-async def create_user_with_session(auth: Belgie, db_session: AsyncSession) -> CreateUserWithSession:
-    """Factory fixture to create users with scopes and sessions."""
+async def create_individual_with_session(auth: Belgie, db_session: AsyncSession) -> CreateUserWithSession:
+    """Factory fixture to create individuals with scopes and sessions."""
 
     async def _create(email: str, scopes: list[AppScope] | None = None) -> str:
-        user = await auth.adapter.create_user(db_session, email=email)
+        user = await auth.adapter.create_individual(db_session, email=email)
         user.scopes = scopes
         await db_session.commit()
 
         session = await auth.adapter.create_session(
             db_session,
-            user_id=user.id,
+            individual_id=user.id,
             expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
         await db_session.commit()
@@ -203,19 +213,19 @@ async def create_user_with_session(auth: Belgie, db_session: AsyncSession) -> Cr
 
 
 @pytest.mark.asyncio
-async def test_user_with_valid_single_scope(
+async def test_individual_with_valid_single_scope(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that a user with the required scope can access the resource."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     user.scopes = [AppScope.READ, AppScope.WRITE]
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -223,28 +233,28 @@ async def test_user_with_valid_single_scope(
     request = MagicMock(spec=Request)
     request.cookies = {auth_settings.cookie.name: str(session.id)}
 
-    # User has READ scope, should succeed
+    # Individual has READ scope, should succeed
     security_scopes = SecurityScopes(scopes=[AppScope.READ])
-    retrieved_user = await auth.user(security_scopes, request, db_session)
+    retrieved_user = await auth.individual(security_scopes, request, db_session)
 
     assert retrieved_user.id == user.id
     assert retrieved_user.email == "test@example.com"
 
 
 @pytest.mark.asyncio
-async def test_user_without_required_scope(
+async def test_individual_without_required_scope(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that a user without the required scope is denied access."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     user.scopes = [AppScope.READ]  # Missing ADMIN
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -252,30 +262,30 @@ async def test_user_without_required_scope(
     request = MagicMock(spec=Request)
     request.cookies = {auth_settings.cookie.name: str(session.id)}
 
-    # User lacks ADMIN scope, should fail
+    # Individual lacks ADMIN scope, should fail
     security_scopes = SecurityScopes(scopes=[AppScope.ADMIN])
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
     assert exc_info.value.detail == "Insufficient permissions"  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_with_all_required_scopes(
+async def test_individual_with_all_required_scopes(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that a user with all required scopes can access the resource."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     user.scopes = [AppScope.READ, AppScope.WRITE, AppScope.DELETE]
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -283,27 +293,27 @@ async def test_user_with_all_required_scopes(
     request = MagicMock(spec=Request)
     request.cookies = {auth_settings.cookie.name: str(session.id)}
 
-    # User has both READ and WRITE scopes, should succeed
+    # Individual has both READ and WRITE scopes, should succeed
     security_scopes = SecurityScopes(scopes=[AppScope.READ, AppScope.WRITE])
-    retrieved_user = await auth.user(security_scopes, request, db_session)
+    retrieved_user = await auth.individual(security_scopes, request, db_session)
 
     assert retrieved_user.id == user.id
 
 
 @pytest.mark.asyncio
-async def test_user_missing_one_of_multiple_required_scopes(
+async def test_individual_missing_one_of_multiple_required_scopes(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that a user missing one of multiple required scopes is denied access."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     user.scopes = [AppScope.READ]  # Missing WRITE
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -311,30 +321,30 @@ async def test_user_missing_one_of_multiple_required_scopes(
     request = MagicMock(spec=Request)
     request.cookies = {auth_settings.cookie.name: str(session.id)}
 
-    # User has READ but not WRITE, should fail
+    # Individual has READ but not WRITE, should fail
     security_scopes = SecurityScopes(scopes=[AppScope.READ, AppScope.WRITE])
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
     assert exc_info.value.detail == "Insufficient permissions"  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_with_empty_scopes_list(
+async def test_individual_with_empty_scopes_list(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that a user with no scopes is denied access to scope-protected resources."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     user.scopes = []
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -345,25 +355,25 @@ async def test_user_with_empty_scopes_list(
     security_scopes = SecurityScopes(scopes=[AppScope.READ])
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_with_default_empty_scopes(
+async def test_individual_with_default_empty_scopes(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that a new user with default empty scopes is denied access to scope-protected resources."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     assert user.scopes == []
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -374,25 +384,25 @@ async def test_user_with_default_empty_scopes(
     security_scopes = SecurityScopes(scopes=[AppScope.READ])
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(security_scopes, request, db_session)
+        await auth.individual(security_scopes, request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_user_with_default_empty_scopes_no_requirements(
+async def test_individual_with_default_empty_scopes_no_requirements(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that a new user with default empty scopes can access endpoints with no scope requirements."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     assert user.scopes == []
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -402,26 +412,26 @@ async def test_user_with_default_empty_scopes_no_requirements(
 
     security_scopes = SecurityScopes(scopes=[])
 
-    result: UserProtocol = await auth.user(security_scopes, request, db_session)
+    result: IndividualProtocol = await auth.individual(security_scopes, request, db_session)
 
     assert result.id == user.id
     assert result.scopes == []
 
 
 @pytest.mark.asyncio
-async def test_user_with_no_scope_requirements(
+async def test_individual_with_no_scope_requirements(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
-    """Test that authenticated users can access resources without scope requirements."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    """Test that authenticated individuals can access resources without scope requirements."""
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     user.scopes = []  # No scopes
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -431,7 +441,7 @@ async def test_user_with_no_scope_requirements(
 
     # No scope requirements, should succeed even with no scopes
     security_scopes = SecurityScopes()
-    retrieved_user = await auth.user(security_scopes, request, db_session)
+    retrieved_user = await auth.individual(security_scopes, request, db_session)
 
     assert retrieved_user.id == user.id
 
@@ -443,14 +453,14 @@ async def test_strenum_scopes_work_as_strings(
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that StrEnum scopes work seamlessly with string scope values."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     # Store as string values (how they're stored in DB)
     user.scopes = ["resource:read", "resource:write"]
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -460,7 +470,7 @@ async def test_strenum_scopes_work_as_strings(
 
     # Use StrEnum scopes in Security - they work because StrEnum members are strings
     security_scopes = SecurityScopes(scopes=[AppScope.READ, AppScope.WRITE])
-    retrieved_user = await auth.user(security_scopes, request, db_session)
+    retrieved_user = await auth.individual(security_scopes, request, db_session)
 
     assert retrieved_user.id == user.id
 
@@ -472,14 +482,14 @@ async def test_mixed_strenum_and_string_scopes(
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that StrEnum and plain string scopes can be mixed."""
-    user = await auth.adapter.create_user(db_session, email="test@example.com")
+    user = await auth.adapter.create_individual(db_session, email="test@example.com")
     # Mix of StrEnum value and plain string
     user.scopes = [AppScope.READ.value, "resource:write", AppScope.ADMIN.value]
     await db_session.commit()
 
     session = await auth.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -489,38 +499,38 @@ async def test_mixed_strenum_and_string_scopes(
 
     # Mix of StrEnum and string in requirements
     security_scopes = SecurityScopes(scopes=[AppScope.READ, "resource:write"])
-    retrieved_user = await auth.user(security_scopes, request, db_session)
+    retrieved_user = await auth.individual(security_scopes, request, db_session)
 
     assert retrieved_user.id == user.id
 
 
 @pytest.mark.asyncio
-async def test_multiple_users_with_different_scopes(
+async def test_multiple_individuals_with_different_scopes(
     auth: Belgie,
     db_session: AsyncSession,
     auth_settings: BelgieSettings,
 ) -> None:
-    """Test that different users with different scopes have appropriate access."""
+    """Test that different individuals with different scopes have appropriate access."""
     # Create admin user
-    admin_user = await auth.adapter.create_user(db_session, email="admin@example.com")
+    admin_user = await auth.adapter.create_individual(db_session, email="admin@example.com")
     admin_user.scopes = [AppScope.ADMIN, AppScope.READ, AppScope.WRITE]
     await db_session.commit()
 
     admin_session = await auth.adapter.create_session(
         db_session,
-        user_id=admin_user.id,
+        individual_id=admin_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
 
     # Create read-only user
-    readonly_user = await auth.adapter.create_user(db_session, email="readonly@example.com")
+    readonly_user = await auth.adapter.create_individual(db_session, email="readonly@example.com")
     readonly_user.scopes = [AppScope.READ]
     await db_session.commit()
 
     readonly_session = await auth.adapter.create_session(
         db_session,
-        user_id=readonly_user.id,
+        individual_id=readonly_user.id,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     await db_session.commit()
@@ -530,7 +540,7 @@ async def test_multiple_users_with_different_scopes(
     admin_request.cookies = {auth_settings.cookie.name: str(admin_session.id)}
 
     admin_security = SecurityScopes(scopes=[AppScope.ADMIN])
-    retrieved_admin = await auth.user(admin_security, admin_request, db_session)
+    retrieved_admin = await auth.individual(admin_security, admin_request, db_session)
     assert retrieved_admin.id == admin_user.id
 
     # Read-only user cannot access ADMIN scope
@@ -540,7 +550,7 @@ async def test_multiple_users_with_different_scopes(
     readonly_security = SecurityScopes(scopes=[AppScope.ADMIN])
 
     with pytest.raises(HTTPException) as exc_info:
-        await auth.user(readonly_security, readonly_request, db_session)
+        await auth.individual(readonly_security, readonly_request, db_session)
 
     assert exc_info.value.status_code == 403  # type: ignore[attr-defined]
 
@@ -551,28 +561,28 @@ async def test_multiple_users_with_different_scopes(
 @pytest.mark.asyncio
 async def test_http_endpoint_with_valid_scope(
     client: TestClient,
-    create_user_with_session: CreateUserWithSession,
+    create_individual_with_session: CreateUserWithSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that HTTP request with valid scope can access protected endpoint."""
-    session_id = await create_user_with_session("reader@example.com", [AppScope.READ, AppScope.WRITE])
+    session_id = await create_individual_with_session("reader@example.com", [AppScope.READ, AppScope.WRITE])
 
     client.cookies.set(auth_settings.cookie.name, session_id)
     response = client.get("/api/read")
 
     assert response.status_code == 200
     assert response.json()["message"] == "read access granted"
-    assert response.json()["user_email"] == "reader@example.com"
+    assert response.json()["individual_email"] == "reader@example.com"
 
 
 @pytest.mark.asyncio
 async def test_http_endpoint_without_required_scope(
     client: TestClient,
-    create_user_with_session: CreateUserWithSession,
+    create_individual_with_session: CreateUserWithSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that HTTP request without required scope is denied access."""
-    session_id = await create_user_with_session("limited@example.com", [AppScope.READ])
+    session_id = await create_individual_with_session("limited@example.com", [AppScope.READ])
 
     client.cookies.set(auth_settings.cookie.name, session_id)
     response = client.get("/api/admin")
@@ -584,11 +594,11 @@ async def test_http_endpoint_without_required_scope(
 @pytest.mark.asyncio
 async def test_http_endpoint_with_multiple_required_scopes(
     client: TestClient,
-    create_user_with_session: CreateUserWithSession,
+    create_individual_with_session: CreateUserWithSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test HTTP endpoint requiring multiple scopes."""
-    session_id = await create_user_with_session(
+    session_id = await create_individual_with_session(
         "fullaccess@example.com",
         [AppScope.READ, AppScope.WRITE, AppScope.DELETE],
     )
@@ -603,11 +613,11 @@ async def test_http_endpoint_with_multiple_required_scopes(
 @pytest.mark.asyncio
 async def test_http_endpoint_missing_one_of_multiple_scopes(
     client: TestClient,
-    create_user_with_session: CreateUserWithSession,
+    create_individual_with_session: CreateUserWithSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test that missing one of multiple required scopes denies access."""
-    session_id = await create_user_with_session("readonly@example.com", [AppScope.READ])
+    session_id = await create_individual_with_session("readonly@example.com", [AppScope.READ])
 
     client.cookies.set(auth_settings.cookie.name, session_id)
     response = client.get("/api/read-write")
@@ -624,11 +634,11 @@ def test_http_endpoint_without_authentication(client: TestClient) -> None:
 @pytest.mark.asyncio
 async def test_http_public_endpoint_with_authentication(
     client: TestClient,
-    create_user_with_session: CreateUserWithSession,
+    create_individual_with_session: CreateUserWithSession,
     auth_settings: BelgieSettings,
 ) -> None:
     """Test public endpoint (no scope requirements) with authenticated user."""
-    session_id = await create_user_with_session("anyuser@example.com", None)
+    session_id = await create_individual_with_session("anyuser@example.com", None)
 
     client.cookies.set(auth_settings.cookie.name, session_id)
     response = client.get("/api/public")
@@ -638,23 +648,23 @@ async def test_http_public_endpoint_with_authentication(
 
 
 @pytest.mark.asyncio
-async def test_http_different_users_different_access(
+async def test_http_different_individuals_different_access(
     client: TestClient,
-    create_user_with_session: CreateUserWithSession,
+    create_individual_with_session: CreateUserWithSession,
     auth_settings: BelgieSettings,
 ) -> None:
-    """Test that different users have appropriate access based on their scopes."""
-    admin_session_id = await create_user_with_session(
+    """Test that different individuals have appropriate access based on their scopes."""
+    admin_session_id = await create_individual_with_session(
         "admin@example.com",
         [AppScope.ADMIN, AppScope.READ, AppScope.WRITE],
     )
-    regular_session_id = await create_user_with_session("regular@example.com", [AppScope.READ])
+    regular_session_id = await create_individual_with_session("regular@example.com", [AppScope.READ])
 
     # Admin can access admin endpoint
     client.cookies.set(auth_settings.cookie.name, admin_session_id)
     admin_response = client.get("/api/admin")
     assert admin_response.status_code == 200
-    assert admin_response.json()["user_email"] == "admin@example.com"
+    assert admin_response.json()["individual_email"] == "admin@example.com"
 
     # Regular user cannot access admin endpoint
     client.cookies.set(auth_settings.cookie.name, regular_session_id)
@@ -664,4 +674,4 @@ async def test_http_different_users_different_access(
     # Regular user can access read endpoint
     regular_read_response = client.get("/api/read")
     assert regular_read_response.status_code == 200
-    assert regular_read_response.json()["user_email"] == "regular@example.com"
+    assert regular_read_response.json()["individual_email"] == "regular@example.com"

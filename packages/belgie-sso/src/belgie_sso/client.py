@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_core.core.client import BelgieClient
-    from belgie_proto.core.user import UserProtocol
+    from belgie_proto.core.individual import IndividualProtocol
     from belgie_proto.organization import OrganizationAdapterProtocol
 
     from belgie_sso.settings import EnterpriseSSO
@@ -43,7 +43,7 @@ class SSOClient[
     client: BelgieClient
     settings: EnterpriseSSO[ProviderT, DomainT]
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT]
-    current_user: UserProtocol[str]
+    current_individual: IndividualProtocol[str]
 
     async def register_oidc_provider(  # noqa: PLR0913
         self,
@@ -285,7 +285,7 @@ class SSOClient[
         member = await self.organization_adapter.get_member(
             self.client.db,
             organization_id=organization_id,
-            user_id=self.current_user.id,
+            individual_id=self.current_individual.id,
         )
         if member is None or not has_any_role(member.role, ["owner", "admin"]):
             raise HTTPException(

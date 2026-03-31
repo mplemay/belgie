@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
-type StripeCustomerType = Literal["user", "organization"]
 type StripeSubscriptionStatus = Literal[
     "active",
     "canceled",
@@ -25,8 +24,7 @@ type StripeBillingInterval = Literal["day", "week", "month", "year"]
 class StripeSubscriptionProtocol(Protocol):
     id: UUID
     plan: str
-    reference_id: UUID
-    customer_type: StripeCustomerType
+    customer_id: UUID
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
     status: StripeSubscriptionStatus

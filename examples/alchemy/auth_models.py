@@ -1,10 +1,4 @@
-"""Reference implementation of authentication models.
-
-USAGE: Copy these models to your project and customize as needed.
-
-Belgie's auth mixins provide the auth schema pieces. Brussels mixins add
-the record defaults like `id` and timestamps.
-"""
+"""Reference implementation of authentication models."""
 
 from __future__ import annotations
 
@@ -13,11 +7,14 @@ from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from sqlalchemy import Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from belgie.alchemy.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
+from belgie.alchemy.mixins import AccountMixin, CustomerMixin, IndividualMixin, OAuthStateMixin, SessionMixin
 
 
-class User(DataclassBase, PrimaryKeyMixin, TimestampMixin, UserMixin):
-    # Example custom field to show extensibility.
+class Customer(DataclassBase, CustomerMixin):
+    pass
+
+
+class Individual(IndividualMixin, Customer):
     custom_field: Mapped[str | None] = mapped_column(Text, default=None)
 
 
@@ -33,4 +30,4 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin
     pass
 
 
-__all__ = ["Account", "OAuthState", "Session", "User"]
+__all__ = ["Account", "Customer", "Individual", "OAuthState", "Session"]

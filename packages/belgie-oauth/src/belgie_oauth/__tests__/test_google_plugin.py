@@ -171,7 +171,7 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
                 id="google-user-123",
                 email="person@example.com",
                 verified_email=True,
-                name="Test User",
+                name="Test Individual",
                 picture="https://example.com/photo.jpg",
             ),
         ),
@@ -192,7 +192,7 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
     client_dependency.sign_up.assert_awaited_once_with(
         "person@example.com",
         request=ANY,
-        name="Test User",
+        name="Test Individual",
         image="https://example.com/photo.jpg",
         email_verified_at=ANY,
     )
@@ -201,7 +201,7 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
     assert verified_at.tzinfo == UTC
 
     client_dependency.upsert_oauth_account.assert_awaited_once_with(
-        user_id=user.id,
+        individual_id=user.id,
         provider="google",
         provider_account_id="google-user-123",
         access_token="test-access-token",
@@ -261,7 +261,7 @@ def test_callback_falls_back_to_signin_redirect(monkeypatch) -> None:
                 id="google-user-123",
                 email="person@example.com",
                 verified_email=True,
-                name="Test User",
+                name="Test Individual",
                 picture="https://example.com/photo.jpg",
             ),
         ),

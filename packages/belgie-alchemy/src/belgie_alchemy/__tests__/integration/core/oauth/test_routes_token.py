@@ -21,7 +21,7 @@ async def _create_authorization_code(
     *,
     scopes: list[str] | None = None,
     resource: str | None = None,
-    user_id: str | None = None,
+    individual_id: str | None = None,
     session_id: str | None = None,
 ) -> str:
     provider = oauth_plugin._provider
@@ -33,7 +33,7 @@ async def _create_authorization_code(
         redirect_uri=oauth_settings.redirect_uris[0],
         redirect_uri_provided_explicitly=True,
         resource=resource,
-        user_id=user_id,
+        individual_id=individual_id,
         session_id=session_id,
     )
     await provider.authorize(oauth_client, params)
@@ -288,7 +288,7 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
     belgie_instance,
     db_session,
     oauth_settings,
-    create_user_session,
+    create_individual_session,
 ) -> None:
     settings = OAuthServer(
         base_url=oauth_settings.base_url,
@@ -306,7 +306,7 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        session_id = await create_user_session(belgie_instance, db_session, "token-trailing-resource@test.com")
+        session_id = await create_individual_session(belgie_instance, db_session, "token-trailing-resource@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
         code_verifier = "trailing-resource-verifier"
@@ -350,9 +350,9 @@ async def test_token_authorization_code_issues_id_token_for_confidential_openid_
     oauth_plugin,
     belgie_instance,
     db_session,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "openid-confidential@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "openid-confidential@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
     oauth_plugin._provider.clients[oauth_settings.client_id].scope = "openid profile email"
 
@@ -393,9 +393,9 @@ async def test_token_authorization_code_issues_id_token_for_public_client(
     oauth_plugin,
     belgie_instance,
     db_session,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "openid-public@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "openid-public@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
     oauth_plugin._provider.clients["public-openid"] = OAuthClientInformationFull(
         client_id="public-openid",

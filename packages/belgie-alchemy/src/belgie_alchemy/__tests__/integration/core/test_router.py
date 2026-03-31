@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
@@ -52,7 +52,8 @@ def database(
 @pytest_asyncio.fixture
 async def adapter():
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -252,7 +253,7 @@ def test_callback_google_endpoint_success(client: TestClient, auth: Belgie, db_s
         "id": "google-456",
         "email": "testuser@example.com",
         "verified_email": True,
-        "name": "Test User",
+        "name": "Test Individual",
         "picture": "https://example.com/photo.jpg",
     }
 
@@ -344,8 +345,8 @@ def test_signout_endpoint_deletes_session(client: TestClient, auth: Belgie, db_s
     import asyncio  # noqa: PLC0415
 
     async def setup_session() -> str:
-        user = await auth.adapter.create_user(db_session, email="signout@example.com")
-        session = await auth.session_manager.create_session(db_session, user_id=user.id)
+        user = await auth.adapter.create_individual(db_session, email="signout@example.com")
+        session = await auth.session_manager.create_session(db_session, individual_id=user.id)
         return str(session.id)
 
     session_id = asyncio.run(setup_session())
