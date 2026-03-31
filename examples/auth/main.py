@@ -17,7 +17,7 @@ from belgie import (
 )
 from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
-from examples.alchemy.auth_models import Account, OAuthState, Session, User
+from examples.alchemy.auth_models import Account, Customer, Individual, OAuthState, Session
 
 engine = create_async_engine(
     URL.create("sqlite+aiosqlite", database="./belgie_auth_example.db"),
@@ -60,7 +60,8 @@ settings = BelgieSettings(
 )
 
 adapter = BelgieAdapter(
-    user=User,
+    customer=Customer,
+    individual=Individual,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
@@ -102,19 +103,19 @@ async def login_google(
 
 
 @app.get("/protected")
-async def protected(user: Annotated[User, Depends(belgie.user)]) -> dict[str, str]:
+async def protected(user: Annotated[Individual, Depends(belgie.individual)]) -> dict[str, str]:
     return {
         "message": "this is a protected route",
-        "user_id": str(user.id),
+        "individual_id": str(user.id),
         "email": user.email,
     }
 
 
 @app.get("/dashboard")
-async def dashboard(user: Annotated[User, Depends(belgie.user)]) -> dict[str, str | None]:
+async def dashboard(user: Annotated[Individual, Depends(belgie.individual)]) -> dict[str, str | None]:
     return {
         "message": "welcome to your dashboard",
-        "user_id": str(user.id),
+        "individual_id": str(user.id),
         "email": user.email,
         "name": user.name,
         "image": user.image,
@@ -122,7 +123,9 @@ async def dashboard(user: Annotated[User, Depends(belgie.user)]) -> dict[str, st
 
 
 @app.get("/profile/email")
-async def profile_email(user: Annotated[User, Security(belgie.user, scopes=["email"])]) -> dict[str, str | None]:
+async def profile_email(
+    user: Annotated[Individual, Security(belgie.individual, scopes=["email"])],
+) -> dict[str, str | None]:
     return {
         "email": user.email,
         "email_verified_at": user.email_verified_at.isoformat() if user.email_verified_at else None,
@@ -131,7 +134,7 @@ async def profile_email(user: Annotated[User, Security(belgie.user, scopes=["ema
 
 @app.get("/profile/full")
 async def profile_full(
-    user: Annotated[User, Security(belgie.user, scopes=["openid", "email", "profile"])],
+    user: Annotated[Individual, Security(belgie.individual, scopes=["openid", "email", "profile"])],
 ) -> dict[str, str | None]:
     return {
         "id": str(user.id),
@@ -146,7 +149,7 @@ async def profile_full(
 async def session_info(session: Annotated[Session, Depends(belgie.session)]) -> dict[str, str]:
     return {
         "session_id": str(session.id),
-        "user_id": str(session.user_id),
+        "individual_id": str(session.individual_id),
         "expires_at": session.expires_at.isoformat(),
     }
 

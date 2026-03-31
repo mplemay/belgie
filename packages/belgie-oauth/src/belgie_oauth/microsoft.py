@@ -281,7 +281,7 @@ class MicrosoftOAuthPlugin(PluginClient):
                 msg = "Microsoft user info missing email"
                 raise OAuthError(msg)
 
-            user, session = await client.sign_up(
+            individual, session = await client.sign_up(
                 email,
                 request=request,
                 name=user_info.name,
@@ -290,7 +290,7 @@ class MicrosoftOAuthPlugin(PluginClient):
             )
 
             await client.upsert_oauth_account(
-                user_id=user.id,
+                individual_id=individual.id,
                 provider=self.provider_id,
                 provider_account_id=user_info.sub,
                 access_token=tokens["access_token"],
@@ -303,7 +303,7 @@ class MicrosoftOAuthPlugin(PluginClient):
             await belgie.after_authenticate(
                 client=client,
                 request=request,
-                user=user,
+                individual=individual,
                 profile=AuthenticatedProfile(
                     provider=self.provider_id,
                     provider_account_id=user_info.sub,

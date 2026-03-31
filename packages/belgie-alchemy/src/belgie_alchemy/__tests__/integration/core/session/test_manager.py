@@ -6,14 +6,15 @@ import pytest_asyncio
 from belgie_core.session.manager import SessionManager
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
 @pytest_asyncio.fixture
 async def adapter(db_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -32,7 +33,7 @@ def session_manager(adapter: BelgieAdapter) -> SessionManager:
 
 @pytest.mark.asyncio
 async def test_create_session(session_manager: SessionManager, db_session: AsyncSession) -> None:
-    user = await session_manager.adapter.create_user(
+    user = await session_manager.adapter.create_individual(
         db_session,
         email="test@example.com",
     )
@@ -40,13 +41,13 @@ async def test_create_session(session_manager: SessionManager, db_session: Async
     before_create = datetime.now(UTC)
     session = await session_manager.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         ip_address="127.0.0.1",
         user_agent="Test Agent",
     )
     after_create = datetime.now(UTC)
 
-    assert session.user_id == user.id
+    assert session.individual_id == user.id
     assert session.ip_address == "127.0.0.1"
     assert session.user_agent == "Test Agent"
 
@@ -59,21 +60,21 @@ async def test_create_session(session_manager: SessionManager, db_session: Async
 
 @pytest.mark.asyncio
 async def test_get_session_valid(session_manager: SessionManager, db_session: AsyncSession) -> None:
-    user = await session_manager.adapter.create_user(
+    user = await session_manager.adapter.create_individual(
         db_session,
         email="test@example.com",
     )
 
     created_session = await session_manager.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
     )
 
     retrieved_session = await session_manager.get_session(db_session, created_session.id)
 
     assert retrieved_session is not None
     assert retrieved_session.id == created_session.id
-    assert retrieved_session.user_id == user.id
+    assert retrieved_session.individual_id == user.id
 
 
 @pytest.mark.asyncio
@@ -87,14 +88,14 @@ async def test_get_session_expired_deletes_session(
     session_manager: SessionManager,
     db_session: AsyncSession,
 ) -> None:
-    user = await session_manager.adapter.create_user(
+    user = await session_manager.adapter.create_individual(
         db_session,
         email="test@example.com",
     )
 
     expired_session = await session_manager.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) - timedelta(seconds=1),
     )
 
@@ -111,7 +112,7 @@ async def test_get_session_sliding_window_refresh(
     session_manager: SessionManager,
     db_session: AsyncSession,
 ) -> None:
-    user = await session_manager.adapter.create_user(
+    user = await session_manager.adapter.create_individual(
         db_session,
         email="test@example.com",
     )
@@ -119,7 +120,7 @@ async def test_get_session_sliding_window_refresh(
     old_expiry = datetime.now(UTC) + timedelta(seconds=600)
     session = await session_manager.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=old_expiry,
     )
 
@@ -142,7 +143,7 @@ async def test_get_session_no_refresh_if_far_from_expiry(
     session_manager: SessionManager,
     db_session: AsyncSession,
 ) -> None:
-    user = await session_manager.adapter.create_user(
+    user = await session_manager.adapter.create_individual(
         db_session,
         email="test@example.com",
     )
@@ -150,7 +151,7 @@ async def test_get_session_no_refresh_if_far_from_expiry(
     original_expiry = datetime.now(UTC) + timedelta(seconds=3600)
     session = await session_manager.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=original_expiry,
     )
 
@@ -162,14 +163,14 @@ async def test_get_session_no_refresh_if_far_from_expiry(
 
 @pytest.mark.asyncio
 async def test_delete_session(session_manager: SessionManager, db_session: AsyncSession) -> None:
-    user = await session_manager.adapter.create_user(
+    user = await session_manager.adapter.create_individual(
         db_session,
         email="test@example.com",
     )
 
     session = await session_manager.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
     )
 
     deleted = await session_manager.delete_session(db_session, session.id)
@@ -187,24 +188,24 @@ async def test_delete_session_not_found(session_manager: SessionManager, db_sess
 
 @pytest.mark.asyncio
 async def test_cleanup_expired_sessions(session_manager: SessionManager, db_session: AsyncSession) -> None:
-    user = await session_manager.adapter.create_user(
+    user = await session_manager.adapter.create_individual(
         db_session,
         email="test@example.com",
     )
 
     await session_manager.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) - timedelta(days=1),
     )
     await session_manager.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) - timedelta(hours=1),
     )
     valid_session = await session_manager.adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
 
@@ -219,14 +220,14 @@ async def test_cleanup_expired_sessions(session_manager: SessionManager, db_sess
 
 @pytest.mark.asyncio
 async def test_cleanup_no_expired_sessions(session_manager: SessionManager, db_session: AsyncSession) -> None:
-    user = await session_manager.adapter.create_user(
+    user = await session_manager.adapter.create_individual(
         db_session,
         email="test@example.com",
     )
 
     await session_manager.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
     )
 
     count = await session_manager.cleanup_expired_sessions(db_session)
@@ -244,7 +245,7 @@ async def test_session_manager_with_custom_max_age(
         update_age=1800,
     )
 
-    user = await adapter.create_user(
+    user = await adapter.create_individual(
         db_session,
         email="test@example.com",
     )
@@ -252,7 +253,7 @@ async def test_session_manager_with_custom_max_age(
     before_create = datetime.now(UTC)
     session = await custom_manager.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
     )
     after_create = datetime.now(UTC)
 
@@ -274,7 +275,7 @@ async def test_session_manager_sliding_window_exact_boundary(
         update_age=900,
     )
 
-    user = await adapter.create_user(
+    user = await adapter.create_individual(
         db_session,
         email="test@example.com",
     )
@@ -282,7 +283,7 @@ async def test_session_manager_sliding_window_exact_boundary(
     expires_at = datetime.now(UTC) + timedelta(seconds=899)
     session = await adapter.create_session(
         db_session,
-        user_id=user.id,
+        individual_id=user.id,
         expires_at=expires_at,
     )
 

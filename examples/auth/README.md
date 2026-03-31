@@ -78,7 +78,7 @@ The application will be available at `http://localhost:8000`
 #### Protected Endpoints (Require Authentication)
 
 - `GET /protected` - Simple protected route
-- `GET /dashboard` - User dashboard with profile info
+- `GET /dashboard` - Individual dashboard with profile info
 - `GET /session` - Current session information
 
 #### Scoped Endpoints (Require Specific Scopes)
@@ -120,7 +120,7 @@ curl -X POST -b cookies.txt -c cookies.txt http://localhost:8000/auth/signout
 
 Defines SQLAlchemy models for:
 
-- `User` - User account information
+- `Individual` - Individual account information
 - `Account` - OAuth provider accounts linked to users
 - `Session` - Active user sessions
 - `OAuthState` - OAuth state tokens for CSRF protection
@@ -163,9 +163,9 @@ cookie=CookieSettings(
    DATABASE_URL = "postgresql+asyncpg://user:password@localhost/dbname"
    ```
 
-### Adding Custom User Fields
+### Adding Custom Individual Fields
 
-1. Add fields to the `User` model in `models.py`
+1. Add fields to the `Individual` model in `models.py`
 2. Create a migration (if using Alembic)
 3. Update routes to use the new fields
 
@@ -175,15 +175,15 @@ Use the `auth.user` dependency:
 
 ```python
 @app.get("/my-protected-route")
-async def my_route(user: User = Depends(auth.user)) -> dict:
-    return {"user_id": str(user.id)}
+async def my_route(user: Individual = Depends(auth.user)) -> dict:
+    return {"individual_id": str(user.id)}
 ```
 
 Or require specific scopes:
 
 ```python
 @app.get("/my-scoped-route")
-async def my_route(user: User = Security(auth.user, scopes=["email"])) -> dict:
+async def my_route(user: Individual = Security(auth.user, scopes=["email"])) -> dict:
     return {"email": user.email}
 ```
 

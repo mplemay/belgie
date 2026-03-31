@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_core import BelgieClient
-    from belgie_proto.core.user import UserProtocol
+    from belgie_proto.core.individual import IndividualProtocol
 
     from belgie_team.settings import Team
 
@@ -30,7 +30,7 @@ class TeamClient[
 ]:
     client: BelgieClient
     settings: Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]
-    current_user: UserProtocol[str]
+    current_individual: IndividualProtocol[str]
 
     async def create(
         self,
@@ -64,14 +64,14 @@ class TeamClient[
             await self.settings.adapter.get_team_member(
                 self.client.db,
                 team_id=team.id,
-                user_id=self.current_user.id,
+                individual_id=self.current_individual.id,
             )
             is None
         ):
             await self.settings.adapter.add_team_member(
                 self.client.db,
                 team_id=team.id,
-                user_id=self.current_user.id,
+                individual_id=self.current_individual.id,
             )
 
         return team
@@ -110,8 +110,11 @@ class TeamClient[
         await self._require_default_admin_role(organization_id=team.organization_id)
         return await self.settings.adapter.remove_team(self.client.db, team_id=team_id)
 
-    async def for_user(self) -> builtins.list[TeamT]:
-        return await self.settings.adapter.list_teams_for_user(self.client.db, user_id=self.current_user.id)
+    async def for_individual(self) -> builtins.list[TeamT]:
+        return await self.settings.adapter.list_teams_for_individual(
+            self.client.db,
+            individual_id=self.current_individual.id,
+        )
 
     async def members(self, *, team_id: UUID) -> builtins.list[TeamMemberT]:
         team = await self.settings.adapter.get_team_by_id(self.client.db, team_id)
@@ -124,7 +127,7 @@ class TeamClient[
         await self._require_team_membership(team_id=team.id)
         return await self.settings.adapter.list_team_members(self.client.db, team_id=team.id)
 
-    async def add_member(self, *, team_id: UUID, user_id: UUID) -> TeamMemberT:
+    async def add_member(self, *, team_id: UUID, individual_id: UUID) -> TeamMemberT:
         team = await self.settings.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
@@ -137,7 +140,7 @@ class TeamClient[
             await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=team.organization_id,
-                user_id=user_id,
+                individual_id=individual_id,
             )
             is None
         ):
@@ -164,7 +167,7 @@ class TeamClient[
             existing := await self.settings.adapter.get_team_member(
                 self.client.db,
                 team_id=team_id,
-                user_id=user_id,
+                individual_id=individual_id,
             )
         ) is not None:
             return existing
@@ -172,10 +175,10 @@ class TeamClient[
         return await self.settings.adapter.add_team_member(
             self.client.db,
             team_id=team_id,
-            user_id=user_id,
+            individual_id=individual_id,
         )
 
-    async def remove_member(self, *, team_id: UUID, user_id: UUID) -> bool:
+    async def remove_member(self, *, team_id: UUID, individual_id: UUID) -> bool:
         team = await self.settings.adapter.get_team_by_id(self.client.db, team_id)
         if team is None:
             raise HTTPException(
@@ -187,7 +190,7 @@ class TeamClient[
         return await self.settings.adapter.remove_team_member(
             self.client.db,
             team_id=team_id,
-            user_id=user_id,
+            individual_id=individual_id,
         )
 
     async def _require_organization_membership(self, *, organization_id: UUID) -> MemberT:
@@ -195,7 +198,7 @@ class TeamClient[
             member := await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=organization_id,
-                user_id=self.current_user.id,
+                individual_id=self.current_individual.id,
             )
         ) is None:
             raise HTTPException(
@@ -218,7 +221,7 @@ class TeamClient[
             team_member := await self.settings.adapter.get_team_member(
                 self.client.db,
                 team_id=team_id,
-                user_id=self.current_user.id,
+                individual_id=self.current_individual.id,
             )
         ) is None:
             raise HTTPException(

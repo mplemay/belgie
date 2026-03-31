@@ -5,13 +5,12 @@ _ALCHEMY_IMPORT_ERROR = (
 )
 
 try:
-    from belgie_alchemy.stripe import StripeAdapter, StripeOrganizationMixin, StripeSubscriptionMixin, StripeUserMixin
+    from belgie_alchemy.stripe import StripeAdapter, StripeCustomerMixin, StripeSubscriptionMixin
 except ModuleNotFoundError as exc:
     raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
 
 __all__ = [
     "StripeAdapter",
-    "StripeOrganizationMixin",
+    "StripeCustomerMixin",
     "StripeSubscriptionMixin",
-    "StripeUserMixin",
 ]

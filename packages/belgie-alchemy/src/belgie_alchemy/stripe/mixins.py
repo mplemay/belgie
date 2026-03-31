@@ -4,19 +4,12 @@ from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
 from brussels.types import DateTimeUTC
-from sqlalchemy import Index, Text
-from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column
+from sqlalchemy import ForeignKey, Index, Text
+from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
 
 
 @declarative_mixin
-class StripeUserMixin(MappedAsDataclass):
-    @declared_attr
-    def stripe_customer_id(self) -> Mapped[str | None]:
-        return mapped_column(Text, default=None, index=True, kw_only=True)
-
-
-@declarative_mixin
-class StripeOrganizationMixin(MappedAsDataclass):
+class StripeCustomerMixin(MappedAsDataclass):
     @declared_attr
     def stripe_customer_id(self) -> Mapped[str | None]:
         return mapped_column(Text, default=None, index=True, kw_only=True)
@@ -31,12 +24,20 @@ class StripeSubscriptionMixin(MappedAsDataclass):
         return mapped_column(Text, kw_only=True)
 
     @declared_attr
-    def reference_id(self) -> Mapped[UUID]:
-        return mapped_column(index=True, kw_only=True)
+    def customer_id(self) -> Mapped[UUID]:
+        return mapped_column(
+            ForeignKey("customer.id", ondelete="cascade", onupdate="cascade"),
+            index=True,
+            kw_only=True,
+        )
 
     @declared_attr
-    def customer_type(self) -> Mapped[str]:
-        return mapped_column(Text, index=True, kw_only=True)
+    def customer(self) -> Mapped[object]:
+        return relationship(
+            "Customer",
+            lazy="selectin",
+            init=False,
+        )
 
     @declared_attr
     def stripe_customer_id(self) -> Mapped[str | None]:
@@ -81,13 +82,12 @@ class StripeSubscriptionMixin(MappedAsDataclass):
     @declared_attr.directive
     def __table_args__(self) -> tuple[Index, Index]:
         return (
-            Index("ix_subscription_reference_customer_type", self.reference_id, self.customer_type),
-            Index("ix_subscription_reference_customer_type_status", self.reference_id, self.customer_type, self.status),
+            Index("ix_subscription_customer", self.customer_id),
+            Index("ix_subscription_customer_status", self.customer_id, self.status),
         )
 
 
 __all__ = [
-    "StripeOrganizationMixin",
+    "StripeCustomerMixin",
     "StripeSubscriptionMixin",
-    "StripeUserMixin",
 ]

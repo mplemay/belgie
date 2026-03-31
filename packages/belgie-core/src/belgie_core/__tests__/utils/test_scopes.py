@@ -171,7 +171,7 @@ def test_validate_scopes_with_strenum_empty_user() -> None:
 
 # Tests for validate_scopes with mixed StrEnum and str
 def test_validate_scopes_strenum_user_str_required() -> None:
-    # User scopes as StrEnum, required as strings
+    # Individual scopes as StrEnum, required as strings
     # StrEnum members compare equal to their string values
     user_scopes = [SampleScope.READ, SampleScope.WRITE, SampleScope.ADMIN]
     required_scopes = ["resource:read", "resource:write"]
@@ -179,7 +179,7 @@ def test_validate_scopes_strenum_user_str_required() -> None:
 
 
 def test_validate_scopes_str_user_strenum_required() -> None:
-    # User scopes as strings, required as StrEnum
+    # Individual scopes as strings, required as StrEnum
     # StrEnum members compare equal to their string values
     user_scopes = ["resource:read", "resource:write", "admin"]
     required_scopes = [SampleScope.READ, SampleScope.WRITE]
@@ -255,7 +255,7 @@ def test_has_any_scope_with_strenum_none_match() -> None:
 
 
 def test_has_any_scope_mixed_types() -> None:
-    # User scopes as StrEnum, required as strings
+    # Individual scopes as StrEnum, required as strings
     user_scopes = [SampleScope.READ, SampleScope.WRITE]
     required_scopes = ["resource:write", "resource:delete"]
     assert has_any_scope(user_scopes, required_scopes) is True

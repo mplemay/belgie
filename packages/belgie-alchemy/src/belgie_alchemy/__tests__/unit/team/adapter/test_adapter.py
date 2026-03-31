@@ -2,7 +2,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.__tests__.fixtures.organization.models import (
     Organization,
     OrganizationInvitation,
@@ -16,7 +16,8 @@ from belgie_alchemy.team import TeamAdapter
 @pytest_asyncio.fixture
 async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -41,7 +42,7 @@ async def test_update_team(
     team_adapter: TeamAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    owner = await core_adapter.create_user(
+    owner = await core_adapter.create_individual(
         alchemy_session,
         email="team-update@example.com",
     )
@@ -53,7 +54,7 @@ async def test_update_team(
     await team_adapter.create_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=owner.id,
+        individual_id=owner.id,
         role="owner",
     )
     team = await team_adapter.create_team(
@@ -81,11 +82,11 @@ async def test_team_member_cleanup_when_removing_org_member(
     team_adapter: TeamAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    owner = await core_adapter.create_user(
+    owner = await core_adapter.create_individual(
         alchemy_session,
         email="owner2@example.com",
     )
-    member_user = await core_adapter.create_user(
+    member_user = await core_adapter.create_individual(
         alchemy_session,
         email="member@example.com",
     )
@@ -97,13 +98,13 @@ async def test_team_member_cleanup_when_removing_org_member(
     await team_adapter.create_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=owner.id,
+        individual_id=owner.id,
         role="owner",
     )
     await team_adapter.create_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=member_user.id,
+        individual_id=member_user.id,
         role="member",
     )
 
@@ -115,13 +116,13 @@ async def test_team_member_cleanup_when_removing_org_member(
     await team_adapter.add_team_member(
         alchemy_session,
         team_id=team.id,
-        user_id=member_user.id,
+        individual_id=member_user.id,
     )
 
     removed = await team_adapter.remove_member(
         alchemy_session,
         organization_id=organization.id,
-        user_id=member_user.id,
+        individual_id=member_user.id,
     )
     team_members = await team_adapter.list_team_members(
         alchemy_session,

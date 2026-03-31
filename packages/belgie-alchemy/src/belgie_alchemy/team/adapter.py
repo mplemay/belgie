@@ -9,7 +9,7 @@ from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.team import TeamAdapterProtocol
 from belgie_proto.team.member import TeamMemberProtocol
 from belgie_proto.team.team import TeamProtocol
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 
 from belgie_alchemy.organization.adapter import OrganizationAdapter
 
@@ -47,19 +47,19 @@ class TeamAdapter[
         session: DBConnection,
         *,
         organization_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> bool:
         team_ids_stmt = select(self.team_model.id).where(self.team_model.organization_id == organization_id)
         await session.execute(
             delete(self.team_member_model).where(
-                self.team_member_model.user_id == user_id,
+                self.team_member_model.individual_id == individual_id,
                 self.team_member_model.team_id.in_(team_ids_stmt),
             ),
         )
         member_delete_result = await session.execute(
             delete(self.member_model).where(
                 self.member_model.organization_id == organization_id,
-                self.member_model.user_id == user_id,
+                self.member_model.individual_id == individual_id,
             ),
         )
         try:
@@ -115,25 +115,19 @@ class TeamAdapter[
         team_id: UUID,
         name: str,
     ) -> TeamT | None:
-        stmt = (
-            update(self.team_model)
-            .where(self.team_model.id == team_id)
-            .values(name=name, updated_at=datetime.now(UTC))
-            .returning(self.team_model)
-        )
+        team = await self.get_team_by_id(session, team_id)
+        if team is None:
+            return None
+
+        team.name = name
+        team.updated_at = datetime.now(UTC)
         try:
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            # If RETURNING is empty, still commit: rollback would drop unrelated pending ORM
-            # work that may exist on the same session alongside this call.
             await session.commit()
-            if row is None:
-                return None
-            await session.refresh(row)
+            await session.refresh(team)
         except Exception:
             await session.rollback()
             raise
-        return row
+        return team
 
     async def remove_team(
         self,
@@ -141,25 +135,27 @@ class TeamAdapter[
         *,
         team_id: UUID,
     ) -> bool:
-        stmt = delete(self.team_model).where(self.team_model.id == team_id)
-        result = await session.execute(stmt)
+        if not (team := await self.get_team_by_id(session, team_id)):
+            return False
+
+        await session.delete(team)
         try:
             await session.commit()
         except Exception:
             await session.rollback()
             raise
-        return result.rowcount > 0  # type: ignore[attr-defined]
+        return True
 
     async def add_team_member(
         self,
         session: DBConnection,
         *,
         team_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> TeamMemberT:
         team_member = self.team_member_model(
             team_id=team_id,
-            user_id=user_id,
+            individual_id=individual_id,
         )
         session.add(team_member)
         try:
@@ -175,11 +171,11 @@ class TeamAdapter[
         session: DBConnection,
         *,
         team_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> bool:
         stmt = delete(self.team_member_model).where(
             self.team_member_model.team_id == team_id,
-            self.team_member_model.user_id == user_id,
+            self.team_member_model.individual_id == individual_id,
         )
         result = await session.execute(stmt)
         try:
@@ -194,11 +190,11 @@ class TeamAdapter[
         session: DBConnection,
         *,
         team_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> TeamMemberT | None:
         stmt = select(self.team_member_model).where(
             self.team_member_model.team_id == team_id,
-            self.team_member_model.user_id == user_id,
+            self.team_member_model.individual_id == individual_id,
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
@@ -213,11 +209,11 @@ class TeamAdapter[
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def list_teams_for_user(
+    async def list_teams_for_individual(
         self,
         session: DBConnection,
         *,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> list[TeamT]:
         stmt = (
             select(self.team_model)
@@ -225,7 +221,7 @@ class TeamAdapter[
                 self.team_member_model,
                 self.team_member_model.team_id == self.team_model.id,
             )
-            .where(self.team_member_model.user_id == user_id)
+            .where(self.team_member_model.individual_id == individual_id)
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())

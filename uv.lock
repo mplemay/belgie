@@ -883,8 +883,8 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.25.1.dev143+fb2276b"
-source = { git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=main#fb2276b95fb5ac6631f9c160c9b1bd7a6d7312a9" }
+version = "1.25.1.dev145+3ce0f76"
+source = { git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=main#3ce0f76e6e3b33f035b6b28421e1b7c6dbe8c77f" }
 dependencies = [
     { name = "anyio" },
     { name = "httpx" },

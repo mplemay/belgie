@@ -58,7 +58,7 @@ class TeamAdapterProtocol[
         session: DBConnection,
         *,
         team_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> bool: ...
 
     async def list_team_members(
@@ -68,9 +68,9 @@ class TeamAdapterProtocol[
         team_id: UUID,
     ) -> list[TeamMemberT]: ...
 
-    async def list_teams_for_user(
+    async def list_teams_for_individual(
         self,
         session: DBConnection,
         *,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> list[TeamT]: ...

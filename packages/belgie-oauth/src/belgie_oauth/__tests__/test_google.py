@@ -36,9 +36,9 @@ def test_google_user_info_valid() -> None:
         id="123456",
         email="test@example.com",
         verified_email=True,
-        name="Test User",
+        name="Test Individual",
         given_name="Test",
-        family_name="User",
+        family_name="Individual",
         picture="https://example.com/photo.jpg",
         locale="en",
     )
@@ -46,7 +46,7 @@ def test_google_user_info_valid() -> None:
     assert user_info.id == "123456"
     assert user_info.email == "test@example.com"
     assert user_info.verified_email is True
-    assert user_info.name == "Test User"
+    assert user_info.name == "Test Individual"
 
 
 def test_google_user_info_required_fields_only() -> None:
@@ -307,7 +307,7 @@ async def test_exchange_code_for_tokens_without_refresh_token(google_provider: G
     assert result["refresh_token"] is None
 
 
-# User Info Fetch Error Handling Tests
+# Individual Info Fetch Error Handling Tests
 
 
 @pytest.mark.asyncio
@@ -318,9 +318,9 @@ async def test_get_user_info_success(google_provider: GoogleOAuthPlugin) -> None
         "id": "123456789",
         "email": "testuser@example.com",
         "verified_email": True,
-        "name": "Test User",
+        "name": "Test Individual",
         "given_name": "Test",
-        "family_name": "User",
+        "family_name": "Individual",
         "picture": "https://lh3.googleusercontent.com/photo.jpg",
         "locale": "en",
     }
@@ -333,7 +333,7 @@ async def test_get_user_info_success(google_provider: GoogleOAuthPlugin) -> None
     assert user_info.id == "123456789"
     assert user_info.email == "testuser@example.com"
     assert user_info.verified_email is True
-    assert user_info.name == "Test User"
+    assert user_info.name == "Test Individual"
     assert user_info.given_name == "Test"
     assert user_info.picture == "https://lh3.googleusercontent.com/photo.jpg"
 
@@ -449,9 +449,9 @@ async def test_complete_oauth_flow_new_user(google_provider: GoogleOAuthPlugin) 
         "id": "google-user-123",
         "email": "newuser@example.com",
         "verified_email": True,
-        "name": "New User",
+        "name": "New Individual",
         "given_name": "New",
-        "family_name": "User",
+        "family_name": "Individual",
         "picture": "https://lh3.googleusercontent.com/photo.jpg",
         "locale": "en",
     }
@@ -472,7 +472,7 @@ async def test_complete_oauth_flow_new_user(google_provider: GoogleOAuthPlugin) 
     assert user_info.id == "google-user-123"
     assert user_info.email == "newuser@example.com"
     assert user_info.verified_email is True
-    assert user_info.name == "New User"
+    assert user_info.name == "New Individual"
     assert user_info.picture == "https://lh3.googleusercontent.com/photo.jpg"
 
 
@@ -488,7 +488,7 @@ async def test_complete_oauth_flow_minimal_response(google_provider: GoogleOAuth
         "scope": "openid email",
     }
 
-    # User info with only required fields
+    # Individual info with only required fields
     mock_user_info = {
         "id": "google-minimal-123",
         "email": "minimal@example.com",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID, uuid4
 
 import belgie_organization.settings as org_belgie_settings
@@ -10,11 +10,12 @@ import belgie_team.settings as team_belgie_settings
 import pytest
 import pytest_asyncio
 from belgie_organization.client import OrganizationClient
+from belgie_proto.core.customer import CustomerType
 from belgie_proto.organization import PendingInvitationConflictError
 from belgie_team.client import TeamClient
 from brussels.types import DateTimeUTC
 from fastapi import HTTPException
-from sqlalchemy import JSON, ForeignKey, Index, Text, UniqueConstraint, event, text
+from sqlalchemy import JSON, Enum as SAEnum, ForeignKey, Index, Text, UniqueConstraint, event, text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -32,17 +33,41 @@ class Base(DeclarativeBase):
     pass
 
 
-class User(Base):
-    __tablename__ = "user"
+def _customer_type_enum() -> SAEnum:
+    return SAEnum(
+        CustomerType,
+        name="customer_type",
+        native_enum=False,
+        values_callable=lambda members: [member.value for member in members],
+    )
+
+
+class Customer(Base):
+    __tablename__ = "customer"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(Text, unique=True, index=True)
-    email_verified_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, default=None)
+    customer_type: Mapped[CustomerType] = mapped_column(_customer_type_enum(), index=True)
     name: Mapped[str | None] = mapped_column(Text, default=None)
-    image: Mapped[str | None] = mapped_column(Text, default=None)
-    scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
+
+    __mapper_args__: ClassVar[dict[str, object]] = {
+        "polymorphic_on": customer_type,
+        "polymorphic_abstract": True,
+        "with_polymorphic": "*",
+    }
+
+
+class Individual(Customer):
+    __tablename__ = "individual"
+
+    id: Mapped[UUID] = mapped_column(ForeignKey("customer.id", ondelete="cascade"), primary_key=True, default=uuid4)
+    email: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, default=None)
+    image: Mapped[str | None] = mapped_column(Text, default=None)
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": CustomerType.INDIVIDUAL}
 
 
 class Account(Base):
@@ -50,7 +75,7 @@ class Account(Base):
     __table_args__ = (UniqueConstraint("provider", "provider_account_id", name="uq_account_provider_account"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id", ondelete="cascade"), index=True)
+    individual_id: Mapped[UUID] = mapped_column(ForeignKey("individual.id", ondelete="cascade"), index=True)
     provider: Mapped[str] = mapped_column(Text)
     provider_account_id: Mapped[str] = mapped_column(Text)
     access_token: Mapped[str | None] = mapped_column(Text, default=None)
@@ -67,7 +92,7 @@ class Session(Base):
     __tablename__ = "session"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id", ondelete="cascade"), index=True)
+    individual_id: Mapped[UUID] = mapped_column(ForeignKey("individual.id", ondelete="cascade"), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTimeUTC, index=True)
     ip_address: Mapped[str | None] = mapped_column(Text, default=None)
     user_agent: Mapped[str | None] = mapped_column(Text, default=None)
@@ -86,47 +111,46 @@ class OAuthState(Base):
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
 
 
-class Organization(Base):
+class Organization(Customer):
     __tablename__ = "organization"
 
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    name: Mapped[str] = mapped_column(Text)
+    id: Mapped[UUID] = mapped_column(ForeignKey("customer.id", ondelete="cascade"), primary_key=True, default=uuid4)
     slug: Mapped[str] = mapped_column(Text, unique=True, index=True)
     logo: Mapped[str | None] = mapped_column(Text, default=None)
-    created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
-    updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
+
+    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": CustomerType.ORGANIZATION}
 
 
 class OrganizationMember(Base):
     __tablename__ = "organization_member"
-    __table_args__ = (UniqueConstraint("organization_id", "user_id", name="uq_organization_member_org_user"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "individual_id", name="uq_organization_member_org_individual"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organization.id", ondelete="cascade"), index=True)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id", ondelete="cascade"), index=True)
+    individual_id: Mapped[UUID] = mapped_column(ForeignKey("individual.id", ondelete="cascade"), index=True)
     role: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
 
 
-class Team(Base):
+class Team(Customer):
     __tablename__ = "team"
-    __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_team_org_name"),)
 
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(ForeignKey("customer.id", ondelete="cascade"), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organization.id", ondelete="cascade"), index=True)
-    name: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
-    updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
+
+    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": CustomerType.TEAM}
 
 
 class TeamMember(Base):
     __tablename__ = "team_member"
-    __table_args__ = (UniqueConstraint("team_id", "user_id", name="uq_team_member_team_user"),)
+    __table_args__ = (UniqueConstraint("team_id", "individual_id", name="uq_team_member_team_individual"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     team_id: Mapped[UUID] = mapped_column(ForeignKey("team.id", ondelete="cascade"), index=True)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id", ondelete="cascade"), index=True)
+    individual_id: Mapped[UUID] = mapped_column(ForeignKey("individual.id", ondelete="cascade"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
 
@@ -149,7 +173,7 @@ class OrganizationInvitation(Base):
     email: Mapped[str] = mapped_column(Text, index=True)
     role: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="pending", index=True)
-    inviter_id: Mapped[UUID] = mapped_column(ForeignKey("user.id", ondelete="cascade"))
+    inviter_individual_id: Mapped[UUID] = mapped_column(ForeignKey("individual.id", ondelete="cascade"))
     expires_at: Mapped[datetime] = mapped_column(DateTimeUTC)
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
@@ -190,7 +214,8 @@ async def team_org_session(
 @pytest_asyncio.fixture
 async def core_adapter(team_org_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -227,7 +252,7 @@ def _organization_client(
     db_session: AsyncSession,
     core_adapter: BelgieAdapter,
     adapter: TeamAdapter,
-    current_user: User,
+    current_individual: Individual,
 ) -> OrganizationClient:
     return OrganizationClient(
         client=SimpleNamespace(db=db_session, adapter=core_adapter),
@@ -237,7 +262,7 @@ def _organization_client(
             invitation_expires_in_seconds=3600,
             send_invitation_email=None,
         ),
-        current_user=current_user,
+        current_individual=current_individual,
     )
 
 
@@ -245,7 +270,7 @@ def _team_client(
     *,
     db_session: AsyncSession,
     adapter: TeamAdapter,
-    current_user: User,
+    current_individual: Individual,
 ) -> TeamClient:
     return TeamClient(
         client=SimpleNamespace(db=db_session),
@@ -254,7 +279,7 @@ def _team_client(
             maximum_teams_per_organization=None,
             maximum_members_per_team=None,
         ),
-        current_user=current_user,
+        current_individual=current_individual,
     )
 
 
@@ -264,18 +289,18 @@ async def test_invitation_acceptance_assigns_team_membership(
     team_adapter: TeamAdapter,
     team_org_session: AsyncSession,
 ) -> None:
-    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
-    invited = await core_adapter.create_user(team_org_session, email="member@example.com")
+    owner = await core_adapter.create_individual(team_org_session, email="owner@example.com")
+    invited = await core_adapter.create_individual(team_org_session, email="member@example.com")
     owner_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
-        current_user=owner,
+        current_individual=owner,
     )
     owner_team_client = _team_client(
         db_session=team_org_session,
         adapter=team_adapter,
-        current_user=owner,
+        current_individual=owner,
     )
 
     organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
@@ -291,13 +316,13 @@ async def test_invitation_acceptance_assigns_team_membership(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
-        current_user=invited,
+        current_individual=invited,
     )
     accepted_invitation, member = await invited_org_client.accept_invitation(invitation_id=invitation.id)
 
     assert accepted_invitation.status == "accepted"
     assert member.organization_id == organization.id
-    assert await team_adapter.get_team_member(team_org_session, team_id=team.id, user_id=invited.id) is not None
+    assert await team_adapter.get_team_member(team_org_session, team_id=team.id, individual_id=invited.id) is not None
 
 
 @pytest.mark.asyncio
@@ -306,24 +331,24 @@ async def test_leaving_organization_removes_team_membership(
     team_adapter: TeamAdapter,
     team_org_session: AsyncSession,
 ) -> None:
-    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
-    member = await core_adapter.create_user(team_org_session, email="member@example.com")
+    owner = await core_adapter.create_individual(team_org_session, email="owner@example.com")
+    member = await core_adapter.create_individual(team_org_session, email="member@example.com")
     owner_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
-        current_user=owner,
+        current_individual=owner,
     )
     owner_team_client = _team_client(
         db_session=team_org_session,
         adapter=team_adapter,
-        current_user=owner,
+        current_individual=owner,
     )
 
     organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
     team = await owner_team_client.create(name="Platform", organization_id=organization.id)
     await owner_org_client.add_member(
-        user_id=member.id,
+        individual_id=member.id,
         role="member",
         organization_id=organization.id,
         team_id=team.id,
@@ -333,11 +358,14 @@ async def test_leaving_organization_removes_team_membership(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
-        current_user=member,
+        current_individual=member,
     )
     assert await member_org_client.leave(organization_id=organization.id) is True
-    assert await team_adapter.get_member(team_org_session, organization_id=organization.id, user_id=member.id) is None
-    assert await team_adapter.get_team_member(team_org_session, team_id=team.id, user_id=member.id) is None
+    assert (
+        await team_adapter.get_member(team_org_session, organization_id=organization.id, individual_id=member.id)
+        is None
+    )
+    assert await team_adapter.get_team_member(team_org_session, team_id=team.id, individual_id=member.id) is None
 
 
 @pytest.mark.asyncio
@@ -346,12 +374,12 @@ async def test_duplicate_pending_invitations_are_rejected(
     team_adapter: TeamAdapter,
     team_org_session: AsyncSession,
 ) -> None:
-    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
+    owner = await core_adapter.create_individual(team_org_session, email="owner@example.com")
     org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
-        current_user=owner,
+        current_individual=owner,
     )
     organization, _ = await org_client.create(name="Acme", slug="acme", role="owner")
     expires_at = datetime.now(UTC) + timedelta(hours=1)
@@ -362,7 +390,7 @@ async def test_duplicate_pending_invitations_are_rejected(
         team_id=None,
         email="member@example.com",
         role="member",
-        inviter_id=owner.id,
+        inviter_individual_id=owner.id,
         expires_at=expires_at,
     )
 
@@ -373,11 +401,11 @@ async def test_duplicate_pending_invitations_are_rejected(
             team_id=None,
             email="member@example.com",
             role="member",
-            inviter_id=owner.id,
+            inviter_individual_id=owner.id,
             expires_at=expires_at,
         )
 
-    pending_invitations = await team_adapter.list_user_invitations(team_org_session, email="member@example.com")
+    pending_invitations = await team_adapter.list_individual_invitations(team_org_session, email="member@example.com")
 
     assert len(pending_invitations) == 1
 
@@ -388,12 +416,12 @@ async def test_org_team_uniqueness_constraints_hold(
     team_adapter: TeamAdapter,
     team_org_session: AsyncSession,
 ) -> None:
-    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
+    owner = await core_adapter.create_individual(team_org_session, email="owner@example.com")
     organization = await team_adapter.create_organization(team_org_session, name="Acme", slug="acme")
     member = await team_adapter.create_member(
         team_org_session,
         organization_id=organization.id,
-        user_id=owner.id,
+        individual_id=owner.id,
         role="owner",
     )
     team = await team_adapter.create_team(
@@ -404,11 +432,11 @@ async def test_org_team_uniqueness_constraints_hold(
     await team_adapter.add_team_member(
         team_org_session,
         team_id=team.id,
-        user_id=owner.id,
+        individual_id=owner.id,
     )
     organization_id = organization.id
-    owner_user_id = owner.id
-    member_user_id = member.user_id
+    owner_individual_id = owner.id
+    member_individual_id = member.individual_id
     team_id = team.id
 
     with pytest.raises(IntegrityError):
@@ -418,22 +446,37 @@ async def test_org_team_uniqueness_constraints_hold(
         await team_adapter.create_member(
             team_org_session,
             organization_id=organization_id,
-            user_id=member_user_id,
+            individual_id=member_individual_id,
             role="owner",
         )
 
-    with pytest.raises(IntegrityError):
-        await team_adapter.create_team(
-            team_org_session,
-            organization_id=organization_id,
-            name="Platform",
-        )
+    duplicate_team = await team_adapter.create_team(
+        team_org_session,
+        organization_id=organization_id,
+        name="Platform",
+    )
+    assert duplicate_team.id != team_id
+    assert duplicate_team.name == "Platform"
+
+    renamed_team = await team_adapter.create_team(
+        team_org_session,
+        organization_id=organization_id,
+        name="Platform Ops",
+    )
+    updated_team = await team_adapter.update_team(
+        team_org_session,
+        team_id=renamed_team.id,
+        name="Platform",
+    )
+    assert updated_team is not None
+    assert updated_team.id == renamed_team.id
+    assert updated_team.name == "Platform"
 
     with pytest.raises(IntegrityError):
         await team_adapter.add_team_member(
             team_org_session,
             team_id=team_id,
-            user_id=owner_user_id,
+            individual_id=owner_individual_id,
         )
 
 
@@ -443,12 +486,12 @@ async def test_reinviting_after_expiry_marks_old_invitation_expired(
     team_adapter: TeamAdapter,
     team_org_session: AsyncSession,
 ) -> None:
-    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
+    owner = await core_adapter.create_individual(team_org_session, email="owner@example.com")
     owner_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
-        current_user=owner,
+        current_individual=owner,
     )
     organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
 
@@ -458,7 +501,7 @@ async def test_reinviting_after_expiry_marks_old_invitation_expired(
         team_id=None,
         email="member@example.com",
         role="member",
-        inviter_id=owner.id,
+        inviter_individual_id=owner.id,
         expires_at=datetime.now(UTC) - timedelta(hours=1),
     )
     replacement_invitation = await owner_org_client.invite(
@@ -481,23 +524,23 @@ async def test_only_admins_can_read_invitation_lists(
     team_adapter: TeamAdapter,
     team_org_session: AsyncSession,
 ) -> None:
-    owner = await core_adapter.create_user(team_org_session, email="owner@example.com")
-    member = await core_adapter.create_user(team_org_session, email="member@example.com")
+    owner = await core_adapter.create_individual(team_org_session, email="owner@example.com")
+    member = await core_adapter.create_individual(team_org_session, email="member@example.com")
     owner_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
-        current_user=owner,
+        current_individual=owner,
     )
     organization, _ = await owner_org_client.create(name="Acme", slug="acme", role="owner")
-    await owner_org_client.add_member(user_id=member.id, role="member", organization_id=organization.id)
+    await owner_org_client.add_member(individual_id=member.id, role="member", organization_id=organization.id)
     await owner_org_client.invite(email="invitee@example.com", role="member", organization_id=organization.id)
 
     member_org_client = _organization_client(
         db_session=team_org_session,
         core_adapter=core_adapter,
         adapter=team_adapter,
-        current_user=member,
+        current_individual=member,
     )
 
     with pytest.raises(HTTPException, match="insufficient organization permissions"):

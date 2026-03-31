@@ -3,13 +3,14 @@ from belgie_alchemy.__tests__.fixtures.core.database import (
     get_test_engine,
     get_test_session_factory,
 )
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 
 __all__ = [
     "Account",
+    "Customer",
+    "Individual",
     "OAuthState",
     "Session",
-    "User",
     "get_test_db",
     "get_test_engine",
     "get_test_session_factory",

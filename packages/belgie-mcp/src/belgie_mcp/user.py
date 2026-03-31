@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from belgie_core.core.belgie import Belgie
-    from belgie_proto.core.user import UserProtocol
+    from belgie_proto.core.individual import IndividualProtocol
     from mcp.server.auth.provider import AccessToken
 
 
@@ -24,29 +24,29 @@ class UserLookup:
     claim: str = "sub"
     MIN_PARTS: ClassVar[Final[int]] = 2
 
-    async def get_user_from_access_token(self, belgie: Belgie) -> UserProtocol | None:
+    async def get_user_from_access_token(self, belgie: Belgie) -> IndividualProtocol | None:
         if (access_token := get_access_token()) is None:
             return None
 
         if (token_value := self._extract_token_value(access_token)) is None:
             return None
 
-        user_id = None
+        individual_id = None
         provider_matched, provider_user_id = await self._resolve_provider_user_id(belgie, token_value)
         if provider_matched:
-            user_id = provider_user_id
+            individual_id = provider_user_id
         elif (payload := self._decode_jwt_payload(token_value)) is not None and isinstance(
             claim_value := payload.get(self.claim),
             str,
         ):
             try:
-                user_id = UUID(claim_value)
+                individual_id = UUID(claim_value)
             except ValueError:
-                user_id = None
+                individual_id = None
 
-        if user_id is None:
+        if individual_id is None:
             return None
-        return await self._load_user_from_belgie(belgie, user_id)
+        return await self._load_user_from_belgie(belgie, individual_id)
 
     @staticmethod
     def _extract_token_value(access_token: AccessToken) -> str | None:
@@ -64,10 +64,10 @@ class UserLookup:
                 continue
             if (stored_token := await plugin.provider.load_access_token(token)) is None:
                 continue
-            if stored_token.user_id is None:
+            if stored_token.individual_id is None:
                 return True, None
             try:
-                return True, UUID(stored_token.user_id)
+                return True, UUID(stored_token.individual_id)
             except ValueError:
                 return True, None
         return False, None
@@ -104,16 +104,16 @@ class UserLookup:
         except (ValueError, binascii.Error):
             return None
 
-    async def _load_user_from_belgie(self, belgie: Belgie, user_id: UUID) -> UserProtocol | None:
+    async def _load_user_from_belgie(self, belgie: Belgie, individual_id: UUID) -> IndividualProtocol | None:
         db_or_generator = belgie.database()
 
         if self._is_async_generator(db_or_generator):
             async for db in db_or_generator:
-                return await self._load_user_from_db(belgie, db, user_id)
+                return await self._load_user_from_db(belgie, db, individual_id)
             return None
 
         if isinstance(db_or_generator, DBConnection):
-            return await self._load_user_from_db(belgie, db_or_generator, user_id)
+            return await self._load_user_from_db(belgie, db_or_generator, individual_id)
 
         return None
 
@@ -122,10 +122,10 @@ class UserLookup:
         return hasattr(value, "__aiter__")
 
     @staticmethod
-    async def _load_user_from_db(belgie: Belgie, db: DBConnection, user_id: UUID) -> UserProtocol | None:
+    async def _load_user_from_db(belgie: Belgie, db: DBConnection, individual_id: UUID) -> IndividualProtocol | None:
         client = belgie(db)
-        return await client.adapter.get_user_by_id(client.db, user_id)
+        return await client.adapter.get_individual_by_id(client.db, individual_id)
 
 
-async def get_user_from_access_token(belgie: Belgie) -> UserProtocol | None:
+async def get_user_from_access_token(belgie: Belgie) -> IndividualProtocol | None:
     return await UserLookup().get_user_from_access_token(belgie)

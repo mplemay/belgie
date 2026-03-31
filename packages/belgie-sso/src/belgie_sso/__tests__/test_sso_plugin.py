@@ -170,16 +170,16 @@ class FakeOrganizationAdapter:
             return object()
         return None
 
-    async def get_member(self, _db: object, *, organization_id: UUID, user_id: UUID) -> object | None:
+    async def get_member(self, _db: object, *, organization_id: UUID, individual_id: UUID) -> object | None:
         if organization_id != self.organization_id:
             return None
-        if user_id in self.members:
-            return SimpleNamespace(role=self.members[user_id])
+        if individual_id in self.members:
+            return SimpleNamespace(role=self.members[individual_id])
         return None
 
-    async def create_member(self, _db: object, *, organization_id: UUID, user_id: UUID, role: str) -> object:
-        self.members[user_id] = role
-        self.created_members.append((organization_id, user_id, role))
+    async def create_member(self, _db: object, *, organization_id: UUID, individual_id: UUID, role: str) -> object:
+        self.members[individual_id] = role
+        self.created_members.append((organization_id, individual_id, role))
         return SimpleNamespace(id=uuid4())
 
 
@@ -379,7 +379,7 @@ def test_callback_creates_session_and_assigns_org(monkeypatch) -> None:
     assert response.status_code == 302
     assert response.headers["location"] == "/custom-target"
     client_dependency.upsert_oauth_account.assert_awaited_once_with(
-        user_id=user.id,
+        individual_id=user.id,
         provider="sso:acme",
         provider_account_id="oidc-user-1",
         access_token="access-token",
@@ -451,7 +451,7 @@ def test_callback_rejects_unverified_domain(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_after_authenticate_assigns_verified_google_user(monkeypatch) -> None:
+async def test_after_authenticate_assigns_verified_google_individual(monkeypatch) -> None:
     plugin, _, organization_adapter = build_plugin()
     belgie = DummyBelgie(SimpleNamespace())
     monkeypatch.setattr(
@@ -459,13 +459,13 @@ async def test_after_authenticate_assigns_verified_google_user(monkeypatch) -> N
         "_ensure_organization_plugin",
         lambda _belgie: SimpleNamespace(settings=SimpleNamespace(adapter=organization_adapter)),
     )
-    user = SimpleNamespace(id=uuid4())
+    individual = SimpleNamespace(id=uuid4())
 
     await plugin.after_authenticate(
         belgie=belgie,
         client=SimpleNamespace(db=object()),
         request=MagicMock(),
-        user=user,
+        individual=individual,
         profile=AuthenticatedProfile(
             provider="google",
             provider_account_id="google-user-1",
@@ -475,7 +475,7 @@ async def test_after_authenticate_assigns_verified_google_user(monkeypatch) -> N
     )
 
     assert organization_adapter.created_members == [
-        (plugin.settings.adapter.provider.organization_id, user.id, "member"),
+        (plugin.settings.adapter.provider.organization_id, individual.id, "member"),
     ]
 
 
@@ -493,7 +493,7 @@ async def test_after_authenticate_skips_unverified_social_email(monkeypatch) -> 
         belgie=belgie,
         client=SimpleNamespace(db=object()),
         request=MagicMock(),
-        user=SimpleNamespace(id=uuid4()),
+        individual=SimpleNamespace(id=uuid4()),
         profile=AuthenticatedProfile(
             provider="google",
             provider_account_id="google-user-1",

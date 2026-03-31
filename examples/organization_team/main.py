@@ -27,6 +27,8 @@ from belgie.organization import (
 from belgie.team import Team, TeamClient, TeamMemberView, TeamPlugin, TeamView
 from examples.organization_team.models import (
     Account,
+    Customer,
+    Individual,
     OAuthState,
     Organization as OrganizationModel,
     OrganizationInvitation,
@@ -34,7 +36,6 @@ from examples.organization_team.models import (
     Session,
     Team as TeamModel,
     TeamMember,
-    User,
 )
 
 if TYPE_CHECKING:
@@ -97,7 +98,7 @@ class CreateTeamPayload(BaseModel):
 
 class AddTeamMemberPayload(BaseModel):
     team_id: UUID
-    user_id: UUID
+    individual_id: UUID
 
 
 app = FastAPI(title="Belgie Organization + Team Example", lifespan=lifespan)
@@ -121,7 +122,8 @@ settings = BelgieSettings(
 )
 
 core_adapter = BelgieAdapter(
-    user=User,
+    customer=Customer,
+    individual=Individual,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
@@ -168,7 +170,7 @@ app.include_router(belgie.router)
 async def home() -> dict[str, str]:
     return {
         "message": "belgie organization + team example (client-first)",
-        "login": "/login?email=dev@example.com&name=Dev%20User",
+        "login": "/login?email=dev@example.com&name=Dev%20Individual",
         "me": "/me",
         "organization_create": "/org/create",
         "organization_list": "/org/list",
@@ -189,7 +191,7 @@ async def login(
     request: Request,
     client: Annotated[BelgieClient, Depends(belgie)],
     email: str = "dev@example.com",
-    name: str | None = "Dev User",
+    name: str | None = "Dev Individual",
     return_to: str = "/",
 ) -> RedirectResponse:
     _user, session = await client.sign_up(
@@ -204,11 +206,11 @@ async def login(
 
 @app.get("/me")
 async def me(
-    user: Annotated[User, Depends(belgie.user)],
+    user: Annotated[Individual, Depends(belgie.individual)],
     session: Annotated[Session, Depends(belgie.session)],
 ) -> dict[str, str | None]:
     return {
-        "user_id": str(user.id),
+        "individual_id": str(user.id),
         "email": user.email,
         "name": user.name,
         "session_id": str(session.id),
@@ -239,7 +241,7 @@ async def create_organization(
 async def list_organizations(
     organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
 ) -> list[OrganizationView]:
-    rows = await organization.for_user()
+    rows = await organization.for_individual()
     assert_type(rows, list[OrganizationModel])
     return [OrganizationView.model_validate(row) for row in rows]
 
@@ -271,7 +273,7 @@ async def get_full_organization(
 async def list_my_invitations(
     organization: Annotated[OrganizationExampleClient, Depends(organization_plugin)],
 ) -> list[InvitationView]:
-    invitations = await organization.user_invitations()
+    invitations = await organization.individual_invitations()
     assert_type(invitations, list[OrganizationInvitation])
     return [InvitationView.model_validate(row) for row in invitations]
 
@@ -330,7 +332,7 @@ async def add_team_member(
     payload: AddTeamMemberPayload,
     team: Annotated[TeamExampleClient, Depends(team_plugin)],
 ) -> TeamMemberView:
-    member = await team.add_member(team_id=payload.team_id, user_id=payload.user_id)
+    member = await team.add_member(team_id=payload.team_id, individual_id=payload.individual_id)
     assert_type(member, TeamMember)
     return TeamMemberView.model_validate(member)
 

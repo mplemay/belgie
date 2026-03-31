@@ -235,9 +235,9 @@ async def test_login_callback_rejects_invalid_state(
     async_client: httpx.AsyncClient,
     belgie_instance: Belgie,
     db_session: AsyncSession,
-    create_user_session,
+    create_individual_session,
 ) -> None:
-    session_id = await create_user_session(belgie_instance, db_session, "user@test.com")
+    session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     response = await async_client.get(

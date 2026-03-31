@@ -3,9 +3,9 @@ from belgie_stripe.models import (
     BillingPortalRequest,
     CancelSubscriptionRequest,
     CheckoutSessionContext,
+    CustomerAuthorizationContext,
     CustomerCreateContext,
     ListSubscriptionsRequest,
-    ReferenceAuthorizationContext,
     RestoreSubscriptionRequest,
     StripePlan,
     StripeRedirectResponse,
@@ -14,19 +14,18 @@ from belgie_stripe.models import (
     UpgradeSubscriptionRequest,
 )
 from belgie_stripe.plugin import StripePlugin
-from belgie_stripe.settings import Stripe, StripeOrganization, StripeSubscription
+from belgie_stripe.settings import Stripe, StripeSubscription
 
 __all__ = [
     "BillingPortalRequest",
     "CancelSubscriptionRequest",
     "CheckoutSessionContext",
+    "CustomerAuthorizationContext",
     "CustomerCreateContext",
     "ListSubscriptionsRequest",
-    "ReferenceAuthorizationContext",
     "RestoreSubscriptionRequest",
     "Stripe",
     "StripeClient",
-    "StripeOrganization",
     "StripePlan",
     "StripePlugin",
     "StripeRedirectResponse",

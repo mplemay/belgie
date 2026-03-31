@@ -3,21 +3,18 @@ from __future__ import annotations
 import datetime
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any
-from uuid import UUID  # noqa: TC003
 
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from brussels.types import DateTimeUTC
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from mcp.server.mcpserver import MCPServer
-from sqlalchemy import JSON, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import BelgieAdapter
+from belgie.alchemy.mixins import AccountMixin, CustomerMixin, IndividualMixin, OAuthStateMixin, SessionMixin
 from belgie.mcp import Mcp, get_user_from_access_token
 from belgie.oauth.server import OAuthResource, OAuthServer
 
@@ -25,99 +22,24 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
 
 
-class User(DataclassBase, PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "users"
-
-    email: Mapped[str] = mapped_column(Text, unique=True, index=True)
-    email_verified_at: Mapped[datetime.datetime | None] = mapped_column(DateTimeUTC, default=None)
-    name: Mapped[str | None] = mapped_column(Text, default=None)
-    image: Mapped[str | None] = mapped_column(Text, default=None)
-    scopes: Mapped[list[str]] = mapped_column(JSON, default_factory=list, nullable=False)
-
-    accounts: Mapped[list[Account]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-        init=False,
-    )
-    sessions: Mapped[list[Session]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-        init=False,
-    )
-    oauth_states: Mapped[list[OAuthState]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-        init=False,
-    )
+class Customer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
+    pass
 
 
-class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "accounts"
-    __table_args__ = (
-        UniqueConstraint(
-            "provider",
-            "provider_account_id",
-            name="uq_accounts_provider_provider_account_id",
-        ),
-        Index("ix_accounts_user_id_provider", "user_id", "provider"),
-    )
-
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="cascade", onupdate="cascade"),
-        nullable=False,
-    )
-    provider: Mapped[str] = mapped_column(Text)
-    provider_account_id: Mapped[str] = mapped_column(Text)
-    access_token: Mapped[str | None] = mapped_column(Text, default=None)
-    refresh_token: Mapped[str | None] = mapped_column(Text, default=None)
-    expires_at: Mapped[datetime.datetime | None] = mapped_column(DateTimeUTC, default=None)
-    token_type: Mapped[str | None] = mapped_column(Text, default=None)
-    scope: Mapped[str | None] = mapped_column(Text, default=None)
-    id_token: Mapped[str | None] = mapped_column(Text, default=None)
-
-    user: Mapped[User] = relationship(
-        back_populates="accounts",
-        lazy="selectin",
-        init=False,
-    )
+class Individual(IndividualMixin, Customer):
+    pass
 
 
-class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "sessions"
-
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="cascade", onupdate="cascade"),
-        index=True,
-        nullable=False,
-    )
-    expires_at: Mapped[datetime.datetime] = mapped_column(DateTimeUTC, index=True)
-    ip_address: Mapped[str | None] = mapped_column(Text, default=None)
-    user_agent: Mapped[str | None] = mapped_column(Text, default=None)
-
-    user: Mapped[User] = relationship(
-        back_populates="sessions",
-        lazy="selectin",
-        init=False,
-    )
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
+    pass
 
 
-class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "oauth_states"
+class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
+    pass
 
-    state: Mapped[str] = mapped_column(Text, unique=True, index=True)
-    user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="set null", onupdate="cascade"),
-        nullable=True,
-    )
-    expires_at: Mapped[datetime.datetime] = mapped_column(DateTimeUTC)
-    code_verifier: Mapped[str | None] = mapped_column(Text, default=None)
-    redirect_url: Mapped[str | None] = mapped_column(Text, default=None)
 
-    user: Mapped[User] | None = relationship(
-        back_populates="oauth_states",
-        lazy="selectin",
-        init=False,
-    )
+class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
+    pass
 
 
 DB_PATH = "./belgie_mcp_example.db"
@@ -167,7 +89,8 @@ settings = BelgieSettings(
 )
 
 adapter = BelgieAdapter(
-    user=User,
+    customer=Customer,
+    individual=Individual,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
@@ -220,7 +143,7 @@ async def get_time() -> dict[str, Any]:
     user = await get_user_from_access_token(belgie)
     now = datetime.datetime.now(datetime.UTC)
     return {
-        "user_id": str(user.id) if user else None,
+        "individual_id": str(user.id) if user else None,
         "user_email": user.email if user else None,
         "current_time": now.isoformat(),
         "timezone": "UTC",
@@ -238,7 +161,7 @@ async def login(
     response = RedirectResponse(url=return_to or "/", status_code=302)
     _user, session = await client.sign_up(
         "dev@example.com",
-        name="Dev User",
+        name="Dev Individual",
         request=request,
     )
     return client.create_session_cookie(session, response)

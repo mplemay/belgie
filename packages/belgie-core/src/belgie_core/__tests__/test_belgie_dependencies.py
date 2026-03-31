@@ -42,7 +42,7 @@ def test_depends_belgie_user_route_registration_no_fastapi_error(belgie_instance
     app = FastAPI()
 
     @app.get("/user")
-    async def user_route(user=Depends(belgie_instance.user)) -> dict[str, bool]:
+    async def user_route(user=Depends(belgie_instance.individual)) -> dict[str, bool]:
         return {"ok": user is not None}
 
     assert any(route.path == "/user" for route in app.routes)
@@ -64,7 +64,7 @@ def test_user_property_signature_uses_depends(
 ) -> None:
     dependency, _ = db_provider
 
-    db_parameter = signature(belgie_instance.user).parameters["db"]
+    db_parameter = signature(belgie_instance.individual).parameters["db"]
     assert db_parameter.default is Parameter.empty
     assert get_origin(db_parameter.annotation) is Annotated
 
@@ -135,10 +135,10 @@ def test_constructor_rejects_hooks_keyword() -> None:
 
 
 @pytest.mark.asyncio
-async def test_user_dependency_delegates_to_client_get_user(belgie_instance: Belgie) -> None:
+async def test_individual_dependency_delegates_to_client_get_individual(belgie_instance: Belgie) -> None:
     mock_client = AsyncMock()
     mock_user = Mock()
-    mock_client.get_user.return_value = mock_user
+    mock_client.get_individual.return_value = mock_user
 
     call_factory = Mock(return_value=mock_client)
     belgie_instance.__call__ = call_factory  # type: ignore[method-assign]
@@ -147,11 +147,11 @@ async def test_user_dependency_delegates_to_client_get_user(belgie_instance: Bel
     security_scopes = SecurityScopes(scopes=["read"])
     db = Mock()
 
-    result = await belgie_instance.user(security_scopes, request, db)
+    result = await belgie_instance.individual(security_scopes, request, db)
 
     assert result is mock_user
     call_factory.assert_called_once_with(db)
-    mock_client.get_user.assert_awaited_once_with(security_scopes, request)
+    mock_client.get_individual.assert_awaited_once_with(security_scopes, request)
 
 
 @pytest.mark.asyncio
@@ -175,7 +175,7 @@ async def test_session_dependency_delegates_to_client_get_session(belgie_instanc
 
 def test_security_scope_forwarding_uses_security_scopes(belgie_instance: Belgie) -> None:
     mock_client = AsyncMock()
-    mock_client.get_user.return_value = SimpleNamespace(email="admin@example.com")
+    mock_client.get_individual.return_value = SimpleNamespace(email="admin@example.com")
 
     call_factory = Mock(return_value=mock_client)
     belgie_instance.__call__ = call_factory  # type: ignore[method-assign]
@@ -183,7 +183,7 @@ def test_security_scope_forwarding_uses_security_scopes(belgie_instance: Belgie)
     app = FastAPI()
 
     @app.get("/admin")
-    async def admin_route(user=Security(belgie_instance.user, scopes=["admin"])) -> dict[str, str]:
+    async def admin_route(user=Security(belgie_instance.individual, scopes=["admin"])) -> dict[str, str]:
         return {"email": user.email}
 
     client = TestClient(app)
@@ -192,7 +192,7 @@ def test_security_scope_forwarding_uses_security_scopes(belgie_instance: Belgie)
     assert response.status_code == 200
     assert response.json() == {"email": "admin@example.com"}
 
-    security_scopes = mock_client.get_user.await_args.args[0]
+    security_scopes = mock_client.get_individual.await_args.args[0]
     assert isinstance(security_scopes, SecurityScopes)
     assert "admin" in security_scopes.scopes
 

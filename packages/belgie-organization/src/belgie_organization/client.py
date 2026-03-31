@@ -15,7 +15,7 @@ from belgie_organization.roles import RoleValue, has_any_role, has_role, normali
 
 if TYPE_CHECKING:
     from belgie_core import BelgieClient
-    from belgie_proto.core.user import UserProtocol
+    from belgie_proto.core.individual import IndividualProtocol
     from belgie_proto.team.member import TeamMemberProtocol
     from belgie_proto.team.team import TeamProtocol
 
@@ -30,7 +30,7 @@ class OrganizationClient[
 ]:
     client: BelgieClient
     settings: Organization[OrganizationT, MemberT, InvitationT]
-    current_user: UserProtocol[str]
+    current_individual: IndividualProtocol[str]
     maximum_members_per_team: int | None = None
 
     async def create(
@@ -40,13 +40,13 @@ class OrganizationClient[
         slug: str,
         role: RoleValue[str],
         logo: str | None = None,
-        user_id: UUID | None = None,
+        individual_id: UUID | None = None,
     ) -> tuple[OrganizationT, MemberT]:
-        creator_user_id = user_id or self.current_user.id
-        if user_id is not None and user_id != self.current_user.id:
+        creator_individual_id = individual_id or self.current_individual.id
+        if individual_id is not None and individual_id != self.current_individual.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="cannot create organization for another user from client session",
+                detail="cannot create organization for another individual from client session",
             )
         if not self.settings.allow_user_to_create_organization:
             raise HTTPException(
@@ -68,7 +68,7 @@ class OrganizationClient[
         member = await self.settings.adapter.create_member(
             self.client.db,
             organization_id=organization.id,
-            user_id=creator_user_id,
+            individual_id=creator_individual_id,
             role=normalize_roles(role),
         )
         return organization, member
@@ -76,8 +76,8 @@ class OrganizationClient[
     async def check_slug(self, *, slug: str) -> bool:
         return await self.settings.adapter.get_organization_by_slug(self.client.db, slug) is not None
 
-    async def for_user(self) -> list[OrganizationT]:
-        return await self.settings.adapter.list_organizations_for_user(self.client.db, self.current_user.id)
+    async def for_individual(self) -> list[OrganizationT]:
+        return await self.settings.adapter.list_organizations_for_individual(self.client.db, self.current_individual.id)
 
     async def details(
         self,
@@ -147,17 +147,17 @@ class OrganizationClient[
     async def add_member(
         self,
         *,
-        user_id: UUID,
+        individual_id: UUID,
         role: RoleValue[str],
         organization_id: UUID,
         team_id: UUID | None = None,
     ) -> MemberT:
         await self._require_default_admin_role(organization_id=organization_id)
 
-        if await self.client.adapter.get_user_by_id(self.client.db, user_id) is None:
+        if await self.client.adapter.get_individual_by_id(self.client.db, individual_id) is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="user not found",
+                detail="individual not found",
             )
 
         team_membership = None
@@ -165,14 +165,14 @@ class OrganizationClient[
             team_membership = await self._prepare_team_membership(
                 organization_id=organization_id,
                 team_id=team_id,
-                user_id=user_id,
+                individual_id=individual_id,
             )
 
         if (
             existing_member := await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=organization_id,
-                user_id=user_id,
+                individual_id=individual_id,
             )
         ) is not None:
             member = existing_member
@@ -180,14 +180,14 @@ class OrganizationClient[
             member = await self.settings.adapter.create_member(
                 self.client.db,
                 organization_id=organization_id,
-                user_id=user_id,
+                individual_id=individual_id,
                 role=normalize_roles(role),
             )
 
         if team_membership is not None:
             team_adapter, existing_team_member = team_membership
             if existing_team_member is None:
-                await team_adapter.add_team_member(self.client.db, team_id=team_id, user_id=user_id)
+                await team_adapter.add_team_member(self.client.db, team_id=team_id, individual_id=individual_id)
         return member
 
     async def remove_member(
@@ -198,19 +198,20 @@ class OrganizationClient[
     ) -> bool:
         acting_member = await self._require_default_admin_role(organization_id=organization_id)
 
-        if (target_user_id := _coerce_uuid(member_id_or_email)) is None:
-            user = await self.client.adapter.get_user_by_email(self.client.db, member_id_or_email)
-            if user is None:
+        if (target_individual_id := _coerce_uuid(member_id_or_email)) is None:
+            if (
+                individual := await self.client.adapter.get_individual_by_email(self.client.db, member_id_or_email)
+            ) is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="member not found",
                 )
-            target_user_id = user.id
+            target_individual_id = individual.id
 
         target_member = await self.settings.adapter.get_member(
             self.client.db,
             organization_id=organization_id,
-            user_id=target_user_id,
+            individual_id=target_individual_id,
         )
         if target_member is None:
             raise HTTPException(
@@ -231,7 +232,7 @@ class OrganizationClient[
         return await self.settings.adapter.remove_member(
             self.client.db,
             organization_id=organization_id,
-            user_id=target_user_id,
+            individual_id=target_individual_id,
         )
 
     async def update_member_role(
@@ -284,7 +285,7 @@ class OrganizationClient[
         member = await self.settings.adapter.get_member(
             self.client.db,
             organization_id=organization_id,
-            user_id=self.current_user.id,
+            individual_id=self.current_individual.id,
         )
         if member is None:
             raise HTTPException(
@@ -299,7 +300,7 @@ class OrganizationClient[
         return await self.settings.adapter.remove_member(
             self.client.db,
             organization_id=organization_id,
-            user_id=self.current_user.id,
+            individual_id=self.current_individual.id,
         )
 
     async def invite(
@@ -319,17 +320,19 @@ class OrganizationClient[
                 team_id=team_id,
             )
 
-        if (existing_user := await self.client.adapter.get_user_by_email(self.client.db, email)) is not None and (
+        if (
+            existing_individual := await self.client.adapter.get_individual_by_email(self.client.db, email)
+        ) is not None and (
             await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=organization_id,
-                user_id=existing_user.id,
+                individual_id=existing_individual.id,
             )
             is not None
         ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="user is already a member of this organization",
+                detail="individual is already a member of this organization",
             )
 
         existing_invitation = await self.settings.adapter.get_pending_invitation(
@@ -341,7 +344,7 @@ class OrganizationClient[
             if not resend:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="user is already invited to this organization",
+                    detail="individual is already invited to this organization",
                 )
             await self.settings.adapter.set_invitation_status(
                 self.client.db,
@@ -357,13 +360,13 @@ class OrganizationClient[
                 team_id=team_id,
                 email=email,
                 role=normalize_roles(role),
-                inviter_id=self.current_user.id,
+                inviter_individual_id=self.current_individual.id,
                 expires_at=expires_at,
             )
         except PendingInvitationConflictError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="user is already invited to this organization",
+                detail="individual is already invited to this organization",
             ) from exc
 
         organization = await self.settings.adapter.get_organization_by_id(self.client.db, organization_id)
@@ -388,7 +391,7 @@ class OrganizationClient[
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="invitation is no longer valid",
             )
-        if invitation.email.lower() != self.current_user.email.lower():
+        if invitation.email.lower() != self.current_individual.email.lower():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="you are not the recipient of this invitation",
@@ -399,19 +402,19 @@ class OrganizationClient[
             team_membership = await self._prepare_team_membership(
                 organization_id=invitation.organization_id,
                 team_id=invitation.team_id,
-                user_id=self.current_user.id,
+                individual_id=self.current_individual.id,
             )
 
         member = await self.settings.adapter.get_member(
             self.client.db,
             organization_id=invitation.organization_id,
-            user_id=self.current_user.id,
+            individual_id=self.current_individual.id,
         )
         if member is None:
             member = await self.settings.adapter.create_member(
                 self.client.db,
                 organization_id=invitation.organization_id,
-                user_id=self.current_user.id,
+                individual_id=self.current_individual.id,
                 role=normalize_roles(invitation.role),
             )
 
@@ -421,7 +424,7 @@ class OrganizationClient[
                 await team_adapter.add_team_member(
                     self.client.db,
                     team_id=invitation.team_id,
-                    user_id=self.current_user.id,
+                    individual_id=self.current_individual.id,
                 )
 
         if (
@@ -478,7 +481,7 @@ class OrganizationClient[
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="invitation is no longer pending",
             )
-        if invitation.email.lower() != self.current_user.email.lower():
+        if invitation.email.lower() != self.current_individual.email.lower():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="you are not the recipient of this invitation",
@@ -505,7 +508,7 @@ class OrganizationClient[
                 detail="invitation not found",
             )
 
-        if invitation.email.lower() == self.current_user.email.lower():
+        if invitation.email.lower() == self.current_individual.email.lower():
             return invitation
 
         await self._require_default_admin_role(organization_id=invitation.organization_id)
@@ -515,14 +518,14 @@ class OrganizationClient[
         await self._require_default_admin_role(organization_id=organization_id)
         return await self.settings.adapter.list_invitations(self.client.db, organization_id=organization_id)
 
-    async def user_invitations(self, *, email: str | None = None) -> list[InvitationT]:
-        resolved_email = email or self.current_user.email
-        if resolved_email.lower() != self.current_user.email.lower():
+    async def individual_invitations(self, *, email: str | None = None) -> list[InvitationT]:
+        resolved_email = email or self.current_individual.email
+        if resolved_email.lower() != self.current_individual.email.lower():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="cannot list invitations for another user",
+                detail="cannot list invitations for another individual",
             )
-        return await self.settings.adapter.list_user_invitations(self.client.db, email=resolved_email)
+        return await self.settings.adapter.list_individual_invitations(self.client.db, email=resolved_email)
 
     async def _resolve_organization_id(
         self,
@@ -550,7 +553,7 @@ class OrganizationClient[
             member := await self.settings.adapter.get_member(
                 self.client.db,
                 organization_id=organization_id,
-                user_id=self.current_user.id,
+                individual_id=self.current_individual.id,
             )
         ) is None:
             raise HTTPException(
@@ -636,7 +639,7 @@ class OrganizationClient[
         *,
         organization_id: UUID,
         team_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> tuple[
         OrganizationTeamAdapterProtocol[
             OrganizationT,
@@ -659,7 +662,7 @@ class OrganizationClient[
             existing_team_member := await team_adapter.get_team_member(
                 self.client.db,
                 team_id=team_id,
-                user_id=user_id,
+                individual_id=individual_id,
             )
         ) is not None:
             return team_adapter, existing_team_member

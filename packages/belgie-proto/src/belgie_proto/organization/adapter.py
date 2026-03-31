@@ -57,10 +57,10 @@ class OrganizationAdapterProtocol[
         organization_id: UUID,
     ) -> bool: ...
 
-    async def list_organizations_for_user(
+    async def list_organizations_for_individual(
         self,
         session: DBConnection,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> list[OrganizationT]: ...
 
     async def create_member(
@@ -68,7 +68,7 @@ class OrganizationAdapterProtocol[
         session: DBConnection,
         *,
         organization_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
         role: str,
     ) -> MemberT: ...
 
@@ -77,7 +77,7 @@ class OrganizationAdapterProtocol[
         session: DBConnection,
         *,
         organization_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> MemberT | None: ...
 
     async def get_member_by_id(
@@ -106,7 +106,7 @@ class OrganizationAdapterProtocol[
         session: DBConnection,
         *,
         organization_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> bool: ...
 
     async def create_invitation(  # noqa: PLR0913
@@ -117,7 +117,7 @@ class OrganizationAdapterProtocol[
         team_id: UUID | None,
         email: str,
         role: str,
-        inviter_id: UUID,
+        inviter_individual_id: UUID,
         expires_at: datetime,
     ) -> InvitationT: ...
 
@@ -142,7 +142,7 @@ class OrganizationAdapterProtocol[
         organization_id: UUID,
     ) -> list[InvitationT]: ...
 
-    async def list_user_invitations(
+    async def list_individual_invitations(
         self,
         session: DBConnection,
         *,

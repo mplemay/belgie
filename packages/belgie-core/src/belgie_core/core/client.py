@@ -7,9 +7,9 @@ from uuid import UUID
 from belgie_proto.core import AdapterProtocol
 from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.connection import DBConnection
+from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
-from belgie_proto.core.user import UserProtocol
 from fastapi import HTTPException, Request, Response, status
 from fastapi.security import SecurityScopes
 
@@ -18,18 +18,15 @@ from belgie_core.session.manager import SessionManager
 from belgie_core.utils.scopes import validate_scopes
 
 if TYPE_CHECKING:
-    from belgie_proto.core.user import UserProtocol
+    from belgie_proto.core.individual import IndividualProtocol
 
 
-type AfterSignUpCallback[UserT: UserProtocol] = Callable[
-    ...,
-    Awaitable[None],
-]
+type AfterSignUpCallback[IndividualT: IndividualProtocol] = Callable[..., Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BelgieClient[
-    UserT: UserProtocol,
+    IndividualT: IndividualProtocol,
     AccountT: AccountProtocol,
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
@@ -43,7 +40,7 @@ class BelgieClient[
         client: BelgieClient = Depends(belgie)
 
     Type Parameters:
-        UserT: User model type implementing UserProtocol
+        IndividualT: Individual model type implementing IndividualProtocol
         AccountT: Account model type implementing AccountProtocol
         SessionT: Session model type implementing SessionProtocol
         OAuthStateT: OAuth state model type implementing OAuthStateProtocol
@@ -60,16 +57,16 @@ class BelgieClient[
         ...     client: BelgieClient = Depends(belgie),
         ...     request: Request,
         ... ):
-        ...     user = await client.get_user(SecurityScopes(), request)
-        ...     await client.delete_user(user)
+        ...     individual = await client.get_individual(SecurityScopes(), request)
+        ...     await client.delete_individual(individual)
         ...     return {"message": "Account deleted"}
     """
 
     db: DBConnection
-    adapter: AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]
-    session_manager: SessionManager[UserT, AccountT, SessionT, OAuthStateT]
+    adapter: AdapterProtocol[IndividualT, AccountT, SessionT, OAuthStateT]
+    session_manager: SessionManager[IndividualT, AccountT, SessionT, OAuthStateT]
     cookie_settings: CookieSettings = field(default_factory=CookieSettings)
-    after_sign_up: AfterSignUpCallback[UserT] | None = None
+    after_sign_up: AfterSignUpCallback[IndividualT] | None = None
 
     async def _get_session_from_cookie(self, request: Request) -> SessionT | None:
         """Extract and validate session from request cookies.
@@ -90,26 +87,26 @@ class BelgieClient[
 
         return await self.session_manager.get_session(self.db, session_id)
 
-    async def get_user(self, security_scopes: SecurityScopes, request: Request) -> UserT:
-        """Get the authenticated user from the request session.
+    async def get_individual(self, security_scopes: SecurityScopes, request: Request) -> IndividualT:
+        """Get the authenticated individual from the request session.
 
-        Extracts the session from cookies, validates it, and returns the authenticated user.
-        Optionally validates user-level scopes if specified.
+        Extracts the session from cookies, validates it, and returns the authenticated individual.
+        Optionally validates individual-level scopes if specified.
 
         Args:
             security_scopes: FastAPI SecurityScopes for scope validation
             request: FastAPI Request object containing cookies
 
         Returns:
-            Authenticated user object
+            Authenticated individual object
 
         Raises:
             HTTPException: 401 if not authenticated or session invalid
             HTTPException: 403 if required scopes are not granted
 
         Example:
-            >>> user = await client.get_user(SecurityScopes(scopes=["read"]), request)
-            >>> print(user.email)
+            >>> individual = await client.get_individual(SecurityScopes(scopes=["read"]), request)
+            >>> print(individual.email)
         """
         if not (session := await self._get_session_from_cookie(request)):
             raise HTTPException(
@@ -117,20 +114,19 @@ class BelgieClient[
                 detail="not authenticated",
             )
 
-        if not (user := await self.adapter.get_user_by_id(self.db, session.user_id)):
+        if not (individual := await self.adapter.get_individual_by_id(self.db, session.individual_id)):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="user not found",
+                detail="individual not found",
             )
 
-        # Validate user-level scopes if required
-        if security_scopes.scopes and not validate_scopes(user.scopes, security_scopes.scopes):
+        if security_scopes.scopes and not validate_scopes(individual.scopes, security_scopes.scopes):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",
             )
 
-        return user
+        return individual
 
     async def get_session(self, request: Request) -> SessionT:
         """Get the current session from the request.
@@ -158,81 +154,88 @@ class BelgieClient[
 
         return session
 
-    async def delete_user(self, user: UserT) -> bool:
-        """Delete a user and all associated data."""
-        return await self.adapter.delete_user(self.db, user.id)
+    async def delete_individual(self, individual: IndividualT) -> bool:
+        """Delete an individual and all associated data."""
+        return await self.adapter.delete_individual(self.db, individual.id)
 
-    async def get_user_from_session(self, session_id: UUID) -> UserT | None:
-        """Retrieve user from a session ID.
+    async def get_individual_from_session(self, session_id: UUID) -> IndividualT | None:
+        """Retrieve an individual from a session ID.
 
         Args:
             session_id: UUID of the session
 
         Returns:
-            User object if session is valid and user exists, None otherwise
+            Individual object if session is valid and exists, None otherwise
 
         Example:
             >>> from uuid import UUID
             >>> session_id = UUID("...")
-            >>> user = await client.get_user_from_session(session_id)
-            >>> if user:
-            ...     print(f"Found user: {user.email}")
+            >>> individual = await client.get_individual_from_session(session_id)
+            >>> if individual:
+            ...     print(f"Found individual: {individual.email}")
         """
         if not (session := await self.session_manager.get_session(self.db, session_id)):
             return None
 
-        return await self.adapter.get_user_by_id(self.db, session.user_id)
+        return await self.adapter.get_individual_by_id(self.db, session.individual_id)
 
-    async def get_or_create_user(
+    async def get_or_create_individual(
         self,
         email: str,
         *,
         name: str | None = None,
         image: str | None = None,
         email_verified_at: datetime | None = None,
-    ) -> tuple[UserT, bool]:
-        if user := await self.adapter.get_user_by_email(self.db, email):
-            return user, False
+    ) -> tuple[IndividualT, bool]:
+        if individual := await self.adapter.get_individual_by_email(self.db, email):
+            return individual, False
 
-        user = await self.adapter.create_user(
+        individual = await self.adapter.create_individual(
             self.db,
             email=email,
             name=name,
             image=image,
             email_verified_at=email_verified_at,
         )
-
-        return user, True
+        return individual, True
 
     async def upsert_oauth_account(
         self,
         *,
-        user_id: UUID,
+        individual_id: UUID,
         provider: str,
         provider_account_id: str,
         **tokens: Any,  # noqa: ANN401
     ) -> AccountT:
-        if await self.adapter.get_account_by_user_and_provider(self.db, user_id, provider):
-            account = await self.adapter.update_account(
+        if (
+            await self.adapter.get_account_by_individual_and_provider(
                 self.db,
-                user_id=user_id,
-                provider=provider,
-                **tokens,
+                individual_id,
+                provider,
             )
-            if account is not None:
-                return account
+            and (
+                account := await self.adapter.update_account(
+                    self.db,
+                    individual_id=individual_id,
+                    provider=provider,
+                    **tokens,
+                )
+            )
+            is not None
+        ):
+            return account
 
         return await self.adapter.create_account(
             self.db,
-            user_id=user_id,
+            individual_id=individual_id,
             provider=provider,
             provider_account_id=provider_account_id,
             **tokens,
         )
 
-    async def sign_in_user(
+    async def sign_in_individual(
         self,
-        user: UserT,
+        individual: IndividualT,
         *,
         request: Request | None = None,
         ip_address: str | None = None,
@@ -246,7 +249,7 @@ class BelgieClient[
 
         return await self.session_manager.create_session(
             self.db,
-            user_id=user.id,
+            individual_id=individual.id,
             ip_address=ip_address,
             user_agent=user_agent,
         )
@@ -261,15 +264,15 @@ class BelgieClient[
         email_verified_at: datetime | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
-    ) -> tuple[UserT, SessionT]:
-        user, created = await self.get_or_create_user(
+    ) -> tuple[IndividualT, SessionT]:
+        individual, created = await self.get_or_create_individual(
             email,
             name=name,
             image=image,
             email_verified_at=email_verified_at,
         )
-        session = await self.sign_in_user(
-            user,
+        session = await self.sign_in_individual(
+            individual,
             request=request,
             ip_address=ip_address,
             user_agent=user_agent,
@@ -278,9 +281,9 @@ class BelgieClient[
             await self.after_sign_up(
                 client=self,
                 request=request,
-                user=user,
+                individual=individual,
             )
-        return user, session
+        return individual, session
 
     def create_session_cookie[R: Response](self, session: SessionT, response: R) -> R:
         response.set_cookie(
@@ -295,7 +298,7 @@ class BelgieClient[
         return response
 
     async def sign_out(self, session_id: UUID) -> bool:
-        """Sign out a user by deleting their session.
+        """Sign out an individual by deleting their session.
 
         Args:
             session_id: UUID of the session to delete

@@ -69,7 +69,7 @@ async def create_team(
 async def list_my_teams(
     team: Annotated[TeamClient, Depends(team_plugin)],
 ) -> dict[str, int]:
-    teams = await team.for_user()
+    teams = await team.for_individual()
     return {"count": len(teams)}
 ```
 
@@ -81,7 +81,7 @@ plugin exists and that its adapter implements the team-aware protocol.
 `TeamClient` exposes the main team workflows:
 
 - `create`, `teams`, `update`, and `delete`
-- `for_user`
+- `for_individual`
 - `members`, `add_member`, and `remove_member`
 
 ## Behavior

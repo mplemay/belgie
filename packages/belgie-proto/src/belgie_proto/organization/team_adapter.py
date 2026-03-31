@@ -32,7 +32,7 @@ class OrganizationTeamAdapterProtocol[
         session: DBConnection,
         *,
         team_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> TeamMemberT | None: ...
 
     async def add_team_member(
@@ -40,5 +40,5 @@ class OrganizationTeamAdapterProtocol[
         session: DBConnection,
         *,
         team_id: UUID,
-        user_id: UUID,
+        individual_id: UUID,
     ) -> TeamMemberT: ...

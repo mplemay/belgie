@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from belgie_proto.core.user import UserProtocol
+    from belgie_proto.core.individual import IndividualProtocol
     from fastapi import APIRouter, Request
 
     from belgie_core.core.belgie import Belgie
@@ -24,15 +24,9 @@ class AuthenticatedProfile:
 
 @runtime_checkable
 class PluginClient(Protocol):
-    """Protocol for Belgie runtime plugins."""
+    def router(self, belgie: Belgie) -> APIRouter | None: ...
 
-    def router(self, belgie: Belgie) -> APIRouter | None:
-        """Return the FastAPI router for this plugin."""
-        ...
-
-    def public(self, belgie: Belgie) -> APIRouter | None:
-        """Return the FastAPI router for public root-level routes."""
-        ...
+    def public(self, belgie: Belgie) -> APIRouter | None: ...
 
 
 @runtime_checkable
@@ -43,7 +37,7 @@ class AfterAuthenticateHook(Protocol):
         belgie: Belgie,
         client: BelgieClient,
         request: Request,
-        user: UserProtocol[str],
+        individual: IndividualProtocol[str],
         profile: AuthenticatedProfile,
     ) -> None: ...
 
@@ -56,14 +50,10 @@ class AfterSignUpHook(Protocol):
         belgie: Belgie,
         client: BelgieClient,
         request: Request | None,
-        user: UserProtocol[str],
+        individual: IndividualProtocol[str],
     ) -> None: ...
 
 
 @runtime_checkable
 class Plugin[P: PluginClient](Protocol):
-    """Protocol for Belgie plugin configuration callables."""
-
-    def __call__(self, belgie_settings: BelgieSettings) -> P:
-        """Build and return a runtime plugin."""
-        ...
+    def __call__(self, belgie_settings: BelgieSettings) -> P: ...

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID  # noqa: TC003
 
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from belgie_proto.core.customer import CustomerType
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
+
+from belgie_alchemy.core.mixins import _customer_pk_uuid
 
 
 @declarative_mixin
@@ -11,8 +14,14 @@ class TeamMixin(MappedAsDataclass):
     __tablename__ = "team"
 
     @declared_attr
-    def name(self) -> Mapped[str]:
-        return mapped_column(Text, kw_only=True)
+    def id(self) -> Mapped[UUID]:
+        return mapped_column(
+            ForeignKey("customer.id", ondelete="cascade", onupdate="cascade"),
+            primary_key=True,
+            default_factory=_customer_pk_uuid,
+            insert_default=_customer_pk_uuid,
+            init=False,
+        )
 
     @declared_attr
     def organization_id(self) -> Mapped[UUID]:
@@ -27,6 +36,7 @@ class TeamMixin(MappedAsDataclass):
     def organization(self) -> Mapped[object]:
         return relationship(
             "Organization",
+            foreign_keys=lambda: [self.organization_id],
             lazy="selectin",
             init=False,
         )
@@ -41,14 +51,8 @@ class TeamMixin(MappedAsDataclass):
         )
 
     @declared_attr.directive
-    def __table_args__(self) -> tuple[UniqueConstraint]:
-        return (
-            UniqueConstraint(
-                "organization_id",
-                "name",
-                name="uq_team_org_name",
-            ),
-        )
+    def __mapper_args__(self) -> dict[str, object]:
+        return {"polymorphic_identity": CustomerType.TEAM}
 
 
 @declarative_mixin
@@ -65,9 +69,9 @@ class TeamMemberMixin(MappedAsDataclass):
         )
 
     @declared_attr
-    def user_id(self) -> Mapped[UUID]:
+    def individual_id(self) -> Mapped[UUID]:
         return mapped_column(
-            ForeignKey("user.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("individual.id", ondelete="cascade", onupdate="cascade"),
             nullable=False,
             index=True,
             kw_only=True,
@@ -83,9 +87,9 @@ class TeamMemberMixin(MappedAsDataclass):
         )
 
     @declared_attr
-    def user(self) -> Mapped[object]:
+    def individual(self) -> Mapped[object]:
         return relationship(
-            "User",
+            "Individual",
             lazy="selectin",
             init=False,
         )
@@ -95,8 +99,8 @@ class TeamMemberMixin(MappedAsDataclass):
         return (
             UniqueConstraint(
                 "team_id",
-                "user_id",
-                name="uq_team_member_team_user",
+                "individual_id",
+                name="uq_team_member_team_individual",
             ),
         )
 

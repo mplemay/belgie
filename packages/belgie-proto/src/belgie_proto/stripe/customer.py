@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from belgie_proto.core.user import UserProtocol
+from belgie_proto.core.customer import CustomerProtocol
 
 
 @runtime_checkable
-class StripeUserProtocol[S: str](UserProtocol[S], Protocol):
+class StripeCustomerProtocol(CustomerProtocol, Protocol):
     stripe_customer_id: str | None

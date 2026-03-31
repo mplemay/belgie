@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Any
 
 from belgie_proto.core import AdapterProtocol
 from belgie_proto.core.account import AccountProtocol
+from belgie_proto.core.customer import CustomerAdapterProtocol, CustomerProtocol
+from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
-from belgie_proto.core.user import UserProtocol
 from sqlalchemy import delete, select
 
 if TYPE_CHECKING:
@@ -17,25 +18,59 @@ if TYPE_CHECKING:
 
 
 class BelgieAdapter[
-    UserT: UserProtocol,
+    CustomerT: CustomerProtocol,
+    IndividualT: IndividualProtocol,
     AccountT: AccountProtocol,
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
-](AdapterProtocol[UserT, AccountT, SessionT, OAuthStateT]):
+](
+    AdapterProtocol[IndividualT, AccountT, SessionT, OAuthStateT],
+    CustomerAdapterProtocol[CustomerT],
+):
     def __init__(
         self,
         *,
-        user: type[UserT],
+        customer: type[CustomerT],
+        individual: type[IndividualT],
         account: type[AccountT],
         session: type[SessionT],
         oauth_state: type[OAuthStateT],
     ) -> None:
-        self.user_model = user
+        self.customer_model = customer
+        self.individual_model = individual
         self.account_model = account
         self.session_model = session
         self.oauth_state_model = oauth_state
 
-    async def create_user(
+    async def get_customer_by_id(self, session: AsyncSession, customer_id: UUID) -> CustomerT | None:
+        stmt = select(self.customer_model).where(self.customer_model.id == customer_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update_customer(
+        self,
+        session: AsyncSession,
+        customer_id: UUID,
+        **updates: Any,  # noqa: ANN401
+    ) -> CustomerT | None:
+        customer = await self.get_customer_by_id(session, customer_id)
+        if customer is None:
+            return None
+
+        for key, value in updates.items():
+            if hasattr(customer, key):
+                setattr(customer, key, value)
+
+        customer.updated_at = datetime.now(UTC)
+        try:
+            await session.commit()
+            await session.refresh(customer)
+        except Exception:
+            await session.rollback()
+            raise
+        return customer
+
+    async def create_individual(
         self,
         session: AsyncSession,
         email: str,
@@ -43,65 +78,65 @@ class BelgieAdapter[
         image: str | None = None,
         *,
         email_verified_at: datetime | None = None,
-    ) -> UserT:
-        user = self.user_model(
+    ) -> IndividualT:
+        individual = self.individual_model(
             email=email,
             email_verified_at=email_verified_at,
             name=name,
             image=image,
         )
-        session.add(user)
+        session.add(individual)
         try:
             await session.commit()
-            await session.refresh(user)
+            await session.refresh(individual)
         except Exception:
             await session.rollback()
             raise
-        return user
+        return individual
 
-    async def get_user_by_id(self, session: AsyncSession, user_id: UUID) -> UserT | None:
-        stmt = select(self.user_model).where(self.user_model.id == user_id)
+    async def get_individual_by_id(self, session: AsyncSession, individual_id: UUID) -> IndividualT | None:
+        stmt = select(self.individual_model).where(self.individual_model.id == individual_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_user_by_email(self, session: AsyncSession, email: str) -> UserT | None:
-        stmt = select(self.user_model).where(self.user_model.email == email)
+    async def get_individual_by_email(self, session: AsyncSession, email: str) -> IndividualT | None:
+        stmt = select(self.individual_model).where(self.individual_model.email == email)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update_user(
+    async def update_individual(
         self,
         session: AsyncSession,
-        user_id: UUID,
+        individual_id: UUID,
         **updates: Any,  # noqa: ANN401
-    ) -> UserT | None:
-        user = await self.get_user_by_id(session, user_id)
-        if not user:
+    ) -> IndividualT | None:
+        individual = await self.get_individual_by_id(session, individual_id)
+        if individual is None:
             return None
 
         for key, value in updates.items():
-            if hasattr(user, key):
-                setattr(user, key, value)
+            if hasattr(individual, key):
+                setattr(individual, key, value)
 
-        user.updated_at = datetime.now(UTC)
+        individual.updated_at = datetime.now(UTC)
         try:
             await session.commit()
-            await session.refresh(user)
+            await session.refresh(individual)
         except Exception:
             await session.rollback()
             raise
-        return user
+        return individual
 
     async def create_account(
         self,
         session: AsyncSession,
-        user_id: UUID,
+        individual_id: UUID,
         provider: str,
         provider_account_id: str,
         **tokens: Any,  # noqa: ANN401
     ) -> AccountT:
         account = self.account_model(
-            user_id=user_id,
+            individual_id=individual_id,
             provider=provider,
             provider_account_id=provider_account_id,
             access_token=tokens.get("access_token"),
@@ -133,14 +168,14 @@ class BelgieAdapter[
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_account_by_user_and_provider(
+    async def get_account_by_individual_and_provider(
         self,
         session: AsyncSession,
-        user_id: UUID,
+        individual_id: UUID,
         provider: str,
     ) -> AccountT | None:
         stmt = select(self.account_model).where(
-            self.account_model.user_id == user_id,
+            self.account_model.individual_id == individual_id,
             self.account_model.provider == provider,
         )
         result = await session.execute(stmt)
@@ -149,12 +184,12 @@ class BelgieAdapter[
     async def update_account(
         self,
         session: AsyncSession,
-        user_id: UUID,
+        individual_id: UUID,
         provider: str,
         **tokens: Any,  # noqa: ANN401
     ) -> AccountT | None:
-        account = await self.get_account_by_user_and_provider(session, user_id, provider)
-        if not account:
+        account = await self.get_account_by_individual_and_provider(session, individual_id, provider)
+        if account is None:
             return None
 
         for key, value in tokens.items():
@@ -173,13 +208,13 @@ class BelgieAdapter[
     async def create_session(
         self,
         session: AsyncSession,
-        user_id: UUID,
+        individual_id: UUID,
         expires_at: datetime,
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> SessionT:
         session_obj = self.session_model(
-            user_id=user_id,
+            individual_id=individual_id,
             expires_at=expires_at,
             ip_address=ip_address,
             user_agent=user_agent,
@@ -209,7 +244,7 @@ class BelgieAdapter[
         **updates: Any,  # noqa: ANN401
     ) -> SessionT | None:
         session_obj = await self.get_session(session, session_id)
-        if not session_obj:
+        if session_obj is None:
             return None
 
         for key, value in updates.items():
@@ -246,31 +281,22 @@ class BelgieAdapter[
             raise
         return result.rowcount  # type: ignore[attr-defined]
 
-    async def create_oauth_state(
+    async def create_oauth_state(  # noqa: PLR0913
         self,
         session: AsyncSession,
         state: str,
         expires_at: datetime,
         code_verifier: str | None = None,
         redirect_url: str | None = None,
+        individual_id: UUID | None = None,
     ) -> OAuthStateT:
-        # Create the model instance - some models have user_id, some don't
-        try:
-            oauth_state = self.oauth_state_model(
-                state=state,
-                user_id=None,
-                code_verifier=code_verifier,
-                redirect_url=redirect_url,
-                expires_at=expires_at,
-            )
-        except TypeError:
-            # Model doesn't accept user_id (like auth package models)
-            oauth_state = self.oauth_state_model(
-                state=state,
-                code_verifier=code_verifier,
-                redirect_url=redirect_url,
-                expires_at=expires_at,
-            )
+        oauth_state = self.oauth_state_model(
+            state=state,
+            individual_id=individual_id,
+            code_verifier=code_verifier,
+            redirect_url=redirect_url,
+            expires_at=expires_at,
+        )
         session.add(oauth_state)
         try:
             await session.commit()
@@ -285,7 +311,11 @@ class BelgieAdapter[
         session: AsyncSession,
         state: str,
     ) -> OAuthStateT | None:
-        stmt = select(self.oauth_state_model).where(self.oauth_state_model.state == state)
+        stmt = (
+            select(self.oauth_state_model)
+            .where(self.oauth_state_model.state == state)
+            .execution_options(populate_existing=True)
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -299,28 +329,15 @@ class BelgieAdapter[
             raise
         return result.rowcount > 0  # type: ignore[attr-defined]
 
-    async def delete_user(self, session: AsyncSession, user_id: UUID) -> bool:
-        """Delete a user and all associated data.
+    async def delete_individual(self, session: AsyncSession, individual_id: UUID) -> bool:
+        if (individual := await self.get_individual_by_id(session, individual_id)) is None:
+            return False
 
-        Deletes the user record. Related data (sessions, accounts) are automatically
-        deleted by the database via CASCADE constraints on the foreign keys.
-
-        Note: OAuth states are not user-specific and are not deleted.
-        They will expire based on their expires_at timestamp.
-
-        Args:
-            session: Database session
-            user_id: UUID of the user to delete
-
-        Returns:
-            True if user was deleted, False if user didn't exist
-        """
-        stmt = delete(self.user_model).where(self.user_model.id == user_id)
+        stmt = delete(self.customer_model).where(self.customer_model.id == individual.id)
         result = await session.execute(stmt)
         try:
             await session.commit()
         except Exception:
             await session.rollback()
             raise
-
         return result.rowcount > 0  # type: ignore[attr-defined]

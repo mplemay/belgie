@@ -68,8 +68,7 @@ Mounted under `/auth`:
 
 To use `belgie-stripe` with `belgie-alchemy`, compose these mixins into your models:
 
-- `StripeUserMixin`
-- `StripeOrganizationMixin`
+- `StripeCustomerMixin`
 - `StripeSubscriptionMixin`
 
 Unlike Better Auth, Belgie does not do schema remapping at runtime. The Stripe columns and table are explicit model
@@ -77,7 +76,7 @@ definitions that live in your application code.
 
 ## Notes
 
-- Organization subscriptions require the Belgie organization plugin and an explicit `reference_id`.
+- Billing flows target a generic `Customer`, so individuals, organizations, and teams all use `customer_id`.
 - Customer creation supports both lazy creation on first billing action and automatic creation during `client.sign_up()`
   when `create_customer_on_sign_up=True`.
 - Injected `StripeClient` instances expose the raw async Stripe SDK as `client.stripe` for app-owned SDK calls.

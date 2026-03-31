@@ -5,40 +5,40 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthState, Session
 
 
-def test_user_model_structure() -> None:
-    """Verify User model demonstrates proper structure."""
-    assert User.__tablename__ == "user"
-    assert not User.__dict__.get("__abstract__", False)
-    assert hasattr(User, "email")
-    assert hasattr(User, "scopes")
+def test_individual_model_structure() -> None:
+    """Verify Individual model demonstrates proper structure."""
+    assert Individual.__tablename__ == "individual"
+    assert not Individual.__dict__.get("__abstract__", False)
+    assert hasattr(Individual, "email")
+    assert hasattr(Individual, "scopes")
 
 
-def test_user_has_scopes_field() -> None:
-    """Verify User has scopes field that defaults to an empty list and accepts list assignment."""
-    user = User(email="test@example.com")
-    assert user.scopes == []
-    user.scopes = ["read", "write"]
-    assert user.scopes == ["read", "write"]
+def test_individual_has_scopes_field() -> None:
+    """Verify Individual has scopes field that defaults to an empty list and accepts list assignment."""
+    individual = Individual(email="test@example.com")
+    assert individual.scopes == []
+    individual.scopes = ["read", "write"]
+    assert individual.scopes == ["read", "write"]
 
 
-def test_user_relationships_defined() -> None:
-    """Verify User has bidirectional relationships defined."""
-    assert hasattr(User, "accounts")
-    assert hasattr(User, "sessions")
-    assert hasattr(User, "oauth_states")
+def test_individual_relationships_defined() -> None:
+    """Verify Individual has bidirectional relationships defined."""
+    assert hasattr(Individual, "accounts")
+    assert hasattr(Individual, "sessions")
+    assert hasattr(Individual, "oauth_states")
 
 
 @pytest.mark.asyncio
 async def test_account_unique_constraint(alchemy_session: AsyncSession) -> None:
-    user = User(email="auth@example.com")
-    alchemy_session.add(user)
+    individual = Individual(email="auth@example.com")
+    alchemy_session.add(individual)
     await alchemy_session.commit()
 
     account = Account(
-        user_id=user.id,
+        individual_id=individual.id,
         provider="google",
         provider_account_id="abc",
     )
@@ -46,7 +46,7 @@ async def test_account_unique_constraint(alchemy_session: AsyncSession) -> None:
     await alchemy_session.commit()
 
     duplicate = Account(
-        user_id=user.id,
+        individual_id=individual.id,
         provider="google",
         provider_account_id="abc",
     )
@@ -58,35 +58,35 @@ async def test_account_unique_constraint(alchemy_session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_session_relationship(alchemy_session: AsyncSession) -> None:
-    user = User(email="session@example.com")
-    alchemy_session.add(user)
+    individual = Individual(email="session@example.com")
+    alchemy_session.add(individual)
     await alchemy_session.commit()
 
     session = Session(
-        user_id=user.id,
+        individual_id=individual.id,
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
     alchemy_session.add(session)
     await alchemy_session.commit()
 
-    refreshed = await alchemy_session.get(User, user.id)
+    refreshed = await alchemy_session.get(Individual, individual.id)
     assert refreshed is not None
     await alchemy_session.refresh(refreshed, attribute_names=["sessions"])
     assert len(refreshed.sessions) == 1
 
 
 @pytest.mark.asyncio
-async def test_oauth_state_optional_user(alchemy_session: AsyncSession) -> None:
+async def test_oauth_state_optional_individual(alchemy_session: AsyncSession) -> None:
     state = OAuthState(
         state="abc",
         code_verifier=None,
         redirect_url=None,
         expires_at=datetime.now(UTC) + timedelta(minutes=5),
-        user_id=None,
+        individual_id=None,
     )
     alchemy_session.add(state)
     await alchemy_session.commit()
 
     rows = await alchemy_session.execute(select(OAuthState))
     stored = rows.scalar_one()
-    assert stored.user is None
+    assert stored.individual is None

@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get_test_session_factory
-from belgie_alchemy.__tests__.fixtures.core.models import Account, OAuthState, Session, User
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 PACKAGES_ROOT = Path(__file__).resolve().parents[7]
@@ -61,7 +61,8 @@ def database(
 @pytest_asyncio.fixture
 async def adapter():
     adapter = BelgieAdapter(
-        user=User,
+        customer=Customer,
+        individual=Individual,
         account=Account,
         session=Session,
         oauth_state=OAuthState,
@@ -157,10 +158,10 @@ def basic_auth_header():
 
 
 @pytest.fixture
-def create_user_session():
+def create_individual_session():
     async def _create(belgie: Belgie, db_session: AsyncSession, email: str) -> str:
-        user = await belgie.adapter.create_user(db_session, email=email)
-        session = await belgie.session_manager.create_session(db_session, user_id=user.id)
+        user = await belgie.adapter.create_individual(db_session, email=email)
+        session = await belgie.session_manager.create_session(db_session, individual_id=user.id)
         return str(session.id)
 
     return _create

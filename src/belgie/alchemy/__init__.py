@@ -4,14 +4,14 @@ _ALCHEMY_IMPORT_ERROR = "belgie.alchemy requires the 'alchemy' extra. Install wi
 
 try:
     from belgie_alchemy.core import BelgieAdapter
-    from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
+    from belgie_alchemy.core.mixins import AccountMixin, CustomerMixin, IndividualMixin, OAuthStateMixin, SessionMixin
     from belgie_alchemy.organization.mixins import (
         OrganizationInvitationMixin,
         OrganizationMemberMixin,
         OrganizationMixin,
     )
     from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin
-    from belgie_alchemy.stripe import StripeAdapter, StripeOrganizationMixin, StripeSubscriptionMixin, StripeUserMixin
+    from belgie_alchemy.stripe import StripeAdapter, StripeCustomerMixin, StripeSubscriptionMixin
     from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 except ModuleNotFoundError as exc:
     raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
@@ -19,6 +19,8 @@ except ModuleNotFoundError as exc:
 __all__ = [
     "AccountMixin",
     "BelgieAdapter",
+    "CustomerMixin",
+    "IndividualMixin",
     "OAuthStateMixin",
     "OrganizationInvitationMixin",
     "OrganizationMemberMixin",
@@ -28,10 +30,8 @@ __all__ = [
     "SSOProviderMixin",
     "SessionMixin",
     "StripeAdapter",
-    "StripeOrganizationMixin",
+    "StripeCustomerMixin",
     "StripeSubscriptionMixin",
-    "StripeUserMixin",
     "TeamMemberMixin",
     "TeamMixin",
-    "UserMixin",
 ]

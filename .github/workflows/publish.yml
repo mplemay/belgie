@@ -75,6 +75,10 @@ jobs:
         if: steps.tag_check.outputs.on_main == 'true'
         working-directory: packages/belgie-sso
         run: uv version "${{ steps.version.outputs.version }}"
+      - name: Bump belgie-stripe version
+        if: steps.tag_check.outputs.on_main == 'true'
+        working-directory: packages/belgie-stripe
+        run: uv version "${{ steps.version.outputs.version }}"
       - name: Bump belgie version
         if: steps.tag_check.outputs.on_main == 'true'
         run: uv version "${{ steps.version.outputs.version }}"

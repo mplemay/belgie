@@ -9,11 +9,11 @@ This example shows the new OAuth client plugin flow using `belgie-oauth`.
   - `belgie.add_plugin(GoogleOAuth(...))`
 - App-owned signin endpoint using plugin dependency:
   - `GET /login/google`
-- Unscoped user dependency using `Depends(belgie.user)`:
+- Unscoped user dependency using `Depends(belgie.individual)`:
   - `GET /profile`
-- Scoped user dependency using `Security(belgie.user, scopes=["email"])`:
+- Scoped user dependency using `Security(belgie.individual, scopes=["email"])`:
   - `GET /profile/email`
-- Protected route dependency using `Depends(belgie.user)`:
+- Protected route dependency using `Depends(belgie.individual)`:
   - `GET /dashboard`
 - Session dependency using `Depends(belgie.session)`:
   - `GET /session`

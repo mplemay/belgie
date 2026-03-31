@@ -1,3 +1,4 @@
+from belgie_proto.core import CustomerProtocol, CustomerType, IndividualProtocol
 from belgie_proto.sso import (
     OIDCClaimMapping,
     OIDCProviderConfig,
@@ -8,14 +9,15 @@ from belgie_proto.sso import (
 from belgie_proto.stripe import (
     StripeAdapterProtocol,
     StripeBillingInterval,
-    StripeCustomerType,
-    StripeOrganizationProtocol,
+    StripeCustomerProtocol,
     StripeSubscriptionProtocol,
     StripeSubscriptionStatus,
-    StripeUserProtocol,
 )
 
 __all__ = [
+    "CustomerProtocol",
+    "CustomerType",
+    "IndividualProtocol",
     "OIDCClaimMapping",
     "OIDCProviderConfig",
     "SSOAdapterProtocol",
@@ -23,9 +25,7 @@ __all__ = [
     "SSOProviderProtocol",
     "StripeAdapterProtocol",
     "StripeBillingInterval",
-    "StripeCustomerType",
-    "StripeOrganizationProtocol",
+    "StripeCustomerProtocol",
     "StripeSubscriptionProtocol",
     "StripeSubscriptionStatus",
-    "StripeUserProtocol",
 ]

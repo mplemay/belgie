@@ -19,7 +19,7 @@ class FakeOrganizationRow:
 class FakeMemberRow:
     id: UUID
     organization_id: UUID
-    user_id: UUID
+    individual_id: UUID
     role: str
     created_at: datetime
     updated_at: datetime
@@ -32,7 +32,7 @@ class FakeInvitationRow:
     email: str
     role: str
     status: str
-    inviter_id: UUID
+    inviter_individual_id: UUID
     expires_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -49,6 +49,6 @@ class FakeTeamRow:
 class FakeTeamMemberRow:
     id: UUID
     team_id: UUID
-    user_id: UUID
+    individual_id: UUID
     created_at: datetime
     updated_at: datetime

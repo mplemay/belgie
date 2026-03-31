@@ -1,12 +1,11 @@
 from belgie_alchemy.core.adapter import BelgieAdapter
-from belgie_alchemy.core.mixins import AccountMixin, OAuthStateMixin, SessionMixin, UserMixin
-from belgie_alchemy.stripe.mixins import StripeUserMixin
+from belgie_alchemy.core.mixins import AccountMixin, CustomerMixin, IndividualMixin, OAuthStateMixin, SessionMixin
 
 __all__ = [
     "AccountMixin",
     "BelgieAdapter",
+    "CustomerMixin",
+    "IndividualMixin",
     "OAuthStateMixin",
     "SessionMixin",
-    "StripeUserMixin",
-    "UserMixin",
 ]

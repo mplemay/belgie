@@ -59,11 +59,11 @@ class OrganizationPlugin[
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> OrganizationClient[OrganizationT, MemberT, InvitationT]:
-            user = await client.get_user(SecurityScopes(), request)
+            individual = await client.get_individual(SecurityScopes(), request)
             return OrganizationClient(
                 client=client,
                 settings=self._settings,
-                current_user=user,
+                current_individual=individual,
                 maximum_members_per_team=None if team_plugin is None else team_plugin.settings.maximum_members_per_team,
             )
 

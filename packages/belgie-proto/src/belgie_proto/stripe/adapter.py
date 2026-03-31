@@ -9,11 +9,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_proto.core.connection import DBConnection
-    from belgie_proto.stripe.subscription import (
-        StripeBillingInterval,
-        StripeCustomerType,
-        StripeSubscriptionStatus,
-    )
+    from belgie_proto.stripe.subscription import StripeBillingInterval, StripeSubscriptionStatus
 
 
 @runtime_checkable
@@ -25,8 +21,7 @@ class StripeAdapterProtocol[
         session: DBConnection,
         *,
         plan: str,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
         stripe_customer_id: str | None = None,
         stripe_subscription_id: str | None = None,
         status: StripeSubscriptionStatus = "incomplete",
@@ -56,24 +51,21 @@ class StripeAdapterProtocol[
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> list[SubscriptionT]: ...
 
     async def get_active_subscription(
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> SubscriptionT | None: ...
 
     async def get_incomplete_subscription(
         self,
         session: DBConnection,
         *,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID,
     ) -> SubscriptionT | None: ...
 
     async def update_subscription(  # noqa: PLR0913

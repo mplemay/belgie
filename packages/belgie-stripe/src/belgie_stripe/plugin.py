@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
-from belgie_organization.plugin import OrganizationPlugin
-from belgie_proto.stripe import StripeUserProtocol
+from belgie_proto.core.individual import IndividualProtocol
+from belgie_proto.core.session import SessionProtocol
+from belgie_proto.stripe import StripeCustomerProtocol
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import SecurityScopes
-from typing_extensions import TypeIs
 
+from belgie_stripe._protocols import BelgieClientProtocol, BelgieRuntimeProtocol
 from belgie_stripe.client import StripeClient
 from belgie_stripe.models import (
     BillingPortalRequest,
@@ -26,16 +27,12 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto.core.session import SessionProtocol
-    from belgie_proto.core.user import UserProtocol
-    from belgie_proto.stripe import StripeOrganizationProtocol, StripeSubscriptionProtocol
+    from belgie_proto.stripe import StripeSubscriptionProtocol
 
-    from belgie_stripe._protocols import (
-        BelgieClientProtocol,
-        BelgieRuntimeProtocol,
-        StripeOrganizationAdapterProtocol,
-    )
     from belgie_stripe.settings import Stripe
+
+type StripeBelgieClient = BelgieClientProtocol[StripeCustomerProtocol, IndividualProtocol[str], SessionProtocol]
+type StripeBelgieRuntime = BelgieRuntimeProtocol[StripeBelgieClient]
 
 
 class StripePlugin[
@@ -49,63 +46,44 @@ class StripePlugin[
         self._belgie_settings = belgie_settings
         self._settings = settings
         self._resolve_client: Callable[..., Awaitable[StripeClient[SubscriptionT]]] | None = None
-        self._organization_adapter: StripeOrganizationAdapterProtocol[StripeOrganizationProtocol] | None = None
 
     @property
     def settings(self) -> Stripe[SubscriptionT]:
         return self._settings
 
-    def _ensure_organization_adapter(
-        self,
-        belgie: BelgieRuntimeProtocol[BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol]],
-    ) -> None:
-        if not self._settings.organization or not self._settings.organization.enabled:
-            return
-        if self._organization_adapter is not None:
-            return
-
-        organization_plugin = next(
-            (plugin for plugin in belgie.plugins if isinstance(plugin, OrganizationPlugin)),
-            None,
-        )
-        if organization_plugin is None:
-            msg = "stripe plugin requires organization plugin when organization billing is enabled"
-            raise RuntimeError(msg)
-        self._organization_adapter = organization_plugin.settings.adapter
-
     def _build_client(
         self,
         *,
-        belgie_client: BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol],
-        current_user: StripeUserProtocol[str] | None = None,
+        belgie_client: StripeBelgieClient,
+        current_individual: IndividualProtocol[str] | None = None,
         current_session: SessionProtocol | None = None,
     ) -> StripeClient[SubscriptionT]:
         return StripeClient(
             client=belgie_client,
             belgie_settings=self._belgie_settings,
             settings=self._settings,
-            current_user=current_user,
+            current_individual=current_individual,
             current_session=current_session,
-            organization_adapter=self._organization_adapter,
         )
 
     def _ensure_dependency_resolver(
         self,
-        belgie: BelgieRuntimeProtocol[BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol]],
+        belgie: StripeBelgieRuntime,
     ) -> None:
         if self._resolve_client is not None:
             return
-        self._ensure_organization_adapter(belgie)
+
+        belgie_dependency = Depends(belgie)
 
         async def resolve_client(
             request: Request,
-            client: BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol] = Depends(belgie),  # noqa: B008
+            client: StripeBelgieClient = belgie_dependency,
         ) -> StripeClient[SubscriptionT]:
-            user = await client.get_user(SecurityScopes(), request)
+            individual = await client.get_individual(SecurityScopes(), request)
             session = await client.get_session(request)
             return self._build_client(
                 belgie_client=client,
-                current_user=user,
+                current_individual=individual,
                 current_session=session,
             )
 
@@ -129,28 +107,27 @@ class StripePlugin[
         self,
         *,
         belgie: object,  # noqa: ARG002
-        client: BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol],
+        client: StripeBelgieClient,
         request: Request | None,  # noqa: ARG002
-        user: UserProtocol[str],
+        individual: IndividualProtocol[str],
     ) -> None:
         if not self._settings.create_customer_on_sign_up:
             return
-        if not _is_stripe_user(user):
-            msg = "user model must expose stripe_customer_id"
-            raise TypeError(msg)
+
         billing_client = self._build_client(
             belgie_client=client,
-            current_user=user,
+            current_individual=individual,
             current_session=None,
         )
-        await billing_client.ensure_user_customer(metadata={})
+        await billing_client.ensure_customer(customer_id=individual.id, metadata={})
 
     def router(
         self,
-        belgie: BelgieRuntimeProtocol[BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol]],
+        belgie: StripeBelgieRuntime,
     ) -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         router = APIRouter(tags=["auth", "stripe"])
+        belgie_dependency = Depends(belgie)
 
         @router.post("/subscription/upgrade")
         async def upgrade_subscription(
@@ -163,14 +140,9 @@ class StripePlugin[
         @router.get("/subscription/list")
         async def list_subscriptions(
             stripe: StripeClient = Depends(self),  # noqa: B008, FAST002
-            reference_id: UUID | None = None,
-            customer_type: Literal["user", "organization"] = "user",
+            customer_id: UUID | None = None,
         ) -> list[SubscriptionView]:
-            query = ListSubscriptionsRequest(
-                reference_id=reference_id,
-                customer_type=customer_type,
-            )
-            return await stripe.list_subscriptions(data=query)
+            return await stripe.list_subscriptions(data=ListSubscriptionsRequest(customer_id=customer_id))
 
         @router.post("/subscription/cancel")
         async def cancel_subscription(
@@ -198,7 +170,7 @@ class StripePlugin[
         @router.get("/subscription/success")
         async def subscription_success(
             token: str,
-            client: BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol] = Depends(belgie),  # noqa: B008, FAST002
+            client: StripeBelgieClient = belgie_dependency,
         ) -> RedirectResponse:
             billing_client = self._build_client(belgie_client=client)
             return await billing_client.subscription_success(token=token)
@@ -206,7 +178,7 @@ class StripePlugin[
         @router.post("/stripe/webhook")
         async def stripe_webhook(
             request: Request,
-            client: BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol] = Depends(belgie),  # noqa: B008, FAST002
+            client: StripeBelgieClient = belgie_dependency,
         ) -> dict[str, bool]:
             billing_client = self._build_client(belgie_client=client)
             return await billing_client.handle_webhook(request=request)
@@ -215,7 +187,7 @@ class StripePlugin[
 
     def public(
         self,
-        _belgie: BelgieRuntimeProtocol[BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol]],
+        _belgie: StripeBelgieRuntime,
     ) -> APIRouter | None:
         return None
 
@@ -224,7 +196,3 @@ def _to_response(result: StripeRedirectResponse) -> Response:
     if result.redirect:
         return RedirectResponse(url=result.url, status_code=302)
     return JSONResponse(result.model_dump())
-
-
-def _is_stripe_user(user: UserProtocol[str]) -> TypeIs[StripeUserProtocol[str]]:
-    return isinstance(user, StripeUserProtocol)

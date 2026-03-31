@@ -41,16 +41,16 @@ def test_microsoft_user_info_valid() -> None:
         sub="123456",
         email="test@example.com",
         preferred_username="test@example.com",
-        name="Test User",
+        name="Test Individual",
         given_name="Test",
-        family_name="User",
+        family_name="Individual",
         picture="https://example.com/photo.jpg",
     )
 
     assert user_info.sub == "123456"
     assert user_info.email == "test@example.com"
     assert user_info.resolved_email == "test@example.com"
-    assert user_info.name == "Test User"
+    assert user_info.name == "Test Individual"
 
 
 def test_microsoft_user_info_prefers_preferred_username() -> None:
@@ -236,9 +236,9 @@ async def test_get_user_info_success(microsoft_provider: MicrosoftOAuthPlugin) -
         "sub": "123456789",
         "email": "testuser@example.com",
         "preferred_username": "testuser@example.com",
-        "name": "Test User",
+        "name": "Test Individual",
         "given_name": "Test",
-        "family_name": "User",
+        "family_name": "Individual",
         "picture": "https://graph.microsoft.com/photo.jpg",
     }
 
@@ -250,7 +250,7 @@ async def test_get_user_info_success(microsoft_provider: MicrosoftOAuthPlugin) -
     assert user_info.sub == "123456789"
     assert user_info.email == "testuser@example.com"
     assert user_info.resolved_email == "testuser@example.com"
-    assert user_info.name == "Test User"
+    assert user_info.name == "Test Individual"
     assert user_info.picture == "https://graph.microsoft.com/photo.jpg"
 
 

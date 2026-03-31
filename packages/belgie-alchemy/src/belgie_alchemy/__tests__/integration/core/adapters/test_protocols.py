@@ -4,21 +4,23 @@ from uuid import UUID, uuid4
 
 from belgie_proto.core import AdapterProtocol
 from belgie_proto.core.account import AccountProtocol
+from belgie_proto.core.customer import CustomerProtocol, CustomerType
+from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
-from belgie_proto.core.user import UserProtocol
-from belgie_proto.organization import OrganizationAdapterProtocol, OrganizationTeamAdapterProtocol
+from belgie_proto.organization import (
+    OrganizationAdapterProtocol,
+    OrganizationProtocol,
+    OrganizationTeamAdapterProtocol,
+)
 from belgie_proto.sso import SSOAdapterProtocol, SSODomainProtocol, SSOProviderProtocol
 from belgie_proto.stripe import (
     StripeAdapterProtocol,
     StripeBillingInterval,
-    StripeCustomerType,
-    StripeOrganizationProtocol,
+    StripeCustomerProtocol,
     StripeSubscriptionProtocol,
-    StripeSubscriptionStatus,
-    StripeUserProtocol,
 )
-from belgie_proto.team import TeamAdapterProtocol
+from belgie_proto.team import TeamAdapterProtocol, TeamProtocol
 
 from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
@@ -28,8 +30,19 @@ from belgie_alchemy.team import TeamAdapter
 
 
 @dataclass
-class ExampleUser:
+class ExampleCustomer:
     id: UUID
+    customer_type: CustomerType
+    name: str | None
+    created_at: datetime
+    updated_at: datetime
+    custom_field: str | None = None
+
+
+@dataclass
+class ExampleIndividual:
+    id: UUID
+    customer_type: CustomerType
     email: str
     email_verified_at: datetime | None
     name: str | None
@@ -43,7 +56,7 @@ class ExampleUser:
 @dataclass
 class ExampleAccount:
     id: UUID
-    user_id: UUID
+    individual_id: UUID
     provider: str
     provider_account_id: str
     access_token: str | None
@@ -59,7 +72,7 @@ class ExampleAccount:
 @dataclass
 class ExampleSession:
     id: UUID
-    user_id: UUID
+    individual_id: UUID
     expires_at: datetime
     ip_address: str | None
     user_agent: str | None
@@ -71,6 +84,7 @@ class ExampleSession:
 class ExampleOAuthState:
     id: UUID
     state: str
+    individual_id: UUID | None
     code_verifier: str | None
     redirect_url: str | None
     created_at: datetime
@@ -80,6 +94,7 @@ class ExampleOAuthState:
 @dataclass
 class ExampleOrganization:
     id: UUID
+    customer_type: CustomerType
     name: str
     slug: str
     logo: str | None
@@ -91,7 +106,7 @@ class ExampleOrganization:
 class ExampleMember:
     id: UUID
     organization_id: UUID
-    user_id: UUID
+    individual_id: UUID
     role: str
     created_at: datetime
     updated_at: datetime
@@ -105,7 +120,7 @@ class ExampleInvitation:
     email: str
     role: str
     status: str
-    inviter_id: UUID
+    inviter_individual_id: UUID
     expires_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -114,6 +129,7 @@ class ExampleInvitation:
 @dataclass
 class ExampleTeam:
     id: UUID
+    customer_type: CustomerType
     organization_id: UUID
     name: str
     created_at: datetime
@@ -124,14 +140,15 @@ class ExampleTeam:
 class ExampleTeamMember:
     id: UUID
     team_id: UUID
-    user_id: UUID
+    individual_id: UUID
     created_at: datetime
     updated_at: datetime
 
 
 @dataclass
-class ExampleStripeUser:
+class ExampleStripeIndividual:
     id: UUID
+    customer_type: CustomerType
     email: str
     email_verified_at: datetime | None
     name: str | None
@@ -143,8 +160,9 @@ class ExampleStripeUser:
 
 
 @dataclass
-class ExampleStripeOrganization:
+class ExampleStripeCustomerOrganization:
     id: UUID
+    customer_type: CustomerType
     name: str
     slug: str
     logo: str | None
@@ -157,11 +175,10 @@ class ExampleStripeOrganization:
 class ExampleStripeSubscription:
     id: UUID
     plan: str
-    reference_id: UUID
-    customer_type: StripeCustomerType
+    customer_id: UUID
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
-    status: StripeSubscriptionStatus
+    status: str
     period_start: datetime | None
     period_end: datetime | None
     cancel_at_period_end: bool
@@ -195,13 +212,28 @@ class ExampleSSODomain:
     updated_at: datetime
 
 
-def test_user_protocol_runtime_check() -> None:
+def test_customer_protocol_runtime_check() -> None:
     now = datetime.now(UTC)
-    user = ExampleUser(
+    customer = ExampleCustomer(
         id=uuid4(),
+        customer_type=CustomerType.INDIVIDUAL,
+        name="Test Customer",
+        created_at=now,
+        updated_at=now,
+        custom_field="custom value",
+    )
+
+    assert isinstance(customer, CustomerProtocol)
+
+
+def test_individual_protocol_runtime_check() -> None:
+    now = datetime.now(UTC)
+    individual = ExampleIndividual(
+        id=uuid4(),
+        customer_type=CustomerType.INDIVIDUAL,
         email="test@example.com",
         email_verified_at=now,
-        name="Test User",
+        name="Test Individual",
         image="https://example.com/image.jpg",
         created_at=now,
         updated_at=now,
@@ -209,14 +241,14 @@ def test_user_protocol_runtime_check() -> None:
         custom_field="custom value",
     )
 
-    assert isinstance(user, UserProtocol)
+    assert isinstance(individual, IndividualProtocol)
 
 
 def test_account_protocol_runtime_check() -> None:
     now = datetime.now(UTC)
     account = ExampleAccount(
         id=uuid4(),
-        user_id=uuid4(),
+        individual_id=uuid4(),
         provider="google",
         provider_account_id="12345",
         access_token="token",
@@ -236,7 +268,7 @@ def test_session_protocol_runtime_check() -> None:
     now = datetime.now(UTC)
     session = ExampleSession(
         id=uuid4(),
-        user_id=uuid4(),
+        individual_id=uuid4(),
         expires_at=now,
         ip_address="127.0.0.1",
         user_agent="Mozilla/5.0",
@@ -252,6 +284,7 @@ def test_oauth_state_protocol_runtime_check() -> None:
     oauth_state = ExampleOAuthState(
         id=uuid4(),
         state="random_state",
+        individual_id=uuid4(),
         code_verifier="verifier",
         redirect_url="/dashboard",
         created_at=now,
@@ -261,10 +294,35 @@ def test_oauth_state_protocol_runtime_check() -> None:
     assert isinstance(oauth_state, OAuthStateProtocol)
 
 
-def test_user_with_custom_fields_satisfies_protocol() -> None:
+def test_organization_and_team_protocol_runtime_checks() -> None:
     now = datetime.now(UTC)
-    user = ExampleUser(
+    organization = ExampleOrganization(
         id=uuid4(),
+        customer_type=CustomerType.ORGANIZATION,
+        name="Acme",
+        slug="acme",
+        logo=None,
+        created_at=now,
+        updated_at=now,
+    )
+    team = ExampleTeam(
+        id=uuid4(),
+        customer_type=CustomerType.TEAM,
+        organization_id=organization.id,
+        name="Platform",
+        created_at=now,
+        updated_at=now,
+    )
+
+    assert isinstance(organization, OrganizationProtocol)
+    assert isinstance(team, TeamProtocol)
+
+
+def test_individual_with_custom_fields_satisfies_protocol() -> None:
+    now = datetime.now(UTC)
+    individual = ExampleIndividual(
+        id=uuid4(),
+        customer_type=CustomerType.INDIVIDUAL,
         email="test@example.com",
         email_verified_at=None,
         name=None,
@@ -272,10 +330,10 @@ def test_user_with_custom_fields_satisfies_protocol() -> None:
         created_at=now,
         updated_at=now,
         scopes=[],
-        custom_field="this is a custom field not in the protocol",
+        custom_field="this field is not in the protocol",
     )
 
-    assert isinstance(user, UserProtocol)
+    assert isinstance(individual, IndividualProtocol)
 
 
 def test_sso_protocol_runtime_checks() -> None:
@@ -313,9 +371,10 @@ def test_sso_protocol_runtime_checks() -> None:
 
 def test_stripe_protocol_runtime_checks() -> None:
     now = datetime.now(UTC)
-    user = ExampleStripeUser(
+    individual = ExampleStripeIndividual(
         id=uuid4(),
-        email="stripe-user@example.com",
+        customer_type=CustomerType.INDIVIDUAL,
+        email="stripe-individual@example.com",
         email_verified_at=None,
         name=None,
         image=None,
@@ -324,8 +383,9 @@ def test_stripe_protocol_runtime_checks() -> None:
         scopes=[],
         stripe_customer_id="cus_123",
     )
-    organization = ExampleStripeOrganization(
+    organization = ExampleStripeCustomerOrganization(
         id=uuid4(),
+        customer_type=CustomerType.ORGANIZATION,
         name="Acme",
         slug="acme",
         logo=None,
@@ -336,8 +396,7 @@ def test_stripe_protocol_runtime_checks() -> None:
     subscription = ExampleStripeSubscription(
         id=uuid4(),
         plan="pro",
-        reference_id=user.id,
-        customer_type="user",
+        customer_id=individual.id,
         stripe_customer_id="cus_123",
         stripe_subscription_id="sub_123",
         status="active",
@@ -352,32 +411,30 @@ def test_stripe_protocol_runtime_checks() -> None:
         updated_at=now,
     )
 
-    assert isinstance(user, StripeUserProtocol)
-    assert isinstance(organization, StripeOrganizationProtocol)
+    assert isinstance(individual, StripeCustomerProtocol)
+    assert isinstance(organization, StripeCustomerProtocol)
     assert isinstance(subscription, StripeSubscriptionProtocol)
 
 
 def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
-    """Verify BelgieAdapter implements AdapterProtocol using runtime checks."""
-
     adapter = BelgieAdapter(
-        user=ExampleUser,
+        customer=ExampleCustomer,
+        individual=ExampleIndividual,
         account=ExampleAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
     )
 
-    # Runtime protocol check - AdapterProtocol is now runtime_checkable
     assert isinstance(adapter, AdapterProtocol)
-
-    # Verify all required methods are callable
-    assert callable(adapter.create_user)
-    assert callable(adapter.get_user_by_id)
-    assert callable(adapter.get_user_by_email)
-    assert callable(adapter.update_user)
+    assert callable(adapter.get_customer_by_id)
+    assert callable(adapter.update_customer)
+    assert callable(adapter.create_individual)
+    assert callable(adapter.get_individual_by_id)
+    assert callable(adapter.get_individual_by_email)
+    assert callable(adapter.update_individual)
     assert callable(adapter.create_account)
     assert callable(adapter.get_account)
-    assert callable(adapter.get_account_by_user_and_provider)
+    assert callable(adapter.get_account_by_individual_and_provider)
     assert callable(adapter.update_account)
     assert callable(adapter.create_session)
     assert callable(adapter.get_session)
@@ -387,7 +444,7 @@ def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     assert callable(adapter.create_oauth_state)
     assert callable(adapter.get_oauth_state)
     assert callable(adapter.delete_oauth_state)
-    assert callable(adapter.delete_user)
+    assert callable(adapter.delete_individual)
 
 
 def test_organization_adapter_satisfies_organization_protocol_only() -> None:

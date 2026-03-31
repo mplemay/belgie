@@ -73,8 +73,8 @@ async def me(
     request: Request,
     client: BelgieClient = Depends(belgie),
 ):
-    user = await client.get_user(SecurityScopes(), request)
-    return {"email": user.email}
+    individual = await client.get_individual(SecurityScopes(), request)
+    return {"email": individual.email}
 ```
 
 Belgie Core also gives you `Depends(belgie)` for request-scoped client access and a router that mounts the auth

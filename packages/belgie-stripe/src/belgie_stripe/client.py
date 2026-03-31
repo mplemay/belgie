@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING, Protocol, overload
 from uuid import UUID
 
 import stripe
+from belgie_proto.core.customer import CustomerType
+from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.stripe import (
     StripeBillingInterval,
-    StripeCustomerType,
-    StripeOrganizationProtocol,
+    StripeCustomerProtocol,
     StripeSubscriptionProtocol,
     StripeSubscriptionStatus,
-    StripeUserProtocol,
 )
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -26,9 +26,9 @@ from belgie_stripe.models import (
     BillingPortalRequest,
     CancelSubscriptionRequest,
     CheckoutSessionContext,
+    CustomerAuthorizationContext,
     CustomerCreateContext,
     ListSubscriptionsRequest,
-    ReferenceAuthorizationContext,
     RestoreSubscriptionRequest,
     StripeAction,
     StripePlan,
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from belgie_proto.core.session import SessionProtocol
     from belgie_proto.stripe import StripeAdapterProtocol
 
-    from belgie_stripe._protocols import BelgieClientProtocol, StripeOrganizationAdapterProtocol
+    from belgie_stripe._protocols import BelgieClientProtocol
     from belgie_stripe.settings import Stripe
 
 
@@ -173,12 +173,11 @@ def _expandable_id(value: str | _HasID | None) -> str | None:
 class StripeClient[
     SubscriptionT: StripeSubscriptionProtocol,
 ]:
-    client: BelgieClientProtocol[StripeUserProtocol[str], SessionProtocol]
+    client: BelgieClientProtocol[StripeCustomerProtocol, IndividualProtocol[str], SessionProtocol]
     belgie_settings: BelgieSettings
     settings: Stripe[SubscriptionT]
-    current_user: StripeUserProtocol[str] | None = None
+    current_individual: IndividualProtocol[str] | None = None
     current_session: SessionProtocol | None = None
-    organization_adapter: StripeOrganizationAdapterProtocol[StripeOrganizationProtocol] | None = None
 
     @property
     def subscription_adapter(self) -> StripeAdapterProtocol[SubscriptionT]:
@@ -193,16 +192,14 @@ class StripeClient[
         *,
         data: UpgradeSubscriptionRequest,
     ) -> StripeRedirectResponse:
-        user, session = self._require_authenticated()
-        if self.settings.subscription.require_email_verification and user.email_verified_at is None:
+        individual, session = self._require_authenticated()
+        if self.settings.subscription.require_email_verification and individual.email_verified_at is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email verification required")
 
         plan = await self._get_plan(data.plan)
-        reference_id = self._resolve_reference_id(reference_id=data.reference_id, customer_type=data.customer_type)
-        await self._authorize_reference(
+        customer = await self._get_authorized_customer(
             action="upgrade-subscription",
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=data.customer_id,
         )
 
         success_url = self._validated_url(data.success_url)
@@ -211,8 +208,7 @@ class StripeClient[
 
         active_subscription = await self.subscription_adapter.get_active_subscription(
             self.client.db,
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=customer.id,
         )
         if active_subscription and active_subscription.plan.lower() == plan.name.lower():
             billing_interval = active_subscription.billing_interval
@@ -221,44 +217,38 @@ class StripeClient[
             ):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="already subscribed to this plan")
 
-        price_id = await self._resolve_price_id(plan=plan, annual=data.annual)
-        customer_id = active_subscription.stripe_customer_id if active_subscription else None
-        if customer_id is None:
-            customer_id = await self._ensure_customer(
-                customer_type=data.customer_type,
-                reference_id=reference_id,
-                metadata=data.metadata,
-            )
+        stripe_customer_id = active_subscription.stripe_customer_id if active_subscription else None
+        if stripe_customer_id is None:
+            stripe_customer_id = await self.ensure_customer(customer_id=customer.id, metadata=data.metadata)
+
         if active_subscription and active_subscription.stripe_subscription_id:
             portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
                 await self._build_upgrade_portal_params(
-                    customer_id=customer_id,
+                    customer_id=stripe_customer_id,
                     return_url=absolute_url(self.belgie_settings.base_url, return_url),
                     subscription_id=active_subscription.stripe_subscription_id,
-                    price_id=price_id,
+                    price_id=await self._resolve_price_id(plan=plan, annual=data.annual),
                 ),
             )
             return StripeRedirectResponse(url=portal_session.url, redirect=not data.disable_redirect)
 
         pending_subscription = await self.subscription_adapter.get_incomplete_subscription(
             self.client.db,
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=customer.id,
         )
         if pending_subscription is None:
             subscription = await self.subscription_adapter.create_subscription(
                 self.client.db,
                 plan=plan.name.lower(),
-                reference_id=reference_id,
-                customer_type=data.customer_type,
-                stripe_customer_id=customer_id,
+                customer_id=customer.id,
+                stripe_customer_id=stripe_customer_id,
             )
         else:
             subscription = await self.subscription_adapter.update_subscription(
                 self.client.db,
                 subscription_id=pending_subscription.id,
                 plan=plan.name.lower(),
-                stripe_customer_id=customer_id,
+                stripe_customer_id=stripe_customer_id,
             )
             if subscription is None:
                 raise HTTPException(
@@ -266,18 +256,11 @@ class StripeClient[
                     detail="failed to update subscription",
                 )
 
-        internal_metadata = {
-            "local_subscription_id": str(subscription.id),
-            "reference_id": str(reference_id),
-            "customer_type": data.customer_type,
-            "plan": plan.name.lower(),
-        }
         checkout_context = CheckoutSessionContext(
-            customer_type=data.customer_type,
-            reference_id=reference_id,
+            customer=customer,
             plan=plan,
             subscription=subscription,
-            user=user,
+            individual=individual,
             session=session,
         )
         extra_params = (
@@ -299,15 +282,18 @@ class StripeClient[
         checkout_session = await self.stripe.v1.checkout.sessions.create_async(
             self._build_checkout_session_params(
                 extra_params=extra_params,
-                customer_id=customer_id,
-                price_id=price_id,
+                customer_id=stripe_customer_id,
+                price_id=await self._resolve_price_id(plan=plan, annual=data.annual),
                 redirect_urls=(
                     internal_success_url,
                     absolute_url(self.belgie_settings.base_url, cancel_url),
                 ),
                 metadata={
                     **data.metadata,
-                    **internal_metadata,
+                    "customer_id": str(customer.id),
+                    "customer_type": customer.customer_type,
+                    "local_subscription_id": str(subscription.id),
+                    "plan": plan.name.lower(),
                 },
             ),
         )
@@ -319,16 +305,13 @@ class StripeClient[
         return StripeRedirectResponse(url=checkout_session.url, redirect=not data.disable_redirect)
 
     async def list_subscriptions(self, *, data: ListSubscriptionsRequest) -> list[SubscriptionView]:
-        reference_id = self._resolve_reference_id(reference_id=data.reference_id, customer_type=data.customer_type)
-        await self._authorize_reference(
+        customer = await self._get_authorized_customer(
             action="list-subscription",
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=data.customer_id,
         )
         subscriptions = await self.subscription_adapter.list_subscriptions(
             self.client.db,
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=customer.id,
         )
         return [SubscriptionView.from_subscription(subscription) for subscription in subscriptions]
 
@@ -337,20 +320,14 @@ class StripeClient[
         *,
         data: CancelSubscriptionRequest,
     ) -> StripeRedirectResponse:
-        reference_id = self._resolve_reference_id(reference_id=data.reference_id, customer_type=data.customer_type)
-        await self._authorize_reference(
+        customer = await self._get_authorized_customer(
             action="cancel-subscription",
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=data.customer_id,
         )
-        customer_id = await self._ensure_customer(
-            customer_type=data.customer_type,
-            reference_id=reference_id,
-            metadata={},
-        )
+        stripe_customer_id = await self.ensure_customer(customer_id=customer.id, metadata={})
         portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
             self._build_billing_portal_params(
-                customer_id=customer_id,
+                customer_id=stripe_customer_id,
                 return_url=(
                     absolute_url(self.belgie_settings.base_url, self._validated_url(data.return_url))
                     if data.return_url
@@ -361,16 +338,13 @@ class StripeClient[
         return StripeRedirectResponse(url=portal_session.url, redirect=not data.disable_redirect)
 
     async def restore(self, *, data: RestoreSubscriptionRequest) -> SubscriptionView:
-        reference_id = self._resolve_reference_id(reference_id=data.reference_id, customer_type=data.customer_type)
-        await self._authorize_reference(
+        customer = await self._get_authorized_customer(
             action="restore-subscription",
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=data.customer_id,
         )
         subscription = await self.subscription_adapter.get_active_subscription(
             self.client.db,
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=customer.id,
         )
         if subscription is None or subscription.stripe_subscription_id is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="subscription not found")
@@ -396,20 +370,14 @@ class StripeClient[
         *,
         data: BillingPortalRequest,
     ) -> StripeRedirectResponse:
-        reference_id = self._resolve_reference_id(reference_id=data.reference_id, customer_type=data.customer_type)
-        await self._authorize_reference(
+        customer = await self._get_authorized_customer(
             action="billing-portal",
-            reference_id=reference_id,
-            customer_type=data.customer_type,
+            customer_id=data.customer_id,
         )
-        customer_id = await self._ensure_customer(
-            customer_type=data.customer_type,
-            reference_id=reference_id,
-            metadata={},
-        )
+        stripe_customer_id = await self.ensure_customer(customer_id=customer.id, metadata={})
         portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
             self._build_billing_portal_params(
-                customer_id=customer_id,
+                customer_id=stripe_customer_id,
                 return_url=(
                     absolute_url(self.belgie_settings.base_url, self._validated_url(data.return_url))
                     if data.return_url
@@ -435,17 +403,7 @@ class StripeClient[
             checkout_session = self._coerce_checkout_session_event(event)
             subscription_id = _expandable_id(checkout_session.subscription)
             metadata = _metadata_dict(checkout_session.metadata)
-            local_subscription_id = metadata.get("local_subscription_id")
-            local_subscription = None
-            if local_subscription_id is not None:
-                parsed_subscription_id = self._coerce_stripe_uuid(
-                    local_subscription_id,
-                    field_name="local_subscription_id",
-                )
-                local_subscription = await self.subscription_adapter.get_subscription_by_id(
-                    self.client.db,
-                    parsed_subscription_id,
-                )
+            local_subscription = await self._lookup_subscription_from_metadata(metadata)
             if subscription_id is not None:
                 stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(subscription_id)
                 await self._sync_subscription(
@@ -502,19 +460,18 @@ class StripeClient[
             await asyncio.sleep(SUCCESS_POLL_INTERVAL_SECONDS)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="subscription is still being finalized")
 
-    async def ensure_user_customer(
+    async def ensure_customer(
         self,
         *,
+        customer_id: UUID,
         metadata: dict[str, str],
     ) -> str:
-        user = self._require_user()
-        if user.stripe_customer_id:
-            return user.stripe_customer_id
+        customer = await self._get_customer_by_id(customer_id)
+        if customer.stripe_customer_id:
+            return customer.stripe_customer_id
 
         context = CustomerCreateContext(
-            customer_type="user",
-            reference_id=user.id,
-            target=user,
+            customer=customer,
             stripe_customer_id="",
             metadata=metadata,
         )
@@ -524,134 +481,71 @@ class StripeClient[
             else None
         )
         payload = _copy_customer_create_params(extra_params)
-        payload["email"] = user.email
-        if user.name is not None:
-            payload["name"] = user.name
+        self._apply_customer_identity(payload=payload, customer=customer)
         payload["metadata"] = {
             **(payload.get("metadata") or {}),
             **metadata,
-            "customer_type": "user",
-            "reference_id": str(user.id),
+            "customer_id": str(customer.id),
+            "customer_type": customer.customer_type,
         }
-        customer = await self.stripe.v1.customers.create_async(payload)
-        customer_id = customer.id
-        await self.client.adapter.update_user(self.client.db, user.id, stripe_customer_id=customer_id)
+        stripe_customer = await self.stripe.v1.customers.create_async(payload)
+        stripe_customer_id = stripe_customer.id
+        await self.client.adapter.update_customer(
+            self.client.db,
+            customer.id,
+            stripe_customer_id=stripe_customer_id,
+        )
         if self.settings.on_customer_create is not None:
             await maybe_await(
                 self.settings.on_customer_create(
                     CustomerCreateContext(
-                        customer_type="user",
-                        reference_id=user.id,
-                        target=user,
-                        stripe_customer_id=customer_id,
+                        customer=customer,
+                        stripe_customer_id=stripe_customer_id,
                         metadata=metadata,
                     ),
                 ),
             )
-        return customer_id
+        return stripe_customer_id
 
-    async def ensure_organization_customer(
-        self,
-        *,
-        reference_id: UUID,
-        metadata: dict[str, str],
-    ) -> str:
-        if (
-            not self.settings.organization
-            or not self.settings.organization.enabled
-            or self.organization_adapter is None
-        ):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="organization billing is not enabled")
-        organization = await self.organization_adapter.get_organization_by_id(self.client.db, reference_id)
-        if organization is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="organization not found")
-        if not isinstance(organization, StripeOrganizationProtocol):
-            msg = "organization model must expose stripe_customer_id"
-            raise TypeError(msg)
-        if organization.stripe_customer_id:
-            return organization.stripe_customer_id
-
-        context = CustomerCreateContext(
-            customer_type="organization",
-            reference_id=reference_id,
-            target=organization,
-            stripe_customer_id="",
-            metadata=metadata,
-        )
-        extra_params = (
-            await _resolve_customer_create_params(
-                self.settings.organization.get_customer_create_params(context),
-            )
-            if self.settings.organization.get_customer_create_params
-            else None
-        )
-        payload = _copy_customer_create_params(extra_params)
-        payload["name"] = organization.name
-        payload["metadata"] = {
-            **(payload.get("metadata") or {}),
-            **metadata,
-            "customer_type": "organization",
-            "reference_id": str(reference_id),
-        }
-        customer = await self.stripe.v1.customers.create_async(payload)
-        customer_id = customer.id
-        await self.organization_adapter.update_organization(
-            self.client.db,
-            reference_id,
-            stripe_customer_id=customer_id,
-        )
-        if self.settings.organization.on_customer_create is not None:
-            await maybe_await(
-                self.settings.organization.on_customer_create(
-                    CustomerCreateContext(
-                        customer_type="organization",
-                        reference_id=reference_id,
-                        target=organization,
-                        stripe_customer_id=customer_id,
-                        metadata=metadata,
-                    ),
-                ),
-            )
-        return customer_id
-
-    async def _ensure_customer(
-        self,
-        *,
-        customer_type: StripeCustomerType,
-        reference_id: UUID,
-        metadata: dict[str, str],
-    ) -> str:
-        if customer_type == "organization":
-            return await self.ensure_organization_customer(reference_id=reference_id, metadata=metadata)
-        return await self.ensure_user_customer(metadata=metadata)
-
-    async def _authorize_reference(
+    async def _get_authorized_customer(
         self,
         *,
         action: StripeAction,
-        reference_id: UUID,
-        customer_type: StripeCustomerType,
+        customer_id: UUID | None,
+    ) -> StripeCustomerProtocol:
+        customer = await self._get_customer_by_id(self._resolve_customer_id(customer_id))
+        await self._authorize_customer(action=action, customer=customer)
+        return customer
+
+    async def _get_customer_by_id(self, customer_id: UUID) -> StripeCustomerProtocol:
+        customer = await self.client.adapter.get_customer_by_id(self.client.db, customer_id)
+        if customer is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="customer not found")
+        if not isinstance(customer, StripeCustomerProtocol):
+            msg = "customer model must expose stripe_customer_id"
+            raise TypeError(msg)
+        return customer
+
+    async def _authorize_customer(
+        self,
+        *,
+        action: StripeAction,
+        customer: StripeCustomerProtocol,
     ) -> None:
-        user, session = self._require_authenticated()
-        if customer_type == "user":
-            if reference_id != user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="cannot manage another user's subscription",
-                )
+        individual, session = self._require_authenticated()
+        if customer.id == individual.id:
             return
-        if self.settings.subscription.authorize_reference is None:
+        if self.settings.subscription.authorize_customer is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="organization billing requires authorize_reference",
+                detail="customer billing requires authorize_customer",
             )
         allowed = await maybe_await(
-            self.settings.subscription.authorize_reference(
-                ReferenceAuthorizationContext(
+            self.settings.subscription.authorize_customer(
+                CustomerAuthorizationContext(
                     action=action,
-                    customer_type="organization",
-                    reference_id=reference_id,
-                    user=user,
+                    customer=customer,
+                    individual=individual,
                     session=session,
                 ),
             ),
@@ -660,8 +554,7 @@ class StripeClient[
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not authorized")
 
     async def _get_plan(self, name: str) -> StripePlan:
-        plans = await self._get_plans()
-        for plan in plans:
+        for plan in await self._get_plans():
             if plan.name.lower() == name.lower():
                 return plan
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="subscription plan not found")
@@ -691,21 +584,26 @@ class StripeClient[
             return price.id
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="stripe price not found")
 
-    def _resolve_reference_id(
+    def _resolve_customer_id(self, customer_id: UUID | None) -> UUID:
+        individual, _session = self._require_authenticated()
+        return customer_id or individual.id
+
+    def _apply_customer_identity(
         self,
         *,
-        reference_id: UUID | None,
-        customer_type: StripeCustomerType,
-    ) -> UUID:
-        user, _session = self._require_authenticated()
-        if customer_type == "organization":
-            if reference_id is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="reference_id is required for organization billing",
-                )
-            return reference_id
-        return reference_id or user.id
+        payload: CustomerCreateParams,
+        customer: StripeCustomerProtocol,
+    ) -> None:
+        if customer.customer_type == CustomerType.INDIVIDUAL:
+            if not isinstance(customer, IndividualProtocol):
+                msg = "individual customer must expose email"
+                raise TypeError(msg)
+            payload["email"] = customer.email
+            if customer.name is not None:
+                payload["name"] = customer.name
+            return
+        if customer.name is not None:
+            payload["name"] = customer.name
 
     def _validated_url(self, url: str) -> str:
         if (normalized := normalize_relative_or_same_origin_url(url, base_url=self.belgie_settings.base_url)) is None:
@@ -800,14 +698,20 @@ class StripeClient[
         return payload
 
     def _coerce_checkout_session_event(self, event: Event) -> CheckoutSession:
-        # Stripe models `event.data.object` as `dict[str, Any]` even for known v1 event shapes.
         return CheckoutSession.construct_from(event.data.object, key=None)
 
     def _coerce_subscription_event(self, event: Event) -> Subscription:
-        # Stripe models `event.data.object` as `dict[str, Any]` even for known v1 event shapes.
         return Subscription.construct_from(event.data.object, key=None)
 
-    async def _sync_subscription(  # noqa: C901, PLR0912
+    async def _lookup_subscription_from_metadata(self, metadata: dict[str, str]) -> SubscriptionT | None:
+        if (metadata_subscription_id := metadata.get("local_subscription_id")) is None:
+            return None
+        return await self.subscription_adapter.get_subscription_by_id(
+            self.client.db,
+            self._coerce_stripe_uuid(metadata_subscription_id, field_name="local_subscription_id"),
+        )
+
+    async def _sync_subscription(
         self,
         *,
         stripe_subscription: Subscription,
@@ -815,40 +719,20 @@ class StripeClient[
         existing_subscription: SubscriptionT | None,
     ) -> SubscriptionT:
         metadata = _metadata_dict(stripe_subscription.metadata)
-        metadata_subscription_id = metadata.get("local_subscription_id")
-        subscription = existing_subscription
-        if metadata_subscription_id is not None:
-            parsed_subscription_id = self._coerce_stripe_uuid(
-                metadata_subscription_id,
-                field_name="local_subscription_id",
-            )
-            if subscription is None:
-                subscription = await self.subscription_adapter.get_subscription_by_id(
-                    self.client.db,
-                    parsed_subscription_id,
-                )
+        subscription = existing_subscription or await self._lookup_subscription_from_metadata(metadata)
 
-        customer_type = metadata.get("customer_type")
-        reference_id_raw = metadata.get("reference_id")
-        if customer_type is None:
-            if subscription is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="stripe subscription metadata missing customer_type",
-                )
-            customer_type = subscription.customer_type
-        else:
-            customer_type = self._normalize_customer_type(customer_type)
-        if reference_id_raw is not None:
-            reference_id = self._coerce_stripe_uuid(reference_id_raw, field_name="reference_id")
+        customer_id_raw = metadata.get("customer_id")
+        if customer_id_raw is not None:
+            customer_id = self._coerce_stripe_uuid(customer_id_raw, field_name="customer_id")
         elif subscription is not None:
-            reference_id = subscription.reference_id
+            customer_id = subscription.customer_id
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="stripe subscription metadata missing reference_id",
+                detail="stripe subscription metadata missing customer_id",
             )
 
+        customer = await self._get_customer_by_id(customer_id)
         plan_name = metadata.get("plan")
         plan = await self._match_plan(plan_name=plan_name, stripe_subscription=stripe_subscription)
         recurring = self._extract_primary_recurring(stripe_subscription)
@@ -864,8 +748,7 @@ class StripeClient[
             subscription = await self.subscription_adapter.create_subscription(
                 self.client.db,
                 plan=plan.name.lower(),
-                reference_id=reference_id,
-                customer_type=customer_type,
+                customer_id=customer.id,
                 stripe_customer_id=stripe_customer_id,
                 stripe_subscription_id=stripe_subscription.id,
                 status=normalized_status,
@@ -905,6 +788,7 @@ class StripeClient[
             plan=plan,
             raw_event=stripe_subscription,
             subscription=subscription,
+            customer=customer,
         )
         if (
             event_type == "customer.subscription.created"
@@ -948,16 +832,6 @@ class StripeClient[
         msg = f"unsupported stripe subscription status: {status_value}"
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
-    def _normalize_customer_type(self, customer_type: str) -> StripeCustomerType:
-        match customer_type:
-            case "organization":
-                return "organization"
-            case "user":
-                return "user"
-            case _:
-                msg = f"unsupported stripe customer type: {customer_type}"
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
-
     def _normalize_billing_interval(self, interval: str) -> StripeBillingInterval:
         match interval:
             case "day":
@@ -977,16 +851,7 @@ class StripeClient[
             return None
         return datetime.fromtimestamp(value, UTC)
 
-    def _require_user(self) -> StripeUserProtocol[str]:
-        if self.current_user is None:
+    def _require_authenticated(self) -> tuple[IndividualProtocol[str], SessionProtocol]:
+        if self.current_individual is None or self.current_session is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
-        if not isinstance(self.current_user, StripeUserProtocol):
-            msg = "user model must expose stripe_customer_id"
-            raise TypeError(msg)
-        return self.current_user
-
-    def _require_authenticated(self) -> tuple[StripeUserProtocol[str], SessionProtocol]:
-        user = self._require_user()
-        if self.current_session is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
-        return user, self.current_session
+        return self.current_individual, self.current_session
