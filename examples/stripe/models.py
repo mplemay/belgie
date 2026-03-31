@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from belgie_proto.stripe.subscription import StripeSubscriptionProtocol
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 
@@ -22,7 +23,7 @@ class Individual(IndividualMixin, Customer):
     pass
 
 
-class Subscription(DataclassBase, PrimaryKeyMixin, TimestampMixin, StripeSubscriptionMixin):
+class Subscription(DataclassBase, PrimaryKeyMixin, TimestampMixin, StripeSubscriptionMixin, StripeSubscriptionProtocol):
     pass
 
 

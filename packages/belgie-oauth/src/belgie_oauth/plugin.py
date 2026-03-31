@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -11,7 +9,7 @@ from belgie_core.core.client import BelgieClient
 from belgie_core.core.exceptions import InvalidStateError, OAuthError
 from belgie_core.core.plugin import AuthenticatedProfile, PluginClient
 from belgie_core.utils.crypto import generate_state_token
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,7 +51,7 @@ class GoogleOAuth(BaseSettings):
             raise ValueError(msg)
         return SecretStr(secret.strip())
 
-    def __call__(self, belgie_settings: BelgieSettings) -> GoogleOAuthPlugin:
+    def __call__(self, belgie_settings: "BelgieSettings") -> "GoogleOAuthPlugin":
         return GoogleOAuthPlugin(belgie_settings, self)
 
 
@@ -72,7 +70,7 @@ class GoogleUserInfo(BaseModel):
 
 @dataclass(slots=True, kw_only=True)
 class GoogleOAuthClient:
-    plugin: GoogleOAuthPlugin
+    plugin: "GoogleOAuthPlugin"
     client: BelgieClient
 
     async def signin_url(self, *, return_to: str | None = None) -> str:
@@ -88,12 +86,22 @@ class GoogleOAuthClient:
         return self.plugin.generate_authorization_url(state)
 
 
+@dataclass(slots=True, kw_only=True)
+class TokenResponse:
+    access_token: str
+    token_type: str | None
+    refresh_token: str | None
+    scope: str | None
+    id_token: str | None
+    expires_at: datetime | None
+
+
 class GoogleOAuthPlugin(PluginClient):
     AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
     USER_INFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
-    def __init__(self, belgie_settings: BelgieSettings, settings: GoogleOAuth) -> None:
+    def __init__(self, belgie_settings: "BelgieSettings", settings: GoogleOAuth) -> None:
         self.settings = settings
         self._redirect_uri = _build_provider_callback_url(
             belgie_settings.base_url,
@@ -107,14 +115,13 @@ class GoogleOAuthPlugin(PluginClient):
     def provider_id(self) -> Literal["google"]:
         return "google"
 
-    def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
+    def _ensure_dependency_resolver(self, belgie: "Belgie") -> None:
         if self._resolve_client is not None:
             return
 
         async def resolve_client(client: Annotated[BelgieClient, Depends(belgie)]) -> GoogleOAuthClient:
             return GoogleOAuthClient(plugin=self, client=client)
 
-        resolve_client.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
@@ -169,7 +176,7 @@ class GoogleOAuthPlugin(PluginClient):
             ),
         )
 
-    async def exchange_code_for_tokens(self, code: str) -> dict:
+    async def exchange_code_for_tokens(self, code: str) -> TokenResponse:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -189,16 +196,16 @@ class GoogleOAuthPlugin(PluginClient):
                     msg = "missing required field in token response: access_token"
                     raise OAuthError(msg)
 
-                return {
-                    "access_token": tokens["access_token"],
-                    "token_type": tokens.get("token_type"),
-                    "refresh_token": tokens.get("refresh_token"),
-                    "scope": tokens.get("scope"),
-                    "id_token": tokens.get("id_token"),
-                    "expires_at": (
+                return TokenResponse(
+                    access_token=tokens["access_token"],
+                    token_type=tokens.get("token_type"),
+                    refresh_token=tokens.get("refresh_token"),
+                    scope=tokens.get("scope"),
+                    id_token=tokens.get("id_token"),
+                    expires_at=(
                         datetime.now(UTC) + timedelta(seconds=tokens["expires_in"]) if "expires_in" in tokens else None
                     ),
-                }
+                )
         except httpx.HTTPStatusError as e:
             error_detail = ""
             try:
@@ -237,13 +244,14 @@ class GoogleOAuthPlugin(PluginClient):
             msg = "user info request failed"
             raise OAuthError(msg) from e
 
-    def router(self, belgie: Belgie) -> APIRouter:
+    def router(self, belgie: "Belgie") -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         router = APIRouter(prefix=f"/provider/{self.provider_id}", tags=["auth", "oauth"])
 
+        @router.get("/callback")
         async def callback(
-            code: str,
-            state: str,
+            code: Annotated[str, Query(min_length=1)],
+            state: Annotated[str, Query(min_length=1)],
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> RedirectResponse:
@@ -254,7 +262,7 @@ class GoogleOAuthPlugin(PluginClient):
             await client.adapter.delete_oauth_state(client.db, state)
 
             tokens = await self.exchange_code_for_tokens(code)
-            user_info = await self.get_user_info(tokens["access_token"])
+            user_info = await self.get_user_info(tokens.access_token)
 
             individual, session = await client.sign_up(
                 user_info.email,
@@ -268,12 +276,12 @@ class GoogleOAuthPlugin(PluginClient):
                 individual_id=individual.id,
                 provider=self.provider_id,
                 provider_account_id=user_info.id,
-                access_token=tokens["access_token"],
-                refresh_token=tokens.get("refresh_token"),
-                expires_at=tokens.get("expires_at"),
-                scope=tokens.get("scope"),
-                token_type=tokens.get("token_type"),
-                id_token=tokens.get("id_token"),
+                access_token=tokens.access_token,
+                refresh_token=tokens.refresh_token,
+                expires_at=tokens.expires_at,
+                scope=tokens.scope,
+                token_type=tokens.token_type,
+                id_token=tokens.id_token,
             )
             await belgie.after_authenticate(
                 client=client,
@@ -291,16 +299,13 @@ class GoogleOAuthPlugin(PluginClient):
 
             response = RedirectResponse(
                 url=oauth_state.redirect_url or belgie.settings.urls.signin_redirect,
-                status_code=302,
+                status_code=status.HTTP_302_FOUND,
             )
             return client.create_session_cookie(session, response)
 
-        callback.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
-        router.add_api_route("/callback", callback, methods=["GET"])
-
         return router
 
-    def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+    def public(self, belgie: "Belgie") -> APIRouter:  # noqa: ARG002
         return APIRouter()
 
 

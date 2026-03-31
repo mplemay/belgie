@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import base64
 import binascii
 import hashlib
@@ -7,19 +5,25 @@ import hmac
 import inspect
 import secrets
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Annotated, Any, Protocol
+from datetime import datetime
+from typing import TYPE_CHECKING, Annotated, Protocol
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
 import jwt
+from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
+from belgie_core.core.exceptions import OAuthError
 from belgie_core.core.plugin import PluginClient
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from belgie_core.core.settings import BelgieSettings
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
 from jwt import InvalidTokenError
 from pydantic import AnyUrl, ValidationError
+from starlette.datastructures import FormData
 
 from belgie_oauth_server.client import OAuthLoginIntent, OAuthServerClient
 from belgie_oauth_server.metadata import (
@@ -37,30 +41,35 @@ from belgie_oauth_server.models import (
     InvalidScopeError,
     OAuthClientInformationFull,
     OAuthClientMetadata,
+    OAuthErrorResponse,
+    OAuthIntrospectionResponse,
     OAuthMetadata,
+    OAuthToken,
     OIDCMetadata,
+    ProtectedResourceMetadata,
+    UserInfoResponse,
 )
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
+from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge, join_url
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine, Mapping
-    from datetime import datetime
-
-    from belgie_core.core.belgie import Belgie
-    from belgie_core.core.settings import BelgieSettings
-
-    from belgie_oauth_server.settings import OAuthServer
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
 REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
+BEARER_TOKEN_TYPE = "Bearer"  # noqa: S105
+REFRESH_TOKEN_TYPE = "refresh_token"  # noqa: S105
+type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
+type FormValue = str | UploadFile
+type FormInput = Mapping[str, FormValue] | FormData
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _TokenHandlerContext:
     client: BelgieClient
-    form: Mapping[str, Any]
+    form: FormInput
     provider: SimpleOAuthProvider
     settings: OAuthServer
     belgie_base_url: str
@@ -89,8 +98,7 @@ class OAuthServerPlugin(PluginClient):
         if self._resolve_client is not None:
             return
 
-        async def resolve_client(client: BelgieClient = Depends(belgie)) -> OAuthServerClient:  # noqa: B008
-            _ = client
+        async def resolve_client(_client: Annotated[BelgieClient, Depends(belgie)]) -> OAuthServerClient:
             return OAuthServerClient(provider=provider, issuer_url=issuer_url)
 
         self._resolve_client = resolve_client
@@ -144,20 +152,31 @@ class OAuthServerPlugin(PluginClient):
 
         router = APIRouter(tags=["oauth"])
 
-        async def metadata_handler(_: Request) -> Response:
-            return JSONResponse(metadata.model_dump(mode="json"))
+        async def metadata_handler(_: Request) -> OAuthMetadata:
+            return metadata
 
-        async def openid_metadata_handler(_: Request) -> Response:
-            return JSONResponse(openid_metadata.model_dump(mode="json"))
+        async def openid_metadata_handler(_: Request) -> OIDCMetadata:
+            return openid_metadata
 
-        router.add_api_route(well_known_path, metadata_handler, methods=["GET"])
-        router.add_api_route(openid_well_known_path, openid_metadata_handler, methods=["GET"])
+        router.add_api_route(
+            well_known_path,
+            metadata_handler,
+            methods=["GET"],
+            response_model=OAuthMetadata,
+        )
+        router.add_api_route(
+            openid_well_known_path,
+            openid_metadata_handler,
+            methods=["GET"],
+            response_model=OIDCMetadata,
+        )
 
         if self._settings.include_root_oauth_metadata_fallback and well_known_path != _ROOT_OAUTH_METADATA_PATH:
             router.add_api_route(
                 _ROOT_OAUTH_METADATA_PATH,
                 metadata_handler,
                 methods=["GET"],
+                response_model=OAuthMetadata,
             )
 
         if (
@@ -168,6 +187,7 @@ class OAuthServerPlugin(PluginClient):
                 _ROOT_OPENID_METADATA_PATH,
                 openid_metadata_handler,
                 methods=["GET"],
+                response_model=OIDCMetadata,
             )
 
         resolved_resource = self._settings.resolve_resource(belgie.settings.base_url)
@@ -182,13 +202,14 @@ class OAuthServerPlugin(PluginClient):
                 resource_url,
             )
 
-            async def protected_resource_metadata_handler(_: Request) -> Response:
-                return JSONResponse(protected_resource_metadata.model_dump(mode="json"))
+            async def protected_resource_metadata_handler(_: Request) -> "ProtectedResourceMetadata":
+                return protected_resource_metadata
 
             router.add_api_route(
                 protected_resource_well_known_path,
                 protected_resource_metadata_handler,
                 methods=["GET"],
+                response_model=ProtectedResourceMetadata,
             )
 
             if (
@@ -199,6 +220,7 @@ class OAuthServerPlugin(PluginClient):
                     _ROOT_RESOURCE_METADATA_PATH,
                     protected_resource_metadata_handler,
                     methods=["GET"],
+                    response_model=ProtectedResourceMetadata,
                 )
 
         return router
@@ -210,25 +232,27 @@ class OAuthServerPlugin(PluginClient):
 
     @staticmethod
     def _add_metadata_route(router: APIRouter, metadata: OAuthMetadata) -> APIRouter:
-        async def metadata_handler(_: Request) -> Response:
-            return JSONResponse(metadata.model_dump(mode="json"))
+        async def metadata_handler(_: Request) -> OAuthMetadata:
+            return metadata
 
         router.add_api_route(
             "/.well-known/oauth-authorization-server",
             metadata_handler,
             methods=["GET"],
+            response_model=OAuthMetadata,
         )
         return router
 
     @staticmethod
     def _add_openid_metadata_route(router: APIRouter, metadata: OIDCMetadata) -> APIRouter:
-        async def metadata_handler(_: Request) -> Response:
-            return JSONResponse(metadata.model_dump(mode="json"))
+        async def metadata_handler(_: Request) -> OIDCMetadata:
+            return metadata
 
         router.add_api_route(
             "/.well-known/openid-configuration",
             metadata_handler,
             methods=["GET"],
+            response_model=OIDCMetadata,
         )
         return router
 
@@ -288,8 +312,6 @@ class OAuthServerPlugin(PluginClient):
         ) -> Response:
             return await _authorize(request, client)
 
-        authorize_get_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
-        authorize_post_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/authorize", authorize_get_handler, methods=["GET"])
         router.add_api_route("/authorize", authorize_post_handler, methods=["POST"])
         return router
@@ -306,7 +328,7 @@ class OAuthServerPlugin(PluginClient):
         async def token_handler(
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
-        ) -> Response:
+        ) -> OAuthToken | Response:
             form = await request.form()
             grant_type = _get_str(form, "grant_type")
             client_id, client_secret, auth_error = _extract_client_credentials(request, form)
@@ -336,8 +358,7 @@ class OAuthServerPlugin(PluginClient):
 
             return _oauth_error("unsupported_grant_type", status_code=400)
 
-        token_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
-        router.add_api_route("/token", token_handler, methods=["POST"])
+        router.add_api_route("/token", token_handler, methods=["POST"], response_model=OAuthToken)
         return router
 
     @staticmethod
@@ -350,7 +371,7 @@ class OAuthServerPlugin(PluginClient):
         async def register_handler(
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
-        ) -> Response:
+        ) -> OAuthClientInformationFull | Response:
             if not settings.allow_dynamic_client_registration:
                 return _oauth_error(
                     "access_denied",
@@ -391,15 +412,14 @@ class OAuthServerPlugin(PluginClient):
             except ValueError as exc:
                 description = str(exc) or "invalid client metadata"
                 return _oauth_error("invalid_request", description, status_code=400)
-            return JSONResponse(client_info.model_dump(mode="json"))
+            return client_info
 
-        register_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
-        router.add_api_route("/register", register_handler, methods=["POST"])
+        router.add_api_route("/register", register_handler, methods=["POST"], response_model=OAuthClientInformationFull)
         return router
 
     @staticmethod
     def _add_revoke_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:  # noqa: C901
-        async def revoke_handler(request: Request) -> Response:  # noqa: C901
+        async def revoke_handler(request: Request) -> Response:  # noqa: C901, PLR0911
             form = await request.form()
             client_id, client_secret, auth_error = _extract_client_credentials(request, form)
             if auth_error is not None:
@@ -414,6 +434,8 @@ class OAuthServerPlugin(PluginClient):
             )
             if error is not None:
                 return error
+            if oauth_client is None:
+                return _oauth_error("invalid_client", status_code=401)
 
             token: str | None = _get_str(form, "token")
             if not token:
@@ -446,7 +468,7 @@ class OAuthServerPlugin(PluginClient):
         async def userinfo_handler(  # noqa: PLR0911
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
-        ) -> Response:
+        ) -> UserInfoResponse | Response:
             authorization = request.headers.get("authorization")
             if not authorization:
                 return _oauth_error("invalid_token", "authorization header not found", status_code=401)
@@ -474,10 +496,15 @@ class OAuthServerPlugin(PluginClient):
             if user is None:
                 return _oauth_error("invalid_request", "user not found", status_code=400)
 
-            return JSONResponse(_build_user_claims(user, access_token.scopes))
+            return UserInfoResponse.model_validate(_build_user_claims(user, access_token.scopes))
 
-        userinfo_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
-        router.add_api_route("/userinfo", userinfo_handler, methods=["GET"])
+        router.add_api_route(
+            "/userinfo",
+            userinfo_handler,
+            methods=["GET"],
+            response_model=UserInfoResponse,
+            response_model_exclude_none=True,
+        )
         return router
 
     @staticmethod
@@ -553,7 +580,6 @@ class OAuthServerPlugin(PluginClient):
 
             return JSONResponse({})
 
-        end_session_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/end-session", end_session_handler, methods=["GET"])
         return router
 
@@ -623,13 +649,12 @@ class OAuthServerPlugin(PluginClient):
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
-        login_callback_handler.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         router.add_api_route("/login/callback", login_callback_handler, methods=["GET"])
         return router
 
     @staticmethod
     def _add_introspect_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:  # noqa: C901
-        async def introspect_handler(request: Request) -> Response:  # noqa: C901, PLR0911
+        async def introspect_handler(request: Request) -> OAuthIntrospectionResponse | Response:  # noqa: C901, PLR0911
             form = await request.form()
             client_id, client_secret, auth_error = _extract_client_credentials(request, form)
             if auth_error is not None:
@@ -644,10 +669,15 @@ class OAuthServerPlugin(PluginClient):
             )
             if error is not None:
                 return error
+            if oauth_client is None:
+                return _oauth_error("invalid_client", status_code=401)
 
             token = _get_str(form, "token")
             if not token:
-                return JSONResponse({"active": False}, status_code=400)
+                return JSONResponse(
+                    OAuthIntrospectionResponse(active=False).model_dump(mode="json"),
+                    status_code=400,
+                )
             if token.startswith("Bearer "):
                 token = token.removeprefix("Bearer ")
 
@@ -658,38 +688,40 @@ class OAuthServerPlugin(PluginClient):
             if token_type_hint in {None, ACCESS_TOKEN_HINT}:
                 access_token = await provider.load_access_token(token)
                 if access_token and access_token.client_id == oauth_client.client_id:
-                    payload: dict[str, Any] = {
-                        "active": True,
-                        "client_id": access_token.client_id,
-                        "scope": " ".join(access_token.scopes),
-                        "exp": access_token.expires_at,
-                        "iat": access_token.created_at,
-                        "token_type": "Bearer",
-                    }
-                    if access_token.resource is not None:
-                        payload["aud"] = access_token.resource
-                    return JSONResponse(payload)
+                    return OAuthIntrospectionResponse(
+                        active=True,
+                        client_id=access_token.client_id,
+                        scope=" ".join(access_token.scopes),
+                        exp=access_token.expires_at,
+                        iat=access_token.created_at,
+                        token_type=BEARER_TOKEN_TYPE,
+                        aud=access_token.resource,
+                    )
                 if token_type_hint == ACCESS_TOKEN_HINT:
-                    return JSONResponse({"active": False})
+                    return OAuthIntrospectionResponse(active=False)
 
             if token_type_hint in {None, REFRESH_TOKEN_HINT}:
                 refresh_token = await provider.load_refresh_token(token)
                 if refresh_token and refresh_token.client_id == oauth_client.client_id:
-                    payload: dict[str, Any] = {
-                        "active": True,
-                        "client_id": refresh_token.client_id,
-                        "scope": " ".join(refresh_token.scopes),
-                        "exp": refresh_token.expires_at,
-                        "iat": refresh_token.created_at,
-                        "token_type": "refresh_token",
-                    }
-                    if refresh_token.resource is not None:
-                        payload["aud"] = refresh_token.resource
-                    return JSONResponse(payload)
+                    return OAuthIntrospectionResponse(
+                        active=True,
+                        client_id=refresh_token.client_id,
+                        scope=" ".join(refresh_token.scopes),
+                        exp=refresh_token.expires_at,
+                        iat=refresh_token.created_at,
+                        token_type=REFRESH_TOKEN_TYPE,
+                        aud=refresh_token.resource,
+                    )
 
-            return JSONResponse({"active": False})
+            return OAuthIntrospectionResponse(active=False)
 
-        router.add_api_route("/introspect", introspect_handler, methods=["POST"])
+        router.add_api_route(
+            "/introspect",
+            introspect_handler,
+            methods=["POST"],
+            response_model=OAuthIntrospectionResponse,
+            response_model_exclude_none=True,
+        )
         return router
 
 
@@ -858,10 +890,13 @@ def _resolve_redirect_url(belgie_base_url: str, redirect_url: str) -> str:
 
 
 def _oauth_error(error: str, description: str | None = None, status_code: int = 400) -> JSONResponse:
-    payload: dict[str, Any] = {"error": error}
-    if description:
-        payload["error_description"] = description
-    return JSONResponse(payload, status_code=status_code)
+    return JSONResponse(
+        OAuthErrorResponse(
+            error=error,
+            error_description=description,
+        ).model_dump(mode="json", exclude_none=True),
+        status_code=status_code,
+    )
 
 
 def _format_validation_error(error: ValidationError) -> str:
@@ -879,10 +914,11 @@ def _format_validation_error(error: ValidationError) -> str:
 async def _get_request_params(request: Request) -> dict[str, str]:
     if request.method == "GET":
         return dict(request.query_params)
-    return dict(await request.form())
+    form = await request.form()
+    return {key: value for key, value in form.items() if isinstance(value, str)}
 
 
-def _get_str(data: Mapping[str, Any], key: str) -> str | None:
+def _get_str(data: FormInput, key: str) -> str | None:
     value = data.get(key)
     if isinstance(value, str):
         return value
@@ -891,7 +927,7 @@ def _get_str(data: Mapping[str, Any], key: str) -> str | None:
 
 def _extract_client_credentials(
     request: Request,
-    form: Mapping[str, Any],
+    form: FormInput,
 ) -> tuple[str | None, str | None, JSONResponse | None]:
     client_id = _get_str(form, "client_id")
     client_secret = _get_str(form, "client_secret")
@@ -956,7 +992,7 @@ async def _authenticate_client(  # noqa: PLR0911
     return oauth_client, None
 
 
-async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> Response:  # noqa: C901, PLR0911
+async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> OAuthToken | Response:  # noqa: C901, PLR0911
     oauth_client, error = await _authenticate_client(
         ctx.provider,
         ctx.client_id,
@@ -964,6 +1000,8 @@ async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> Respons
     )
     if error is not None:
         return error
+    if oauth_client is None:
+        return _oauth_error("invalid_client", status_code=401)
 
     code = _get_str(ctx.form, "code")
     if not code:
@@ -1013,22 +1051,25 @@ async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> Respons
             scopes=authorization_code.scopes,
         ),
     )
-    token_payload = token.model_dump()
-    token_payload["id_token"] = await _maybe_build_id_token(
-        ctx.client,
-        ctx.settings,
-        ctx.issuer_url,
-        oauth_client,
-        fallback_signing_secret=ctx.fallback_signing_secret,
-        scopes=authorization_code.scopes,
-        individual_id=authorization_code.individual_id,
-        nonce=authorization_code.nonce,
-        session_id=authorization_code.session_id,
+    return OAuthToken.model_validate(
+        {
+            **token.model_dump(),
+            "id_token": await _maybe_build_id_token(
+                ctx.client,
+                ctx.settings,
+                ctx.issuer_url,
+                oauth_client,
+                fallback_signing_secret=ctx.fallback_signing_secret,
+                scopes=authorization_code.scopes,
+                individual_id=authorization_code.individual_id,
+                nonce=authorization_code.nonce,
+                session_id=authorization_code.session_id,
+            ),
+        },
     )
-    return JSONResponse(token_payload)
 
 
-async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> Response:  # noqa: C901, PLR0911
+async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> OAuthToken | Response:  # noqa: C901, PLR0911
     oauth_client, error = await _authenticate_client(
         ctx.provider,
         ctx.client_id,
@@ -1036,6 +1077,8 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> Response:  #
     )
     if error is not None:
         return error
+    if oauth_client is None:
+        return _oauth_error("invalid_client", status_code=401)
 
     refresh_token_value = _get_str(ctx.form, "refresh_token")
     if not refresh_token_value:
@@ -1091,21 +1134,24 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> Response:  #
     except ValueError as exc:
         return _oauth_error("invalid_grant", str(exc), status_code=400)
 
-    token_payload = token.model_dump()
-    token_payload["id_token"] = await _maybe_build_id_token(
-        ctx.client,
-        ctx.settings,
-        ctx.issuer_url,
-        oauth_client,
-        fallback_signing_secret=ctx.fallback_signing_secret,
-        scopes=scopes,
-        individual_id=refresh_token.individual_id,
-        session_id=refresh_token.session_id,
+    return OAuthToken.model_validate(
+        {
+            **token.model_dump(),
+            "id_token": await _maybe_build_id_token(
+                ctx.client,
+                ctx.settings,
+                ctx.issuer_url,
+                oauth_client,
+                fallback_signing_secret=ctx.fallback_signing_secret,
+                scopes=scopes,
+                individual_id=refresh_token.individual_id,
+                session_id=refresh_token.session_id,
+            ),
+        },
     )
-    return JSONResponse(token_payload)
 
 
-async def _handle_client_credentials_grant(ctx: _TokenHandlerContext) -> Response:
+async def _handle_client_credentials_grant(ctx: _TokenHandlerContext) -> OAuthToken | Response:  # noqa: PLR0911
     oauth_client, error = await _authenticate_client(
         ctx.provider,
         ctx.client_id,
@@ -1114,6 +1160,10 @@ async def _handle_client_credentials_grant(ctx: _TokenHandlerContext) -> Respons
     )
     if error is not None:
         return error
+    if oauth_client is None:
+        return _oauth_error("invalid_client", status_code=401)
+    if oauth_client.client_id is None:
+        return _oauth_error("invalid_client", status_code=401)
 
     requested_scopes = _parse_scope_param(_get_str(ctx.form, "scope"))
     if requested_scopes is not None and not requested_scopes:
@@ -1142,7 +1192,7 @@ async def _handle_client_credentials_grant(ctx: _TokenHandlerContext) -> Respons
             scopes=scopes,
         ),
     )
-    return JSONResponse(token.model_dump())
+    return OAuthToken.model_validate(token.model_dump())
 
 
 def _parse_scope_param(scope: str | None) -> list[str] | None:
@@ -1156,7 +1206,7 @@ def _parse_scope_param(scope: str | None) -> list[str] | None:
     return deduped
 
 
-def _parse_token_type_hint(form: Mapping[str, Any]) -> tuple[str | None, JSONResponse | None]:
+def _parse_token_type_hint(form: FormInput) -> tuple[str | None, JSONResponse | None]:
     token_type_hint = _get_str(form, "token_type_hint")
     if token_type_hint is None:
         return None, None
@@ -1166,27 +1216,25 @@ def _parse_token_type_hint(form: Mapping[str, Any]) -> tuple[str | None, JSONRes
 
 
 class _UserClaimsSource(Protocol):
-    id: Any
+    id: UUID | str
     name: str | None
     image: str | None
     email: str
     email_verified_at: datetime | None
 
 
-def _build_user_claims(user: _UserClaimsSource, scopes: list[str]) -> dict[str, Any]:
+def _build_user_claims(user: _UserClaimsSource, scopes: list[str]) -> dict[str, str | bool]:
     name_parts = [value for value in (user.name or "").split(" ") if value]
-    payload: dict[str, Any] = {"sub": str(user.id)}
+    payload: dict[str, str | bool] = {"sub": str(user.id)}
 
     if "profile" in scopes:
-        payload.update(
-            {
-                "name": user.name or None,
-                "picture": user.image or None,
-                "given_name": " ".join(name_parts[:-1]) if len(name_parts) > 1 else None,
-                "family_name": name_parts[-1] if len(name_parts) > 1 else None,
-            },
-        )
-        payload = {key: value for key, value in payload.items() if value is not None}
+        if user.name is not None:
+            payload["name"] = user.name
+        if user.image is not None:
+            payload["picture"] = user.image
+        if len(name_parts) > 1:
+            payload["given_name"] = " ".join(name_parts[:-1])
+            payload["family_name"] = name_parts[-1]
 
     if "email" in scopes:
         payload["email"] = user.email
@@ -1245,7 +1293,10 @@ def _build_id_token(  # noqa: PLR0913
     session_id: str | None,
 ) -> str:
     now = int(time.time())
-    payload: dict[str, Any] = {
+    if oauth_client.client_id is None:
+        msg = "registered client is missing client_id"
+        raise OAuthError(msg)
+    payload: dict[str, str | int | bool] = {
         **_build_user_claims(user, scopes),
         "iss": issuer_url,
         "sub": str(user.id),
@@ -1341,7 +1392,7 @@ def _build_access_token_audience(
     return [base_resource, userinfo_audience]
 
 
-def _decode_unverified_jwt(token: str) -> dict[str, Any] | None:
+def _decode_unverified_jwt(token: str) -> dict[str, JSONValue] | None:
     try:
         payload = jwt.decode(
             token,
@@ -1360,15 +1411,15 @@ def _decode_unverified_jwt(token: str) -> dict[str, Any] | None:
     return payload
 
 
-def _aud_contains(aud: Any, value: str) -> bool:  # noqa: ANN401
+def _aud_contains(aud: JSONValue, value: str) -> bool:
     if isinstance(aud, str):
         return aud == value
     if isinstance(aud, list):
-        return value in aud
+        return any(entry == value for entry in aud if isinstance(entry, str))
     return False
 
 
-def _first_aud(aud: Any) -> str | None:  # noqa: ANN401
+def _first_aud(aud: JSONValue) -> str | None:
     if isinstance(aud, str):
         return aud
     if isinstance(aud, list) and aud:

@@ -212,12 +212,12 @@ async def test_exchange_code_for_tokens_success(microsoft_provider: MicrosoftOAu
 
     result = await microsoft_provider.exchange_code_for_tokens("test-code")
 
-    assert result["access_token"] == "ya29.test_access_token"  # noqa: S105
-    assert result["token_type"] == "Bearer"  # noqa: S105
-    assert result["scope"] == "openid profile email offline_access User.Read"
-    assert result["refresh_token"] == "1//test_refresh_token"  # noqa: S105
-    assert result["id_token"] == "eyJhbGciOi.test_id_token"  # noqa: S105
-    assert result["expires_at"] is not None
+    assert result.access_token == "ya29.test_access_token"  # noqa: S105
+    assert result.token_type == "Bearer"  # noqa: S105
+    assert result.scope == "openid profile email offline_access User.Read"
+    assert result.refresh_token == "1//test_refresh_token"  # noqa: S105
+    assert result.id_token == "eyJhbGciOi.test_id_token"  # noqa: S105
+    assert result.expires_at is not None
 
 
 @pytest.mark.asyncio

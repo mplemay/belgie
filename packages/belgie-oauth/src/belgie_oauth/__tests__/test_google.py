@@ -219,12 +219,12 @@ async def test_exchange_code_for_tokens_success(google_provider: GoogleOAuthPlug
 
     result = await google_provider.exchange_code_for_tokens("test-code")
 
-    assert result["access_token"] == "ya29.test_access_token"  # noqa: S105
-    assert result["token_type"] == "Bearer"  # noqa: S105
-    assert result["scope"] == "openid email profile"
-    assert result["refresh_token"] == "1//test_refresh_token"  # noqa: S105
-    assert result["id_token"] == "eyJhbGciOi.test_id_token"  # noqa: S105
-    assert result["expires_at"] is not None
+    assert result.access_token == "ya29.test_access_token"  # noqa: S105
+    assert result.token_type == "Bearer"  # noqa: S105
+    assert result.scope == "openid email profile"
+    assert result.refresh_token == "1//test_refresh_token"  # noqa: S105
+    assert result.id_token == "eyJhbGciOi.test_id_token"  # noqa: S105
+    assert result.expires_at is not None
 
 
 @pytest.mark.asyncio
@@ -303,8 +303,8 @@ async def test_exchange_code_for_tokens_without_refresh_token(google_provider: G
 
     result = await google_provider.exchange_code_for_tokens("test-code")
 
-    assert result["access_token"] == "ya29.test_access_token"  # noqa: S105
-    assert result["refresh_token"] is None
+    assert result.access_token == "ya29.test_access_token"  # noqa: S105
+    assert result.refresh_token is None
 
 
 # Individual Info Fetch Error Handling Tests
@@ -461,12 +461,12 @@ async def test_complete_oauth_flow_new_user(google_provider: GoogleOAuthPlugin) 
 
     # Execute the flow
     tokens = await google_provider.exchange_code_for_tokens("test-auth-code")
-    user_info = await google_provider.get_user_info(tokens["access_token"])
+    user_info = await google_provider.get_user_info(tokens.access_token)
 
     # Verify token response
-    assert tokens["access_token"] == "ya29.test_access_token"  # noqa: S105
-    assert tokens["refresh_token"] == "1//test_refresh_token"  # noqa: S105
-    assert tokens["expires_at"] is not None
+    assert tokens.access_token == "ya29.test_access_token"  # noqa: S105
+    assert tokens.refresh_token == "1//test_refresh_token"  # noqa: S105
+    assert tokens.expires_at is not None
 
     # Verify user info
     assert user_info.id == "google-user-123"
@@ -500,12 +500,12 @@ async def test_complete_oauth_flow_minimal_response(google_provider: GoogleOAuth
 
     # Execute the flow
     tokens = await google_provider.exchange_code_for_tokens("test-code")
-    user_info = await google_provider.get_user_info(tokens["access_token"])
+    user_info = await google_provider.get_user_info(tokens.access_token)
 
     # Verify minimal token response
-    assert tokens["access_token"] == "ya29.minimal_token"  # noqa: S105
-    assert tokens["refresh_token"] is None
-    assert tokens["id_token"] is None
+    assert tokens.access_token == "ya29.minimal_token"  # noqa: S105
+    assert tokens.refresh_token is None
+    assert tokens.id_token is None
 
     # Verify minimal user info
     assert user_info.id == "google-minimal-123"
@@ -550,7 +550,7 @@ async def test_oauth_flow_user_info_fetch_fails_propagates_error(google_provider
 
     # Verify user info fetch fails
     with pytest.raises(OAuthError, match="failed to fetch user info: 401"):
-        await google_provider.get_user_info(tokens["access_token"])
+        await google_provider.get_user_info(tokens.access_token)
 
 
 @pytest.mark.asyncio
@@ -581,4 +581,4 @@ async def test_oauth_flow_network_error_during_user_info_fetch(google_provider: 
     tokens = await google_provider.exchange_code_for_tokens("test-code")
 
     with pytest.raises(OAuthError, match="user info request failed"):
-        await google_provider.get_user_info(tokens["access_token"])
+        await google_provider.get_user_info(tokens.access_token)

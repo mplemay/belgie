@@ -153,14 +153,14 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
         plugin,
         "exchange_code_for_tokens",
         AsyncMock(
-            return_value={
-                "access_token": "test-access-token",
-                "token_type": "Bearer",
-                "refresh_token": "test-refresh-token",
-                "scope": "openid email profile",
-                "id_token": "test-id-token",
-                "expires_at": None,
-            },
+            return_value=SimpleNamespace(
+                access_token="test-access-token",
+                token_type="Bearer",
+                refresh_token="test-refresh-token",
+                scope="openid email profile",
+                id_token="test-id-token",
+                expires_at=None,
+            ),
         ),
     )
     monkeypatch.setattr(
@@ -243,14 +243,14 @@ def test_callback_falls_back_to_signin_redirect(monkeypatch) -> None:
         plugin,
         "exchange_code_for_tokens",
         AsyncMock(
-            return_value={
-                "access_token": "test-access-token",
-                "token_type": "Bearer",
-                "refresh_token": "test-refresh-token",
-                "scope": "openid email profile",
-                "id_token": "test-id-token",
-                "expires_at": None,
-            },
+            return_value=SimpleNamespace(
+                access_token="test-access-token",
+                token_type="Bearer",
+                refresh_token="test-refresh-token",
+                scope="openid email profile",
+                id_token="test-id-token",
+                expires_at=None,
+            ),
         ),
     )
     monkeypatch.setattr(

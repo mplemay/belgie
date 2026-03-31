@@ -1,12 +1,11 @@
-from __future__ import annotations
-
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable  # noqa: TC003
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import suppress
 from inspect import signature
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 from uuid import UUID
 
+from belgie_proto.core import AdapterProtocol
 from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.individual import IndividualProtocol
@@ -14,17 +13,12 @@ from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
-from fastapi.security import SecurityScopes  # noqa: TC002
+from fastapi.security import SecurityScopes
 
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.plugin import AfterAuthenticateHook, AfterSignUpHook, AuthenticatedProfile, Plugin, PluginClient
+from belgie_core.core.settings import BelgieSettings
 from belgie_core.session.manager import SessionManager
-
-if TYPE_CHECKING:
-    from belgie_proto.core import AdapterProtocol
-
-    from belgie_core.core.settings import BelgieSettings
-
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +30,11 @@ class _BelgieCallable:
     callable with its own database dependency baked into the signature.
     """
 
-    def __get__(self, obj: Belgie | None, objtype: type | None = None) -> object:
+    def __call__(self, _db: DBConnection) -> BelgieClient:
+        msg = "_BelgieCallable is a descriptor and must be accessed through a Belgie instance"
+        raise RuntimeError(msg)
+
+    def __get__(self, obj: "Belgie | None", objtype: type | None = None) -> object:
         if obj is None:
             return self
 
@@ -53,7 +51,6 @@ class _BelgieCallable:
                 after_sign_up=obj.after_sign_up,
             )
 
-        __call__.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
         return __call__
 
 
@@ -108,15 +105,10 @@ class Belgie[
             if (plugin_router := plugin.router(self)) is not None:
                 main_router.include_router(plugin_router)
 
-        async def _get_db(db: Annotated[DBConnection, Depends(dependency)]) -> DBConnection:
-            return db
-
-        _get_db.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
-
         @main_router.post("/signout")
         async def signout(
             request: Request,
-            db: Annotated[DBConnection, Depends(_get_db)],
+            db: Annotated[DBConnection, Depends(dependency)],
         ) -> RedirectResponse:
             if session_id_str := request.cookies.get(self.settings.cookie.name):
                 with suppress(ValueError):
@@ -131,8 +123,6 @@ class Belgie[
                 domain=self.settings.cookie.domain,
             )
             return response
-
-        signout.__annotations__["db"] = Annotated[DBConnection, Depends(_get_db)]
 
         root_router = APIRouter()
         root_router.include_router(main_router)
@@ -230,7 +220,6 @@ class Belgie[
             client = self.__call__(db)
             return await client.get_individual(security_scopes, request)
 
-        _individual.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
         return _individual
 
     @property
@@ -244,5 +233,4 @@ class Belgie[
             client = self.__call__(db)
             return await client.get_session(request)
 
-        _session.__annotations__["db"] = Annotated[DBConnection, Depends(dependency)]
         return _session

@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 import inspect
 from importlib import import_module
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 from belgie_core.core.plugin import PluginClient
 from belgie_proto.organization.invitation import InvitationProtocol
@@ -31,15 +29,15 @@ class OrganizationPlugin[
 ](PluginClient):
     def __init__(
         self,
-        _belgie_settings: BelgieSettings,
-        settings: Organization[OrganizationT, MemberT, InvitationT],
+        _belgie_settings: "BelgieSettings",
+        settings: "Organization[OrganizationT, MemberT, InvitationT]",
     ) -> None:
         self._settings = settings
         self._resolve_client: (
             Callable[..., Awaitable[OrganizationClient[OrganizationT, MemberT, InvitationT]]] | None
         ) = None
 
-    def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
+    def _ensure_dependency_resolver(self, belgie: "Belgie") -> None:
         if self._resolve_client is not None:
             return
 
@@ -57,7 +55,7 @@ class OrganizationPlugin[
 
         async def resolve_client(
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated["BelgieClient", Depends(belgie)],
         ) -> OrganizationClient[OrganizationT, MemberT, InvitationT]:
             individual = await client.get_individual(SecurityScopes(), request)
             return OrganizationClient(
@@ -67,12 +65,11 @@ class OrganizationPlugin[
                 maximum_members_per_team=None if team_plugin is None else team_plugin.settings.maximum_members_per_team,
             )
 
-        resolve_client.__annotations__["request"] = Request
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
     @property
-    def settings(self) -> Organization[OrganizationT, MemberT, InvitationT]:
+    def settings(self) -> "Organization[OrganizationT, MemberT, InvitationT]":
         return self._settings
 
     async def __call__(
@@ -88,9 +85,9 @@ class OrganizationPlugin[
             raise RuntimeError(msg)
         return await self._resolve_client(*args, **kwargs)
 
-    def router(self, belgie: Belgie) -> APIRouter:
+    def router(self, belgie: "Belgie") -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         return APIRouter(tags=["organization"])
 
-    def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+    def public(self, belgie: "Belgie") -> APIRouter | None:  # noqa: ARG002
         return None

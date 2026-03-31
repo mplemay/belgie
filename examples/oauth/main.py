@@ -1,8 +1,10 @@
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from brussels.base import DataclassBase
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
+from pydantic import AnyUrl, BaseModel, SecretStr
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -38,6 +40,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await conn.run_sync(DataclassBase.metadata.create_all)
     yield
     await engine.dispose()
+
+
+class HomeResponse(BaseModel):
+    message: str
+    metadata: str
+    authorize: str
+    login: str
+    token_endpoint: str
+    introspect: str
+    client_callback: str
+
+
+class ClientCallbackResponse(BaseModel):
+    code: str | None
+    state: str | None
 
 
 app = FastAPI(title="Belgie OAuth Server Example", lifespan=lifespan)
@@ -77,8 +94,8 @@ belgie = Belgie(
 oauth_settings = OAuthServer(
     prefix="/oauth",
     client_id="demo-client",
-    client_secret="demo-secret",  # noqa: S106
-    redirect_uris=["http://localhost:8000/client/callback"],
+    client_secret=SecretStr("demo-secret"),
+    redirect_uris=[AnyUrl("http://localhost:8000/client/callback")],
     default_scope="user",
 )
 
@@ -88,27 +105,26 @@ app.include_router(belgie.router)
 
 
 @app.get("/")
-async def home() -> dict[str, str]:
-    return {
-        "message": "belgie oauth server example",
-        "metadata": "/auth/oauth/.well-known/oauth-authorization-server",
-        "authorize": "/auth/oauth/authorize",
-        "login": "/auth/oauth/login",
-        "token": "/auth/oauth/token",
-        "introspect": "/auth/oauth/introspect",
-        "client_callback": "/client/callback",
-    }
+async def home() -> HomeResponse:
+    return HomeResponse.model_validate(
+        {
+            "message": "belgie oauth server example",
+            "metadata": "/auth/oauth/.well-known/oauth-authorization-server",
+            "authorize": "/auth/oauth/authorize",
+            "login": "/auth/oauth/login",
+            "token_endpoint": "/auth/oauth/token",
+            "introspect": "/auth/oauth/introspect",
+            "client_callback": "/client/callback",
+        },
+    )
 
 
 @app.get("/client/callback")
 async def client_callback(
-    code: str | None = None,
-    state: str | None = None,
-) -> dict[str, str | None]:
-    return {
-        "code": code,
-        "state": state,
-    }
+    code: Annotated[str | None, Query()] = None,
+    state: Annotated[str | None, Query()] = None,
+) -> ClientCallbackResponse:
+    return ClientCallbackResponse(code=code, state=state)
 
 
 if __name__ == "__main__":
