@@ -60,6 +60,7 @@ Optional extras: `alchemy`, `mcp`, `oauth`, `oauth-client`, `organization`, `sso
 - **[oauth](examples/oauth/README.md):** OAuth-focused example application.
 - **[oauth_server_custom_pages](examples/oauth_server_custom_pages/README.md):** OAuth server flow with app-owned pages.
 - **[organization_team](examples/organization_team/README.md):** End-to-end organization and team example.
+- **[stripe](examples/stripe/README.md):** Local sign-in plus Stripe Checkout, billing portal, and webhook-backed sync.
 - **[mcp](examples/mcp/README.md):** MCP integration example.
 - **[oauth_client_plugin](examples/oauth_client_plugin/README.md):** Client plugin example for OAuth-driven flows.
 
