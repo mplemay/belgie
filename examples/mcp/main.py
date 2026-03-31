@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
 
 
-class Customer(DataclassBase, CustomerMixin):
+class Customer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
     pass
 
 

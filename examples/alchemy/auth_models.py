@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from belgie.alchemy.mixins import AccountMixin, CustomerMixin, IndividualMixin, OAuthStateMixin, SessionMixin
 
 
-class Customer(DataclassBase, CustomerMixin):
+class Customer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
     pass
 
 

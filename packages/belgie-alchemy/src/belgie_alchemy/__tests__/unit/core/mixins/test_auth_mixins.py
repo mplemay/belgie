@@ -58,6 +58,7 @@ def test_fixture_models_use_auth_mixins() -> None:
 
 def test_belgie_mixins_are_domain_only() -> None:
     for mixin in (
+        CustomerMixin,
         IndividualMixin,
         AccountMixin,
         SessionMixin,
@@ -74,6 +75,7 @@ def test_belgie_mixins_are_domain_only() -> None:
 
 def test_fixture_models_compose_brussels_mixins_explicitly() -> None:
     for model in (
+        Customer,
         Individual,
         Account,
         Session,
@@ -86,6 +88,20 @@ def test_fixture_models_compose_brussels_mixins_explicitly() -> None:
     ):
         assert issubclass(model, PrimaryKeyMixin)
         assert issubclass(model, TimestampMixin)
+
+
+def test_customer_hierarchy_keeps_timestamps_on_root_table() -> None:
+    assert "created_at" in Customer.__table__.c
+    assert "updated_at" in Customer.__table__.c
+    assert "deleted_at" in Customer.__table__.c
+
+    for model in (Individual, Organization, Team):
+        assert hasattr(model, "created_at")
+        assert hasattr(model, "updated_at")
+        assert hasattr(model, "deleted_at")
+        assert "created_at" not in model.__table__.c
+        assert "updated_at" not in model.__table__.c
+        assert "deleted_at" not in model.__table__.c
 
 
 def test_default_tablenames() -> None:
@@ -247,7 +263,7 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
 
 
 def test_mixins_support_relationship_and_tablename_overrides() -> None:
-    class CustomCustomer(DataclassBase, CustomerMixin):
+    class CustomCustomer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
         __tablename__ = "custom_customers"
 
     class CustomIndividual(IndividualMixin, CustomCustomer):
@@ -345,7 +361,7 @@ def test_individual_mixin_scopes_support_enum_array_override() -> None:
     session_table = f"enum_scope_session_{suffix}"
     oauth_state_table = f"enum_scope_oauth_state_{suffix}"
 
-    class EnumScopedCustomer(DataclassBase, CustomerMixin):
+    class EnumScopedCustomer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
         __tablename__ = customer_table
 
     class EnumScopedIndividual(IndividualMixin, EnumScopedCustomer):
@@ -477,7 +493,7 @@ def _create_citext_model_classes(
     session_table = f"citext_session_{suffix}"
     oauth_state_table = f"citext_oauth_state_{suffix}"
 
-    class CitextCustomer(DataclassBase, CustomerMixin):
+    class CitextCustomer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
         __tablename__ = customer_table
 
     class CitextIndividual(IndividualMixin, CitextCustomer):

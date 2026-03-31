@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from uuid import UUID, uuid4
+from uuid import UUID  # noqa: TC003
 
 from belgie_proto.core.customer import CustomerType
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
+
+from belgie_alchemy.core.mixins import _customer_pk_uuid
 
 
 @declarative_mixin
@@ -16,8 +18,8 @@ class TeamMixin(MappedAsDataclass):
         return mapped_column(
             ForeignKey("customer.id", ondelete="cascade", onupdate="cascade"),
             primary_key=True,
-            default_factory=uuid4,
-            insert_default=uuid4,
+            default_factory=_customer_pk_uuid,
+            insert_default=_customer_pk_uuid,
             init=False,
         )
 

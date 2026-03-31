@@ -5,6 +5,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie_alchemy.__tests__.fixtures.core.models import Individual
+from belgie_alchemy.__tests__.fixtures.organization.models import Organization
+from belgie_alchemy.__tests__.fixtures.team.models import Team
 
 
 def test_primary_key_mixin_defaults() -> None:
@@ -78,3 +80,38 @@ def test_mark_deleted_sets_timestamp() -> None:
     assert user.deleted_at is None
     user.mark_deleted()
     assert user.deleted_at is not None
+
+
+def test_customer_subclasses_expose_inherited_timestamps() -> None:
+    organization = Organization(name="Acme", slug="acme")
+    team = Team(name="Platform", organization_id=organization.id)
+
+    for customer in (organization, team):
+        assert customer.created_at is not None
+        assert customer.updated_at is not None
+        assert customer.deleted_at is None
+
+
+def test_joined_customer_subclasses_generate_client_side_ids() -> None:
+    organization = Organization(name="Acme", slug="acme")
+    team = Team(name="Platform", organization_id=organization.id)
+
+    assert isinstance(organization.id, UUID)
+    assert isinstance(team.id, UUID)
+    assert organization.id != team.id
+
+
+@pytest.mark.asyncio
+async def test_joined_customer_subclasses_persist_client_generated_uuid(alchemy_session: AsyncSession) -> None:
+    organization = Organization(name="Acme", slug="acme")
+    team = Team(name="Platform", organization_id=organization.id)
+    original_organization_id = organization.id
+    original_team_id = team.id
+
+    alchemy_session.add_all([organization, team])
+    await alchemy_session.commit()
+    await alchemy_session.refresh(organization)
+    await alchemy_session.refresh(team)
+
+    assert organization.id == original_organization_id
+    assert team.id == original_team_id

@@ -10,7 +10,7 @@ from belgie_alchemy.core.mixins import AccountMixin, CustomerMixin, IndividualMi
 from belgie_alchemy.stripe.mixins import StripeCustomerMixin
 
 
-class Customer(DataclassBase, CustomerMixin, StripeCustomerMixin):
+class Customer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin, StripeCustomerMixin):
     pass
 
 

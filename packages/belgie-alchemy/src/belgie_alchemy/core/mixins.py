@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime  # noqa: TC003
 from typing import Final
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from belgie_proto.core.customer import CustomerType
-from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC
 from sqlalchemy import JSON, Enum, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT
@@ -13,19 +13,15 @@ from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declare
 
 CustomerEnum: Final[Enum] = Enum(CustomerType, name="customer_type", native_enum=False)
 
+if sys.version_info >= (3, 14):
+    from uuid import uuid7 as _customer_pk_uuid
+else:
+    from uuid import uuid4 as _customer_pk_uuid
+
 
 @declarative_mixin
-class CustomerMixin(PrimaryKeyMixin, TimestampMixin):
+class CustomerMixin(MappedAsDataclass):
     __tablename__ = "customer"
-
-    @declared_attr
-    def id(self) -> Mapped[UUID]:
-        return mapped_column(
-            primary_key=True,
-            default_factory=uuid4,
-            insert_default=uuid4,
-            init=False,
-        )
 
     @declared_attr
     def customer_type(self) -> Mapped[CustomerType]:
@@ -53,8 +49,8 @@ class IndividualMixin(MappedAsDataclass):
         return mapped_column(
             ForeignKey("customer.id", ondelete="cascade", onupdate="cascade"),
             primary_key=True,
-            default_factory=uuid4,
-            insert_default=uuid4,
+            default_factory=_customer_pk_uuid,
+            insert_default=_customer_pk_uuid,
             init=False,
         )
 

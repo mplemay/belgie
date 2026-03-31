@@ -14,7 +14,7 @@ from belgie.alchemy.mixins import (
 )
 
 
-class Customer(DataclassBase, CustomerMixin, StripeCustomerMixin):
+class Customer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin, StripeCustomerMixin):
     pass
 
 
