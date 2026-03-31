@@ -1,23 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
+from typing import Final
 from uuid import UUID, uuid4
 
 from belgie_proto.core.customer import CustomerType
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC
-from sqlalchemy import JSON, Enum as SAEnum, ForeignKey, Index, Text, UniqueConstraint
+from sqlalchemy import JSON, Enum, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT
 from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
 
-
-def _customer_type_enum() -> SAEnum:
-    return SAEnum(
-        CustomerType,
-        name="customer_type",
-        native_enum=False,
-        values_callable=lambda members: [member.value for member in members],
-    )
+CustomerEnum: Final[Enum] = Enum(CustomerType, name="customer_type", native_enum=False)
 
 
 @declarative_mixin
@@ -35,7 +29,7 @@ class CustomerMixin(PrimaryKeyMixin, TimestampMixin):
 
     @declared_attr
     def customer_type(self) -> Mapped[CustomerType]:
-        return mapped_column(_customer_type_enum(), index=True, init=False)
+        return mapped_column(CustomerEnum, index=True, init=False)
 
     @declared_attr
     def name(self) -> Mapped[str | None]:
