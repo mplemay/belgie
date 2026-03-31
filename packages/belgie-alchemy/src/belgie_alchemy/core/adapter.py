@@ -311,7 +311,11 @@ class BelgieAdapter[
         session: AsyncSession,
         state: str,
     ) -> OAuthStateT | None:
-        stmt = select(self.oauth_state_model).where(self.oauth_state_model.state == state)
+        stmt = (
+            select(self.oauth_state_model)
+            .where(self.oauth_state_model.state == state)
+            .execution_options(populate_existing=True)
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -326,14 +330,14 @@ class BelgieAdapter[
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def delete_individual(self, session: AsyncSession, individual_id: UUID) -> bool:
-        individual = await self.get_individual_by_id(session, individual_id)
-        if individual is None:
+        if (individual := await self.get_individual_by_id(session, individual_id)) is None:
             return False
 
-        await session.delete(individual)
+        stmt = delete(self.customer_model).where(self.customer_model.id == individual.id)
+        result = await session.execute(stmt)
         try:
             await session.commit()
         except Exception:
             await session.rollback()
             raise
-        return True
+        return result.rowcount > 0  # type: ignore[attr-defined]

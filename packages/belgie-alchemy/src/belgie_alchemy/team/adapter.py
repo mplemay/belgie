@@ -10,7 +10,6 @@ from belgie_proto.team import TeamAdapterProtocol
 from belgie_proto.team.member import TeamMemberProtocol
 from belgie_proto.team.team import TeamProtocol
 from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
 
 from belgie_alchemy.organization.adapter import OrganizationAdapter
 
@@ -42,20 +41,6 @@ class TeamAdapter[
         super().__init__(organization=organization, member=member, invitation=invitation)
         self.team_model = team
         self.team_member_model = team_member
-
-    async def _get_team_by_org_and_name(
-        self,
-        session: DBConnection,
-        *,
-        organization_id: UUID,
-        name: str,
-    ) -> TeamT | None:
-        stmt = select(self.team_model).where(
-            self.team_model.organization_id == organization_id,
-            self.team_model.name == name,
-        )
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none()
 
     async def remove_member(
         self,
@@ -91,10 +76,6 @@ class TeamAdapter[
         organization_id: UUID,
         name: str,
     ) -> TeamT:
-        if await self._get_team_by_org_and_name(session, organization_id=organization_id, name=name):
-            msg = "team name must be unique per organization"
-            raise IntegrityError(msg, params=None, orig=None)
-
         team = self.team_model(
             organization_id=organization_id,
             name=name,
@@ -137,16 +118,6 @@ class TeamAdapter[
         team = await self.get_team_by_id(session, team_id)
         if team is None:
             return None
-
-        if (
-            existing_team := await self._get_team_by_org_and_name(
-                session,
-                organization_id=team.organization_id,
-                name=name,
-            )
-        ) is not None and existing_team.id != team.id:
-            msg = "team name must be unique per organization"
-            raise IntegrityError(msg, params=None, orig=None)
 
         team.name = name
         team.updated_at = datetime.now(UTC)

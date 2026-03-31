@@ -450,12 +450,27 @@ async def test_org_team_uniqueness_constraints_hold(
             role="owner",
         )
 
-    with pytest.raises(IntegrityError):
-        await team_adapter.create_team(
-            team_org_session,
-            organization_id=organization_id,
-            name="Platform",
-        )
+    duplicate_team = await team_adapter.create_team(
+        team_org_session,
+        organization_id=organization_id,
+        name="Platform",
+    )
+    assert duplicate_team.id != team_id
+    assert duplicate_team.name == "Platform"
+
+    renamed_team = await team_adapter.create_team(
+        team_org_session,
+        organization_id=organization_id,
+        name="Platform Ops",
+    )
+    updated_team = await team_adapter.update_team(
+        team_org_session,
+        team_id=renamed_team.id,
+        name="Platform",
+    )
+    assert updated_team is not None
+    assert updated_team.id == renamed_team.id
+    assert updated_team.name == "Platform"
 
     with pytest.raises(IntegrityError):
         await team_adapter.add_team_member(

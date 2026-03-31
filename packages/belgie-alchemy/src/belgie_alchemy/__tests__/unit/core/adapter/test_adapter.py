@@ -470,6 +470,30 @@ async def test_delete_individual_deletes_all_related_data(
 
 
 @pytest.mark.asyncio
+async def test_delete_individual_preserves_oauth_state(
+    adapter: BelgieAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    user = await adapter.create_individual(alchemy_session, email="oauth@example.com", name="OAuth User")
+
+    oauth_state = await adapter.create_oauth_state(
+        alchemy_session,
+        state="oauth-state-123",
+        individual_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(minutes=10),
+    )
+
+    deleted = await adapter.delete_individual(alchemy_session, user.id)
+
+    found = await adapter.get_oauth_state(alchemy_session, oauth_state.state)
+
+    assert deleted is True
+    assert found is not None
+    assert found.state == oauth_state.state
+    assert found.individual_id is None
+
+
+@pytest.mark.asyncio
 async def test_delete_individual_returns_false_if_user_not_found(
     adapter: BelgieAdapter,
     alchemy_session: AsyncSession,
