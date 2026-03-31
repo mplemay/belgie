@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, status
 from fastapi.responses import RedirectResponse
 
 from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get_test_session_factory
@@ -59,6 +59,6 @@ def add_google_login_route():
             return_to: str | None = None,
         ) -> RedirectResponse:
             auth_url = await google.signin_url(return_to=return_to)
-            return RedirectResponse(url=auth_url, status_code=302)
+            return RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
 
     return apply

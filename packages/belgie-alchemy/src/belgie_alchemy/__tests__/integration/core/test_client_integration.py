@@ -12,7 +12,7 @@ from belgie_core.core.settings import (
     SessionSettings,
     URLSettings,
 )
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -165,7 +165,7 @@ def app(auth: Belgie) -> FastAPI:
         """Get user by session ID."""
         user = await client.get_individual_from_session(session_id)
         if not user:
-            raise HTTPException(status_code=404, detail="Individual not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Individual not found")
         return {"id": str(user.id), "email": user.email}
 
     return app

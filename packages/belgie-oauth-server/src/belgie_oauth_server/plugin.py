@@ -356,7 +356,7 @@ class OAuthServerPlugin(PluginClient):
             if grant_type == "client_credentials":
                 return await _handle_client_credentials_grant(token_context)
 
-            return _oauth_error("unsupported_grant_type", status_code=400)
+            return _oauth_error("unsupported_grant_type", status_code=status.HTTP_400_BAD_REQUEST)
 
         router.add_api_route("/token", token_handler, methods=["POST"], response_model=OAuthToken)
         return router
@@ -376,7 +376,7 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error(
                     "access_denied",
                     "client registration is disabled",
-                    status_code=403,
+                    status_code=status.HTTP_403_FORBIDDEN,
                 )
 
             try:
@@ -386,11 +386,11 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error(
                     "invalid_request",
                     _format_validation_error(exc),
-                    status_code=400,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
             except ValueError as exc:
                 description = str(exc) or "invalid client metadata"
-                return _oauth_error("invalid_request", description, status_code=400)
+                return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
 
             authenticated = False
             try:
@@ -404,14 +404,14 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error(
                     "invalid_token",
                     "authentication required for client registration",
-                    status_code=401,
+                    status_code=status.HTTP_401_UNAUTHORIZED,
                 )
 
             try:
                 client_info = await provider.register_client(metadata)
             except ValueError as exc:
                 description = str(exc) or "invalid client metadata"
-                return _oauth_error("invalid_request", description, status_code=400)
+                return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
             return client_info
 
         router.add_api_route("/register", register_handler, methods=["POST"], response_model=OAuthClientInformationFull)
@@ -435,11 +435,11 @@ class OAuthServerPlugin(PluginClient):
             if error is not None:
                 return error
             if oauth_client is None:
-                return _oauth_error("invalid_client", status_code=401)
+                return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
 
             token: str | None = _get_str(form, "token")
             if not token:
-                return _oauth_error("invalid_request", "missing token", status_code=400)
+                return _oauth_error("invalid_request", "missing token", status_code=status.HTTP_400_BAD_REQUEST)
             if token.startswith("Bearer "):
                 token = token.removeprefix("Bearer ")
 
@@ -471,30 +471,38 @@ class OAuthServerPlugin(PluginClient):
         ) -> UserInfoResponse | Response:
             authorization = request.headers.get("authorization")
             if not authorization:
-                return _oauth_error("invalid_token", "authorization header not found", status_code=401)
+                return _oauth_error(
+                    "invalid_token",
+                    "authorization header not found",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
 
             token_value = authorization.removeprefix("Bearer ").strip()
             if not token_value:
-                return _oauth_error("invalid_token", "authorization header not found", status_code=401)
+                return _oauth_error(
+                    "invalid_token",
+                    "authorization header not found",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
 
             access_token = await provider.load_access_token(token_value)
             if access_token is None:
-                return _oauth_error("invalid_token", status_code=401)
+                return _oauth_error("invalid_token", status_code=status.HTTP_401_UNAUTHORIZED)
 
             if "openid" not in access_token.scopes:
-                return _oauth_error("invalid_scope", "Missing required scope", status_code=400)
+                return _oauth_error("invalid_scope", "Missing required scope", status_code=status.HTTP_400_BAD_REQUEST)
 
             if access_token.individual_id is None:
-                return _oauth_error("invalid_request", "user not found", status_code=400)
+                return _oauth_error("invalid_request", "user not found", status_code=status.HTTP_400_BAD_REQUEST)
 
             try:
                 individual_id = UUID(access_token.individual_id)
             except ValueError:
-                return _oauth_error("invalid_request", "user not found", status_code=400)
+                return _oauth_error("invalid_request", "user not found", status_code=status.HTTP_400_BAD_REQUEST)
 
             user = await client.adapter.get_individual_by_id(client.db, individual_id)
             if user is None:
-                return _oauth_error("invalid_request", "user not found", status_code=400)
+                return _oauth_error("invalid_request", "user not found", status_code=status.HTTP_400_BAD_REQUEST)
 
             return UserInfoResponse.model_validate(_build_user_claims(user, access_token.scopes))
 
@@ -520,30 +528,38 @@ class OAuthServerPlugin(PluginClient):
         ) -> Response:
             id_token_hint = request.query_params.get("id_token_hint")
             if not id_token_hint:
-                return _oauth_error("invalid_request", "missing id_token_hint", status_code=400)
+                return _oauth_error("invalid_request", "missing id_token_hint", status_code=status.HTTP_400_BAD_REQUEST)
 
             # Pass 1: decode without verification only to extract audience and identify
             # the candidate signing secret for full verification in pass 2 below.
             decoded_unverified = _decode_unverified_jwt(id_token_hint)
             if decoded_unverified is None:
-                return _oauth_error("invalid_token", "invalid id token", status_code=401)
+                return _oauth_error("invalid_token", "invalid id token", status_code=status.HTTP_401_UNAUTHORIZED)
 
             requested_client_id = request.query_params.get("client_id")
             if requested_client_id is not None and not _aud_contains(
                 decoded_unverified.get("aud"),
                 requested_client_id,
             ):
-                return _oauth_error("invalid_request", "audience mismatch", status_code=400)
+                return _oauth_error("invalid_request", "audience mismatch", status_code=status.HTTP_400_BAD_REQUEST)
 
             inferred_client_id = requested_client_id or _first_aud(decoded_unverified.get("aud"))
             if not inferred_client_id:
-                return _oauth_error("invalid_request", "id token missing audience", status_code=400)
+                return _oauth_error(
+                    "invalid_request",
+                    "id token missing audience",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
 
             oauth_client = await provider.get_client(inferred_client_id)
             if oauth_client is None:
-                return _oauth_error("invalid_client", "client doesn't exist", status_code=400)
+                return _oauth_error("invalid_client", "client doesn't exist", status_code=status.HTTP_400_BAD_REQUEST)
             if oauth_client.enable_end_session is not True:
-                return _oauth_error("invalid_client", "client unable to logout", status_code=401)
+                return _oauth_error(
+                    "invalid_client",
+                    "client unable to logout",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
             try:
                 # Pass 2: verify signature and standard claims with the resolved client.
                 payload = jwt.decode(
@@ -557,16 +573,24 @@ class OAuthServerPlugin(PluginClient):
                     options={"require": ["iss", "aud", "exp", "iat", "sub"]},
                 )
             except InvalidTokenError:
-                return _oauth_error("invalid_token", "invalid id token", status_code=401)
+                return _oauth_error("invalid_token", "invalid id token", status_code=status.HTTP_401_UNAUTHORIZED)
 
             sid = payload.get("sid")
             if not isinstance(sid, str) or not sid:
-                return _oauth_error("invalid_request", "id token missing session", status_code=400)
+                return _oauth_error(
+                    "invalid_request",
+                    "id token missing session",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
 
             try:
                 session_id = UUID(sid)
             except ValueError:
-                return _oauth_error("invalid_request", "id token missing session", status_code=400)
+                return _oauth_error(
+                    "invalid_request",
+                    "id token missing session",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
 
             await client.sign_out(session_id)
 
@@ -594,11 +618,11 @@ class OAuthServerPlugin(PluginClient):
         async def login_handler(request: Request) -> Response:
             state = request.query_params.get("state")
             if not state:
-                raise HTTPException(status_code=400, detail="missing state")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing state")
 
             state_data = await provider.load_authorization_state(state)
             if state_data is None:
-                raise HTTPException(status_code=400, detail="Invalid state parameter")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state parameter")
 
             login_url = _resolve_auth_redirect_url(
                 settings,
@@ -606,7 +630,7 @@ class OAuthServerPlugin(PluginClient):
                 intent=state_data.intent,
             )
             if login_url is None:
-                raise HTTPException(status_code=400, detail="login_url not configured")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="login_url not configured")
 
             return_to_base = join_url(issuer_url, "login/callback")
             return_to_url = construct_redirect_uri(return_to_base, state=state)
@@ -628,7 +652,7 @@ class OAuthServerPlugin(PluginClient):
         ) -> Response:
             state = request.query_params.get("state")
             if not state:
-                raise HTTPException(status_code=400, detail="missing state")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing state")
 
             try:
                 individual = await client.get_individual(SecurityScopes(), request)
@@ -646,7 +670,7 @@ class OAuthServerPlugin(PluginClient):
                 )
                 redirect_url = await provider.issue_authorization_code(state)
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
         router.add_api_route("/login/callback", login_callback_handler, methods=["GET"])
@@ -670,13 +694,13 @@ class OAuthServerPlugin(PluginClient):
             if error is not None:
                 return error
             if oauth_client is None:
-                return _oauth_error("invalid_client", status_code=401)
+                return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
 
             token = _get_str(form, "token")
             if not token:
                 return JSONResponse(
                     OAuthIntrospectionResponse(active=False).model_dump(mode="json"),
-                    status_code=400,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 )
             if token.startswith("Bearer "):
                 token = token.removeprefix("Bearer ")
@@ -742,38 +766,38 @@ async def _parse_authorize_params(
 ) -> tuple[OAuthClientInformationFull, AuthorizationParams]:
     response_type = _get_str(data, "response_type")
     if response_type != "code":
-        raise HTTPException(status_code=400, detail="unsupported_response_type")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_response_type")
 
     client_id = _get_str(data, "client_id")
     if not client_id:
-        raise HTTPException(status_code=400, detail="missing client_id")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing client_id")
 
     oauth_client = await provider.get_client(client_id)
     if not oauth_client:
-        raise HTTPException(status_code=400, detail="invalid_client")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_client")
 
     redirect_uri_raw = _get_str(data, "redirect_uri")
     redirect_uri = AnyUrl(redirect_uri_raw) if redirect_uri_raw else None
     try:
         validated_redirect_uri = oauth_client.validate_redirect_uri(redirect_uri)
     except InvalidRedirectUriError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
 
     scope_raw = _get_str(data, "scope")
     try:
         scopes = oauth_client.validate_scope(scope_raw)
     except InvalidScopeError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
     if scopes is None:
         scopes = [settings.default_scope]
 
     code_challenge = _get_str(data, "code_challenge")
     if not code_challenge:
-        raise HTTPException(status_code=400, detail="missing code_challenge")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing code_challenge")
 
     code_challenge_method = _get_str(data, "code_challenge_method") or settings.code_challenge_method
     if code_challenge_method != "S256":
-        raise HTTPException(status_code=400, detail="unsupported code_challenge_method")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported code_challenge_method")
 
     resource = _validate_authorize_resource(settings, belgie_base_url, _get_str(data, "resource"))
 
@@ -825,12 +849,12 @@ def _validate_authorize_resource(
 
     configured_resource = settings.resolve_resource(belgie_base_url)
     if configured_resource is None:
-        raise HTTPException(status_code=400, detail="invalid_target")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_target")
 
     resource_url, _resource_scopes = configured_resource
     configured_resource_url = str(resource_url)
     if not _resource_urls_match(configured_resource_url, resource):
-        raise HTTPException(status_code=400, detail="invalid_target")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_target")
     return configured_resource_url
 
 
@@ -842,14 +866,14 @@ async def _authorize_state(
     try:
         return await provider.authorize(oauth_client, params)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 async def _issue_authorization_code(provider: SimpleOAuthProvider, state: str) -> str:
     try:
         return await provider.issue_authorization_code(state)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 def _build_login_redirect(issuer_url: str, state: str) -> str:
@@ -889,7 +913,11 @@ def _resolve_redirect_url(belgie_base_url: str, redirect_url: str) -> str:
     return join_url(belgie_base_url, redirect_url)
 
 
-def _oauth_error(error: str, description: str | None = None, status_code: int = 400) -> JSONResponse:
+def _oauth_error(
+    error: str,
+    description: str | None = None,
+    status_code: int = status.HTTP_400_BAD_REQUEST,
+) -> JSONResponse:
     return JSONResponse(
         OAuthErrorResponse(
             error=error,
@@ -936,7 +964,7 @@ def _extract_client_credentials(
         try:
             basic_client_id, basic_client_secret = _parse_basic_authorization(authorization)
         except ValueError:
-            return None, None, _oauth_error("invalid_client", status_code=401)
+            return None, None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
         client_id = basic_client_id
         client_secret = basic_client_secret
     return client_id, client_secret, None
@@ -972,23 +1000,23 @@ async def _authenticate_client(  # noqa: PLR0911
     require_confidential: bool = False,
 ) -> tuple[OAuthClientInformationFull | None, JSONResponse | None]:
     if not client_id:
-        return None, _oauth_error("invalid_client", status_code=401)
+        return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
 
     oauth_client = await provider.get_client(client_id)
     if not oauth_client:
-        return None, _oauth_error("invalid_client", status_code=401)
+        return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
 
     if oauth_client.client_secret is None:
         if require_credentials or require_confidential:
-            return None, _oauth_error("invalid_client", status_code=401)
+            return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
         if client_secret:
-            return None, _oauth_error("invalid_client", status_code=401)
+            return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
         return oauth_client, None
 
     if not client_secret:
-        return None, _oauth_error("invalid_client", status_code=401)
+        return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
     if not hmac.compare_digest(client_secret, oauth_client.client_secret):
-        return None, _oauth_error("invalid_client", status_code=401)
+        return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
     return oauth_client, None
 
 
@@ -1001,35 +1029,35 @@ async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> OAuthTo
     if error is not None:
         return error
     if oauth_client is None:
-        return _oauth_error("invalid_client", status_code=401)
+        return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
 
     code = _get_str(ctx.form, "code")
     if not code:
-        return _oauth_error("invalid_request", "missing code", status_code=400)
+        return _oauth_error("invalid_request", "missing code", status_code=status.HTTP_400_BAD_REQUEST)
 
     authorization_code = await ctx.provider.load_authorization_code(code)
     if not authorization_code:
-        return _oauth_error("invalid_grant", status_code=400)
+        return _oauth_error("invalid_grant", status_code=status.HTTP_400_BAD_REQUEST)
 
     if authorization_code.expires_at < time.time():
-        return _oauth_error("invalid_grant", "code expired", status_code=400)
+        return _oauth_error("invalid_grant", "code expired", status_code=status.HTTP_400_BAD_REQUEST)
 
     if oauth_client.client_id != authorization_code.client_id:
-        return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
+        return _oauth_error("invalid_grant", "client_id mismatch", status_code=status.HTTP_400_BAD_REQUEST)
 
     redirect_uri_raw = _get_str(ctx.form, "redirect_uri")
     if authorization_code.redirect_uri_provided_explicitly and not redirect_uri_raw:
-        return _oauth_error("invalid_request", "missing redirect_uri", status_code=400)
+        return _oauth_error("invalid_request", "missing redirect_uri", status_code=status.HTTP_400_BAD_REQUEST)
     if redirect_uri_raw and redirect_uri_raw != str(authorization_code.redirect_uri):
-        return _oauth_error("invalid_grant", "redirect_uri mismatch", status_code=400)
+        return _oauth_error("invalid_grant", "redirect_uri mismatch", status_code=status.HTTP_400_BAD_REQUEST)
 
     code_verifier = _get_str(ctx.form, "code_verifier")
     if not code_verifier:
-        return _oauth_error("invalid_request", "missing code_verifier", status_code=400)
+        return _oauth_error("invalid_request", "missing code_verifier", status_code=status.HTTP_400_BAD_REQUEST)
 
     expected_challenge = create_code_challenge(code_verifier)
     if expected_challenge != authorization_code.code_challenge:
-        return _oauth_error("invalid_grant", "invalid code_verifier", status_code=400)
+        return _oauth_error("invalid_grant", "invalid code_verifier", status_code=status.HTTP_400_BAD_REQUEST)
 
     requested_resource = _get_str(ctx.form, "resource")
     resolved_resource, resource_error = _resolve_token_resource(
@@ -1078,22 +1106,22 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> OAuthToken |
     if error is not None:
         return error
     if oauth_client is None:
-        return _oauth_error("invalid_client", status_code=401)
+        return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
 
     refresh_token_value = _get_str(ctx.form, "refresh_token")
     if not refresh_token_value:
-        return _oauth_error("invalid_request", "missing refresh_token", status_code=400)
+        return _oauth_error("invalid_request", "missing refresh_token", status_code=status.HTTP_400_BAD_REQUEST)
 
     refresh_token = await ctx.provider.load_refresh_token(refresh_token_value)
     if not refresh_token:
-        return _oauth_error("invalid_grant", status_code=400)
+        return _oauth_error("invalid_grant", status_code=status.HTTP_400_BAD_REQUEST)
 
     if refresh_token.client_id != oauth_client.client_id:
-        return _oauth_error("invalid_grant", "client_id mismatch", status_code=400)
+        return _oauth_error("invalid_grant", "client_id mismatch", status_code=status.HTTP_400_BAD_REQUEST)
 
     requested_scopes = _parse_scope_param(_get_str(ctx.form, "scope"))
     if requested_scopes is not None and not requested_scopes:
-        return _oauth_error("invalid_scope", "missing scope", status_code=400)
+        return _oauth_error("invalid_scope", "missing scope", status_code=status.HTTP_400_BAD_REQUEST)
     scopes = requested_scopes or refresh_token.scopes
     if requested_scopes is not None:
         invalid_scopes = [scope for scope in requested_scopes if scope not in refresh_token.scopes]
@@ -1101,7 +1129,7 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> OAuthToken |
             return _oauth_error(
                 "invalid_scope",
                 f"unable to issue scope {invalid_scopes[0]}",
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
     requested_resource = _get_str(ctx.form, "resource")
@@ -1118,7 +1146,7 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> OAuthToken |
     try:
         ctx.provider.validate_scopes_for_client(oauth_client, scopes)
     except ValueError as exc:
-        return _oauth_error("invalid_scope", str(exc), status_code=400)
+        return _oauth_error("invalid_scope", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
 
     try:
         token = await ctx.provider.exchange_refresh_token(
@@ -1132,7 +1160,7 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> OAuthToken |
             refresh_token_resource=resolved_resource,
         )
     except ValueError as exc:
-        return _oauth_error("invalid_grant", str(exc), status_code=400)
+        return _oauth_error("invalid_grant", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
 
     return OAuthToken.model_validate(
         {
@@ -1161,18 +1189,18 @@ async def _handle_client_credentials_grant(ctx: _TokenHandlerContext) -> OAuthTo
     if error is not None:
         return error
     if oauth_client is None:
-        return _oauth_error("invalid_client", status_code=401)
+        return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
     if oauth_client.client_id is None:
-        return _oauth_error("invalid_client", status_code=401)
+        return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
 
     requested_scopes = _parse_scope_param(_get_str(ctx.form, "scope"))
     if requested_scopes is not None and not requested_scopes:
-        return _oauth_error("invalid_scope", "missing scope", status_code=400)
+        return _oauth_error("invalid_scope", "missing scope", status_code=status.HTTP_400_BAD_REQUEST)
     scopes = requested_scopes or ctx.provider.default_scopes_for_client(oauth_client)
     try:
         ctx.provider.validate_scopes_for_client(oauth_client, scopes)
     except ValueError as exc:
-        return _oauth_error("invalid_scope", str(exc), status_code=400)
+        return _oauth_error("invalid_scope", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
 
     requested_resource = _get_str(ctx.form, "resource")
     resolved_resource, resource_error = _resolve_token_resource(
@@ -1211,7 +1239,11 @@ def _parse_token_type_hint(form: FormInput) -> tuple[str | None, JSONResponse | 
     if token_type_hint is None:
         return None, None
     if token_type_hint not in {ACCESS_TOKEN_HINT, REFRESH_TOKEN_HINT}:
-        return None, _oauth_error("invalid_request", "unsupported token_type_hint", status_code=400)
+        return None, _oauth_error(
+            "invalid_request",
+            "unsupported token_type_hint",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     return token_type_hint, None
 
 
@@ -1359,19 +1391,19 @@ def _resolve_token_resource(
 
     if requested_resource is not None:
         if configured_resource_url is None:
-            return None, _oauth_error("invalid_target", status_code=400)
+            return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
         if not _resource_urls_match(configured_resource_url, requested_resource):
-            return None, _oauth_error("invalid_target", status_code=400)
+            return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
         requested_resource = configured_resource_url
 
     if require_bound_match and requested_resource is not None and bound_resource is None:
-        return None, _oauth_error("invalid_target", status_code=400)
+        return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
     if (
         canonical_bound_resource is not None
         and requested_resource is not None
         and not _resource_urls_match(requested_resource, canonical_bound_resource)
     ):
-        return None, _oauth_error("invalid_target", status_code=400)
+        return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
 
     if canonical_bound_resource is not None:
         return canonical_bound_resource, None

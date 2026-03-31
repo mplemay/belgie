@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, status
 
 from belgie_oauth_server.utils import construct_redirect_uri, join_url
 
@@ -38,11 +38,11 @@ class OAuthServerClient:
         if state is None:
             return None
         if not state:
-            raise HTTPException(status_code=400, detail="Invalid state parameter")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state parameter")
 
         state_data = await self.provider.load_authorization_state(state)
         if state_data is None:
-            raise HTTPException(status_code=400, detail="Invalid state parameter")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state parameter")
 
         return_to_base = join_url(self.issuer_url, "login/callback")
         return_to_url = construct_redirect_uri(return_to_base, state=state)
@@ -57,5 +57,5 @@ class OAuthServerClient:
     async def resolve_login_context(self, request: Request) -> OAuthLoginContext:
         context = await self.try_resolve_login_context(request)
         if context is None:
-            raise HTTPException(status_code=400, detail="missing state")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing state")
         return context
