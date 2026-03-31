@@ -37,7 +37,7 @@ class BelgieClient[
     allowing for convenient auth operations without explicitly passing db to each method.
 
     Typically obtained via Belgie.__call__() as a FastAPI dependency:
-        client: BelgieClient = Depends(belgie)
+        client: Annotated[BelgieClient, Depends(belgie)]
 
     Type Parameters:
         IndividualT: Individual model type implementing IndividualProtocol
@@ -54,7 +54,7 @@ class BelgieClient[
     Example:
         >>> @app.delete("/account")
         >>> async def delete_account(
-        ...     client: BelgieClient = Depends(belgie),
+        ...     client: Annotated[BelgieClient, Depends(belgie)],
         ...     request: Request,
         ... ):
         ...     individual = await client.get_individual(SecurityScopes(), request)

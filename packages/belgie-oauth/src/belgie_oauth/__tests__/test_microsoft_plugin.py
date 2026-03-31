@@ -7,7 +7,7 @@ import pytest
 from belgie_core.core.exceptions import InvalidStateError
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth import MicrosoftOAuth, MicrosoftOAuthClient, MicrosoftOAuthPlugin, MicrosoftUserInfo
-from fastapi import Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
 
 
@@ -177,7 +177,9 @@ def test_callback_uses_client_sign_up(monkeypatch) -> None:
 
     belgie = DummyBelgie(client_dependency)
     app = FastAPI()
-    app.include_router(plugin.router(belgie), prefix="/auth")
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
 
     response = TestClient(app).get(
         "/auth/provider/microsoft/callback?code=test-code&state=test-state",
@@ -263,7 +265,9 @@ def test_callback_falls_back_to_signin_redirect(monkeypatch) -> None:
 
     belgie = DummyBelgie(client_dependency)
     app = FastAPI()
-    app.include_router(plugin.router(belgie), prefix="/auth")
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
 
     response = TestClient(app).get(
         "/auth/provider/microsoft/callback?code=test-code&state=test-state",
@@ -291,7 +295,9 @@ def test_callback_invalid_state_raises() -> None:
     )
 
     app = FastAPI()
-    app.include_router(plugin.router(DummyBelgie(client_dependency)), prefix="/auth")
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(DummyBelgie(client_dependency)))
+    app.include_router(auth_router)
 
     with pytest.raises(InvalidStateError):
         TestClient(app).get(

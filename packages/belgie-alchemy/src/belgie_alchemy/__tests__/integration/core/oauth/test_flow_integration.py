@@ -1,3 +1,4 @@
+from typing import Annotated
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -32,7 +33,7 @@ def _build_custom_pages_app(belgie_instance: Belgie) -> tuple[FastAPI, OAuthServ
     @app.get("/login/custom")
     async def custom_login(
         request: Request,
-        oauth: OAuthServerClient = Depends(oauth_plugin),
+        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
         if context is None:
@@ -53,8 +54,8 @@ def _build_custom_pages_app(belgie_instance: Belgie) -> tuple[FastAPI, OAuthServ
     @app.get("/signup/custom")
     async def custom_signup(
         request: Request,
-        oauth: OAuthServerClient = Depends(oauth_plugin),
-        client: BelgieClient = Depends(belgie_instance),
+        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+        client: Annotated[BelgieClient, Depends(belgie_instance)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
         redirect_target = context.return_to if context is not None else belgie_instance.settings.urls.signin_redirect
@@ -65,8 +66,8 @@ def _build_custom_pages_app(belgie_instance: Belgie) -> tuple[FastAPI, OAuthServ
     @app.get("/login/google")
     async def login_google(
         request: Request,
-        oauth: OAuthServerClient = Depends(oauth_plugin),
-        client: BelgieClient = Depends(belgie_instance),
+        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+        client: Annotated[BelgieClient, Depends(belgie_instance)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
         if context is None:

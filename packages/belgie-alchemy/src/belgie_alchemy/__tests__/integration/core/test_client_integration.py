@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 from uuid import UUID, uuid4
 
 import pytest
@@ -86,7 +87,7 @@ def app(auth: Belgie) -> FastAPI:
     @app.get("/me")
     async def get_current_individual(
         request: Request,
-        client: BelgieClient = Depends(auth),
+        client: Annotated[BelgieClient, Depends(auth)],
     ):
         """Get an individual without scope requirements."""
         individual = await client.get_individual(SecurityScopes(), request)
@@ -95,7 +96,7 @@ def app(auth: Belgie) -> FastAPI:
     @app.get("/me/with-read-scope")
     async def get_individual_with_read(
         request: Request,
-        client: BelgieClient = Depends(auth),
+        client: Annotated[BelgieClient, Depends(auth)],
     ):
         """Get an individual with READ scope requirement."""
         individual = await client.get_individual(SecurityScopes(scopes=["resource:read"]), request)
@@ -104,7 +105,7 @@ def app(auth: Belgie) -> FastAPI:
     @app.get("/me/with-admin-scope")
     async def get_individual_with_admin(
         request: Request,
-        client: BelgieClient = Depends(auth),
+        client: Annotated[BelgieClient, Depends(auth)],
     ):
         """Get an individual with ADMIN scope requirement."""
         individual = await client.get_individual(SecurityScopes(scopes=["admin"]), request)
@@ -113,7 +114,7 @@ def app(auth: Belgie) -> FastAPI:
     @app.get("/me/with-multiple-scopes")
     async def get_individual_with_multiple(
         request: Request,
-        client: BelgieClient = Depends(auth),
+        client: Annotated[BelgieClient, Depends(auth)],
     ):
         """Get an individual with multiple scope requirements."""
         individual = await client.get_individual(
@@ -126,7 +127,7 @@ def app(auth: Belgie) -> FastAPI:
     @app.get("/session/info")
     async def get_session_info(
         request: Request,
-        client: BelgieClient = Depends(auth),
+        client: Annotated[BelgieClient, Depends(auth)],
     ):
         """Get current session."""
         session = await client.get_session(request)
@@ -140,7 +141,7 @@ def app(auth: Belgie) -> FastAPI:
     @app.delete("/account")
     async def delete_account(
         request: Request,
-        client: BelgieClient = Depends(auth),
+        client: Annotated[BelgieClient, Depends(auth)],
     ):
         """Delete user account (cascade)."""
         user = await client.get_individual(SecurityScopes(), request)
@@ -151,7 +152,7 @@ def app(auth: Belgie) -> FastAPI:
     @app.post("/admin/signout-user/{session_id}")
     async def admin_signout(
         session_id: UUID,
-        client: BelgieClient = Depends(auth),
+        client: Annotated[BelgieClient, Depends(auth)],
     ):
         """Sign out specific session."""
         success = await client.sign_out(session_id)
@@ -160,7 +161,7 @@ def app(auth: Belgie) -> FastAPI:
     @app.get("/admin/get-user-by-session/{session_id}")
     async def admin_get_individual(
         session_id: UUID,
-        client: BelgieClient = Depends(auth),
+        client: Annotated[BelgieClient, Depends(auth)],
     ):
         """Get user by session ID."""
         user = await client.get_individual_from_session(session_id)

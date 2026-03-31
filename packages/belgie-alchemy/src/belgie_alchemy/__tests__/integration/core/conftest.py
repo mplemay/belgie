@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import pytest
 import pytest_asyncio
@@ -55,7 +55,7 @@ def add_google_login_route():
 
         @app.get("/login/google")
         async def login_google(
-            google: GoogleOAuthClient = Depends(google_plugin),
+            google: Annotated[GoogleOAuthClient, Depends(google_plugin)],
             return_to: str | None = None,
         ) -> RedirectResponse:
             auth_url = await google.signin_url(return_to=return_to)
