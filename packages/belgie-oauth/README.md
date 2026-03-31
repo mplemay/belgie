@@ -156,6 +156,6 @@ http://localhost:8000/auth/provider/microsoft/callback
 - `GoogleOAuthClient.signin_url()` stores OAuth state before returning the Google authorization URL.
 - The callback route redirects to the stored `return_to` value or Belgie's default sign-in redirect.
 - `MicrosoftOAuth.tenant` defaults to `common`.
-- `MicrosoftOAuth.scopes` defaults to `["openid", "profile", "email", "offline_access", "Individual.Read"]`.
+- `MicrosoftOAuth.scopes` defaults to `["openid", "profile", "email", "offline_access", "User.Read"]`.
 - `MicrosoftOAuthPlugin.redirect_uri` is derived from `BELGIE_BASE_URL`.
 - `MicrosoftOAuthClient.signin_url()` stores OAuth state before returning the Microsoft authorization URL.

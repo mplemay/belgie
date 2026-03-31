@@ -35,7 +35,7 @@ class MicrosoftOAuth(BaseSettings):
     client_secret: SecretStr
     tenant: str = Field(default="common")
     scopes: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["openid", "profile", "email", "offline_access", "Individual.Read"],
+        default_factory=lambda: ["openid", "profile", "email", "offline_access", "User.Read"],
     )
 
     @field_validator("client_id", "tenant")
