@@ -1,7 +1,6 @@
-from __future__ import annotations
-
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 from uuid import uuid4
 
 import pytest
@@ -20,22 +19,9 @@ from belgie_team.__tests__.fakes import (
     FakeTeamMemberRow,
     FakeTeamRow,
 )
+from belgie_team.client import TeamClient
 from belgie_team.plugin import TeamPlugin
 from belgie_team.settings import Team
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from belgie_team.client import TeamClient
-
-
-class DummyBelgie:
-    def __init__(self, client: FakeBelgieClient, *, plugins: list[OrganizationPlugin | TeamPlugin]) -> None:
-        self._client = client
-        self.plugins = plugins
-
-    async def __call__(self) -> FakeBelgieClient:
-        return self._client
 
 
 class FakeBelgieClient:
@@ -45,6 +31,15 @@ class FakeBelgieClient:
 
     async def get_individual(self, _security_scopes, _request):
         return self.user
+
+
+class DummyBelgie:
+    def __init__(self, client: FakeBelgieClient, *, plugins: list[OrganizationPlugin | TeamPlugin]) -> None:
+        self._client = client
+        self.plugins = plugins
+
+    async def __call__(self) -> FakeBelgieClient:
+        return self._client
 
 
 class FakeTeamAdapter(
