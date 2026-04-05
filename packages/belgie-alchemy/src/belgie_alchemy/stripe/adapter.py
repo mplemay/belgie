@@ -28,7 +28,7 @@ class StripeAdapter[
         session: DBConnection,
         *,
         plan: str,
-        customer_id: UUID,
+        account_id: UUID,
         stripe_customer_id: str | None = None,
         stripe_subscription_id: str | None = None,
         status: StripeSubscriptionStatus = "incomplete",
@@ -42,7 +42,7 @@ class StripeAdapter[
     ) -> SubscriptionT:
         subscription = self.subscription_model(
             plan=plan,
-            customer_id=customer_id,
+            account_id=account_id,
             stripe_customer_id=stripe_customer_id,
             stripe_subscription_id=stripe_subscription_id,
             status=status,
@@ -88,11 +88,11 @@ class StripeAdapter[
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> list[SubscriptionT]:
         stmt = (
             select(self.subscription_model)
-            .where(self.subscription_model.customer_id == customer_id)
+            .where(self.subscription_model.account_id == account_id)
             .order_by(self.subscription_model.created_at.desc())
         )
         result = await session.execute(stmt)
@@ -102,12 +102,12 @@ class StripeAdapter[
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> SubscriptionT | None:
         stmt = (
             select(self.subscription_model)
             .where(
-                self.subscription_model.customer_id == customer_id,
+                self.subscription_model.account_id == account_id,
                 self.subscription_model.status.in_(ACTIVE_SUBSCRIPTION_STATUSES),
             )
             .order_by(self.subscription_model.created_at.desc())
@@ -119,12 +119,12 @@ class StripeAdapter[
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> SubscriptionT | None:
         stmt = (
             select(self.subscription_model)
             .where(
-                self.subscription_model.customer_id == customer_id,
+                self.subscription_model.account_id == account_id,
                 self.subscription_model.status == "incomplete",
             )
             .order_by(self.subscription_model.created_at.desc())

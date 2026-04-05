@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Protocol, overload
 from uuid import UUID
 
 import stripe
-from belgie_proto.core.customer import CustomerType
+from belgie_proto.core.account import AccountType
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.stripe import (
+    StripeAccountProtocol,
     StripeBillingInterval,
-    StripeCustomerProtocol,
     StripeSubscriptionProtocol,
     StripeSubscriptionStatus,
 )
@@ -23,11 +23,11 @@ from stripe.checkout import Session as CheckoutSession
 from stripe.params import CustomerCreateParams, PriceListParams, SubscriptionUpdateParams, billing_portal, checkout
 
 from belgie_stripe.models import (
+    AccountAuthorizationContext,
+    AccountCreateContext,
     BillingPortalRequest,
     CancelSubscriptionRequest,
     CheckoutSessionContext,
-    CustomerAuthorizationContext,
-    CustomerCreateContext,
     ListSubscriptionsRequest,
     RestoreSubscriptionRequest,
     StripeAction,
@@ -173,7 +173,7 @@ def _expandable_id(value: str | _HasID | None) -> str | None:
 class StripeClient[
     SubscriptionT: StripeSubscriptionProtocol,
 ]:
-    client: BelgieClientProtocol[StripeCustomerProtocol, IndividualProtocol[str], SessionProtocol]
+    client: BelgieClientProtocol[StripeAccountProtocol, IndividualProtocol[str], SessionProtocol]
     belgie_settings: BelgieSettings
     settings: Stripe[SubscriptionT]
     current_individual: IndividualProtocol[str] | None = None
@@ -197,9 +197,9 @@ class StripeClient[
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email verification required")
 
         plan = await self._get_plan(data.plan)
-        customer = await self._get_authorized_customer(
+        account = await self._get_authorized_account(
             action="upgrade-subscription",
-            customer_id=data.customer_id,
+            account_id=data.account_id,
         )
 
         success_url = self._validated_url(data.success_url)
@@ -208,7 +208,7 @@ class StripeClient[
 
         active_subscription = await self.subscription_adapter.get_active_subscription(
             self.client.db,
-            customer_id=customer.id,
+            account_id=account.id,
         )
         if active_subscription and active_subscription.plan.lower() == plan.name.lower():
             billing_interval = active_subscription.billing_interval
@@ -219,7 +219,7 @@ class StripeClient[
 
         stripe_customer_id = active_subscription.stripe_customer_id if active_subscription else None
         if stripe_customer_id is None:
-            stripe_customer_id = await self.ensure_customer(customer_id=customer.id, metadata=data.metadata)
+            stripe_customer_id = await self.ensure_account(account_id=account.id, metadata=data.metadata)
 
         if active_subscription and active_subscription.stripe_subscription_id:
             portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
@@ -234,13 +234,13 @@ class StripeClient[
 
         pending_subscription = await self.subscription_adapter.get_incomplete_subscription(
             self.client.db,
-            customer_id=customer.id,
+            account_id=account.id,
         )
         if pending_subscription is None:
             subscription = await self.subscription_adapter.create_subscription(
                 self.client.db,
                 plan=plan.name.lower(),
-                customer_id=customer.id,
+                account_id=account.id,
                 stripe_customer_id=stripe_customer_id,
             )
         else:
@@ -257,7 +257,7 @@ class StripeClient[
                 )
 
         checkout_context = CheckoutSessionContext(
-            customer=customer,
+            account=account,
             plan=plan,
             subscription=subscription,
             individual=individual,
@@ -290,8 +290,8 @@ class StripeClient[
                 ),
                 metadata={
                     **data.metadata,
-                    "customer_id": str(customer.id),
-                    "customer_type": customer.customer_type,
+                    "account_id": str(account.id),
+                    "account_type": account.account_type,
                     "local_subscription_id": str(subscription.id),
                     "plan": plan.name.lower(),
                 },
@@ -305,13 +305,13 @@ class StripeClient[
         return StripeRedirectResponse(url=checkout_session.url, redirect=not data.disable_redirect)
 
     async def list_subscriptions(self, *, data: ListSubscriptionsRequest) -> list[SubscriptionView]:
-        customer = await self._get_authorized_customer(
+        account = await self._get_authorized_account(
             action="list-subscription",
-            customer_id=data.customer_id,
+            account_id=data.account_id,
         )
         subscriptions = await self.subscription_adapter.list_subscriptions(
             self.client.db,
-            customer_id=customer.id,
+            account_id=account.id,
         )
         return [SubscriptionView.from_subscription(subscription) for subscription in subscriptions]
 
@@ -320,11 +320,11 @@ class StripeClient[
         *,
         data: CancelSubscriptionRequest,
     ) -> StripeRedirectResponse:
-        customer = await self._get_authorized_customer(
+        account = await self._get_authorized_account(
             action="cancel-subscription",
-            customer_id=data.customer_id,
+            account_id=data.account_id,
         )
-        stripe_customer_id = await self.ensure_customer(customer_id=customer.id, metadata={})
+        stripe_customer_id = await self.ensure_account(account_id=account.id, metadata={})
         portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
             self._build_billing_portal_params(
                 customer_id=stripe_customer_id,
@@ -338,13 +338,13 @@ class StripeClient[
         return StripeRedirectResponse(url=portal_session.url, redirect=not data.disable_redirect)
 
     async def restore(self, *, data: RestoreSubscriptionRequest) -> SubscriptionView:
-        customer = await self._get_authorized_customer(
+        account = await self._get_authorized_account(
             action="restore-subscription",
-            customer_id=data.customer_id,
+            account_id=data.account_id,
         )
         subscription = await self.subscription_adapter.get_active_subscription(
             self.client.db,
-            customer_id=customer.id,
+            account_id=account.id,
         )
         if subscription is None or subscription.stripe_subscription_id is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="subscription not found")
@@ -370,11 +370,11 @@ class StripeClient[
         *,
         data: BillingPortalRequest,
     ) -> StripeRedirectResponse:
-        customer = await self._get_authorized_customer(
+        account = await self._get_authorized_account(
             action="billing-portal",
-            customer_id=data.customer_id,
+            account_id=data.account_id,
         )
-        stripe_customer_id = await self.ensure_customer(customer_id=customer.id, metadata={})
+        stripe_customer_id = await self.ensure_account(account_id=account.id, metadata={})
         portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
             self._build_billing_portal_params(
                 customer_id=stripe_customer_id,
@@ -460,46 +460,46 @@ class StripeClient[
             await asyncio.sleep(SUCCESS_POLL_INTERVAL_SECONDS)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="subscription is still being finalized")
 
-    async def ensure_customer(
+    async def ensure_account(
         self,
         *,
-        customer_id: UUID,
+        account_id: UUID,
         metadata: dict[str, str],
     ) -> str:
-        customer = await self._get_customer_by_id(customer_id)
-        if customer.stripe_customer_id:
-            return customer.stripe_customer_id
+        account = await self._get_account_by_id(account_id)
+        if account.stripe_customer_id:
+            return account.stripe_customer_id
 
-        context = CustomerCreateContext(
-            customer=customer,
+        context = AccountCreateContext(
+            account=account,
             stripe_customer_id="",
             metadata=metadata,
         )
         extra_params = (
-            await _resolve_customer_create_params(self.settings.get_customer_create_params(context))
-            if self.settings.get_customer_create_params
+            await _resolve_customer_create_params(self.settings.get_account_create_params(context))
+            if self.settings.get_account_create_params
             else None
         )
         payload = _copy_customer_create_params(extra_params)
-        self._apply_customer_identity(payload=payload, customer=customer)
+        self._apply_account_identity(payload=payload, account=account)
         payload["metadata"] = {
             **(payload.get("metadata") or {}),
             **metadata,
-            "customer_id": str(customer.id),
-            "customer_type": customer.customer_type,
+            "account_id": str(account.id),
+            "account_type": account.account_type,
         }
         stripe_customer = await self.stripe.v1.customers.create_async(payload)
         stripe_customer_id = stripe_customer.id
-        await self.client.adapter.update_customer(
+        await self.client.adapter.update_account(
             self.client.db,
-            customer.id,
+            account.id,
             stripe_customer_id=stripe_customer_id,
         )
-        if self.settings.on_customer_create is not None:
+        if self.settings.on_account_create is not None:
             await maybe_await(
-                self.settings.on_customer_create(
-                    CustomerCreateContext(
-                        customer=customer,
+                self.settings.on_account_create(
+                    AccountCreateContext(
+                        account=account,
                         stripe_customer_id=stripe_customer_id,
                         metadata=metadata,
                     ),
@@ -507,44 +507,44 @@ class StripeClient[
             )
         return stripe_customer_id
 
-    async def _get_authorized_customer(
+    async def _get_authorized_account(
         self,
         *,
         action: StripeAction,
-        customer_id: UUID | None,
-    ) -> StripeCustomerProtocol:
-        customer = await self._get_customer_by_id(self._resolve_customer_id(customer_id))
-        await self._authorize_customer(action=action, customer=customer)
-        return customer
+        account_id: UUID | None,
+    ) -> StripeAccountProtocol:
+        account = await self._get_account_by_id(self._resolve_account_id(account_id))
+        await self._authorize_account(action=action, account=account)
+        return account
 
-    async def _get_customer_by_id(self, customer_id: UUID) -> StripeCustomerProtocol:
-        customer = await self.client.adapter.get_customer_by_id(self.client.db, customer_id)
-        if customer is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="customer not found")
-        if not isinstance(customer, StripeCustomerProtocol):
-            msg = "customer model must expose stripe_customer_id"
+    async def _get_account_by_id(self, account_id: UUID) -> StripeAccountProtocol:
+        account = await self.client.adapter.get_account_by_id(self.client.db, account_id)
+        if account is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+        if not isinstance(account, StripeAccountProtocol):
+            msg = "account model must expose stripe_customer_id"
             raise TypeError(msg)
-        return customer
+        return account
 
-    async def _authorize_customer(
+    async def _authorize_account(
         self,
         *,
         action: StripeAction,
-        customer: StripeCustomerProtocol,
+        account: StripeAccountProtocol,
     ) -> None:
         individual, session = self._require_authenticated()
-        if customer.id == individual.id:
+        if account.id == individual.id:
             return
-        if self.settings.subscription.authorize_customer is None:
+        if self.settings.subscription.authorize_account is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="customer billing requires authorize_customer",
+                detail="account billing requires authorize_account",
             )
         allowed = await maybe_await(
-            self.settings.subscription.authorize_customer(
-                CustomerAuthorizationContext(
+            self.settings.subscription.authorize_account(
+                AccountAuthorizationContext(
                     action=action,
-                    customer=customer,
+                    account=account,
                     individual=individual,
                     session=session,
                 ),
@@ -584,26 +584,26 @@ class StripeClient[
             return price.id
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="stripe price not found")
 
-    def _resolve_customer_id(self, customer_id: UUID | None) -> UUID:
+    def _resolve_account_id(self, account_id: UUID | None) -> UUID:
         individual, _session = self._require_authenticated()
-        return customer_id or individual.id
+        return account_id or individual.id
 
-    def _apply_customer_identity(
+    def _apply_account_identity(
         self,
         *,
         payload: CustomerCreateParams,
-        customer: StripeCustomerProtocol,
+        account: StripeAccountProtocol,
     ) -> None:
-        if customer.customer_type == CustomerType.INDIVIDUAL:
-            if not isinstance(customer, IndividualProtocol):
-                msg = "individual customer must expose email"
+        if account.account_type == AccountType.INDIVIDUAL:
+            if not isinstance(account, IndividualProtocol):
+                msg = "individual account must expose email"
                 raise TypeError(msg)
-            payload["email"] = customer.email
-            if customer.name is not None:
-                payload["name"] = customer.name
+            payload["email"] = account.email
+            if account.name is not None:
+                payload["name"] = account.name
             return
-        if customer.name is not None:
-            payload["name"] = customer.name
+        if account.name is not None:
+            payload["name"] = account.name
 
     def _validated_url(self, url: str) -> str:
         if (normalized := normalize_relative_or_same_origin_url(url, base_url=self.belgie_settings.base_url)) is None:
@@ -721,18 +721,18 @@ class StripeClient[
         metadata = _metadata_dict(stripe_subscription.metadata)
         subscription = existing_subscription or await self._lookup_subscription_from_metadata(metadata)
 
-        customer_id_raw = metadata.get("customer_id")
-        if customer_id_raw is not None:
-            customer_id = self._coerce_stripe_uuid(customer_id_raw, field_name="customer_id")
+        account_id_raw = metadata.get("account_id")
+        if account_id_raw is not None:
+            account_id = self._coerce_stripe_uuid(account_id_raw, field_name="account_id")
         elif subscription is not None:
-            customer_id = subscription.customer_id
+            account_id = subscription.account_id
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="stripe subscription metadata missing customer_id",
+                detail="stripe subscription metadata missing account_id",
             )
 
-        customer = await self._get_customer_by_id(customer_id)
+        account = await self._get_account_by_id(account_id)
         plan_name = metadata.get("plan")
         plan = await self._match_plan(plan_name=plan_name, stripe_subscription=stripe_subscription)
         recurring = self._extract_primary_recurring(stripe_subscription)
@@ -748,7 +748,7 @@ class StripeClient[
             subscription = await self.subscription_adapter.create_subscription(
                 self.client.db,
                 plan=plan.name.lower(),
-                customer_id=customer.id,
+                account_id=account.id,
                 stripe_customer_id=stripe_customer_id,
                 stripe_subscription_id=stripe_subscription.id,
                 status=normalized_status,
@@ -788,7 +788,7 @@ class StripeClient[
             plan=plan,
             raw_event=stripe_subscription,
             subscription=subscription,
-            customer=customer,
+            account=account,
         )
         if (
             event_type == "customer.subscription.created"

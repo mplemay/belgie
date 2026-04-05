@@ -10,7 +10,7 @@ import belgie_team.settings as team_belgie_settings
 import pytest
 import pytest_asyncio
 from belgie_organization.client import OrganizationClient
-from belgie_proto.core.customer import CustomerType
+from belgie_proto.core.account import AccountType
 from belgie_proto.organization import PendingInvitationConflictError
 from belgie_team.client import TeamClient
 from brussels.types import DateTimeUTC
@@ -35,44 +35,44 @@ class Base(DeclarativeBase):
 
 def _customer_type_enum() -> SAEnum:
     return SAEnum(
-        CustomerType,
-        name="customer_type",
+        AccountType,
+        name="account_type",
         native_enum=False,
         values_callable=lambda members: [member.value for member in members],
     )
 
 
-class Customer(Base):
-    __tablename__ = "customer"
+class Account(Base):
+    __tablename__ = "account"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    customer_type: Mapped[CustomerType] = mapped_column(_customer_type_enum(), index=True)
+    account_type: Mapped[AccountType] = mapped_column(_customer_type_enum(), index=True)
     name: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
 
     __mapper_args__: ClassVar[dict[str, object]] = {
-        "polymorphic_on": customer_type,
+        "polymorphic_on": account_type,
         "polymorphic_abstract": True,
         "with_polymorphic": "*",
     }
 
 
-class Individual(Customer):
+class Individual(Account):
     __tablename__ = "individual"
 
-    id: Mapped[UUID] = mapped_column(ForeignKey("customer.id", ondelete="cascade"), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(ForeignKey("account.id", ondelete="cascade"), primary_key=True, default=uuid4)
     email: Mapped[str] = mapped_column(Text, unique=True, index=True)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTimeUTC, default=None)
     image: Mapped[str | None] = mapped_column(Text, default=None)
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
 
-    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": CustomerType.INDIVIDUAL}
+    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": AccountType.INDIVIDUAL}
 
 
-class Account(Base):
-    __tablename__ = "account"
-    __table_args__ = (UniqueConstraint("provider", "provider_account_id", name="uq_account_provider_account"),)
+class OAuthAccount(Base):
+    __tablename__ = "oauth_account"
+    __table_args__ = (UniqueConstraint("provider", "provider_account_id", name="uq_oauth_account_provider_account"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     individual_id: Mapped[UUID] = mapped_column(ForeignKey("individual.id", ondelete="cascade"), index=True)
@@ -111,14 +111,14 @@ class OAuthState(Base):
     created_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
 
 
-class Organization(Customer):
+class Organization(Account):
     __tablename__ = "organization"
 
-    id: Mapped[UUID] = mapped_column(ForeignKey("customer.id", ondelete="cascade"), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(ForeignKey("account.id", ondelete="cascade"), primary_key=True, default=uuid4)
     slug: Mapped[str] = mapped_column(Text, unique=True, index=True)
     logo: Mapped[str | None] = mapped_column(Text, default=None)
 
-    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": CustomerType.ORGANIZATION}
+    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": AccountType.ORGANIZATION}
 
 
 class OrganizationMember(Base):
@@ -135,13 +135,13 @@ class OrganizationMember(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTimeUTC, default=lambda: datetime.now(UTC))
 
 
-class Team(Customer):
+class Team(Account):
     __tablename__ = "team"
 
-    id: Mapped[UUID] = mapped_column(ForeignKey("customer.id", ondelete="cascade"), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(ForeignKey("account.id", ondelete="cascade"), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organization.id", ondelete="cascade"), index=True)
 
-    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": CustomerType.TEAM}
+    __mapper_args__: ClassVar[dict[str, object]] = {"polymorphic_identity": AccountType.TEAM}
 
 
 class TeamMember(Base):
@@ -214,9 +214,9 @@ async def team_org_session(
 @pytest_asyncio.fixture
 async def core_adapter(team_org_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )

@@ -5,7 +5,7 @@
 > here can ripple across adapters, plugins, and app code that implements these protocols directly.
 
 `belgie-proto` is the contract layer for the Belgie workspace. It defines the runtime-checkable protocols for
-customers, individuals, accounts, sessions, OAuth state, adapters, organizations, invitations, teams, and database
+accounts, individuals, OAuth accounts, sessions, OAuth state, adapters, organizations, invitations, teams, and database
 connections so the rest of the stack can stay typed without hard-coding a particular ORM or persistence model.
 
 Use it when you are implementing your own adapter, building custom integrations on top of `belgie-core`, or depending
@@ -24,7 +24,7 @@ uv add belgie-proto
 
 ## What It Defines
 
-- Core auth protocols for `Customer`, `Individual`, `Account`, `Session`, and `OAuthState`.
+- Core protocols for `Account`, `Individual`, `OAuthAccount`, `Session`, and `OAuthState`.
 - `DBConnection` for the async database/session object passed through Belgie.
 - `AdapterProtocol` for core auth persistence operations.
 - `OrganizationAdapterProtocol` and `OrganizationTeamAdapterProtocol` for org-aware adapters.

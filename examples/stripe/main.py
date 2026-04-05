@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, URLSettings
 from belgie.alchemy import BelgieAdapter, StripeAdapter
-from examples.stripe.models import Account, Customer, Individual, OAuthState, Session, Subscription
+from examples.stripe.models import Account, Individual, OAuthAccount, OAuthState, Session, Subscription
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
@@ -100,9 +100,9 @@ belgie_settings = BelgieSettings(
 belgie = Belgie(
     settings=belgie_settings,
     adapter=BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     ),

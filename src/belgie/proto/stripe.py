@@ -4,9 +4,9 @@ _PROTO_IMPORT_ERROR = "belgie.proto.stripe requires belgie-proto. Install with: 
 
 try:
     from belgie_proto.stripe import (
+        StripeAccountProtocol,
         StripeAdapterProtocol,
         StripeBillingInterval,
-        StripeCustomerProtocol,
         StripeSubscriptionProtocol,
         StripeSubscriptionStatus,
     )
@@ -14,9 +14,9 @@ except ModuleNotFoundError as exc:
     raise ImportError(_PROTO_IMPORT_ERROR) from exc
 
 __all__ = [
+    "StripeAccountProtocol",
     "StripeAdapterProtocol",
     "StripeBillingInterval",
-    "StripeCustomerProtocol",
     "StripeSubscriptionProtocol",
     "StripeSubscriptionStatus",
 ]

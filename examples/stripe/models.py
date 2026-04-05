@@ -6,20 +6,20 @@ from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 
 from belgie.alchemy.mixins import (
     AccountMixin,
-    CustomerMixin,
     IndividualMixin,
+    OAuthAccountMixin,
     OAuthStateMixin,
     SessionMixin,
-    StripeCustomerMixin,
+    StripeAccountMixin,
     StripeSubscriptionMixin,
 )
 
 
-class Customer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin, StripeCustomerMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin, StripeAccountMixin):
     pass
 
 
-class Individual(IndividualMixin, Customer):
+class Individual(IndividualMixin, Account):
     pass
 
 
@@ -27,7 +27,7 @@ class Subscription(DataclassBase, PrimaryKeyMixin, TimestampMixin, StripeSubscri
     pass
 
 
-class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
+class OAuthAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccountMixin):
     pass
 
 
@@ -41,8 +41,8 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin
 
 __all__ = [
     "Account",
-    "Customer",
     "Individual",
+    "OAuthAccount",
     "OAuthState",
     "Session",
     "Subscription",

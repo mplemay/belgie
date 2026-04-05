@@ -1,23 +1,43 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
+    from belgie_proto.core.connection import DBConnection
+
+
+class AccountType(StrEnum):
+    INDIVIDUAL = "individual"
+    ORGANIZATION = "organization"
+    TEAM = "team"
+
 
 @runtime_checkable
 class AccountProtocol(Protocol):
     id: UUID
-    individual_id: UUID
-    provider: str
-    provider_account_id: str
-    access_token: str | None
-    refresh_token: str | None
-    expires_at: datetime | None
-    token_type: str | None
-    scope: str | None
-    id_token: str | None
+    account_type: AccountType
+    name: str | None
     created_at: datetime
     updated_at: datetime
+
+
+@runtime_checkable
+class AccountAdapterProtocol[
+    AccountT: AccountProtocol,
+](Protocol):
+    async def get_account_by_id(
+        self,
+        session: DBConnection,
+        account_id: UUID,
+    ) -> AccountT | None: ...
+
+    async def update_account(
+        self,
+        session: DBConnection,
+        account_id: UUID,
+        **updates: Any,  # noqa: ANN401
+    ) -> AccountT | None: ...

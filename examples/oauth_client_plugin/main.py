@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from belgie import Belgie, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
-from examples.alchemy.auth_models import Account, Customer, Individual, OAuthState, Session
+from examples.alchemy.auth_models import Account, Individual, OAuthAccount, OAuthState, Session
 
 DB_PATH = "./belgie_oauth_client_example.db"
 
@@ -91,9 +91,9 @@ settings = BelgieSettings(
 )
 
 adapter = BelgieAdapter(
-    customer=Customer,
-    individual=Individual,
     account=Account,
+    individual=Individual,
+    oauth_account=OAuthAccount,
     session=Session,
     oauth_state=OAuthState,
 )

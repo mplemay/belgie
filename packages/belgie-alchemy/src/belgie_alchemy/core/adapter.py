@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from belgie_proto.core import AdapterProtocol
-from belgie_proto.core.account import AccountProtocol
-from belgie_proto.core.customer import CustomerAdapterProtocol, CustomerProtocol
+from belgie_proto.core.account import AccountAdapterProtocol, AccountProtocol
 from belgie_proto.core.individual import IndividualProtocol
+from belgie_proto.core.oauth_account import OAuthAccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from sqlalchemy import delete, select
@@ -18,57 +18,57 @@ if TYPE_CHECKING:
 
 
 class BelgieAdapter[
-    CustomerT: CustomerProtocol,
-    IndividualT: IndividualProtocol,
     AccountT: AccountProtocol,
+    IndividualT: IndividualProtocol,
+    OAuthAccountT: OAuthAccountProtocol,
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
 ](
-    AdapterProtocol[IndividualT, AccountT, SessionT, OAuthStateT],
-    CustomerAdapterProtocol[CustomerT],
+    AdapterProtocol[IndividualT, OAuthAccountT, SessionT, OAuthStateT],
+    AccountAdapterProtocol[AccountT],
 ):
     def __init__(
         self,
         *,
-        customer: type[CustomerT],
-        individual: type[IndividualT],
         account: type[AccountT],
+        individual: type[IndividualT],
+        oauth_account: type[OAuthAccountT],
         session: type[SessionT],
         oauth_state: type[OAuthStateT],
     ) -> None:
-        self.customer_model = customer
-        self.individual_model = individual
         self.account_model = account
+        self.individual_model = individual
+        self.oauth_account_model = oauth_account
         self.session_model = session
         self.oauth_state_model = oauth_state
 
-    async def get_customer_by_id(self, session: AsyncSession, customer_id: UUID) -> CustomerT | None:
-        stmt = select(self.customer_model).where(self.customer_model.id == customer_id)
+    async def get_account_by_id(self, session: AsyncSession, account_id: UUID) -> AccountT | None:
+        stmt = select(self.account_model).where(self.account_model.id == account_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update_customer(
+    async def update_account(
         self,
         session: AsyncSession,
-        customer_id: UUID,
+        account_id: UUID,
         **updates: Any,  # noqa: ANN401
-    ) -> CustomerT | None:
-        customer = await self.get_customer_by_id(session, customer_id)
-        if customer is None:
+    ) -> AccountT | None:
+        account = await self.get_account_by_id(session, account_id)
+        if account is None:
             return None
 
         for key, value in updates.items():
-            if hasattr(customer, key):
-                setattr(customer, key, value)
+            if hasattr(account, key):
+                setattr(account, key, value)
 
-        customer.updated_at = datetime.now(UTC)
+        account.updated_at = datetime.now(UTC)
         try:
             await session.commit()
-            await session.refresh(customer)
+            await session.refresh(account)
         except Exception:
             await session.rollback()
             raise
-        return customer
+        return account
 
     async def create_individual(
         self,
@@ -127,15 +127,15 @@ class BelgieAdapter[
             raise
         return individual
 
-    async def create_account(
+    async def create_oauth_account(
         self,
         session: AsyncSession,
         individual_id: UUID,
         provider: str,
         provider_account_id: str,
         **tokens: Any,  # noqa: ANN401
-    ) -> AccountT:
-        account = self.account_model(
+    ) -> OAuthAccountT:
+        oauth_account = self.oauth_account_model(
             individual_id=individual_id,
             provider=provider,
             provider_account_id=provider_account_id,
@@ -146,64 +146,64 @@ class BelgieAdapter[
             scope=tokens.get("scope"),
             id_token=tokens.get("id_token"),
         )
-        session.add(account)
+        session.add(oauth_account)
         try:
             await session.commit()
-            await session.refresh(account)
+            await session.refresh(oauth_account)
         except Exception:
             await session.rollback()
             raise
-        return account
+        return oauth_account
 
-    async def get_account(
+    async def get_oauth_account(
         self,
         session: AsyncSession,
         provider: str,
         provider_account_id: str,
-    ) -> AccountT | None:
-        stmt = select(self.account_model).where(
-            self.account_model.provider == provider,
-            self.account_model.provider_account_id == provider_account_id,
+    ) -> OAuthAccountT | None:
+        stmt = select(self.oauth_account_model).where(
+            self.oauth_account_model.provider == provider,
+            self.oauth_account_model.provider_account_id == provider_account_id,
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_account_by_individual_and_provider(
+    async def get_oauth_account_by_individual_and_provider(
         self,
         session: AsyncSession,
         individual_id: UUID,
         provider: str,
-    ) -> AccountT | None:
-        stmt = select(self.account_model).where(
-            self.account_model.individual_id == individual_id,
-            self.account_model.provider == provider,
+    ) -> OAuthAccountT | None:
+        stmt = select(self.oauth_account_model).where(
+            self.oauth_account_model.individual_id == individual_id,
+            self.oauth_account_model.provider == provider,
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update_account(
+    async def update_oauth_account(
         self,
         session: AsyncSession,
         individual_id: UUID,
         provider: str,
         **tokens: Any,  # noqa: ANN401
-    ) -> AccountT | None:
-        account = await self.get_account_by_individual_and_provider(session, individual_id, provider)
-        if account is None:
+    ) -> OAuthAccountT | None:
+        oauth_account = await self.get_oauth_account_by_individual_and_provider(session, individual_id, provider)
+        if oauth_account is None:
             return None
 
         for key, value in tokens.items():
-            if hasattr(account, key) and value is not None:
-                setattr(account, key, value)
+            if hasattr(oauth_account, key) and value is not None:
+                setattr(oauth_account, key, value)
 
-        account.updated_at = datetime.now(UTC)
+        oauth_account.updated_at = datetime.now(UTC)
         try:
             await session.commit()
-            await session.refresh(account)
+            await session.refresh(oauth_account)
         except Exception:
             await session.rollback()
             raise
-        return account
+        return oauth_account
 
     async def create_session(
         self,
@@ -333,7 +333,7 @@ class BelgieAdapter[
         if (individual := await self.get_individual_by_id(session, individual_id)) is None:
             return False
 
-        stmt = delete(self.customer_model).where(self.customer_model.id == individual.id)
+        stmt = delete(self.account_model).where(self.account_model.id == individual.id)
         result = await session.execute(stmt)
         try:
             await session.commit()

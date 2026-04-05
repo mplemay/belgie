@@ -17,7 +17,7 @@ from belgie import (
 )
 from belgie.alchemy import BelgieAdapter
 from belgie.oauth.server import OAuthServer
-from examples.alchemy.auth_models import Account, Customer, Individual, OAuthState, Session
+from examples.alchemy.auth_models import Account, Individual, OAuthAccount, OAuthState, Session
 
 DB_PATH = "./belgie_oauth_example.db"
 
@@ -78,9 +78,9 @@ settings = BelgieSettings(
 )
 
 adapter = BelgieAdapter(
-    customer=Customer,
-    individual=Individual,
     account=Account,
+    individual=Individual,
+    oauth_account=OAuthAccount,
     session=Session,
     oauth_state=OAuthState,
 )

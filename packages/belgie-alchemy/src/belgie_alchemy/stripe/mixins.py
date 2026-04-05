@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declare
 
 
 @declarative_mixin
-class StripeCustomerMixin(MappedAsDataclass):
+class StripeAccountMixin(MappedAsDataclass):
     @declared_attr
     def stripe_customer_id(self) -> Mapped[str | None]:
         return mapped_column(Text, default=None, index=True, kw_only=True)
@@ -24,17 +24,17 @@ class StripeSubscriptionMixin(MappedAsDataclass):
         return mapped_column(Text, kw_only=True)
 
     @declared_attr
-    def customer_id(self) -> Mapped[UUID]:
+    def account_id(self) -> Mapped[UUID]:
         return mapped_column(
-            ForeignKey("customer.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("account.id", ondelete="cascade", onupdate="cascade"),
             index=True,
             kw_only=True,
         )
 
     @declared_attr
-    def customer(self) -> Mapped[object]:
+    def account(self) -> Mapped[object]:
         return relationship(
-            "Customer",
+            "Account",
             lazy="selectin",
             init=False,
         )
@@ -82,12 +82,12 @@ class StripeSubscriptionMixin(MappedAsDataclass):
     @declared_attr.directive
     def __table_args__(self) -> tuple[Index, Index]:
         return (
-            Index("ix_subscription_customer", self.customer_id),
-            Index("ix_subscription_customer_status", self.customer_id, self.status),
+            Index("ix_subscription_account", self.account_id),
+            Index("ix_subscription_account_status", self.account_id, self.status),
         )
 
 
 __all__ = [
-    "StripeCustomerMixin",
+    "StripeAccountMixin",
     "StripeSubscriptionMixin",
 ]

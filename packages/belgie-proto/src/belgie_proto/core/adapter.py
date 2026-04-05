@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from belgie_proto.core.account import AccountProtocol
-from belgie_proto.core.customer import CustomerAdapterProtocol, CustomerProtocol
+from belgie_proto.core.account import AccountAdapterProtocol, AccountProtocol
 from belgie_proto.core.individual import IndividualProtocol
+from belgie_proto.core.oauth_account import OAuthAccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 
@@ -18,10 +18,10 @@ if TYPE_CHECKING:
 @runtime_checkable
 class AdapterProtocol[
     IndividualT: IndividualProtocol,
-    AccountT: AccountProtocol,
+    OAuthAccountT: OAuthAccountProtocol,
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
-](CustomerAdapterProtocol[CustomerProtocol], Protocol):
+](AccountAdapterProtocol[AccountProtocol], Protocol):
     """Protocol for database adapters."""
 
     async def create_individual(
@@ -45,36 +45,36 @@ class AdapterProtocol[
         **updates: Any,  # noqa: ANN401
     ) -> IndividualT | None: ...
 
-    async def create_account(
+    async def create_oauth_account(
         self,
         session: DBConnection,
         individual_id: UUID,
         provider: str,
         provider_account_id: str,
         **tokens: Any,  # noqa: ANN401
-    ) -> AccountT: ...
+    ) -> OAuthAccountT: ...
 
-    async def get_account(
+    async def get_oauth_account(
         self,
         session: DBConnection,
         provider: str,
         provider_account_id: str,
-    ) -> AccountT | None: ...
+    ) -> OAuthAccountT | None: ...
 
-    async def get_account_by_individual_and_provider(
+    async def get_oauth_account_by_individual_and_provider(
         self,
         session: DBConnection,
         individual_id: UUID,
         provider: str,
-    ) -> AccountT | None: ...
+    ) -> OAuthAccountT | None: ...
 
-    async def update_account(
+    async def update_oauth_account(
         self,
         session: DBConnection,
         individual_id: UUID,
         provider: str,
         **tokens: Any,  # noqa: ANN401
-    ) -> AccountT | None: ...
+    ) -> OAuthAccountT | None: ...
 
     async def create_session(
         self,

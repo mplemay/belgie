@@ -2,16 +2,16 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from belgie_proto.core import AdapterProtocol
-from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.individual import IndividualProtocol
+from belgie_proto.core.oauth_account import OAuthAccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 
 
 class SessionManager[
     IndividualT: IndividualProtocol,
-    AccountT: AccountProtocol,
+    OAuthAccountT: OAuthAccountProtocol,
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
 ]:
@@ -19,7 +19,7 @@ class SessionManager[
 
     def __init__(
         self,
-        adapter: AdapterProtocol[IndividualT, AccountT, SessionT, OAuthStateT],
+        adapter: AdapterProtocol[IndividualT, OAuthAccountT, SessionT, OAuthStateT],
         max_age: int,
         update_age: int,
     ) -> None:

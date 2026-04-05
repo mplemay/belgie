@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from belgie_stripe import Stripe, StripeClient, StripePlan, StripePlugin, StripeSubscription
 from belgie_stripe.__tests__.fakes import (
     DummyBelgie,
+    FakeAccount,
     FakeBelgieClient,
-    FakeCustomer,
     FakeStripeSDK,
     InMemoryStripeAdapter,
     make_individual,
@@ -24,15 +24,15 @@ def _build_plugin(
     *,
     stripe_sdk: FakeStripeSDK | None = None,
     adapter: InMemoryStripeAdapter | None = None,
-    create_customer_on_sign_up: bool = False,
-    customers: dict[UUID, FakeCustomer] | None = None,
-    authorize_customer=None,
+    create_account_on_sign_up: bool = False,
+    accounts: dict[UUID, FakeAccount] | None = None,
+    authorize_account=None,
 ) -> tuple[StripePlugin, DummyBelgie, FakeBelgieClient, FakeStripeSDK, InMemoryStripeAdapter]:
     settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
     individual = make_individual()
     belgie_client = FakeBelgieClient(
         individual=individual,
-        customers=customers,
+        accounts=accounts,
         session=make_session(individual_id=individual.id),
     )
     stripe_sdk = FakeStripeSDK() if stripe_sdk is None else stripe_sdk
@@ -42,11 +42,11 @@ def _build_plugin(
         Stripe(
             stripe=stripe_sdk,
             stripe_webhook_secret="whsec_test",
-            create_customer_on_sign_up=create_customer_on_sign_up,
+            create_account_on_sign_up=create_account_on_sign_up,
             subscription=StripeSubscription(
                 adapter=adapter,
                 plans=[StripePlan(name="pro", price_id="price_pro", annual_price_id="price_pro_year")],
-                authorize_customer=authorize_customer,
+                authorize_account=authorize_account,
             ),
         ),
     )
@@ -127,7 +127,7 @@ def test_upgrade_route_returns_json_when_redirect_disabled() -> None:
     }
 
 
-def test_list_subscriptions_rejects_invalid_customer_id() -> None:
+def test_list_subscriptions_rejects_invalid_account_id() -> None:
     plugin, belgie, _belgie_client, _stripe_sdk, _adapter = _build_plugin()
 
     app = FastAPI()
@@ -138,19 +138,19 @@ def test_list_subscriptions_rejects_invalid_customer_id() -> None:
     with TestClient(app) as test_client:
         response = test_client.get(
             "/auth/subscription/list",
-            params={"customer_id": "invalid"},
+            params={"account_id": "invalid"},
         )
 
     assert response.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_list_subscriptions_route_supports_team_customer_id() -> None:
+async def test_list_subscriptions_route_supports_team_account_id() -> None:
     team = make_team()
-    authorize_customer = AsyncMock(return_value=True)
+    authorize_account = AsyncMock(return_value=True)
     plugin, belgie, belgie_client, _stripe_sdk, adapter = _build_plugin(
-        customers={team.id: team},
-        authorize_customer=authorize_customer,
+        accounts={team.id: team},
+        authorize_account=authorize_account,
     )
 
     app = FastAPI()
@@ -161,18 +161,18 @@ async def test_list_subscriptions_route_supports_team_customer_id() -> None:
     await adapter.create_subscription(
         belgie_client.db,
         plan="pro",
-        customer_id=team.id,
+        account_id=team.id,
         status="active",
     )
 
     with TestClient(app) as test_client:
         response = test_client.get(
             "/auth/subscription/list",
-            params={"customer_id": str(team.id)},
+            params={"account_id": str(team.id)},
         )
 
     assert response.status_code == 200
-    assert response.json()[0]["customer_id"] == str(team.id)
+    assert response.json()[0]["account_id"] == str(team.id)
 
 
 @pytest.mark.asyncio
@@ -186,7 +186,7 @@ async def test_dependency_requires_router_initialization() -> None:
 @pytest.mark.asyncio
 async def test_after_sign_up_creates_customer_when_enabled() -> None:
     plugin, belgie, belgie_client, stripe_sdk, _adapter = _build_plugin(
-        create_customer_on_sign_up=True,
+        create_account_on_sign_up=True,
     )
 
     await plugin.after_sign_up(

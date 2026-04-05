@@ -6,19 +6,19 @@ from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from sqlalchemy.orm import Mapped, mapped_column
 
-from belgie_alchemy.core.mixins import AccountMixin, CustomerMixin, IndividualMixin, OAuthStateMixin, SessionMixin
-from belgie_alchemy.stripe.mixins import StripeCustomerMixin
+from belgie_alchemy.core.mixins import AccountMixin, IndividualMixin, OAuthAccountMixin, OAuthStateMixin, SessionMixin
+from belgie_alchemy.stripe.mixins import StripeAccountMixin
 
 
-class Customer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin, StripeCustomerMixin):
+class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin, StripeAccountMixin):
     pass
 
 
-class Individual(IndividualMixin, Customer):
+class Individual(IndividualMixin, Account):
     custom_field: Mapped[str | None] = mapped_column(default=None)
 
 
-class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
+class OAuthAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccountMixin):
     pass
 
 

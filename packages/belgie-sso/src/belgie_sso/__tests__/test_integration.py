@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 import pytest_asyncio
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.__tests__.fixtures.organization.models import (
     Organization as OrganizationModel,
     OrganizationInvitation,
@@ -68,9 +68,9 @@ async def session_factory(tmp_path) -> AsyncGenerator[async_sessionmaker[AsyncSe
 @pytest.mark.asyncio
 async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, session_factory) -> None:
     core_adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )

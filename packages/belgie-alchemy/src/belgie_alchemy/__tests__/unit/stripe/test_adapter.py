@@ -5,7 +5,7 @@ import pytest_asyncio
 from belgie_proto.stripe import StripeAdapterProtocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.__tests__.fixtures.organization.models import Organization
 from belgie_alchemy.__tests__.fixtures.stripe.models import Subscription
 from belgie_alchemy.__tests__.fixtures.team.models import Team  # noqa: F401
@@ -21,9 +21,9 @@ async def adapter(alchemy_session: AsyncSession):  # noqa: ARG001
 @pytest_asyncio.fixture
 async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
     yield BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )
@@ -35,7 +35,7 @@ def test_subscription_mixin_exposes_expected_columns() -> None:
     assert {
         "id",
         "plan",
-        "customer_id",
+        "account_id",
         "stripe_customer_id",
         "stripe_subscription_id",
         "status",
@@ -61,14 +61,14 @@ async def test_create_and_lookup_subscription(
     core_adapter: BelgieAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    customer = await core_adapter.create_individual(
+    account = await core_adapter.create_individual(
         alchemy_session,
         email="subscription-owner@example.com",
     )
     subscription = await adapter.create_subscription(
         alchemy_session,
         plan="pro",
-        customer_id=customer.id,
+        account_id=account.id,
         stripe_customer_id="cus_123",
         stripe_subscription_id="sub_123",
         status="active",
@@ -93,46 +93,46 @@ async def test_list_active_and_incomplete_subscriptions(
     core_adapter: BelgieAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    primary_customer = await core_adapter.create_individual(
+    primary_account = await core_adapter.create_individual(
         alchemy_session,
         email="primary@example.com",
     )
-    other_customer = Organization(name="Acme", slug="acme")
-    alchemy_session.add(other_customer)
+    other_account = Organization(name="Acme", slug="acme")
+    alchemy_session.add(other_account)
     await alchemy_session.commit()
-    await alchemy_session.refresh(other_customer)
+    await alchemy_session.refresh(other_account)
 
     await adapter.create_subscription(
         alchemy_session,
         plan="starter",
-        customer_id=primary_customer.id,
+        account_id=primary_account.id,
         status="incomplete",
     )
     active_subscription = await adapter.create_subscription(
         alchemy_session,
         plan="pro",
-        customer_id=primary_customer.id,
+        account_id=primary_account.id,
         stripe_subscription_id="sub_active",
         status="active",
     )
     await adapter.create_subscription(
         alchemy_session,
         plan="team",
-        customer_id=other_customer.id,
+        account_id=other_account.id,
         status="active",
     )
 
     listed = await adapter.list_subscriptions(
         alchemy_session,
-        customer_id=primary_customer.id,
+        account_id=primary_account.id,
     )
     active = await adapter.get_active_subscription(
         alchemy_session,
-        customer_id=primary_customer.id,
+        account_id=primary_account.id,
     )
     incomplete = await adapter.get_incomplete_subscription(
         alchemy_session,
-        customer_id=primary_customer.id,
+        account_id=primary_account.id,
     )
 
     assert len(listed) == 2
@@ -148,14 +148,14 @@ async def test_update_subscription_persists_fields(
     core_adapter: BelgieAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    customer = await core_adapter.create_individual(
+    account = await core_adapter.create_individual(
         alchemy_session,
         email="update-subscription@example.com",
     )
     original = await adapter.create_subscription(
         alchemy_session,
         plan="starter",
-        customer_id=customer.id,
+        account_id=account.id,
         status="incomplete",
     )
     period_start = datetime(2026, 1, 1, tzinfo=UTC)
@@ -191,7 +191,7 @@ async def test_update_subscription_preserves_cancellation_timestamps(
     core_adapter: BelgieAdapter,
     alchemy_session: AsyncSession,
 ) -> None:
-    customer = await core_adapter.create_individual(
+    account = await core_adapter.create_individual(
         alchemy_session,
         email="cancel-subscription@example.com",
     )
@@ -201,7 +201,7 @@ async def test_update_subscription_preserves_cancellation_timestamps(
     original = await adapter.create_subscription(
         alchemy_session,
         plan="starter",
-        customer_id=customer.id,
+        account_id=account.id,
         status="canceled",
         cancel_at_period_end=True,
         cancel_at=cancel_at,

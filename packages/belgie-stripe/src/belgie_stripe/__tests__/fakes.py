@@ -7,17 +7,18 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import stripe
+from belgie_proto.core.account import AccountType
 from belgie_proto.core.connection import DBConnection
-from belgie_proto.core.customer import CustomerType
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.stripe import (
     StripeAdapterProtocol,
     StripeBillingInterval,
     StripeSubscriptionStatus,
 )
-from stripe import Customer, Event, ListObject, Price, Subscription
+from stripe import Event, ListObject, Price, Subscription
 from stripe._billing_portal_service import BillingPortalService
 from stripe._checkout_service import CheckoutService
+from stripe._customer import Account as Customer
 from stripe._customer_service import CustomerService
 from stripe._price_service import PriceService
 from stripe._subscription_service import SubscriptionService
@@ -45,7 +46,7 @@ class FakeIndividual:
     image: str | None
     created_at: datetime
     updated_at: datetime
-    customer_type: CustomerType = CustomerType.INDIVIDUAL
+    account_type: AccountType = AccountType.INDIVIDUAL
     scopes: list[str] = field(default_factory=list)
     stripe_customer_id: str | None = None
 
@@ -58,7 +59,7 @@ class FakeOrganization:
     logo: str | None
     created_at: datetime
     updated_at: datetime
-    customer_type: CustomerType = CustomerType.ORGANIZATION
+    account_type: AccountType = AccountType.ORGANIZATION
     stripe_customer_id: str | None = None
 
 
@@ -69,11 +70,11 @@ class FakeTeam:
     name: str
     created_at: datetime
     updated_at: datetime
-    customer_type: CustomerType = CustomerType.TEAM
+    account_type: AccountType = AccountType.TEAM
     stripe_customer_id: str | None = None
 
 
-type FakeCustomer = FakeIndividual | FakeOrganization | FakeTeam
+type FakeAccount = FakeIndividual | FakeOrganization | FakeTeam
 
 
 @dataclass(slots=True, kw_only=True)
@@ -91,7 +92,7 @@ class FakeSession:
 class FakeSubscription:
     id: UUID
     plan: str
-    customer_id: UUID
+    account_id: UUID
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
     status: StripeSubscriptionStatus
@@ -117,48 +118,48 @@ class FakeDB(DBConnection):
         return None
 
 
-class FakeCoreAdapter(StripeCoreAdapterProtocol[FakeCustomer]):
-    def __init__(self, *, customers: dict[UUID, FakeCustomer]) -> None:
-        self.customers = customers
+class FakeCoreAdapter(StripeCoreAdapterProtocol[FakeAccount]):
+    def __init__(self, *, accounts: dict[UUID, FakeAccount]) -> None:
+        self.accounts = accounts
 
-    async def get_customer_by_id(
+    async def get_account_by_id(
         self,
         session: DBConnection,
-        customer_id: UUID,
-    ) -> FakeCustomer | None:
+        account_id: UUID,
+    ) -> FakeAccount | None:
         assert session
-        return self.customers.get(customer_id)
+        return self.accounts.get(account_id)
 
-    async def update_customer(
+    async def update_account(
         self,
         session: DBConnection,
-        customer_id: UUID,
+        account_id: UUID,
         **updates: str | None,
-    ) -> FakeCustomer | None:
+    ) -> FakeAccount | None:
         assert session
-        customer = self.customers.get(customer_id)
-        if customer is None:
+        account = self.accounts.get(account_id)
+        if account is None:
             return None
         for key, value in updates.items():
-            if hasattr(customer, key):
-                setattr(customer, key, value)
-        customer.updated_at = datetime.now(UTC)
-        return customer
+            if hasattr(account, key):
+                setattr(account, key, value)
+        account.updated_at = datetime.now(UTC)
+        return account
 
 
-class FakeBelgieClient(BelgieClientProtocol[FakeCustomer, FakeIndividual, FakeSession]):
+class FakeBelgieClient(BelgieClientProtocol[FakeAccount, FakeIndividual, FakeSession]):
     def __init__(
         self,
         *,
         individual: FakeIndividual,
-        customers: dict[UUID, FakeCustomer] | None = None,
+        accounts: dict[UUID, FakeAccount] | None = None,
         session: FakeSession | None,
     ) -> None:
         self.individual = individual
         self.session = session
         self.db = FakeDB()
-        self.customers = {individual.id: individual, **({} if customers is None else customers)}
-        self.adapter = FakeCoreAdapter(customers=self.customers)
+        self.accounts = {individual.id: individual, **({} if accounts is None else accounts)}
+        self.adapter = FakeCoreAdapter(accounts=self.accounts)
 
     async def get_individual(
         self,
@@ -177,7 +178,7 @@ class FakeBelgieClient(BelgieClientProtocol[FakeCustomer, FakeIndividual, FakeSe
         return self.session
 
 
-class DummyBelgie(BelgieRuntimeProtocol[BelgieClientProtocol[FakeCustomer, FakeIndividual, SessionProtocol]]):
+class DummyBelgie(BelgieRuntimeProtocol[BelgieClientProtocol[FakeAccount, FakeIndividual, SessionProtocol]]):
     def __init__(self, client: FakeBelgieClient, *, plugins: list[object] | None = None) -> None:
         self._client = client
         self.plugins = [] if plugins is None else plugins
@@ -197,7 +198,7 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         session: DBConnection,
         *,
         plan: str,
-        customer_id: UUID,
+        account_id: UUID,
         stripe_customer_id: str | None = None,
         stripe_subscription_id: str | None = None,
         status: StripeSubscriptionStatus = "incomplete",
@@ -214,7 +215,7 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         subscription = FakeSubscription(
             id=uuid4(),
             plan=plan,
-            customer_id=customer_id,
+            account_id=account_id,
             stripe_customer_id=stripe_customer_id,
             stripe_subscription_id=stripe_subscription_id,
             status=status,
@@ -264,11 +265,11 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> list[FakeSubscription]:
         assert session
         subscriptions = [
-            subscription for subscription in self.subscriptions.values() if subscription.customer_id == customer_id
+            subscription for subscription in self.subscriptions.values() if subscription.account_id == account_id
         ]
         return sorted(subscriptions, key=lambda subscription: subscription.created_at, reverse=True)
 
@@ -276,9 +277,9 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> FakeSubscription | None:
-        for subscription in await self.list_subscriptions(session, customer_id=customer_id):
+        for subscription in await self.list_subscriptions(session, account_id=account_id):
             if subscription.status in {"active", "past_due", "paused", "trialing", "unpaid"}:
                 return subscription
         return None
@@ -287,9 +288,9 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> FakeSubscription | None:
-        for subscription in await self.list_subscriptions(session, customer_id=customer_id):
+        for subscription in await self.list_subscriptions(session, account_id=account_id):
             if subscription.status == "incomplete":
                 return subscription
         return None
@@ -586,7 +587,7 @@ def make_team(
 def make_stripe_subscription(
     *,
     subscription_id: str = "sub_123",
-    customer_id: str = "cus_123",
+    account_id: str = "cus_123",
     status: StripeSubscriptionStatus = "active",
     current_period_start: int | None = 1_710_000_000,
     current_period_end: int | None = 1_712_592_000,
@@ -604,7 +605,7 @@ def make_stripe_subscription(
         {
             "id": subscription_id,
             "object": "subscription",
-            "customer": customer_id,
+            "customer": account_id,
             "status": status,
             "current_period_start": current_period_start,
             "current_period_end": current_period_end,

@@ -1,8 +1,8 @@
 from belgie_alchemy.stripe.adapter import StripeAdapter
-from belgie_alchemy.stripe.mixins import StripeCustomerMixin, StripeSubscriptionMixin
+from belgie_alchemy.stripe.mixins import StripeAccountMixin, StripeSubscriptionMixin
 
 __all__ = [
+    "StripeAccountMixin",
     "StripeAdapter",
-    "StripeCustomerMixin",
     "StripeSubscriptionMixin",
 ]

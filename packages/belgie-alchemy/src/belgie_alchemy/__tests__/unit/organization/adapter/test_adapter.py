@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.__tests__.fixtures.organization.models import (
     Organization,
     OrganizationInvitation,
@@ -19,9 +19,9 @@ from belgie_alchemy.organization import OrganizationAdapter
 @pytest_asyncio.fixture
 async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )

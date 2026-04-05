@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from belgie_proto.core import AdapterProtocol
-from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.individual import IndividualProtocol
+from belgie_proto.core.oauth_account import OAuthAccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from fastapi import HTTPException, Request, Response, status
@@ -27,7 +27,7 @@ type AfterSignUpCallback[IndividualT: IndividualProtocol] = Callable[..., Awaita
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BelgieClient[
     IndividualT: IndividualProtocol,
-    AccountT: AccountProtocol,
+    OAuthAccountT: OAuthAccountProtocol,
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
 ]:
@@ -41,7 +41,7 @@ class BelgieClient[
 
     Type Parameters:
         IndividualT: Individual model type implementing IndividualProtocol
-        AccountT: Account model type implementing AccountProtocol
+        OAuthAccountT: OAuthAccount model type implementing OAuthAccountProtocol
         SessionT: Session model type implementing SessionProtocol
         OAuthStateT: OAuth state model type implementing OAuthStateProtocol
 
@@ -59,12 +59,12 @@ class BelgieClient[
         ... ):
         ...     individual = await client.get_individual(SecurityScopes(), request)
         ...     await client.delete_individual(individual)
-        ...     return {"message": "Account deleted"}
+        ...     return {"message": "OAuthAccount deleted"}
     """
 
     db: DBConnection
-    adapter: AdapterProtocol[IndividualT, AccountT, SessionT, OAuthStateT]
-    session_manager: SessionManager[IndividualT, AccountT, SessionT, OAuthStateT]
+    adapter: AdapterProtocol[IndividualT, OAuthAccountT, SessionT, OAuthStateT]
+    session_manager: SessionManager[IndividualT, OAuthAccountT, SessionT, OAuthStateT]
     cookie_settings: CookieSettings = field(default_factory=CookieSettings)
     after_sign_up: AfterSignUpCallback[IndividualT] | None = None
 
@@ -206,15 +206,15 @@ class BelgieClient[
         provider: str,
         provider_account_id: str,
         **tokens: Any,  # noqa: ANN401
-    ) -> AccountT:
+    ) -> OAuthAccountT:
         if (
-            await self.adapter.get_account_by_individual_and_provider(
+            await self.adapter.get_oauth_account_by_individual_and_provider(
                 self.db,
                 individual_id,
                 provider,
             )
             and (
-                account := await self.adapter.update_account(
+                account := await self.adapter.update_oauth_account(
                     self.db,
                     individual_id=individual_id,
                     provider=provider,
@@ -225,7 +225,7 @@ class BelgieClient[
         ):
             return account
 
-        return await self.adapter.create_account(
+        return await self.adapter.create_oauth_account(
             self.db,
             individual_id=individual_id,
             provider=provider,

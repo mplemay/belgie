@@ -3,9 +3,9 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from belgie_proto.core import AdapterProtocol
-from belgie_proto.core.account import AccountProtocol
-from belgie_proto.core.customer import CustomerProtocol, CustomerType
+from belgie_proto.core.account import AccountProtocol, AccountType
 from belgie_proto.core.individual import IndividualProtocol
+from belgie_proto.core.oauth_account import OAuthAccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.organization import (
@@ -15,9 +15,9 @@ from belgie_proto.organization import (
 )
 from belgie_proto.sso import SSOAdapterProtocol, SSODomainProtocol, SSOProviderProtocol
 from belgie_proto.stripe import (
+    StripeAccountProtocol,
     StripeAdapterProtocol,
     StripeBillingInterval,
-    StripeCustomerProtocol,
     StripeSubscriptionProtocol,
 )
 from belgie_proto.team import TeamAdapterProtocol, TeamProtocol
@@ -30,9 +30,9 @@ from belgie_alchemy.team import TeamAdapter
 
 
 @dataclass
-class ExampleCustomer:
+class ExampleAccount:
     id: UUID
-    customer_type: CustomerType
+    account_type: AccountType
     name: str | None
     created_at: datetime
     updated_at: datetime
@@ -42,7 +42,7 @@ class ExampleCustomer:
 @dataclass
 class ExampleIndividual:
     id: UUID
-    customer_type: CustomerType
+    account_type: AccountType
     email: str
     email_verified_at: datetime | None
     name: str | None
@@ -54,7 +54,7 @@ class ExampleIndividual:
 
 
 @dataclass
-class ExampleAccount:
+class ExampleOAuthAccount:
     id: UUID
     individual_id: UUID
     provider: str
@@ -94,7 +94,7 @@ class ExampleOAuthState:
 @dataclass
 class ExampleOrganization:
     id: UUID
-    customer_type: CustomerType
+    account_type: AccountType
     name: str
     slug: str
     logo: str | None
@@ -129,7 +129,7 @@ class ExampleInvitation:
 @dataclass
 class ExampleTeam:
     id: UUID
-    customer_type: CustomerType
+    account_type: AccountType
     organization_id: UUID
     name: str
     created_at: datetime
@@ -148,7 +148,7 @@ class ExampleTeamMember:
 @dataclass
 class ExampleStripeIndividual:
     id: UUID
-    customer_type: CustomerType
+    account_type: AccountType
     email: str
     email_verified_at: datetime | None
     name: str | None
@@ -160,9 +160,9 @@ class ExampleStripeIndividual:
 
 
 @dataclass
-class ExampleStripeCustomerOrganization:
+class ExampleStripeAccountOrganization:
     id: UUID
-    customer_type: CustomerType
+    account_type: AccountType
     name: str
     slug: str
     logo: str | None
@@ -175,7 +175,7 @@ class ExampleStripeCustomerOrganization:
 class ExampleStripeSubscription:
     id: UUID
     plan: str
-    customer_id: UUID
+    account_id: UUID
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
     status: str
@@ -214,23 +214,23 @@ class ExampleSSODomain:
 
 def test_customer_protocol_runtime_check() -> None:
     now = datetime.now(UTC)
-    customer = ExampleCustomer(
+    account = ExampleAccount(
         id=uuid4(),
-        customer_type=CustomerType.INDIVIDUAL,
-        name="Test Customer",
+        account_type=AccountType.INDIVIDUAL,
+        name="Test Account",
         created_at=now,
         updated_at=now,
         custom_field="custom value",
     )
 
-    assert isinstance(customer, CustomerProtocol)
+    assert isinstance(account, AccountProtocol)
 
 
 def test_individual_protocol_runtime_check() -> None:
     now = datetime.now(UTC)
     individual = ExampleIndividual(
         id=uuid4(),
-        customer_type=CustomerType.INDIVIDUAL,
+        account_type=AccountType.INDIVIDUAL,
         email="test@example.com",
         email_verified_at=now,
         name="Test Individual",
@@ -246,7 +246,7 @@ def test_individual_protocol_runtime_check() -> None:
 
 def test_account_protocol_runtime_check() -> None:
     now = datetime.now(UTC)
-    account = ExampleAccount(
+    account = ExampleOAuthAccount(
         id=uuid4(),
         individual_id=uuid4(),
         provider="google",
@@ -261,7 +261,7 @@ def test_account_protocol_runtime_check() -> None:
         updated_at=now,
     )
 
-    assert isinstance(account, AccountProtocol)
+    assert isinstance(account, OAuthAccountProtocol)
 
 
 def test_session_protocol_runtime_check() -> None:
@@ -298,7 +298,7 @@ def test_organization_and_team_protocol_runtime_checks() -> None:
     now = datetime.now(UTC)
     organization = ExampleOrganization(
         id=uuid4(),
-        customer_type=CustomerType.ORGANIZATION,
+        account_type=AccountType.ORGANIZATION,
         name="Acme",
         slug="acme",
         logo=None,
@@ -307,7 +307,7 @@ def test_organization_and_team_protocol_runtime_checks() -> None:
     )
     team = ExampleTeam(
         id=uuid4(),
-        customer_type=CustomerType.TEAM,
+        account_type=AccountType.TEAM,
         organization_id=organization.id,
         name="Platform",
         created_at=now,
@@ -322,7 +322,7 @@ def test_individual_with_custom_fields_satisfies_protocol() -> None:
     now = datetime.now(UTC)
     individual = ExampleIndividual(
         id=uuid4(),
-        customer_type=CustomerType.INDIVIDUAL,
+        account_type=AccountType.INDIVIDUAL,
         email="test@example.com",
         email_verified_at=None,
         name=None,
@@ -373,7 +373,7 @@ def test_stripe_protocol_runtime_checks() -> None:
     now = datetime.now(UTC)
     individual = ExampleStripeIndividual(
         id=uuid4(),
-        customer_type=CustomerType.INDIVIDUAL,
+        account_type=AccountType.INDIVIDUAL,
         email="stripe-individual@example.com",
         email_verified_at=None,
         name=None,
@@ -383,9 +383,9 @@ def test_stripe_protocol_runtime_checks() -> None:
         scopes=[],
         stripe_customer_id="cus_123",
     )
-    organization = ExampleStripeCustomerOrganization(
+    organization = ExampleStripeAccountOrganization(
         id=uuid4(),
-        customer_type=CustomerType.ORGANIZATION,
+        account_type=AccountType.ORGANIZATION,
         name="Acme",
         slug="acme",
         logo=None,
@@ -396,7 +396,7 @@ def test_stripe_protocol_runtime_checks() -> None:
     subscription = ExampleStripeSubscription(
         id=uuid4(),
         plan="pro",
-        customer_id=individual.id,
+        account_id=individual.id,
         stripe_customer_id="cus_123",
         stripe_subscription_id="sub_123",
         status="active",
@@ -411,31 +411,31 @@ def test_stripe_protocol_runtime_checks() -> None:
         updated_at=now,
     )
 
-    assert isinstance(individual, StripeCustomerProtocol)
-    assert isinstance(organization, StripeCustomerProtocol)
+    assert isinstance(individual, StripeAccountProtocol)
+    assert isinstance(organization, StripeAccountProtocol)
     assert isinstance(subscription, StripeSubscriptionProtocol)
 
 
 def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     adapter = BelgieAdapter(
-        customer=ExampleCustomer,
-        individual=ExampleIndividual,
         account=ExampleAccount,
+        individual=ExampleIndividual,
+        oauth_account=ExampleOAuthAccount,
         session=ExampleSession,
         oauth_state=ExampleOAuthState,
     )
 
     assert isinstance(adapter, AdapterProtocol)
-    assert callable(adapter.get_customer_by_id)
-    assert callable(adapter.update_customer)
+    assert callable(adapter.get_account_by_id)
+    assert callable(adapter.update_account)
     assert callable(adapter.create_individual)
     assert callable(adapter.get_individual_by_id)
     assert callable(adapter.get_individual_by_email)
     assert callable(adapter.update_individual)
-    assert callable(adapter.create_account)
-    assert callable(adapter.get_account)
-    assert callable(adapter.get_account_by_individual_and_provider)
-    assert callable(adapter.update_account)
+    assert callable(adapter.create_oauth_account)
+    assert callable(adapter.get_oauth_account)
+    assert callable(adapter.get_oauth_account_by_individual_and_provider)
+    assert callable(adapter.update_oauth_account)
     assert callable(adapter.create_session)
     assert callable(adapter.get_session)
     assert callable(adapter.update_session)

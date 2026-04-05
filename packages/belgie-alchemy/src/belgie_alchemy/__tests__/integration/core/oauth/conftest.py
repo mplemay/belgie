@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get_test_session_factory
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 PACKAGES_ROOT = Path(__file__).resolve().parents[7]
@@ -61,9 +61,9 @@ def database(
 @pytest_asyncio.fixture
 async def adapter():
     adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )

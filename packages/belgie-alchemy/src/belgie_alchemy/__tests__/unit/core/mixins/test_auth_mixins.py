@@ -18,14 +18,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, configure_mappers, mapped_column, relationship
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.__tests__.fixtures.organization.models import (
     Organization,
     OrganizationInvitation,
     OrganizationMember,
 )
 from belgie_alchemy.__tests__.fixtures.team.models import Team, TeamMember
-from belgie_alchemy.core.mixins import AccountMixin, CustomerMixin, IndividualMixin, OAuthStateMixin, SessionMixin
+from belgie_alchemy.core.mixins import AccountMixin, IndividualMixin, OAuthAccountMixin, OAuthStateMixin, SessionMixin
 from belgie_alchemy.organization.mixins import (
     OrganizationInvitationMixin,
     OrganizationMemberMixin,
@@ -43,24 +43,24 @@ class Scope(StrEnum):
 
 def test_auth_mixins_exported() -> None:
     assert IndividualMixin is not None
-    assert AccountMixin is not None
+    assert OAuthAccountMixin is not None
     assert SessionMixin is not None
     assert OAuthStateMixin is not None
 
 
 def test_fixture_models_use_auth_mixins() -> None:
-    assert issubclass(Customer, CustomerMixin)
-    assert issubclass(Individual, IndividualMixin)
     assert issubclass(Account, AccountMixin)
+    assert issubclass(Individual, IndividualMixin)
+    assert issubclass(OAuthAccount, OAuthAccountMixin)
     assert issubclass(Session, SessionMixin)
     assert issubclass(OAuthState, OAuthStateMixin)
 
 
 def test_belgie_mixins_are_domain_only() -> None:
     for mixin in (
-        CustomerMixin,
-        IndividualMixin,
         AccountMixin,
+        IndividualMixin,
+        OAuthAccountMixin,
         SessionMixin,
         OAuthStateMixin,
         OrganizationMixin,
@@ -75,9 +75,9 @@ def test_belgie_mixins_are_domain_only() -> None:
 
 def test_fixture_models_compose_brussels_mixins_explicitly() -> None:
     for model in (
-        Customer,
-        Individual,
         Account,
+        Individual,
+        OAuthAccount,
         Session,
         OAuthState,
         Organization,
@@ -91,9 +91,9 @@ def test_fixture_models_compose_brussels_mixins_explicitly() -> None:
 
 
 def test_customer_hierarchy_keeps_timestamps_on_root_table() -> None:
-    assert "created_at" in Customer.__table__.c
-    assert "updated_at" in Customer.__table__.c
-    assert "deleted_at" in Customer.__table__.c
+    assert "created_at" in Account.__table__.c
+    assert "updated_at" in Account.__table__.c
+    assert "deleted_at" in Account.__table__.c
 
     for model in (Individual, Organization, Team):
         assert hasattr(model, "created_at")
@@ -105,9 +105,9 @@ def test_customer_hierarchy_keeps_timestamps_on_root_table() -> None:
 
 
 def test_default_tablenames() -> None:
-    assert CustomerMixin.__tablename__ == "customer"
-    assert IndividualMixin.__tablename__ == "individual"
     assert AccountMixin.__tablename__ == "account"
+    assert IndividualMixin.__tablename__ == "individual"
+    assert OAuthAccountMixin.__tablename__ == "oauth_account"
     assert SessionMixin.__tablename__ == "session"
     assert OAuthStateMixin.__tablename__ == "oauth_state"
 
@@ -133,13 +133,13 @@ def test_individual_mixin_defaults() -> None:
     assert email_verified_at_column.nullable
     assert email_verified_at_column.default is None
 
-    assert Customer.__table__.c.customer_type.index
+    assert Account.__table__.c.account_type.index
 
-    name_column = Customer.__table__.c.name
+    name_column = Account.__table__.c.name
     assert isinstance(name_column.type.dialect_impl(sqlite), Text)
     assert name_column.nullable
 
-    assert Individual.accounts.property.back_populates == "individual"
+    assert Individual.oauth_accounts.property.back_populates == "individual"
     assert Individual.sessions.property.back_populates == "individual"
     assert Individual.oauth_states.property.back_populates == "individual"
 
@@ -159,8 +159,8 @@ def test_citext_variants_on_case_insensitive_fields() -> None:
     sqlite = sqlite_dialect()
 
     email_type = Individual.__table__.c.email.type
-    provider_type = Account.__table__.c.provider.type
-    provider_account_id_type = Account.__table__.c.provider_account_id.type
+    provider_type = OAuthAccount.__table__.c.provider.type
+    provider_account_id_type = OAuthAccount.__table__.c.provider_account_id.type
     organization_slug_type = Organization.__table__.c.slug.type
     invitation_email_type = OrganizationInvitation.__table__.c.email.type
 
@@ -181,10 +181,10 @@ def test_explicit_text_types_on_mixin_text_fields() -> None:
     sqlite = sqlite_dialect()
 
     text_columns = (
-        Customer.__table__.c.name,
+        Account.__table__.c.name,
         Individual.__table__.c.image,
-        Account.__table__.c.access_token,
-        Account.__table__.c.scope,
+        OAuthAccount.__table__.c.access_token,
+        OAuthAccount.__table__.c.scope,
         Session.__table__.c.ip_address,
         Session.__table__.c.user_agent,
         OAuthState.__table__.c.state,
@@ -199,38 +199,40 @@ def test_explicit_text_types_on_mixin_text_fields() -> None:
 
 
 def test_account_session_oauthstate_mixin_defaults() -> None:
-    account_fk = next(iter(Account.__table__.c.individual_id.foreign_keys))
+    account_fk = next(iter(OAuthAccount.__table__.c.individual_id.foreign_keys))
     assert account_fk.target_fullname == "individual.id"
     assert account_fk.ondelete == "cascade"
     assert account_fk.onupdate == "cascade"
-    assert isinstance(Account.__table__.c.expires_at.type, DateTimeUTC)
+    assert isinstance(OAuthAccount.__table__.c.expires_at.type, DateTimeUTC)
 
     unique_constraints = [
-        constraint for constraint in Account.__table__.constraints if isinstance(constraint, UniqueConstraint)
+        constraint for constraint in OAuthAccount.__table__.constraints if isinstance(constraint, UniqueConstraint)
     ]
     account_constraint = next(
-        constraint for constraint in unique_constraints if constraint.name == "uq_accounts_provider_provider_account_id"
+        constraint
+        for constraint in unique_constraints
+        if constraint.name == "uq_oauth_accounts_provider_provider_account_id"
     )
     assert tuple(account_constraint.columns) == (
-        Account.__table__.c.provider,
-        Account.__table__.c.provider_account_id,
+        OAuthAccount.__table__.c.provider,
+        OAuthAccount.__table__.c.provider_account_id,
     )
     account_index = next(
-        index for index in Account.__table__.indexes if index.name == "ix_account_individual_id_provider"
+        index for index in OAuthAccount.__table__.indexes if index.name == "ix_oauth_account_individual_id_provider"
     )
     assert isinstance(account_index, Index)
     assert tuple(account_index.columns) == (
-        Account.__table__.c.individual_id,
-        Account.__table__.c.provider,
+        OAuthAccount.__table__.c.individual_id,
+        OAuthAccount.__table__.c.provider,
     )
 
     account_index = next(
-        index for index in Account.__table__.indexes if index.name == "ix_account_individual_id_provider"
+        index for index in OAuthAccount.__table__.indexes if index.name == "ix_oauth_account_individual_id_provider"
     )
     assert isinstance(account_index, Index)
     assert tuple(account_index.columns) == (
-        Account.__table__.c.individual_id,
-        Account.__table__.c.provider,
+        OAuthAccount.__table__.c.individual_id,
+        OAuthAccount.__table__.c.provider,
     )
 
     assert isinstance(Session.__table__.c.expires_at.type, DateTimeUTC)
@@ -263,19 +265,19 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
 
 
 def test_mixins_support_relationship_and_tablename_overrides() -> None:
-    class CustomCustomer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
-        __tablename__ = "custom_customers"
+    class CustomAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
+        __tablename__ = "custom_accounts"
 
-    class CustomIndividual(IndividualMixin, CustomCustomer):
+    class CustomIndividual(IndividualMixin, CustomAccount):
         __tablename__ = "custom_individuals"
         id: Mapped[UUID] = mapped_column(
-            ForeignKey("custom_customers.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("custom_accounts.id", ondelete="cascade", onupdate="cascade"),
             primary_key=True,
             init=False,
         )
 
-        accounts: Mapped[list[object]] = relationship(
-            "CustomAccount",
+        oauth_accounts: Mapped[list[object]] = relationship(
+            "CustomOAuthAccount",
             back_populates="individual",
             cascade="all, delete-orphan",
             init=False,
@@ -293,8 +295,8 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
             init=False,
         )
 
-    class CustomAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
-        __tablename__ = "custom_accounts"
+    class CustomOAuthAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccountMixin):
+        __tablename__ = "custom_oauth_accounts"
 
         individual_id: Mapped[UUID] = mapped_column(
             ForeignKey("custom_individuals.id", ondelete="cascade", onupdate="cascade"),
@@ -302,7 +304,7 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
         )
         individual: Mapped[object] = relationship(
             "CustomIndividual",
-            back_populates="accounts",
+            back_populates="oauth_accounts",
             lazy="selectin",
             init=False,
         )
@@ -337,13 +339,13 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
 
     configure_mappers()
 
-    assert CustomCustomer.__table__.name == "custom_customers"
-    assert CustomIndividual.__table__.name == "custom_individuals"
     assert CustomAccount.__table__.name == "custom_accounts"
+    assert CustomIndividual.__table__.name == "custom_individuals"
+    assert CustomOAuthAccount.__table__.name == "custom_oauth_accounts"
     assert CustomSession.__table__.name == "custom_sessions"
     assert CustomOAuthState.__table__.name == "custom_oauth_states"
 
-    custom_account_fk = next(iter(CustomAccount.__table__.c.individual_id.foreign_keys))
+    custom_account_fk = next(iter(CustomOAuthAccount.__table__.c.individual_id.foreign_keys))
     assert custom_account_fk.target_fullname == "custom_individuals.id"
 
     custom_session_fk = next(iter(CustomSession.__table__.c.individual_id.foreign_keys))
@@ -355,19 +357,19 @@ def test_mixins_support_relationship_and_tablename_overrides() -> None:
 
 def test_individual_mixin_scopes_support_enum_array_override() -> None:
     suffix = uuid4().hex[:8]
-    customer_table = f"enum_scope_customer_{suffix}"
-    individual_table = f"enum_scope_individual_{suffix}"
     account_table = f"enum_scope_account_{suffix}"
+    individual_table = f"enum_scope_individual_{suffix}"
+    oauth_account_table = f"enum_scope_oauth_account_{suffix}"
     session_table = f"enum_scope_session_{suffix}"
     oauth_state_table = f"enum_scope_oauth_state_{suffix}"
 
-    class EnumScopedCustomer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
-        __tablename__ = customer_table
+    class EnumScopedAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
+        __tablename__ = account_table
 
-    class EnumScopedIndividual(IndividualMixin, EnumScopedCustomer):
+    class EnumScopedIndividual(IndividualMixin, EnumScopedAccount):
         __tablename__ = individual_table
         id: Mapped[UUID] = mapped_column(
-            ForeignKey(f"{customer_table}.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey(f"{account_table}.id", ondelete="cascade", onupdate="cascade"),
             primary_key=True,
             init=False,
         )
@@ -378,8 +380,8 @@ def test_individual_mixin_scopes_support_enum_array_override() -> None:
             nullable=False,
             kw_only=True,
         )
-        accounts: Mapped[list[object]] = relationship(
-            "EnumScopedAccount",
+        oauth_accounts: Mapped[list[object]] = relationship(
+            "EnumScopedOAuthAccount",
             back_populates="individual",
             cascade="all, delete-orphan",
             init=False,
@@ -397,8 +399,8 @@ def test_individual_mixin_scopes_support_enum_array_override() -> None:
             init=False,
         )
 
-    class EnumScopedAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
-        __tablename__ = account_table
+    class EnumScopedOAuthAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccountMixin):
+        __tablename__ = oauth_account_table
 
         individual_id: Mapped[UUID] = mapped_column(
             ForeignKey(f"{individual_table}.id", ondelete="cascade", onupdate="cascade"),
@@ -407,7 +409,7 @@ def test_individual_mixin_scopes_support_enum_array_override() -> None:
         )
         individual: Mapped[object] = relationship(
             "EnumScopedIndividual",
-            back_populates="accounts",
+            back_populates="oauth_accounts",
             lazy="selectin",
             init=False,
         )
@@ -451,9 +453,9 @@ def test_individual_mixin_scopes_support_enum_array_override() -> None:
     finally:
         DataclassBase.metadata.remove(EnumScopedOAuthState.__table__)
         DataclassBase.metadata.remove(EnumScopedSession.__table__)
-        DataclassBase.metadata.remove(EnumScopedAccount.__table__)
+        DataclassBase.metadata.remove(EnumScopedOAuthAccount.__table__)
         DataclassBase.metadata.remove(EnumScopedIndividual.__table__)
-        DataclassBase.metadata.remove(EnumScopedCustomer.__table__)
+        DataclassBase.metadata.remove(EnumScopedAccount.__table__)
 
 
 def _postgres_engine_from_env() -> AsyncEngine | None:
@@ -487,25 +489,25 @@ def _create_citext_model_classes(
     type[DataclassBase],
     type[DataclassBase],
 ]:
-    customer_table = f"citext_customer_{suffix}"
-    individual_table = f"citext_individual_{suffix}"
     account_table = f"citext_account_{suffix}"
+    individual_table = f"citext_individual_{suffix}"
+    oauth_account_table = f"citext_oauth_account_{suffix}"
     session_table = f"citext_session_{suffix}"
     oauth_state_table = f"citext_oauth_state_{suffix}"
 
-    class CitextCustomer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
-        __tablename__ = customer_table
+    class CitextAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
+        __tablename__ = account_table
 
-    class CitextIndividual(IndividualMixin, CitextCustomer):
+    class CitextIndividual(IndividualMixin, CitextAccount):
         __tablename__ = individual_table
         id: Mapped[UUID] = mapped_column(
-            ForeignKey(f"{customer_table}.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey(f"{account_table}.id", ondelete="cascade", onupdate="cascade"),
             primary_key=True,
             init=False,
         )
 
-        accounts: Mapped[list[object]] = relationship(
-            "CitextAccount",
+        oauth_accounts: Mapped[list[object]] = relationship(
+            "CitextOAuthAccount",
             back_populates="individual",
             cascade="all, delete-orphan",
             init=False,
@@ -523,8 +525,8 @@ def _create_citext_model_classes(
             init=False,
         )
 
-    class CitextAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
-        __tablename__ = account_table
+    class CitextOAuthAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccountMixin):
+        __tablename__ = oauth_account_table
 
         individual_id: Mapped[UUID] = mapped_column(
             ForeignKey(f"{individual_table}.id", ondelete="cascade", onupdate="cascade"),
@@ -533,7 +535,7 @@ def _create_citext_model_classes(
         )
         individual: Mapped[object] = relationship(
             "CitextIndividual",
-            back_populates="accounts",
+            back_populates="oauth_accounts",
             lazy="selectin",
             init=False,
         )
@@ -568,39 +570,39 @@ def _create_citext_model_classes(
             init=False,
         )
 
-    return CitextCustomer, CitextIndividual, CitextAccount, CitextSession, CitextOAuthState
+    return CitextAccount, CitextIndividual, CitextOAuthAccount, CitextSession, CitextOAuthState
 
 
 async def _create_citext_tables(
     engine: AsyncEngine,
-    customer_model: type[DataclassBase],
-    individual_model: type[DataclassBase],
     account_model: type[DataclassBase],
+    individual_model: type[DataclassBase],
+    oauth_account_model: type[DataclassBase],
     session_model: type[DataclassBase],
     oauth_state_model: type[DataclassBase],
 ) -> None:
     async with engine.begin() as conn:
-        await conn.run_sync(customer_model.__table__.create, checkfirst=True)
-        await conn.run_sync(individual_model.__table__.create, checkfirst=True)
         await conn.run_sync(account_model.__table__.create, checkfirst=True)
+        await conn.run_sync(individual_model.__table__.create, checkfirst=True)
+        await conn.run_sync(oauth_account_model.__table__.create, checkfirst=True)
         await conn.run_sync(session_model.__table__.create, checkfirst=True)
         await conn.run_sync(oauth_state_model.__table__.create, checkfirst=True)
 
 
 async def _drop_citext_tables(
     engine: AsyncEngine,
-    customer_model: type[DataclassBase],
-    individual_model: type[DataclassBase],
     account_model: type[DataclassBase],
+    individual_model: type[DataclassBase],
+    oauth_account_model: type[DataclassBase],
     session_model: type[DataclassBase],
     oauth_state_model: type[DataclassBase],
 ) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(oauth_state_model.__table__.drop, checkfirst=True)
         await conn.run_sync(session_model.__table__.drop, checkfirst=True)
-        await conn.run_sync(account_model.__table__.drop, checkfirst=True)
+        await conn.run_sync(oauth_account_model.__table__.drop, checkfirst=True)
         await conn.run_sync(individual_model.__table__.drop, checkfirst=True)
-        await conn.run_sync(customer_model.__table__.drop, checkfirst=True)
+        await conn.run_sync(account_model.__table__.drop, checkfirst=True)
 
 
 @pytest.mark.asyncio
@@ -617,17 +619,19 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
         pytest.skip("citext extension is not installed")
 
     suffix = uuid4().hex[:8]
-    customer_model, individual_model, account_model, session_model, oauth_state_model = _create_citext_model_classes(
-        suffix,
+    account_model, individual_model, oauth_account_model, session_model, oauth_state_model = (
+        _create_citext_model_classes(
+            suffix,
+        )
     )
     organization_table = Organization.__table__.to_metadata(MetaData(), name=f"citext_organization_{suffix}")
 
     try:
         await _create_citext_tables(
             engine,
-            customer_model,
-            individual_model,
             account_model,
+            individual_model,
+            oauth_account_model,
             session_model,
             oauth_state_model,
         )
@@ -647,7 +651,7 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
                 await session.commit()
             await session.rollback()
 
-            account = account_model(
+            account = oauth_account_model(
                 individual_id=individual.id,
                 provider=f"Google-{uuid4().hex[:8]}",
                 provider_account_id=f"ACCOUNT-{uuid4().hex[:8]}",
@@ -655,7 +659,7 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
             session.add(account)
             await session.commit()
 
-            duplicate_account = account_model(
+            duplicate_account = oauth_account_model(
                 individual_id=individual.id,
                 provider=account.provider.lower(),
                 provider_account_id=account.provider_account_id,
@@ -665,7 +669,7 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
                 await session.commit()
             await session.rollback()
 
-            case_distinct_account = account_model(
+            case_distinct_account = oauth_account_model(
                 individual_id=individual.id,
                 provider=account.provider.lower(),
                 provider_account_id=account.provider_account_id.lower(),
@@ -695,9 +699,9 @@ async def test_postgres_citext_enforces_case_insensitive_uniqueness() -> None:
             await conn.run_sync(organization_table.drop, checkfirst=True)
         await _drop_citext_tables(
             engine,
-            customer_model,
-            individual_model,
             account_model,
+            individual_model,
+            oauth_account_model,
             session_model,
             oauth_state_model,
         )

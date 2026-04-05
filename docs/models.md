@@ -8,7 +8,7 @@ while ensuring compatibility.
 You need to implement four models that satisfy Belgie's protocols:
 
 1. **User** - Application users
-2. **Account** - OAuth provider accounts linked to users
+2. **OAuthAccount** - OAuth provider accounts linked to users
 3. **Session** - Active user sessions
 4. **OAuthState** - Temporary OAuth state tokens for CSRF protection
 
@@ -29,7 +29,7 @@ class UserProtocol(Protocol):
     email_verified_at: datetime | None
     scopes: list[str]
 
-class AccountProtocol(Protocol):
+class OAuthAccountProtocol(Protocol):
     id: UUID
     user_id: UUID
     provider: str
@@ -87,7 +87,7 @@ class User(Base):
     )
 
 
-class Account(Base):
+class OAuthAccount(Base):
     """OAuth provider account linked to a user."""
 
     __tablename__ = "accounts"
@@ -96,7 +96,7 @@ class Account(Base):
         Index("ix_accounts_user_id_provider", "user_id", "provider"),
     )
 
-    # Required by AccountProtocol
+    # Required by OAuthAccountProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     provider: Mapped[str] = mapped_column(Text)
@@ -234,7 +234,7 @@ class User(Base):
         Index('idx_email', 'email'),
     )
 
-class Account(Base):
+class OAuthAccount(Base):
     __tablename__ = "accounts"
     __table_args__ = (
         UniqueConstraint('provider', 'provider_account_id', name='uq_accounts_provider_provider_account_id'),
@@ -267,10 +267,10 @@ class User(Base):
 
     # ... fields ...
 
-    accounts = relationship("Account", back_populates="user", cascade="all, delete-orphan")
+    oauth_accounts = relationship("OAuthAccount", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
 
-class Account(Base):
+class OAuthAccount(Base):
     __tablename__ = "accounts"
 
     # ... fields ...

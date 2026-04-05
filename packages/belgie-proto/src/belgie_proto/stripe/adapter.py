@@ -21,7 +21,7 @@ class StripeAdapterProtocol[
         session: DBConnection,
         *,
         plan: str,
-        customer_id: UUID,
+        account_id: UUID,
         stripe_customer_id: str | None = None,
         stripe_subscription_id: str | None = None,
         status: StripeSubscriptionStatus = "incomplete",
@@ -51,21 +51,21 @@ class StripeAdapterProtocol[
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> list[SubscriptionT]: ...
 
     async def get_active_subscription(
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> SubscriptionT | None: ...
 
     async def get_incomplete_subscription(
         self,
         session: DBConnection,
         *,
-        customer_id: UUID,
+        account_id: UUID,
     ) -> SubscriptionT | None: ...
 
     async def update_subscription(  # noqa: PLR0913

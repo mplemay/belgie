@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003
 from uuid import UUID  # noqa: TC003
 
-from belgie_proto.core.customer import CustomerType
+from belgie_proto.core.account import AccountType
 from brussels.types import DateTimeUTC
 from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
 
-from belgie_alchemy.core.mixins import _customer_pk_uuid
+from belgie_alchemy.core.mixins import _account_pk_uuid
 
 
 @declarative_mixin
@@ -19,10 +19,10 @@ class OrganizationMixin(MappedAsDataclass):
     @declared_attr
     def id(self) -> Mapped[UUID]:
         return mapped_column(
-            ForeignKey("customer.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("account.id", ondelete="cascade", onupdate="cascade"),
             primary_key=True,
-            default_factory=_customer_pk_uuid,
-            insert_default=_customer_pk_uuid,
+            default_factory=_account_pk_uuid,
+            insert_default=_account_pk_uuid,
             init=False,
         )
 
@@ -55,7 +55,7 @@ class OrganizationMixin(MappedAsDataclass):
 
     @declared_attr.directive
     def __mapper_args__(self) -> dict[str, object]:
-        return {"polymorphic_identity": CustomerType.ORGANIZATION}
+        return {"polymorphic_identity": AccountType.ORGANIZATION}
 
 
 @declarative_mixin
