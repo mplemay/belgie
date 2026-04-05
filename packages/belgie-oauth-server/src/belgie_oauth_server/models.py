@@ -21,6 +21,34 @@ class OAuthToken(BaseModel):
         return value
 
 
+type OAuthAudience = str | list[str]
+
+
+class OAuthErrorResponse(BaseModel):
+    error: str
+    error_description: str | None = None
+
+
+class OAuthIntrospectionResponse(BaseModel):
+    active: bool
+    client_id: str | None = None
+    scope: str | None = None
+    exp: int | None = None
+    iat: int | None = None
+    token_type: str | None = None
+    aud: OAuthAudience | None = None
+
+
+class UserInfoResponse(BaseModel):
+    sub: str
+    name: str | None = None
+    picture: str | None = None
+    given_name: str | None = None
+    family_name: str | None = None
+    email: str | None = None
+    email_verified: bool | None = None
+
+
 class InvalidScopeError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message

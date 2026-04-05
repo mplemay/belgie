@@ -1,13 +1,11 @@
-from __future__ import annotations
-
 import inspect
-from typing import TYPE_CHECKING
-from uuid import UUID  # noqa: TC003
+from typing import TYPE_CHECKING, Annotated
+from uuid import UUID
 
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.session import SessionProtocol
-from belgie_proto.stripe import StripeCustomerProtocol
-from fastapi import APIRouter, Depends, Request, Response
+from belgie_proto.stripe import StripeCustomerProtocol, StripeSubscriptionProtocol
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import SecurityScopes
 
@@ -27,7 +25,6 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from belgie_core.core.settings import BelgieSettings
-    from belgie_proto.stripe import StripeSubscriptionProtocol
 
     from belgie_stripe.settings import Stripe
 
@@ -40,15 +37,15 @@ class StripePlugin[
 ]:
     def __init__(
         self,
-        belgie_settings: BelgieSettings,
-        settings: Stripe[SubscriptionT],
+        belgie_settings: "BelgieSettings",
+        settings: "Stripe[SubscriptionT]",
     ) -> None:
         self._belgie_settings = belgie_settings
         self._settings = settings
         self._resolve_client: Callable[..., Awaitable[StripeClient[SubscriptionT]]] | None = None
 
     @property
-    def settings(self) -> Stripe[SubscriptionT]:
+    def settings(self) -> "Stripe[SubscriptionT]":
         return self._settings
 
     def _build_client(
@@ -73,11 +70,9 @@ class StripePlugin[
         if self._resolve_client is not None:
             return
 
-        belgie_dependency = Depends(belgie)
-
         async def resolve_client(
             request: Request,
-            client: StripeBelgieClient = belgie_dependency,
+            client: Annotated[StripeBelgieClient, Depends(belgie)],
         ) -> StripeClient[SubscriptionT]:
             individual = await client.get_individual(SecurityScopes(), request)
             session = await client.get_session(request)
@@ -87,7 +82,6 @@ class StripePlugin[
                 current_session=session,
             )
 
-        resolve_client.__annotations__["request"] = Request
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
@@ -127,27 +121,28 @@ class StripePlugin[
     ) -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         router = APIRouter(tags=["auth", "stripe"])
-        belgie_dependency = Depends(belgie)
+        stripe_dependency = Annotated[StripeClient, Depends(self)]
+        belgie_dependency = Annotated[StripeBelgieClient, Depends(belgie)]
 
         @router.post("/subscription/upgrade")
         async def upgrade_subscription(
             payload: UpgradeSubscriptionRequest,
-            stripe: StripeClient = Depends(self),  # noqa: B008, FAST002
+            stripe: stripe_dependency,
         ) -> Response:
             result = await stripe.upgrade(data=payload)
             return _to_response(result)
 
         @router.get("/subscription/list")
         async def list_subscriptions(
-            stripe: StripeClient = Depends(self),  # noqa: B008, FAST002
-            customer_id: UUID | None = None,
+            stripe: stripe_dependency,
+            customer_id: Annotated[UUID | None, Query()] = None,
         ) -> list[SubscriptionView]:
             return await stripe.list_subscriptions(data=ListSubscriptionsRequest(customer_id=customer_id))
 
         @router.post("/subscription/cancel")
         async def cancel_subscription(
             payload: CancelSubscriptionRequest,
-            stripe: StripeClient = Depends(self),  # noqa: B008, FAST002
+            stripe: stripe_dependency,
         ) -> Response:
             result = await stripe.cancel(data=payload)
             return _to_response(result)
@@ -155,22 +150,22 @@ class StripePlugin[
         @router.post("/subscription/restore")
         async def restore_subscription(
             payload: RestoreSubscriptionRequest,
-            stripe: StripeClient = Depends(self),  # noqa: B008, FAST002
+            stripe: stripe_dependency,
         ) -> SubscriptionView:
             return await stripe.restore(data=payload)
 
         @router.post("/subscription/billing-portal")
         async def billing_portal(
             payload: BillingPortalRequest,
-            stripe: StripeClient = Depends(self),  # noqa: B008, FAST002
+            stripe: stripe_dependency,
         ) -> Response:
             result = await stripe.create_billing_portal(data=payload)
             return _to_response(result)
 
         @router.get("/subscription/success")
         async def subscription_success(
-            token: str,
-            client: StripeBelgieClient = belgie_dependency,
+            token: Annotated[str, Query(min_length=1)],
+            client: belgie_dependency,
         ) -> RedirectResponse:
             billing_client = self._build_client(belgie_client=client)
             return await billing_client.subscription_success(token=token)
@@ -178,7 +173,7 @@ class StripePlugin[
         @router.post("/stripe/webhook")
         async def stripe_webhook(
             request: Request,
-            client: StripeBelgieClient = belgie_dependency,
+            client: belgie_dependency,
         ) -> dict[str, bool]:
             billing_client = self._build_client(belgie_client=client)
             return await billing_client.handle_webhook(request=request)
@@ -194,5 +189,5 @@ class StripePlugin[
 
 def _to_response(result: StripeRedirectResponse) -> Response:
     if result.redirect:
-        return RedirectResponse(url=result.url, status_code=302)
+        return RedirectResponse(url=result.url, status_code=status.HTTP_302_FOUND)
     return JSONResponse(result.model_dump())

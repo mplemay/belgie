@@ -4,8 +4,9 @@ from typing import Annotated
 from urllib.parse import urlencode, urlunparse
 
 from brussels.base import DataclassBase
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import RedirectResponse
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, SecretStr
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -35,6 +36,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await conn.run_sync(DataclassBase.metadata.create_all)
     yield
     await engine.dispose()
+
+
+class HomeResponse(BaseModel):
+    message: str
+    authorize_endpoint: str
+    authorize_prompt_values: str
+    login_page: str
+    signup_page: str
+    google_login_page: str
 
 
 app = FastAPI(title="Belgie OAuth Server Custom Pages Example", lifespan=lifespan)
@@ -74,18 +84,18 @@ belgie = Belgie(
 google_plugin = belgie.add_plugin(
     GoogleOAuth(
         client_id="your-google-client-id",
-        client_secret="your-google-client-secret",  # noqa: S106
+        client_secret=SecretStr("your-google-client-secret"),
         scopes=["openid", "email", "profile"],
     ),
 )
 
 oauth_plugin = belgie.add_plugin(
     OAuthServer(
-        base_url=settings.base_url,
+        base_url=AnyHttpUrl(settings.base_url),
         prefix="/oauth",
         client_id="demo-client",
-        client_secret="demo-secret",  # noqa: S106
-        redirect_uris=["http://localhost:3030/callback"],
+        client_secret=SecretStr("demo-secret"),
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         default_scope="user",
         login_url="/login",
         signup_url="/signup",
@@ -100,15 +110,15 @@ def _build_local_url(path: str, **query_params: str) -> str:
 
 
 @app.get("/")
-async def home() -> dict[str, str]:
-    return {
-        "message": "oauth server with custom login and signup pages",
-        "authorize_endpoint": "/auth/oauth/authorize",
-        "authorize_prompt_values": "use prompt=login or prompt=create",
-        "login_page": "/login",
-        "signup_page": "/signup",
-        "google_login_page": "/login/google",
-    }
+async def home() -> HomeResponse:
+    return HomeResponse(
+        message="oauth server with custom login and signup pages",
+        authorize_endpoint="/auth/oauth/authorize",
+        authorize_prompt_values="use prompt=login or prompt=create",
+        login_page="/login",
+        signup_page="/signup",
+        google_login_page="/login/google",
+    )
 
 
 @app.get("/login")
@@ -120,11 +130,17 @@ async def login(
     if context is None:
         return RedirectResponse(
             url=_build_local_url("/login/google", return_to=belgie.settings.urls.signin_redirect),
-            status_code=302,
+            status_code=status.HTTP_302_FOUND,
         )
     if context.intent == "create":
-        return RedirectResponse(url=_build_local_url("/signup", state=context.state), status_code=302)
-    return RedirectResponse(url=_build_local_url("/login/google", state=context.state), status_code=302)
+        return RedirectResponse(
+            url=_build_local_url("/signup", state=context.state),
+            status_code=status.HTTP_302_FOUND,
+        )
+    return RedirectResponse(
+        url=_build_local_url("/login/google", state=context.state),
+        status_code=status.HTTP_302_FOUND,
+    )
 
 
 @app.get("/signup")
@@ -135,7 +151,7 @@ async def signup(
 ) -> RedirectResponse:
     context = await oauth.try_resolve_login_context(request)
     redirect_target = context.return_to if context is not None else belgie.settings.urls.signin_redirect
-    response = RedirectResponse(url=redirect_target, status_code=302)
+    response = RedirectResponse(url=redirect_target, status_code=status.HTTP_302_FOUND)
     _user, session = await client.sign_up(
         "dev@example.com",
         name="Dev Individual",
@@ -153,7 +169,7 @@ async def login_google(
     context = await oauth.try_resolve_login_context(request)
     return_to = context.return_to if context is not None else belgie.settings.urls.signin_redirect
     auth_url = await google.signin_url(return_to=return_to)
-    return RedirectResponse(url=auth_url, status_code=302)
+    return RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
 
 
 if __name__ == "__main__":

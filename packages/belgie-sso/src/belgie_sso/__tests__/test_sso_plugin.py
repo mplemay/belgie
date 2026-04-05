@@ -12,7 +12,7 @@ from belgie_core.core.plugin import AuthenticatedProfile
 from belgie_core.core.settings import BelgieSettings
 from belgie_sso.plugin import SSOPlugin, TokenResponse
 from belgie_sso.settings import EnterpriseSSO
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 
@@ -246,7 +246,9 @@ def test_signin_invalid_provider_id_returns_400(monkeypatch) -> None:
     )
 
     app = FastAPI()
-    app.include_router(plugin.router(belgie), prefix="/auth")
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
 
     response = TestClient(app).get(
         "/auth/provider/sso/signin?provider_id=acme!",
@@ -277,7 +279,9 @@ def test_callback_invalid_provider_id_returns_400(monkeypatch) -> None:
     )
 
     app = FastAPI()
-    app.include_router(plugin.router(belgie), prefix="/auth")
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
 
     response = TestClient(app).get(
         "/auth/provider/sso/callback/acme!?code=test-code&state=test-state",
@@ -301,7 +305,9 @@ def test_signin_redirects_using_verified_domain_lookup(monkeypatch) -> None:
     )
 
     app = FastAPI()
-    app.include_router(plugin.router(belgie), prefix="/auth")
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
 
     response = TestClient(app).get(
         "/auth/provider/sso/signin?email=person@example.com&redirect_to=%2Fafter",
@@ -369,7 +375,9 @@ def test_callback_creates_session_and_assigns_org(monkeypatch) -> None:
     )
 
     app = FastAPI()
-    app.include_router(plugin.router(belgie), prefix="/auth")
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
 
     response = TestClient(app).get(
         "/auth/provider/sso/callback/acme?code=test-code&state=test-state",
@@ -441,7 +449,9 @@ def test_callback_rejects_unverified_domain(monkeypatch) -> None:
     )
 
     app = FastAPI()
-    app.include_router(plugin.router(belgie), prefix="/auth")
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
 
     with pytest.raises(OAuthError, match="email domain is not verified"):
         TestClient(app).get(

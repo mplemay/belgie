@@ -1,3 +1,4 @@
+from typing import Annotated
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -7,7 +8,7 @@ from belgie_core.core.client import BelgieClient
 from belgie_oauth_server.client import OAuthServerClient
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,44 +33,50 @@ def _build_custom_pages_app(belgie_instance: Belgie) -> tuple[FastAPI, OAuthServ
     @app.get("/login/custom")
     async def custom_login(
         request: Request,
-        oauth: OAuthServerClient = Depends(oauth_plugin),
+        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
         if context is None:
             return RedirectResponse(
                 url=construct_redirect_uri("/login/google", return_to=belgie_instance.settings.urls.signin_redirect),
-                status_code=302,
+                status_code=status.HTTP_302_FOUND,
             )
         if context.intent == "create":
-            return RedirectResponse(url=construct_redirect_uri("/signup/custom", state=context.state), status_code=302)
-        return RedirectResponse(url=construct_redirect_uri("/login/google", state=context.state), status_code=302)
+            return RedirectResponse(
+                url=construct_redirect_uri("/signup/custom", state=context.state),
+                status_code=status.HTTP_302_FOUND,
+            )
+        return RedirectResponse(
+            url=construct_redirect_uri("/login/google", state=context.state),
+            status_code=status.HTTP_302_FOUND,
+        )
 
     @app.get("/signup/custom")
     async def custom_signup(
         request: Request,
-        oauth: OAuthServerClient = Depends(oauth_plugin),
-        client: BelgieClient = Depends(belgie_instance),
+        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+        client: Annotated[BelgieClient, Depends(belgie_instance)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
         redirect_target = context.return_to if context is not None else belgie_instance.settings.urls.signin_redirect
-        response = RedirectResponse(url=redirect_target, status_code=302)
+        response = RedirectResponse(url=redirect_target, status_code=status.HTTP_302_FOUND)
         _user, session = await client.sign_up("signup@example.com", request=request, name="Signup Individual")
         return client.create_session_cookie(session, response)
 
     @app.get("/login/google")
     async def login_google(
         request: Request,
-        oauth: OAuthServerClient = Depends(oauth_plugin),
-        client: BelgieClient = Depends(belgie_instance),
+        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+        client: Annotated[BelgieClient, Depends(belgie_instance)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
         if context is None:
             return_to = request.query_params.get("return_to") or belgie_instance.settings.urls.signin_redirect
             return RedirectResponse(
                 url=construct_redirect_uri("/mock/google/authorize", return_to=return_to),
-                status_code=302,
+                status_code=status.HTTP_302_FOUND,
             )
-        response = RedirectResponse(url=context.return_to, status_code=302)
+        response = RedirectResponse(url=context.return_to, status_code=status.HTTP_302_FOUND)
         _user, session = await client.sign_up("google@example.com", request=request, name="Google Individual")
         return client.create_session_cookie(session, response)
 

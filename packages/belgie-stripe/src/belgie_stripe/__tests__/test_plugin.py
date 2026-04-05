@@ -1,7 +1,6 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from typing import Annotated
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 from belgie_core.core.settings import BelgieSettings
@@ -19,9 +18,6 @@ from belgie_stripe.__tests__.fakes import (
     make_session,
     make_team,
 )
-
-if TYPE_CHECKING:
-    from uuid import UUID
 
 
 def _build_plugin(
@@ -67,7 +63,7 @@ def test_plugin_injects_stripe_client() -> None:
     app.include_router(auth_router)
 
     @app.get("/stripe-client")
-    async def stripe_client_route(stripe: StripeClient = Depends(plugin)) -> dict[str, str]:
+    async def stripe_client_route(stripe: Annotated[StripeClient, Depends(plugin)]) -> dict[str, str]:
         assert stripe.current_individual is not None
         return {"individual_id": str(stripe.current_individual.id)}
 

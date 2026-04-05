@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import datetime
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request, status
 from fastapi.responses import RedirectResponse
 from mcp.server.mcpserver import MCPServer
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, SecretStr
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -40,6 +41,15 @@ class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
 
 class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
     pass
+
+
+class TimeToolResponse(BaseModel):
+    individual_id: str | None
+    user_email: str | None
+    current_time: str
+    timezone: str
+    timestamp: float
+    formatted: str
 
 
 DB_PATH = "./belgie_mcp_example.db"
@@ -103,11 +113,11 @@ belgie = Belgie(
 )
 
 oauth_settings = OAuthServer(
-    base_url=settings.base_url,
+    base_url=AnyHttpUrl(settings.base_url),
     prefix="/oauth",
     client_id="demo-client",
-    client_secret="demo-secret",  # noqa: S106
-    redirect_uris=["http://localhost:3030/callback"],
+    client_secret=SecretStr("demo-secret"),
+    redirect_uris=[AnyUrl("http://localhost:3030/callback")],
     default_scope="user",
     login_url="/login",
     resources=[OAuthResource(prefix="/mcp", scopes=["user"])],
@@ -139,26 +149,26 @@ app.mount(
 
 
 @mcp_server.tool()
-async def get_time() -> dict[str, Any]:
+async def get_time() -> dict[str, str | float | None]:
     user = await get_user_from_access_token(belgie)
     now = datetime.datetime.now(datetime.UTC)
-    return {
-        "individual_id": str(user.id) if user else None,
-        "user_email": user.email if user else None,
-        "current_time": now.isoformat(),
-        "timezone": "UTC",
-        "timestamp": now.timestamp(),
-        "formatted": now.strftime("%Y-%m-%d %H:%M:%S"),
-    }
+    return TimeToolResponse(
+        individual_id=str(user.id) if user else None,
+        user_email=user.email if user else None,
+        current_time=now.isoformat(),
+        timezone="UTC",
+        timestamp=now.timestamp(),
+        formatted=now.strftime("%Y-%m-%d %H:%M:%S"),
+    ).model_dump(mode="json")
 
 
 @app.get("/login")
 async def login(
     request: Request,
     client: Annotated[BelgieClient, Depends(belgie)],
-    return_to: str | None = None,
+    return_to: Annotated[str | None, Query()] = None,
 ) -> RedirectResponse:
-    response = RedirectResponse(url=return_to or "/", status_code=302)
+    response = RedirectResponse(url=return_to or "/", status_code=status.HTTP_302_FOUND)
     _user, session = await client.sign_up(
         "dev@example.com",
         name="Dev Individual",

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -12,7 +10,7 @@ from belgie_core.core.exceptions import InvalidStateError, OAuthError
 from belgie_core.core.plugin import AuthenticatedProfile, PluginClient
 from belgie_core.utils.crypto import generate_state_token
 from belgie_core.utils.scopes import parse_scopes
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -62,7 +60,7 @@ class MicrosoftOAuth(BaseSettings):
             return parse_scopes(value)
         return value
 
-    def __call__(self, belgie_settings: BelgieSettings) -> MicrosoftOAuthPlugin:
+    def __call__(self, belgie_settings: "BelgieSettings") -> "MicrosoftOAuthPlugin":
         return MicrosoftOAuthPlugin(belgie_settings, self)
 
 
@@ -85,7 +83,7 @@ class MicrosoftUserInfo(BaseModel):
 
 @dataclass(slots=True, kw_only=True)
 class MicrosoftOAuthClient:
-    plugin: MicrosoftOAuthPlugin
+    plugin: "MicrosoftOAuthPlugin"
     client: BelgieClient
 
     async def signin_url(self, *, return_to: str | None = None) -> str:
@@ -101,12 +99,22 @@ class MicrosoftOAuthClient:
         return self.plugin.generate_authorization_url(state)
 
 
+@dataclass(slots=True, kw_only=True)
+class TokenResponse:
+    access_token: str
+    token_type: str | None
+    refresh_token: str | None
+    scope: str | None
+    id_token: str | None
+    expires_at: datetime | None
+
+
 class MicrosoftOAuthPlugin(PluginClient):
     AUTHORIZATION_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
     TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"  # noqa: S105
     USER_INFO_URL = "https://graph.microsoft.com/oidc/userinfo"
 
-    def __init__(self, belgie_settings: BelgieSettings, settings: MicrosoftOAuth) -> None:
+    def __init__(self, belgie_settings: "BelgieSettings", settings: MicrosoftOAuth) -> None:
         self.settings = settings
         self._redirect_uri = self._build_provider_callback_url(
             belgie_settings.base_url,
@@ -128,14 +136,13 @@ class MicrosoftOAuthPlugin(PluginClient):
     def token_url(self) -> str:
         return self.TOKEN_URL_TEMPLATE.format(tenant=self.settings.tenant)
 
-    def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
+    def _ensure_dependency_resolver(self, belgie: "Belgie") -> None:
         if self._resolve_client is not None:
             return
 
         async def resolve_client(client: Annotated[BelgieClient, Depends(belgie)]) -> MicrosoftOAuthClient:
             return MicrosoftOAuthClient(plugin=self, client=client)
 
-        resolve_client.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
@@ -189,7 +196,7 @@ class MicrosoftOAuthPlugin(PluginClient):
             ),
         )
 
-    async def exchange_code_for_tokens(self, code: str) -> dict:
+    async def exchange_code_for_tokens(self, code: str) -> TokenResponse:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -213,14 +220,14 @@ class MicrosoftOAuthPlugin(PluginClient):
                 if "expires_in" in tokens:
                     expires_at = datetime.now(UTC) + timedelta(seconds=tokens["expires_in"])
 
-                return {
-                    "access_token": tokens["access_token"],
-                    "token_type": tokens.get("token_type"),
-                    "refresh_token": tokens.get("refresh_token"),
-                    "scope": tokens.get("scope"),
-                    "id_token": tokens.get("id_token"),
-                    "expires_at": expires_at,
-                }
+                return TokenResponse(
+                    access_token=tokens["access_token"],
+                    token_type=tokens.get("token_type"),
+                    refresh_token=tokens.get("refresh_token"),
+                    scope=tokens.get("scope"),
+                    id_token=tokens.get("id_token"),
+                    expires_at=expires_at,
+                )
         except httpx.HTTPStatusError as e:
             error_detail = ""
             try:
@@ -259,13 +266,14 @@ class MicrosoftOAuthPlugin(PluginClient):
             msg = "user info request failed"
             raise OAuthError(msg) from e
 
-    def router(self, belgie: Belgie) -> APIRouter:
+    def router(self, belgie: "Belgie") -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         router = APIRouter(prefix=f"/provider/{self.provider_id}", tags=["auth", "oauth"])
 
+        @router.get("/callback")
         async def callback(
-            code: str,
-            state: str,
+            code: Annotated[str, Query(min_length=1)],
+            state: Annotated[str, Query(min_length=1)],
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> RedirectResponse:
@@ -276,7 +284,7 @@ class MicrosoftOAuthPlugin(PluginClient):
             await client.adapter.delete_oauth_state(client.db, state)
 
             tokens = await self.exchange_code_for_tokens(code)
-            user_info = await self.get_user_info(tokens["access_token"])
+            user_info = await self.get_user_info(tokens.access_token)
             if not (email := user_info.resolved_email):
                 msg = "Microsoft user info missing email"
                 raise OAuthError(msg)
@@ -293,12 +301,12 @@ class MicrosoftOAuthPlugin(PluginClient):
                 individual_id=individual.id,
                 provider=self.provider_id,
                 provider_account_id=user_info.sub,
-                access_token=tokens["access_token"],
-                refresh_token=tokens.get("refresh_token"),
-                expires_at=tokens.get("expires_at"),
-                scope=tokens.get("scope"),
-                token_type=tokens.get("token_type"),
-                id_token=tokens.get("id_token"),
+                access_token=tokens.access_token,
+                refresh_token=tokens.refresh_token,
+                expires_at=tokens.expires_at,
+                scope=tokens.scope,
+                token_type=tokens.token_type,
+                id_token=tokens.id_token,
             )
             await belgie.after_authenticate(
                 client=client,
@@ -316,16 +324,13 @@ class MicrosoftOAuthPlugin(PluginClient):
 
             response = RedirectResponse(
                 url=oauth_state.redirect_url or belgie.settings.urls.signin_redirect,
-                status_code=302,
+                status_code=status.HTTP_302_FOUND,
             )
             return client.create_session_cookie(session, response)
 
-        callback.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
-        router.add_api_route("/callback", callback, methods=["GET"])
-
         return router
 
-    def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+    def public(self, belgie: "Belgie") -> APIRouter:  # noqa: ARG002
         return APIRouter()
 
     @staticmethod

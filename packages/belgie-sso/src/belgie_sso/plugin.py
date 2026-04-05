@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import inspect
 import logging
 from dataclasses import dataclass
@@ -12,8 +10,11 @@ from belgie_core.core.exceptions import InvalidStateError, OAuthError
 from belgie_core.core.plugin import AfterAuthenticateHook, AuthenticatedProfile, PluginClient
 from belgie_core.utils.crypto import generate_state_token
 from belgie_organization.plugin import OrganizationPlugin
+from belgie_proto.organization.invitation import InvitationProtocol
+from belgie_proto.organization.member import MemberProtocol
+from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.sso import SSODomainProtocol, SSOProviderProtocol
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes
 
@@ -40,9 +41,6 @@ if TYPE_CHECKING:
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
     from belgie_proto.core.individual import IndividualProtocol
-    from belgie_proto.organization.invitation import InvitationProtocol
-    from belgie_proto.organization.member import MemberProtocol
-    from belgie_proto.organization.organization import OrganizationProtocol
 
     from belgie_sso.settings import EnterpriseSSO
 
@@ -66,8 +64,8 @@ class SSOPlugin[
 ](PluginClient, AfterAuthenticateHook):
     def __init__(
         self,
-        belgie_settings: BelgieSettings,
-        settings: EnterpriseSSO[ProviderT, DomainT],
+        belgie_settings: "BelgieSettings",
+        settings: "EnterpriseSSO[ProviderT, DomainT]",
     ) -> None:
         self._belgie_settings = belgie_settings
         self._settings = settings
@@ -81,10 +79,10 @@ class SSOPlugin[
         self._organization_plugin: OrganizationPlugin | None = None
 
     @property
-    def settings(self) -> EnterpriseSSO[ProviderT, DomainT]:
+    def settings(self) -> "EnterpriseSSO[ProviderT, DomainT]":
         return self._settings
 
-    def _ensure_organization_plugin(self, belgie: Belgie) -> OrganizationPlugin:
+    def _ensure_organization_plugin(self, belgie: "Belgie") -> OrganizationPlugin:
         if self._organization_plugin is not None:
             return self._organization_plugin
 
@@ -98,7 +96,7 @@ class SSOPlugin[
         self._organization_plugin = organization_plugin
         return organization_plugin
 
-    def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
+    def _ensure_dependency_resolver(self, belgie: "Belgie") -> None:
         if self._resolve_client is not None:
             return
 
@@ -116,8 +114,6 @@ class SSOPlugin[
                 current_individual=current_individual,
             )
 
-        resolve_client.__annotations__["request"] = Request
-        resolve_client.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
@@ -134,10 +130,10 @@ class SSOPlugin[
     async def after_authenticate(
         self,
         *,
-        belgie: Belgie,
+        belgie: "Belgie",
         client: BelgieClient,
         request: Request,  # noqa: ARG002
-        individual: IndividualProtocol[str],
+        individual: "IndividualProtocol[str]",
         profile: AuthenticatedProfile,
     ) -> None:
         if profile.provider not in {"google", "microsoft"} or not profile.email_verified:
@@ -186,17 +182,18 @@ class SSOPlugin[
                 detail=str(exc),
             ) from exc
 
-    def router(self, belgie: Belgie) -> APIRouter:
+    def router(self, belgie: "Belgie") -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         organization_plugin = self._ensure_organization_plugin(belgie)
         router = APIRouter(prefix="/provider/sso", tags=["auth", "sso"])
 
+        @router.get("/signin")
         async def signin(
             _request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
-            provider_id: str | None = None,
-            email: str | None = None,
-            redirect_to: str | None = None,
+            provider_id: Annotated[str | None, Query()] = None,
+            email: Annotated[str | None, Query()] = None,
+            redirect_to: Annotated[str | None, Query()] = None,
         ) -> RedirectResponse:
             if not provider_id and not email:
                 raise HTTPException(
@@ -234,10 +231,11 @@ class SSOPlugin[
             )
             return RedirectResponse(url=authorization_url, status_code=status.HTTP_302_FOUND)
 
+        @router.get("/callback/{provider_id}")
         async def callback(
             provider_id: str,
-            code: str,
-            state: str,
+            code: Annotated[str, Query(min_length=1)],
+            state: Annotated[str, Query(min_length=1)],
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> RedirectResponse:
@@ -321,13 +319,9 @@ class SSOPlugin[
             )
             return client.create_session_cookie(session, response)
 
-        signin.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
-        callback.__annotations__["client"] = Annotated[BelgieClient, Depends(belgie)]
-        router.add_api_route("/signin", signin, methods=["GET"])
-        router.add_api_route("/callback/{provider_id}", callback, methods=["GET"])
         return router
 
-    def public(self, belgie: Belgie) -> APIRouter | None:
+    def public(self, belgie: "Belgie") -> APIRouter | None:
         self._ensure_organization_plugin(belgie)
         return None
 
@@ -404,7 +398,10 @@ class SSOPlugin[
             auth = (config.client_id, config.client_secret)
 
         async with httpx.AsyncClient(timeout=self._settings.discovery_timeout_seconds) as http_client:
-            response = await http_client.post(config.token_endpoint, data=payload, auth=auth)
+            if auth is None:
+                response = await http_client.post(config.token_endpoint, data=payload)
+            else:
+                response = await http_client.post(config.token_endpoint, data=payload, auth=auth)
             response.raise_for_status()
             data = response.json()
 

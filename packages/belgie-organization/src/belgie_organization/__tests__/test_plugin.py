@@ -1,7 +1,6 @@
-from __future__ import annotations
-
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import Annotated
 from uuid import uuid4
 
 import pytest
@@ -20,22 +19,9 @@ from belgie_organization.__tests__.fakes import (
     FakeTeamMemberRow,
     FakeTeamRow,
 )
+from belgie_organization.client import OrganizationClient
 from belgie_organization.plugin import OrganizationPlugin
 from belgie_organization.settings import Organization
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from belgie_organization.client import OrganizationClient
-
-
-class DummyBelgie:
-    def __init__(self, client: FakeBelgieClient) -> None:
-        self._client = client
-        self.plugins: list[OrganizationPlugin | TeamPlugin] = []
-
-    async def __call__(self) -> FakeBelgieClient:
-        return self._client
 
 
 class FakeBelgieClient:
@@ -45,6 +31,15 @@ class FakeBelgieClient:
 
     async def get_individual(self, _security_scopes, _request):
         return self.user
+
+
+class DummyBelgie:
+    def __init__(self, client: FakeBelgieClient) -> None:
+        self._client = client
+        self.plugins: list[OrganizationPlugin | TeamPlugin] = []
+
+    async def __call__(self) -> FakeBelgieClient:
+        return self._client
 
 
 class FakeOrganizationAdapter(OrganizationAdapterProtocol[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow]):
@@ -84,7 +79,10 @@ def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
 
     @app.get("/organization-client")
     async def get_org_client(
-        organization: OrganizationClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow] = Depends(plugin),
+        organization: Annotated[
+            OrganizationClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow],
+            Depends(plugin),
+        ],
     ) -> dict[str, str]:
         return {"individual_id": str(organization.current_individual.id)}
 
@@ -124,9 +122,10 @@ def test_plugin_injects_team_member_limit_from_team_plugin() -> None:
 
     @app.get("/organization-limit")
     async def get_org_limit(
-        organization: OrganizationClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow] = Depends(
-            organization_plugin,
-        ),
+        organization: Annotated[
+            OrganizationClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow],
+            Depends(organization_plugin),
+        ],
     ) -> dict[str, int | None]:
         return {"maximum_members_per_team": organization.maximum_members_per_team}
 

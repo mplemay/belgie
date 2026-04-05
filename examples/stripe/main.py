@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Annotated
 import stripe
 from belgie_stripe import Stripe, StripePlan, StripeSubscription
 from brussels.base import DataclassBase
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -30,10 +31,33 @@ class StripeExampleSettings(BaseSettings):
         extra="ignore",
     )
 
-    secret_key: str
-    webhook_secret: str
-    pro_price_id: str
-    pro_annual_price_id: str
+    secret_key: str = "sk_test_change_me"  # noqa: S105
+    webhook_secret: str = "whsec_change_me"  # noqa: S105
+    pro_price_id: str = "price_pro_monthly"
+    pro_annual_price_id: str = "price_pro_annual"
+    belgie_secret: str = "change-me"  # noqa: S105
+    belgie_base_url: str = "http://localhost:8000"
+
+
+class HomeResponse(BaseModel):
+    message: str
+    login: str
+    me: str
+    subscription_upgrade: str
+    subscription_list: str
+    subscription_cancel: str
+    subscription_restore: str
+    subscription_billing_portal: str
+    stripe_webhook: str
+    signout: str
+
+
+class MeResponse(BaseModel):
+    individual_id: str
+    email: str
+    name: str | None
+    stripe_customer_id: str | None
+    session_id: str
 
 
 engine = create_async_engine(
@@ -58,7 +82,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Belgie Stripe Example", lifespan=lifespan)
 
+stripe_settings = StripeExampleSettings()
 belgie_settings = BelgieSettings(
+    secret=stripe_settings.belgie_secret,
+    base_url=stripe_settings.belgie_base_url,
     cookie=CookieSettings(
         secure=False,
         http_only=True,
@@ -69,7 +96,6 @@ belgie_settings = BelgieSettings(
         signout_redirect="/",
     ),
 )
-stripe_settings = StripeExampleSettings()
 
 belgie = Belgie(
     settings=belgie_settings,
@@ -82,6 +108,7 @@ belgie = Belgie(
     ),
     database=get_db,
 )
+stripe_adapter = StripeAdapter(subscription=Subscription)
 belgie.add_plugin(
     Stripe(
         stripe=stripe.StripeClient(
@@ -90,7 +117,7 @@ belgie.add_plugin(
         ),
         stripe_webhook_secret=stripe_settings.webhook_secret,
         subscription=StripeSubscription(
-            adapter=StripeAdapter(subscription=Subscription),
+            adapter=stripe_adapter,
             plans=[
                 StripePlan(
                     name="pro",
@@ -106,28 +133,28 @@ app.include_router(belgie.router)
 
 
 @app.get("/")
-async def home() -> dict[str, str]:
-    return {
-        "message": "belgie stripe example",
-        "login": "/login?email=dev@example.com&name=Stripe%20Tester&return_to=/me",
-        "me": "/me",
-        "subscription_upgrade": "/auth/subscription/upgrade",
-        "subscription_list": "/auth/subscription/list",
-        "subscription_cancel": "/auth/subscription/cancel",
-        "subscription_restore": "/auth/subscription/restore",
-        "subscription_billing_portal": "/auth/subscription/billing-portal",
-        "stripe_webhook": "/auth/stripe/webhook",
-        "signout": "/auth/signout",
-    }
+async def home() -> HomeResponse:
+    return HomeResponse(
+        message="belgie stripe example",
+        login="/login?email=dev@example.com&name=Stripe%20Tester&return_to=/me",
+        me="/me",
+        subscription_upgrade="/auth/subscription/upgrade",
+        subscription_list="/auth/subscription/list",
+        subscription_cancel="/auth/subscription/cancel",
+        subscription_restore="/auth/subscription/restore",
+        subscription_billing_portal="/auth/subscription/billing-portal",
+        stripe_webhook="/auth/stripe/webhook",
+        signout="/auth/signout",
+    )
 
 
 @app.get("/login")
 async def login(
     request: Request,
     client: Annotated[BelgieClient, Depends(belgie)],
-    email: str = "dev@example.com",
-    name: str | None = "Stripe Tester",
-    return_to: str = "/",
+    email: Annotated[str, Query()] = "dev@example.com",
+    name: Annotated[str | None, Query()] = "Stripe Tester",
+    return_to: Annotated[str, Query()] = "/",
 ) -> RedirectResponse:
     _user, session = await client.sign_up(
         email=email,
@@ -135,7 +162,7 @@ async def login(
         request=request,
         email_verified_at=datetime.now(UTC),
     )
-    response = RedirectResponse(url=return_to, status_code=302)
+    response = RedirectResponse(url=return_to, status_code=status.HTTP_302_FOUND)
     return client.create_session_cookie(session, response)
 
 
@@ -143,14 +170,14 @@ async def login(
 async def me(
     user: Annotated[Individual, Depends(belgie.individual)],
     session: Annotated[Session, Depends(belgie.session)],
-) -> dict[str, str | None]:
-    return {
-        "individual_id": str(user.id),
-        "email": user.email,
-        "name": user.name,
-        "stripe_customer_id": user.stripe_customer_id,
-        "session_id": str(session.id),
-    }
+) -> MeResponse:
+    return MeResponse(
+        individual_id=str(user.id),
+        email=user.email,
+        name=user.name,
+        stripe_customer_id=user.stripe_customer_id,
+        session_id=str(session.id),
+    )
 
 
 if __name__ == "__main__":

@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 import inspect
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 from belgie_core.core.plugin import PluginClient
 from belgie_organization.plugin import OrganizationPlugin
@@ -35,8 +33,8 @@ class TeamPlugin[
 ](PluginClient):
     def __init__(
         self,
-        _belgie_settings: BelgieSettings,
-        settings: Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT],
+        _belgie_settings: "BelgieSettings",
+        settings: "Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]",
     ) -> None:
         self._settings = settings
         self._resolve_client: (
@@ -47,13 +45,13 @@ class TeamPlugin[
             | None
         ) = None
 
-    def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
+    def _ensure_dependency_resolver(self, belgie: "Belgie") -> None:
         if self._resolve_client is not None:
             return
 
         async def resolve_client(
             request: Request,
-            client: BelgieClient = Depends(belgie),  # noqa: B008
+            client: Annotated["BelgieClient", Depends(belgie)],
         ) -> TeamClient[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]:
             individual = await client.get_individual(SecurityScopes(), request)
             return TeamClient(
@@ -62,12 +60,11 @@ class TeamPlugin[
                 current_individual=individual,
             )
 
-        resolve_client.__annotations__["request"] = Request
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
     @property
-    def settings(self) -> Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]:
+    def settings(self) -> "Team[OrganizationT, MemberT, InvitationT, TeamT, TeamMemberT]":
         return self._settings
 
     async def __call__(
@@ -80,7 +77,7 @@ class TeamPlugin[
             raise RuntimeError(msg)
         return await self._resolve_client(*args, **kwargs)
 
-    def router(self, belgie: Belgie) -> APIRouter:
+    def router(self, belgie: "Belgie") -> APIRouter:
         organization_plugin = next(
             (plugin for plugin in belgie.plugins if isinstance(plugin, OrganizationPlugin)),
             None,
@@ -95,5 +92,5 @@ class TeamPlugin[
         self._ensure_dependency_resolver(belgie)
         return APIRouter(tags=["team"])
 
-    def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
+    def public(self, belgie: "Belgie") -> APIRouter | None:  # noqa: ARG002
         return None

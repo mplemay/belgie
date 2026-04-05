@@ -7,6 +7,7 @@ user scope configurations and Security scope requirements.
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Annotated
 from unittest.mock import MagicMock
 
 import pytest
@@ -95,8 +96,6 @@ def auth(
 @pytest.fixture
 def app(auth: Belgie, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     """Create FastAPI app with auth router and scope-protected endpoints."""
-    from typing import Annotated  # noqa: PLC0415
-
     from fastapi import Security  # noqa: PLC0415
 
     app = FastAPI()
@@ -111,7 +110,7 @@ def app(auth: Belgie, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_individual_with_read_scope(
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession = Depends(get_test_db),
+        db: Annotated[AsyncSession, Depends(get_test_db)],
     ) -> IndividualProtocol:
         # Merge the READ scope with any parent scopes
         all_scopes = list(set(security_scopes.scopes) | {AppScope.READ})
@@ -121,7 +120,7 @@ def app(auth: Belgie, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_individual_with_write_scope(
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession = Depends(get_test_db),
+        db: Annotated[AsyncSession, Depends(get_test_db)],
     ) -> IndividualProtocol:
         all_scopes = list(set(security_scopes.scopes) | {AppScope.WRITE})
         security_scopes.scopes = all_scopes
@@ -130,7 +129,7 @@ def app(auth: Belgie, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_individual_with_admin_scope(
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession = Depends(get_test_db),
+        db: Annotated[AsyncSession, Depends(get_test_db)],
     ) -> IndividualProtocol:
         all_scopes = list(set(security_scopes.scopes) | {AppScope.ADMIN})
         security_scopes.scopes = all_scopes
@@ -139,7 +138,7 @@ def app(auth: Belgie, db_session: AsyncSession) -> FastAPI:  # noqa: C901
     async def get_authenticated_individual(
         security_scopes: SecurityScopes,
         request: Request,
-        db: AsyncSession = Depends(get_test_db),
+        db: Annotated[AsyncSession, Depends(get_test_db)],
     ) -> IndividualProtocol:
         return await auth.individual(security_scopes, request, db)
 
