@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
 
 import pytest
@@ -86,9 +86,10 @@ def _build_fixture() -> tuple[TestClient, FakeBelgieClient]:
 
     @app.get("/team-client")
     async def get_team_client(
-        team: TeamClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow, FakeTeamRow, FakeTeamMemberRow] = (
-            Depends(team_plugin)
-        ),
+        team: Annotated[
+            TeamClient[FakeOrganizationRow, FakeMemberRow, FakeInvitationRow, FakeTeamRow, FakeTeamMemberRow],
+            Depends(team_plugin),
+        ],
     ) -> dict[str, str]:
         return {"individual_id": str(team.current_individual.id)}
 
