@@ -67,15 +67,15 @@ def test_old_adapter_module_removed() -> None:
 def test_mixins_module_exports() -> None:
     try:
         from belgie.alchemy.mixins import (  # noqa: PLC0415
-            AccountMixin,
             IndividualMixin,
+            OAuthAccountMixin,
             OAuthStateMixin,
             SessionMixin,
         )
     except ImportError:
         return
 
-    assert AccountMixin is not None
+    assert OAuthAccountMixin is not None
     assert OAuthStateMixin is not None
     assert SessionMixin is not None
     assert IndividualMixin is not None
@@ -83,11 +83,11 @@ def test_mixins_module_exports() -> None:
 
 def test_mixins_exports_from_alchemy_module() -> None:
     try:
-        from belgie.alchemy import AccountMixin, IndividualMixin, OAuthStateMixin, SessionMixin  # noqa: PLC0415
+        from belgie.alchemy import IndividualMixin, OAuthAccountMixin, OAuthStateMixin, SessionMixin  # noqa: PLC0415
     except ImportError:
         return
 
-    assert AccountMixin is not None
+    assert OAuthAccountMixin is not None
     assert OAuthStateMixin is not None
     assert SessionMixin is not None
     assert IndividualMixin is not None
@@ -133,9 +133,9 @@ def test_direct_hook_imports_fail() -> None:
 
 def test_protocol_exports_from_domain_modules() -> None:
     from belgie.proto.core import (  # noqa: PLC0415
-        AccountProtocol,
         AdapterProtocol,
         IndividualProtocol,
+        OAuthAccountProtocol,
         OAuthStateProtocol,
         SessionProtocol,
     )
@@ -151,7 +151,7 @@ def test_protocol_exports_from_domain_modules() -> None:
         TeamProtocol,
     )
 
-    assert AccountProtocol is not None
+    assert OAuthAccountProtocol is not None
     assert AdapterProtocol is not None
     assert OAuthStateProtocol is not None
     assert SessionProtocol is not None

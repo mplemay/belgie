@@ -4,7 +4,7 @@ from uuid import UUID
 
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.session import SessionProtocol
-from belgie_proto.stripe import StripeCustomerProtocol, StripeSubscriptionProtocol
+from belgie_proto.stripe import StripeAccountProtocol, StripeSubscriptionProtocol
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import SecurityScopes
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from belgie_stripe.settings import Stripe
 
-type StripeBelgieClient = BelgieClientProtocol[StripeCustomerProtocol, IndividualProtocol[str], SessionProtocol]
+type StripeBelgieClient = BelgieClientProtocol[StripeAccountProtocol, IndividualProtocol[str], SessionProtocol]
 type StripeBelgieRuntime = BelgieRuntimeProtocol[StripeBelgieClient]
 
 
@@ -105,7 +105,7 @@ class StripePlugin[
         request: Request | None,  # noqa: ARG002
         individual: IndividualProtocol[str],
     ) -> None:
-        if not self._settings.create_customer_on_sign_up:
+        if not self._settings.create_account_on_sign_up:
             return
 
         billing_client = self._build_client(
@@ -113,7 +113,7 @@ class StripePlugin[
             current_individual=individual,
             current_session=None,
         )
-        await billing_client.ensure_customer(customer_id=individual.id, metadata={})
+        await billing_client.ensure_account(account_id=individual.id, metadata={})
 
     def router(
         self,
@@ -135,9 +135,9 @@ class StripePlugin[
         @router.get("/subscription/list")
         async def list_subscriptions(
             stripe: stripe_dependency,
-            customer_id: Annotated[UUID | None, Query()] = None,
+            account_id: Annotated[UUID | None, Query()] = None,
         ) -> list[SubscriptionView]:
-            return await stripe.list_subscriptions(data=ListSubscriptionsRequest(customer_id=customer_id))
+            return await stripe.list_subscriptions(data=ListSubscriptionsRequest(account_id=account_id))
 
         @router.post("/subscription/cancel")
         async def cancel_subscription(

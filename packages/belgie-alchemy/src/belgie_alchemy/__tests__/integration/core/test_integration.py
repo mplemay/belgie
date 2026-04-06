@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
@@ -52,9 +52,9 @@ def database(
 @pytest_asyncio.fixture
 async def adapter(db_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )
@@ -108,7 +108,7 @@ def test_full_oauth_flow_signin_to_callback(
     assert signin_response.status_code == 302
     assert "location" in signin_response.headers
     location = signin_response.headers["location"]
-    assert location.startswith("https://accounts.google.com/o/oauth2/v2/auth")
+    assert location.startswith("https://oauth_accounts.google.com/o/oauth2/v2/auth")
 
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
 
@@ -160,7 +160,7 @@ def test_full_oauth_flow_signin_to_callback(
         assert session is not None
         assert session.individual_id == user.id
 
-        account = await auth.adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
+        account = await auth.adapter.get_oauth_account_by_individual_and_provider(db_session, user.id, "google")
         assert account is not None
         assert account.provider_account_id == "google-integration-123"
         assert account.access_token == "integration-access-token"  # noqa: S105
@@ -273,7 +273,7 @@ def test_existing_user_signin(client: TestClient, auth: Belgie, db_session: Asyn
         assert user is not None
         assert str(user.id) == individual_id
 
-        account = await auth.adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
+        account = await auth.adapter.get_oauth_account_by_individual_and_provider(db_session, user.id, "google")
         assert account is not None
         assert account.provider_account_id == "google-existing-404"
 

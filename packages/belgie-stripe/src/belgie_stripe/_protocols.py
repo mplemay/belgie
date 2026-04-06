@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.session import SessionProtocol
-from belgie_proto.stripe import StripeCustomerProtocol
+from belgie_proto.stripe import StripeAccountProtocol
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -15,29 +15,29 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class StripeCoreAdapterProtocol[CustomerT: StripeCustomerProtocol](Protocol):
-    async def get_customer_by_id(
+class StripeCoreAdapterProtocol[AccountT: StripeAccountProtocol](Protocol):
+    async def get_account_by_id(
         self,
         session: DBConnection,
-        customer_id: UUID,
-    ) -> CustomerT | None: ...
+        account_id: UUID,
+    ) -> AccountT | None: ...
 
-    async def update_customer(
+    async def update_account(
         self,
         session: DBConnection,
-        customer_id: UUID,
+        account_id: UUID,
         **updates: str | None,
-    ) -> CustomerT | None: ...
+    ) -> AccountT | None: ...
 
 
 @runtime_checkable
 class BelgieClientProtocol[
-    CustomerT: StripeCustomerProtocol,
+    AccountT: StripeAccountProtocol,
     IndividualT: IndividualProtocol,
     SessionT: SessionProtocol,
 ](Protocol):
     db: DBConnection
-    adapter: StripeCoreAdapterProtocol[CustomerT]
+    adapter: StripeCoreAdapterProtocol[AccountT]
 
     async def get_individual(
         self,

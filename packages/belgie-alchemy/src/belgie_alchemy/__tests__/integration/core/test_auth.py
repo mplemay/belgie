@@ -12,7 +12,7 @@ from fastapi import HTTPException, Request
 from fastapi.security import SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
@@ -52,9 +52,9 @@ def database(
 @pytest_asyncio.fixture
 async def adapter():
     adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )

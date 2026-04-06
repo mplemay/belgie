@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from belgie_proto.core.customer import CustomerProtocol
+from belgie_proto.core.account import AccountProtocol
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class OrganizationProtocol(CustomerProtocol, Protocol):
+class OrganizationProtocol(AccountProtocol, Protocol):
     id: UUID
     name: str
     slug: str

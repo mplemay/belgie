@@ -320,8 +320,8 @@ async def test_get_or_create_individual_returns_existing_user(client, mock_adapt
 async def test_upsert_oauth_account_creates_when_missing(client, mock_adapter):
     individual_id = uuid4()
     account = MagicMock()
-    mock_adapter.get_account_by_individual_and_provider.return_value = None
-    mock_adapter.create_account.return_value = account
+    mock_adapter.get_oauth_account_by_individual_and_provider.return_value = None
+    mock_adapter.create_oauth_account.return_value = account
 
     result = await client.upsert_oauth_account(
         individual_id=individual_id,
@@ -331,8 +331,8 @@ async def test_upsert_oauth_account_creates_when_missing(client, mock_adapter):
     )
 
     assert result is account
-    mock_adapter.update_account.assert_not_called()
-    mock_adapter.create_account.assert_called_once_with(
+    mock_adapter.update_oauth_account.assert_not_called()
+    mock_adapter.create_oauth_account.assert_called_once_with(
         client.db,
         individual_id=individual_id,
         provider="google",
@@ -346,8 +346,8 @@ async def test_upsert_oauth_account_updates_when_existing(client, mock_adapter):
     individual_id = uuid4()
     existing_account = MagicMock()
     updated_account = MagicMock()
-    mock_adapter.get_account_by_individual_and_provider.return_value = existing_account
-    mock_adapter.update_account.return_value = updated_account
+    mock_adapter.get_oauth_account_by_individual_and_provider.return_value = existing_account
+    mock_adapter.update_oauth_account.return_value = updated_account
 
     result = await client.upsert_oauth_account(
         individual_id=individual_id,
@@ -357,13 +357,13 @@ async def test_upsert_oauth_account_updates_when_existing(client, mock_adapter):
     )
 
     assert result is updated_account
-    mock_adapter.update_account.assert_called_once_with(
+    mock_adapter.update_oauth_account.assert_called_once_with(
         client.db,
         individual_id=individual_id,
         provider="google",
         access_token="new-access-token",
     )
-    mock_adapter.create_account.assert_not_called()
+    mock_adapter.create_oauth_account.assert_not_called()
 
 
 @pytest.mark.asyncio

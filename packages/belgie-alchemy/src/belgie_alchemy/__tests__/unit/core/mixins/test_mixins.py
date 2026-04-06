@@ -82,17 +82,17 @@ def test_mark_deleted_sets_timestamp() -> None:
     assert user.deleted_at is not None
 
 
-def test_customer_subclasses_expose_inherited_timestamps() -> None:
+def test_account_subclasses_expose_inherited_timestamps() -> None:
     organization = Organization(name="Acme", slug="acme")
     team = Team(name="Platform", organization_id=organization.id)
 
-    for customer in (organization, team):
-        assert customer.created_at is not None
-        assert customer.updated_at is not None
-        assert customer.deleted_at is None
+    for account in (organization, team):
+        assert account.created_at is not None
+        assert account.updated_at is not None
+        assert account.deleted_at is None
 
 
-def test_joined_customer_subclasses_generate_client_side_ids() -> None:
+def test_joined_account_subclasses_generate_client_side_ids() -> None:
     organization = Organization(name="Acme", slug="acme")
     team = Team(name="Platform", organization_id=organization.id)
 
@@ -102,7 +102,9 @@ def test_joined_customer_subclasses_generate_client_side_ids() -> None:
 
 
 @pytest.mark.asyncio
-async def test_joined_customer_subclasses_persist_client_generated_uuid(alchemy_session: AsyncSession) -> None:
+async def test_joined_account_subclasses_persist_client_generated_uuid(
+    alchemy_session: AsyncSession,
+) -> None:
     organization = Organization(name="Acme", slug="acme")
     team = Team(name="Platform", organization_id=organization.id)
     original_organization_id = organization.id

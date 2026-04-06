@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
@@ -52,9 +52,9 @@ def database(
 @pytest_asyncio.fixture
 async def adapter():
     adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )
@@ -98,7 +98,7 @@ def test_signin_google_endpoint_redirects(client: TestClient) -> None:
 
     assert response.status_code == 302
     assert "location" in response.headers
-    assert response.headers["location"].startswith("https://accounts.google.com/o/oauth2/v2/auth")
+    assert response.headers["location"].startswith("https://oauth_accounts.google.com/o/oauth2/v2/auth")
     assert "client_id=test-client-id" in response.headers["location"]
     assert "state=" in response.headers["location"]
 

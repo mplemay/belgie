@@ -5,13 +5,13 @@ from uuid import UUID, uuid4
 
 import pytest
 from belgie_core.core.settings import BelgieSettings
-from belgie_proto.core.customer import CustomerType
+from belgie_proto.core.account import AccountType
 from fastapi import HTTPException
 
 from belgie_stripe import Stripe, StripePlan, StripeSubscription
 from belgie_stripe.__tests__.fakes import (
+    FakeAccount,
     FakeBelgieClient,
-    FakeCustomer,
     FakeIndividual,
     FakeStripeSDK,
     FakeSubscription,
@@ -41,11 +41,11 @@ def _build_client(
     base_url: str = "http://localhost:8000",
     plans: list[StripePlan] | None = None,
     individual: FakeIndividual | None = None,
-    customers: dict[UUID, FakeCustomer] | None = None,
-    authorize_customer=None,
-    get_customer_create_params=None,
+    accounts: dict[UUID, FakeAccount] | None = None,
+    authorize_account=None,
+    get_account_create_params=None,
     get_checkout_session_params=None,
-    on_customer_create=None,
+    on_account_create=None,
     on_subscription_created=None,
     on_subscription_updated=None,
     on_subscription_deleted=None,
@@ -56,7 +56,7 @@ def _build_client(
     session = make_session(individual_id=individual.id)
     belgie_client = FakeBelgieClient(
         individual=individual,
-        customers=customers,
+        accounts=accounts,
         session=session,
     )
     stripe_sdk = FakeStripeSDK() if stripe_sdk is None else stripe_sdk
@@ -69,13 +69,13 @@ def _build_client(
         settings=Stripe(
             stripe=stripe_sdk,
             stripe_webhook_secret="whsec_test",
-            get_customer_create_params=get_customer_create_params,
-            on_customer_create=on_customer_create,
+            get_account_create_params=get_account_create_params,
+            on_account_create=on_account_create,
             on_event=on_event,
             subscription=StripeSubscription(
                 adapter=adapter,
                 plans=plans,
-                authorize_customer=authorize_customer,
+                authorize_account=authorize_account,
                 get_checkout_session_params=get_checkout_session_params,
                 on_subscription_created=on_subscription_created,
                 on_subscription_updated=on_subscription_updated,
@@ -119,12 +119,12 @@ async def test_upgrade_rejects_cross_origin_urls() -> None:
 async def test_ensure_individual_customer_lazily_creates_and_persists_customer() -> None:
     client, belgie_client, stripe_sdk, _adapter = _build_client()
 
-    customer_id = await client.ensure_customer(
-        customer_id=belgie_client.individual.id,
+    account_id = await client.ensure_account(
+        account_id=belgie_client.individual.id,
         metadata={"source": "test"},
     )
 
-    assert customer_id == "cus_1"
+    assert account_id == "cus_1"
     assert belgie_client.individual.stripe_customer_id == "cus_1"
     assert stripe_sdk.created_customers == [
         {
@@ -132,8 +132,8 @@ async def test_ensure_individual_customer_lazily_creates_and_persists_customer()
             "name": belgie_client.individual.name,
             "metadata": {
                 "source": "test",
-                "customer_id": str(belgie_client.individual.id),
-                "customer_type": CustomerType.INDIVIDUAL,
+                "account_id": str(belgie_client.individual.id),
+                "account_type": AccountType.INDIVIDUAL,
             },
         },
     ]
@@ -145,22 +145,22 @@ async def test_ensure_customer_overwrites_reserved_metadata_keys() -> None:
         return_value={
             "description": "custom customer",
             "metadata": {
-                "customer_id": str(uuid4()),
-                "customer_type": CustomerType.ORGANIZATION,
+                "account_id": str(uuid4()),
+                "account_type": AccountType.ORGANIZATION,
                 "hook_only": "present",
             },
         },
     )
     client, belgie_client, stripe_sdk, _adapter = _build_client(
-        get_customer_create_params=hook,
+        get_account_create_params=hook,
     )
 
-    customer_id = await client.ensure_customer(
-        customer_id=belgie_client.individual.id,
-        metadata={"source": "test", "customer_type": "invalid"},
+    account_id = await client.ensure_account(
+        account_id=belgie_client.individual.id,
+        metadata={"source": "test", "account_type": "invalid"},
     )
 
-    assert customer_id == "cus_1"
+    assert account_id == "cus_1"
     assert stripe_sdk.created_customers == [
         {
             "email": belgie_client.individual.email,
@@ -169,8 +169,8 @@ async def test_ensure_customer_overwrites_reserved_metadata_keys() -> None:
             "metadata": {
                 "hook_only": "present",
                 "source": "test",
-                "customer_id": str(belgie_client.individual.id),
-                "customer_type": CustomerType.INDIVIDUAL,
+                "account_id": str(belgie_client.individual.id),
+                "account_type": AccountType.INDIVIDUAL,
             },
         },
     ]
@@ -181,23 +181,23 @@ async def test_ensure_customer_overwrites_reserved_metadata_keys() -> None:
 async def test_ensure_organization_customer_uses_name_only() -> None:
     organization = make_organization()
     client, belgie_client, stripe_sdk, _adapter = _build_client(
-        customers={organization.id: organization},
+        accounts={organization.id: organization},
     )
 
-    customer_id = await client.ensure_customer(
-        customer_id=organization.id,
+    account_id = await client.ensure_account(
+        account_id=organization.id,
         metadata={"source": "test"},
     )
 
-    assert customer_id == "cus_1"
-    assert belgie_client.customers[organization.id].stripe_customer_id == "cus_1"
+    assert account_id == "cus_1"
+    assert belgie_client.accounts[organization.id].stripe_customer_id == "cus_1"
     assert stripe_sdk.created_customers == [
         {
             "name": organization.name,
             "metadata": {
                 "source": "test",
-                "customer_id": str(organization.id),
-                "customer_type": CustomerType.ORGANIZATION,
+                "account_id": str(organization.id),
+                "account_type": AccountType.ORGANIZATION,
             },
         },
     ]
@@ -207,23 +207,23 @@ async def test_ensure_organization_customer_uses_name_only() -> None:
 async def test_ensure_team_customer_uses_name_only() -> None:
     team = make_team()
     client, belgie_client, stripe_sdk, _adapter = _build_client(
-        customers={team.id: team},
+        accounts={team.id: team},
     )
 
-    customer_id = await client.ensure_customer(
-        customer_id=team.id,
+    account_id = await client.ensure_account(
+        account_id=team.id,
         metadata={"source": "test"},
     )
 
-    assert customer_id == "cus_1"
-    assert belgie_client.customers[team.id].stripe_customer_id == "cus_1"
+    assert account_id == "cus_1"
+    assert belgie_client.accounts[team.id].stripe_customer_id == "cus_1"
     assert stripe_sdk.created_customers == [
         {
             "name": team.name,
             "metadata": {
                 "source": "test",
-                "customer_id": str(team.id),
-                "customer_type": CustomerType.TEAM,
+                "account_id": str(team.id),
+                "account_type": AccountType.TEAM,
             },
         },
     ]
@@ -236,7 +236,7 @@ async def test_upgrade_same_plan_same_cadence_does_not_create_customer() -> None
     await adapter.create_subscription(
         client.client.db,
         plan="pro",
-        customer_id=individual.id,
+        account_id=individual.id,
         stripe_customer_id=None,
         stripe_subscription_id="sub_existing",
         status="active",
@@ -262,7 +262,7 @@ async def test_upgrade_same_plan_allows_switch_to_annual_billing_with_portal() -
     client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
     stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
         subscription_id="sub_existing",
-        customer_id="cus_existing",
+        account_id="cus_existing",
         status="active",
         price_id="price_pro",
         interval="month",
@@ -271,7 +271,7 @@ async def test_upgrade_same_plan_allows_switch_to_annual_billing_with_portal() -
     await adapter.create_subscription(
         client.client.db,
         plan="pro",
-        customer_id=individual.id,
+        account_id=individual.id,
         stripe_customer_id="cus_existing",
         stripe_subscription_id="sub_existing",
         status="active",
@@ -297,16 +297,16 @@ async def test_upgrade_same_plan_allows_switch_to_annual_billing_with_portal() -
 @pytest.mark.asyncio
 async def test_upgrade_creates_checkout_session_for_organization_customer() -> None:
     organization = make_organization()
-    authorize_customer = AsyncMock(return_value=True)
+    authorize_account = AsyncMock(return_value=True)
     client, belgie_client, stripe_sdk, adapter = _build_client(
-        customers={organization.id: organization},
-        authorize_customer=authorize_customer,
+        accounts={organization.id: organization},
+        authorize_account=authorize_account,
     )
 
     result = await client.upgrade(
         data=UpgradeSubscriptionRequest(
             plan="pro",
-            customer_id=organization.id,
+            account_id=organization.id,
             success_url="/dashboard",
             cancel_url="/pricing",
             metadata={"source": "test"},
@@ -314,24 +314,24 @@ async def test_upgrade_creates_checkout_session_for_organization_customer() -> N
     )
 
     assert result.url == "https://checkout.stripe.test/session"
-    authorize_customer.assert_awaited_once()
-    assert belgie_client.customers[organization.id].stripe_customer_id == "cus_1"
+    authorize_account.assert_awaited_once()
+    assert belgie_client.accounts[organization.id].stripe_customer_id == "cus_1"
     stored = next(iter(adapter.subscriptions.values()))
-    assert stored.customer_id == organization.id
+    assert stored.account_id == organization.id
     assert stripe_sdk.created_customers == [
         {
             "name": organization.name,
             "metadata": {
                 "source": "test",
-                "customer_id": str(organization.id),
-                "customer_type": CustomerType.ORGANIZATION,
+                "account_id": str(organization.id),
+                "account_type": AccountType.ORGANIZATION,
             },
         },
     ]
-    assert stripe_sdk.created_checkout_sessions[0]["metadata"]["customer_id"] == str(organization.id)
-    assert stripe_sdk.created_checkout_sessions[0]["metadata"]["customer_type"] == CustomerType.ORGANIZATION
+    assert stripe_sdk.created_checkout_sessions[0]["metadata"]["account_id"] == str(organization.id)
+    assert stripe_sdk.created_checkout_sessions[0]["metadata"]["account_type"] == AccountType.ORGANIZATION
     assert stripe_sdk.created_checkout_sessions[0]["metadata"]["plan"] == "pro"
-    assert stripe_sdk.created_checkout_sessions[0]["subscription_data"]["metadata"]["customer_id"] == str(
+    assert stripe_sdk.created_checkout_sessions[0]["subscription_data"]["metadata"]["account_id"] == str(
         organization.id,
     )
 
@@ -340,19 +340,19 @@ async def test_upgrade_creates_checkout_session_for_organization_customer() -> N
 async def test_list_subscriptions_defaults_to_current_individual() -> None:
     organization = make_organization()
     client, _belgie_client, _stripe_sdk, adapter = _build_client(
-        customers={organization.id: organization},
+        accounts={organization.id: organization},
     )
     assert client.current_individual is not None
     individual_subscription = await adapter.create_subscription(
         client.client.db,
         plan="pro",
-        customer_id=client.current_individual.id,
+        account_id=client.current_individual.id,
         status="active",
     )
     await adapter.create_subscription(
         client.client.db,
         plan="enterprise",
-        customer_id=organization.id,
+        account_id=organization.id,
         status="active",
     )
 
@@ -364,37 +364,37 @@ async def test_list_subscriptions_defaults_to_current_individual() -> None:
 @pytest.mark.asyncio
 async def test_list_subscriptions_for_team_customer_uses_authorization_hook() -> None:
     team = make_team()
-    authorize_customer = AsyncMock(return_value=True)
+    authorize_account = AsyncMock(return_value=True)
     client, _belgie_client, _stripe_sdk, adapter = _build_client(
-        customers={team.id: team},
-        authorize_customer=authorize_customer,
+        accounts={team.id: team},
+        authorize_account=authorize_account,
     )
     await adapter.create_subscription(
         client.client.db,
         plan="team",
-        customer_id=team.id,
+        account_id=team.id,
         status="active",
     )
 
     subscriptions = await client.list_subscriptions(
-        data=ListSubscriptionsRequest(customer_id=team.id),
+        data=ListSubscriptionsRequest(account_id=team.id),
     )
 
-    authorize_customer.assert_awaited_once()
+    authorize_account.assert_awaited_once()
     assert len(subscriptions) == 1
-    assert subscriptions[0].customer_id == team.id
+    assert subscriptions[0].account_id == team.id
 
 
 @pytest.mark.asyncio
-async def test_list_subscriptions_requires_authorize_customer_for_other_customer() -> None:
+async def test_list_subscriptions_requires_authorize_account_for_other_account() -> None:
     organization = make_organization()
     client, _belgie_client, _stripe_sdk, _adapter = _build_client(
-        customers={organization.id: organization},
+        accounts={organization.id: organization},
     )
 
-    with pytest.raises(HTTPException, match="authorize_customer"):
+    with pytest.raises(HTTPException, match="authorize_account"):
         await client.list_subscriptions(
-            data=ListSubscriptionsRequest(customer_id=organization.id),
+            data=ListSubscriptionsRequest(account_id=organization.id),
         )
 
 
@@ -405,7 +405,7 @@ async def test_restore_subscription_updates_cancel_at_period_end() -> None:
     subscription = await adapter.create_subscription(
         client.client.db,
         plan="pro",
-        customer_id=individual.id,
+        account_id=individual.id,
         stripe_customer_id="cus_existing",
         stripe_subscription_id="sub_existing",
         status="active",
@@ -414,14 +414,14 @@ async def test_restore_subscription_updates_cancel_at_period_end() -> None:
     )
     stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
         subscription_id="sub_existing",
-        customer_id="cus_existing",
+        account_id="cus_existing",
         status="active",
         cancel_at_period_end=True,
-        metadata={"customer_id": str(individual.id), "plan": "pro"},
+        metadata={"account_id": str(individual.id), "plan": "pro"},
     )
 
     restored = await client.restore(
-        data=RestoreSubscriptionRequest(customer_id=individual.id),
+        data=RestoreSubscriptionRequest(account_id=individual.id),
     )
 
     assert restored.id == subscription.id
@@ -437,7 +437,7 @@ async def test_create_billing_portal_defaults_to_root_return_url() -> None:
     client, _belgie_client, stripe_sdk, _adapter = _build_client(individual=individual)
 
     result = await client.create_billing_portal(
-        data=BillingPortalRequest(customer_id=individual.id),
+        data=BillingPortalRequest(account_id=individual.id),
     )
 
     assert result.url == "https://billing.stripe.test/session"
@@ -455,34 +455,34 @@ async def test_handle_webhook_checkout_completed_creates_subscription() -> None:
     client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
     stripe_sdk.event = make_checkout_completed_event(
         subscription_id="sub_123",
-        metadata={"customer_id": str(individual.id), "plan": "pro"},
+        metadata={"account_id": str(individual.id), "plan": "pro"},
     )
     stripe_sdk.subscription_responses["sub_123"] = make_stripe_subscription(
         subscription_id="sub_123",
-        customer_id="cus_123",
-        metadata={"customer_id": str(individual.id), "plan": "pro"},
+        account_id="cus_123",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
     )
 
     response = await client.handle_webhook(request=_webhook_request())
 
     assert response == {"received": True}
     stored = next(iter(adapter.subscriptions.values()))
-    assert stored.customer_id == individual.id
+    assert stored.account_id == individual.id
     assert stored.stripe_subscription_id == "sub_123"
     assert stored.status == "active"
 
 
 @pytest.mark.asyncio
-async def test_handle_webhook_rejects_invalid_customer_id() -> None:
+async def test_handle_webhook_rejects_invalid_account_id() -> None:
     client, _belgie_client, stripe_sdk, _adapter = _build_client()
     stripe_sdk.event = make_subscription_event(
         event_type="customer.subscription.created",
         subscription=make_stripe_subscription(
-            metadata={"customer_id": "not-a-uuid", "plan": "pro"},
+            metadata={"account_id": "not-a-uuid", "plan": "pro"},
         ),
     )
 
-    with pytest.raises(HTTPException, match="customer_id"):
+    with pytest.raises(HTTPException, match="account_id"):
         await client.handle_webhook(request=_webhook_request())
 
 
@@ -493,7 +493,7 @@ async def test_handle_webhook_updates_existing_subscription_without_customer_met
     subscription = await adapter.create_subscription(
         client.client.db,
         plan="pro",
-        customer_id=individual.id,
+        account_id=individual.id,
         stripe_customer_id="cus_existing",
         stripe_subscription_id="sub_existing",
         status="active",
@@ -504,7 +504,7 @@ async def test_handle_webhook_updates_existing_subscription_without_customer_met
         event_type="customer.subscription.updated",
         subscription=make_stripe_subscription(
             subscription_id="sub_existing",
-            customer_id="cus_existing",
+            account_id="cus_existing",
             status="canceled",
             metadata={},
             cancel_at_period_end=True,
@@ -515,7 +515,7 @@ async def test_handle_webhook_updates_existing_subscription_without_customer_met
 
     assert response == {"received": True}
     updated = adapter.subscriptions[subscription.id]
-    assert updated.customer_id == individual.id
+    assert updated.account_id == individual.id
     assert updated.status == "canceled"
     assert updated.cancel_at_period_end is True
 
@@ -527,7 +527,7 @@ async def test_subscription_success_redirects_after_subscription_is_active() -> 
     subscription = await adapter.create_subscription(
         client.client.db,
         plan="pro",
-        customer_id=client.current_individual.id,
+        account_id=client.current_individual.id,
         stripe_subscription_id="sub_123",
         status="active",
     )

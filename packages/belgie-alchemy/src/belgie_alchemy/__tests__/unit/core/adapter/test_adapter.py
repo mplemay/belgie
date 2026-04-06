@@ -5,16 +5,16 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 
 @pytest_asyncio.fixture
 async def adapter(alchemy_session: AsyncSession):  # noqa: ARG001
     adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )
@@ -137,7 +137,7 @@ async def test_create_account(adapter: BelgieAdapter, alchemy_session: AsyncSess
         email="test@example.com",
     )
 
-    account = await adapter.create_account(
+    account = await adapter.create_oauth_account(
         alchemy_session,
         individual_id=user.id,
         provider="google",
@@ -165,14 +165,14 @@ async def test_get_account(adapter: BelgieAdapter, alchemy_session: AsyncSession
         email="test@example.com",
     )
 
-    await adapter.create_account(
+    await adapter.create_oauth_account(
         alchemy_session,
         individual_id=user.id,
         provider="google",
         provider_account_id="12345",
     )
 
-    account = await adapter.get_account(alchemy_session, "google", "12345")
+    account = await adapter.get_oauth_account(alchemy_session, "google", "12345")
 
     assert account is not None
     assert account.provider == "google"
@@ -181,7 +181,7 @@ async def test_get_account(adapter: BelgieAdapter, alchemy_session: AsyncSession
 
 @pytest.mark.asyncio
 async def test_get_account_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
-    account = await adapter.get_account(alchemy_session, "google", "nonexistent")
+    account = await adapter.get_oauth_account(alchemy_session, "google", "nonexistent")
     assert account is None
 
 
@@ -420,7 +420,7 @@ async def test_delete_individual_deletes_sessions(adapter: BelgieAdapter, alchem
 async def test_delete_individual_deletes_accounts(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_individual(alchemy_session, email="delete@example.com", name="Delete Individual")
 
-    await adapter.create_account(
+    await adapter.create_oauth_account(
         alchemy_session,
         user.id,
         "google",
@@ -430,7 +430,7 @@ async def test_delete_individual_deletes_accounts(adapter: BelgieAdapter, alchem
 
     await adapter.delete_individual(alchemy_session, user.id)
 
-    assert await adapter.get_account(alchemy_session, "google", "google-123") is None
+    assert await adapter.get_oauth_account(alchemy_session, "google", "google-123") is None
 
 
 @pytest.mark.asyncio
@@ -444,14 +444,14 @@ async def test_delete_individual_deletes_all_related_data(
     session1 = await adapter.create_session(alchemy_session, user.id, expires_at.replace(tzinfo=None))
     session2 = await adapter.create_session(alchemy_session, user.id, expires_at.replace(tzinfo=None))
 
-    await adapter.create_account(
+    await adapter.create_oauth_account(
         alchemy_session,
         user.id,
         "google",
         "google-123",
         access_token="token123",
     )
-    await adapter.create_account(
+    await adapter.create_oauth_account(
         alchemy_session,
         user.id,
         "github",
@@ -465,8 +465,8 @@ async def test_delete_individual_deletes_all_related_data(
     assert await adapter.get_individual_by_id(alchemy_session, user.id) is None
     assert await adapter.get_session(alchemy_session, session1.id) is None
     assert await adapter.get_session(alchemy_session, session2.id) is None
-    assert await adapter.get_account(alchemy_session, "google", "google-123") is None
-    assert await adapter.get_account(alchemy_session, "github", "github-456") is None
+    assert await adapter.get_oauth_account(alchemy_session, "google", "google-123") is None
+    assert await adapter.get_oauth_account(alchemy_session, "github", "github-456") is None
 
 
 @pytest.mark.asyncio
@@ -516,14 +516,14 @@ async def test_delete_individual_only_deletes_target_users_data(
     session1 = await adapter.create_session(alchemy_session, user1.id, expires_at.replace(tzinfo=None))
     session2 = await adapter.create_session(alchemy_session, user2.id, expires_at.replace(tzinfo=None))
 
-    await adapter.create_account(
+    await adapter.create_oauth_account(
         alchemy_session,
         user1.id,
         "google",
         "google-user1",
         access_token="token1",
     )
-    await adapter.create_account(
+    await adapter.create_oauth_account(
         alchemy_session,
         user2.id,
         "google",
@@ -535,8 +535,8 @@ async def test_delete_individual_only_deletes_target_users_data(
 
     assert await adapter.get_individual_by_id(alchemy_session, user1.id) is None
     assert await adapter.get_session(alchemy_session, session1.id) is None
-    assert await adapter.get_account(alchemy_session, "google", "google-user1") is None
+    assert await adapter.get_oauth_account(alchemy_session, "google", "google-user1") is None
 
     assert await adapter.get_individual_by_id(alchemy_session, user2.id) is not None
     assert await adapter.get_session(alchemy_session, session2.id) is not None
-    assert await adapter.get_account(alchemy_session, "google", "google-user2") is not None
+    assert await adapter.get_oauth_account(alchemy_session, "google", "google-user2") is not None

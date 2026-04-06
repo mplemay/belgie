@@ -18,7 +18,7 @@ from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Customer, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.core import BelgieAdapter
 
 # ==================== Fixtures ====================
@@ -57,9 +57,9 @@ async def adapter(db_session: AsyncSession):  # noqa: ARG001
     """Adapter with test database dependency."""
 
     adapter = BelgieAdapter(
-        customer=Customer,
-        individual=Individual,
         account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     )
@@ -222,17 +222,17 @@ async def create_session_helper(adapter: BelgieAdapter, db_session: AsyncSession
 
 @pytest_asyncio.fixture
 async def create_account_helper(adapter: BelgieAdapter, db_session: AsyncSession):
-    """Factory for creating OAuth accounts."""
+    """Factory for creating OAuth oauth_accounts."""
 
     async def _create(
         individual_id: UUID,
         provider: str = "google",
         provider_account_id: str | None = None,
-    ) -> Account:
+    ) -> OAuthAccount:
         if provider_account_id is None:
             provider_account_id = f"provider-{uuid4()}"
 
-        return await adapter.create_account(
+        return await adapter.create_oauth_account(
             db_session,
             individual_id=individual_id,
             provider=provider,
@@ -703,7 +703,7 @@ class TestDeleteIndividual:
         assert response.status_code == 200
 
         # Verify account is deleted
-        deleted_account = await adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
+        deleted_account = await adapter.get_oauth_account_by_individual_and_provider(db_session, user.id, "google")
         assert deleted_account is None
 
     @pytest.mark.asyncio
@@ -717,7 +717,7 @@ class TestDeleteIndividual:
         adapter: BelgieAdapter,
         db_session: AsyncSession,
     ):
-        """Test that all OAuth accounts are deleted when user is deleted."""
+        """Test that all OAuth oauth_accounts are deleted when user is deleted."""
         user = await create_individual_helper("multi@test.com")
         session = await create_session_helper(user.id)
         google_account = await create_account_helper(user.id, provider="google")
@@ -728,9 +728,9 @@ class TestDeleteIndividual:
 
         assert response.status_code == 200
 
-        # Verify both accounts are deleted
-        deleted_google = await adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
-        deleted_github = await adapter.get_account_by_individual_and_provider(db_session, user.id, "github")
+        # Verify both oauth_accounts are deleted
+        deleted_google = await adapter.get_oauth_account_by_individual_and_provider(db_session, user.id, "google")
+        deleted_github = await adapter.get_oauth_account_by_individual_and_provider(db_session, user.id, "github")
         assert deleted_google is None
         assert deleted_github is None
 
@@ -761,8 +761,8 @@ class TestDeleteIndividual:
         deleted_user = await adapter.get_individual_by_id(db_session, user.id)
         deleted_session1 = await adapter.get_session(db_session, session1.id)
         deleted_session2 = await adapter.get_session(db_session, session2.id)
-        deleted_google = await adapter.get_account_by_individual_and_provider(db_session, user.id, "google")
-        deleted_github = await adapter.get_account_by_individual_and_provider(db_session, user.id, "github")
+        deleted_google = await adapter.get_oauth_account_by_individual_and_provider(db_session, user.id, "google")
+        deleted_github = await adapter.get_oauth_account_by_individual_and_provider(db_session, user.id, "github")
 
         assert deleted_user is None
         assert deleted_session1 is None

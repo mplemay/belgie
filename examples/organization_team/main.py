@@ -26,8 +26,8 @@ from belgie.organization import (
 from belgie.team import Team, TeamClient, TeamMemberView, TeamView
 from examples.organization_team.models import (
     Account,
-    Customer,
     Individual,
+    OAuthAccount,
     OAuthState,
     Organization as OrganizationModel,
     OrganizationInvitation,
@@ -136,9 +136,9 @@ settings = BelgieSettings(
 )
 
 core_adapter = BelgieAdapter(
-    customer=Customer,
-    individual=Individual,
     account=Account,
+    individual=Individual,
+    oauth_account=OAuthAccount,
     session=Session,
     oauth_state=OAuthState,
 )

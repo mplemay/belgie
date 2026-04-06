@@ -18,7 +18,7 @@ from belgie import (
 )
 from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
-from examples.alchemy.auth_models import Account, Customer, Individual, OAuthState, Session
+from examples.alchemy.auth_models import Account, Individual, OAuthAccount, OAuthState, Session
 
 engine = create_async_engine(
     URL.create("sqlite+aiosqlite", database="./belgie_auth_example.db"),
@@ -101,9 +101,9 @@ settings = BelgieSettings(
 )
 
 adapter = BelgieAdapter(
-    customer=Customer,
-    individual=Individual,
     account=Account,
+    individual=Individual,
+    oauth_account=OAuthAccount,
     session=Session,
     oauth_state=OAuthState,
 )

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import BelgieAdapter
-from belgie.alchemy.mixins import AccountMixin, CustomerMixin, IndividualMixin, OAuthStateMixin, SessionMixin
+from belgie.alchemy.mixins import AccountMixin, IndividualMixin, OAuthAccountMixin, OAuthStateMixin, SessionMixin
 from belgie.mcp import Mcp, get_user_from_access_token
 from belgie.oauth.server import OAuthResource, OAuthServer
 
@@ -23,15 +23,15 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
 
 
-class Customer(DataclassBase, PrimaryKeyMixin, TimestampMixin, CustomerMixin):
-    pass
-
-
-class Individual(IndividualMixin, Customer):
-    pass
-
-
 class Account(DataclassBase, PrimaryKeyMixin, TimestampMixin, AccountMixin):
+    pass
+
+
+class Individual(IndividualMixin, Account):
+    pass
+
+
+class OAuthAccount(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccountMixin):
     pass
 
 
@@ -99,9 +99,9 @@ settings = BelgieSettings(
 )
 
 adapter = BelgieAdapter(
-    customer=Customer,
-    individual=Individual,
     account=Account,
+    individual=Individual,
+    oauth_account=OAuthAccount,
     session=Session,
     oauth_state=OAuthState,
 )

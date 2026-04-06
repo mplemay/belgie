@@ -4,11 +4,11 @@ _STRIPE_IMPORT_ERROR = "belgie.stripe requires the 'stripe' extra. Install with:
 
 try:
     from belgie_stripe import (  # type: ignore[import-not-found]
+        AccountAuthorizationContext,
+        AccountCreateContext,
         BillingPortalRequest,
         CancelSubscriptionRequest,
         CheckoutSessionContext,
-        CustomerAuthorizationContext,
-        CustomerCreateContext,
         ListSubscriptionsRequest,
         RestoreSubscriptionRequest,
         Stripe,
@@ -25,11 +25,11 @@ except ModuleNotFoundError as exc:
     raise ImportError(_STRIPE_IMPORT_ERROR) from exc
 
 __all__ = [
+    "AccountAuthorizationContext",
+    "AccountCreateContext",
     "BillingPortalRequest",
     "CancelSubscriptionRequest",
     "CheckoutSessionContext",
-    "CustomerAuthorizationContext",
-    "CustomerCreateContext",
     "ListSubscriptionsRequest",
     "RestoreSubscriptionRequest",
     "Stripe",

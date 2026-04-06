@@ -5,27 +5,27 @@ from datetime import datetime  # noqa: TC003
 from typing import Final
 from uuid import UUID
 
-from belgie_proto.core.customer import CustomerType
+from belgie_proto.core.account import AccountType
 from brussels.types import DateTimeUTC
 from sqlalchemy import JSON, Enum, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT
 from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
 
-CustomerEnum: Final[Enum] = Enum(CustomerType, name="customer_type", native_enum=False)
+AccountEnum: Final[Enum] = Enum(AccountType, name="account_type", native_enum=False)
 
 if sys.version_info >= (3, 14):
-    from uuid import uuid7 as _customer_pk_uuid
+    from uuid import uuid7 as _account_pk_uuid
 else:
-    from uuid import uuid4 as _customer_pk_uuid
+    from uuid import uuid4 as _account_pk_uuid
 
 
 @declarative_mixin
-class CustomerMixin(MappedAsDataclass):
-    __tablename__ = "customer"
+class AccountMixin(MappedAsDataclass):
+    __tablename__ = "account"
 
     @declared_attr
-    def customer_type(self) -> Mapped[CustomerType]:
-        return mapped_column(CustomerEnum, index=True, init=False)
+    def account_type(self) -> Mapped[AccountType]:
+        return mapped_column(AccountEnum, index=True, init=False)
 
     @declared_attr
     def name(self) -> Mapped[str | None]:
@@ -34,7 +34,7 @@ class CustomerMixin(MappedAsDataclass):
     @declared_attr.directive
     def __mapper_args__(self) -> dict[str, object]:
         return {
-            "polymorphic_on": self.customer_type,
+            "polymorphic_on": self.account_type,
             "polymorphic_abstract": True,
             "with_polymorphic": "*",
         }
@@ -47,10 +47,10 @@ class IndividualMixin(MappedAsDataclass):
     @declared_attr
     def id(self) -> Mapped[UUID]:
         return mapped_column(
-            ForeignKey("customer.id", ondelete="cascade", onupdate="cascade"),
+            ForeignKey("account.id", ondelete="cascade", onupdate="cascade"),
             primary_key=True,
-            default_factory=_customer_pk_uuid,
-            insert_default=_customer_pk_uuid,
+            default_factory=_account_pk_uuid,
+            insert_default=_account_pk_uuid,
             init=False,
         )
 
@@ -73,9 +73,9 @@ class IndividualMixin(MappedAsDataclass):
         return mapped_column(scopes_type, default_factory=list, nullable=False, kw_only=True)
 
     @declared_attr
-    def accounts(self) -> Mapped[list[object]]:
+    def oauth_accounts(self) -> Mapped[list[object]]:
         return relationship(
-            "Account",
+            "OAuthAccount",
             back_populates="individual",
             cascade="all, delete-orphan",
             init=False,
@@ -101,12 +101,12 @@ class IndividualMixin(MappedAsDataclass):
 
     @declared_attr.directive
     def __mapper_args__(self) -> dict[str, object]:
-        return {"polymorphic_identity": CustomerType.INDIVIDUAL}
+        return {"polymorphic_identity": AccountType.INDIVIDUAL}
 
 
 @declarative_mixin
-class AccountMixin(MappedAsDataclass):
-    __tablename__ = "account"
+class OAuthAccountMixin(MappedAsDataclass):
+    __tablename__ = "oauth_account"
 
     @declared_attr
     def individual_id(self) -> Mapped[UUID]:
@@ -153,7 +153,7 @@ class AccountMixin(MappedAsDataclass):
     def individual(self) -> Mapped[object]:
         return relationship(
             "Individual",
-            back_populates="accounts",
+            back_populates="oauth_accounts",
             lazy="selectin",
             init=False,
         )
@@ -164,7 +164,7 @@ class AccountMixin(MappedAsDataclass):
             UniqueConstraint(
                 self.provider,
                 self.provider_account_id,
-                name="uq_accounts_provider_provider_account_id",
+                name="uq_oauth_accounts_provider_provider_account_id",
             ),
             Index(
                 f"ix_{self.__tablename__}_individual_id_provider",
@@ -249,8 +249,8 @@ class OAuthStateMixin(MappedAsDataclass):
 
 __all__ = [
     "AccountMixin",
-    "CustomerMixin",
     "IndividualMixin",
+    "OAuthAccountMixin",
     "OAuthStateMixin",
     "SessionMixin",
 ]

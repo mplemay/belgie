@@ -6,9 +6,9 @@ from typing import Annotated
 from uuid import UUID
 
 from belgie_proto.core import AdapterProtocol
-from belgie_proto.core.account import AccountProtocol
 from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.individual import IndividualProtocol
+from belgie_proto.core.oauth_account import OAuthAccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from fastapi import APIRouter, Depends, Request, status
@@ -56,18 +56,18 @@ class _BelgieCallable:
 
 class Belgie[
     IndividualT: IndividualProtocol,
-    AccountT: AccountProtocol,
+    OAuthAccountT: OAuthAccountProtocol,
     SessionT: SessionProtocol,
     OAuthStateT: OAuthStateProtocol,
 ]:
     """Main authentication orchestrator for Belgie."""
 
-    __call__: Callable[..., BelgieClient[IndividualT, AccountT, SessionT, OAuthStateT]] = _BelgieCallable()
+    __call__: Callable[..., BelgieClient[IndividualT, OAuthAccountT, SessionT, OAuthStateT]] = _BelgieCallable()
 
     def __init__(
         self,
         settings: BelgieSettings,
-        adapter: AdapterProtocol[IndividualT, AccountT, SessionT, OAuthStateT],
+        adapter: AdapterProtocol[IndividualT, OAuthAccountT, SessionT, OAuthStateT],
         *,
         database: Callable[[], DBConnection | AsyncGenerator[DBConnection, None]],
     ) -> None:
@@ -152,7 +152,7 @@ class Belgie[
     async def after_authenticate(
         self,
         *,
-        client: BelgieClient[IndividualT, AccountT, SessionT, OAuthStateT],
+        client: BelgieClient[IndividualT, OAuthAccountT, SessionT, OAuthStateT],
         request: Request,
         individual: IndividualProtocol[str],
         profile: AuthenticatedProfile,
@@ -180,7 +180,7 @@ class Belgie[
     async def after_sign_up(
         self,
         *,
-        client: BelgieClient[IndividualT, AccountT, SessionT, OAuthStateT],
+        client: BelgieClient[IndividualT, OAuthAccountT, SessionT, OAuthStateT],
         request: Request | None,
         individual: IndividualProtocol[str],
     ) -> None:

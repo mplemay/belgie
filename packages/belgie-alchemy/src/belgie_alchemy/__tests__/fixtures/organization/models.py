@@ -5,8 +5,8 @@ from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 
 from belgie_alchemy.__tests__.fixtures.core.models import (  # noqa: F401
     Account,
-    Customer,
     Individual,
+    OAuthAccount,
     OAuthState,
     Session,
 )
@@ -17,7 +17,7 @@ from belgie_alchemy.organization.mixins import (
 )
 
 
-class Organization(OrganizationMixin, Customer):
+class Organization(OrganizationMixin, Account):
     pass
 
 

@@ -104,7 +104,7 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
 
-class Account(Base):
+class OAuthAccount(Base):
     __tablename__ = "accounts"
     __table_args__ = (
         UniqueConstraint("provider", "provider_account_id", name="uq_accounts_provider_provider_account_id"),
@@ -154,7 +154,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from belgie import Belgie, BelgieSettings
 from belgie.alchemy import BelgieAdapter
 from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
-from models import Account, OAuthState, Session, User
+from models import OAuthAccount, OAuthState, Session, User
 
 settings = BelgieSettings(
     secret="your-secret-key",
@@ -174,7 +174,7 @@ auth = Belgie(
     settings=settings,
     adapter=BelgieAdapter(
         user=User,
-        account=Account,
+        oauth_account=OAuthAccount,
         session=Session,
         oauth_state=OAuthState,
     ),

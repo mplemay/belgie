@@ -5,16 +5,16 @@ from typing import TYPE_CHECKING
 
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.session import SessionProtocol
-from belgie_proto.stripe import StripeAdapterProtocol, StripeCustomerProtocol, StripeSubscriptionProtocol
+from belgie_proto.stripe import StripeAccountProtocol, StripeAdapterProtocol, StripeSubscriptionProtocol
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from stripe import Event, StripeClient as StripeSDKClient
 from stripe.params import CustomerCreateParams, checkout
 
 from belgie_stripe.models import (
+    AccountAuthorizationContext,
+    AccountCreateContext,
     CheckoutSessionContext,
-    CustomerAuthorizationContext,
-    CustomerCreateContext,
     StripePlan,
     SubscriptionEventContext,
 )
@@ -27,21 +27,21 @@ if TYPE_CHECKING:
 
 type MaybeAwaitable[T] = T | Awaitable[T]
 type PlansResolver = Callable[[], list[StripePlan] | Awaitable[list[StripePlan]]]
-type CustomerAuthorizationHook = Callable[
-    [CustomerAuthorizationContext[StripeCustomerProtocol, IndividualProtocol[str], SessionProtocol]],
+type AccountAuthorizationHook = Callable[
+    [AccountAuthorizationContext[StripeAccountProtocol, IndividualProtocol[str], SessionProtocol]],
     MaybeAwaitable[bool],
 ]
-type CustomerParamsHook = Callable[
-    [CustomerCreateContext[StripeCustomerProtocol]],
+type AccountParamsHook = Callable[
+    [AccountCreateContext[StripeAccountProtocol]],
     MaybeAwaitable[CustomerCreateParams | None],
 ]
-type CustomerCreateHook = Callable[[CustomerCreateContext[StripeCustomerProtocol]], MaybeAwaitable[None]]
+type AccountCreateHook = Callable[[AccountCreateContext[StripeAccountProtocol]], MaybeAwaitable[None]]
 type CheckoutParamsHook[SubscriptionT: StripeSubscriptionProtocol] = Callable[
-    [CheckoutSessionContext[SubscriptionT, StripeCustomerProtocol, IndividualProtocol[str], SessionProtocol]],
+    [CheckoutSessionContext[SubscriptionT, StripeAccountProtocol, IndividualProtocol[str], SessionProtocol]],
     MaybeAwaitable[checkout.SessionCreateParams | None],
 ]
 type SubscriptionEventHook[SubscriptionT: StripeSubscriptionProtocol] = Callable[
-    [SubscriptionEventContext[SubscriptionT, StripeCustomerProtocol]],
+    [SubscriptionEventContext[SubscriptionT, StripeAccountProtocol]],
     MaybeAwaitable[None],
 ]
 type RawEventHook = Callable[[Event], MaybeAwaitable[None]]
@@ -60,7 +60,7 @@ class StripeSubscription[
     adapter: StripeAdapterProtocol[SubscriptionT] = Field(exclude=True)
     plans: list[StripePlan] | PlansResolver
     require_email_verification: bool = False
-    authorize_customer: CustomerAuthorizationHook | None = Field(default=None, exclude=True)
+    authorize_account: AccountAuthorizationHook | None = Field(default=None, exclude=True)
     get_checkout_session_params: CheckoutParamsHook[SubscriptionT] | None = Field(default=None, exclude=True)
     on_subscription_created: SubscriptionEventHook[SubscriptionT] | None = Field(default=None, exclude=True)
     on_subscription_updated: SubscriptionEventHook[SubscriptionT] | None = Field(default=None, exclude=True)
@@ -91,9 +91,9 @@ class Stripe[
 
     stripe: StripeSDKClient = Field(exclude=True)
     stripe_webhook_secret: str
-    create_customer_on_sign_up: bool = False
-    get_customer_create_params: CustomerParamsHook | None = Field(default=None, exclude=True)
-    on_customer_create: CustomerCreateHook | None = Field(default=None, exclude=True)
+    create_account_on_sign_up: bool = False
+    get_account_create_params: AccountParamsHook | None = Field(default=None, exclude=True)
+    on_account_create: AccountCreateHook | None = Field(default=None, exclude=True)
     on_event: RawEventHook | None = Field(default=None, exclude=True)
     subscription: StripeSubscription[SubscriptionT]
 

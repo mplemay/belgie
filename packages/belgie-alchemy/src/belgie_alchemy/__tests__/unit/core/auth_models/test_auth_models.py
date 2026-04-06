@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import Individual, OAuthAccount, OAuthState, Session
 
 
 def test_individual_model_structure() -> None:
@@ -26,7 +26,7 @@ def test_individual_has_scopes_field() -> None:
 
 def test_individual_relationships_defined() -> None:
     """Verify Individual has bidirectional relationships defined."""
-    assert hasattr(Individual, "accounts")
+    assert hasattr(Individual, "oauth_accounts")
     assert hasattr(Individual, "sessions")
     assert hasattr(Individual, "oauth_states")
 
@@ -37,7 +37,7 @@ async def test_account_unique_constraint(alchemy_session: AsyncSession) -> None:
     alchemy_session.add(individual)
     await alchemy_session.commit()
 
-    account = Account(
+    account = OAuthAccount(
         individual_id=individual.id,
         provider="google",
         provider_account_id="abc",
@@ -45,7 +45,7 @@ async def test_account_unique_constraint(alchemy_session: AsyncSession) -> None:
     alchemy_session.add(account)
     await alchemy_session.commit()
 
-    duplicate = Account(
+    duplicate = OAuthAccount(
         individual_id=individual.id,
         provider="google",
         provider_account_id="abc",

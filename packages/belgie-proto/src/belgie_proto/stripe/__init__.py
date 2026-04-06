@@ -1,5 +1,5 @@
+from belgie_proto.stripe.account import StripeAccountProtocol
 from belgie_proto.stripe.adapter import StripeAdapterProtocol
-from belgie_proto.stripe.customer import StripeCustomerProtocol
 from belgie_proto.stripe.subscription import (
     StripeBillingInterval,
     StripeSubscriptionProtocol,
@@ -7,9 +7,9 @@ from belgie_proto.stripe.subscription import (
 )
 
 __all__ = [
+    "StripeAccountProtocol",
     "StripeAdapterProtocol",
     "StripeBillingInterval",
-    "StripeCustomerProtocol",
     "StripeSubscriptionProtocol",
     "StripeSubscriptionStatus",
 ]

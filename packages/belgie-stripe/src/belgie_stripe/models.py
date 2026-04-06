@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Literal, Self
 from uuid import UUID  # noqa: TC003
 
 from belgie_proto.stripe import (
+    StripeAccountProtocol,
     StripeBillingInterval,
-    StripeCustomerProtocol,
     StripeSubscriptionProtocol,
     StripeSubscriptionStatus,
 )
@@ -48,7 +48,7 @@ class StripePlan(BaseModel):
 class UpgradeSubscriptionRequest(BaseModel):
     plan: str
     annual: bool = False
-    customer_id: UUID | None = None
+    account_id: UUID | None = None
     success_url: str
     cancel_url: str
     return_url: str | None = None
@@ -57,21 +57,21 @@ class UpgradeSubscriptionRequest(BaseModel):
 
 
 class ListSubscriptionsRequest(BaseModel):
-    customer_id: UUID | None = None
+    account_id: UUID | None = None
 
 
 class CancelSubscriptionRequest(BaseModel):
-    customer_id: UUID | None = None
+    account_id: UUID | None = None
     return_url: str
     disable_redirect: bool = False
 
 
 class RestoreSubscriptionRequest(BaseModel):
-    customer_id: UUID | None = None
+    account_id: UUID | None = None
 
 
 class BillingPortalRequest(BaseModel):
-    customer_id: UUID | None = None
+    account_id: UUID | None = None
     return_url: str | None = None
     disable_redirect: bool = False
 
@@ -86,7 +86,7 @@ class SubscriptionView(BaseModel):
 
     id: UUID
     plan: str
-    customer_id: UUID
+    account_id: UUID
     stripe_customer_id: str | None = None
     stripe_subscription_id: str | None = None
     status: StripeSubscriptionStatus
@@ -106,23 +106,23 @@ class SubscriptionView(BaseModel):
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class CustomerAuthorizationContext[CustomerT, IndividualT, SessionT]:
+class AccountAuthorizationContext[AccountT, IndividualT, SessionT]:
     action: StripeAction
-    customer: CustomerT
+    account: AccountT
     individual: IndividualT
     session: SessionT
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class CustomerCreateContext[CustomerT]:
-    customer: CustomerT
+class AccountCreateContext[AccountT]:
+    account: AccountT
     stripe_customer_id: str
     metadata: dict[str, str]
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class CheckoutSessionContext[SubscriptionT, CustomerT, IndividualT, SessionT]:
-    customer: CustomerT
+class CheckoutSessionContext[SubscriptionT, AccountT, IndividualT, SessionT]:
+    account: AccountT
     plan: StripePlan
     subscription: SubscriptionT
     individual: IndividualT
@@ -130,13 +130,13 @@ class CheckoutSessionContext[SubscriptionT, CustomerT, IndividualT, SessionT]:
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
-class SubscriptionEventContext[SubscriptionT, CustomerT]:
+class SubscriptionEventContext[SubscriptionT, AccountT]:
     event_type: str
     plan: StripePlan | None
     raw_event: Subscription
     subscription: SubscriptionT
-    customer: CustomerT
+    account: AccountT
 
 
-def customer_type_label(customer: StripeCustomerProtocol) -> str:
-    return customer.customer_type.value
+def account_type_label(account: StripeAccountProtocol) -> str:
+    return account.account_type.value
