@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import stripe
+import stripe._customer as _stripe_customer
 from belgie_proto.core.account import AccountType
 from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.session import SessionProtocol
@@ -18,7 +19,6 @@ from belgie_proto.stripe import (
 from stripe import Event, ListObject, Price, Subscription
 from stripe._billing_portal_service import BillingPortalService
 from stripe._checkout_service import CheckoutService
-from stripe._customer import Account as Customer
 from stripe._customer_service import CustomerService
 from stripe._price_service import PriceService
 from stripe._subscription_service import SubscriptionService
@@ -30,6 +30,9 @@ from stripe.checkout._session_service import SessionService as CheckoutSessionSe
 from stripe.params import CustomerCreateParams, PriceListParams, SubscriptionUpdateParams, billing_portal, checkout
 
 from belgie_stripe._protocols import BelgieClientProtocol, BelgieRuntimeProtocol, StripeCoreAdapterProtocol
+
+# Stripe 15.0.x exposes Customer; later 15.x renamed the class to Account on the same module.
+Customer = getattr(_stripe_customer, "Account", None) or _stripe_customer.Customer
 
 if TYPE_CHECKING:
     from fastapi import Request
