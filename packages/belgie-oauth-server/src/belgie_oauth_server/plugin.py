@@ -770,7 +770,7 @@ class OAuthServerPlugin(PluginClient):
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
-        async def continue_handler(
+        async def _handle_continue(
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
@@ -811,18 +811,31 @@ class OAuthServerPlugin(PluginClient):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
-        router.add_api_route("/continue", continue_handler, methods=["GET", "POST"])
+        async def continue_get_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
+            return await _handle_continue(request, client)
+
+        async def continue_post_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
+            return await _handle_continue(request, client)
+
+        router.add_api_route("/continue", continue_get_handler, methods=["GET"])
+        router.add_api_route("/continue", continue_post_handler, methods=["POST"])
         return router
 
     @staticmethod
-    def _add_consent_route(
+    def _add_consent_route(  # noqa: C901
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
-        async def consent_handler(
+        async def _handle_consent(
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
@@ -886,7 +899,20 @@ class OAuthServerPlugin(PluginClient):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
-        router.add_api_route("/consent", consent_handler, methods=["GET", "POST"])
+        async def consent_get_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
+            return await _handle_consent(request, client)
+
+        async def consent_post_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
+            return await _handle_consent(request, client)
+
+        router.add_api_route("/consent", consent_get_handler, methods=["GET"])
+        router.add_api_route("/consent", consent_post_handler, methods=["POST"])
         return router
 
     @staticmethod
@@ -1077,6 +1103,14 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911
         return _authorize_error(
             "invalid_request",
             prompt_error,
+            redirect_uri=redirect_uri_string,
+            state=_get_str(resolved_data, "state"),
+            issuer_url=issuer_url,
+        )
+    if "select_account" in prompt_values and settings.select_account_url is None:
+        return _authorize_error(
+            "invalid_request",
+            "unsupported prompt type",
             redirect_uri=redirect_uri_string,
             state=_get_str(resolved_data, "state"),
             issuer_url=issuer_url,
@@ -1297,9 +1331,6 @@ def _parse_prompt_values(prompt: str | None) -> tuple[frozenset[AuthorizePrompt]
         typed_value = raw_value
         if typed_value not in prompt_values:
             prompt_values.append(typed_value)
-
-    if "none" in prompt_values and len(prompt_values) > 1:
-        return frozenset(), "prompt none cannot be combined with other prompts"
 
     return frozenset(prompt_values), None
 

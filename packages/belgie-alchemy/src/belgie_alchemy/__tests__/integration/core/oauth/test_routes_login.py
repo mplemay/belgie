@@ -21,6 +21,7 @@ def _authorize_params(
         "client_id": oauth_settings.client_id,
         "redirect_uri": str(oauth_settings.redirect_uris[0]),
         "code_challenge": create_code_challenge("verifier"),
+        "code_challenge_method": "S256",
         "state": state,
     }
     if prompt is not None:
@@ -98,7 +99,7 @@ async def test_login_redirects_to_signup_url_when_prompt_create(
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
     assert parsed.path == "/signup"
-    assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-create"
+    assert query["return_to"][0] == "http://testserver/auth/oauth/continue?state=state-create&created=true"
     assert query["intent"][0] == "create"
 
 
@@ -126,19 +127,17 @@ async def test_login_redirects_to_configured_login_url_when_prompt_login(
 
 
 @pytest.mark.asyncio
-async def test_login_redirects_to_signup_url_for_prompt_with_multiple_values(
+async def test_authorize_rejects_prompt_with_select_account_when_not_configured(
     async_client: httpx.AsyncClient,
     oauth_settings: OAuthServer,
 ) -> None:
-    state = await _create_login_state(
-        async_client,
-        oauth_settings,
-        state="state-create-multi",
-        prompt="select_account create",
-    )
     response = await async_client.get(
-        "/auth/oauth/login",
-        params={"state": state},
+        "/auth/oauth/authorize",
+        params=_authorize_params(
+            oauth_settings,
+            state="state-create-multi",
+            prompt="select_account create",
+        ),
         follow_redirects=False,
     )
 
@@ -148,25 +147,25 @@ async def test_login_redirects_to_signup_url_for_prompt_with_multiple_values(
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
-    assert parsed.path == "/signup"
-    assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-create-multi"
-    assert query["intent"][0] == "create"
+    assert parsed.path == "/callback"
+    assert query["error"][0] == "invalid_request"
+    assert query["error_description"][0] == "unsupported prompt type"
+    assert query["state"][0] == "state-create-multi"
+    assert query["iss"][0] == "http://testserver/auth/oauth"
 
 
 @pytest.mark.asyncio
-async def test_login_redirects_to_login_url_for_unknown_prompt_value(
+async def test_authorize_rejects_select_account_prompt_without_configured_page(
     async_client: httpx.AsyncClient,
     oauth_settings: OAuthServer,
 ) -> None:
-    state = await _create_login_state(
-        async_client,
-        oauth_settings,
-        state="state-unknown-prompt",
-        prompt="select_account",
-    )
     response = await async_client.get(
-        "/auth/oauth/login",
-        params={"state": state},
+        "/auth/oauth/authorize",
+        params=_authorize_params(
+            oauth_settings,
+            state="state-unknown-prompt",
+            prompt="select_account",
+        ),
         follow_redirects=False,
     )
 
@@ -176,9 +175,11 @@ async def test_login_redirects_to_login_url_for_unknown_prompt_value(
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
-    assert parsed.path == "/login/google"
-    assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-unknown-prompt"
-    assert query["intent"][0] == "login"
+    assert parsed.path == "/callback"
+    assert query["error"][0] == "invalid_request"
+    assert query["error_description"][0] == "unsupported prompt type"
+    assert query["state"][0] == "state-unknown-prompt"
+    assert query["iss"][0] == "http://testserver/auth/oauth"
 
 
 @pytest.mark.asyncio
@@ -215,7 +216,7 @@ async def test_login_prompt_create_falls_back_to_login_url_when_signup_url_missi
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
     assert parsed.path == "/login/google"
-    assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-fallback"
+    assert query["return_to"][0] == "http://testserver/auth/oauth/continue?state=state-fallback&created=true"
     assert query["intent"][0] == "create"
 
 

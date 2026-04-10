@@ -21,6 +21,7 @@ def _authorize_params(
         "client_id": oauth_settings.client_id,
         "redirect_uri": str(oauth_settings.redirect_uris[0]),
         "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
         "state": state or "state-123",
     }
     if resource is not None:
@@ -70,8 +71,11 @@ async def test_authorize_returns_401_without_login_url(
         params = _authorize_params(settings, create_code_challenge(verifier))
         response = await client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
 
-    assert response.status_code == 401
-    assert response.json()["detail"] == "login_required"
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_request",
+        "error_description": "interaction url not configured",
+    }
 
 
 @pytest.mark.asyncio
@@ -206,8 +210,14 @@ async def test_authorize_rejects_unknown_resource(
     )
     response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "invalid_target"
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert parsed.path == "/callback"
+    assert query["error"] == ["invalid_target"]
+    assert query["state"] == ["state-123"]
+    assert query["iss"] == ["http://testserver/auth/oauth"]
 
 
 @pytest.mark.asyncio

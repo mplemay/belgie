@@ -70,9 +70,9 @@ class DummyBelgie:
         return self._client
 
 
-def _build_fixture(
+def _build_app(
     settings: OAuthServer,
-) -> tuple[TestClient, OAuthServerPlugin, FakeBelgieClient]:
+) -> tuple[FastAPI, OAuthServerPlugin, FakeBelgieClient]:
     belgie_settings = BelgieSettings(secret="test-secret", base_url="http://testserver")
     plugin = OAuthServerPlugin(belgie_settings, settings)
     belgie_client = FakeBelgieClient()
@@ -83,6 +83,13 @@ def _build_fixture(
     auth_router.include_router(plugin.router(belgie))
     app.include_router(auth_router)
 
+    return app, plugin, belgie_client
+
+
+def _build_fixture(
+    settings: OAuthServer,
+) -> tuple[TestClient, OAuthServerPlugin, FakeBelgieClient]:
+    app, plugin, belgie_client = _build_app(settings)
     return TestClient(app), plugin, belgie_client
 
 
@@ -178,6 +185,51 @@ def test_prompt_none_returns_login_required_without_redirecting_to_interaction()
     query = _query(response.headers["location"])
     assert query["error"] == ["login_required"]
     assert query["error_description"] == ["authentication required"]
+    assert query["iss"] == ["http://testserver/auth/oauth"]
+
+
+def test_prompt_none_combination_returns_login_required() -> None:
+    settings = OAuthServer(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-none-login", prompt="none login"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    query = _query(response.headers["location"])
+    assert query["error"] == ["login_required"]
+    assert query["error_description"] == ["authentication required"]
+    assert query["iss"] == ["http://testserver/auth/oauth"]
+
+
+def test_authorize_rejects_select_account_prompt_without_select_account_url() -> None:
+    settings = OAuthServer(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        login_url="/login-screen",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-select-account", prompt="select_account"),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    query = _query(response.headers["location"])
+    assert query["error"] == ["invalid_request"]
+    assert query["error_description"] == ["unsupported prompt type"]
+    assert query["state"] == ["state-select-account"]
     assert query["iss"] == ["http://testserver/auth/oauth"]
 
 
@@ -355,6 +407,24 @@ def test_select_account_flow_resumes_and_prompt_none_returns_account_selection_r
     assert prompt_none_query["error"] == ["account_selection_required"]
     assert prompt_none_query["error_description"] == ["End-User account selection is required"]
     assert prompt_none_query["iss"] == ["http://testserver/auth/oauth"]
+
+
+def test_openapi_generation_succeeds_with_continue_and_consent_routes() -> None:
+    app, _plugin, _belgie_client = _build_app(
+        OAuthServer(
+            base_url="http://testserver",
+            redirect_uris=["http://client.local/callback"],
+            client_id="test-client",
+            login_url="/login-screen",
+            consent_url="/consent-screen",
+            select_account_url="/select-account",
+        ),
+    )
+
+    schema = app.openapi()
+
+    assert "/auth/oauth/continue" in schema["paths"]
+    assert "/auth/oauth/consent" in schema["paths"]
 
 
 def test_register_rejects_unauthenticated_confidential_clients_and_allows_public_clients() -> None:
