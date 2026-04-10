@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from belgie_core.core.belgie import Belgie
+from belgie_oauth_server.models import OAuthClientMetadata
 from belgie_oauth_server.settings import OAuthResource, OAuthServer
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import FastAPI
@@ -237,6 +238,64 @@ async def test_authorize_accepts_configured_resource_when_authenticated(
     assert parsed.netloc == "testserver"
     assert query["state"][0] == "state-with-resource"
     assert "code" in query
+
+
+@pytest.mark.asyncio
+async def test_authorize_accepts_default_scope_for_scope_less_dynamic_client(
+    async_client: httpx.AsyncClient,
+    belgie_instance: Belgie,
+    db_session: AsyncSession,
+    oauth_plugin,
+    create_individual_session,
+) -> None:
+    session_id = await create_individual_session(belgie_instance, db_session, "dynamic-client@test.com")
+    async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+
+    dynamic_client = await oauth_plugin._provider.register_client(
+        OAuthClientMetadata(
+            redirect_uris=["http://testserver/callback"],
+            token_endpoint_auth_method="none",
+        ),
+    )
+    params = {
+        "response_type": "code",
+        "client_id": dynamic_client.client_id,
+        "redirect_uri": "http://testserver/callback",
+        "scope": "user",
+        "code_challenge": create_code_challenge("dynamic-client-verifier"),
+        "state": "state-dynamic-client",
+        "resource": "http://testserver/mcp",
+    }
+
+    response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    query = parse_qs(parsed.query)
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "testserver"
+    assert query["state"][0] == "state-dynamic-client"
+    assert "code" in query
+
+
+@pytest.mark.asyncio
+async def test_authorize_rejects_explicit_empty_scope(
+    async_client: httpx.AsyncClient,
+    belgie_instance: Belgie,
+    db_session: AsyncSession,
+    oauth_settings: OAuthServer,
+    create_individual_session,
+) -> None:
+    session_id = await create_individual_session(belgie_instance, db_session, "empty-scope@test.com")
+    async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+
+    params = _authorize_params(oauth_settings, create_code_challenge("empty-scope-verifier"), state="state-empty-scope")
+    params["scope"] = ""
+    response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "missing scope"
 
 
 @pytest.mark.asyncio
