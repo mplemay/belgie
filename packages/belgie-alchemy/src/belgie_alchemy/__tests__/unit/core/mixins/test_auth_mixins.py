@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import pytest
-from brussels.base import DataclassBase
+from brussels.base import NAMING_CONVENTION, TYPE_ANNOTATION_MAP, DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from brussels.types import DateTimeUTC, Json
 from sqlalchemy import Enum as SAEnum, ForeignKey, Index, MetaData, Text, UniqueConstraint, text
@@ -31,6 +31,7 @@ from belgie_alchemy.organization.mixins import (
     OrganizationMemberMixin,
     OrganizationMixin,
 )
+from belgie_alchemy.sso import SSODomainMixin, SSOProviderMixin
 from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
@@ -152,6 +153,44 @@ def test_organization_mixin_defaults() -> None:
     invitation_email_column = OrganizationInvitation.__table__.c.email
     assert not invitation_email_column.unique
     assert invitation_email_column.index
+
+
+def test_sso_domain_mixin_defaults() -> None:
+    class SSOBase(DataclassBase):
+        __abstract__ = True
+        metadata = MetaData(naming_convention=NAMING_CONVENTION)
+        type_annotation_map = TYPE_ANNOTATION_MAP
+
+    class SSOProvider(SSOBase, PrimaryKeyMixin, TimestampMixin, SSOProviderMixin):
+        pass
+
+    class SSODomain(SSOBase, PrimaryKeyMixin, TimestampMixin, SSODomainMixin):
+        pass
+
+    configure_mappers()
+
+    domain_column = SSODomain.__table__.c.domain
+    assert domain_column.unique
+    assert domain_column.index
+
+    domain_unique_constraints = [
+        constraint
+        for constraint in SSODomain.__table__.constraints
+        if isinstance(constraint, UniqueConstraint) and tuple(constraint.columns) == (domain_column,)
+    ]
+    assert domain_unique_constraints == []
+
+    domain_index = next(index for index in SSODomain.__table__.indexes if index.name == "ix_sso_domain_domain")
+    assert isinstance(domain_index, Index)
+    assert tuple(domain_index.columns) == (domain_column,)
+    assert domain_index.unique
+
+    provider_index = next(
+        index for index in SSODomain.__table__.indexes if index.name == "ix_sso_domain_sso_provider_id"
+    )
+    assert isinstance(provider_index, Index)
+    assert tuple(provider_index.columns) == (SSODomain.__table__.c.sso_provider_id,)
+    assert not provider_index.unique
 
 
 def test_citext_variants_on_case_insensitive_fields() -> None:
