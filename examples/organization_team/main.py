@@ -150,17 +150,17 @@ belgie = Belgie(
 )
 
 organization_adapter = TeamAdapter(
-    organization=OrganizationModel,  # type: ignore[invalid-argument-type]
+    organization=OrganizationModel,
     member=OrganizationMember,
     invitation=OrganizationInvitation,
-    team=TeamModel,  # type: ignore[invalid-argument-type]
+    team=TeamModel,
     team_member=TeamMember,
 )
 team_adapter = TeamAdapter(
-    organization=OrganizationModel,  # type: ignore[invalid-argument-type]
+    organization=OrganizationModel,
     member=OrganizationMember,
     invitation=OrganizationInvitation,
-    team=TeamModel,  # type: ignore[invalid-argument-type]
+    team=TeamModel,
     team_member=TeamMember,
 )
 
