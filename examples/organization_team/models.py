@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-from belgie_proto.organization.invitation import InvitationProtocol
-from belgie_proto.organization.member import MemberProtocol
-from belgie_proto.organization.organization import OrganizationProtocol
-from belgie_proto.team.member import TeamMemberProtocol
-from belgie_proto.team.team import TeamProtocol
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 
@@ -42,11 +37,11 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin
     pass
 
 
-class Organization(OrganizationMixin, Account, OrganizationProtocol):
+class Organization(OrganizationMixin, Account):
     pass
 
 
-class OrganizationMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMemberMixin, MemberProtocol):
+class OrganizationMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, OrganizationMemberMixin):
     pass
 
 
@@ -55,16 +50,15 @@ class OrganizationInvitation(
     PrimaryKeyMixin,
     TimestampMixin,
     OrganizationInvitationMixin,
-    InvitationProtocol,
 ):
     pass
 
 
-class Team(TeamMixin, Account, TeamProtocol):
+class Team(TeamMixin, Account):
     pass
 
 
-class TeamMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMemberMixin, TeamMemberProtocol):
+class TeamMember(DataclassBase, PrimaryKeyMixin, TimestampMixin, TeamMemberMixin):
     pass
 
 
