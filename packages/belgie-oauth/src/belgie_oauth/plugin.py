@@ -97,7 +97,7 @@ class TokenResponse:
 
 
 class GoogleOAuthPlugin(PluginClient):
-    AUTHORIZATION_URL = "https://oauth_accounts.google.com/o/oauth2/v2/auth"
+    AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
     USER_INFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 

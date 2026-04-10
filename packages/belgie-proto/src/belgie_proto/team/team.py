@@ -13,6 +13,6 @@ if TYPE_CHECKING:
 class TeamProtocol(AccountProtocol, Protocol):
     id: UUID
     organization_id: UUID
-    name: str
+    name: str | None
     created_at: datetime
     updated_at: datetime

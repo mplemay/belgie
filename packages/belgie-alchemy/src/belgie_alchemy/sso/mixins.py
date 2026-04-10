@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from brussels.types import DateTimeUTC, Json
-from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Text
 from sqlalchemy.dialects.postgresql import CITEXT
 from sqlalchemy.orm import Mapped, MappedAsDataclass, declarative_mixin, declared_attr, mapped_column, relationship
 
@@ -87,11 +87,8 @@ class SSODomainMixin(MappedAsDataclass):
         )
 
     @declared_attr.directive
-    def __table_args__(self) -> tuple[UniqueConstraint, Index]:
-        return (
-            UniqueConstraint("domain", name="uq_sso_domain_domain"),
-            Index("ix_sso_domain_sso_provider_id", self.sso_provider_id),
-        )
+    def __table_args__(self) -> tuple[Index]:
+        return (Index("ix_sso_domain_sso_provider_id", self.sso_provider_id),)
 
 
 __all__ = [

@@ -1118,13 +1118,7 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
     scope_raw = _get_str(resolved_data, "scope")
     requested_scopes = _parse_scope_param(scope_raw)
     if requested_scopes is not None and not requested_scopes:
-        return _authorize_error(
-            "invalid_scope",
-            "missing scope",
-            redirect_uri=redirect_uri_string,
-            state=_get_str(resolved_data, "state"),
-            issuer_url=issuer_url,
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing scope")
     if requested_scopes is None:
         scopes = provider.default_scopes_for_client(oauth_client)
     else:

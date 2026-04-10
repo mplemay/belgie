@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 @runtime_checkable
 class OrganizationProtocol(AccountProtocol, Protocol):
     id: UUID
-    name: str
+    name: str | None
     slug: str
     logo: str | None
     created_at: datetime

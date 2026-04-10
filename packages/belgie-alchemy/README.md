@@ -140,6 +140,9 @@ team_adapter = TeamAdapter(
 When you enable both plugins, use the team-capable adapter for both. If you only need organizations, the organization
 adapter is sufficient.
 
+The organization and team protocols match the SQLAlchemy row shape, so your app models can stay plain SQLAlchemy
+classes without adding explicit protocol bases just to satisfy `ty`.
+
 The default PostgreSQL variants also use `CITEXT` for organization `slug` values and pending invitation `email`
 addresses. Pending invitations are unique per `(organization_id, email)` while their status is `pending`.
 
