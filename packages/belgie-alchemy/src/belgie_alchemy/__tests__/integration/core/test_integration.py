@@ -108,7 +108,7 @@ def test_full_oauth_flow_signin_to_callback(
     assert signin_response.status_code == 302
     assert "location" in signin_response.headers
     location = signin_response.headers["location"]
-    assert location.startswith("https://oauth_accounts.google.com/o/oauth2/v2/auth")
+    assert location.startswith("https://accounts.google.com/o/oauth2/v2/auth")
 
     state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
 
