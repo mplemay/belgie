@@ -8,7 +8,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Protocol
+from typing import TYPE_CHECKING, Annotated, Literal, Protocol
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
@@ -61,6 +61,7 @@ REFRESH_TOKEN_TYPE = "refresh_token"  # noqa: S105
 type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 type FormValue = str | UploadFile
 type FormInput = Mapping[str, FormValue] | FormData
+type AuthorizePrompt = Literal["none", "consent", "login", "create", "select_account"]
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -77,6 +78,20 @@ class _TokenHandlerContext:
     fallback_signing_secret: str
     client_id: str | None
     client_secret: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _AuthorizeRequestContext:
+    oauth_client: OAuthClientInformationFull
+    params: AuthorizationParams
+    prompt_values: frozenset[AuthorizePrompt]
+    redirect_uri: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _InteractionError:
+    error: str
+    description: str
 
 
 class OAuthServerPlugin(PluginClient):
@@ -137,7 +152,9 @@ class OAuthServerPlugin(PluginClient):
         router = self._add_userinfo_route(router, belgie, provider)
         router = self._add_end_session_route(router, belgie, provider, issuer_url)
         router = self._add_login_route(router, belgie, issuer_url, self._settings, provider)
-        router = self._add_login_callback_route(router, belgie, provider)
+        router = self._add_continue_route(router, belgie, provider, self._settings, issuer_url)
+        router = self._add_consent_route(router, belgie, provider, self._settings, issuer_url)
+        router = self._add_login_callback_route(router, belgie, provider, self._settings, issuer_url)
         return self._add_introspect_route(router, provider)
 
     def metadata_router(self, belgie: Belgie) -> APIRouter:
@@ -257,47 +274,118 @@ class OAuthServerPlugin(PluginClient):
         return router
 
     @staticmethod
-    def _add_authorize_route(
+    def _add_authorize_route(  # noqa: C901
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
-        async def _authorize(
+        async def _authorize(  # noqa: PLR0911
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> Response:
             data = await _get_request_params(request)
-            oauth_client, params = await _parse_authorize_params(data, provider, settings, belgie.settings.base_url)
+            authorize_request = await _parse_authorize_request(
+                data,
+                provider,
+                settings,
+                belgie.settings.base_url,
+                issuer_url,
+            )
+            if isinstance(authorize_request, Response):
+                return authorize_request
 
             try:
                 individual = await client.get_individual(SecurityScopes(), request)
                 session = await client.get_session(request)
             except HTTPException as exc:
                 if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                    if "none" in authorize_request.prompt_values:
+                        return _authorize_error(
+                            "login_required",
+                            "authentication required",
+                            redirect_uri=authorize_request.redirect_uri,
+                            state=authorize_request.params.state,
+                            issuer_url=issuer_url,
+                        )
                     if (
                         _resolve_auth_redirect_url(
                             settings,
                             belgie.settings.base_url,
-                            intent=params.intent,
+                            intent=authorize_request.params.intent,
                         )
                         is None
                     ):
-                        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login_required") from exc
+                        return _oauth_error(
+                            "invalid_request",
+                            "interaction url not configured",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        )
 
-                    state_value = await _authorize_state(provider, oauth_client, params)
+                    state_value = await _authorize_state(
+                        provider,
+                        authorize_request.oauth_client,
+                        authorize_request.params,
+                    )
                     login_url = _build_login_redirect(issuer_url, state_value)
                     return RedirectResponse(url=login_url, status_code=status.HTTP_302_FOUND)
                 raise
 
             params_with_principal = _with_authorization_principal(
-                params,
+                authorize_request.params,
                 individual_id=str(individual.id),
                 session_id=str(session.id),
             )
-            state_value = await _authorize_state(provider, oauth_client, params_with_principal)
-            redirect_url = await _issue_authorization_code(provider, state_value)
+            interaction_error = await _resolve_interaction_error(
+                provider,
+                settings,
+                authorize_request.oauth_client,
+                params_with_principal,
+                prompt_values=authorize_request.prompt_values,
+            )
+            if interaction_error is not None:
+                return _authorize_error(
+                    interaction_error.error,
+                    interaction_error.description,
+                    redirect_uri=authorize_request.redirect_uri,
+                    state=params_with_principal.state,
+                    issuer_url=issuer_url,
+                )
+
+            try:
+                interaction = await _resolve_next_interaction(
+                    provider,
+                    settings,
+                    authorize_request.oauth_client,
+                    params_with_principal,
+                    prompt_values=authorize_request.prompt_values,
+                )
+            except ValueError as exc:
+                return _authorize_error(
+                    "invalid_request",
+                    str(exc),
+                    redirect_uri=authorize_request.redirect_uri,
+                    state=params_with_principal.state,
+                    issuer_url=issuer_url,
+                )
+            if interaction is not None:
+                state_value = await _authorize_state(
+                    provider,
+                    authorize_request.oauth_client,
+                    replace(params_with_principal, intent=interaction),
+                )
+                login_url = _build_login_redirect(issuer_url, state_value)
+                return RedirectResponse(url=login_url, status_code=status.HTTP_302_FOUND)
+
+            if settings.consent_url is None:
+                await provider.save_consent(
+                    authorize_request.oauth_client.client_id or settings.client_id,
+                    str(individual.id),
+                    params_with_principal.scopes or [settings.default_scope],
+                )
+            state_value = await _authorize_state(provider, authorize_request.oauth_client, params_with_principal)
+            redirect_url = await _issue_authorization_code(provider, state_value, issuer_url)
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
         async def authorize_get_handler(
@@ -368,7 +456,7 @@ class OAuthServerPlugin(PluginClient):
         provider: SimpleOAuthProvider,
         settings: OAuthServer,
     ) -> APIRouter:
-        async def register_handler(
+        async def register_handler(  # noqa: PLR0911
             request: Request,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> OAuthClientInformationFull | Response:
@@ -407,7 +495,16 @@ class OAuthServerPlugin(PluginClient):
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 )
 
+            token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
+            if not authenticated and token_endpoint_auth_method != "none":  # noqa: S105
+                return _oauth_error(
+                    "invalid_request",
+                    "authentication required for confidential client registration",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                )
+
             try:
+                provider.validate_client_metadata(metadata)
                 client_info = await provider.register_client(metadata)
             except ValueError as exc:
                 description = str(exc) or "invalid client metadata"
@@ -517,7 +614,20 @@ class OAuthServerPlugin(PluginClient):
             if user is None:
                 return _oauth_error("invalid_request", "user not found", status_code=status.HTTP_400_BAD_REQUEST)
 
-            return UserInfoResponse.model_validate(_build_user_claims(user, access_token.scopes))
+            oauth_client = await provider.get_client(access_token.client_id)
+            subject_identifier = (
+                provider.resolve_subject_identifier(oauth_client, access_token.individual_id)
+                if oauth_client is not None
+                else access_token.individual_id
+            )
+
+            return UserInfoResponse.model_validate(
+                _build_user_claims(
+                    user,
+                    access_token.scopes,
+                    subject_identifier=subject_identifier,
+                ),
+            )
 
         router.add_api_route(
             "/userinfo",
@@ -643,10 +753,9 @@ class OAuthServerPlugin(PluginClient):
                 intent=state_data.intent,
             )
             if login_url is None:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="login_url not configured")
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="interaction url not configured")
 
-            return_to_base = join_url(issuer_url, "login/callback")
-            return_to_url = construct_redirect_uri(return_to_base, state=state)
+            return_to_url = _build_interaction_return_to(issuer_url, state, state_data.intent)
             redirect_url = construct_redirect_uri(login_url, return_to=return_to_url, intent=state_data.intent)
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
@@ -654,10 +763,139 @@ class OAuthServerPlugin(PluginClient):
         return router
 
     @staticmethod
+    def _add_continue_route(
+        router: APIRouter,
+        belgie: Belgie,
+        provider: SimpleOAuthProvider,
+        settings: OAuthServer,
+        issuer_url: str,
+    ) -> APIRouter:
+        async def continue_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
+            payload = await _get_request_payload(request)
+            state = _get_payload_str(payload, "state")
+            if not state:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing state")
+
+            created = _get_payload_bool(payload, "created")
+            selected = _get_payload_bool(payload, "selected")
+            if created is not True and selected is not True:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing parameters")
+
+            try:
+                individual = await client.get_individual(SecurityScopes(), request)
+                session = await client.get_session(request)
+            except HTTPException as exc:
+                if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login_required") from exc
+                raise
+
+            handled_prompt: AuthorizePrompt = "create" if created is True else "select_account"
+
+            try:
+                await provider.bind_authorization_state(
+                    state,
+                    individual_id=str(individual.id),
+                    session_id=str(session.id),
+                )
+                redirect_url = await _resume_authorization_flow(
+                    provider,
+                    settings,
+                    state,
+                    handled_prompt=handled_prompt,
+                    issuer_url=issuer_url,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+
+        router.add_api_route("/continue", continue_handler, methods=["GET", "POST"])
+        return router
+
+    @staticmethod
+    def _add_consent_route(
+        router: APIRouter,
+        belgie: Belgie,
+        provider: SimpleOAuthProvider,
+        settings: OAuthServer,
+        issuer_url: str,
+    ) -> APIRouter:
+        async def consent_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
+            payload = await _get_request_payload(request)
+            state = _get_payload_str(payload, "state")
+            if not state:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing state")
+
+            state_data = await provider.load_authorization_state(state)
+            if state_data is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state parameter")
+
+            accepted = _get_payload_bool(payload, "accept")
+            if accepted is not True:
+                redirect_url = _authorize_error_redirect_url(
+                    state_data.redirect_uri,
+                    error="access_denied",
+                    description="User denied access",
+                    state=state,
+                    issuer_url=issuer_url,
+                )
+                return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+
+            try:
+                individual = await client.get_individual(SecurityScopes(), request)
+                session = await client.get_session(request)
+            except HTTPException as exc:
+                if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login_required") from exc
+                raise
+
+            oauth_client = await provider.get_client(state_data.client_id)
+            if oauth_client is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_client")
+
+            requested_scopes = _parse_scope_param(_get_payload_str(payload, "scope"))
+            original_scopes = state_data.scopes or [settings.default_scope]
+            consent_scopes = requested_scopes or original_scopes
+            if not all(scope in original_scopes for scope in consent_scopes):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Scope not originally requested")
+
+            try:
+                await provider.bind_authorization_state(
+                    state,
+                    individual_id=str(individual.id),
+                    session_id=str(session.id),
+                )
+                await provider.save_consent(
+                    oauth_client.client_id or settings.client_id,
+                    str(individual.id),
+                    consent_scopes,
+                )
+                await provider.update_authorization_interaction(
+                    state,
+                    prompt=_remove_prompt_value(state_data.prompt, "consent"),
+                    intent="consent",
+                    scopes=consent_scopes,
+                )
+                redirect_url = await _issue_authorization_code(provider, state, issuer_url)
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+
+        router.add_api_route("/consent", consent_handler, methods=["GET", "POST"])
+        return router
+
+    @staticmethod
     def _add_login_callback_route(
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
+        settings: OAuthServer,
+        issuer_url: str,
     ) -> APIRouter:
         async def login_callback_handler(
             request: Request,
@@ -681,7 +919,17 @@ class OAuthServerPlugin(PluginClient):
                     individual_id=str(individual.id),
                     session_id=str(session.id),
                 )
-                redirect_url = await provider.issue_authorization_code(state)
+                state_data = await provider.load_authorization_state(state)
+                handled_prompt = "login"
+                if state_data is not None and state_data.intent == "create":
+                    handled_prompt = "create"
+                redirect_url = await _resume_authorization_flow(
+                    provider,
+                    settings,
+                    state,
+                    handled_prompt=handled_prompt,
+                    issuer_url=issuer_url,
+                )
             except ValueError as exc:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
             return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
@@ -690,7 +938,10 @@ class OAuthServerPlugin(PluginClient):
         return router
 
     @staticmethod
-    def _add_introspect_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:  # noqa: C901
+    def _add_introspect_route(  # noqa: C901
+        router: APIRouter,
+        provider: SimpleOAuthProvider,
+    ) -> APIRouter:
         async def introspect_handler(request: Request) -> OAuthIntrospectionResponse | Response:  # noqa: C901, PLR0911
             form = await request.form()
             client_id, client_secret, auth_error = _extract_client_credentials(request, form)
@@ -725,6 +976,12 @@ class OAuthServerPlugin(PluginClient):
             if token_type_hint in {None, ACCESS_TOKEN_HINT}:
                 access_token = await provider.load_access_token(token)
                 if access_token and access_token.client_id == oauth_client.client_id:
+                    access_token_client = await provider.get_client(access_token.client_id)
+                    subject_identifier = (
+                        provider.resolve_subject_identifier(access_token_client, access_token.individual_id)
+                        if access_token_client is not None and access_token.individual_id is not None
+                        else access_token.individual_id
+                    )
                     return OAuthIntrospectionResponse(
                         active=True,
                         client_id=access_token.client_id,
@@ -733,6 +990,9 @@ class OAuthServerPlugin(PluginClient):
                         iat=access_token.created_at,
                         token_type=BEARER_TOKEN_TYPE,
                         aud=access_token.resource,
+                        sub=subject_identifier,
+                        sid=access_token.session_id,
+                        iss=provider.issuer_url,
                     )
                 if token_type_hint == ACCESS_TOKEN_HINT:
                     return OAuthIntrospectionResponse(active=False)
@@ -740,6 +1000,12 @@ class OAuthServerPlugin(PluginClient):
             if token_type_hint in {None, REFRESH_TOKEN_HINT}:
                 refresh_token = await provider.load_refresh_token(token)
                 if refresh_token and refresh_token.client_id == oauth_client.client_id:
+                    refresh_token_client = await provider.get_client(refresh_token.client_id)
+                    subject_identifier = (
+                        provider.resolve_subject_identifier(refresh_token_client, refresh_token.individual_id)
+                        if refresh_token_client is not None and refresh_token.individual_id is not None
+                        else refresh_token.individual_id
+                    )
                     return OAuthIntrospectionResponse(
                         active=True,
                         client_id=refresh_token.client_id,
@@ -748,6 +1014,9 @@ class OAuthServerPlugin(PluginClient):
                         iat=refresh_token.created_at,
                         token_type=REFRESH_TOKEN_TYPE,
                         aud=refresh_token.resource,
+                        sub=subject_identifier,
+                        sid=refresh_token.session_id,
+                        iss=provider.issuer_url,
                     )
 
             return OAuthIntrospectionResponse(active=False)
@@ -771,51 +1040,86 @@ def _build_issuer_url(belgie: Belgie, settings: OAuthServer) -> str:
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
 
 
-async def _parse_authorize_params(
+async def _parse_authorize_request(  # noqa: C901, PLR0911
     data: dict[str, str],
     provider: SimpleOAuthProvider,
     settings: OAuthServer,
     belgie_base_url: str,
-) -> tuple[OAuthClientInformationFull, AuthorizationParams]:
-    response_type = _get_str(data, "response_type")
-    if response_type != "code":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_response_type")
+    issuer_url: str,
+) -> _AuthorizeRequestContext | Response:
+    resolved_data = await _resolve_request_uri_params(data, settings)
+    if resolved_data is None:
+        return _oauth_error("invalid_request_uri", "request_uri is invalid or expired")
 
-    client_id = _get_str(data, "client_id")
+    response_type = _get_str(resolved_data, "response_type")
+    if response_type != "code":
+        return _oauth_error("unsupported_response_type", status_code=status.HTTP_400_BAD_REQUEST)
+
+    client_id = _get_str(resolved_data, "client_id")
     if not client_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing client_id")
+        return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
 
     oauth_client = await provider.get_client(client_id)
     if not oauth_client:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_client")
+        return _oauth_error("invalid_client", status_code=status.HTTP_400_BAD_REQUEST)
 
-    redirect_uri_raw = _get_str(data, "redirect_uri")
+    redirect_uri_raw = _get_str(resolved_data, "redirect_uri")
     redirect_uri = AnyUrl(redirect_uri_raw) if redirect_uri_raw else None
     try:
         validated_redirect_uri = oauth_client.validate_redirect_uri(redirect_uri)
     except InvalidRedirectUriError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+        return _oauth_error("invalid_request", exc.message, status_code=status.HTTP_400_BAD_REQUEST)
 
-    scope_raw = _get_str(data, "scope")
+    redirect_uri_string = str(validated_redirect_uri)
+
+    prompt_values, prompt_error = _parse_prompt_values(_get_str(resolved_data, "prompt"))
+    if prompt_error is not None:
+        return _authorize_error(
+            "invalid_request",
+            prompt_error,
+            redirect_uri=redirect_uri_string,
+            state=_get_str(resolved_data, "state"),
+            issuer_url=issuer_url,
+        )
+
+    scope_raw = _get_str(resolved_data, "scope")
     try:
         scopes = oauth_client.validate_scope(scope_raw)
     except InvalidScopeError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
+        return _authorize_error(
+            "invalid_scope",
+            exc.message,
+            redirect_uri=redirect_uri_string,
+            state=_get_str(resolved_data, "state"),
+            issuer_url=issuer_url,
+        )
     if scopes is None:
         scopes = [settings.default_scope]
 
-    code_challenge = _get_str(data, "code_challenge")
-    if not code_challenge:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing code_challenge")
+    code_challenge = _get_str(resolved_data, "code_challenge")
+    code_challenge_method = _get_str(resolved_data, "code_challenge_method")
+    pkce_error = _validate_pkce_inputs(oauth_client, scopes, code_challenge, code_challenge_method)
+    if pkce_error is not None:
+        return _authorize_error(
+            "invalid_request",
+            pkce_error,
+            redirect_uri=redirect_uri_string,
+            state=_get_str(resolved_data, "state"),
+            issuer_url=issuer_url,
+        )
 
-    code_challenge_method = _get_str(data, "code_challenge_method") or settings.code_challenge_method
-    if code_challenge_method != "S256":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported code_challenge_method")
+    try:
+        resource = _validate_authorize_resource(settings, belgie_base_url, _get_str(resolved_data, "resource"))
+    except HTTPException:
+        return _authorize_error(
+            "invalid_target",
+            redirect_uri=redirect_uri_string,
+            state=_get_str(resolved_data, "state"),
+            issuer_url=issuer_url,
+        )
 
-    resource = _validate_authorize_resource(settings, belgie_base_url, _get_str(data, "resource"))
-
-    state = _get_str(data, "state") or secrets.token_hex(16)
-    prompt = _normalize_prompt(_get_str(data, "prompt"))
+    state = _get_str(resolved_data, "state") or secrets.token_hex(16)
+    prompt = _normalize_prompt_values(prompt_values)
 
     params = AuthorizationParams(
         state=state,
@@ -824,11 +1128,16 @@ async def _parse_authorize_params(
         redirect_uri=validated_redirect_uri,
         redirect_uri_provided_explicitly=redirect_uri_raw is not None,
         resource=resource,
-        nonce=_get_str(data, "nonce"),
+        nonce=_get_str(resolved_data, "nonce"),
         prompt=prompt,
-        intent=_derive_login_intent(prompt),
+        intent=_derive_initial_intent(prompt_values),
     )
-    return oauth_client, params
+    return _AuthorizeRequestContext(
+        oauth_client=oauth_client,
+        params=params,
+        prompt_values=prompt_values,
+        redirect_uri=redirect_uri_string,
+    )
 
 
 def _normalize_resource_path(path: str) -> str:
@@ -882,9 +1191,9 @@ async def _authorize_state(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-async def _issue_authorization_code(provider: SimpleOAuthProvider, state: str) -> str:
+async def _issue_authorization_code(provider: SimpleOAuthProvider, state: str, issuer_url: str) -> str:
     try:
-        return await provider.issue_authorization_code(state)
+        return await provider.issue_authorization_code(state, issuer=issuer_url)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -893,25 +1202,13 @@ def _build_login_redirect(issuer_url: str, state: str) -> str:
     return construct_redirect_uri(join_url(issuer_url, "login"), state=state)
 
 
-def _normalize_prompt(prompt: str | None) -> str | None:
-    if prompt is None:
-        return None
-    values = [value for value in prompt.split(" ") if value]
-    if not values:
-        return None
-    return " ".join(values)
-
-
-def _derive_login_intent(prompt: str | None) -> OAuthLoginIntent:
-    if not prompt:
-        return "login"
-    values = set(prompt.split(" "))
-    if "create" in values:
-        return "create"
-    return "login"
-
-
 def _resolve_auth_redirect_url(settings: OAuthServer, belgie_base_url: str, *, intent: OAuthLoginIntent) -> str | None:
+    if intent == "consent":
+        return _resolve_redirect_url(belgie_base_url, settings.consent_url) if settings.consent_url else None
+    if intent == "select_account":
+        return (
+            _resolve_redirect_url(belgie_base_url, settings.select_account_url) if settings.select_account_url else None
+        )
     if intent == "create" and settings.signup_url:
         return _resolve_redirect_url(belgie_base_url, settings.signup_url)
     if settings.login_url:
@@ -924,6 +1221,319 @@ def _resolve_redirect_url(belgie_base_url: str, redirect_url: str) -> str:
     if parsed_redirect_url.scheme in {"http", "https"}:
         return redirect_url
     return join_url(belgie_base_url, redirect_url)
+
+
+async def _resolve_request_uri_params(
+    data: dict[str, str],
+    settings: OAuthServer,
+) -> dict[str, str] | None:
+    request_uri = _get_str(data, "request_uri")
+    if request_uri is None:
+        return data
+    if settings.request_uri_resolver is None:
+        return None
+
+    client_id = _get_str(data, "client_id") or ""
+    resolved = settings.request_uri_resolver(request_uri, client_id)
+    if inspect.isawaitable(resolved):
+        resolved = await resolved
+    if resolved is None:
+        return None
+
+    resolved_data = dict(resolved)
+    if client_id:
+        resolved_data["client_id"] = client_id
+    return resolved_data
+
+
+def _authorize_error(  # noqa: PLR0913
+    error: str,
+    description: str | None = None,
+    *,
+    redirect_uri: str | None = None,
+    state: str | None = None,
+    issuer_url: str | None = None,
+    status_code: int = status.HTTP_400_BAD_REQUEST,
+) -> Response:
+    if redirect_uri is None:
+        return _oauth_error(error, description, status_code=status_code)
+    redirect_url = _authorize_error_redirect_url(
+        redirect_uri,
+        error=error,
+        description=description,
+        state=state,
+        issuer_url=issuer_url,
+    )
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+
+
+def _authorize_error_redirect_url(
+    redirect_uri: str,
+    *,
+    error: str,
+    description: str | None = None,
+    state: str | None = None,
+    issuer_url: str | None = None,
+) -> str:
+    return construct_redirect_uri(
+        redirect_uri,
+        error=error,
+        error_description=description,
+        state=state,
+        iss=issuer_url,
+    )
+
+
+def _parse_prompt_values(prompt: str | None) -> tuple[frozenset[AuthorizePrompt], str | None]:
+    if prompt is None:
+        return frozenset(), None
+
+    prompt_values: list[AuthorizePrompt] = []
+    for raw_value in prompt.split(" "):
+        if not raw_value:
+            continue
+        if raw_value not in {"none", "consent", "login", "create", "select_account"}:
+            return frozenset(), "unsupported prompt value"
+        typed_value = raw_value
+        if typed_value not in prompt_values:
+            prompt_values.append(typed_value)
+
+    if "none" in prompt_values and len(prompt_values) > 1:
+        return frozenset(), "prompt none cannot be combined with other prompts"
+
+    return frozenset(prompt_values), None
+
+
+def _normalize_prompt_values(prompt_values: frozenset[AuthorizePrompt]) -> str | None:
+    if not prompt_values:
+        return None
+    ordered_values = [
+        prompt for prompt in ("none", "login", "consent", "create", "select_account") if prompt in prompt_values
+    ]
+    return " ".join(ordered_values)
+
+
+def _derive_initial_intent(prompt_values: frozenset[AuthorizePrompt]) -> OAuthLoginIntent:
+    if "create" in prompt_values:
+        return "create"
+    return "login"
+
+
+def _pkce_requirement_for_client(
+    oauth_client: OAuthClientInformationFull,
+    scopes: list[str],
+) -> str | None:
+    is_public_client = oauth_client.token_endpoint_auth_method == "none" or oauth_client.type in {  # noqa: S105
+        "native",
+        "user-agent-based",
+    }
+    if is_public_client:
+        return "pkce is required for public clients"
+    if "offline_access" in scopes:
+        return "pkce is required when requesting offline_access scope"
+    if oauth_client.require_pkce is not False:
+        return "pkce is required for this client"
+    return None
+
+
+def _validate_pkce_inputs(
+    oauth_client: OAuthClientInformationFull,
+    scopes: list[str],
+    code_challenge: str | None,
+    code_challenge_method: str | None,
+) -> str | None:
+    pkce_requirement = _pkce_requirement_for_client(oauth_client, scopes)
+    if pkce_requirement is not None and not code_challenge:
+        return pkce_requirement
+    if code_challenge or code_challenge_method:
+        if not code_challenge or not code_challenge_method:
+            return "code_challenge and code_challenge_method must both be provided"
+        if code_challenge_method != "S256":
+            return "invalid code_challenge method, only S256 is supported"
+    return None
+
+
+async def _resolve_interaction_error(  # noqa: PLR0911, PLR0913
+    provider: SimpleOAuthProvider,
+    settings: OAuthServer,
+    oauth_client: OAuthClientInformationFull,
+    params: AuthorizationParams,
+    *,
+    prompt_values: frozenset[AuthorizePrompt],
+    allow_select_account_resolver: bool = True,
+) -> _InteractionError | None:
+    if "none" not in prompt_values:
+        return None
+    if params.individual_id is None:
+        return _InteractionError(error="login_required", description="authentication required")
+    if allow_select_account_resolver and await _select_account_required(settings, oauth_client, params):
+        return _InteractionError(
+            error="account_selection_required",
+            description="End-User account selection is required",
+        )
+    if "select_account" in prompt_values:
+        return _InteractionError(
+            error="account_selection_required",
+            description="End-User account selection is required",
+        )
+    if "consent" in prompt_values:
+        return _InteractionError(error="consent_required", description="End-User consent is required")
+    if await _consent_required(provider, settings, oauth_client, params):
+        return _InteractionError(error="consent_required", description="End-User consent is required")
+    return None
+
+
+async def _resolve_next_interaction(  # noqa: PLR0913
+    provider: SimpleOAuthProvider,
+    settings: OAuthServer,
+    oauth_client: OAuthClientInformationFull,
+    params: AuthorizationParams,
+    *,
+    prompt_values: frozenset[AuthorizePrompt],
+    allow_select_account_resolver: bool = True,
+) -> OAuthLoginIntent | None:
+    if params.individual_id is None or params.session_id is None:
+        return params.intent
+    if "select_account" in prompt_values:
+        if settings.select_account_url is None:
+            msg = "unsupported prompt type"
+            raise ValueError(msg)
+        return "select_account"
+    if allow_select_account_resolver and await _select_account_required(settings, oauth_client, params):
+        if settings.select_account_url is None:
+            msg = "unsupported prompt type"
+            raise ValueError(msg)
+        return "select_account"
+    if "consent" in prompt_values:
+        if settings.consent_url is None:
+            msg = "consent_url not configured"
+            raise ValueError(msg)
+        return "consent"
+    if settings.consent_url is not None and await _consent_required(provider, settings, oauth_client, params):
+        return "consent"
+    return None
+
+
+async def _consent_required(
+    provider: SimpleOAuthProvider,
+    settings: OAuthServer,
+    oauth_client: OAuthClientInformationFull,
+    params: AuthorizationParams,
+) -> bool:
+    if params.individual_id is None:
+        return False
+    return not await provider.has_consent(
+        oauth_client.client_id or settings.client_id,
+        params.individual_id,
+        params.scopes or [settings.default_scope],
+    )
+
+
+async def _select_account_required(
+    settings: OAuthServer,
+    oauth_client: OAuthClientInformationFull,
+    params: AuthorizationParams,
+) -> bool:
+    if settings.select_account_resolver is None:
+        return False
+    if params.individual_id is None or params.session_id is None:
+        return False
+
+    should_select = settings.select_account_resolver(
+        oauth_client.client_id or settings.client_id,
+        params.individual_id,
+        params.session_id,
+        params.scopes or [settings.default_scope],
+    )
+    if inspect.isawaitable(should_select):
+        should_select = await should_select
+    return should_select is True
+
+
+async def _resume_authorization_flow(
+    provider: SimpleOAuthProvider,
+    settings: OAuthServer,
+    state: str,
+    *,
+    handled_prompt: AuthorizePrompt,
+    issuer_url: str,
+) -> str:
+    state_data = await provider.load_authorization_state(state)
+    if state_data is None:
+        msg = "Invalid state parameter"
+        raise ValueError(msg)
+
+    oauth_client = await provider.get_client(state_data.client_id)
+    if oauth_client is None:
+        msg = "invalid_client"
+        raise ValueError(msg)
+
+    updated_prompt = _remove_prompt_value(state_data.prompt, handled_prompt)
+    updated_prompt_values, prompt_error = _parse_prompt_values(updated_prompt)
+    if prompt_error is not None:
+        raise ValueError(prompt_error)
+
+    await provider.update_authorization_interaction(
+        state,
+        prompt=updated_prompt,
+        intent="login",
+    )
+
+    params = AuthorizationParams(
+        state=state,
+        scopes=state_data.scopes,
+        code_challenge=state_data.code_challenge,
+        redirect_uri=AnyUrl(state_data.redirect_uri),
+        redirect_uri_provided_explicitly=state_data.redirect_uri_provided_explicitly,
+        resource=state_data.resource,
+        nonce=state_data.nonce,
+        prompt=updated_prompt,
+        intent="login",
+        individual_id=state_data.individual_id,
+        session_id=state_data.session_id,
+    )
+
+    interaction = await _resolve_next_interaction(
+        provider,
+        settings,
+        oauth_client,
+        params,
+        prompt_values=updated_prompt_values,
+        allow_select_account_resolver=False,
+    )
+    if interaction is not None:
+        await provider.update_authorization_interaction(
+            state,
+            prompt=updated_prompt,
+            intent=interaction,
+        )
+        return _build_login_redirect(issuer_url, state)
+
+    if state_data.individual_id is not None and settings.consent_url is None:
+        await provider.save_consent(
+            oauth_client.client_id or settings.client_id,
+            state_data.individual_id,
+            state_data.scopes or [settings.default_scope],
+        )
+    return await _issue_authorization_code(provider, state, issuer_url)
+
+
+def _remove_prompt_value(prompt: str | None, value: AuthorizePrompt) -> str | None:
+    prompt_values, prompt_error = _parse_prompt_values(prompt)
+    if prompt_error is not None or not prompt_values:
+        return None
+    remaining_values = frozenset(existing for existing in prompt_values if existing != value)
+    return _normalize_prompt_values(remaining_values)
+
+
+def _build_interaction_return_to(issuer_url: str, state: str, intent: OAuthLoginIntent) -> str:
+    if intent == "create":
+        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, created="true")
+    if intent == "select_account":
+        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, selected="true")
+    if intent == "consent":
+        return construct_redirect_uri(join_url(issuer_url, "consent"), state=state)
+    return construct_redirect_uri(join_url(issuer_url, "login/callback"), state=state)
 
 
 def _oauth_error(
@@ -955,14 +1565,54 @@ def _format_validation_error(error: ValidationError) -> str:
 async def _get_request_params(request: Request) -> dict[str, str]:
     if request.method == "GET":
         return dict(request.query_params)
+    if request.headers.get("content-type", "").startswith("application/json"):
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            return {}
+        return {str(key): str(value) for key, value in payload.items() if isinstance(value, str)}
     form = await request.form()
     return {key: value for key, value in form.items() if isinstance(value, str)}
+
+
+async def _get_request_payload(request: Request) -> dict[str, JSONValue]:
+    payload: dict[str, JSONValue] = dict(request.query_params)
+    if request.method == "GET":
+        return payload
+    if request.headers.get("content-type", "").startswith("application/json"):
+        body = await request.json()
+        if isinstance(body, dict):
+            payload |= {key: value for key, value in body.items() if isinstance(key, str)}
+        return payload
+    form = await request.form()
+    payload |= {key: value for key, value in form.items() if isinstance(value, str)}
+    return payload
 
 
 def _get_str(data: FormInput, key: str) -> str | None:
     value = data.get(key)
     if isinstance(value, str):
         return value
+    return None
+
+
+def _get_payload_str(payload: Mapping[str, JSONValue], key: str) -> str | None:
+    value = payload.get(key)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return None
+
+
+def _get_payload_bool(payload: Mapping[str, JSONValue], key: str) -> bool | None:
+    value = payload.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        if value.lower() == "true":
+            return True
+        if value.lower() == "false":
+            return False
     return None
 
 
@@ -1033,7 +1683,9 @@ async def _authenticate_client(  # noqa: PLR0911
     return oauth_client, None
 
 
-async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> OAuthToken | Response:  # noqa: C901, PLR0911
+async def _handle_authorization_code_grant(  # noqa: C901, PLR0911, PLR0912
+    ctx: _TokenHandlerContext,
+) -> OAuthToken | Response:
     oauth_client, error = await _authenticate_client(
         ctx.provider,
         ctx.client_id,
@@ -1065,12 +1717,25 @@ async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> OAuthTo
         return _oauth_error("invalid_grant", "redirect_uri mismatch", status_code=status.HTTP_400_BAD_REQUEST)
 
     code_verifier = _get_str(ctx.form, "code_verifier")
-    if not code_verifier:
-        return _oauth_error("invalid_request", "missing code_verifier", status_code=status.HTTP_400_BAD_REQUEST)
-
-    expected_challenge = create_code_challenge(code_verifier)
-    if expected_challenge != authorization_code.code_challenge:
-        return _oauth_error("invalid_grant", "invalid code_verifier", status_code=status.HTTP_400_BAD_REQUEST)
+    pkce_required = _pkce_requirement_for_client(oauth_client, authorization_code.scopes)
+    if authorization_code.code_challenge is not None and not code_verifier:
+        return _oauth_error(
+            "invalid_request",
+            "code_verifier required because PKCE was used in authorization",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    if authorization_code.code_challenge is None and code_verifier:
+        return _oauth_error(
+            "invalid_request",
+            "code_verifier provided but PKCE was not used in authorization",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    if authorization_code.code_challenge is None and pkce_required is not None:
+        return _oauth_error("invalid_request", pkce_required, status_code=status.HTTP_400_BAD_REQUEST)
+    if authorization_code.code_challenge is not None and code_verifier is not None:
+        expected_challenge = create_code_challenge(code_verifier)
+        if expected_challenge != authorization_code.code_challenge:
+            return _oauth_error("invalid_grant", "invalid code_verifier", status_code=status.HTTP_400_BAD_REQUEST)
 
     requested_resource = _get_str(ctx.form, "resource")
     resolved_resource, resource_error = _resolve_token_resource(
@@ -1097,6 +1762,7 @@ async def _handle_authorization_code_grant(ctx: _TokenHandlerContext) -> OAuthTo
             **token.model_dump(),
             "id_token": await _maybe_build_id_token(
                 ctx.client,
+                ctx.provider,
                 ctx.settings,
                 ctx.issuer_url,
                 oauth_client,
@@ -1180,6 +1846,7 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> OAuthToken |
             **token.model_dump(),
             "id_token": await _maybe_build_id_token(
                 ctx.client,
+                ctx.provider,
                 ctx.settings,
                 ctx.issuer_url,
                 oauth_client,
@@ -1268,9 +1935,14 @@ class _UserClaimsSource(Protocol):
     email_verified_at: datetime | None
 
 
-def _build_user_claims(user: _UserClaimsSource, scopes: list[str]) -> dict[str, str | bool]:
+def _build_user_claims(
+    user: _UserClaimsSource,
+    scopes: list[str],
+    *,
+    subject_identifier: str | None = None,
+) -> dict[str, str | bool]:
     name_parts = [value for value in (user.name or "").split(" ") if value]
-    payload: dict[str, str | bool] = {"sub": str(user.id)}
+    payload: dict[str, str | bool] = {"sub": subject_identifier or str(user.id)}
 
     if "profile" in scopes:
         if user.name is not None:
@@ -1290,6 +1962,7 @@ def _build_user_claims(user: _UserClaimsSource, scopes: list[str]) -> dict[str, 
 
 async def _maybe_build_id_token(  # noqa: PLR0913
     client: BelgieClient,
+    provider: SimpleOAuthProvider,
     settings: OAuthServer,
     issuer_url: str,
     oauth_client: OAuthClientInformationFull,
@@ -1315,6 +1988,7 @@ async def _maybe_build_id_token(  # noqa: PLR0913
         return None
 
     return _build_id_token(
+        provider,
         settings,
         issuer_url,
         oauth_client,
@@ -1327,6 +2001,7 @@ async def _maybe_build_id_token(  # noqa: PLR0913
 
 
 def _build_id_token(  # noqa: PLR0913
+    provider: SimpleOAuthProvider,
     settings: OAuthServer,
     issuer_url: str,
     oauth_client: OAuthClientInformationFull,
@@ -1341,10 +2016,11 @@ def _build_id_token(  # noqa: PLR0913
     if oauth_client.client_id is None:
         msg = "registered client is missing client_id"
         raise OAuthError(msg)
+    subject_identifier = provider.resolve_subject_identifier(oauth_client, str(user.id))
     payload: dict[str, str | int | bool] = {
-        **_build_user_claims(user, scopes),
+        **_build_user_claims(user, scopes, subject_identifier=subject_identifier),
         "iss": issuer_url,
-        "sub": str(user.id),
+        "sub": subject_identifier,
         "aud": oauth_client.client_id,
         "iat": now,
         "exp": now + settings.id_token_ttl_seconds,

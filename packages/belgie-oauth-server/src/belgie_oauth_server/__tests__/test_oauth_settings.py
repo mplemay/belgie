@@ -9,7 +9,11 @@ def test_oauth_settings_defaults() -> None:
     assert settings.prefix == "/oauth"
     assert settings.login_url is None
     assert settings.signup_url is None
+    assert settings.consent_url is None
+    assert settings.select_account_url is None
     assert settings.default_scope == "user"
+    assert settings.static_client_require_pkce is True
+    assert settings.pairwise_secret is None
     assert settings.authorization_code_ttl_seconds == 300
     assert settings.access_token_ttl_seconds == 3600
     assert settings.refresh_token_ttl_seconds == 2592000
@@ -21,6 +25,8 @@ def test_oauth_settings_defaults() -> None:
     assert settings.allow_unauthenticated_client_registration is False
     assert settings.resources is None
     assert settings.include_root_resource_metadata_fallback is True
+    assert settings.request_uri_resolver is None
+    assert settings.select_account_resolver is None
     assert settings.include_root_openid_metadata_fallback is True
 
 

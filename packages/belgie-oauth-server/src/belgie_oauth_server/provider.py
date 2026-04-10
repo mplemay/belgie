@@ -1,30 +1,40 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import secrets
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import urlparse
 
 from pydantic import AnyUrl
 
-from belgie_oauth_server.models import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from belgie_oauth_server.models import (
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthToken,
+)
 from belgie_oauth_server.utils import construct_redirect_uri
 
 if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer
+
+type AuthorizationIntent = Literal["login", "create", "consent", "select_account"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AuthorizationParams:
     state: str | None
     scopes: list[str] | None
-    code_challenge: str
+    code_challenge: str | None
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None
     nonce: str | None = None
     prompt: str | None = None
-    intent: Literal["login", "create"] = "login"
+    intent: AuthorizationIntent = "login"
     individual_id: str | None = None
     session_id: str | None = None
 
@@ -35,7 +45,7 @@ class AuthorizationCode:
     scopes: list[str]
     expires_at: float
     client_id: str
-    code_challenge: str
+    code_challenge: str | None
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None
@@ -72,7 +82,7 @@ class AccessToken:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StateEntry:
     redirect_uri: str
-    code_challenge: str
+    code_challenge: str | None
     redirect_uri_provided_explicitly: bool
     client_id: str
     resource: str | None
@@ -80,9 +90,17 @@ class StateEntry:
     created_at: float
     nonce: str | None = None
     prompt: str | None = None
-    intent: Literal["login", "create"] = "login"
+    intent: AuthorizationIntent = "login"
     individual_id: str | None = None
     session_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConsentEntry:
+    client_id: str
+    individual_id: str
+    scopes: list[str]
+    created_at: int
 
 
 class SimpleOAuthProvider:
@@ -94,6 +112,7 @@ class SimpleOAuthProvider:
         self.tokens: dict[str, AccessToken] = {}
         self.refresh_tokens: dict[str, RefreshToken] = {}
         self.state_mapping: dict[str, StateEntry] = {}
+        self.consent_mapping: dict[tuple[str, str], ConsentEntry] = {}
 
         client_secret = settings.client_secret.get_secret_value() if settings.client_secret is not None else None
         self.clients[settings.client_id] = OAuthClientInformationFull(
@@ -101,6 +120,9 @@ class SimpleOAuthProvider:
             client_secret=client_secret,
             redirect_uris=settings.redirect_uris,
             scope=settings.default_scope,
+            token_endpoint_auth_method="none" if client_secret is None else "client_secret_post",
+            require_pkce=settings.static_client_require_pkce,
+            subject_type="public",
             enable_end_session=settings.enable_end_session,
         )
 
@@ -112,6 +134,10 @@ class SimpleOAuthProvider:
         if token_endpoint_auth_method not in {"client_secret_post", "client_secret_basic", "none"}:
             msg = f"unsupported token_endpoint_auth_method: {token_endpoint_auth_method}"
             raise ValueError(msg)
+        require_pkce = True if metadata.require_pkce is None else metadata.require_pkce
+        if require_pkce is not True:
+            msg = "pkce is required for registered clients"
+            raise ValueError(msg)
         client_secret = None
         if token_endpoint_auth_method != "none":  # noqa: S105
             client_secret = secrets.token_hex(16)
@@ -122,13 +148,14 @@ class SimpleOAuthProvider:
 
         metadata_payload = metadata.model_dump()
         metadata_payload["token_endpoint_auth_method"] = token_endpoint_auth_method
+        metadata_payload["require_pkce"] = require_pkce
         metadata_payload.pop("enable_end_session", None)
         client_info = OAuthClientInformationFull(
             **metadata_payload,
             client_id=client_id,
             client_secret=client_secret,
             client_id_issued_at=int(time.time()),
-            client_secret_expires_at=None,
+            client_secret_expires_at=0 if client_secret is not None else None,
         )
         self.clients[client_id] = client_info
         return client_info
@@ -176,11 +203,39 @@ class SimpleOAuthProvider:
             session_id=session_id,
         )
 
+    async def update_authorization_interaction(
+        self,
+        state: str,
+        *,
+        prompt: str | None,
+        intent: AuthorizationIntent,
+        scopes: list[str] | None = None,
+    ) -> None:
+        self._purge_state_mapping()
+        state_data = self.state_mapping.get(state)
+        if state_data is None:
+            msg = "Invalid state parameter"
+            raise ValueError(msg)
+        self.state_mapping[state] = StateEntry(
+            redirect_uri=state_data.redirect_uri,
+            code_challenge=state_data.code_challenge,
+            redirect_uri_provided_explicitly=state_data.redirect_uri_provided_explicitly,
+            client_id=state_data.client_id,
+            resource=state_data.resource,
+            scopes=state_data.scopes if scopes is None else scopes,
+            created_at=state_data.created_at,
+            nonce=state_data.nonce,
+            prompt=prompt,
+            intent=intent,
+            individual_id=state_data.individual_id,
+            session_id=state_data.session_id,
+        )
+
     async def load_authorization_state(self, state: str) -> StateEntry | None:
         self._purge_state_mapping()
         return self.state_mapping.get(state)
 
-    async def issue_authorization_code(self, state: str) -> str:
+    async def issue_authorization_code(self, state: str, *, issuer: str | None = None) -> str:
         self._purge_state_mapping()
         state_data = self.state_mapping.get(state)
         if not state_data:
@@ -194,7 +249,7 @@ class SimpleOAuthProvider:
         resource = state_data.resource
         scopes = state_data.scopes or [self.settings.default_scope]
 
-        if redirect_uri is None or code_challenge is None or client_id is None:
+        if redirect_uri is None or client_id is None:
             msg = "Invalid authorization state"
             raise ValueError(msg)
 
@@ -215,7 +270,7 @@ class SimpleOAuthProvider:
         self.auth_codes[new_code] = auth_code
 
         del self.state_mapping[state]
-        return construct_redirect_uri(redirect_uri, code=new_code, state=state)
+        return construct_redirect_uri(redirect_uri, code=new_code, state=state, iss=issuer)
 
     async def load_authorization_code(self, authorization_code: str) -> AuthorizationCode | None:
         return self.auth_codes.get(authorization_code)
@@ -383,6 +438,83 @@ class SimpleOAuthProvider:
         if invalid_scopes:
             msg = f"Client was not registered with scope {invalid_scopes[0]}"
             raise ValueError(msg)
+
+    async def save_consent(self, client_id: str, individual_id: str, scopes: list[str]) -> None:
+        self.consent_mapping[(client_id, individual_id)] = ConsentEntry(
+            client_id=client_id,
+            individual_id=individual_id,
+            scopes=scopes,
+            created_at=int(time.time()),
+        )
+
+    async def load_consent(self, client_id: str, individual_id: str) -> ConsentEntry | None:
+        return self.consent_mapping.get((client_id, individual_id))
+
+    async def has_consent(self, client_id: str, individual_id: str, scopes: list[str]) -> bool:
+        if (consent := await self.load_consent(client_id, individual_id)) is None:
+            return False
+        return all(scope in consent.scopes for scope in scopes)
+
+    def resolve_subject_identifier(self, client: OAuthClientInformationFull, individual_id: str) -> str:
+        if client.subject_type != "pairwise":
+            return individual_id
+        if self.settings.pairwise_secret is None:
+            return individual_id
+        if not client.redirect_uris:
+            return individual_id
+        sector_identifier = urlparse(str(client.redirect_uris[0])).netloc
+        digest = hmac.new(
+            self.settings.pairwise_secret.get_secret_value().encode("utf-8"),
+            f"{sector_identifier}.{individual_id}".encode(),
+            hashlib.sha256,
+        ).digest()
+        return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("utf-8")
+
+    def validate_client_metadata(self, metadata: OAuthClientMetadata) -> None:  # noqa: C901, PLR0912
+        token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
+        is_public = token_endpoint_auth_method == "none"  # noqa: S105
+        grant_types = metadata.grant_types or ["authorization_code", "refresh_token"]
+        response_types = metadata.response_types or ["code"]
+        allowed_grant_types = {"authorization_code", "refresh_token", "client_credentials"}
+        allowed_scopes = {self.settings.default_scope, "openid", "profile", "email", "offline_access"}
+
+        invalid_grant_types = [grant_type for grant_type in grant_types if grant_type not in allowed_grant_types]
+        if invalid_grant_types:
+            msg = f"unsupported grant_type {invalid_grant_types[0]}"
+            raise ValueError(msg)
+        invalid_response_types = [response_type for response_type in response_types if response_type != "code"]
+        if invalid_response_types:
+            msg = f"unsupported response_type {invalid_response_types[0]}"
+            raise ValueError(msg)
+        if "authorization_code" in grant_types and not metadata.redirect_uris:
+            msg = "Redirect URIs are required for authorization_code clients"
+            raise ValueError(msg)
+        if "authorization_code" in grant_types and "code" not in response_types:
+            msg = "When authorization_code is used, response_types must include code"
+            raise ValueError(msg)
+        if metadata.type is not None:
+            if is_public and metadata.type not in {"native", "user-agent-based"}:
+                msg = "Type must be native or user-agent-based for public clients"
+                raise ValueError(msg)
+            if not is_public and metadata.type != "web":
+                msg = "Type must be web for confidential clients"
+                raise ValueError(msg)
+        if metadata.subject_type == "pairwise":
+            if self.settings.pairwise_secret is None:
+                msg = "pairwise subject_type requires pairwise_secret configuration"
+                raise ValueError(msg)
+            redirect_hosts = {urlparse(str(redirect_uri)).netloc for redirect_uri in metadata.redirect_uris or []}
+            if len(redirect_hosts) > 1:
+                msg = "pairwise clients with multiple redirect_uri hosts are not supported"
+                raise ValueError(msg)
+        if metadata.require_pkce is False:
+            msg = "pkce is required for registered clients"
+            raise ValueError(msg)
+        if metadata.scope is not None:
+            invalid_scopes = [scope for scope in metadata.scope.split(" ") if scope and scope not in allowed_scopes]
+            if invalid_scopes:
+                msg = f"cannot request scope {invalid_scopes[0]}"
+                raise ValueError(msg)
 
     def _issue_access_token(  # noqa: PLR0913
         self,

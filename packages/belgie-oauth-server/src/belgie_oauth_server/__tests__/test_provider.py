@@ -37,6 +37,34 @@ async def test_provider_authorize_and_issue_code() -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_issue_authorization_code_includes_issuer() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    oauth_client = await provider.get_client("test-client")
+    assert oauth_client is not None
+    await provider.authorize(
+        oauth_client,
+        AuthorizationParams(
+            state="state-iss",
+            scopes=["user"],
+            code_challenge="challenge",
+            redirect_uri=settings.redirect_uris[0],
+            redirect_uri_provided_explicitly=True,
+        ),
+    )
+
+    redirect_url = await provider.issue_authorization_code("state-iss", issuer=str(settings.issuer_url))
+    query = parse_qs(urlparse(redirect_url).query)
+
+    assert query["iss"] == [str(settings.issuer_url)]
+
+
+@pytest.mark.asyncio
 async def test_provider_authorize_state_carries_nonce_user_and_session() -> None:
     settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],
@@ -462,3 +490,148 @@ def test_validate_scopes_for_client_raises_for_unknown_scope() -> None:
 
     with pytest.raises(ValueError, match="Client was not registered with scope admin"):
         provider.validate_scopes_for_client(client, ["admin"])
+
+
+@pytest.mark.asyncio
+async def test_consent_storage_supports_subset_checks() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    await provider.save_consent("test-client", "user-123", ["user", "openid"])
+
+    consent = await provider.load_consent("test-client", "user-123")
+
+    assert consent is not None
+    assert consent.scopes == ["user", "openid"]
+    assert await provider.has_consent("test-client", "user-123", ["user"]) is True
+    assert await provider.has_consent("test-client", "user-123", ["user", "openid"]) is True
+    assert await provider.has_consent("test-client", "user-123", ["user", "email"]) is False
+
+
+def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    with pytest.raises(ValueError, match="unsupported grant_type implicit"):
+        provider.validate_client_metadata(
+            OAuthClientMetadata(
+                redirect_uris=["http://example.com/callback"],
+                grant_types=["implicit"],
+            ),
+        )
+
+
+def test_validate_client_metadata_rejects_unsupported_response_type() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    with pytest.raises(ValueError, match="unsupported response_type token"):
+        provider.validate_client_metadata(
+            OAuthClientMetadata(
+                redirect_uris=["http://example.com/callback"],
+                response_types=["token"],
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("token_endpoint_auth_method", "client_type", "message"),
+    [
+        ("none", "web", "Type must be native or user-agent-based for public clients"),
+        ("client_secret_post", "native", "Type must be web for confidential clients"),
+    ],
+)
+def test_validate_client_metadata_rejects_invalid_type_for_auth_method(
+    token_endpoint_auth_method: str,
+    client_type: str,
+    message: str,
+) -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    with pytest.raises(ValueError, match=message):
+        provider.validate_client_metadata(
+            OAuthClientMetadata(
+                redirect_uris=["http://example.com/callback"],
+                token_endpoint_auth_method=token_endpoint_auth_method,
+                type=client_type,
+            ),
+        )
+
+
+def test_validate_client_metadata_rejects_pairwise_without_secret() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    with pytest.raises(ValueError, match="pairwise subject_type requires pairwise_secret configuration"):
+        provider.validate_client_metadata(
+            OAuthClientMetadata(
+                redirect_uris=["http://example.com/callback"],
+                subject_type="pairwise",
+            ),
+        )
+
+
+def test_validate_client_metadata_rejects_require_pkce_false() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    with pytest.raises(ValueError, match="pkce is required for registered clients"):
+        provider.validate_client_metadata(
+            OAuthClientMetadata(
+                redirect_uris=["http://example.com/callback"],
+                require_pkce=False,
+            ),
+        )
+
+
+def test_resolve_subject_identifier_uses_pairwise_secret() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        pairwise_secret="pairwise-secret",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    pairwise_client = provider.clients["test-client"].model_copy(
+        update={
+            "subject_type": "pairwise",
+            "redirect_uris": ["http://example.com/callback"],
+        },
+    )
+
+    first_subject = provider.resolve_subject_identifier(
+        pairwise_client,
+        "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    )
+    second_subject = provider.resolve_subject_identifier(
+        pairwise_client,
+        "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    )
+
+    assert first_subject == second_subject
+    assert first_subject != "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"

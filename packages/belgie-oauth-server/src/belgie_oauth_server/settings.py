@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Mapping
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse, urlunparse
@@ -11,6 +12,10 @@ if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
 
     from belgie_oauth_server.plugin import OAuthServerPlugin
+
+type RequestURIParams = Mapping[str, str]
+type RequestURIResolver = Callable[[str, str], RequestURIParams | Awaitable[RequestURIParams | None] | None]
+type SelectAccountResolver = Callable[[str, str, str, list[str]], bool | Awaitable[bool]]
 
 
 class OAuthResource(BaseModel):
@@ -41,17 +46,22 @@ class OAuthServer(BaseSettings):
         env_prefix="BELGIE_OAUTH_",
         env_file=".env",
         extra="ignore",
+        arbitrary_types_allowed=True,
     )
 
     base_url: AnyHttpUrl | None = None
     prefix: str = "/oauth"
     login_url: str | None = None
     signup_url: str | None = None
+    consent_url: str | None = None
+    select_account_url: str | None = None
 
     client_id: str = "belgie_client"
     client_secret: SecretStr | None = None
     redirect_uris: list[AnyUrl] = Field(min_length=1)
     default_scope: str = "user"
+    static_client_require_pkce: bool = True
+    pairwise_secret: SecretStr | None = None
 
     authorization_code_ttl_seconds: int = 300
     access_token_ttl_seconds: int = 3600
@@ -66,6 +76,8 @@ class OAuthServer(BaseSettings):
     include_root_resource_metadata_fallback: bool = True
     include_root_oauth_metadata_fallback: bool = True
     include_root_openid_metadata_fallback: bool = True
+    request_uri_resolver: RequestURIResolver | None = None
+    select_account_resolver: SelectAccountResolver | None = None
 
     @model_validator(mode="before")
     @classmethod

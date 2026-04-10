@@ -28,7 +28,7 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthMetadat
         authorization_endpoint=authorization_endpoint,
         token_endpoint=token_endpoint,
         registration_endpoint=registration_endpoint,
-        scopes_supported=[settings.default_scope],
+        scopes_supported=_build_supported_scopes(settings),
         response_types_supported=["code"],
         response_modes_supported=["query"],
         grant_types_supported=["authorization_code", "refresh_token", "client_credentials"],
@@ -38,18 +38,21 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthMetadat
         revocation_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
         introspection_endpoint=introspection_endpoint,
         introspection_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
+        authorization_response_iss_parameter_supported=True,
     )
 
 
 def build_openid_metadata(issuer_url: str, settings: OAuthServer) -> OIDCMetadata:
     oauth_metadata = build_oauth_metadata(issuer_url, settings)
     oidc_metadata = oauth_metadata.model_dump(mode="python")
-    advertised_scopes: list[str] = [settings.default_scope, "openid", "profile", "email", "offline_access"]
-    deduped_scopes: list[str] = []
-    for scope in advertised_scopes:
-        if scope not in deduped_scopes:
-            deduped_scopes.append(scope)
-    oidc_metadata["scopes_supported"] = deduped_scopes
+    oidc_metadata["scopes_supported"] = _build_supported_scopes(settings)
+    prompt_values_supported = ["login", "none"]
+    if settings.consent_url is not None:
+        prompt_values_supported.append("consent")
+    if settings.login_url is not None or settings.signup_url is not None:
+        prompt_values_supported.append("create")
+    if settings.select_account_url is not None:
+        prompt_values_supported.append("select_account")
 
     return OIDCMetadata(
         **oidc_metadata,
@@ -70,11 +73,11 @@ def build_openid_metadata(issuer_url: str, settings: OAuthServer) -> OIDCMetadat
             "family_name",
             "given_name",
         ],
-        subject_types_supported=["public"],
+        subject_types_supported=["public", "pairwise"] if settings.pairwise_secret is not None else ["public"],
         id_token_signing_alg_values_supported=["HS256"],
         end_session_endpoint=AnyHttpUrl(join_url(issuer_url, "end-session")),
         acr_values_supported=["urn:mace:incommon:iap:bronze"],
-        prompt_values_supported=["login", "consent", "create", "select_account"],
+        prompt_values_supported=prompt_values_supported,
     )
 
 
@@ -111,3 +114,12 @@ def build_protected_resource_metadata_well_known_path(resource_server_url: str |
     parsed = urlparse(str(resource_server_url))
     resource_path = parsed.path if parsed.path != "/" else ""
     return f"{_ROOT_RESOURCE_METADATA_PATH}{resource_path}"
+
+
+def _build_supported_scopes(settings: OAuthServer) -> list[str]:
+    supported_scopes = [settings.default_scope, "openid", "profile", "email", "offline_access"]
+    deduped_scopes: list[str] = []
+    for scope in supported_scopes:
+        if scope not in deduped_scopes:
+            deduped_scopes.append(scope)
+    return deduped_scopes
