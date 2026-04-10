@@ -38,7 +38,6 @@ from belgie_oauth_server.metadata import (
 )
 from belgie_oauth_server.models import (
     InvalidRedirectUriError,
-    InvalidScopeError,
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthErrorResponse,
@@ -797,12 +796,17 @@ async def _parse_authorize_params(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
 
     scope_raw = _get_str(data, "scope")
-    try:
-        scopes = oauth_client.validate_scope(scope_raw)
-    except InvalidScopeError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
-    if scopes is None:
-        scopes = [settings.default_scope]
+    requested_scopes = _parse_scope_param(scope_raw)
+    if requested_scopes is not None and not requested_scopes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing scope")
+    if requested_scopes is None:
+        scopes = provider.default_scopes_for_client(oauth_client)
+    else:
+        try:
+            provider.validate_scopes_for_client(oauth_client, requested_scopes)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        scopes = requested_scopes
 
     code_challenge = _get_str(data, "code_challenge")
     if not code_challenge:
