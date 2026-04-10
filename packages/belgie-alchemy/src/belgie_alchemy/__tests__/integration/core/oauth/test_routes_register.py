@@ -72,11 +72,14 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()
     assert payload["client_id"]
     assert payload["client_secret"]
+    assert "scope" not in payload
     assert payload["client_id"] in plugin._provider.clients
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
 
 
 @pytest.mark.asyncio
@@ -101,9 +104,12 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()
-    assert payload["client_secret"] is None
+    assert "client_secret" not in payload
+    assert "scope" not in payload
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
 
 
 @pytest.mark.asyncio
@@ -127,10 +133,11 @@ async def test_register_enabled_unauthenticated_allows_omitted_auth_method(
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()
     assert payload["client_secret"] is not None
     assert payload["token_endpoint_auth_method"] == "client_secret_post"  # noqa: S105
+    assert "scope" not in payload
 
 
 @pytest.mark.asyncio
@@ -157,10 +164,11 @@ async def test_register_enabled_unauthenticated_allows_explicit_confidential_cli
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()
     assert payload["client_secret"] is not None
     assert payload["token_endpoint_auth_method"] == auth_method
+    assert "scope" not in payload
 
 
 @pytest.mark.asyncio
@@ -247,7 +255,7 @@ async def test_register_allows_post_logout_redirect_uris(
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()
     assert payload["post_logout_redirect_uris"] == ["http://testserver/logout-complete"]
     assert payload["client_id"] in plugin._provider.clients
@@ -280,9 +288,38 @@ async def test_register_ignores_enable_end_session_in_metadata(
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()
-    assert payload["enable_end_session"] is None
+    assert "enable_end_session" not in payload
     assert payload["client_id"] in plugin._provider.clients
     registered_client = plugin._provider.clients[payload["client_id"]]
     assert registered_client.enable_end_session is None
+
+
+@pytest.mark.asyncio
+async def test_register_returns_explicit_scope_when_requested(
+    belgie_instance,
+    oauth_settings: OAuthServer,
+) -> None:
+    settings_payload = oauth_settings.model_dump(mode="python")
+    settings_payload["allow_dynamic_client_registration"] = True
+    settings_payload["allow_unauthenticated_client_registration"] = True
+    settings = OAuthServer(**settings_payload)
+    belgie_instance.add_plugin(settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/auth/oauth/register",
+            json={
+                "redirect_uris": ["http://testserver/callback"],
+                "token_endpoint_auth_method": "none",
+                "scope": "user",
+            },
+        )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["scope"] == "user"
+    assert "client_secret" not in payload
