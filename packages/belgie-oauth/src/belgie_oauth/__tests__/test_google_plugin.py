@@ -61,7 +61,7 @@ def test_signin_url_persists_relative_return_to() -> None:
     response = TestClient(app).get("/login?return_to=%2Fafter", follow_redirects=False)
 
     assert response.status_code == 200
-    assert response.json()["url"].startswith("https://oauth_accounts.google.com/o/oauth2/v2/auth")
+    assert response.json()["url"].startswith("https://accounts.google.com/o/oauth2/v2/auth")
 
     adapter.create_oauth_state.assert_awaited_once_with(
         client_dependency.db,
