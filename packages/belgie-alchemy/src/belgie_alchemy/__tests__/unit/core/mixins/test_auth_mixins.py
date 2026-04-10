@@ -16,7 +16,7 @@ from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Mapped, configure_mappers, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, MappedAsDataclass, configure_mappers, mapped_column, relationship
 
 from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
 from belgie_alchemy.__tests__.fixtures.organization.models import (
@@ -156,7 +156,7 @@ def test_organization_mixin_defaults() -> None:
 
 
 def test_sso_domain_mixin_defaults() -> None:
-    class SSOBase(DataclassBase):
+    class SSOBase(MappedAsDataclass, DeclarativeBase):
         __abstract__ = True
         metadata = MetaData(naming_convention=NAMING_CONVENTION)
         type_annotation_map = TYPE_ANNOTATION_MAP
@@ -167,30 +167,31 @@ def test_sso_domain_mixin_defaults() -> None:
     class SSODomain(SSOBase, PrimaryKeyMixin, TimestampMixin, SSODomainMixin):
         pass
 
-    configure_mappers()
+    try:
+        domain_column = SSODomain.__table__.c.domain
+        assert domain_column.unique
+        assert domain_column.index
 
-    domain_column = SSODomain.__table__.c.domain
-    assert domain_column.unique
-    assert domain_column.index
+        domain_unique_constraints = [
+            constraint
+            for constraint in SSODomain.__table__.constraints
+            if isinstance(constraint, UniqueConstraint) and tuple(constraint.columns) == (domain_column,)
+        ]
+        assert domain_unique_constraints == []
 
-    domain_unique_constraints = [
-        constraint
-        for constraint in SSODomain.__table__.constraints
-        if isinstance(constraint, UniqueConstraint) and tuple(constraint.columns) == (domain_column,)
-    ]
-    assert domain_unique_constraints == []
+        domain_index = next(index for index in SSODomain.__table__.indexes if index.name == "ix_sso_domain_domain")
+        assert isinstance(domain_index, Index)
+        assert tuple(domain_index.columns) == (domain_column,)
+        assert domain_index.unique
 
-    domain_index = next(index for index in SSODomain.__table__.indexes if index.name == "ix_sso_domain_domain")
-    assert isinstance(domain_index, Index)
-    assert tuple(domain_index.columns) == (domain_column,)
-    assert domain_index.unique
-
-    provider_index = next(
-        index for index in SSODomain.__table__.indexes if index.name == "ix_sso_domain_sso_provider_id"
-    )
-    assert isinstance(provider_index, Index)
-    assert tuple(provider_index.columns) == (SSODomain.__table__.c.sso_provider_id,)
-    assert not provider_index.unique
+        provider_index = next(
+            index for index in SSODomain.__table__.indexes if index.name == "ix_sso_domain_sso_provider_id"
+        )
+        assert isinstance(provider_index, Index)
+        assert tuple(provider_index.columns) == (SSODomain.__table__.c.sso_provider_id,)
+        assert not provider_index.unique
+    finally:
+        SSOBase.registry.dispose()
 
 
 def test_citext_variants_on_case_insensitive_fields() -> None:
