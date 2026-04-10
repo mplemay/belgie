@@ -512,6 +512,29 @@ async def test_consent_storage_supports_subset_checks() -> None:
     assert await provider.has_consent("test-client", "user-123", ["user", "email"]) is False
 
 
+@pytest.mark.asyncio
+async def test_scope_less_dynamic_clients_fall_back_to_default_scope() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    client = await provider.register_client(
+        OAuthClientMetadata(
+            redirect_uris=["http://example.com/callback"],
+            token_endpoint_auth_method="none",
+        ),
+    )
+
+    assert client.scope is None
+    assert provider.default_scopes_for_client(client) == ["user"]
+    provider.validate_scopes_for_client(client, ["user"])
+
+    with pytest.raises(ValueError, match="Client was not registered with scope admin"):
+        provider.validate_scopes_for_client(client, ["admin"])
+
+
 def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
     settings = OAuthServer(
         redirect_uris=["http://example.com/callback"],

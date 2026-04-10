@@ -38,7 +38,6 @@ from belgie_oauth_server.metadata import (
 )
 from belgie_oauth_server.models import (
     InvalidRedirectUriError,
-    InvalidScopeError,
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthErrorResponse,
@@ -1066,7 +1065,7 @@ def _build_issuer_url(belgie: Belgie, settings: OAuthServer) -> str:
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
 
 
-async def _parse_authorize_request(  # noqa: C901, PLR0911
+async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
     data: dict[str, str],
     provider: SimpleOAuthProvider,
     settings: OAuthServer,
@@ -1117,18 +1116,29 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911
         )
 
     scope_raw = _get_str(resolved_data, "scope")
-    try:
-        scopes = oauth_client.validate_scope(scope_raw)
-    except InvalidScopeError as exc:
+    requested_scopes = _parse_scope_param(scope_raw)
+    if requested_scopes is not None and not requested_scopes:
         return _authorize_error(
             "invalid_scope",
-            exc.message,
+            "missing scope",
             redirect_uri=redirect_uri_string,
             state=_get_str(resolved_data, "state"),
             issuer_url=issuer_url,
         )
-    if scopes is None:
-        scopes = [settings.default_scope]
+    if requested_scopes is None:
+        scopes = provider.default_scopes_for_client(oauth_client)
+    else:
+        try:
+            provider.validate_scopes_for_client(oauth_client, requested_scopes)
+        except ValueError as exc:
+            return _authorize_error(
+                "invalid_scope",
+                str(exc),
+                redirect_uri=redirect_uri_string,
+                state=_get_str(resolved_data, "state"),
+                issuer_url=issuer_url,
+            )
+        scopes = requested_scopes
 
     code_challenge = _get_str(resolved_data, "code_challenge")
     code_challenge_method = _get_str(resolved_data, "code_challenge_method")
