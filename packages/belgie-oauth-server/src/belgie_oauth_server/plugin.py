@@ -412,9 +412,22 @@ class OAuthServerPlugin(PluginClient):
             except ValueError as exc:
                 description = str(exc) or "invalid client metadata"
                 return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
-            return client_info
+            return JSONResponse(
+                client_info.model_dump(mode="json", exclude_none=True),
+                status_code=status.HTTP_201_CREATED,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Pragma": "no-cache",
+                },
+            )
 
-        router.add_api_route("/register", register_handler, methods=["POST"], response_model=OAuthClientInformationFull)
+        router.add_api_route(
+            "/register",
+            register_handler,
+            methods=["POST"],
+            response_model=OAuthClientInformationFull,
+            status_code=status.HTTP_201_CREATED,
+        )
         return router
 
     @staticmethod
