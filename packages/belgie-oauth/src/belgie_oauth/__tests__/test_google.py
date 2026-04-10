@@ -178,7 +178,7 @@ def test_generate_authorization_url_format(google_provider: GoogleOAuthPlugin) -
     query_params = parse_qs(parsed.query)
 
     assert parsed.scheme == "https"
-    assert parsed.netloc == "oauth_accounts.google.com"
+    assert parsed.netloc == "accounts.google.com"
     assert parsed.path == "/o/oauth2/v2/auth"
     assert query_params["client_id"][0] == google_provider.settings.client_id
     assert query_params["redirect_uri"][0] == google_provider.redirect_uri

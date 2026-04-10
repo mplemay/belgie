@@ -98,7 +98,7 @@ def test_signin_google_endpoint_redirects(client: TestClient) -> None:
 
     assert response.status_code == 302
     assert "location" in response.headers
-    assert response.headers["location"].startswith("https://oauth_accounts.google.com/o/oauth2/v2/auth")
+    assert response.headers["location"].startswith("https://accounts.google.com/o/oauth2/v2/auth")
     assert "client_id=test-client-id" in response.headers["location"]
     assert "state=" in response.headers["location"]
 
