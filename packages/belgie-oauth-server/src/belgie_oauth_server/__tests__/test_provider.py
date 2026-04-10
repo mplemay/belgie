@@ -4,7 +4,7 @@ import pytest
 from belgie_oauth_server import provider as provider_module
 from belgie_oauth_server.models import OAuthClientMetadata
 from belgie_oauth_server.provider import AccessToken, AuthorizationParams, RefreshToken, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthServer
+from belgie_oauth_server.settings import OAuthResource, OAuthServer
 from belgie_oauth_server.utils import create_code_challenge
 
 
@@ -502,6 +502,7 @@ async def test_consent_storage_supports_subset_checks() -> None:
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     await provider.save_consent("test-client", "user-123", ["user", "openid"])
+    await provider.save_consent("test-client", "user-123", ["user"])
 
     consent = await provider.load_consent("test-client", "user-123")
 
@@ -548,6 +549,43 @@ def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
             OAuthClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 grant_types=["implicit"],
+            ),
+        )
+
+
+def test_validate_client_metadata_allows_configured_resource_scopes() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    provider.validate_client_metadata(
+        OAuthClientMetadata(
+            redirect_uris=["http://example.com/callback"],
+            token_endpoint_auth_method="none",
+            scope="user files:read",
+        ),
+    )
+
+
+def test_validate_client_metadata_rejects_unknown_configured_resource_scope() -> None:
+    settings = OAuthServer(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
+    )
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    with pytest.raises(ValueError, match="cannot request scope admin"):
+        provider.validate_client_metadata(
+            OAuthClientMetadata(
+                redirect_uris=["http://example.com/callback"],
+                token_endpoint_auth_method="none",
+                scope="user admin",
             ),
         )
 

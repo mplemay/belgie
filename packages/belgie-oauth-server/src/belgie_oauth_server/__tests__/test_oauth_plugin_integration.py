@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import jwt
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth_server.plugin import OAuthServerPlugin, _id_token_signing_key
-from belgie_oauth_server.settings import OAuthServer
+from belgie_oauth_server.settings import OAuthResource, OAuthServer
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
@@ -468,6 +468,34 @@ def test_register_rejects_unauthenticated_confidential_clients_and_allows_public
     assert payload["require_pkce"] is True
 
 
+def test_register_allows_public_clients_with_configured_resource_scopes() -> None:
+    settings = OAuthServer(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+        allow_unauthenticated_client_registration=True,
+        resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["http://client.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "user files:read",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["scope"] == "user files:read"
+    assert payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert "client_secret" not in payload
+
+
 def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
     require_pkce_settings = OAuthServer(
         base_url="http://testserver",
@@ -595,6 +623,118 @@ def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
         "error": "invalid_grant",
         "error_description": "invalid code_verifier",
     }
+
+
+def test_consent_flow_preserves_broader_persisted_scopes_after_narrower_reconsent() -> None:
+    settings = OAuthServer(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        consent_url="/consent-screen",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="user openid")
+
+    initial_authorize = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-consent-wide", scope="user openid"),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert initial_authorize.status_code == 302
+    initial_state = _query(initial_authorize.headers["location"])["state"][0]
+    initial_consent_redirect = client.get(initial_authorize.headers["location"], follow_redirects=False)
+    assert initial_consent_redirect.status_code == 302
+    assert initial_consent_redirect.headers["location"].startswith("http://testserver/consent-screen?")
+
+    initial_approved = client.post(
+        "/auth/oauth/consent",
+        data={"state": initial_state, "accept": "true", "scope": "user openid"},
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert initial_approved.status_code == 302
+    initial_query = _query(initial_approved.headers["location"])
+    initial_token = client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": settings.client_id,
+            "code": initial_query["code"][0],
+            "redirect_uri": str(settings.redirect_uris[0]),
+            "code_verifier": "verifier",
+        },
+    )
+
+    assert initial_token.status_code == 200
+    assert initial_token.json()["scope"] == "user openid"
+
+    narrowed_authorize = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(
+            settings,
+            state="state-consent-narrow",
+            scope="user",
+            prompt="consent",
+        ),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert narrowed_authorize.status_code == 302
+    narrowed_state = _query(narrowed_authorize.headers["location"])["state"][0]
+    narrowed_consent_redirect = client.get(narrowed_authorize.headers["location"], follow_redirects=False)
+    assert narrowed_consent_redirect.status_code == 302
+    assert narrowed_consent_redirect.headers["location"].startswith("http://testserver/consent-screen?")
+
+    narrowed_approved = client.post(
+        "/auth/oauth/consent",
+        data={"state": narrowed_state, "accept": "true", "scope": "user"},
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert narrowed_approved.status_code == 302
+    narrowed_query = _query(narrowed_approved.headers["location"])
+    narrowed_token = client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": settings.client_id,
+            "code": narrowed_query["code"][0],
+            "redirect_uri": str(settings.redirect_uris[0]),
+            "code_verifier": "verifier",
+        },
+    )
+
+    assert narrowed_token.status_code == 200
+    assert narrowed_token.json()["scope"] == "user"
+
+    repeated_authorize = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-consent-repeat", scope="user openid"),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert repeated_authorize.status_code == 302
+    assert repeated_authorize.headers["location"].startswith("http://client.local/callback?")
+    repeated_query = _query(repeated_authorize.headers["location"])
+    repeated_token = client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": settings.client_id,
+            "code": repeated_query["code"][0],
+            "redirect_uri": str(settings.redirect_uris[0]),
+            "code_verifier": "verifier",
+        },
+    )
+
+    assert repeated_token.status_code == 200
+    assert repeated_token.json()["scope"] == "user openid"
 
 
 def test_pairwise_subject_is_stable_across_id_token_userinfo_introspection_and_refresh() -> None:

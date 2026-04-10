@@ -440,10 +440,16 @@ class SimpleOAuthProvider:
             raise ValueError(msg)
 
     async def save_consent(self, client_id: str, individual_id: str, scopes: list[str]) -> None:
+        merged_scopes = (
+            list(existing.scopes) if (existing := await self.load_consent(client_id, individual_id)) is not None else []
+        )
+        for scope in scopes:
+            if scope not in merged_scopes:
+                merged_scopes.append(scope)
         self.consent_mapping[(client_id, individual_id)] = ConsentEntry(
             client_id=client_id,
             individual_id=individual_id,
-            scopes=scopes,
+            scopes=merged_scopes,
             created_at=int(time.time()),
         )
 
@@ -454,6 +460,17 @@ class SimpleOAuthProvider:
         if (consent := await self.load_consent(client_id, individual_id)) is None:
             return False
         return all(scope in consent.scopes for scope in scopes)
+
+    def _allowed_dynamic_client_registration_scopes(self) -> list[str]:
+        allowed_scopes = [self.settings.default_scope, "openid", "profile", "email", "offline_access"]
+        if self.settings.resources is not None:
+            allowed_scopes.extend(self.settings.resources[0].scopes or [])
+
+        deduped_scopes: list[str] = []
+        for scope in allowed_scopes:
+            if scope not in deduped_scopes:
+                deduped_scopes.append(scope)
+        return deduped_scopes
 
     def resolve_subject_identifier(self, client: OAuthClientInformationFull, individual_id: str) -> str:
         if client.subject_type != "pairwise":
@@ -476,7 +493,7 @@ class SimpleOAuthProvider:
         grant_types = metadata.grant_types or ["authorization_code", "refresh_token"]
         response_types = metadata.response_types or ["code"]
         allowed_grant_types = {"authorization_code", "refresh_token", "client_credentials"}
-        allowed_scopes = {self.settings.default_scope, "openid", "profile", "email", "offline_access"}
+        allowed_scopes = set(self._allowed_dynamic_client_registration_scopes())
 
         invalid_grant_types = [grant_type for grant_type in grant_types if grant_type not in allowed_grant_types]
         if invalid_grant_types:
