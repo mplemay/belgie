@@ -22,6 +22,8 @@ class OAuthToken(BaseModel):
 
 
 type OAuthAudience = str | list[str]
+type OAuthClientType = Literal["web", "native", "user-agent-based"]
+type OAuthSubjectType = Literal["public", "pairwise"]
 
 
 class OAuthErrorResponse(BaseModel):
@@ -37,6 +39,9 @@ class OAuthIntrospectionResponse(BaseModel):
     iat: int | None = None
     token_type: str | None = None
     aud: OAuthAudience | None = None
+    sub: str | None = None
+    iss: str | None = None
+    sid: str | None = None
 
 
 class UserInfoResponse(BaseModel):
@@ -84,7 +89,11 @@ class OAuthClientMetadata(BaseModel):
     jwks: Any | None = None
     software_id: str | None = None
     software_version: str | None = None
+    software_statement: str | None = None
     post_logout_redirect_uris: list[AnyUrl] | None = None
+    type: OAuthClientType | None = None
+    subject_type: OAuthSubjectType | None = None
+    require_pkce: bool | None = None
 
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:
@@ -139,6 +148,7 @@ class OAuthMetadata(BaseModel):
     introspection_endpoint_auth_methods_supported: list[str] | None = None
     introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
+    authorization_response_iss_parameter_supported: bool | None = None
     client_id_metadata_document_supported: bool | None = None
 
 

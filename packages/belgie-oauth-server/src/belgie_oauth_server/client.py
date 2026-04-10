@@ -11,7 +11,7 @@ from belgie_oauth_server.utils import construct_redirect_uri, join_url
 if TYPE_CHECKING:
     from belgie_oauth_server.provider import SimpleOAuthProvider
 
-type OAuthLoginIntent = Literal["login", "create"]
+type OAuthLoginIntent = Literal["login", "create", "consent", "select_account"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -44,8 +44,7 @@ class OAuthServerClient:
         if state_data is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid state parameter")
 
-        return_to_base = join_url(self.issuer_url, "login/callback")
-        return_to_url = construct_redirect_uri(return_to_base, state=state)
+        return_to_url = _build_return_to_url(self.issuer_url, state, state_data.intent)
 
         return OAuthLoginContext(
             state=state,
@@ -59,3 +58,13 @@ class OAuthServerClient:
         if context is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing state")
         return context
+
+
+def _build_return_to_url(issuer_url: str, state: str, intent: OAuthLoginIntent) -> str:
+    if intent == "create":
+        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, created="true")
+    if intent == "select_account":
+        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, selected="true")
+    if intent == "consent":
+        return construct_redirect_uri(join_url(issuer_url, "consent"), state=state)
+    return construct_redirect_uri(join_url(issuer_url, "login/callback"), state=state)

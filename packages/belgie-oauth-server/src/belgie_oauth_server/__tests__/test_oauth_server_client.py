@@ -10,7 +10,7 @@ from belgie_oauth_server.settings import OAuthServer
 from fastapi import HTTPException
 from starlette.requests import Request
 
-type OAuthIntent = Literal["login", "create"]
+type OAuthIntent = Literal["login", "create", "consent", "select_account"]
 
 
 def _build_request(query: dict[str, str]) -> Request:
@@ -74,7 +74,39 @@ async def test_try_resolve_login_context_returns_state_intent_prompt_and_return_
     assert context.state == "state-123"
     assert context.intent == "create"
     assert context.prompt == "create"
-    assert context.return_to == "http://example.com/auth/oauth/login/callback?state=state-123"
+    assert context.return_to == "http://example.com/auth/oauth/continue?state=state-123&created=true"
+
+
+@pytest.mark.asyncio
+async def test_try_resolve_login_context_returns_consent_return_to() -> None:
+    client, provider, settings = await _build_client()
+    await _store_state(provider, settings, state="state-123", prompt="consent", intent="consent")
+
+    context = await client.try_resolve_login_context(_build_request({"state": "state-123"}))
+
+    assert context is not None
+    assert context.intent == "consent"
+    assert context.prompt == "consent"
+    assert context.return_to == "http://example.com/auth/oauth/consent?state=state-123"
+
+
+@pytest.mark.asyncio
+async def test_try_resolve_login_context_returns_select_account_return_to() -> None:
+    client, provider, settings = await _build_client()
+    await _store_state(
+        provider,
+        settings,
+        state="state-123",
+        prompt="select_account",
+        intent="select_account",
+    )
+
+    context = await client.try_resolve_login_context(_build_request({"state": "state-123"}))
+
+    assert context is not None
+    assert context.intent == "select_account"
+    assert context.prompt == "select_account"
+    assert context.return_to == "http://example.com/auth/oauth/continue?state=state-123&selected=true"
 
 
 @pytest.mark.asyncio
