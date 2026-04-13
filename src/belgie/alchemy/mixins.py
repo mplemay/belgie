@@ -10,6 +10,14 @@ try:
         OAuthStateMixin,
         SessionMixin,
     )
+    from belgie_alchemy.oauth_server import (
+        OAuthAccessTokenMixin,
+        OAuthAuthorizationCodeMixin,
+        OAuthAuthorizationStateMixin,
+        OAuthClientMixin,
+        OAuthConsentMixin,
+        OAuthRefreshTokenMixin,
+    )
     from belgie_alchemy.organization.mixins import (
         OrganizationInvitationMixin,
         OrganizationMemberMixin,
@@ -23,7 +31,13 @@ except ModuleNotFoundError as exc:
 __all__ = [
     "AccountMixin",
     "IndividualMixin",
+    "OAuthAccessTokenMixin",
     "OAuthAccountMixin",
+    "OAuthAuthorizationCodeMixin",
+    "OAuthAuthorizationStateMixin",
+    "OAuthClientMixin",
+    "OAuthConsentMixin",
+    "OAuthRefreshTokenMixin",
     "OAuthStateMixin",
     "OrganizationInvitationMixin",
     "OrganizationMemberMixin",

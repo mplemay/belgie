@@ -10,10 +10,11 @@ pytest.importorskip("mcp")
 from belgie_core.core.settings import BelgieSettings
 from belgie_mcp.plugin import Mcp, McpPlugin
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier
+from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.models import OAuthClientMetadata
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.provider import AccessToken as OAuthAccessToken, AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthServer
+from belgie_oauth_server.testing import InMemoryDBConnection
 from mcp.server.auth.provider import AccessToken
 
 
@@ -22,7 +23,7 @@ def _belgie_settings() -> BelgieSettings:
 
 
 def test_mcp_plugin_builds_auth_and_verifier() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -44,7 +45,7 @@ def test_mcp_plugin_builds_auth_and_verifier() -> None:
 
 
 def test_mcp_plugin_public_returns_none() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -64,7 +65,7 @@ def test_mcp_plugin_public_returns_none() -> None:
 
 
 def test_mcp_plugin_builds_server_url_from_base_url() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -85,7 +86,7 @@ def test_mcp_plugin_builds_server_url_from_base_url() -> None:
 
 
 def test_mcp_plugin_preserves_trailing_slash_in_server_path() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -107,7 +108,7 @@ def test_mcp_plugin_preserves_trailing_slash_in_server_path() -> None:
 
 
 def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -127,7 +128,7 @@ def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
 
 
 def test_mcp_plugin_preserves_trailing_slash_in_server_url() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
@@ -149,14 +150,15 @@ def test_mcp_plugin_preserves_trailing_slash_in_server_url() -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_plugin_verifier_uses_linked_oauth_plugin_provider() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://auth.local",
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
         default_scope="user",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    db = InMemoryDBConnection()
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url), database_factory=lambda: db)
     oauth_plugin = OAuthServerPlugin(_belgie_settings(), settings)
     oauth_plugin._provider = provider
     plugin = McpPlugin(

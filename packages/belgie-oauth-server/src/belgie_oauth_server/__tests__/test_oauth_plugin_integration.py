@@ -6,9 +6,12 @@ from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
 import jwt
+import pytest
 from belgie_core.core.settings import BelgieSettings
+from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import OAuthServerPlugin, _id_token_signing_key
 from belgie_oauth_server.settings import OAuthResource, OAuthServer
+from belgie_oauth_server.testing import InMemoryDBConnection
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
@@ -42,7 +45,7 @@ class FakeBelgieClient:
     def __init__(self, user: FakeUser | None = None, session: FakeSession | None = None) -> None:
         self.user = user or FakeUser()
         self.session = session or FakeSession()
-        self.db = object()
+        self.db = InMemoryDBConnection()
         self.adapter = FakeAdapter(self.user)
         self.signed_out_session_id: UUID | None = None
 
@@ -68,6 +71,9 @@ class DummyBelgie:
 
     async def __call__(self) -> FakeBelgieClient:
         return self._client
+
+    async def database(self):
+        yield self._client.db
 
 
 def _build_app(
@@ -127,11 +133,16 @@ def _query(location: str) -> dict[str, list[str]]:
 
 def _update_static_client(plugin: OAuthServerPlugin, client_id: str, **updates: object) -> None:
     assert plugin.provider is not None
-    plugin.provider.clients[client_id] = plugin.provider.clients[client_id].model_copy(update=updates)
+    assert plugin.provider.static_client.client_id == client_id
+    plugin.provider.static_client = plugin.provider.static_client.model_copy(update=updates)
+
+
+def _build_settings(**overrides: object) -> OAuthServer:
+    return build_oauth_settings(**overrides)
 
 
 def test_authorize_success_and_error_redirects_include_iss() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -167,7 +178,7 @@ def test_authorize_success_and_error_redirects_include_iss() -> None:
 
 
 def test_prompt_none_returns_login_required_without_redirecting_to_interaction() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -189,7 +200,7 @@ def test_prompt_none_returns_login_required_without_redirecting_to_interaction()
 
 
 def test_prompt_none_combination_returns_login_required() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -210,7 +221,7 @@ def test_prompt_none_combination_returns_login_required() -> None:
 
 
 def test_authorize_rejects_select_account_prompt_without_select_account_url() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -247,7 +258,7 @@ def test_authorize_uses_request_uri_resolver() -> None:
             "code_challenge_method": "S256",
         }
 
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -270,7 +281,7 @@ def test_authorize_uses_request_uri_resolver() -> None:
 
 
 def test_authorize_consent_flow_persists_and_requires_reconsent_for_expanded_scopes() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -333,7 +344,7 @@ def test_authorize_consent_flow_persists_and_requires_reconsent_for_expanded_sco
 
 
 def test_prompt_none_returns_consent_required_when_consent_is_missing() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -356,7 +367,7 @@ def test_prompt_none_returns_consent_required_when_consent_is_missing() -> None:
 
 
 def test_select_account_flow_resumes_and_prompt_none_returns_account_selection_required() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -411,7 +422,7 @@ def test_select_account_flow_resumes_and_prompt_none_returns_account_selection_r
 
 def test_openapi_generation_succeeds_with_continue_and_consent_routes() -> None:
     app, _plugin, _belgie_client = _build_app(
-        OAuthServer(
+        _build_settings(
             base_url="http://testserver",
             redirect_uris=["http://client.local/callback"],
             client_id="test-client",
@@ -428,7 +439,7 @@ def test_openapi_generation_succeeds_with_continue_and_consent_routes() -> None:
 
 
 def test_register_rejects_unauthenticated_confidential_clients_and_allows_public_clients() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -469,7 +480,7 @@ def test_register_rejects_unauthenticated_confidential_clients_and_allows_public
 
 
 def test_register_allows_public_clients_with_configured_resource_scopes() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -497,7 +508,7 @@ def test_register_allows_public_clients_with_configured_resource_scopes() -> Non
 
 
 def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
-    require_pkce_settings = OAuthServer(
+    require_pkce_settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -517,7 +528,7 @@ def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
         "pkce is required for this client",
     ]
 
-    opt_out_settings = OAuthServer(
+    opt_out_settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -625,8 +636,83 @@ def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
     }
 
 
+def test_dynamic_confidential_client_id_token_uses_client_secret() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        allow_dynamic_client_registration=True,
+    )
+    client, _plugin, belgie_client = _build_fixture(settings)
+
+    registration = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["http://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+            "scope": "openid user",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert registration.status_code == 201
+    registered_client = registration.json()
+    client_secret = registered_client["client_secret"]
+    verifier = "dynamic-client-verifier"
+    authorize = client.get(
+        "/auth/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registered_client["client_id"],
+            "redirect_uri": "http://client.local/callback",
+            "scope": "openid user",
+            "state": "dynamic-client-state",
+            "code_challenge": create_code_challenge(verifier),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    code = _query(authorize.headers["location"])["code"][0]
+    token_response = client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": registered_client["client_id"],
+            "client_secret": client_secret,
+            "code": code,
+            "redirect_uri": "http://client.local/callback",
+            "code_verifier": verifier,
+        },
+    )
+
+    assert token_response.status_code == 200
+    payload = token_response.json()
+    decoded = jwt.decode(
+        payload["id_token"],
+        _id_token_signing_key(client_secret),
+        algorithms=["HS256"],
+        audience=registered_client["client_id"],
+        issuer="http://testserver/auth/oauth",
+    )
+    assert decoded["sub"] == str(belgie_client.user.id)
+
+    with pytest.raises(jwt.InvalidSignatureError):
+        jwt.decode(
+            payload["id_token"],
+            _id_token_signing_key("test-secret"),
+            algorithms=["HS256"],
+            audience=registered_client["client_id"],
+            issuer="http://testserver/auth/oauth",
+        )
+
+
 def test_consent_flow_preserves_broader_persisted_scopes_after_narrower_reconsent() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",
@@ -738,7 +824,7 @@ def test_consent_flow_preserves_broader_persisted_scopes_after_narrower_reconsen
 
 
 def test_pairwise_subject_is_stable_across_id_token_userinfo_introspection_and_refresh() -> None:
-    settings = OAuthServer(
+    settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
         client_id="test-client",

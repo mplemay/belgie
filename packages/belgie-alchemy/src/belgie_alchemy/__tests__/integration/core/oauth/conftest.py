@@ -2,21 +2,37 @@ from __future__ import annotations
 
 import base64
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import httpx
 import pytest
 import pytest_asyncio
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
+from belgie_oauth_server.models import OAuthClientInformationFull, OAuthClientMetadata
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get_test_session_factory
-from belgie_alchemy.__tests__.fixtures.core.models import Account, Individual, OAuthAccount, OAuthState, Session
+from belgie_alchemy.__tests__.fixtures.core.models import (
+    Account,
+    Individual,
+    OAuthAccessToken,
+    OAuthAccount,
+    OAuthAuthorizationCode,
+    OAuthAuthorizationState,
+    OAuthClient,
+    OAuthConsent,
+    OAuthRefreshToken,
+    OAuthState,
+    Session,
+)
 from belgie_alchemy.core import BelgieAdapter
+from belgie_alchemy.oauth_server import OAuthServerAdapter
 
 PACKAGES_ROOT = Path(__file__).resolve().parents[7]
 OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth-server" / "src"
@@ -27,6 +43,8 @@ from belgie_oauth_server import OAuthResource, OAuthServer, OAuthServerPlugin  #
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+DEFAULT_TEST_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_post"  # noqa: S105
 
 
 @pytest_asyncio.fixture
@@ -105,7 +123,16 @@ def belgie_instance(
 
 @pytest.fixture
 def oauth_settings() -> OAuthServer:
+    oauth_adapter = OAuthServerAdapter(
+        oauth_client=OAuthClient,
+        oauth_authorization_state=OAuthAuthorizationState,
+        oauth_authorization_code=OAuthAuthorizationCode,
+        oauth_access_token=OAuthAccessToken,
+        oauth_refresh_token=OAuthRefreshToken,
+        oauth_consent=OAuthConsent,
+    )
     return OAuthServer(
+        adapter=oauth_adapter,
         base_url="http://testserver",
         prefix="/oauth",
         login_url="/login/google",
@@ -155,6 +182,166 @@ def basic_auth_header():
         return f"Basic {base64.b64encode(raw).decode('utf-8')}"
 
     return _build
+
+
+@pytest.fixture
+def update_static_client(oauth_plugin: OAuthServerPlugin):
+    def _update(**updates: object) -> OAuthClientInformationFull:
+        assert oauth_plugin._provider is not None
+        oauth_plugin._provider.static_client = oauth_plugin._provider.static_client.model_copy(update=updates)
+        return oauth_plugin._provider.static_client
+
+    return _update
+
+
+@pytest_asyncio.fixture
+async def register_dynamic_client(oauth_plugin: OAuthServerPlugin, db_session: AsyncSession):
+    async def _register(**metadata: object) -> OAuthClientInformationFull:
+        assert oauth_plugin._provider is not None
+        client_metadata = OAuthClientMetadata.model_validate(metadata)
+        return await oauth_plugin._provider.register_client(client_metadata, db=db_session)
+
+    return _register
+
+
+@pytest_asyncio.fixture
+async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
+    async def _seed(
+        *,
+        client_id: str,
+        client_secret: str | None = None,
+        client_secret_hash: str | None = None,
+        redirect_uris: list[str] | None = None,
+        post_logout_redirect_uris: list[str] | None = None,
+        token_endpoint_auth_method: str | None = None,
+        grant_types: list[str] | None = None,
+        response_types: list[str] | None = None,
+        scope: str | None = None,
+        client_type: str | None = None,
+        subject_type: str | None = "public",
+        require_pkce: bool | None = True,
+        enable_end_session: bool | None = None,
+        client_id_issued_at: int | None = None,
+        client_secret_expires_at: int | None = 0,
+        individual_id: str | None = None,
+    ):
+        client = await oauth_settings.adapter.create_client(
+            db_session,
+            client_id=client_id,
+            client_secret=client_secret,
+            client_secret_hash=client_secret_hash,
+            redirect_uris=[str(uri) for uri in (redirect_uris or ["http://testserver/callback"])],
+            post_logout_redirect_uris=(
+                None if post_logout_redirect_uris is None else [str(uri) for uri in post_logout_redirect_uris]
+            ),
+            token_endpoint_auth_method=(token_endpoint_auth_method or DEFAULT_TEST_TOKEN_ENDPOINT_AUTH_METHOD),  # type: ignore[arg-type]
+            grant_types=list(grant_types or ["authorization_code", "refresh_token"]),
+            response_types=list(response_types or ["code"]),
+            scope=scope,
+            client_name=None,
+            client_uri=None,
+            logo_uri=None,
+            contacts=None,
+            tos_uri=None,
+            policy_uri=None,
+            jwks_uri=None,
+            jwks=None,
+            software_id=None,
+            software_version=None,
+            software_statement=None,
+            type=client_type,  # type: ignore[arg-type]
+            subject_type=subject_type,  # type: ignore[arg-type]
+            require_pkce=require_pkce,
+            enable_end_session=enable_end_session,
+            client_id_issued_at=client_id_issued_at,
+            client_secret_expires_at=client_secret_expires_at,
+            individual_id=None if individual_id is None else UUID(individual_id),
+        )
+        await db_session.commit()
+        await db_session.refresh(client)
+        return client
+
+    return _seed
+
+
+@pytest_asyncio.fixture
+async def seed_access_token(oauth_plugin: OAuthServerPlugin, oauth_settings: OAuthServer, db_session: AsyncSession):
+    async def _seed(
+        *,
+        token: str,
+        client_id: str | None = None,
+        scopes: list[str] | None = None,
+        resource: str | list[str] | None = None,
+        refresh_token_id: UUID | None = None,
+        individual_id: str | None = None,
+        session_id: str | None = None,
+        created_at: int | None = None,
+        expires_at: int | None = None,
+    ):
+        assert oauth_plugin._provider is not None
+        record = await oauth_settings.adapter.create_access_token(
+            db_session,
+            token_hash=oauth_plugin._provider._hash_value(token),
+            client_id=client_id or oauth_settings.client_id,
+            scopes=list(scopes or [oauth_settings.default_scope]),
+            resource=resource,
+            refresh_token_id=refresh_token_id,
+            individual_id=None if individual_id is None else UUID(individual_id),
+            session_id=None if session_id is None else UUID(session_id),
+            expires_at=datetime.fromtimestamp(expires_at, UTC)
+            if expires_at is not None
+            else datetime.now(UTC) + timedelta(hours=1),
+        )
+        await db_session.commit()
+        await db_session.refresh(record)
+        if created_at is not None:
+            record.created_at = datetime.fromtimestamp(created_at, UTC)
+            await db_session.commit()
+            await db_session.refresh(record)
+        return record
+
+    return _seed
+
+
+@pytest_asyncio.fixture
+async def seed_refresh_token(oauth_plugin: OAuthServerPlugin, oauth_settings: OAuthServer, db_session: AsyncSession):
+    async def _seed(
+        *,
+        token: str,
+        client_id: str | None = None,
+        scopes: list[str] | None = None,
+        resource: str | None = None,
+        individual_id: str | None = None,
+        session_id: str | None = None,
+        created_at: int | None = None,
+        expires_at: int | None = None,
+        revoked_at: int | None = None,
+    ):
+        assert oauth_plugin._provider is not None
+        record = await oauth_settings.adapter.create_refresh_token(
+            db_session,
+            token_hash=oauth_plugin._provider._hash_value(token),
+            client_id=client_id or oauth_settings.client_id,
+            scopes=list(scopes or [oauth_settings.default_scope]),
+            resource=resource,
+            individual_id=None if individual_id is None else UUID(individual_id),
+            session_id=None if session_id is None else UUID(session_id),
+            expires_at=datetime.fromtimestamp(expires_at, UTC)
+            if expires_at is not None
+            else datetime.now(UTC) + timedelta(hours=1),
+        )
+        await db_session.commit()
+        await db_session.refresh(record)
+        if created_at is not None:
+            record.created_at = datetime.fromtimestamp(created_at, UTC)
+        if revoked_at is not None:
+            record.revoked_at = datetime.fromtimestamp(revoked_at, UTC)
+        if created_at is not None or revoked_at is not None:
+            await db_session.commit()
+            await db_session.refresh(record)
+        return record
+
+    return _seed
 
 
 @pytest.fixture

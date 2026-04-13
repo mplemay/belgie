@@ -187,15 +187,12 @@ async def test_login_prompt_create_falls_back_to_login_url_when_signup_url_missi
     belgie_instance: Belgie,
     oauth_settings: OAuthServer,
 ) -> None:
-    settings = OAuthServer(
-        base_url=oauth_settings.base_url,
-        prefix=oauth_settings.prefix,
-        login_url="/login/google",
-        signup_url=None,
-        client_id=oauth_settings.client_id,
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=oauth_settings.redirect_uris,
-        default_scope=oauth_settings.default_scope,
+    settings = oauth_settings.model_copy(
+        update={
+            "login_url": "/login/google",
+            "signup_url": None,
+            "client_secret": SecretStr("test-secret"),
+        },
     )
     belgie_instance.add_plugin(settings)
     app = FastAPI()

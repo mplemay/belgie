@@ -1,3 +1,4 @@
+from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.metadata import (
     _ROOT_OAUTH_METADATA_PATH,
     _ROOT_OPENID_METADATA_PATH,
@@ -9,13 +10,12 @@ from belgie_oauth_server.metadata import (
     build_protected_resource_metadata,
     build_protected_resource_metadata_well_known_path,
 )
-from belgie_oauth_server.settings import OAuthServer
 
 
 def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
     metadata = build_oauth_metadata(
         "https://auth.local/auth/oauth",
-        OAuthServer(redirect_uris=["https://client.local/callback"]),
+        build_oauth_settings(redirect_uris=["https://client.local/callback"]),
     )
 
     assert metadata.grant_types_supported == ["authorization_code", "refresh_token", "client_credentials"]
@@ -66,7 +66,7 @@ def test_build_oauth_metadata_well_known_path_root() -> None:
 def test_build_openid_metadata_contains_oidc_endpoints() -> None:
     metadata = build_openid_metadata(
         "https://auth.local/auth/oauth",
-        OAuthServer(redirect_uris=["https://client.local/callback"]),
+        build_oauth_settings(redirect_uris=["https://client.local/callback"]),
     )
 
     assert str(metadata.userinfo_endpoint) == "https://auth.local/auth/oauth/userinfo"
@@ -81,7 +81,7 @@ def test_build_openid_metadata_contains_oidc_endpoints() -> None:
 def test_build_openid_metadata_advertises_optional_prompt_values_and_pairwise_subjects() -> None:
     metadata = build_openid_metadata(
         "https://auth.local/auth/oauth",
-        OAuthServer(
+        build_oauth_settings(
             redirect_uris=["https://client.local/callback"],
             login_url="/login",
             consent_url="/consent",

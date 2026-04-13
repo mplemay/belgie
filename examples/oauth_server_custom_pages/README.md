@@ -4,7 +4,8 @@ This example shows how to use custom app-owned login and signup pages with the O
 
 ## What it demonstrates
 
-- `OAuthServer(login_url=..., signup_url=...)` for prompt-aware auth entry points
+- `OAuthServer(adapter=..., login_url=..., signup_url=...)` for prompt-aware auth entry points with persistent OAuth
+  storage
 - `Depends(oauth_plugin)` to inject `OAuthServerClient` on custom pages
 - `OAuthServerClient.resolve_login_context(request)` to recover OAuth login state and callback URL
 - `/login` routing by intent:

@@ -43,6 +43,5 @@ The app runs at `http://localhost:8000`.
   `/.well-known/oauth-protected-resource*`) is owned by `OAuthServerPlugin`.
 - Configure `OAuthServer.resources=[OAuthResource(prefix="/mcp", ...)]` so protected
   resource metadata is published at the RFC9728 well-known endpoint.
-- `SimpleOAuthProvider` keeps clients and tokens in memory, so deploys and restarts invalidate previously issued
-  tokens.
+- The example uses `OAuthServerAdapter`, so registered clients, issued tokens, and consent survive process restarts.
 - The example uses SQLite and will create `./belgie_mcp_example.db` in the working directory.

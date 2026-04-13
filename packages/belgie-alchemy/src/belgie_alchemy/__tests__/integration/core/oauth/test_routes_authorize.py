@@ -54,15 +54,7 @@ async def test_authorize_returns_401_without_login_url(
     belgie_instance: Belgie,
     oauth_settings: OAuthServer,
 ) -> None:
-    settings = OAuthServer(
-        base_url=oauth_settings.base_url,
-        prefix=oauth_settings.prefix,
-        client_id=oauth_settings.client_id,
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=oauth_settings.redirect_uris,
-        default_scope=oauth_settings.default_scope,
-        login_url=None,
-    )
+    settings = oauth_settings.model_copy(update={"client_secret": SecretStr("test-secret"), "login_url": None})
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -84,15 +76,12 @@ async def test_authorize_redirects_when_prompt_create_and_signup_url_is_configur
     belgie_instance: Belgie,
     oauth_settings: OAuthServer,
 ) -> None:
-    settings = OAuthServer(
-        base_url=oauth_settings.base_url,
-        prefix=oauth_settings.prefix,
-        client_id=oauth_settings.client_id,
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=oauth_settings.redirect_uris,
-        default_scope=oauth_settings.default_scope,
-        login_url=None,
-        signup_url="/signup",
+    settings = oauth_settings.model_copy(
+        update={
+            "client_secret": SecretStr("test-secret"),
+            "login_url": None,
+            "signup_url": "/signup",
+        },
     )
     belgie_instance.add_plugin(settings)
     app = FastAPI()
@@ -121,15 +110,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     oauth_settings: OAuthServer,
     create_individual_session,
 ) -> None:
-    settings = OAuthServer(
-        base_url=oauth_settings.base_url,
-        prefix=oauth_settings.prefix,
-        client_id=oauth_settings.client_id,
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=oauth_settings.redirect_uris,
-        default_scope=oauth_settings.default_scope,
-        login_url=None,
-    )
+    settings = oauth_settings.model_copy(update={"client_secret": SecretStr("test-secret"), "login_url": None})
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -316,16 +297,11 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
     oauth_settings: OAuthServer,
     create_individual_session,
 ) -> None:
-    settings = OAuthServer(
-        base_url=oauth_settings.base_url,
-        prefix=oauth_settings.prefix,
-        login_url=oauth_settings.login_url,
-        signup_url=oauth_settings.signup_url,
-        client_id=oauth_settings.client_id,
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=oauth_settings.redirect_uris,
-        default_scope=oauth_settings.default_scope,
-        resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],
+    settings = oauth_settings.model_copy(
+        update={
+            "client_secret": SecretStr("test-secret"),
+            "resources": [OAuthResource(prefix="/mcp/", scopes=["user"])],
+        },
     )
     belgie_instance.add_plugin(settings)
     app = FastAPI()

@@ -1,7 +1,6 @@
 import base64
 import binascii
 import hashlib
-import hmac
 import inspect
 import secrets
 import time
@@ -132,7 +131,11 @@ class OAuthServerPlugin(PluginClient):
             str(self._settings.issuer_url) if self._settings.issuer_url else _build_issuer_url(belgie, self._settings)
         )
         if self._provider is None:
-            self._provider = SimpleOAuthProvider(self._settings, issuer_url=issuer_url)
+            self._provider = SimpleOAuthProvider(
+                self._settings,
+                issuer_url=issuer_url,
+                database_factory=belgie.database,
+            )
         provider = self._provider
         self._ensure_dependency_resolver(belgie, provider, issuer_url)
 
@@ -480,9 +483,11 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
 
             authenticated = False
+            authenticated_individual_id: str | None = None
             try:
-                await client.get_individual(SecurityScopes(), request)
+                user = await client.get_individual(SecurityScopes(), request)
                 authenticated = True
+                authenticated_individual_id = str(user.id)
             except HTTPException as exc:
                 if exc.status_code != status.HTTP_401_UNAUTHORIZED:
                     raise
@@ -504,7 +509,11 @@ class OAuthServerPlugin(PluginClient):
 
             try:
                 provider.validate_client_metadata(metadata)
-                client_info = await provider.register_client(metadata)
+                client_info = await provider.register_client(
+                    metadata,
+                    individual_id=authenticated_individual_id,
+                    db=client.db,
+                )
             except ValueError as exc:
                 description = str(exc) or "invalid client metadata"
                 return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
@@ -1689,7 +1698,7 @@ def _parse_basic_authorization(value: str) -> tuple[str, str]:
     return client_id, client_secret
 
 
-async def _authenticate_client(  # noqa: PLR0911
+async def _authenticate_client(
     provider: SimpleOAuthProvider,
     client_id: str | None,
     client_secret: str | None,
@@ -1700,20 +1709,13 @@ async def _authenticate_client(  # noqa: PLR0911
     if not client_id:
         return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
 
-    oauth_client = await provider.get_client(client_id)
+    oauth_client = await provider.authenticate_client(
+        client_id,
+        client_secret,
+        require_credentials=require_credentials,
+        require_confidential=require_confidential,
+    )
     if not oauth_client:
-        return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-
-    if oauth_client.client_secret is None:
-        if require_credentials or require_confidential:
-            return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-        if client_secret:
-            return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-        return oauth_client, None
-
-    if not client_secret:
-        return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-    if not hmac.compare_digest(client_secret, oauth_client.client_secret):
         return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
     return oauth_client, None
 
@@ -1827,6 +1829,8 @@ async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> OAuthToken |
         return _oauth_error("invalid_request", "missing refresh_token", status_code=status.HTTP_400_BAD_REQUEST)
 
     refresh_token = await ctx.provider.load_refresh_token(refresh_token_value)
+    if not refresh_token:
+        refresh_token = await ctx.provider.load_refresh_token(refresh_token_value, include_revoked=True)
     if not refresh_token:
         return _oauth_error("invalid_grant", status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -2079,6 +2083,9 @@ def _id_token_signing_key(signing_secret: str) -> bytes:
 def _resolve_id_token_signing_secret(oauth_client: OAuthClientInformationFull, fallback_secret: str) -> str:
     if oauth_client.client_secret is not None:
         return oauth_client.client_secret
+    if oauth_client.token_endpoint_auth_method != "none":  # noqa: S105
+        msg = "confidential client is missing stored client_secret; re-register the client"
+        raise OAuthError(msg)
     return fallback_secret
 
 

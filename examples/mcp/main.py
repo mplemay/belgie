@@ -14,7 +14,16 @@ from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.alchemy import BelgieAdapter
+from belgie.alchemy import (
+    BelgieAdapter,
+    OAuthAccessTokenMixin,
+    OAuthAuthorizationCodeMixin,
+    OAuthAuthorizationStateMixin,
+    OAuthClientMixin,
+    OAuthConsentMixin,
+    OAuthRefreshTokenMixin,
+    OAuthServerAdapter,
+)
 from belgie.alchemy.mixins import AccountMixin, IndividualMixin, OAuthAccountMixin, OAuthStateMixin, SessionMixin
 from belgie.mcp import Mcp, get_user_from_access_token
 from belgie.oauth.server import OAuthResource, OAuthServer
@@ -40,6 +49,30 @@ class Session(DataclassBase, PrimaryKeyMixin, TimestampMixin, SessionMixin):
 
 
 class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin):
+    pass
+
+
+class OAuthClient(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthClientMixin):
+    pass
+
+
+class OAuthAuthorizationState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAuthorizationStateMixin):
+    pass
+
+
+class OAuthAuthorizationCode(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAuthorizationCodeMixin):
+    pass
+
+
+class OAuthAccessToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccessTokenMixin):
+    pass
+
+
+class OAuthRefreshToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthRefreshTokenMixin):
+    pass
+
+
+class OAuthConsent(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthConsentMixin):
     pass
 
 
@@ -112,7 +145,17 @@ belgie = Belgie(
     database=get_db,
 )
 
+oauth_adapter = OAuthServerAdapter(
+    oauth_client=OAuthClient,
+    oauth_authorization_state=OAuthAuthorizationState,
+    oauth_authorization_code=OAuthAuthorizationCode,
+    oauth_access_token=OAuthAccessToken,
+    oauth_refresh_token=OAuthRefreshToken,
+    oauth_consent=OAuthConsent,
+)
+
 oauth_settings = OAuthServer(
+    adapter=oauth_adapter,
     base_url=AnyHttpUrl(settings.base_url),
     prefix="/oauth",
     client_id="demo-client",

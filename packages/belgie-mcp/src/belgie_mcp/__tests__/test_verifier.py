@@ -1,4 +1,4 @@
-from dataclasses import replace
+from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
@@ -11,9 +11,11 @@ pytest.importorskip("mcp")
 pytest.importorskip("belgie_oauth_server")
 
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
+from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.models import OAuthClientMetadata
 from belgie_oauth_server.provider import AccessToken as OAuthAccessToken, AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer
+from belgie_oauth_server.testing import InMemoryDBConnection
 from belgie_oauth_server.utils import join_url
 from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver import MCPServer
@@ -150,8 +152,8 @@ async def test_verify_token_local_provider_returns_none_for_expired_tokens() -> 
     endpoint = "https://issuer.local/introspect"
     route = respx.post(endpoint).mock(return_value=Response(200, json={"active": False}))
     provider = _build_provider(_oauth_settings())
-    token_value, stored_token = await _issue_dynamic_client_access_token(provider)
-    provider.tokens[token_value] = replace(stored_token, expires_at=0)
+    token_value, _stored_token = await _issue_dynamic_client_access_token(provider)
+    provider.adapter.access_tokens[provider._hash_value(token_value)].expires_at = datetime.fromtimestamp(0, UTC)
     verifier = BelgieOAuthTokenVerifier(
         introspection_endpoint=endpoint,
         server_url="https://mcp.local/mcp",
@@ -159,7 +161,7 @@ async def test_verify_token_local_provider_returns_none_for_expired_tokens() -> 
     )
 
     assert await verifier.verify_token(token_value) is None
-    assert token_value not in provider.tokens
+    assert provider._hash_value(token_value) not in provider.adapter.access_tokens
     assert route.called is True
 
 
@@ -211,7 +213,7 @@ async def test_verify_token_strict_resource_rejects_mismatch() -> None:
 
 
 def test_mcp_auth_defaults() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -224,7 +226,7 @@ def test_mcp_auth_defaults() -> None:
 
 
 def test_mcp_auth_overrides() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -239,14 +241,14 @@ def test_mcp_auth_overrides() -> None:
 
 
 def test_mcp_auth_requires_issuer_url() -> None:
-    settings = OAuthServer(redirect_uris=["https://app.local/callback"])
+    settings = build_oauth_settings(redirect_uris=["https://app.local/callback"], base_url=None)
 
     with pytest.raises(ValueError, match="issuer_url"):
         mcp_auth(settings, server_url="https://mcp.local/mcp")
 
 
 def test_mcp_token_verifier_defaults() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -257,7 +259,7 @@ def test_mcp_token_verifier_defaults() -> None:
 
 
 def test_mcp_token_verifier_overrides() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -272,7 +274,7 @@ def test_mcp_token_verifier_overrides() -> None:
 
 
 def test_mcp_server_init_with_bundle() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="https://issuer.local",
         redirect_uris=["https://app.local/callback"],
     )
@@ -289,7 +291,7 @@ def test_mcp_server_init_with_bundle() -> None:
 
 
 def _oauth_settings() -> OAuthServer:
-    return OAuthServer(
+    return build_oauth_settings(
         base_url="https://issuer.local",
         redirect_uris=["http://localhost:6274/oauth/callback"],
         client_id="test-client",
@@ -299,7 +301,8 @@ def _oauth_settings() -> OAuthServer:
 
 
 def _build_provider(settings: OAuthServer) -> SimpleOAuthProvider:
-    return SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    db = InMemoryDBConnection()
+    return SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url), database_factory=lambda: db)
 
 
 async def _issue_dynamic_client_access_token(

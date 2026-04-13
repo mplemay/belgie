@@ -4,17 +4,17 @@ from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
 import pytest
-from belgie_oauth_server.models import OAuthClientInformationFull
 from belgie_oauth_server.utils import create_code_challenge
 
 
 async def _issue_id_token(
     async_client,
     oauth_settings,
-    oauth_plugin,
+    _oauth_plugin,
     belgie_instance,
     db_session,
     create_individual_session,
+    update_static_client,
     *,
     email: str,
     enable_end_session: bool,
@@ -23,10 +23,11 @@ async def _issue_id_token(
     session_id = await create_individual_session(belgie_instance, db_session, email)
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
-    oauth_client = oauth_plugin._provider.clients[oauth_settings.client_id]
-    oauth_client.scope = "openid profile email"
-    oauth_client.enable_end_session = enable_end_session
-    oauth_client.post_logout_redirect_uris = post_logout_redirect_uris
+    update_static_client(
+        scope="openid profile email",
+        enable_end_session=enable_end_session,
+        post_logout_redirect_uris=post_logout_redirect_uris,
+    )
 
     code_verifier = "end-session-verifier"
     authorize_response = await async_client.get(
@@ -81,6 +82,7 @@ async def test_end_session_rejects_clients_without_permission(
     belgie_instance,
     db_session,
     create_individual_session,
+    update_static_client,
 ) -> None:
     id_token, _session_id = await _issue_id_token(
         async_client,
@@ -89,6 +91,7 @@ async def test_end_session_rejects_clients_without_permission(
         belgie_instance,
         db_session,
         create_individual_session,
+        update_static_client,
         email="end-session-disabled@test.com",
         enable_end_session=False,
     )
@@ -110,6 +113,7 @@ async def test_end_session_signs_out_session_and_redirects(
     belgie_instance,
     db_session,
     create_individual_session,
+    update_static_client,
 ) -> None:
     redirect_uri = "http://testserver/logout-complete"
     id_token, session_id = await _issue_id_token(
@@ -119,6 +123,7 @@ async def test_end_session_signs_out_session_and_redirects(
         belgie_instance,
         db_session,
         create_individual_session,
+        update_static_client,
         email="end-session-success@test.com",
         enable_end_session=True,
         post_logout_redirect_uris=[redirect_uri],
@@ -148,6 +153,7 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
     belgie_instance,
     db_session,
     create_individual_session,
+    update_static_client,
 ) -> None:
     id_token, session_id = await _issue_id_token(
         async_client,
@@ -156,6 +162,7 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
         belgie_instance,
         db_session,
         create_individual_session,
+        update_static_client,
         email="end-session-invalid-redirect@test.com",
         enable_end_session=True,
         post_logout_redirect_uris=["http://testserver/logout-complete"],
@@ -179,17 +186,16 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
 @pytest.mark.asyncio
 async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
     async_client,
-    oauth_plugin,
     belgie_instance,
     db_session,
     create_individual_session,
+    seed_client,
 ) -> None:
     session_id = await create_individual_session(belgie_instance, db_session, "end-session-public@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
-    oauth_plugin._provider.clients["public-end-session"] = OAuthClientInformationFull(
+    await seed_client(
         client_id="public-end-session",
-        client_secret=None,
         redirect_uris=["http://testserver/callback"],
         scope="openid profile email",
         token_endpoint_auth_method="none",
@@ -245,17 +251,16 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
 @pytest.mark.asyncio
 async def test_end_session_rejects_public_client_without_logout_permission(
     async_client,
-    oauth_plugin,
     belgie_instance,
     db_session,
     create_individual_session,
+    seed_client,
 ) -> None:
     session_id = await create_individual_session(belgie_instance, db_session, "end-session-public-disabled@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
-    oauth_plugin._provider.clients["public-end-session-disabled"] = OAuthClientInformationFull(
+    await seed_client(
         client_id="public-end-session-disabled",
-        client_secret=None,
         redirect_uris=["http://testserver/callback"],
         scope="openid profile email",
         token_endpoint_auth_method="none",

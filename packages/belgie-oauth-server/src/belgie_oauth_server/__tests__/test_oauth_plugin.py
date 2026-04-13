@@ -1,9 +1,10 @@
+from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import _resolve_token_resource, _validate_authorize_resource
-from belgie_oauth_server.settings import OAuthResource, OAuthServer
+from belgie_oauth_server.settings import OAuthResource
 
 
 def test_validate_authorize_resource_accepts_equivalent_trailing_slash() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="http://example.com",
         redirect_uris=["http://client.local/callback"],
         resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],
@@ -19,7 +20,7 @@ def test_validate_authorize_resource_accepts_equivalent_trailing_slash() -> None
 
 
 def test_resolve_token_resource_accepts_requested_and_bound_trailing_slash_mismatch() -> None:
-    settings = OAuthServer(
+    settings = build_oauth_settings(
         base_url="http://example.com",
         redirect_uris=["http://client.local/callback"],
         resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],

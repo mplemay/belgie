@@ -3,8 +3,6 @@ from __future__ import annotations
 import time
 
 import pytest
-from belgie_oauth_server.models import OAuthClientInformationFull
-from belgie_oauth_server.provider import AccessToken, RefreshToken
 
 
 @pytest.mark.asyncio
@@ -69,9 +67,9 @@ async def test_revoke_success_removes_access_token(
     async_client,
     oauth_settings,
     oauth_plugin,
+    seed_access_token,
 ) -> None:
-    provider = oauth_plugin._provider
-    provider.tokens["token-123"] = AccessToken(
+    await seed_access_token(
         token="token-123",
         client_id=oauth_settings.client_id,
         scopes=[oauth_settings.default_scope],
@@ -91,7 +89,7 @@ async def test_revoke_success_removes_access_token(
     )
 
     assert response.status_code == 200
-    assert "token-123" not in provider.tokens
+    assert await oauth_plugin._provider.load_access_token("token-123") is None
 
 
 @pytest.mark.asyncio
@@ -99,9 +97,9 @@ async def test_revoke_success_removes_refresh_token(
     async_client,
     oauth_settings,
     oauth_plugin,
+    seed_refresh_token,
 ) -> None:
-    provider = oauth_plugin._provider
-    provider.refresh_tokens["refresh-123"] = RefreshToken(
+    await seed_refresh_token(
         token="refresh-123",
         client_id=oauth_settings.client_id,
         scopes=[oauth_settings.default_scope, "offline_access"],
@@ -120,7 +118,7 @@ async def test_revoke_success_removes_refresh_token(
     )
 
     assert response.status_code == 200
-    assert "refresh-123" not in provider.refresh_tokens
+    assert await oauth_plugin._provider.load_refresh_token("refresh-123") is None
 
 
 @pytest.mark.asyncio
@@ -128,10 +126,10 @@ async def test_revoke_accepts_basic_auth(
     async_client,
     oauth_settings,
     oauth_plugin,
+    seed_access_token,
     basic_auth_header,
 ) -> None:
-    provider = oauth_plugin._provider
-    provider.tokens["token-basic"] = AccessToken(
+    await seed_access_token(
         token="token-basic",
         client_id=oauth_settings.client_id,
         scopes=[oauth_settings.default_scope],
@@ -152,7 +150,7 @@ async def test_revoke_accepts_basic_auth(
     )
 
     assert response.status_code == 200
-    assert "token-basic" not in provider.tokens
+    assert await oauth_plugin._provider.load_access_token("token-basic") is None
 
 
 @pytest.mark.asyncio
@@ -178,15 +176,16 @@ async def test_revoke_ignores_tokens_owned_by_another_client(
     async_client,
     oauth_settings,
     oauth_plugin,
+    seed_access_token,
+    seed_client,
 ) -> None:
-    provider = oauth_plugin._provider
-    provider.clients["other-client"] = OAuthClientInformationFull(
+    await seed_client(
         client_id="other-client",
-        client_secret="other-secret",
         redirect_uris=oauth_settings.redirect_uris,
         scope=oauth_settings.default_scope,
+        client_secret_hash=oauth_plugin._provider._hash_value("other-secret"),
     )
-    provider.tokens["foreign-token"] = AccessToken(
+    await seed_access_token(
         token="foreign-token",
         client_id="other-client",
         scopes=["user"],
@@ -205,7 +204,7 @@ async def test_revoke_ignores_tokens_owned_by_another_client(
     )
 
     assert response.status_code == 200
-    assert "foreign-token" in provider.tokens
+    assert await oauth_plugin._provider.load_access_token("foreign-token") is not None
 
 
 @pytest.mark.asyncio
@@ -229,12 +228,10 @@ async def test_revoke_rejects_unsupported_token_type_hint(
 @pytest.mark.asyncio
 async def test_revoke_public_client_cannot_authenticate(
     async_client,
-    oauth_plugin,
+    seed_client,
 ) -> None:
-    provider = oauth_plugin._provider
-    provider.clients["public-client"] = OAuthClientInformationFull(
+    await seed_client(
         client_id="public-client",
-        client_secret=None,
         redirect_uris=["http://testserver/callback"],
         scope="user",
         token_endpoint_auth_method="none",

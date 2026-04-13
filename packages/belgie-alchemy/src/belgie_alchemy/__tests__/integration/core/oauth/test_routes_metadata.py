@@ -70,16 +70,13 @@ def test_protected_resource_metadata_endpoint(client: TestClient) -> None:
 
 def test_protected_resource_metadata_endpoint_preserves_trailing_slash_canonical_path(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    settings = OAuthServer(
-        base_url="http://testserver",
-        prefix="/oauth",
-        login_url="/login/google",
-        client_id="test-client",
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=["http://testserver/callback"],
-        default_scope="user",
-        resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],
+    settings = oauth_settings.model_copy(
+        update={
+            "client_secret": SecretStr("test-secret"),
+            "resources": [OAuthResource(prefix="/mcp/", scopes=["user"])],
+        },
     )
     belgie_instance.add_plugin(settings)
 
@@ -111,16 +108,9 @@ def test_protected_resource_metadata_root_fallback(client: TestClient) -> None:
 
 def test_protected_resource_metadata_absent_when_resource_server_unset(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    settings = OAuthServer(
-        base_url="http://testserver",
-        prefix="/oauth",
-        login_url="/login/google",
-        client_id="test-client",
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=["http://testserver/callback"],
-        default_scope="user",
-    )
+    settings = oauth_settings.model_copy(update={"client_secret": SecretStr("test-secret"), "resources": None})
     belgie_instance.add_plugin(settings)
 
     app = FastAPI()
@@ -149,16 +139,13 @@ def test_oauth_metadata_root_fallback(client: TestClient) -> None:
 
 def test_oauth_metadata_root_fallback_absent_when_disabled(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    settings = OAuthServer(
-        base_url="http://testserver",
-        prefix="/oauth",
-        login_url="/login/google",
-        client_id="test-client",
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=["http://testserver/callback"],
-        default_scope="user",
-        include_root_oauth_metadata_fallback=False,
+    settings = oauth_settings.model_copy(
+        update={
+            "client_secret": SecretStr("test-secret"),
+            "include_root_oauth_metadata_fallback": False,
+        },
     )
     belgie_instance.add_plugin(settings)
 
@@ -177,16 +164,13 @@ def test_oauth_metadata_root_fallback_absent_when_disabled(
 
 def test_openid_metadata_root_fallback_absent_when_disabled(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    settings = OAuthServer(
-        base_url="http://testserver",
-        prefix="/oauth",
-        login_url="/login/google",
-        client_id="test-client",
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=["http://testserver/callback"],
-        default_scope="user",
-        include_root_openid_metadata_fallback=False,
+    settings = oauth_settings.model_copy(
+        update={
+            "client_secret": SecretStr("test-secret"),
+            "include_root_openid_metadata_fallback": False,
+        },
     )
     belgie_instance.add_plugin(settings)
 

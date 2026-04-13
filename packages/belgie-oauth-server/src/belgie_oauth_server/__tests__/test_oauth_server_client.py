@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlencode
 
 import pytest
+from belgie_oauth_server.__tests__.helpers import build_oauth_provider, build_oauth_settings
 from belgie_oauth_server.client import OAuthServerClient
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthServer
 from fastapi import HTTPException
 from starlette.requests import Request
+
+if TYPE_CHECKING:
+    from belgie_oauth_server.settings import OAuthServer
 
 type OAuthIntent = Literal["login", "create", "consent", "select_account"]
 
@@ -26,7 +29,7 @@ def _build_request(query: dict[str, str]) -> Request:
 
 
 def _build_settings() -> OAuthServer:
-    return OAuthServer(
+    return build_oauth_settings(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
@@ -34,8 +37,11 @@ def _build_settings() -> OAuthServer:
 
 
 async def _build_client() -> tuple[OAuthServerClient, SimpleOAuthProvider, OAuthServer]:
-    settings = _build_settings()
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
     return OAuthServerClient(provider=provider, issuer_url=str(settings.issuer_url)), provider, settings
 
 

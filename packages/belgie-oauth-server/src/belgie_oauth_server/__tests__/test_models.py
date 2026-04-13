@@ -1,6 +1,7 @@
 import pytest
 from belgie_oauth_server.models import InvalidRedirectUriError, InvalidScopeError, OAuthClientMetadata, OAuthToken
 from pydantic import AnyUrl
+from pydantic_core import ValidationError
 
 BEARER = "Bearer"
 
@@ -21,6 +22,16 @@ def test_client_metadata_validate_scope_ok() -> None:
 def test_client_metadata_validate_scope_missing_ok() -> None:
     metadata = OAuthClientMetadata(redirect_uris=["http://example.com/callback"], scope="user")
     assert metadata.validate_scope(None) is None
+
+
+def test_client_metadata_allows_missing_redirect_uris() -> None:
+    metadata = OAuthClientMetadata(grant_types=["client_credentials"], response_types=[])
+    assert metadata.redirect_uris is None
+
+
+def test_client_metadata_rejects_empty_redirect_uris() -> None:
+    with pytest.raises(ValidationError):
+        OAuthClientMetadata(redirect_uris=[])
 
 
 def test_client_metadata_validate_scope_invalid() -> None:

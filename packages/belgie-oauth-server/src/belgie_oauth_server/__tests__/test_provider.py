@@ -1,21 +1,23 @@
+from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from belgie_oauth_server import provider as provider_module
+from belgie_oauth_server.__tests__.helpers import build_oauth_provider, build_oauth_settings
 from belgie_oauth_server.models import OAuthClientMetadata
-from belgie_oauth_server.provider import AccessToken, AuthorizationParams, RefreshToken, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthResource, OAuthServer
+from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
+from belgie_oauth_server.settings import OAuthResource
+from belgie_oauth_server.testing import InMemoryDBConnection, InMemoryOAuthServerAdapter
 from belgie_oauth_server.utils import create_code_challenge
 
 
 @pytest.mark.asyncio
 async def test_provider_authorize_and_issue_code() -> None:
-    settings = OAuthServer(
+    settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     oauth_client = await provider.get_client("test-client")
     params = AuthorizationParams(
@@ -37,13 +39,39 @@ async def test_provider_authorize_and_issue_code() -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_issue_authorization_code_includes_issuer() -> None:
-    settings = OAuthServer(
+async def test_provider_closes_async_generator_database_factory() -> None:
+    settings = build_oauth_settings(
+        adapter=InMemoryOAuthServerAdapter(),
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    db = InMemoryDBConnection()
+    closed = False
+
+    async def database():
+        nonlocal closed
+        try:
+            yield db
+        finally:
+            closed = True
+
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url), database_factory=database)
+
+    async with provider._db_session(None) as session:
+        assert session is db
+        assert closed is False
+
+    assert closed is True
+
+
+@pytest.mark.asyncio
+async def test_provider_issue_authorization_code_includes_issuer() -> None:
+    settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
 
     oauth_client = await provider.get_client("test-client")
     assert oauth_client is not None
@@ -66,12 +94,11 @@ async def test_provider_issue_authorization_code_includes_issuer() -> None:
 
 @pytest.mark.asyncio
 async def test_provider_authorize_state_carries_nonce_user_and_session() -> None:
-    settings = OAuthServer(
+    settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     oauth_client = await provider.get_client("test-client")
     params = AuthorizationParams(
@@ -106,12 +133,11 @@ async def test_provider_authorize_state_carries_nonce_user_and_session() -> None
 
 @pytest.mark.asyncio
 async def test_exchange_authorization_code_issues_token() -> None:
-    settings = OAuthServer(
+    settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     oauth_client = await provider.get_client("test-client")
     verifier = "verifier"
@@ -134,12 +160,11 @@ async def test_exchange_authorization_code_issues_token() -> None:
 
 @pytest.mark.asyncio
 async def test_exchange_authorization_code_with_offline_access_issues_refresh_token() -> None:
-    settings = OAuthServer(
+    settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     oauth_client = await provider.get_client("test-client")
     verifier = "verifier"
@@ -166,58 +191,59 @@ async def test_exchange_authorization_code_with_offline_access_issues_refresh_to
 
 @pytest.mark.asyncio
 async def test_load_access_token_purges_expired() -> None:
-    settings = OAuthServer(
+    _settings, provider, adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
-
-    provider.tokens["expired"] = AccessToken(
-        token="expired",
+    await adapter.create_access_token(
+        db,
+        token_hash=provider._hash_value("expired"),
         client_id="test-client",
         scopes=["user"],
-        created_at=0,
-        expires_at=0,
         resource=None,
+        refresh_token_id=None,
+        individual_id=None,
+        session_id=None,
+        expires_at=datetime.fromtimestamp(0, UTC),
     )
     token = await provider.load_access_token("expired")
     assert token is None
-    assert "expired" not in provider.tokens
+    assert provider._hash_value("expired") not in adapter.access_tokens
 
 
 @pytest.mark.asyncio
 async def test_load_access_token_purges_expired_twice() -> None:
-    settings = OAuthServer(
+    _settings, provider, adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
-    provider.tokens["expired"] = AccessToken(
-        token="expired",
+    await adapter.create_access_token(
+        db,
+        token_hash=provider._hash_value("expired"),
         client_id="test-client",
         scopes=["user"],
-        created_at=0,
-        expires_at=0,
         resource=None,
+        refresh_token_id=None,
+        individual_id=None,
+        session_id=None,
+        expires_at=datetime.fromtimestamp(0, UTC),
     )
-
     token = await provider.load_access_token("expired")
     assert token is None
     token = await provider.load_access_token("expired")
     assert token is None
-    assert "expired" not in provider.tokens
+    assert provider._hash_value("expired") not in adapter.access_tokens
 
 
 @pytest.mark.asyncio
 async def test_authorize_rejects_duplicate_state() -> None:
-    settings = OAuthServer(
+    settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     oauth_client = await provider.get_client("test-client")
     params = AuthorizationParams(
@@ -235,13 +261,12 @@ async def test_authorize_rejects_duplicate_state() -> None:
 
 @pytest.mark.asyncio
 async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = OAuthServer(
+    settings, provider, adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
         state_ttl_seconds=1,
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     oauth_client = await provider.get_client("test-client")
     params = AuthorizationParams(
@@ -258,17 +283,52 @@ async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(provider_module.time, "time", lambda: 1002.0)
     with pytest.raises(ValueError, match="Invalid state parameter"):
         await provider.issue_authorization_code("state-expired")
-    assert "state-expired" not in provider.state_mapping
+    assert "state-expired" not in adapter.authorization_states
+
+
+@pytest.mark.asyncio
+async def test_state_mapping_does_not_expire_when_ttl_is_non_positive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings, provider, adapter, _db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        state_ttl_seconds=0,
+    )
+
+    oauth_client = await provider.get_client("test-client")
+    monkeypatch.setattr(provider_module.time, "time", lambda: 1000.0)
+    await provider.authorize(
+        oauth_client,
+        AuthorizationParams(
+            state="state-non-expiring",
+            scopes=["user"],
+            code_challenge="challenge",
+            redirect_uri=settings.redirect_uris[0],
+            redirect_uri_provided_explicitly=True,
+        ),
+    )
+
+    monkeypatch.setattr(provider_module.time, "time", lambda: 10_000.0)
+    await provider.bind_authorization_state(
+        "state-non-expiring",
+        individual_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    )
+    redirect_url = await provider.issue_authorization_code("state-non-expiring")
+
+    assert "code=" in redirect_url
+    assert "state-non-expiring" not in adapter.authorization_states
 
 
 @pytest.mark.asyncio
 async def test_register_client_issues_secret_by_default() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     metadata = OAuthClientMetadata(redirect_uris=["http://example.com/callback"])
     client_info = await provider.register_client(metadata)
@@ -280,12 +340,11 @@ async def test_register_client_issues_secret_by_default() -> None:
 
 @pytest.mark.asyncio
 async def test_register_client_no_secret_when_auth_method_none() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     metadata = OAuthClientMetadata(
         redirect_uris=["http://example.com/callback"],
@@ -298,12 +357,11 @@ async def test_register_client_no_secret_when_auth_method_none() -> None:
 
 @pytest.mark.asyncio
 async def test_register_client_rejects_unsupported_auth_method() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     metadata = OAuthClientMetadata(
         redirect_uris=["http://example.com/callback"],
@@ -316,12 +374,11 @@ async def test_register_client_rejects_unsupported_auth_method() -> None:
 
 @pytest.mark.asyncio
 async def test_register_client_accepts_client_secret_basic() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     metadata = OAuthClientMetadata(
         redirect_uris=["http://example.com/callback"],
@@ -334,76 +391,102 @@ async def test_register_client_accepts_client_secret_basic() -> None:
 
 
 @pytest.mark.asyncio
-async def test_load_refresh_token_purges_expired() -> None:
-    settings = OAuthServer(
+async def test_register_client_preserves_missing_redirect_uris_for_client_credentials() -> None:
+    _settings, provider, _adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
-    provider.refresh_tokens["expired"] = RefreshToken(
-        token="expired",
+
+    metadata = OAuthClientMetadata(
+        grant_types=["client_credentials"],
+        response_types=[],
+    )
+    client_info = await provider.register_client(metadata, db=db)
+    loaded_client = await provider.get_client(client_info.client_id, db=db)
+
+    assert client_info.redirect_uris is None
+    assert loaded_client is not None
+    assert loaded_client.redirect_uris is None
+
+
+@pytest.mark.asyncio
+async def test_load_refresh_token_purges_expired() -> None:
+    _settings, provider, adapter, db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    await adapter.create_refresh_token(
+        db,
+        token_hash=provider._hash_value("expired"),
         client_id="test-client",
         scopes=["user"],
-        created_at=0,
-        expires_at=0,
+        resource=None,
+        individual_id=None,
+        session_id=None,
+        expires_at=datetime.fromtimestamp(0, UTC),
     )
 
     token = await provider.load_refresh_token("expired")
     assert token is None
-    assert "expired" not in provider.refresh_tokens
+    assert provider._hash_value("expired") not in adapter.refresh_tokens
 
 
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_rotates_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = OAuthServer(
+    _settings, provider, adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
     monkeypatch.setattr(provider_module.time, "time", lambda: 1000.0)
-    original_refresh = provider._issue_refresh_token(client_id="test-client", scopes=["user", "offline_access"])
+    original_refresh = await provider._issue_refresh_token(
+        db,
+        client_id="test-client",
+        scopes=["user", "offline_access"],
+    )
 
     token = await provider.exchange_refresh_token(original_refresh, ["user"])
 
     assert token.access_token.startswith("belgie_")
     assert token.refresh_token is not None
-    assert original_refresh.token not in provider.refresh_tokens
-    assert token.refresh_token in provider.refresh_tokens
+    stored_original = await provider.load_refresh_token(original_refresh.token, include_revoked=True)
+    assert stored_original is not None
+    assert stored_original.revoked_at == 1000
+    assert provider._hash_value(token.refresh_token) in adapter.refresh_tokens
 
 
 @pytest.mark.asyncio
 async def test_issue_refresh_token_uses_refresh_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
         access_token_ttl_seconds=300,
         refresh_token_ttl_seconds=7200,
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
     monkeypatch.setattr(provider_module.time, "time", lambda: 1000.0)
 
-    refresh = provider._issue_refresh_token(client_id="test-client", scopes=["user"])
+    refresh = await provider._issue_refresh_token(db, client_id="test-client", scopes=["user"])
 
     assert refresh.expires_at == 8200
 
 
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_preserves_resource_binding() -> None:
-    settings = OAuthServer(
+    _settings, provider, adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
-    refresh = provider._issue_refresh_token(
+    refresh = await provider._issue_refresh_token(
+        db,
         client_id="test-client",
         scopes=["openid", "offline_access"],
         resource="http://example.com/mcp",
-        individual_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-        session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        individual_id=provider._parse_uuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+        session_id=provider._parse_uuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
     )
 
     token = await provider.exchange_refresh_token(
@@ -414,21 +497,70 @@ async def test_exchange_refresh_token_preserves_resource_binding() -> None:
     )
 
     assert token.refresh_token is not None
-    rotated_refresh = provider.refresh_tokens[token.refresh_token]
+    rotated_refresh = adapter.refresh_tokens[provider._hash_value(token.refresh_token)]
     assert rotated_refresh.resource == "http://example.com/mcp"
-    assert rotated_refresh.individual_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    assert rotated_refresh.session_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    assert str(rotated_refresh.individual_id) == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert str(rotated_refresh.session_id) == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
 
 @pytest.mark.asyncio
-async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
-    settings = OAuthServer(
+async def test_exchange_refresh_token_replay_only_purges_current_session() -> None:
+    _settings, provider, adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
-    refresh = provider._issue_refresh_token(client_id="test-client", scopes=["user"])
+    individual_id = provider._parse_uuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    session_a = provider._parse_uuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    session_b = provider._parse_uuid("cccccccc-cccc-cccc-cccc-cccccccccccc")
+    assert individual_id is not None
+    assert session_a is not None
+    assert session_b is not None
+
+    original_refresh = await provider._issue_refresh_token(
+        db,
+        client_id="test-client",
+        scopes=["user"],
+        individual_id=individual_id,
+        session_id=session_a,
+    )
+    other_refresh = await provider._issue_refresh_token(
+        db,
+        client_id="test-client",
+        scopes=["user"],
+        individual_id=individual_id,
+        session_id=session_b,
+    )
+    rotated_token = await provider.exchange_refresh_token(original_refresh, ["user"])
+    other_refresh_id = adapter.refresh_tokens[provider._hash_value(other_refresh.token)].id
+    other_access = await provider._issue_access_token(
+        db,
+        client_id="test-client",
+        scopes=["user"],
+        refresh_token_id=other_refresh_id,
+        refresh_token=other_refresh.token,
+        individual_id=individual_id,
+        session_id=session_b,
+    )
+
+    with pytest.raises(ValueError, match="revoked"):
+        await provider.exchange_refresh_token(original_refresh, ["user"])
+
+    assert rotated_token.refresh_token is not None
+    assert await provider.load_refresh_token(rotated_token.refresh_token) is None
+    assert await provider.load_access_token(rotated_token.access_token) is None
+    assert await provider.load_refresh_token(other_refresh.token) is not None
+    assert await provider.load_access_token(other_access.token) is not None
+
+
+@pytest.mark.asyncio
+async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
+    _settings, provider, _adapter, db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    refresh = await provider._issue_refresh_token(db, client_id="test-client", scopes=["user"])
 
     with pytest.raises(ValueError, match="not granted"):
         await provider.exchange_refresh_token(refresh, ["user", "admin"])
@@ -436,12 +568,11 @@ async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
 
 @pytest.mark.asyncio
 async def test_issue_client_credentials_token() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     token = await provider.issue_client_credentials_token("test-client", ["user"])
 
@@ -455,38 +586,37 @@ async def test_issue_client_credentials_token() -> None:
 
 @pytest.mark.asyncio
 async def test_revoke_refresh_token_removes_linked_access_tokens() -> None:
-    settings = OAuthServer(
+    _settings, provider, adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
-
-    refresh = provider._issue_refresh_token(client_id="test-client", scopes=["user"])
-    provider.tokens["access-linked"] = AccessToken(
-        token="access-linked",
+    refresh = await provider._issue_refresh_token(db, client_id="test-client", scopes=["user"])
+    await adapter.create_access_token(
+        db,
+        token_hash=provider._hash_value("access-linked"),
         client_id="test-client",
         scopes=["user"],
-        created_at=0,
-        expires_at=99999,
         resource=None,
-        refresh_token=refresh.token,
+        refresh_token_id=adapter.refresh_tokens[provider._hash_value(refresh.token)].id,
+        individual_id=None,
+        session_id=None,
+        expires_at=datetime.fromtimestamp(99999, UTC),
     )
 
     await provider.revoke_token(refresh)
 
-    assert refresh.token not in provider.refresh_tokens
-    assert "access-linked" not in provider.tokens
+    assert provider._hash_value(refresh.token) not in adapter.refresh_tokens
+    assert provider._hash_value("access-linked") not in adapter.access_tokens
 
 
 def test_validate_scopes_for_client_raises_for_unknown_scope() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
-    client = provider.clients["test-client"]
+    client = provider.static_client
 
     with pytest.raises(ValueError, match="Client was not registered with scope admin"):
         provider.validate_scopes_for_client(client, ["admin"])
@@ -494,33 +624,31 @@ def test_validate_scopes_for_client_raises_for_unknown_scope() -> None:
 
 @pytest.mark.asyncio
 async def test_consent_storage_supports_subset_checks() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    individual_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    await provider.save_consent("test-client", individual_id, ["user", "openid"])
+    await provider.save_consent("test-client", individual_id, ["user"])
 
-    await provider.save_consent("test-client", "user-123", ["user", "openid"])
-    await provider.save_consent("test-client", "user-123", ["user"])
-
-    consent = await provider.load_consent("test-client", "user-123")
+    consent = await provider.load_consent("test-client", individual_id)
 
     assert consent is not None
     assert consent.scopes == ["user", "openid"]
-    assert await provider.has_consent("test-client", "user-123", ["user"]) is True
-    assert await provider.has_consent("test-client", "user-123", ["user", "openid"]) is True
-    assert await provider.has_consent("test-client", "user-123", ["user", "email"]) is False
+    assert await provider.has_consent("test-client", individual_id, ["user"]) is True
+    assert await provider.has_consent("test-client", individual_id, ["user", "openid"]) is True
+    assert await provider.has_consent("test-client", individual_id, ["user", "email"]) is False
 
 
 @pytest.mark.asyncio
 async def test_scope_less_dynamic_clients_fall_back_to_default_scope() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
     client = await provider.register_client(
         OAuthClientMetadata(
             redirect_uris=["http://example.com/callback"],
@@ -537,12 +665,11 @@ async def test_scope_less_dynamic_clients_fall_back_to_default_scope() -> None:
 
 
 def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     with pytest.raises(ValueError, match="unsupported grant_type implicit"):
         provider.validate_client_metadata(
@@ -554,13 +681,12 @@ def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
 
 
 def test_validate_client_metadata_allows_configured_resource_scopes() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
         resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     provider.validate_client_metadata(
         OAuthClientMetadata(
@@ -572,13 +698,12 @@ def test_validate_client_metadata_allows_configured_resource_scopes() -> None:
 
 
 def test_validate_client_metadata_rejects_unknown_configured_resource_scope() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
         resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     with pytest.raises(ValueError, match="cannot request scope admin"):
         provider.validate_client_metadata(
@@ -591,18 +716,49 @@ def test_validate_client_metadata_rejects_unknown_configured_resource_scope() ->
 
 
 def test_validate_client_metadata_rejects_unsupported_response_type() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     with pytest.raises(ValueError, match="unsupported response_type token"):
         provider.validate_client_metadata(
             OAuthClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 response_types=["token"],
+            ),
+        )
+
+
+def test_validate_client_metadata_allows_client_credentials_without_redirect_uris() -> None:
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+
+    provider.validate_client_metadata(
+        OAuthClientMetadata(
+            grant_types=["client_credentials"],
+            response_types=[],
+        ),
+    )
+
+
+def test_validate_client_metadata_rejects_authorization_code_without_redirect_uris() -> None:
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+
+    with pytest.raises(ValueError, match="Redirect URIs are required for authorization_code clients"):
+        provider.validate_client_metadata(
+            OAuthClientMetadata(
+                redirect_uris=None,
+                grant_types=["authorization_code"],
+                response_types=["code"],
             ),
         )
 
@@ -619,12 +775,11 @@ def test_validate_client_metadata_rejects_invalid_type_for_auth_method(
     client_type: str,
     message: str,
 ) -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     with pytest.raises(ValueError, match=message):
         provider.validate_client_metadata(
@@ -637,12 +792,11 @@ def test_validate_client_metadata_rejects_invalid_type_for_auth_method(
 
 
 def test_validate_client_metadata_rejects_pairwise_without_secret() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     with pytest.raises(ValueError, match="pairwise subject_type requires pairwise_secret configuration"):
         provider.validate_client_metadata(
@@ -654,12 +808,11 @@ def test_validate_client_metadata_rejects_pairwise_without_secret() -> None:
 
 
 def test_validate_client_metadata_rejects_require_pkce_false() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     with pytest.raises(ValueError, match="pkce is required for registered clients"):
         provider.validate_client_metadata(
@@ -671,14 +824,13 @@ def test_validate_client_metadata_rejects_require_pkce_false() -> None:
 
 
 def test_resolve_subject_identifier_uses_pairwise_secret() -> None:
-    settings = OAuthServer(
+    _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
         pairwise_secret="pairwise-secret",
     )
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
-    pairwise_client = provider.clients["test-client"].model_copy(
+    pairwise_client = provider.static_client.model_copy(
         update={
             "subject_type": "pairwise",
             "redirect_uris": ["http://example.com/callback"],
