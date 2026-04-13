@@ -128,6 +128,9 @@ belgie.add_plugin(
         ),
     ),
 )
+belgie_client_dependency = Annotated[BelgieClient, Depends(belgie)]
+current_individual_dependency = Annotated[Individual, Depends(belgie.individual)]
+current_session_dependency = Annotated[Session, Depends(belgie.session)]
 
 app.include_router(belgie.router)
 
@@ -151,7 +154,7 @@ async def home() -> HomeResponse:
 @app.get("/login")
 async def login(
     request: Request,
-    client: Annotated[BelgieClient, Depends(belgie)],
+    client: belgie_client_dependency,
     email: Annotated[str, Query()] = "dev@example.com",
     name: Annotated[str | None, Query()] = "Stripe Tester",
     return_to: Annotated[str, Query()] = "/",
@@ -168,8 +171,8 @@ async def login(
 
 @app.get("/me")
 async def me(
-    user: Annotated[Individual, Depends(belgie.individual)],
-    session: Annotated[Session, Depends(belgie.session)],
+    user: current_individual_dependency,
+    session: current_session_dependency,
 ) -> MeResponse:
     return MeResponse(
         individual_id=str(user.id),

@@ -507,6 +507,34 @@ def test_register_allows_public_clients_with_configured_resource_scopes() -> Non
     assert "client_secret" not in payload
 
 
+def test_register_preserves_success_headers_with_response_model_serialization() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+        allow_unauthenticated_client_registration=True,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["http://client.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "user",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    payload = response.json()
+    assert payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert "client_secret" not in payload
+
+
 def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
     require_pkce_settings = _build_settings(
         base_url="http://testserver",
@@ -929,3 +957,24 @@ def test_pairwise_subject_is_stable_across_id_token_userinfo_introspection_and_r
     assert expected_subject != str(belgie_client.user.id)
     assert introspection.json()["sid"] == str(belgie_client.session.id)
     assert introspection.json()["iss"] == "http://testserver/auth/oauth"
+
+
+def test_introspect_missing_token_returns_modeled_error_body() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth/introspect",
+        data={
+            "client_id": settings.client_id,
+            "client_secret": "static-secret",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"active": False}

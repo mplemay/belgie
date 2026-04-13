@@ -14,7 +14,7 @@ from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.sso import SSODomainProtocol, SSOProviderProtocol
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes
 
@@ -186,11 +186,12 @@ class SSOPlugin[
         self._ensure_dependency_resolver(belgie)
         organization_plugin = self._ensure_organization_plugin(belgie)
         router = APIRouter(prefix="/provider/sso", tags=["auth", "sso"])
+        belgie_client_dependency = Annotated[BelgieClient, Depends(belgie)]
 
         @router.get("/signin")
         async def signin(
             _request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: belgie_client_dependency,
             provider_id: Annotated[str | None, Query()] = None,
             email: Annotated[str | None, Query()] = None,
             redirect_to: Annotated[str | None, Query()] = None,
@@ -233,11 +234,11 @@ class SSOPlugin[
 
         @router.get("/callback/{provider_id}")
         async def callback(
-            provider_id: str,
+            provider_id: Annotated[str, Path(min_length=1)],
             code: Annotated[str, Query(min_length=1)],
             state: Annotated[str, Query(min_length=1)],
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: belgie_client_dependency,
         ) -> RedirectResponse:
             oauth_state = await client.adapter.get_oauth_state(client.db, state)
             if oauth_state is None:
