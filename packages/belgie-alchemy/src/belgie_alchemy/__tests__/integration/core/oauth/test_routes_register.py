@@ -176,7 +176,7 @@ async def test_register_enabled_unauthenticated_allows_explicit_confidential_cli
     assert response.headers["Pragma"] == "no-cache"
     payload = response.json()
     assert payload["client_secret"]
-    assert payload["token_endpoint_auth_method"] == auth_method  # noqa: S105
+    assert payload["token_endpoint_auth_method"] == auth_method
 
 
 @pytest.mark.asyncio

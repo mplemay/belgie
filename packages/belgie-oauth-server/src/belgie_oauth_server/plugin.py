@@ -462,7 +462,7 @@ class OAuthServerPlugin(PluginClient):
         provider: SimpleOAuthProvider,
         settings: OAuthServer,
     ) -> APIRouter:
-        async def register_handler(  # noqa: PLR0911
+        async def register_handler(
             request: Request,
             response: Response,
             client: Annotated[BelgieClient, Depends(belgie)],
