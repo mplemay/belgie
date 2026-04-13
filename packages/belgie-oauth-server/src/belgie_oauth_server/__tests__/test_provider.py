@@ -3,10 +3,11 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from belgie_oauth_server import provider as provider_module
-from belgie_oauth_server.__tests__.helpers import build_oauth_provider
+from belgie_oauth_server.__tests__.helpers import build_oauth_provider, build_oauth_settings
 from belgie_oauth_server.models import OAuthClientMetadata
-from belgie_oauth_server.provider import AuthorizationParams
+from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthResource
+from belgie_oauth_server.testing import InMemoryDBConnection, InMemoryOAuthServerAdapter
 from belgie_oauth_server.utils import create_code_challenge
 
 
@@ -35,6 +36,33 @@ async def test_provider_authorize_and_issue_code() -> None:
     query = parse_qs(parsed.query)
     assert "code" in query
     assert query["state"][0] == "state-123"
+
+
+@pytest.mark.asyncio
+async def test_provider_closes_async_generator_database_factory() -> None:
+    settings = build_oauth_settings(
+        adapter=InMemoryOAuthServerAdapter(),
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    db = InMemoryDBConnection()
+    closed = False
+
+    async def database():
+        nonlocal closed
+        try:
+            yield db
+        finally:
+            closed = True
+
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url), database_factory=database)
+
+    async with provider._db_session(None) as session:
+        assert session is db
+        assert closed is False
+
+    assert closed is True
 
 
 @pytest.mark.asyncio

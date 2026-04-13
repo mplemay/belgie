@@ -5,7 +5,8 @@ import hashlib
 import hmac
 import secrets
 import time
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -23,7 +24,7 @@ from belgie_oauth_server.models import (
 from belgie_oauth_server.utils import construct_redirect_uri
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
+    from collections.abc import Callable
 
     from belgie_proto.oauth_server import (
         OAuthAccessTokenProtocol,
@@ -916,17 +917,22 @@ class SimpleOAuthProvider:
             return
 
         if self._is_async_generator(db_or_generator):
-            async for session in db_or_generator:
-                async with self._managed_session(session, transactional=transactional, close=False) as managed_session:
-                    yield managed_session
-                return
+            async with aclosing(db_or_generator) as db_generator:
+                async for session in db_generator:
+                    async with self._managed_session(
+                        session,
+                        transactional=transactional,
+                        close=False,
+                    ) as managed_session:
+                        yield managed_session
+                    return
 
         msg = "database() must return a DBConnection or AsyncGenerator[DBConnection, None]"
         raise TypeError(msg)
 
     @staticmethod
     def _is_async_generator(value: object) -> bool:
-        return hasattr(value, "__aiter__")
+        return isinstance(value, AsyncGenerator)
 
     @staticmethod
     def _generate_client_id() -> str:
