@@ -33,12 +33,11 @@ def _build_plugin() -> MicrosoftOAuthPlugin:
     return MicrosoftOAuthPlugin(belgie_settings, settings)
 
 
-@pytest.mark.asyncio
-async def test_dependency_requires_router_initialization() -> None:
+def test_dependency_requires_router_initialization() -> None:
     plugin = _build_plugin()
 
     with pytest.raises(RuntimeError, match=r"router initialization"):
-        await plugin()
+        plugin()
 
 
 def test_signin_url_persists_relative_return_to() -> None:

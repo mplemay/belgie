@@ -13,6 +13,10 @@ from fastapi.testclient import TestClient
 from belgie_core.core.belgie import Belgie
 
 
+def _alias_value(annotation: object) -> object:
+    return annotation.__value__ if hasattr(annotation, "__value__") else annotation
+
+
 @pytest.fixture
 def db_provider() -> tuple[Callable[[], Mock], Mock]:
     db = Mock()
@@ -66,9 +70,10 @@ def test_user_property_signature_uses_depends(
 
     db_parameter = signature(belgie_instance.individual).parameters["db"]
     assert db_parameter.default is Parameter.empty
-    assert get_origin(db_parameter.annotation) is Annotated
+    annotation = _alias_value(db_parameter.annotation)
+    assert get_origin(annotation) is Annotated
 
-    _, depends_marker = get_args(db_parameter.annotation)
+    _, depends_marker = get_args(annotation)
     assert isinstance(depends_marker, DependsParam)
     assert depends_marker.dependency is dependency
 
@@ -81,9 +86,10 @@ def test_session_property_signature_uses_depends(
 
     db_parameter = signature(belgie_instance.session).parameters["db"]
     assert db_parameter.default is Parameter.empty
-    assert get_origin(db_parameter.annotation) is Annotated
+    annotation = _alias_value(db_parameter.annotation)
+    assert get_origin(annotation) is Annotated
 
-    _, depends_marker = get_args(db_parameter.annotation)
+    _, depends_marker = get_args(annotation)
     assert isinstance(depends_marker, DependsParam)
     assert depends_marker.dependency is dependency
 

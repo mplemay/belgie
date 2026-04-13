@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Callable
 
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
@@ -107,7 +107,7 @@ class GoogleOAuthPlugin(PluginClient):
             belgie_settings.base_url,
             provider_id=self.provider_id,
         )
-        self._resolve_client: Callable[..., Coroutine[object, object, GoogleOAuthClient]] | None = None
+        self._resolve_client: Callable[..., GoogleOAuthClient] | None = None
         parsed_base_url = urlparse(belgie_settings.base_url)
         self._base_url_origin = (parsed_base_url.scheme.lower(), parsed_base_url.netloc.lower())
 
@@ -119,7 +119,9 @@ class GoogleOAuthPlugin(PluginClient):
         if self._resolve_client is not None:
             return
 
-        async def resolve_client(client: Annotated[BelgieClient, Depends(belgie)]) -> GoogleOAuthClient:
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
+
+        def resolve_client(client: BelgieClientDep) -> GoogleOAuthClient:
             return GoogleOAuthClient(plugin=self, client=client)
 
         self._resolve_client = resolve_client
@@ -141,14 +143,14 @@ class GoogleOAuthPlugin(PluginClient):
 
         return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, parsed.query, ""))
 
-    async def __call__(self, *args: object, **kwargs: object) -> GoogleOAuthClient:
+    def __call__(self, *args: object, **kwargs: object) -> GoogleOAuthClient:
         if self._resolve_client is None:
             msg = (
                 "GoogleOAuthPlugin dependency requires router initialization "
                 "(call app.include_router(belgie.router) first)"
             )
             raise RuntimeError(msg)
-        return await self._resolve_client(*args, **kwargs)
+        return self._resolve_client(*args, **kwargs)
 
     @property
     def redirect_uri(self) -> str:
