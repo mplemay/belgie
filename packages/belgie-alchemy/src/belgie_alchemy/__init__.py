@@ -1,23 +1,23 @@
 from belgie_alchemy.oauth_server import (
-    OAuthAccessTokenMixin,
-    OAuthAuthorizationCodeMixin,
-    OAuthAuthorizationStateMixin,
-    OAuthClientMixin,
-    OAuthConsentMixin,
-    OAuthRefreshTokenMixin,
+    OAuthServerAccessTokenMixin,
     OAuthServerAdapter,
+    OAuthServerAuthorizationCodeMixin,
+    OAuthServerAuthorizationStateMixin,
+    OAuthServerClientMixin,
+    OAuthServerConsentMixin,
+    OAuthServerRefreshTokenMixin,
 )
 from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin
 from belgie_alchemy.stripe import StripeAccountMixin, StripeAdapter, StripeSubscriptionMixin
 
 __all__ = [
-    "OAuthAccessTokenMixin",
-    "OAuthAuthorizationCodeMixin",
-    "OAuthAuthorizationStateMixin",
-    "OAuthClientMixin",
-    "OAuthConsentMixin",
-    "OAuthRefreshTokenMixin",
+    "OAuthServerAccessTokenMixin",
     "OAuthServerAdapter",
+    "OAuthServerAuthorizationCodeMixin",
+    "OAuthServerAuthorizationStateMixin",
+    "OAuthServerClientMixin",
+    "OAuthServerConsentMixin",
+    "OAuthServerRefreshTokenMixin",
     "SSOAdapter",
     "SSODomainMixin",
     "SSOProviderMixin",

@@ -4,23 +4,23 @@ _ALCHEMY_IMPORT_ERROR = "belgie.alchemy.oauth_server requires the 'alchemy' extr
 
 try:
     from belgie_alchemy.oauth_server import (
-        OAuthAccessTokenMixin,
-        OAuthAuthorizationCodeMixin,
-        OAuthAuthorizationStateMixin,
-        OAuthClientMixin,
-        OAuthConsentMixin,
-        OAuthRefreshTokenMixin,
+        OAuthServerAccessTokenMixin,
         OAuthServerAdapter,
+        OAuthServerAuthorizationCodeMixin,
+        OAuthServerAuthorizationStateMixin,
+        OAuthServerClientMixin,
+        OAuthServerConsentMixin,
+        OAuthServerRefreshTokenMixin,
     )
 except ModuleNotFoundError as exc:
     raise ImportError(_ALCHEMY_IMPORT_ERROR) from exc
 
 __all__ = [
-    "OAuthAccessTokenMixin",
-    "OAuthAuthorizationCodeMixin",
-    "OAuthAuthorizationStateMixin",
-    "OAuthClientMixin",
-    "OAuthConsentMixin",
-    "OAuthRefreshTokenMixin",
+    "OAuthServerAccessTokenMixin",
     "OAuthServerAdapter",
+    "OAuthServerAuthorizationCodeMixin",
+    "OAuthServerAuthorizationStateMixin",
+    "OAuthServerClientMixin",
+    "OAuthServerConsentMixin",
+    "OAuthServerRefreshTokenMixin",
 ]

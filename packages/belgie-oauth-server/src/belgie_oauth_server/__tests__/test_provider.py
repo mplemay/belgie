@@ -4,9 +4,9 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from belgie_oauth_server import provider as provider_module
 from belgie_oauth_server.__tests__.helpers import build_oauth_provider, build_oauth_settings
-from belgie_oauth_server.models import OAuthClientMetadata
+from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthResource
+from belgie_oauth_server.settings import OAuthServerResource
 from belgie_oauth_server.testing import InMemoryDBConnection, InMemoryOAuthServerAdapter
 from belgie_oauth_server.utils import create_code_challenge
 
@@ -330,7 +330,7 @@ async def test_register_client_issues_secret_by_default() -> None:
         client_id="test-client",
     )
 
-    metadata = OAuthClientMetadata(redirect_uris=["http://example.com/callback"])
+    metadata = OAuthServerClientMetadata(redirect_uris=["http://example.com/callback"])
     client_info = await provider.register_client(metadata)
 
     assert client_info.client_id is not None
@@ -346,7 +346,7 @@ async def test_register_client_no_secret_when_auth_method_none() -> None:
         client_id="test-client",
     )
 
-    metadata = OAuthClientMetadata(
+    metadata = OAuthServerClientMetadata(
         redirect_uris=["http://example.com/callback"],
         token_endpoint_auth_method="none",
     )
@@ -363,7 +363,7 @@ async def test_register_client_rejects_unsupported_auth_method() -> None:
         client_id="test-client",
     )
 
-    metadata = OAuthClientMetadata(
+    metadata = OAuthServerClientMetadata(
         redirect_uris=["http://example.com/callback"],
         token_endpoint_auth_method="private_key_jwt",
     )
@@ -380,7 +380,7 @@ async def test_register_client_accepts_client_secret_basic() -> None:
         client_id="test-client",
     )
 
-    metadata = OAuthClientMetadata(
+    metadata = OAuthServerClientMetadata(
         redirect_uris=["http://example.com/callback"],
         token_endpoint_auth_method="client_secret_basic",
     )
@@ -398,7 +398,7 @@ async def test_register_client_preserves_missing_redirect_uris_for_client_creden
         client_id="test-client",
     )
 
-    metadata = OAuthClientMetadata(
+    metadata = OAuthServerClientMetadata(
         grant_types=["client_credentials"],
         response_types=[],
     )
@@ -650,7 +650,7 @@ async def test_scope_less_dynamic_clients_fall_back_to_default_scope() -> None:
         client_id="test-client",
     )
     client = await provider.register_client(
-        OAuthClientMetadata(
+        OAuthServerClientMetadata(
             redirect_uris=["http://example.com/callback"],
             token_endpoint_auth_method="none",
         ),
@@ -673,7 +673,7 @@ def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
 
     with pytest.raises(ValueError, match="unsupported grant_type implicit"):
         provider.validate_client_metadata(
-            OAuthClientMetadata(
+            OAuthServerClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 grant_types=["implicit"],
             ),
@@ -685,11 +685,11 @@ def test_validate_client_metadata_allows_configured_resource_scopes() -> None:
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
-        resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user", "files:read"])],
     )
 
     provider.validate_client_metadata(
-        OAuthClientMetadata(
+        OAuthServerClientMetadata(
             redirect_uris=["http://example.com/callback"],
             token_endpoint_auth_method="none",
             scope="user files:read",
@@ -702,12 +702,12 @@ def test_validate_client_metadata_rejects_unknown_configured_resource_scope() ->
         redirect_uris=["http://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
-        resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user", "files:read"])],
     )
 
     with pytest.raises(ValueError, match="cannot request scope admin"):
         provider.validate_client_metadata(
-            OAuthClientMetadata(
+            OAuthServerClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 token_endpoint_auth_method="none",
                 scope="user admin",
@@ -724,7 +724,7 @@ def test_validate_client_metadata_rejects_unsupported_response_type() -> None:
 
     with pytest.raises(ValueError, match="unsupported response_type token"):
         provider.validate_client_metadata(
-            OAuthClientMetadata(
+            OAuthServerClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 response_types=["token"],
             ),
@@ -739,7 +739,7 @@ def test_validate_client_metadata_allows_client_credentials_without_redirect_uri
     )
 
     provider.validate_client_metadata(
-        OAuthClientMetadata(
+        OAuthServerClientMetadata(
             grant_types=["client_credentials"],
             response_types=[],
         ),
@@ -755,7 +755,7 @@ def test_validate_client_metadata_rejects_authorization_code_without_redirect_ur
 
     with pytest.raises(ValueError, match="Redirect URIs are required for authorization_code clients"):
         provider.validate_client_metadata(
-            OAuthClientMetadata(
+            OAuthServerClientMetadata(
                 redirect_uris=None,
                 grant_types=["authorization_code"],
                 response_types=["code"],
@@ -783,7 +783,7 @@ def test_validate_client_metadata_rejects_invalid_type_for_auth_method(
 
     with pytest.raises(ValueError, match=message):
         provider.validate_client_metadata(
-            OAuthClientMetadata(
+            OAuthServerClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 token_endpoint_auth_method=token_endpoint_auth_method,
                 type=client_type,
@@ -800,7 +800,7 @@ def test_validate_client_metadata_rejects_pairwise_without_secret() -> None:
 
     with pytest.raises(ValueError, match="pairwise subject_type requires pairwise_secret configuration"):
         provider.validate_client_metadata(
-            OAuthClientMetadata(
+            OAuthServerClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 subject_type="pairwise",
             ),
@@ -816,7 +816,7 @@ def test_validate_client_metadata_rejects_require_pkce_false() -> None:
 
     with pytest.raises(ValueError, match="pkce is required for registered clients"):
         provider.validate_client_metadata(
-            OAuthClientMetadata(
+            OAuthServerClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 require_pkce=False,
             ),

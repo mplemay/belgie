@@ -10,7 +10,7 @@ import pytest
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import OAuthServerPlugin, _id_token_signing_key
-from belgie_oauth_server.settings import OAuthResource, OAuthServer
+from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
 from belgie_oauth_server.testing import InMemoryDBConnection
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import APIRouter, FastAPI, HTTPException, status
@@ -486,7 +486,7 @@ def test_register_allows_public_clients_with_configured_resource_scopes() -> Non
         client_id="test-client",
         allow_dynamic_client_registration=True,
         allow_unauthenticated_client_registration=True,
-        resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user", "files:read"])],
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
 

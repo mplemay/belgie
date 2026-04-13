@@ -4,7 +4,12 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from belgie_proto.oauth_server.types import AuthorizationIntent
+from belgie_proto.oauth_server.types import (
+    AuthorizationIntent,
+    OAuthServerClientType,
+    OAuthServerSubjectType,
+    TokenEndpointAuthMethod,
+)
 from brussels.types import DateTimeUTC, Json
 from sqlalchemy import JSON, BigInteger, Boolean, Enum, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -39,7 +44,7 @@ def _string_list_column(
 
 
 @declarative_mixin
-class OAuthClientMixin(MappedAsDataclass):
+class OAuthServerClientMixin(MappedAsDataclass):
     __tablename__ = "oauth_client"
 
     @declared_attr
@@ -63,7 +68,7 @@ class OAuthClientMixin(MappedAsDataclass):
         return _string_list_column(nullable=True, default=None)
 
     @declared_attr
-    def token_endpoint_auth_method(self) -> Mapped[str]:
+    def token_endpoint_auth_method(self) -> Mapped[TokenEndpointAuthMethod]:
         return mapped_column(Text, kw_only=True)
 
     @declared_attr
@@ -123,11 +128,11 @@ class OAuthClientMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
-    def type(self) -> Mapped[str | None]:
+    def type(self) -> Mapped[OAuthServerClientType | None]:
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
-    def subject_type(self) -> Mapped[str | None]:
+    def subject_type(self) -> Mapped[OAuthServerSubjectType | None]:
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
@@ -157,7 +162,7 @@ class OAuthClientMixin(MappedAsDataclass):
 
 
 @declarative_mixin
-class OAuthAuthorizationStateMixin(MappedAsDataclass):
+class OAuthServerAuthorizationStateMixin(MappedAsDataclass):
     __tablename__ = "oauth_authorization_state"
 
     @declared_attr
@@ -224,7 +229,7 @@ class OAuthAuthorizationStateMixin(MappedAsDataclass):
 
 
 @declarative_mixin
-class OAuthAuthorizationCodeMixin(MappedAsDataclass):
+class OAuthServerAuthorizationCodeMixin(MappedAsDataclass):
     __tablename__ = "oauth_authorization_code"
 
     @declared_attr
@@ -283,7 +288,7 @@ class OAuthAuthorizationCodeMixin(MappedAsDataclass):
 
 
 @declarative_mixin
-class OAuthAccessTokenMixin(MappedAsDataclass):
+class OAuthServerAccessTokenMixin(MappedAsDataclass):
     __tablename__ = "oauth_access_token"
 
     @declared_attr
@@ -342,7 +347,7 @@ class OAuthAccessTokenMixin(MappedAsDataclass):
 
 
 @declarative_mixin
-class OAuthRefreshTokenMixin(MappedAsDataclass):
+class OAuthServerRefreshTokenMixin(MappedAsDataclass):
     __tablename__ = "oauth_refresh_token"
 
     @declared_attr
@@ -393,7 +398,7 @@ class OAuthRefreshTokenMixin(MappedAsDataclass):
 
 
 @declarative_mixin
-class OAuthConsentMixin(MappedAsDataclass):
+class OAuthServerConsentMixin(MappedAsDataclass):
     __tablename__ = "oauth_consent"
 
     @declared_attr
@@ -424,10 +429,10 @@ class OAuthConsentMixin(MappedAsDataclass):
 
 
 __all__ = [
-    "OAuthAccessTokenMixin",
-    "OAuthAuthorizationCodeMixin",
-    "OAuthAuthorizationStateMixin",
-    "OAuthClientMixin",
-    "OAuthConsentMixin",
-    "OAuthRefreshTokenMixin",
+    "OAuthServerAccessTokenMixin",
+    "OAuthServerAuthorizationCodeMixin",
+    "OAuthServerAuthorizationStateMixin",
+    "OAuthServerClientMixin",
+    "OAuthServerConsentMixin",
+    "OAuthServerRefreshTokenMixin",
 ]

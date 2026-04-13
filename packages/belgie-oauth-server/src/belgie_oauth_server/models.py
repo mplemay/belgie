@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
 
 
-class OAuthToken(BaseModel):
+class OAuthServerToken(BaseModel):
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"  # noqa: S105
     expires_in: int | None = None
@@ -21,24 +21,24 @@ class OAuthToken(BaseModel):
         return value
 
 
-type OAuthAudience = str | list[str]
-type OAuthClientType = Literal["web", "native", "user-agent-based"]
-type OAuthSubjectType = Literal["public", "pairwise"]
+type OAuthServerAudience = str | list[str]
+type OAuthServerClientType = Literal["web", "native", "user-agent-based"]
+type OAuthServerSubjectType = Literal["public", "pairwise"]
 
 
-class OAuthErrorResponse(BaseModel):
+class OAuthServerErrorResponse(BaseModel):
     error: str
     error_description: str | None = None
 
 
-class OAuthIntrospectionResponse(BaseModel):
+class OAuthServerIntrospectionResponse(BaseModel):
     active: bool
     client_id: str | None = None
     scope: str | None = None
     exp: int | None = None
     iat: int | None = None
     token_type: str | None = None
-    aud: OAuthAudience | None = None
+    aud: OAuthServerAudience | None = None
     sub: str | None = None
     iss: str | None = None
     sid: str | None = None
@@ -64,7 +64,7 @@ class InvalidRedirectUriError(Exception):
         self.message = message
 
 
-class OAuthClientMetadata(BaseModel):
+class OAuthServerClientMetadata(BaseModel):
     redirect_uris: list[AnyUrl] | None = Field(default=None, min_length=1)
     token_endpoint_auth_method: (
         Literal[
@@ -91,8 +91,8 @@ class OAuthClientMetadata(BaseModel):
     software_version: str | None = None
     software_statement: str | None = None
     post_logout_redirect_uris: list[AnyUrl] | None = None
-    type: OAuthClientType | None = None
-    subject_type: OAuthSubjectType | None = None
+    type: OAuthServerClientType | None = None
+    subject_type: OAuthServerSubjectType | None = None
     require_pkce: bool | None = None
 
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
@@ -118,7 +118,7 @@ class OAuthClientMetadata(BaseModel):
         raise InvalidRedirectUriError(message)
 
 
-class OAuthClientInformationFull(OAuthClientMetadata):
+class OAuthServerClientInformationFull(OAuthServerClientMetadata):
     client_id: str | None = None
     client_secret: str | None = None
     client_id_issued_at: int | None = None
@@ -126,7 +126,7 @@ class OAuthClientInformationFull(OAuthClientMetadata):
     enable_end_session: bool | None = None
 
 
-class OAuthMetadata(BaseModel):
+class OAuthServerMetadata(BaseModel):
     issuer: AnyHttpUrl
     authorization_endpoint: AnyHttpUrl
     token_endpoint: AnyHttpUrl
@@ -152,7 +152,7 @@ class OAuthMetadata(BaseModel):
     client_id_metadata_document_supported: bool | None = None
 
 
-class OIDCMetadata(OAuthMetadata):
+class OIDCMetadata(OAuthServerMetadata):
     userinfo_endpoint: AnyHttpUrl
     claims_supported: list[str]
     subject_types_supported: list[str]

@@ -11,28 +11,28 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_proto.core.connection import DBConnection
-    from belgie_proto.oauth_server.access_token import OAuthAccessTokenProtocol
-    from belgie_proto.oauth_server.client import OAuthClientProtocol
-    from belgie_proto.oauth_server.code import OAuthAuthorizationCodeProtocol
-    from belgie_proto.oauth_server.consent import OAuthConsentProtocol
-    from belgie_proto.oauth_server.refresh_token import OAuthRefreshTokenProtocol
-    from belgie_proto.oauth_server.state import OAuthAuthorizationStateProtocol
+    from belgie_proto.oauth_server.access_token import OAuthServerAccessTokenProtocol
+    from belgie_proto.oauth_server.client import OAuthServerClientProtocol
+    from belgie_proto.oauth_server.code import OAuthServerAuthorizationCodeProtocol
+    from belgie_proto.oauth_server.consent import OAuthServerConsentProtocol
+    from belgie_proto.oauth_server.refresh_token import OAuthServerRefreshTokenProtocol
+    from belgie_proto.oauth_server.state import OAuthServerAuthorizationStateProtocol
     from belgie_proto.oauth_server.types import (
         AuthorizationIntent,
-        OAuthAudience,
-        OAuthClientType,
-        OAuthSubjectType,
+        OAuthServerAudience,
+        OAuthServerClientType,
+        OAuthServerSubjectType,
         TokenEndpointAuthMethod,
     )
 
 
 class OAuthServerAdapter[
-    ClientT: OAuthClientProtocol,
-    AuthorizationStateT: OAuthAuthorizationStateProtocol,
-    AuthorizationCodeT: OAuthAuthorizationCodeProtocol,
-    AccessTokenT: OAuthAccessTokenProtocol,
-    RefreshTokenT: OAuthRefreshTokenProtocol,
-    ConsentT: OAuthConsentProtocol,
+    ClientT: OAuthServerClientProtocol,
+    AuthorizationStateT: OAuthServerAuthorizationStateProtocol,
+    AuthorizationCodeT: OAuthServerAuthorizationCodeProtocol,
+    AccessTokenT: OAuthServerAccessTokenProtocol,
+    RefreshTokenT: OAuthServerRefreshTokenProtocol,
+    ConsentT: OAuthServerConsentProtocol,
 ](
     OAuthServerAdapterProtocol[
         ClientT,
@@ -89,8 +89,8 @@ class OAuthServerAdapter[
         software_id: str | None,
         software_version: str | None,
         software_statement: str | None,
-        type: OAuthClientType | None,
-        subject_type: OAuthSubjectType | None,
+        type: OAuthServerClientType | None,
+        subject_type: OAuthServerSubjectType | None,
         require_pkce: bool | None,
         enable_end_session: bool | None,
         client_id_issued_at: int | None,
@@ -273,7 +273,7 @@ class OAuthServerAdapter[
         token_hash: str,
         client_id: str,
         scopes: list[str],
-        resource: OAuthAudience | None,
+        resource: OAuthServerAudience | None,
         refresh_token_id: UUID | None,
         individual_id: UUID | None,
         session_id: UUID | None,

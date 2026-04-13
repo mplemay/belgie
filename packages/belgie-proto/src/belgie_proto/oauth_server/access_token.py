@@ -6,16 +6,16 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from belgie_proto.oauth_server.types import OAuthAudience
+    from belgie_proto.oauth_server.types import OAuthServerAudience
 
 
 @runtime_checkable
-class OAuthAccessTokenProtocol(Protocol):
+class OAuthServerAccessTokenProtocol(Protocol):
     id: UUID
     token_hash: str
     client_id: str
     scopes: list[str]
-    resource: OAuthAudience | None
+    resource: OAuthServerAudience | None
     refresh_token_id: UUID | None
     individual_id: UUID | None
     session_id: UUID | None

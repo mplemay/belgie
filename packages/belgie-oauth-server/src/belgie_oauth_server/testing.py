@@ -12,9 +12,9 @@ from belgie_proto.oauth_server import OAuthServerAdapterProtocol
 if TYPE_CHECKING:
     from belgie_proto.oauth_server.types import (
         AuthorizationIntent,
-        OAuthAudience,
-        OAuthClientType,
-        OAuthSubjectType,
+        OAuthServerAudience,
+        OAuthServerClientType,
+        OAuthServerSubjectType,
         TokenEndpointAuthMethod,
     )
 
@@ -53,8 +53,8 @@ class InMemoryOAuthClient:
     software_id: str | None
     software_version: str | None
     software_statement: str | None
-    type: OAuthClientType | None
-    subject_type: OAuthSubjectType | None
+    type: OAuthServerClientType | None
+    subject_type: OAuthServerSubjectType | None
     require_pkce: bool | None
     enable_end_session: bool | None
     client_id_issued_at: int | None
@@ -108,7 +108,7 @@ class InMemoryAccessToken:
     token_hash: str
     client_id: str
     scopes: list[str]
-    resource: OAuthAudience | None
+    resource: OAuthServerAudience | None
     refresh_token_id: UUID | None
     individual_id: UUID | None
     session_id: UUID | None
@@ -195,8 +195,8 @@ class InMemoryOAuthServerAdapter(
         software_id: str | None,
         software_version: str | None,
         software_statement: str | None,
-        type: OAuthClientType | None,
-        subject_type: OAuthSubjectType | None,
+        type: OAuthServerClientType | None,
+        subject_type: OAuthServerSubjectType | None,
         require_pkce: bool | None,
         enable_end_session: bool | None,
         client_id_issued_at: int | None,
@@ -378,7 +378,7 @@ class InMemoryOAuthServerAdapter(
         token_hash: str,
         client_id: str,
         scopes: list[str],
-        resource: OAuthAudience | None,
+        resource: OAuthServerAudience | None,
         refresh_token_id: UUID | None,
         individual_id: UUID | None,
         session_id: UUID | None,

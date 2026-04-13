@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class OAuthAuthorizationStateProtocol(Protocol):
+class OAuthServerAuthorizationStateProtocol(Protocol):
     id: UUID
     state: str
     client_id: str

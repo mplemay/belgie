@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import jwt
 import pytest
-from belgie_oauth_server import OAuthResource
+from belgie_oauth_server import OAuthServerResource
 from belgie_oauth_server.plugin import _id_token_signing_key
 from belgie_oauth_server.provider import AuthorizationParams
 from belgie_oauth_server.utils import create_code_challenge
@@ -295,7 +295,7 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
     settings = oauth_settings.model_copy(
         update={
             "client_secret": SecretStr("test-secret"),
-            "resources": [OAuthResource(prefix="/mcp/", scopes=["user"])],
+            "resources": [OAuthServerResource(prefix="/mcp/", scopes=["user"])],
         },
     )
     oauth_plugin = belgie_instance.add_plugin(settings)

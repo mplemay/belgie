@@ -12,7 +12,7 @@ import pytest
 import pytest_asyncio
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie_oauth_server.models import OAuthClientInformationFull, OAuthClientMetadata
+from belgie_oauth_server.models import OAuthServerClientInformationFull, OAuthServerClientMetadata
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -21,13 +21,13 @@ from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get
 from belgie_alchemy.__tests__.fixtures.core.models import (
     Account,
     Individual,
-    OAuthAccessToken,
     OAuthAccount,
-    OAuthAuthorizationCode,
-    OAuthAuthorizationState,
-    OAuthClient,
-    OAuthConsent,
-    OAuthRefreshToken,
+    OAuthServerAccessToken,
+    OAuthServerAuthorizationCode,
+    OAuthServerAuthorizationState,
+    OAuthServerClient,
+    OAuthServerConsent,
+    OAuthServerRefreshToken,
     OAuthState,
     Session,
 )
@@ -39,7 +39,7 @@ OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth-server" / "src"
 if str(OAUTH_SRC) not in sys.path:
     sys.path.insert(0, str(OAUTH_SRC))
 
-from belgie_oauth_server import OAuthResource, OAuthServer, OAuthServerPlugin  # noqa: E402
+from belgie_oauth_server import OAuthServer, OAuthServerPlugin, OAuthServerResource  # noqa: E402
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -124,12 +124,12 @@ def belgie_instance(
 @pytest.fixture
 def oauth_settings() -> OAuthServer:
     oauth_adapter = OAuthServerAdapter(
-        oauth_client=OAuthClient,
-        oauth_authorization_state=OAuthAuthorizationState,
-        oauth_authorization_code=OAuthAuthorizationCode,
-        oauth_access_token=OAuthAccessToken,
-        oauth_refresh_token=OAuthRefreshToken,
-        oauth_consent=OAuthConsent,
+        oauth_client=OAuthServerClient,
+        oauth_authorization_state=OAuthServerAuthorizationState,
+        oauth_authorization_code=OAuthServerAuthorizationCode,
+        oauth_access_token=OAuthServerAccessToken,
+        oauth_refresh_token=OAuthServerRefreshToken,
+        oauth_consent=OAuthServerConsent,
     )
     return OAuthServer(
         adapter=oauth_adapter,
@@ -141,7 +141,7 @@ def oauth_settings() -> OAuthServer:
         client_secret=SecretStr("test-secret"),
         redirect_uris=["http://testserver/callback"],
         default_scope="user",
-        resources=[OAuthResource(prefix="/mcp", scopes=["user"])],
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
     )
 
 
@@ -186,7 +186,7 @@ def basic_auth_header():
 
 @pytest.fixture
 def update_static_client(oauth_plugin: OAuthServerPlugin):
-    def _update(**updates: object) -> OAuthClientInformationFull:
+    def _update(**updates: object) -> OAuthServerClientInformationFull:
         assert oauth_plugin._provider is not None
         oauth_plugin._provider.static_client = oauth_plugin._provider.static_client.model_copy(update=updates)
         return oauth_plugin._provider.static_client
@@ -196,9 +196,9 @@ def update_static_client(oauth_plugin: OAuthServerPlugin):
 
 @pytest_asyncio.fixture
 async def register_dynamic_client(oauth_plugin: OAuthServerPlugin, db_session: AsyncSession):
-    async def _register(**metadata: object) -> OAuthClientInformationFull:
+    async def _register(**metadata: object) -> OAuthServerClientInformationFull:
         assert oauth_plugin._provider is not None
-        client_metadata = OAuthClientMetadata.model_validate(metadata)
+        client_metadata = OAuthServerClientMetadata.model_validate(metadata)
         return await oauth_plugin._provider.register_client(client_metadata, db=db_session)
 
     return _register

@@ -3,8 +3,8 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from belgie_core.core.belgie import Belgie
-from belgie_oauth_server.models import OAuthClientMetadata
-from belgie_oauth_server.settings import OAuthResource, OAuthServer
+from belgie_oauth_server.models import OAuthServerClientMetadata
+from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import FastAPI
 from pydantic import SecretStr
@@ -243,7 +243,7 @@ async def test_authorize_accepts_default_scope_for_scope_less_dynamic_client(
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     dynamic_client = await oauth_plugin._provider.register_client(
-        OAuthClientMetadata(
+        OAuthServerClientMetadata(
             redirect_uris=["http://testserver/callback"],
             token_endpoint_auth_method="none",
         ),
@@ -300,7 +300,7 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
     settings = oauth_settings.model_copy(
         update={
             "client_secret": SecretStr("test-secret"),
-            "resources": [OAuthResource(prefix="/mcp/", scopes=["user"])],
+            "resources": [OAuthServerResource(prefix="/mcp/", scopes=["user"])],
         },
     )
     belgie_instance.add_plugin(settings)

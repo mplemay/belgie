@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class OAuthRefreshTokenProtocol(Protocol):
+class OAuthServerRefreshTokenProtocol(Protocol):
     id: UUID
     token_hash: str
     client_id: str
