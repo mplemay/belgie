@@ -123,6 +123,9 @@ oauth_plugin = belgie.add_plugin(
         signup_url="/signup",
     ),
 )
+type OAuthClientDep = Annotated[OAuthServerClient, Depends(oauth_plugin)]
+type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
+type GoogleClientDep = Annotated[GoogleOAuthClient, Depends(google_plugin)]
 
 app.include_router(belgie.router)
 
@@ -146,7 +149,7 @@ async def home() -> HomeResponse:
 @app.get("/login")
 async def login(
     request: Request,
-    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+    oauth: OAuthClientDep,
 ) -> RedirectResponse:
     context = await oauth.try_resolve_login_context(request)
     if context is None:
@@ -168,8 +171,8 @@ async def login(
 @app.get("/signup")
 async def signup(
     request: Request,
-    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
-    client: Annotated[BelgieClient, Depends(belgie)],
+    oauth: OAuthClientDep,
+    client: BelgieClientDep,
 ) -> RedirectResponse:
     context = await oauth.try_resolve_login_context(request)
     redirect_target = context.return_to if context is not None else belgie.settings.urls.signin_redirect
@@ -185,8 +188,8 @@ async def signup(
 @app.get("/login/google")
 async def login_google(
     request: Request,
-    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
-    google: Annotated[GoogleOAuthClient, Depends(google_plugin)],
+    oauth: OAuthClientDep,
+    google: GoogleClientDep,
 ) -> RedirectResponse:
     context = await oauth.try_resolve_login_context(request)
     return_to = context.return_to if context is not None else belgie.settings.urls.signin_redirect

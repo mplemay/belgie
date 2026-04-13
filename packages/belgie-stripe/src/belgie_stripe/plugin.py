@@ -121,20 +121,20 @@ class StripePlugin[
     ) -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         router = APIRouter(tags=["auth", "stripe"])
-        stripe_dependency = Annotated[StripeClient, Depends(self)]
-        belgie_dependency = Annotated[StripeBelgieClient, Depends(belgie)]
+        type StripeDep = Annotated[StripeClient, Depends(self)]
+        type BelgieDep = Annotated[StripeBelgieClient, Depends(belgie)]
 
         @router.post("/subscription/upgrade")
         async def upgrade_subscription(
             payload: UpgradeSubscriptionRequest,
-            stripe: stripe_dependency,
+            stripe: StripeDep,
         ) -> Response:
             result = await stripe.upgrade(data=payload)
             return _to_response(result)
 
         @router.get("/subscription/list")
         async def list_subscriptions(
-            stripe: stripe_dependency,
+            stripe: StripeDep,
             account_id: Annotated[UUID | None, Query()] = None,
         ) -> list[SubscriptionView]:
             return await stripe.list_subscriptions(data=ListSubscriptionsRequest(account_id=account_id))
@@ -142,7 +142,7 @@ class StripePlugin[
         @router.post("/subscription/cancel")
         async def cancel_subscription(
             payload: CancelSubscriptionRequest,
-            stripe: stripe_dependency,
+            stripe: StripeDep,
         ) -> Response:
             result = await stripe.cancel(data=payload)
             return _to_response(result)
@@ -150,14 +150,14 @@ class StripePlugin[
         @router.post("/subscription/restore")
         async def restore_subscription(
             payload: RestoreSubscriptionRequest,
-            stripe: stripe_dependency,
+            stripe: StripeDep,
         ) -> SubscriptionView:
             return await stripe.restore(data=payload)
 
         @router.post("/subscription/billing-portal")
         async def billing_portal(
             payload: BillingPortalRequest,
-            stripe: stripe_dependency,
+            stripe: StripeDep,
         ) -> Response:
             result = await stripe.create_billing_portal(data=payload)
             return _to_response(result)
@@ -165,7 +165,7 @@ class StripePlugin[
         @router.get("/subscription/success")
         async def subscription_success(
             token: Annotated[str, Query(min_length=1)],
-            client: belgie_dependency,
+            client: BelgieDep,
         ) -> RedirectResponse:
             billing_client = self._build_client(belgie_client=client)
             return await billing_client.subscription_success(token=token)
@@ -173,7 +173,7 @@ class StripePlugin[
         @router.post("/stripe/webhook")
         async def stripe_webhook(
             request: Request,
-            client: belgie_dependency,
+            client: BelgieDep,
         ) -> dict[str, bool]:
             billing_client = self._build_client(belgie_client=client)
             return await billing_client.handle_webhook(request=request)

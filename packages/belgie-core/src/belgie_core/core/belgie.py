@@ -39,9 +39,10 @@ class _BelgieCallable:
             return self
 
         dependency = obj.database
+        type DbDep = Annotated[DBConnection, Depends(dependency)]
 
         def __call__(  # noqa: N807
-            db: Annotated[DBConnection, Depends(dependency)],
+            db: DbDep,
         ) -> BelgieClient:
             return BelgieClient(
                 db=db,
@@ -100,6 +101,7 @@ class Belgie[
     def router(self) -> APIRouter:
         main_router = APIRouter(prefix="/auth", tags=["auth"])
         dependency = self.database
+        type DbDep = Annotated[DBConnection, Depends(dependency)]
 
         for plugin in self.plugins:
             if (plugin_router := plugin.router(self)) is not None:
@@ -108,7 +110,7 @@ class Belgie[
         @main_router.post("/signout")
         async def signout(
             request: Request,
-            db: Annotated[DBConnection, Depends(dependency)],
+            db: DbDep,
         ) -> RedirectResponse:
             if session_id_str := request.cookies.get(self.settings.cookie.name):
                 with suppress(ValueError):
@@ -211,11 +213,12 @@ class Belgie[
     @property
     def individual(self) -> Callable[[SecurityScopes, Request, DBConnection], Awaitable[IndividualT]]:
         dependency = self.database
+        type DbDep = Annotated[DBConnection, Depends(dependency)]
 
         async def _individual(
             security_scopes: SecurityScopes,
             request: Request,
-            db: Annotated[DBConnection, Depends(dependency)],
+            db: DbDep,
         ) -> IndividualT:
             client = self.__call__(db)
             return await client.get_individual(security_scopes, request)
@@ -225,10 +228,11 @@ class Belgie[
     @property
     def session(self) -> Callable[[Request, DBConnection], Awaitable[SessionT]]:
         dependency = self.database
+        type DbDep = Annotated[DBConnection, Depends(dependency)]
 
         async def _session(
             request: Request,
-            db: Annotated[DBConnection, Depends(dependency)],
+            db: DbDep,
         ) -> SessionT:
             client = self.__call__(db)
             return await client.get_session(request)

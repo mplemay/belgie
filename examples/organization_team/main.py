@@ -174,6 +174,11 @@ team_plugin = belgie.add_plugin(
         adapter=team_adapter,
     ),
 )
+type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
+type CurrentIndividualDep = Annotated[Individual, Depends(belgie.individual)]
+type CurrentSessionDep = Annotated[Session, Depends(belgie.session)]
+type OrganizationClientDep = Annotated[OrganizationClient, Depends(organization_plugin)]
+type TeamClientDep = Annotated[TeamClient, Depends(team_plugin)]
 app.include_router(belgie.router)
 
 
@@ -200,7 +205,7 @@ async def home() -> HomeResponse:
 @app.get("/login")
 async def login(
     request: Request,
-    client: Annotated[BelgieClient, Depends(belgie)],
+    client: BelgieClientDep,
     email: Annotated[str, Query()] = "dev@example.com",
     name: Annotated[str | None, Query()] = "Dev Individual",
     return_to: Annotated[str, Query()] = "/",
@@ -217,8 +222,8 @@ async def login(
 
 @app.get("/me")
 async def me(
-    user: Annotated[Individual, Depends(belgie.individual)],
-    session: Annotated[Session, Depends(belgie.session)],
+    user: CurrentIndividualDep,
+    session: CurrentSessionDep,
 ) -> MeResponse:
     return MeResponse(
         individual_id=str(user.id),
@@ -231,7 +236,7 @@ async def me(
 @app.post("/org/create")
 async def create_organization(
     payload: CreateOrganizationPayload,
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: OrganizationClientDep,
 ) -> OrganizationFullView:
     org_row, member = await organization.create(
         name=payload.name,
@@ -248,7 +253,7 @@ async def create_organization(
 
 @app.get("/org/list")
 async def list_organizations(
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: OrganizationClientDep,
 ) -> list[OrganizationView]:
     rows = await organization.for_individual()
     return [OrganizationView.model_validate(row) for row in rows]
@@ -256,7 +261,7 @@ async def list_organizations(
 
 @app.get("/org/full")
 async def get_full_organization(
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: OrganizationClientDep,
     organization_id: Annotated[UUID | None, Query()] = None,
     organization_slug: Annotated[str | None, Query()] = None,
 ) -> OrganizationFullView | None:
@@ -276,7 +281,7 @@ async def get_full_organization(
 
 @app.get("/org/my-invitations")
 async def list_my_invitations(
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: OrganizationClientDep,
 ) -> list[InvitationView]:
     invitations = await organization.individual_invitations()
     return [InvitationView.model_validate(row) for row in invitations]
@@ -285,7 +290,7 @@ async def list_my_invitations(
 @app.post("/org/invite")
 async def invite_member(
     payload: InvitePayload,
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: OrganizationClientDep,
 ) -> InvitationView:
     invitation = await organization.invite(
         email=payload.email,
@@ -299,7 +304,7 @@ async def invite_member(
 @app.post("/org/accept-invitation")
 async def accept_invitation(
     payload: AcceptInvitationPayload,
-    organization: Annotated[OrganizationClient, Depends(organization_plugin)],
+    organization: OrganizationClientDep,
 ) -> InvitationView:
     invitation, member = await organization.accept_invitation(invitation_id=payload.invitation_id)
     _ = member
@@ -309,7 +314,7 @@ async def accept_invitation(
 @app.post("/team/create")
 async def create_team(
     payload: CreateTeamPayload,
-    team: Annotated[TeamClient, Depends(team_plugin)],
+    team: TeamClientDep,
 ) -> TeamView:
     created = await team.create(
         name=payload.name,
@@ -320,7 +325,7 @@ async def create_team(
 
 @app.get("/team/list")
 async def list_teams(
-    team: Annotated[TeamClient, Depends(team_plugin)],
+    team: TeamClientDep,
     organization_id: Annotated[UUID, Query()],
 ) -> list[TeamView]:
     rows = await team.teams(organization_id=organization_id)
@@ -330,7 +335,7 @@ async def list_teams(
 @app.post("/team/add-member")
 async def add_team_member(
     payload: AddTeamMemberPayload,
-    team: Annotated[TeamClient, Depends(team_plugin)],
+    team: TeamClientDep,
 ) -> TeamMemberView:
     member = await team.add_member(team_id=payload.team_id, individual_id=payload.individual_id)
     return TeamMemberView.model_validate(member)
@@ -338,7 +343,7 @@ async def add_team_member(
 
 @app.get("/team/members")
 async def list_team_members(
-    team: Annotated[TeamClient, Depends(team_plugin)],
+    team: TeamClientDep,
     team_id: Annotated[UUID, Query()],
 ) -> list[TeamMemberView]:
     members = await team.members(team_id=team_id)

@@ -62,7 +62,7 @@ type FormInput = Mapping[str, FormValue] | FormData
 type AuthorizePrompt = Literal["none", "consent", "login", "create", "select_account"]
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Callable
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -97,7 +97,7 @@ class OAuthServerPlugin(PluginClient):
         self._settings = settings
         self._provider: SimpleOAuthProvider | None = None
         self._metadata_router: APIRouter | None = None
-        self._resolve_client: Callable[..., Coroutine[object, object, OAuthServerClient]] | None = None
+        self._resolve_client: Callable[..., OAuthServerClient] | None = None
 
     @property
     def settings(self) -> OAuthServer:
@@ -111,20 +111,22 @@ class OAuthServerPlugin(PluginClient):
         if self._resolve_client is not None:
             return
 
-        async def resolve_client(_client: Annotated[BelgieClient, Depends(belgie)]) -> OAuthServerClient:
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
+
+        def resolve_client(_client: BelgieClientDep) -> OAuthServerClient:
             return OAuthServerClient(provider=provider, issuer_url=issuer_url)
 
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
-    async def __call__(self, *args: object, **kwargs: object) -> OAuthServerClient:
+    def __call__(self, *args: object, **kwargs: object) -> OAuthServerClient:
         if self._resolve_client is None:
             msg = (
                 "OAuthServerPlugin dependency requires router initialization "
                 "(call app.include_router(belgie.router) first)"
             )
             raise RuntimeError(msg)
-        return await self._resolve_client(*args, **kwargs)
+        return self._resolve_client(*args, **kwargs)
 
     def router(self, belgie: Belgie) -> APIRouter:
         issuer_url = (
@@ -283,9 +285,11 @@ class OAuthServerPlugin(PluginClient):
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
+
         async def _authorize(  # noqa: PLR0911
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClient,
         ) -> Response:
             data = await _get_request_params(request)
             authorize_request = await _parse_authorize_request(
@@ -392,13 +396,13 @@ class OAuthServerPlugin(PluginClient):
 
         async def authorize_get_handler(
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClientDep,
         ) -> Response:
             return await _authorize(request, client)
 
         async def authorize_post_handler(
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClientDep,
         ) -> Response:
             return await _authorize(request, client)
 
@@ -460,6 +464,7 @@ class OAuthServerPlugin(PluginClient):
     ) -> APIRouter:
         async def register_handler(  # noqa: PLR0911
             request: Request,
+            response: Response,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> OAuthServerClientInformationFull | Response:
             if not settings.allow_dynamic_client_registration:
@@ -517,20 +522,16 @@ class OAuthServerPlugin(PluginClient):
             except ValueError as exc:
                 description = str(exc) or "invalid client metadata"
                 return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
-            return JSONResponse(
-                client_info.model_dump(mode="json", exclude_none=True),
-                status_code=status.HTTP_201_CREATED,
-                headers={
-                    "Cache-Control": "no-store",
-                    "Pragma": "no-cache",
-                },
-            )
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+            return client_info
 
         router.add_api_route(
             "/register",
             register_handler,
             methods=["POST"],
             response_model=OAuthServerClientInformationFull,
+            response_model_exclude_none=True,
             status_code=status.HTTP_201_CREATED,
         )
         return router
@@ -778,9 +779,11 @@ class OAuthServerPlugin(PluginClient):
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
+
         async def _handle_continue(
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClient,
         ) -> Response:
             payload = await _get_request_payload(request)
             state = _get_payload_str(payload, "state")
@@ -821,13 +824,13 @@ class OAuthServerPlugin(PluginClient):
 
         async def continue_get_handler(
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClientDep,
         ) -> Response:
             return await _handle_continue(request, client)
 
         async def continue_post_handler(
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClientDep,
         ) -> Response:
             return await _handle_continue(request, client)
 
@@ -843,9 +846,11 @@ class OAuthServerPlugin(PluginClient):
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
+
         async def _handle_consent(
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClient,
         ) -> Response:
             payload = await _get_request_payload(request)
             state = _get_payload_str(payload, "state")
@@ -909,13 +914,13 @@ class OAuthServerPlugin(PluginClient):
 
         async def consent_get_handler(
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClientDep,
         ) -> Response:
             return await _handle_consent(request, client)
 
         async def consent_post_handler(
             request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
+            client: BelgieClientDep,
         ) -> Response:
             return await _handle_consent(request, client)
 
@@ -976,7 +981,10 @@ class OAuthServerPlugin(PluginClient):
         router: APIRouter,
         provider: SimpleOAuthProvider,
     ) -> APIRouter:
-        async def introspect_handler(request: Request) -> OAuthServerIntrospectionResponse | Response:  # noqa: C901, PLR0911
+        async def introspect_handler(  # noqa: C901, PLR0911
+            request: Request,
+            response: Response,
+        ) -> OAuthServerIntrospectionResponse | Response:
             form = await request.form()
             client_id, client_secret, auth_error = _extract_client_credentials(request, form)
             if auth_error is not None:
@@ -996,10 +1004,8 @@ class OAuthServerPlugin(PluginClient):
 
             token = _get_str(form, "token")
             if not token:
-                return JSONResponse(
-                    OAuthServerIntrospectionResponse(active=False).model_dump(mode="json"),
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
+                response.status_code = status.HTTP_400_BAD_REQUEST
+                return OAuthServerIntrospectionResponse(active=False)
             if token.startswith("Bearer "):
                 token = token.removeprefix("Bearer ")
 
