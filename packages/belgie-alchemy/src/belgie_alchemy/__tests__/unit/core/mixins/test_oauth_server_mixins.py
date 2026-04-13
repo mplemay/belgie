@@ -62,7 +62,8 @@ def test_oauth_client_mixin_columns_and_types() -> None:
     assert isinstance(redirect_uris_column.type.dialect_impl(postgres), PG_ARRAY)
     assert isinstance(redirect_uris_column.type.dialect_impl(postgres).item_type, Text)
     assert isinstance(redirect_uris_column.type.dialect_impl(sqlite), type(JSON().dialect_impl(sqlite)))
-    assert not redirect_uris_column.nullable
+    assert redirect_uris_column.nullable
+    assert redirect_uris_column.default is None
 
     post_logout_redirect_uris_column = OAuthClient.__table__.c.post_logout_redirect_uris
     assert isinstance(post_logout_redirect_uris_column.type.dialect_impl(postgres), PG_ARRAY)
