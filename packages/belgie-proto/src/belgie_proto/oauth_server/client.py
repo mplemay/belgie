@@ -15,7 +15,7 @@ class OAuthClientProtocol(Protocol):
     client_id: str
     client_secret: str | None
     client_secret_hash: str | None
-    redirect_uris: list[str]
+    redirect_uris: list[str] | None
     post_logout_redirect_uris: list[str] | None
     token_endpoint_auth_method: TokenEndpointAuthMethod
     grant_types: list[str]

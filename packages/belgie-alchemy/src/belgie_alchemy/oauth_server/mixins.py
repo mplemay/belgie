@@ -55,8 +55,8 @@ class OAuthClientMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
-    def redirect_uris(self) -> Mapped[list[str]]:
-        return _string_list_column(nullable=False, default_factory=list)
+    def redirect_uris(self) -> Mapped[list[str] | None]:
+        return _string_list_column(nullable=True, default=None)
 
     @declared_attr
     def post_logout_redirect_uris(self) -> Mapped[list[str] | None]:
