@@ -48,7 +48,7 @@ def test_openid_metadata_endpoint(client: TestClient) -> None:
     assert payload["issuer"] == AUTH_BASE_URL
     assert payload["userinfo_endpoint"] == f"{AUTH_BASE_URL}/userinfo"
     assert payload["end_session_endpoint"] == f"{AUTH_BASE_URL}/end-session"
-    assert payload["id_token_signing_alg_values_supported"] == ["HS256"]
+    assert payload["id_token_signing_alg_values_supported"] == ["RS256"]
     assert payload["response_modes_supported"] == ["query"]
 
 

@@ -10,6 +10,7 @@ from belgie_oauth_server.metadata import (
     build_protected_resource_metadata,
     build_protected_resource_metadata_well_known_path,
 )
+from belgie_oauth_server.signing import OAuthServerSigning
 
 
 def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
@@ -24,6 +25,19 @@ def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
     assert metadata.introspection_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
     assert metadata.revocation_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
     assert metadata.authorization_response_iss_parameter_supported is True
+    assert str(metadata.jwks_uri) == "https://auth.local/auth/oauth/jwks"
+
+
+def test_build_oauth_metadata_omits_jwks_uri_for_hs256() -> None:
+    metadata = build_oauth_metadata(
+        "https://auth.local/auth/oauth",
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            signing=OAuthServerSigning(algorithm="HS256"),
+        ),
+    )
+
+    assert metadata.jwks_uri is None
 
 
 def test_build_protected_resource_metadata() -> None:

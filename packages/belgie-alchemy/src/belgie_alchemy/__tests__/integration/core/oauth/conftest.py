@@ -40,6 +40,7 @@ if str(OAUTH_SRC) not in sys.path:
     sys.path.insert(0, str(OAUTH_SRC))
 
 from belgie_oauth_server import OAuthServer, OAuthServerPlugin, OAuthServerResource  # noqa: E402
+from belgie_oauth_server.development import build_development_signing  # noqa: E402
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -142,6 +143,7 @@ def oauth_settings() -> OAuthServer:
         redirect_uris=["http://testserver/callback"],
         default_scope="user",
         resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+        signing=build_development_signing(),
     )
 
 

@@ -1147,6 +1147,7 @@ class OAuthServerPlugin(PluginClient):
 
         async def create_client_handler(
             request: Request,
+            response: Response,
             client: BelgieClientDep,
         ) -> OAuthServerClientInformationFull | Response:
             try:
@@ -1184,7 +1185,7 @@ class OAuthServerPlugin(PluginClient):
 
             try:
                 provider.validate_client_metadata(metadata)
-                return await provider.register_client(
+                client_info = await provider.register_client(
                     metadata,
                     individual_id=str(individual.id),
                     reference_id=reference_id,
@@ -1192,6 +1193,9 @@ class OAuthServerPlugin(PluginClient):
                 )
             except ValueError as exc:
                 return _oauth_error("invalid_request", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+            else:
+                _set_no_store_headers(response)
+                return client_info
 
         async def list_clients_handler(
             request: Request,
@@ -1273,7 +1277,7 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
             return _redact_client_secret(oauth_client)
 
-        async def update_client_handler(
+        async def update_client_handler(  # noqa: PLR0911
             request: Request,
             client_id: str,
             client: BelgieClientDep,
@@ -1308,6 +1312,12 @@ class OAuthServerPlugin(PluginClient):
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
             updates = _normalize_client_updates(payload)
+            try:
+                merged_metadata = _merge_client_metadata(oauth_client, updates)
+                provider.validate_client_metadata(merged_metadata.model_copy(update={"skip_consent": None}))
+            except (ValidationError, ValueError) as exc:
+                description = _format_validation_error(exc) if isinstance(exc, ValidationError) else str(exc)
+                return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
             if "reference_id" in updates:
                 new_reference_id = updates["reference_id"]
                 resolved_reference = await _resolve_client_reference_id(settings, individual_id, session_id)
@@ -1348,6 +1358,7 @@ class OAuthServerPlugin(PluginClient):
 
         async def rotate_client_secret_handler(
             request: Request,
+            response: Response,
             client_id: str,
             client: BelgieClientDep,
         ) -> OAuthServerClientInformationFull | Response:
@@ -1371,6 +1382,7 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("invalid_request", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
             if rotated_client is None:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
+            _set_no_store_headers(response)
             return rotated_client
 
         router.add_api_route(
@@ -2278,9 +2290,6 @@ def _rate_limited_error(retry_after: int | None) -> JSONResponse:
 
 
 def _request_identifier(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip()
     return request.client.host if request.client is not None else "unknown"
 
 
@@ -2302,6 +2311,11 @@ def _redirect_response(request: Request, url: str, *, status_code: int = status.
     if is_fetch_request(request):
         return JSONResponse({"redirect_to": url, "redirect_url": url})
     return RedirectResponse(url=url, status_code=status_code)
+
+
+def _set_no_store_headers(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
 
 
 def _format_validation_error(error: ValidationError) -> str:
@@ -2927,6 +2941,17 @@ def _normalize_client_updates(payload: Mapping[str, JSONValue]) -> dict[str, obj
         ):
             normalized[key] = value
     return normalized
+
+
+def _merge_client_metadata(
+    oauth_client: OAuthServerClientInformationFull,
+    updates: Mapping[str, object],
+) -> OAuthServerClientMetadata:
+    merged_payload = {field: getattr(oauth_client, field) for field in OAuthServerClientMetadata.model_fields}
+    merged_payload.update(
+        {field: value for field, value in updates.items() if field in OAuthServerClientMetadata.model_fields},
+    )
+    return OAuthServerClientMetadata.model_validate(merged_payload)
 
 
 async def _maybe_build_id_token(  # noqa: PLR0913

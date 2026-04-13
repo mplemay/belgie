@@ -26,6 +26,8 @@ async def verify_local_access_token(
             verify_exp=verify_exp,
         )
     ) is not None:
+        if await provider.load_access_token(token) is None:
+            return None
         return VerifiedAccessToken(source="jwt", token=signed_token)
 
     if (stored_token := await provider.load_access_token(token)) is not None:

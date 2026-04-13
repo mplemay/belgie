@@ -73,8 +73,10 @@ def build_signing_state(signing: OAuthServerSigning, fallback_secret: str) -> OA
             verification_key=secret,
         )
 
-    private_key = _load_or_generate_rsa_private_key(signing.private_key_pem)
-    public_key = private_key.public_key()
+    private_key = _load_rsa_private_key(signing.private_key_pem)
+    public_key = (
+        _load_rsa_public_key(signing.public_key_pem) if signing.public_key_pem is not None else private_key.public_key()
+    )
     private_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -94,14 +96,23 @@ def build_signing_state(signing: OAuthServerSigning, fallback_secret: str) -> OA
     )
 
 
-def _load_or_generate_rsa_private_key(secret: SecretStr | None) -> rsa.RSAPrivateKey:
+def _load_rsa_private_key(secret: SecretStr | None) -> rsa.RSAPrivateKey:
     if secret is None:
-        return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        msg = "signing.private_key_pem is required when signing.algorithm is RS256"
+        raise ValueError(msg)
 
     return serialization.load_pem_private_key(
         secret.get_secret_value().encode("utf-8"),
         password=None,
     )
+
+
+def _load_rsa_public_key(secret: SecretStr) -> rsa.RSAPublicKey:
+    public_key = serialization.load_pem_public_key(secret.get_secret_value().encode("utf-8"))
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        msg = "signing.public_key_pem must be an RSA public key"
+        raise TypeError(msg)
+    return public_key
 
 
 def _rsa_public_jwk(public_key: rsa.RSAPublicKey, key_id: str) -> dict[str, Any]:

@@ -114,6 +114,28 @@ async def test_verify_token_local_provider_accepts_dynamic_client_access_tokens(
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_verify_token_local_provider_rejects_revoked_signed_tokens() -> None:
+    endpoint = "https://issuer.local/introspect"
+    route = respx.post(endpoint).mock(return_value=Response(200, json={"active": False}))
+    provider = _build_provider(_oauth_settings())
+    token_value, stored_token = await _issue_dynamic_client_access_token(
+        provider,
+        individual_id=str(uuid4()),
+        resource="https://mcp.local/mcp",
+    )
+    await provider.revoke_token(stored_token)
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint=endpoint,
+        server_url="https://mcp.local/mcp",
+        provider_resolver=lambda: provider,
+    )
+
+    assert await verifier.verify_token(token_value) is None
+    assert route.called is True
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_verify_token_local_provider_falls_back_to_introspection_for_missing_tokens() -> None:
     endpoint = "https://issuer.local/introspect"
     route = respx.post(endpoint).mock(

@@ -65,6 +65,8 @@ class UserLookup:
                 continue
             verified_token = await verify_local_access_token(plugin.provider, token)
             if verified_token is None:
+                if plugin.provider.verify_signed_access_token(token) is not None:
+                    return True, None
                 continue
             stored_token = verified_token.token
             if stored_token.individual_id is None:

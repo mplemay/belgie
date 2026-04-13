@@ -152,6 +152,45 @@ def _build_settings(**overrides: object) -> OAuthServer:
     return build_oauth_settings(**overrides)
 
 
+def _issue_resource_bound_token(
+    client: TestClient,
+    plugin: OAuthServerPlugin,
+    settings: OAuthServer,
+    *,
+    state: str,
+    scope: str = "openid user",
+    verifier: str = "verifier",
+) -> dict[str, object]:
+    _update_static_client(plugin, settings.client_id, scope=scope)
+
+    authorize = client.get(
+        "/auth/oauth/authorize",
+        params={
+            **_authorize_params(settings, state=state, scope=scope, verifier=verifier),
+            "resource": "http://testserver/mcp",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    code = _query(authorize.headers["location"])["code"][0]
+    token_request = {
+        "grant_type": "authorization_code",
+        "client_id": settings.client_id,
+        "code": code,
+        "redirect_uri": str(settings.redirect_uris[0]),
+        "code_verifier": verifier,
+    }
+    if settings.client_secret is not None:
+        token_request["client_secret"] = settings.client_secret.get_secret_value()
+
+    token_response = client.post("/auth/oauth/token", data=token_request)
+
+    assert token_response.status_code == 200
+    return token_response.json()
+
+
 def test_authorize_success_and_error_redirects_include_iss() -> None:
     settings = _build_settings(
         base_url="http://testserver",
@@ -984,3 +1023,148 @@ def test_introspect_missing_token_returns_modeled_error_body() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"active": False}
+
+
+def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+
+    token_payload = _issue_resource_bound_token(client, plugin, settings, state="state-revoked-jwt")
+    assert token_payload["access_token"].count(".") == 2
+
+    revoke = client.post(
+        "/auth/oauth/revoke",
+        data={
+            "client_id": settings.client_id,
+            "client_secret": "static-secret",
+            "token": token_payload["access_token"],
+            "token_type_hint": "access_token",
+        },
+    )
+
+    assert revoke.status_code == 200
+    assert revoke.json() == {}
+
+    userinfo = client.get(
+        "/auth/oauth/userinfo",
+        headers={"authorization": f"Bearer {token_payload['access_token']}"},
+    )
+
+    assert userinfo.status_code == 401
+    assert userinfo.json() == {"error": "invalid_token"}
+
+    introspection = client.post(
+        "/auth/oauth/introspect",
+        data={
+            "client_id": settings.client_id,
+            "client_secret": "static-secret",
+            "token": token_payload["access_token"],
+        },
+    )
+
+    assert introspection.status_code == 200
+    assert introspection.json() == {"active": False}
+
+
+def test_patch_client_rejects_invalid_merged_metadata() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    created = client.post(
+        "/auth/oauth/clients",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "user",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert created.status_code == 201
+    patched = client.patch(
+        f"/auth/oauth/clients/{created.json()['client_id']}",
+        json={"redirect_uris": ["not-a-uri"]},
+        headers=_auth_headers(),
+    )
+
+    assert patched.status_code == 400
+    assert patched.json()["error"] == "invalid_request"
+    assert "redirect_uris" in patched.json()["error_description"]
+
+
+def test_client_management_secret_responses_are_not_cacheable() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    created = client.post(
+        "/auth/oauth/clients",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+            "scope": "user",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert created.status_code == 201
+    assert created.headers["cache-control"] == "no-store"
+    assert created.headers["pragma"] == "no-cache"
+    created_payload = created.json()
+    assert created_payload["client_secret"]
+
+    rotated = client.post(
+        f"/auth/oauth/clients/{created_payload['client_id']}/rotate-secret",
+        headers=_auth_headers(),
+    )
+
+    assert rotated.status_code == 200
+    assert rotated.headers["cache-control"] == "no-store"
+    assert rotated.headers["pragma"] == "no-cache"
+    assert rotated.json()["client_secret"] != created_payload["client_secret"]
+
+
+def test_authorize_rate_limit_ignores_x_forwarded_for() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        rate_limit={"authorize": {"window": 60, "max": 1}},
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    first = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-rate-limit-1"),
+        headers={"x-forwarded-for": "203.0.113.1"},
+        follow_redirects=False,
+    )
+    second = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-rate-limit-2"),
+        headers={"x-forwarded-for": "198.51.100.7"},
+        follow_redirects=False,
+    )
+
+    assert first.status_code != 429
+    assert second.status_code == 429
+    assert second.json() == {
+        "error": "rate_limited",
+        "error_description": "too many requests",
+    }
+    assert "retry-after" in second.headers
