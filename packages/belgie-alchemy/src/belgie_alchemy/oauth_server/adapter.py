@@ -60,13 +60,9 @@ class OAuthServerAdapter[
         self.oauth_refresh_token_model = oauth_refresh_token
         self.oauth_consent_model = oauth_consent
 
-    async def _commit_and_refresh(self, session: DBConnection, instance: object) -> object:
-        try:
-            await session.commit()
-            await session.refresh(instance)
-        except Exception:
-            await session.rollback()
-            raise
+    async def _flush_and_refresh(self, session: DBConnection, instance: object) -> object:
+        await session.flush()
+        await session.refresh(instance)
         return instance
 
     async def create_client(
@@ -74,6 +70,7 @@ class OAuthServerAdapter[
         session: DBConnection,
         *,
         client_id: str,
+        client_secret: str | None,
         client_secret_hash: str | None,
         redirect_uris: list[str],
         post_logout_redirect_uris: list[str] | None,
@@ -102,6 +99,7 @@ class OAuthServerAdapter[
     ) -> ClientT:
         client = self.oauth_client_model(
             client_id=client_id,
+            client_secret=client_secret,
             client_secret_hash=client_secret_hash,
             redirect_uris=redirect_uris,
             post_logout_redirect_uris=post_logout_redirect_uris,
@@ -129,7 +127,7 @@ class OAuthServerAdapter[
             individual_id=individual_id,
         )
         session.add(client)
-        return await self._commit_and_refresh(session, client)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, client)  # type: ignore[return-value]
 
     async def get_client_by_client_id(self, session: DBConnection, *, client_id: str) -> ClientT | None:
         stmt = select(self.oauth_client_model).where(self.oauth_client_model.client_id == client_id)
@@ -170,7 +168,7 @@ class OAuthServerAdapter[
             expires_at=expires_at,
         )
         session.add(authorization_state)
-        return await self._commit_and_refresh(session, authorization_state)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, authorization_state)  # type: ignore[return-value]
 
     async def get_authorization_state(self, session: DBConnection, *, state: str) -> AuthorizationStateT | None:
         stmt = select(self.oauth_authorization_state_model).where(self.oauth_authorization_state_model.state == state)
@@ -191,7 +189,7 @@ class OAuthServerAdapter[
         authorization_state.individual_id = individual_id
         authorization_state.session_id = session_id
         authorization_state.updated_at = datetime.now(UTC)
-        return await self._commit_and_refresh(session, authorization_state)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, authorization_state)  # type: ignore[return-value]
 
     async def update_authorization_state_interaction(
         self,
@@ -210,16 +208,11 @@ class OAuthServerAdapter[
         if scopes is not None:
             authorization_state.scopes = scopes
         authorization_state.updated_at = datetime.now(UTC)
-        return await self._commit_and_refresh(session, authorization_state)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, authorization_state)  # type: ignore[return-value]
 
     async def delete_authorization_state(self, session: DBConnection, *, state: str) -> bool:
         stmt = delete(self.oauth_authorization_state_model).where(self.oauth_authorization_state_model.state == state)
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def create_authorization_code(
@@ -252,7 +245,7 @@ class OAuthServerAdapter[
             expires_at=expires_at,
         )
         session.add(authorization_code)
-        return await self._commit_and_refresh(session, authorization_code)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, authorization_code)  # type: ignore[return-value]
 
     async def get_authorization_code_by_code_hash(
         self,
@@ -271,11 +264,6 @@ class OAuthServerAdapter[
             self.oauth_authorization_code_model.code_hash == code_hash,
         )
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def create_access_token(
@@ -302,7 +290,7 @@ class OAuthServerAdapter[
             expires_at=expires_at,
         )
         session.add(access_token)
-        return await self._commit_and_refresh(session, access_token)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, access_token)  # type: ignore[return-value]
 
     async def get_access_token_by_token_hash(self, session: DBConnection, *, token_hash: str) -> AccessTokenT | None:
         stmt = select(self.oauth_access_token_model).where(self.oauth_access_token_model.token_hash == token_hash)
@@ -312,11 +300,6 @@ class OAuthServerAdapter[
     async def delete_access_token_by_token_hash(self, session: DBConnection, *, token_hash: str) -> bool:
         stmt = delete(self.oauth_access_token_model).where(self.oauth_access_token_model.token_hash == token_hash)
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def delete_access_tokens_by_refresh_token_id(self, session: DBConnection, *, refresh_token_id: UUID) -> int:
@@ -324,11 +307,6 @@ class OAuthServerAdapter[
             self.oauth_access_token_model.refresh_token_id == refresh_token_id,
         )
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount  # type: ignore[attr-defined]
 
     async def delete_access_tokens_for_client_and_individual(
@@ -343,11 +321,6 @@ class OAuthServerAdapter[
             self.oauth_access_token_model.individual_id == individual_id,
         )
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount  # type: ignore[attr-defined]
 
     async def delete_access_tokens_for_client_individual_and_session(
@@ -364,11 +337,6 @@ class OAuthServerAdapter[
             self.oauth_access_token_model.session_id == session_id,
         )
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount  # type: ignore[attr-defined]
 
     async def create_refresh_token(
@@ -393,7 +361,7 @@ class OAuthServerAdapter[
             expires_at=expires_at,
         )
         session.add(refresh_token)
-        return await self._commit_and_refresh(session, refresh_token)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, refresh_token)  # type: ignore[return-value]
 
     async def get_refresh_token_by_token_hash(self, session: DBConnection, *, token_hash: str) -> RefreshTokenT | None:
         stmt = select(self.oauth_refresh_token_model).where(self.oauth_refresh_token_model.token_hash == token_hash)
@@ -414,16 +382,11 @@ class OAuthServerAdapter[
             return None
         refresh_token.revoked_at = revoked_at
         refresh_token.updated_at = datetime.now(UTC)
-        return await self._commit_and_refresh(session, refresh_token)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, refresh_token)  # type: ignore[return-value]
 
     async def delete_refresh_token_by_token_hash(self, session: DBConnection, *, token_hash: str) -> bool:
         stmt = delete(self.oauth_refresh_token_model).where(self.oauth_refresh_token_model.token_hash == token_hash)
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def delete_refresh_tokens_for_client_and_individual(
@@ -438,11 +401,6 @@ class OAuthServerAdapter[
             self.oauth_refresh_token_model.individual_id == individual_id,
         )
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount  # type: ignore[attr-defined]
 
     async def delete_refresh_tokens_for_client_individual_and_session(
@@ -459,11 +417,6 @@ class OAuthServerAdapter[
             self.oauth_refresh_token_model.session_id == session_id,
         )
         result = await session.execute(stmt)
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         return result.rowcount  # type: ignore[attr-defined]
 
     async def upsert_consent(
@@ -482,11 +435,11 @@ class OAuthServerAdapter[
                 scopes=scopes,
             )
             session.add(consent)
-            return await self._commit_and_refresh(session, consent)  # type: ignore[return-value]
+            return await self._flush_and_refresh(session, consent)  # type: ignore[return-value]
 
         consent.scopes = scopes
         consent.updated_at = datetime.now(UTC)
-        return await self._commit_and_refresh(session, consent)  # type: ignore[return-value]
+        return await self._flush_and_refresh(session, consent)  # type: ignore[return-value]
 
     async def get_consent(
         self,

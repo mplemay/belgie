@@ -437,7 +437,7 @@ async def test_token_authorization_code_issues_id_token_for_public_client(
 
 
 @pytest.mark.asyncio
-async def test_token_authorization_code_dynamic_confidential_client_uses_server_signing_secret(
+async def test_token_authorization_code_dynamic_confidential_client_uses_client_secret(
     async_client,
     belgie_instance,
     db_session,
@@ -484,23 +484,23 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_server_
 
     assert token_response.status_code == 200
     id_token = token_response.json()["id_token"]
-    with pytest.raises(jwt.InvalidSignatureError):
-        jwt.decode(
-            id_token,
-            _id_token_signing_key(dynamic_client.client_secret),
-            algorithms=["HS256"],
-            audience=dynamic_client.client_id,
-            issuer="http://testserver/auth/oauth",
-        )
-
     decoded = jwt.decode(
         id_token,
-        _id_token_signing_key(belgie_instance.settings.secret),
+        _id_token_signing_key(dynamic_client.client_secret),
         algorithms=["HS256"],
         audience=dynamic_client.client_id,
         issuer="http://testserver/auth/oauth",
     )
     assert decoded["sub"]
+
+    with pytest.raises(jwt.InvalidSignatureError):
+        jwt.decode(
+            id_token,
+            _id_token_signing_key(belgie_instance.settings.secret),
+            algorithms=["HS256"],
+            audience=dynamic_client.client_id,
+            issuer="http://testserver/auth/oauth",
+        )
 
 
 @pytest.mark.asyncio

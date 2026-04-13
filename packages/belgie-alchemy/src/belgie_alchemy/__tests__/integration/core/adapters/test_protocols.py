@@ -234,6 +234,7 @@ class ExampleSSODomain:
 class ExampleOAuthClient:
     id: UUID
     client_id: str
+    client_secret: str | None
     client_secret_hash: str | None
     redirect_uris: list[str]
     post_logout_redirect_uris: list[str] | None
@@ -649,6 +650,7 @@ def test_oauth_entity_protocol_runtime_checks() -> None:
     client = ExampleOAuthClient(
         id=uuid4(),
         client_id="client-123",
+        client_secret="secret-value",
         client_secret_hash="secret-hash",
         redirect_uris=["https://client.example/callback"],
         post_logout_redirect_uris=["https://client.example/logout"],

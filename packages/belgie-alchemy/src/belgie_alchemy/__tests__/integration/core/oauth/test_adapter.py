@@ -4,9 +4,15 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
+from belgie_oauth_server.provider import AuthorizationParams
 from sqlalchemy import select
 
-from belgie_alchemy.__tests__.fixtures.core.models import Session
+from belgie_alchemy.__tests__.fixtures.core.models import (
+    OAuthAuthorizationCode,
+    OAuthAuthorizationState,
+    OAuthRefreshToken,
+    Session,
+)
 
 
 @pytest.mark.asyncio
@@ -24,6 +30,7 @@ async def test_oauth_server_adapter_client_and_state_lifecycle(
     client = await adapter.create_client(
         db_session,
         client_id="adapter-client",
+        client_secret="secret-value",
         client_secret_hash="secret-hash",
         redirect_uris=["https://client.example/callback"],
         post_logout_redirect_uris=["https://client.example/logout"],
@@ -53,6 +60,7 @@ async def test_oauth_server_adapter_client_and_state_lifecycle(
 
     loaded_client = await adapter.get_client_by_client_id(db_session, client_id=client.client_id)
     assert loaded_client is not None
+    assert loaded_client.client_secret == "secret-value"  # noqa: S105
     assert loaded_client.client_secret_hash == "secret-hash"  # noqa: S105
     assert loaded_client.redirect_uris == ["https://client.example/callback"]
     assert loaded_client.post_logout_redirect_uris == ["https://client.example/logout"]
@@ -273,3 +281,86 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
         )
         == 2
     )
+
+
+@pytest.mark.asyncio
+async def test_issue_authorization_code_rolls_back_on_delete_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    belgie_instance,
+    oauth_plugin,
+    oauth_settings,
+    db_session,
+) -> None:
+    _ = oauth_plugin.router(belgie_instance)
+    assert oauth_plugin._provider is not None
+    provider = oauth_plugin._provider
+    oauth_client = await provider.get_client(oauth_settings.client_id, db=db_session)
+    assert oauth_client is not None
+
+    await provider.authorize(
+        oauth_client,
+        AuthorizationParams(
+            state="rollback-state",
+            scopes=["user"],
+            code_challenge="challenge",
+            redirect_uri=oauth_settings.redirect_uris[0],
+            redirect_uri_provided_explicitly=True,
+        ),
+        db=db_session,
+    )
+    delete_error = "delete failed"
+
+    async def fail_delete_authorization_state(*_args: object, **_kwargs: object) -> bool:
+        raise RuntimeError(delete_error)
+
+    monkeypatch.setattr(oauth_settings.adapter, "delete_authorization_state", fail_delete_authorization_state)
+
+    with pytest.raises(RuntimeError, match=delete_error):
+        await provider.issue_authorization_code("rollback-state", db=db_session)
+
+    persisted_state = await db_session.scalar(
+        select(OAuthAuthorizationState).where(OAuthAuthorizationState.state == "rollback-state"),
+    )
+    persisted_codes = list(await db_session.scalars(select(OAuthAuthorizationCode)))
+    assert persisted_state is not None
+    assert persisted_codes == []
+
+
+@pytest.mark.asyncio
+async def test_exchange_refresh_token_rolls_back_on_access_token_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    belgie_instance,
+    oauth_plugin,
+    oauth_settings,
+    seed_refresh_token,
+    db_session,
+) -> None:
+    _ = oauth_plugin.router(belgie_instance)
+    assert oauth_plugin._provider is not None
+    provider = oauth_plugin._provider
+
+    original_record = await seed_refresh_token(
+        token="rollback-refresh-token",
+        client_id=oauth_settings.client_id,
+        scopes=["user"],
+    )
+    original_record_id = original_record.id
+    original_refresh = await provider.load_refresh_token("rollback-refresh-token", db=db_session)
+    assert original_refresh is not None
+    insert_error_message = "access token insert failed"
+
+    async def fail_create_access_token(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError(insert_error_message)
+
+    monkeypatch.setattr(oauth_settings.adapter, "create_access_token", fail_create_access_token)
+
+    with pytest.raises(RuntimeError, match=insert_error_message):
+        await provider.exchange_refresh_token(original_refresh, ["user"], db=db_session)
+
+    refreshed_original = await db_session.scalar(
+        select(OAuthRefreshToken).where(OAuthRefreshToken.id == original_record_id),
+    )
+    refresh_records = list(await db_session.scalars(select(OAuthRefreshToken)))
+    assert refreshed_original is not None
+    assert refreshed_original.revoked_at is None
+    assert [record.id for record in refresh_records] == [original_record_id]

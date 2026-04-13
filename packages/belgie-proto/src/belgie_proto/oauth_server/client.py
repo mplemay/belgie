@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class OAuthClientProtocol(Protocol):
     id: UUID
     client_id: str
+    client_secret: str | None
     client_secret_hash: str | None
     redirect_uris: list[str]
     post_logout_redirect_uris: list[str] | None

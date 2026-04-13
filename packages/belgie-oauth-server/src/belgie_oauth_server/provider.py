@@ -120,6 +120,8 @@ class ConsentEntry:
 
 
 class SimpleOAuthProvider:
+    _NON_EXPIRING_STATE_EXPIRES_AT = datetime.max.replace(tzinfo=UTC)
+
     def __init__(
         self,
         settings: OAuthServer,
@@ -218,7 +220,7 @@ class SimpleOAuthProvider:
             client_secret_expires_at = 0
 
         issued_at = int(time.time())
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             client_id = self._generate_client_id()
             while (
                 client_id == self.static_client.client_id
@@ -229,6 +231,7 @@ class SimpleOAuthProvider:
             client = await self.adapter.create_client(
                 session,
                 client_id=client_id,
+                client_secret=client_secret,
                 client_secret_hash=client_secret_hash,
                 redirect_uris=[str(uri) for uri in metadata.redirect_uris or []],
                 post_logout_redirect_uris=(
@@ -259,9 +262,7 @@ class SimpleOAuthProvider:
                 client_secret_expires_at=client_secret_expires_at,
                 individual_id=self._parse_uuid(individual_id),
             )
-
-        client_info = self._client_information_from_record(client)
-        return client_info.model_copy(update={"client_secret": client_secret})
+            return self._client_information_from_record(client)
 
     async def authorize(
         self,
@@ -271,7 +272,7 @@ class SimpleOAuthProvider:
         db: DBConnection | None = None,
     ) -> str:
         state = params.state or secrets.token_hex(16)
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             existing_state = await self.adapter.get_authorization_state(session, state=state)
             if existing_state is not None:
                 if self._is_expired(existing_state.expires_at):
@@ -294,7 +295,7 @@ class SimpleOAuthProvider:
                 intent=params.intent,
                 individual_id=self._parse_uuid(params.individual_id),
                 session_id=self._parse_uuid(params.session_id),
-                expires_at=self._expires_at(self.settings.state_ttl_seconds),
+                expires_at=self._state_expires_at(self.settings.state_ttl_seconds),
             )
         return state
 
@@ -306,7 +307,7 @@ class SimpleOAuthProvider:
         session_id: str,
         db: DBConnection | None = None,
     ) -> None:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             state_record = await self.adapter.get_authorization_state(session, state=state)
             if state_record is None or await self._delete_expired_state_if_needed(session, state_record):
                 msg = "Invalid state parameter"
@@ -331,7 +332,7 @@ class SimpleOAuthProvider:
         scopes: list[str] | None = None,
         db: DBConnection | None = None,
     ) -> None:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             state_record = await self.adapter.get_authorization_state(session, state=state)
             if state_record is None or await self._delete_expired_state_if_needed(session, state_record):
                 msg = "Invalid state parameter"
@@ -354,7 +355,7 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> StateEntry | None:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             state_record = await self.adapter.get_authorization_state(session, state=state)
             if state_record is None:
                 return None
@@ -369,7 +370,7 @@ class SimpleOAuthProvider:
         issuer: str | None = None,
         db: DBConnection | None = None,
     ) -> str:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             state_record = await self.adapter.get_authorization_state(session, state=state)
             if state_record is None or await self._delete_expired_state_if_needed(session, state_record):
                 msg = "Invalid state parameter"
@@ -377,6 +378,7 @@ class SimpleOAuthProvider:
 
             scopes = list(state_record.scopes) if state_record.scopes is not None else [self.settings.default_scope]
             new_code = f"belgie_{secrets.token_hex(16)}"
+            redirect_uri = state_record.redirect_uri
             await self.adapter.create_authorization_code(
                 session,
                 code_hash=self._hash_value(new_code),
@@ -393,7 +395,7 @@ class SimpleOAuthProvider:
             )
             await self.adapter.delete_authorization_state(session, state=state)
 
-        return construct_redirect_uri(state_record.redirect_uri, code=new_code, state=state, iss=issuer)
+        return construct_redirect_uri(redirect_uri, code=new_code, state=state, iss=issuer)
 
     async def load_authorization_code(
         self,
@@ -401,7 +403,7 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> AuthorizationCode | None:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             code_record = await self.adapter.get_authorization_code_by_code_hash(
                 session,
                 code_hash=self._hash_value(authorization_code),
@@ -421,7 +423,7 @@ class SimpleOAuthProvider:
         db: DBConnection | None = None,
     ) -> OAuthToken:
         code_hash = self._hash_value(authorization_code.code)
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             code_record = await self.adapter.get_authorization_code_by_code_hash(session, code_hash=code_hash)
             if code_record is None:
                 msg = "Invalid authorization code"
@@ -432,6 +434,7 @@ class SimpleOAuthProvider:
                 msg = "Authorization code expired"
                 raise ValueError(msg)
 
+            scope = " ".join(code_record.scopes)
             refresh_token = None
             if issue_refresh_token:
                 refresh_token = await self._issue_refresh_token(
@@ -458,7 +461,7 @@ class SimpleOAuthProvider:
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
             expires_in=self.settings.access_token_ttl_seconds,
-            scope=" ".join(code_record.scopes),
+            scope=scope,
             refresh_token=refresh_token.token if refresh_token is not None else None,
         )
 
@@ -468,7 +471,7 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> AccessToken | None:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             access_token = await self.adapter.get_access_token_by_token_hash(
                 session,
                 token_hash=self._hash_value(token),
@@ -487,7 +490,7 @@ class SimpleOAuthProvider:
         include_revoked: bool = False,
         db: DBConnection | None = None,
     ) -> RefreshToken | None:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             refresh_token = await self.adapter.get_refresh_token_by_token_hash(
                 session,
                 token_hash=self._hash_value(refresh_token_value),
@@ -511,7 +514,7 @@ class SimpleOAuthProvider:
         db: DBConnection | None = None,
     ) -> OAuthToken:
         token_hash = self._hash_value(refresh_token.token)
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             stored_refresh_token = await self.adapter.get_refresh_token_by_token_hash(session, token_hash=token_hash)
             if stored_refresh_token is None:
                 msg = "Invalid refresh token"
@@ -576,7 +579,7 @@ class SimpleOAuthProvider:
         resource: OAuthAudience | None = None,
         db: DBConnection | None = None,
     ) -> OAuthToken:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             access_token = await self._issue_access_token(
                 session,
                 client_id=client_id,
@@ -596,7 +599,7 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> None:
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             if isinstance(token, AccessToken):
                 await self.adapter.delete_access_token_by_token_hash(session, token_hash=self._hash_value(token.token))
                 return
@@ -644,7 +647,7 @@ class SimpleOAuthProvider:
             if scope not in merged_scopes:
                 merged_scopes.append(scope)
 
-        async with self._db_session(db) as session:
+        async with self._db_session(db, transactional=True) as session:
             await self.adapter.upsert_consent(
                 session,
                 client_id=client_id,
@@ -869,9 +872,35 @@ class SimpleOAuthProvider:
         return self.static_client
 
     @asynccontextmanager
-    async def _db_session(self, db: DBConnection | None) -> AsyncGenerator[DBConnection, None]:
+    async def _managed_session(
+        self,
+        session: DBConnection,
+        *,
+        transactional: bool,
+        close: bool,
+    ) -> AsyncGenerator[DBConnection, None]:
+        try:
+            yield session
+            if transactional:
+                await session.commit()
+        except Exception:
+            if transactional:
+                await session.rollback()
+            raise
+        finally:
+            if close:
+                await session.close()
+
+    @asynccontextmanager
+    async def _db_session(
+        self,
+        db: DBConnection | None,
+        *,
+        transactional: bool = False,
+    ) -> AsyncGenerator[DBConnection, None]:
         if db is not None:
-            yield db
+            async with self._managed_session(db, transactional=transactional, close=False) as session:
+                yield session
             return
 
         if self.database_factory is None:
@@ -880,15 +909,14 @@ class SimpleOAuthProvider:
 
         db_or_generator = self.database_factory()
         if isinstance(db_or_generator, DBConnection):
-            try:
-                yield db_or_generator
-            finally:
-                await db_or_generator.close()
+            async with self._managed_session(db_or_generator, transactional=transactional, close=True) as session:
+                yield session
             return
 
         if self._is_async_generator(db_or_generator):
             async for session in db_or_generator:
-                yield session
+                async with self._managed_session(session, transactional=transactional, close=False) as managed_session:
+                    yield managed_session
                 return
 
         msg = "database() must return a DBConnection or AsyncGenerator[DBConnection, None]"
@@ -923,6 +951,12 @@ class SimpleOAuthProvider:
     def _expires_at(ttl_seconds: int) -> datetime:
         return datetime.fromtimestamp(time.time() + max(ttl_seconds, 0), UTC)
 
+    @classmethod
+    def _state_expires_at(cls, ttl_seconds: int) -> datetime:
+        if ttl_seconds <= 0:
+            return cls._NON_EXPIRING_STATE_EXPIRES_AT
+        return cls._expires_at(ttl_seconds)
+
     @staticmethod
     def _is_expired(expires_at: datetime) -> bool:
         return expires_at.timestamp() <= time.time()
@@ -953,7 +987,7 @@ class SimpleOAuthProvider:
     ) -> OAuthClientInformationFull:
         return OAuthClientInformationFull(
             client_id=client.client_id,
-            client_secret=None,
+            client_secret=client.client_secret,
             redirect_uris=[AnyUrl(uri) for uri in client.redirect_uris],
             post_logout_redirect_uris=(
                 [AnyUrl(uri) for uri in client.post_logout_redirect_uris]

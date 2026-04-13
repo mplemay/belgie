@@ -34,6 +34,7 @@ class InMemoryDBConnection(DBConnection):
 @dataclass(slots=True, kw_only=True)
 class InMemoryOAuthClient:
     client_id: str
+    client_secret: str | None
     client_secret_hash: str | None
     redirect_uris: list[str]
     post_logout_redirect_uris: list[str] | None
@@ -175,6 +176,7 @@ class InMemoryOAuthServerAdapter(
         session: DBConnection,
         *,
         client_id: str,
+        client_secret: str | None,
         client_secret_hash: str | None,
         redirect_uris: list[str],
         post_logout_redirect_uris: list[str] | None,
@@ -204,6 +206,7 @@ class InMemoryOAuthServerAdapter(
         _ = session
         client = InMemoryOAuthClient(
             client_id=client_id,
+            client_secret=client_secret,
             client_secret_hash=client_secret_hash,
             redirect_uris=list(redirect_uris),
             post_logout_redirect_uris=(None if post_logout_redirect_uris is None else list(post_logout_redirect_uris)),

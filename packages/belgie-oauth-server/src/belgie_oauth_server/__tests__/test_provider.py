@@ -259,6 +259,42 @@ async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
+async def test_state_mapping_does_not_expire_when_ttl_is_non_positive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings, provider, adapter, _db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        state_ttl_seconds=0,
+    )
+
+    oauth_client = await provider.get_client("test-client")
+    monkeypatch.setattr(provider_module.time, "time", lambda: 1000.0)
+    await provider.authorize(
+        oauth_client,
+        AuthorizationParams(
+            state="state-non-expiring",
+            scopes=["user"],
+            code_challenge="challenge",
+            redirect_uri=settings.redirect_uris[0],
+            redirect_uri_provided_explicitly=True,
+        ),
+    )
+
+    monkeypatch.setattr(provider_module.time, "time", lambda: 10_000.0)
+    await provider.bind_authorization_state(
+        "state-non-expiring",
+        individual_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    )
+    redirect_url = await provider.issue_authorization_code("state-non-expiring")
+
+    assert "code=" in redirect_url
+    assert "state-non-expiring" not in adapter.authorization_states
+
+
+@pytest.mark.asyncio
 async def test_register_client_issues_secret_by_default() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],

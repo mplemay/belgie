@@ -47,6 +47,10 @@ class OAuthClientMixin(MappedAsDataclass):
         return mapped_column(Text, unique=True, index=True, kw_only=True)
 
     @declared_attr
+    def client_secret(self) -> Mapped[str | None]:
+        return mapped_column(Text, default=None, kw_only=True)
+
+    @declared_attr
     def client_secret_hash(self) -> Mapped[str | None]:
         return mapped_column(Text, default=None, kw_only=True)
 

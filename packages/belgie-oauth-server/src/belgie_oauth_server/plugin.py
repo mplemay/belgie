@@ -2083,6 +2083,9 @@ def _id_token_signing_key(signing_secret: str) -> bytes:
 def _resolve_id_token_signing_secret(oauth_client: OAuthClientInformationFull, fallback_secret: str) -> str:
     if oauth_client.client_secret is not None:
         return oauth_client.client_secret
+    if oauth_client.token_endpoint_auth_method != "none":  # noqa: S105
+        msg = "confidential client is missing stored client_secret; re-register the client"
+        raise OAuthError(msg)
     return fallback_secret
 
 

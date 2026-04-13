@@ -209,6 +209,7 @@ async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
     async def _seed(
         *,
         client_id: str,
+        client_secret: str | None = None,
         client_secret_hash: str | None = None,
         redirect_uris: list[str] | None = None,
         post_logout_redirect_uris: list[str] | None = None,
@@ -224,9 +225,10 @@ async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
         client_secret_expires_at: int | None = 0,
         individual_id: str | None = None,
     ):
-        return await oauth_settings.adapter.create_client(
+        client = await oauth_settings.adapter.create_client(
             db_session,
             client_id=client_id,
+            client_secret=client_secret,
             client_secret_hash=client_secret_hash,
             redirect_uris=[str(uri) for uri in (redirect_uris or ["http://testserver/callback"])],
             post_logout_redirect_uris=(
@@ -255,6 +257,9 @@ async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
             client_secret_expires_at=client_secret_expires_at,
             individual_id=None if individual_id is None else UUID(individual_id),
         )
+        await db_session.commit()
+        await db_session.refresh(client)
+        return client
 
     return _seed
 
@@ -287,6 +292,8 @@ async def seed_access_token(oauth_plugin: OAuthServerPlugin, oauth_settings: OAu
             if expires_at is not None
             else datetime.now(UTC) + timedelta(hours=1),
         )
+        await db_session.commit()
+        await db_session.refresh(record)
         if created_at is not None:
             record.created_at = datetime.fromtimestamp(created_at, UTC)
             await db_session.commit()
@@ -323,6 +330,8 @@ async def seed_refresh_token(oauth_plugin: OAuthServerPlugin, oauth_settings: OA
             if expires_at is not None
             else datetime.now(UTC) + timedelta(hours=1),
         )
+        await db_session.commit()
+        await db_session.refresh(record)
         if created_at is not None:
             record.created_at = datetime.fromtimestamp(created_at, UTC)
         if revoked_at is not None:

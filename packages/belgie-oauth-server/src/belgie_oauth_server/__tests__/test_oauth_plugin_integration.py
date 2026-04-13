@@ -636,7 +636,7 @@ def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
     }
 
 
-def test_dynamic_confidential_client_id_token_uses_server_signing_secret() -> None:
+def test_dynamic_confidential_client_id_token_uses_client_secret() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
@@ -692,23 +692,23 @@ def test_dynamic_confidential_client_id_token_uses_server_signing_secret() -> No
 
     assert token_response.status_code == 200
     payload = token_response.json()
-    with pytest.raises(jwt.InvalidSignatureError):
-        jwt.decode(
-            payload["id_token"],
-            _id_token_signing_key(client_secret),
-            algorithms=["HS256"],
-            audience=registered_client["client_id"],
-            issuer="http://testserver/auth/oauth",
-        )
-
     decoded = jwt.decode(
         payload["id_token"],
-        _id_token_signing_key("test-secret"),
+        _id_token_signing_key(client_secret),
         algorithms=["HS256"],
         audience=registered_client["client_id"],
         issuer="http://testserver/auth/oauth",
     )
     assert decoded["sub"] == str(belgie_client.user.id)
+
+    with pytest.raises(jwt.InvalidSignatureError):
+        jwt.decode(
+            payload["id_token"],
+            _id_token_signing_key("test-secret"),
+            algorithms=["HS256"],
+            audience=registered_client["client_id"],
+            issuer="http://testserver/auth/oauth",
+        )
 
 
 def test_consent_flow_preserves_broader_persisted_scopes_after_narrower_reconsent() -> None:
