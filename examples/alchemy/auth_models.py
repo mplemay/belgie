@@ -10,13 +10,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from belgie.alchemy.mixins import (
     AccountMixin,
     IndividualMixin,
-    OAuthAccessTokenMixin,
     OAuthAccountMixin,
-    OAuthAuthorizationCodeMixin,
-    OAuthAuthorizationStateMixin,
-    OAuthClientMixin,
-    OAuthConsentMixin,
-    OAuthRefreshTokenMixin,
+    OAuthServerAccessTokenMixin,
+    OAuthServerAuthorizationCodeMixin,
+    OAuthServerAuthorizationStateMixin,
+    OAuthServerClientMixin,
+    OAuthServerConsentMixin,
+    OAuthServerRefreshTokenMixin,
     OAuthStateMixin,
     SessionMixin,
 )
@@ -42,40 +42,40 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin
     pass
 
 
-class OAuthClient(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthClientMixin):
+class OAuthServerClient(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerClientMixin):
     pass
 
 
-class OAuthAuthorizationState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAuthorizationStateMixin):
+class OAuthServerAuthorizationState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerAuthorizationStateMixin):
     pass
 
 
-class OAuthAuthorizationCode(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAuthorizationCodeMixin):
+class OAuthServerAuthorizationCode(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerAuthorizationCodeMixin):
     pass
 
 
-class OAuthAccessToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccessTokenMixin):
+class OAuthServerAccessToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerAccessTokenMixin):
     pass
 
 
-class OAuthRefreshToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthRefreshTokenMixin):
+class OAuthServerRefreshToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerRefreshTokenMixin):
     pass
 
 
-class OAuthConsent(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthConsentMixin):
+class OAuthServerConsent(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerConsentMixin):
     pass
 
 
 __all__ = [
     "Account",
     "Individual",
-    "OAuthAccessToken",
     "OAuthAccount",
-    "OAuthAuthorizationCode",
-    "OAuthAuthorizationState",
-    "OAuthClient",
-    "OAuthConsent",
-    "OAuthRefreshToken",
+    "OAuthServerAccessToken",
+    "OAuthServerAuthorizationCode",
+    "OAuthServerAuthorizationState",
+    "OAuthServerClient",
+    "OAuthServerConsent",
+    "OAuthServerRefreshToken",
     "OAuthState",
     "Session",
 ]

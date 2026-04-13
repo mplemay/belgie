@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse, urlunparse
 
 from belgie_proto.oauth_server import (
-    OAuthAccessTokenProtocol,
-    OAuthAuthorizationCodeProtocol,
-    OAuthAuthorizationStateProtocol,
-    OAuthClientProtocol,
-    OAuthConsentProtocol,
-    OAuthRefreshTokenProtocol,
+    OAuthServerAccessTokenProtocol,
     OAuthServerAdapterProtocol,
+    OAuthServerAuthorizationCodeProtocol,
+    OAuthServerAuthorizationStateProtocol,
+    OAuthServerClientProtocol,
+    OAuthServerConsentProtocol,
+    OAuthServerRefreshTokenProtocol,
 )
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,7 +27,7 @@ type RequestURIResolver = Callable[[str, str], RequestURIParams | Awaitable[Requ
 type SelectAccountResolver = Callable[[str, str, str, list[str]], bool | Awaitable[bool]]
 
 
-class OAuthResource(BaseModel):
+class OAuthServerResource(BaseModel):
     prefix: str
     scopes: list[str] | None = None
 
@@ -59,12 +59,12 @@ class OAuthServer(BaseSettings):
     )
 
     adapter: OAuthServerAdapterProtocol[
-        OAuthClientProtocol,
-        OAuthAuthorizationStateProtocol,
-        OAuthAuthorizationCodeProtocol,
-        OAuthAccessTokenProtocol,
-        OAuthRefreshTokenProtocol,
-        OAuthConsentProtocol,
+        OAuthServerClientProtocol,
+        OAuthServerAuthorizationStateProtocol,
+        OAuthServerAuthorizationCodeProtocol,
+        OAuthServerAccessTokenProtocol,
+        OAuthServerRefreshTokenProtocol,
+        OAuthServerConsentProtocol,
     ] = Field(exclude=True)
 
     base_url: AnyHttpUrl | None = None
@@ -90,7 +90,7 @@ class OAuthServer(BaseSettings):
     enable_end_session: bool = False
     allow_dynamic_client_registration: bool = False
     allow_unauthenticated_client_registration: bool = False
-    resources: list[OAuthResource] | None = Field(default=None, min_length=1, max_length=1)
+    resources: list[OAuthServerResource] | None = Field(default=None, min_length=1, max_length=1)
     include_root_resource_metadata_fallback: bool = True
     include_root_oauth_metadata_fallback: bool = True
     include_root_openid_metadata_fallback: bool = True
@@ -105,10 +105,10 @@ class OAuthServer(BaseSettings):
                 msg = "`route_prefix` has been removed; use `prefix` instead"
                 raise ValueError(msg)
             if "resource_server_url" in values:
-                msg = "`resource_server_url` has been removed; use `resources=[OAuthResource(...)]` instead"
+                msg = "`resource_server_url` has been removed; use `resources=[OAuthServerResource(...)]` instead"
                 raise ValueError(msg)
             if "resource_scopes" in values:
-                msg = "`resource_scopes` has been removed; use `resources=[OAuthResource(scopes=[...])]` instead"
+                msg = "`resource_scopes` has been removed; use `resources=[OAuthServerResource(scopes=[...])]` instead"
                 raise ValueError(msg)
         return values
 
@@ -117,20 +117,20 @@ class OAuthServer(BaseSettings):
     def validate_adapter(
         cls,
         value: OAuthServerAdapterProtocol[
-            OAuthClientProtocol,
-            OAuthAuthorizationStateProtocol,
-            OAuthAuthorizationCodeProtocol,
-            OAuthAccessTokenProtocol,
-            OAuthRefreshTokenProtocol,
-            OAuthConsentProtocol,
+            OAuthServerClientProtocol,
+            OAuthServerAuthorizationStateProtocol,
+            OAuthServerAuthorizationCodeProtocol,
+            OAuthServerAccessTokenProtocol,
+            OAuthServerRefreshTokenProtocol,
+            OAuthServerConsentProtocol,
         ],
     ) -> OAuthServerAdapterProtocol[
-        OAuthClientProtocol,
-        OAuthAuthorizationStateProtocol,
-        OAuthAuthorizationCodeProtocol,
-        OAuthAccessTokenProtocol,
-        OAuthRefreshTokenProtocol,
-        OAuthConsentProtocol,
+        OAuthServerClientProtocol,
+        OAuthServerAuthorizationStateProtocol,
+        OAuthServerAuthorizationCodeProtocol,
+        OAuthServerAccessTokenProtocol,
+        OAuthServerRefreshTokenProtocol,
+        OAuthServerConsentProtocol,
     ]:
         if not isinstance(value, OAuthServerAdapterProtocol):
             msg = "adapter must implement OAuthServerAdapterProtocol"

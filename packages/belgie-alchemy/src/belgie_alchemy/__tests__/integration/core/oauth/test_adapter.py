@@ -8,9 +8,9 @@ from belgie_oauth_server.provider import AuthorizationParams
 from sqlalchemy import select
 
 from belgie_alchemy.__tests__.fixtures.core.models import (
-    OAuthAuthorizationCode,
-    OAuthAuthorizationState,
-    OAuthRefreshToken,
+    OAuthServerAuthorizationCode,
+    OAuthServerAuthorizationState,
+    OAuthServerRefreshToken,
     Session,
 )
 
@@ -319,9 +319,9 @@ async def test_issue_authorization_code_rolls_back_on_delete_failure(
         await provider.issue_authorization_code("rollback-state", db=db_session)
 
     persisted_state = await db_session.scalar(
-        select(OAuthAuthorizationState).where(OAuthAuthorizationState.state == "rollback-state"),
+        select(OAuthServerAuthorizationState).where(OAuthServerAuthorizationState.state == "rollback-state"),
     )
-    persisted_codes = list(await db_session.scalars(select(OAuthAuthorizationCode)))
+    persisted_codes = list(await db_session.scalars(select(OAuthServerAuthorizationCode)))
     assert persisted_state is not None
     assert persisted_codes == []
 
@@ -358,9 +358,9 @@ async def test_exchange_refresh_token_rolls_back_on_access_token_failure(
         await provider.exchange_refresh_token(original_refresh, ["user"], db=db_session)
 
     refreshed_original = await db_session.scalar(
-        select(OAuthRefreshToken).where(OAuthRefreshToken.id == original_record_id),
+        select(OAuthServerRefreshToken).where(OAuthServerRefreshToken.id == original_record_id),
     )
-    refresh_records = list(await db_session.scalars(select(OAuthRefreshToken)))
+    refresh_records = list(await db_session.scalars(select(OAuthServerRefreshToken)))
     assert refreshed_original is not None
     assert refreshed_original.revoked_at is None
     assert [record.id for record in refresh_records] == [original_record_id]

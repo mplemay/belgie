@@ -17,9 +17,9 @@ from belgie_proto.core.connection import DBConnection
 from pydantic import AnyUrl
 
 from belgie_oauth_server.models import (
-    OAuthClientInformationFull,
-    OAuthClientMetadata,
-    OAuthToken,
+    OAuthServerClientInformationFull,
+    OAuthServerClientMetadata,
+    OAuthServerToken,
 )
 from belgie_oauth_server.utils import construct_redirect_uri
 
@@ -27,14 +27,14 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from belgie_proto.oauth_server import (
-        OAuthAccessTokenProtocol,
-        OAuthAuthorizationCodeProtocol,
-        OAuthAuthorizationStateProtocol,
-        OAuthClientProtocol,
-        OAuthConsentProtocol,
-        OAuthRefreshTokenProtocol,
+        OAuthServerAccessTokenProtocol,
+        OAuthServerAuthorizationCodeProtocol,
+        OAuthServerAuthorizationStateProtocol,
+        OAuthServerClientProtocol,
+        OAuthServerConsentProtocol,
+        OAuthServerRefreshTokenProtocol,
     )
-    from belgie_proto.oauth_server.types import AuthorizationIntent, OAuthAudience
+    from belgie_proto.oauth_server.types import AuthorizationIntent, OAuthServerAudience
 
     from belgie_oauth_server.settings import OAuthServer
 
@@ -90,7 +90,7 @@ class AccessToken:
     scopes: list[str]
     created_at: int
     expires_at: int | None = None
-    resource: OAuthAudience | None = None
+    resource: OAuthServerAudience | None = None
     refresh_token: str | None = None
     individual_id: str | None = None
     session_id: str | None = None
@@ -136,7 +136,7 @@ class SimpleOAuthProvider:
         self.database_factory = database_factory
 
         client_secret = settings.client_secret.get_secret_value() if settings.client_secret is not None else None
-        self.static_client = OAuthClientInformationFull(
+        self.static_client = OAuthServerClientInformationFull(
             client_id=settings.client_id,
             client_secret=client_secret,
             redirect_uris=settings.redirect_uris,
@@ -152,7 +152,7 @@ class SimpleOAuthProvider:
         client_id: str,
         *,
         db: DBConnection | None = None,
-    ) -> OAuthClientInformationFull | None:
+    ) -> OAuthServerClientInformationFull | None:
         if client_id == self.static_client.client_id:
             return self.static_client
 
@@ -169,7 +169,7 @@ class SimpleOAuthProvider:
         require_credentials: bool = False,
         require_confidential: bool = False,
         db: DBConnection | None = None,
-    ) -> OAuthClientInformationFull | None:
+    ) -> OAuthServerClientInformationFull | None:
         if client_id == self.static_client.client_id:
             return self._authenticate_static_client(
                 client_secret,
@@ -197,11 +197,11 @@ class SimpleOAuthProvider:
 
     async def register_client(
         self,
-        metadata: OAuthClientMetadata,
+        metadata: OAuthServerClientMetadata,
         *,
         individual_id: str | None = None,
         db: DBConnection | None = None,
-    ) -> OAuthClientInformationFull:
+    ) -> OAuthServerClientInformationFull:
         token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
         if token_endpoint_auth_method not in {"client_secret_post", "client_secret_basic", "none"}:
             msg = f"unsupported token_endpoint_auth_method: {token_endpoint_auth_method}"
@@ -269,7 +269,7 @@ class SimpleOAuthProvider:
 
     async def authorize(
         self,
-        client: OAuthClientInformationFull,
+        client: OAuthServerClientInformationFull,
         params: AuthorizationParams,
         *,
         db: DBConnection | None = None,
@@ -422,9 +422,9 @@ class SimpleOAuthProvider:
         authorization_code: AuthorizationCode,
         *,
         issue_refresh_token: bool = False,
-        access_token_resource: OAuthAudience | None = None,
+        access_token_resource: OAuthServerAudience | None = None,
         db: DBConnection | None = None,
-    ) -> OAuthToken:
+    ) -> OAuthServerToken:
         code_hash = self._hash_value(authorization_code.code)
         async with self._db_session(db, transactional=True) as session:
             code_record = await self.adapter.get_authorization_code_by_code_hash(session, code_hash=code_hash)
@@ -460,7 +460,7 @@ class SimpleOAuthProvider:
                 session_id=code_record.session_id,
             )
 
-        return OAuthToken(
+        return OAuthServerToken(
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
             expires_in=self.settings.access_token_ttl_seconds,
@@ -512,10 +512,10 @@ class SimpleOAuthProvider:
         refresh_token: RefreshToken,
         scopes: list[str],
         *,
-        access_token_resource: OAuthAudience | None = None,
+        access_token_resource: OAuthServerAudience | None = None,
         refresh_token_resource: str | None = None,
         db: DBConnection | None = None,
-    ) -> OAuthToken:
+    ) -> OAuthServerToken:
         token_hash = self._hash_value(refresh_token.token)
         async with self._db_session(db, transactional=True) as session:
             stored_refresh_token = await self.adapter.get_refresh_token_by_token_hash(session, token_hash=token_hash)
@@ -566,7 +566,7 @@ class SimpleOAuthProvider:
                 session_id=stored_refresh_token.session_id,
             )
 
-        return OAuthToken(
+        return OAuthServerToken(
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
             expires_in=self.settings.access_token_ttl_seconds,
@@ -579,9 +579,9 @@ class SimpleOAuthProvider:
         client_id: str,
         scopes: list[str],
         *,
-        resource: OAuthAudience | None = None,
+        resource: OAuthServerAudience | None = None,
         db: DBConnection | None = None,
-    ) -> OAuthToken:
+    ) -> OAuthServerToken:
         async with self._db_session(db, transactional=True) as session:
             access_token = await self._issue_access_token(
                 session,
@@ -589,7 +589,7 @@ class SimpleOAuthProvider:
                 scopes=scopes,
                 resource=resource,
             )
-        return OAuthToken(
+        return OAuthServerToken(
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
             expires_in=self.settings.access_token_ttl_seconds,
@@ -620,13 +620,13 @@ class SimpleOAuthProvider:
             )
             await self.adapter.delete_refresh_token_by_token_hash(session, token_hash=stored_refresh_token.token_hash)
 
-    def default_scopes_for_client(self, client: OAuthClientInformationFull) -> list[str]:
+    def default_scopes_for_client(self, client: OAuthServerClientInformationFull) -> list[str]:
         raw_scope = client.scope.strip() if client.scope else ""
         if raw_scope:
             return [scope for scope in raw_scope.split(" ") if scope]
         return [self.settings.default_scope]
 
-    def validate_scopes_for_client(self, client: OAuthClientInformationFull, scopes: list[str]) -> None:
+    def validate_scopes_for_client(self, client: OAuthServerClientInformationFull, scopes: list[str]) -> None:
         allowed_scopes = set(self.default_scopes_for_client(client))
         invalid_scopes = [scope for scope in scopes if scope not in allowed_scopes]
         if invalid_scopes:
@@ -698,7 +698,7 @@ class SimpleOAuthProvider:
                 deduped_scopes.append(scope)
         return deduped_scopes
 
-    def resolve_subject_identifier(self, client: OAuthClientInformationFull, individual_id: str) -> str:
+    def resolve_subject_identifier(self, client: OAuthServerClientInformationFull, individual_id: str) -> str:
         if client.subject_type != "pairwise":
             return individual_id
         if self.settings.pairwise_secret is None:
@@ -713,7 +713,7 @@ class SimpleOAuthProvider:
         ).digest()
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("utf-8")
 
-    def validate_client_metadata(self, metadata: OAuthClientMetadata) -> None:  # noqa: C901, PLR0912
+    def validate_client_metadata(self, metadata: OAuthServerClientMetadata) -> None:  # noqa: C901, PLR0912
         token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
         is_public = token_endpoint_auth_method == "none"  # noqa: S105
         grant_types = metadata.grant_types or ["authorization_code", "refresh_token"]
@@ -765,7 +765,7 @@ class SimpleOAuthProvider:
         *,
         client_id: str,
         scopes: list[str],
-        resource: OAuthAudience | None = None,
+        resource: OAuthServerAudience | None = None,
         refresh_token_id: UUID | None = None,
         refresh_token: str | None = None,
         individual_id: UUID | None = None,
@@ -822,7 +822,7 @@ class SimpleOAuthProvider:
     async def _purge_refresh_token_family(
         self,
         session: DBConnection,
-        refresh_token: OAuthRefreshTokenProtocol,
+        refresh_token: OAuthServerRefreshTokenProtocol,
     ) -> None:
         if refresh_token.individual_id is not None and refresh_token.session_id is not None:
             await self.adapter.delete_access_tokens_for_client_individual_and_session(
@@ -861,7 +861,7 @@ class SimpleOAuthProvider:
         *,
         require_credentials: bool,
         require_confidential: bool,
-    ) -> OAuthClientInformationFull | None:
+    ) -> OAuthServerClientInformationFull | None:
         if self.static_client.token_endpoint_auth_method == "none":  # noqa: S105
             if require_credentials or require_confidential or client_secret:
                 return None
@@ -972,7 +972,7 @@ class SimpleOAuthProvider:
     async def _delete_expired_state_if_needed(
         self,
         session: DBConnection,
-        state_record: OAuthAuthorizationStateProtocol,
+        state_record: OAuthServerAuthorizationStateProtocol,
     ) -> bool:
         if not self._is_expired(state_record.expires_at):
             return False
@@ -982,7 +982,7 @@ class SimpleOAuthProvider:
     async def _delete_expired_authorization_code_if_needed(
         self,
         session: DBConnection,
-        code_record: OAuthAuthorizationCodeProtocol,
+        code_record: OAuthServerAuthorizationCodeProtocol,
     ) -> bool:
         if not self._is_expired(code_record.expires_at):
             return False
@@ -991,9 +991,9 @@ class SimpleOAuthProvider:
 
     def _client_information_from_record(
         self,
-        client: OAuthClientProtocol,
-    ) -> OAuthClientInformationFull:
-        return OAuthClientInformationFull(
+        client: OAuthServerClientProtocol,
+    ) -> OAuthServerClientInformationFull:
+        return OAuthServerClientInformationFull(
             client_id=client.client_id,
             client_secret=client.client_secret,
             redirect_uris=[AnyUrl(uri) for uri in client.redirect_uris] if client.redirect_uris is not None else None,
@@ -1026,7 +1026,7 @@ class SimpleOAuthProvider:
         )
 
     @staticmethod
-    def _state_entry_from_record(state_record: OAuthAuthorizationStateProtocol) -> StateEntry:
+    def _state_entry_from_record(state_record: OAuthServerAuthorizationStateProtocol) -> StateEntry:
         return StateEntry(
             redirect_uri=state_record.redirect_uri,
             code_challenge=state_record.code_challenge,
@@ -1045,7 +1045,7 @@ class SimpleOAuthProvider:
     @staticmethod
     def _authorization_code_from_record(
         authorization_code: str,
-        code_record: OAuthAuthorizationCodeProtocol,
+        code_record: OAuthServerAuthorizationCodeProtocol,
     ) -> AuthorizationCode:
         return AuthorizationCode(
             code=authorization_code,
@@ -1064,7 +1064,7 @@ class SimpleOAuthProvider:
     @staticmethod
     def _access_token_from_record(
         token: str,
-        access_token: OAuthAccessTokenProtocol,
+        access_token: OAuthServerAccessTokenProtocol,
     ) -> AccessToken:
         return AccessToken(
             token=token,
@@ -1080,7 +1080,7 @@ class SimpleOAuthProvider:
     @staticmethod
     def _refresh_token_from_record(
         token: str,
-        refresh_token: OAuthRefreshTokenProtocol,
+        refresh_token: OAuthServerRefreshTokenProtocol,
     ) -> RefreshToken:
         return RefreshToken(
             id=refresh_token.id,
@@ -1096,7 +1096,7 @@ class SimpleOAuthProvider:
         )
 
     @staticmethod
-    def _consent_entry_from_record(consent: OAuthConsentProtocol) -> ConsentEntry:
+    def _consent_entry_from_record(consent: OAuthServerConsentProtocol) -> ConsentEntry:
         return ConsentEntry(
             client_id=consent.client_id,
             individual_id=str(consent.individual_id),

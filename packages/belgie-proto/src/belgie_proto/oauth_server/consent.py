@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class OAuthConsentProtocol(Protocol):
+class OAuthServerConsentProtocol(Protocol):
     id: UUID
     client_id: str
     individual_id: UUID

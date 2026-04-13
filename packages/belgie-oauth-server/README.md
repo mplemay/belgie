@@ -22,7 +22,7 @@ uv add belgie-oauth-server
 
 - OAuth 2.1 authorization, token, revoke, introspect, and userinfo routes.
 - OpenID Connect metadata and `id_token` support.
-- OAuth protected resource metadata when you configure `resources=[OAuthResource(...)]`.
+- OAuth protected resource metadata when you configure `resources=[OAuthServerResource(...)]`.
 - Dynamic client registration, including the anonymous registration escape hatch when you explicitly enable it.
 - Custom login and signup pages via `login_url` and `signup_url`.
 
@@ -71,12 +71,12 @@ from belgie.oauth.server import OAuthServer, OAuthServerClient
 from yourapp.models import (
     Account,
     Individual,
-    OAuthAccessToken,
-    OAuthAuthorizationCode,
-    OAuthAuthorizationState,
-    OAuthClient,
-    OAuthConsent,
-    OAuthRefreshToken,
+    OAuthServerAccessToken,
+    OAuthServerAuthorizationCode,
+    OAuthServerAuthorizationState,
+    OAuthServerClient as OAuthServerClientModel,
+    OAuthServerConsent,
+    OAuthServerRefreshToken,
     OAuthState,
     Session,
 )
@@ -105,12 +105,12 @@ adapter = BelgieAdapter(
 )
 
 oauth_adapter = OAuthServerAdapter(
-    oauth_client=OAuthClient,
-    oauth_authorization_state=OAuthAuthorizationState,
-    oauth_authorization_code=OAuthAuthorizationCode,
-    oauth_access_token=OAuthAccessToken,
-    oauth_refresh_token=OAuthRefreshToken,
-    oauth_consent=OAuthConsent,
+    oauth_client=OAuthServerClientModel,
+    oauth_authorization_state=OAuthServerAuthorizationState,
+    oauth_authorization_code=OAuthServerAuthorizationCode,
+    oauth_access_token=OAuthServerAccessToken,
+    oauth_refresh_token=OAuthServerRefreshToken,
+    oauth_consent=OAuthServerConsent,
 )
 
 belgie = Belgie(settings=settings, adapter=adapter, database=get_db)
@@ -167,7 +167,7 @@ uv run uvicorn server:app --reload
 - `prefix` controls where the OAuth server routes are mounted. The default is `/oauth`.
 - `base_url` is used to derive issuer and metadata URLs.
 - `redirect_uris` is required and must contain at least one callback URL.
-- `resources=[OAuthResource(prefix=..., scopes=...)]` enables protected resource metadata.
+- `resources=[OAuthServerResource(prefix=..., scopes=...)]` enables protected resource metadata.
 - `enable_end_session` turns on RP-initiated logout support.
 - `allow_dynamic_client_registration` enables `POST /auth/oauth/register`.
 - `allow_unauthenticated_client_registration` lets anonymous callers register clients without authentication.
@@ -182,5 +182,5 @@ uv run uvicorn server:app --reload
 ## Migration Note
 
 - `route_prefix` has been removed. Use `prefix` instead.
-- `resource_server_url` has been removed. Use `resources=[OAuthResource(...)]` instead.
-- `resource_scopes` has been removed. Put scopes on `OAuthResource(scopes=[...])` instead.
+- `resource_server_url` has been removed. Use `resources=[OAuthServerResource(...)]` instead.
+- `resource_scopes` has been removed. Put scopes on `OAuthServerResource(scopes=[...])` instead.

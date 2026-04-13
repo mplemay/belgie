@@ -4,12 +4,12 @@ _OAUTH_IMPORT_ERROR = "belgie.oauth.server requires the 'oauth' extra. Install w
 
 try:
     from belgie_oauth_server import (  # type: ignore[import-not-found]
-        OAuthLoginContext,
-        OAuthLoginIntent,
-        OAuthResource,
         OAuthServer,
         OAuthServerClient,
+        OAuthServerLoginContext,
+        OAuthServerLoginIntent,
         OAuthServerPlugin,
+        OAuthServerResource,
         build_oauth_metadata,
         build_oauth_metadata_well_known_path,
         build_protected_resource_metadata,
@@ -19,12 +19,12 @@ except ModuleNotFoundError as exc:
     raise ImportError(_OAUTH_IMPORT_ERROR) from exc
 
 __all__ = [
-    "OAuthLoginContext",
-    "OAuthLoginIntent",
-    "OAuthResource",
     "OAuthServer",
     "OAuthServerClient",
+    "OAuthServerLoginContext",
+    "OAuthServerLoginIntent",
     "OAuthServerPlugin",
+    "OAuthServerResource",
     "build_oauth_metadata",
     "build_oauth_metadata_well_known_path",
     "build_protected_resource_metadata",

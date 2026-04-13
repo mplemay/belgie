@@ -9,13 +9,13 @@ from belgie_proto.core.oauth_account import OAuthAccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.oauth_server import (
-    OAuthAccessTokenProtocol,
-    OAuthAuthorizationCodeProtocol,
-    OAuthAuthorizationStateProtocol,
-    OAuthClientProtocol,
-    OAuthConsentProtocol,
-    OAuthRefreshTokenProtocol,
+    OAuthServerAccessTokenProtocol,
     OAuthServerAdapterProtocol,
+    OAuthServerAuthorizationCodeProtocol,
+    OAuthServerAuthorizationStateProtocol,
+    OAuthServerClientProtocol,
+    OAuthServerConsentProtocol,
+    OAuthServerRefreshTokenProtocol,
 )
 from belgie_proto.organization import (
     OrganizationAdapterProtocol,
@@ -32,12 +32,12 @@ from belgie_proto.stripe import (
 from belgie_proto.team import TeamAdapterProtocol, TeamProtocol
 
 from belgie_alchemy.__tests__.fixtures.core.models import (
-    OAuthAccessToken,
-    OAuthAuthorizationCode,
-    OAuthAuthorizationState,
-    OAuthClient,
-    OAuthConsent,
-    OAuthRefreshToken,
+    OAuthServerAccessToken,
+    OAuthServerAuthorizationCode,
+    OAuthServerAuthorizationState,
+    OAuthServerClient,
+    OAuthServerConsent,
+    OAuthServerRefreshToken,
 )
 from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.oauth_server import OAuthServerAdapter
@@ -746,22 +746,22 @@ def test_oauth_entity_protocol_runtime_checks() -> None:
         updated_at=now,
     )
 
-    assert isinstance(client, OAuthClientProtocol)
-    assert isinstance(authorization_state, OAuthAuthorizationStateProtocol)
-    assert isinstance(authorization_code, OAuthAuthorizationCodeProtocol)
-    assert isinstance(access_token, OAuthAccessTokenProtocol)
-    assert isinstance(refresh_token, OAuthRefreshTokenProtocol)
-    assert isinstance(consent, OAuthConsentProtocol)
+    assert isinstance(client, OAuthServerClientProtocol)
+    assert isinstance(authorization_state, OAuthServerAuthorizationStateProtocol)
+    assert isinstance(authorization_code, OAuthServerAuthorizationCodeProtocol)
+    assert isinstance(access_token, OAuthServerAccessTokenProtocol)
+    assert isinstance(refresh_token, OAuthServerRefreshTokenProtocol)
+    assert isinstance(consent, OAuthServerConsentProtocol)
 
 
 def test_oauth_server_adapter_satisfies_protocol() -> None:
     adapter = OAuthServerAdapter(
-        oauth_client=OAuthClient,
-        oauth_authorization_state=OAuthAuthorizationState,
-        oauth_authorization_code=OAuthAuthorizationCode,
-        oauth_access_token=OAuthAccessToken,
-        oauth_refresh_token=OAuthRefreshToken,
-        oauth_consent=OAuthConsent,
+        oauth_client=OAuthServerClient,
+        oauth_authorization_state=OAuthServerAuthorizationState,
+        oauth_authorization_code=OAuthServerAuthorizationCode,
+        oauth_access_token=OAuthServerAccessToken,
+        oauth_refresh_token=OAuthServerRefreshToken,
+        oauth_consent=OAuthServerConsent,
     )
 
     assert isinstance(adapter, OAuthServerAdapterProtocol)

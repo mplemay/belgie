@@ -16,17 +16,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import (
     BelgieAdapter,
-    OAuthAccessTokenMixin,
-    OAuthAuthorizationCodeMixin,
-    OAuthAuthorizationStateMixin,
-    OAuthClientMixin,
-    OAuthConsentMixin,
-    OAuthRefreshTokenMixin,
+    OAuthServerAccessTokenMixin,
     OAuthServerAdapter,
+    OAuthServerAuthorizationCodeMixin,
+    OAuthServerAuthorizationStateMixin,
+    OAuthServerClientMixin,
+    OAuthServerConsentMixin,
+    OAuthServerRefreshTokenMixin,
 )
 from belgie.alchemy.mixins import AccountMixin, IndividualMixin, OAuthAccountMixin, OAuthStateMixin, SessionMixin
 from belgie.mcp import Mcp, get_user_from_access_token
-from belgie.oauth.server import OAuthResource, OAuthServer
+from belgie.oauth.server import OAuthServer, OAuthServerResource
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
@@ -52,27 +52,27 @@ class OAuthState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthStateMixin
     pass
 
 
-class OAuthClient(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthClientMixin):
+class OAuthServerClient(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerClientMixin):
     pass
 
 
-class OAuthAuthorizationState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAuthorizationStateMixin):
+class OAuthServerAuthorizationState(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerAuthorizationStateMixin):
     pass
 
 
-class OAuthAuthorizationCode(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAuthorizationCodeMixin):
+class OAuthServerAuthorizationCode(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerAuthorizationCodeMixin):
     pass
 
 
-class OAuthAccessToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthAccessTokenMixin):
+class OAuthServerAccessToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerAccessTokenMixin):
     pass
 
 
-class OAuthRefreshToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthRefreshTokenMixin):
+class OAuthServerRefreshToken(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerRefreshTokenMixin):
     pass
 
 
-class OAuthConsent(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthConsentMixin):
+class OAuthServerConsent(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthServerConsentMixin):
     pass
 
 
@@ -146,12 +146,12 @@ belgie = Belgie(
 )
 
 oauth_adapter = OAuthServerAdapter(
-    oauth_client=OAuthClient,
-    oauth_authorization_state=OAuthAuthorizationState,
-    oauth_authorization_code=OAuthAuthorizationCode,
-    oauth_access_token=OAuthAccessToken,
-    oauth_refresh_token=OAuthRefreshToken,
-    oauth_consent=OAuthConsent,
+    oauth_client=OAuthServerClient,
+    oauth_authorization_state=OAuthServerAuthorizationState,
+    oauth_authorization_code=OAuthServerAuthorizationCode,
+    oauth_access_token=OAuthServerAccessToken,
+    oauth_refresh_token=OAuthServerRefreshToken,
+    oauth_consent=OAuthServerConsent,
 )
 
 oauth_settings = OAuthServer(
@@ -163,7 +163,7 @@ oauth_settings = OAuthServer(
     redirect_uris=[AnyUrl("http://localhost:3030/callback")],
     default_scope="user",
     login_url="/login",
-    resources=[OAuthResource(prefix="/mcp", scopes=["user"])],
+    resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
 )
 
 _ = belgie.add_plugin(oauth_settings)

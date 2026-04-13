@@ -41,7 +41,7 @@ The app runs at `http://localhost:8000`.
   `mcp_server.streamable_http_app(...)`.
 - OAuth discovery serving (`/.well-known/oauth-authorization-server*` and
   `/.well-known/oauth-protected-resource*`) is owned by `OAuthServerPlugin`.
-- Configure `OAuthServer.resources=[OAuthResource(prefix="/mcp", ...)]` so protected
+- Configure `OAuthServer.resources=[OAuthServerResource(prefix="/mcp", ...)]` so protected
   resource metadata is published at the RFC9728 well-known endpoint.
 - The example uses `OAuthServerAdapter`, so registered clients, issued tokens, and consent survive process restarts.
 - The example uses SQLite and will create `./belgie_mcp_example.db` in the working directory.

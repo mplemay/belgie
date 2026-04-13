@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
 
-from belgie_oauth_server.models import OAuthMetadata, OIDCMetadata, ProtectedResourceMetadata
+from belgie_oauth_server.models import OAuthServerMetadata, OIDCMetadata, ProtectedResourceMetadata
 from belgie_oauth_server.utils import join_url
 
 if TYPE_CHECKING:
@@ -16,14 +16,14 @@ _ROOT_OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
 _ROOT_OPENID_METADATA_PATH = "/.well-known/openid-configuration"
 
 
-def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthMetadata:
+def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerMetadata:
     authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
     token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
     registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))
     revocation_endpoint = AnyHttpUrl(join_url(issuer_url, "revoke"))
     introspection_endpoint = AnyHttpUrl(join_url(issuer_url, "introspect"))
 
-    return OAuthMetadata(
+    return OAuthServerMetadata(
         issuer=AnyHttpUrl(issuer_url),
         authorization_endpoint=authorization_endpoint,
         token_endpoint=token_endpoint,

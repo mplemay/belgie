@@ -31,8 +31,8 @@ def test_oauth_plugin_openapi_exposes_typed_response_models(
     schema = app.openapi()
     components = schema["components"]["schemas"]
 
-    assert "OAuthToken" in components
-    assert "OAuthIntrospectionResponse" in components
+    assert "OAuthServerToken" in components
+    assert "OAuthServerIntrospectionResponse" in components
     assert "UserInfoResponse" in components
 
     token_schema = schema["paths"]["/auth/oauth/token"]["post"]["responses"]["200"]["content"]["application/json"][
@@ -45,6 +45,6 @@ def test_oauth_plugin_openapi_exposes_typed_response_models(
         "schema"
     ]
 
-    assert token_schema["$ref"] == "#/components/schemas/OAuthToken"
-    assert introspect_schema["$ref"] == "#/components/schemas/OAuthIntrospectionResponse"
+    assert token_schema["$ref"] == "#/components/schemas/OAuthServerToken"
+    assert introspect_schema["$ref"] == "#/components/schemas/OAuthServerIntrospectionResponse"
     assert userinfo_schema["$ref"] == "#/components/schemas/UserInfoResponse"

@@ -1,6 +1,6 @@
 import pytest
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
-from belgie_oauth_server.settings import OAuthResource, OAuthServer
+from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
 from pydantic import ValidationError
 
 
@@ -86,7 +86,7 @@ def test_oauth_settings_accepts_resource_metadata_settings() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
         redirect_uris=["http://example.com/callback"],
-        resources=[OAuthResource(prefix="/mcp", scopes=["user", "files:read"])],
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user", "files:read"])],
         include_root_resource_metadata_fallback=False,
     )
 
@@ -104,7 +104,7 @@ def test_oauth_settings_preserves_resource_trailing_slash() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
         redirect_uris=["http://example.com/callback"],
-        resources=[OAuthResource(prefix="/mcp/", scopes=["user"])],
+        resources=[OAuthServerResource(prefix="/mcp/", scopes=["user"])],
     )
 
     resource_url, resource_scopes = settings.resolve_resource()
@@ -126,7 +126,7 @@ def test_oauth_settings_rejects_multiple_resources() -> None:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
-            resources=[OAuthResource(prefix="/mcp"), OAuthResource(prefix="/files")],
+            resources=[OAuthServerResource(prefix="/mcp"), OAuthServerResource(prefix="/files")],
         )
     assert "resources" in str(exc.value)
 
@@ -134,7 +134,7 @@ def test_oauth_settings_rejects_multiple_resources() -> None:
 def test_oauth_settings_resolves_resource_with_fallback_base_url() -> None:
     settings = build_oauth_settings(
         redirect_uris=["http://example.com/callback"],
-        resources=[OAuthResource(prefix="/mcp", scopes=["user"])],
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
     )
 
     resource_url, resource_scopes = settings.resolve_resource("http://example.com")

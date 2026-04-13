@@ -17,9 +17,9 @@ pytest.importorskip("mcp")
 from belgie_core.core.settings import BelgieSettings
 from belgie_mcp.user import get_user_from_access_token
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
-from belgie_oauth_server.models import OAuthClientMetadata
+from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.plugin import OAuthServerPlugin
-from belgie_oauth_server.provider import AccessToken as OAuthAccessToken, AuthorizationParams, SimpleOAuthProvider
+from belgie_oauth_server.provider import AccessToken as OAuthServerAccessToken, AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.testing import InMemoryDBConnection
 from mcp.server.auth.middleware.auth_context import auth_context_var
 
@@ -240,9 +240,9 @@ async def _issue_dynamic_client_access_token(
     provider: SimpleOAuthProvider,
     *,
     individual_id: str | None = None,
-) -> tuple[str, OAuthAccessToken]:
+) -> tuple[str, OAuthServerAccessToken]:
     client = await provider.register_client(
-        OAuthClientMetadata(
+        OAuthServerClientMetadata(
             redirect_uris=[AnyUrl("http://localhost:6274/oauth/callback")],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],

@@ -38,7 +38,7 @@ from mcp.server.mcpserver import MCPServer
 from belgie import Belgie
 from belgie.alchemy.oauth_server import OAuthServerAdapter
 from belgie.mcp import Mcp, get_user_from_access_token
-from belgie.oauth.server import OAuthResource, OAuthServer
+from belgie.oauth.server import OAuthServerResource, OAuthServer
 
 app = FastAPI()
 
@@ -66,7 +66,7 @@ oauth_settings = OAuthServer(
     redirect_uris=["http://localhost:3030/callback"],
     default_scope="user",
     login_url="/login",
-    resources=[OAuthResource(prefix="/mcp", scopes=["user"])],
+    resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
 )
 
 _ = belgie.add_plugin(oauth_settings)

@@ -1,5 +1,5 @@
 from belgie_core.core.belgie import Belgie
-from belgie_oauth_server import OAuthResource, OAuthServer
+from belgie_oauth_server import OAuthServer, OAuthServerResource
 from belgie_oauth_server.metadata import _ROOT_OAUTH_METADATA_PATH, _ROOT_OPENID_METADATA_PATH
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -75,7 +75,7 @@ def test_protected_resource_metadata_endpoint_preserves_trailing_slash_canonical
     settings = oauth_settings.model_copy(
         update={
             "client_secret": SecretStr("test-secret"),
-            "resources": [OAuthResource(prefix="/mcp/", scopes=["user"])],
+            "resources": [OAuthServerResource(prefix="/mcp/", scopes=["user"])],
         },
     )
     belgie_instance.add_plugin(settings)

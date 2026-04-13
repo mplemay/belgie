@@ -6,11 +6,11 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from belgie_proto.oauth_server.types import OAuthClientType, OAuthSubjectType, TokenEndpointAuthMethod
+    from belgie_proto.oauth_server.types import OAuthServerClientType, OAuthServerSubjectType, TokenEndpointAuthMethod
 
 
 @runtime_checkable
-class OAuthClientProtocol(Protocol):
+class OAuthServerClientProtocol(Protocol):
     id: UUID
     client_id: str
     client_secret: str | None
@@ -32,8 +32,8 @@ class OAuthClientProtocol(Protocol):
     software_id: str | None
     software_version: str | None
     software_statement: str | None
-    type: OAuthClientType | None
-    subject_type: OAuthSubjectType | None
+    type: OAuthServerClientType | None
+    subject_type: OAuthServerSubjectType | None
     require_pkce: bool | None
     enable_end_session: bool | None
     client_id_issued_at: int | None

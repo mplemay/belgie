@@ -20,13 +20,13 @@ from belgie.oauth.server import OAuthServer
 from examples.alchemy.auth_models import (
     Account,
     Individual,
-    OAuthAccessToken,
     OAuthAccount,
-    OAuthAuthorizationCode,
-    OAuthAuthorizationState,
-    OAuthClient,
-    OAuthConsent,
-    OAuthRefreshToken,
+    OAuthServerAccessToken,
+    OAuthServerAuthorizationCode,
+    OAuthServerAuthorizationState,
+    OAuthServerClient,
+    OAuthServerConsent,
+    OAuthServerRefreshToken,
     OAuthState,
     Session,
 )
@@ -104,12 +104,12 @@ belgie = Belgie(
 )
 
 oauth_adapter = OAuthServerAdapter(
-    oauth_client=OAuthClient,
-    oauth_authorization_state=OAuthAuthorizationState,
-    oauth_authorization_code=OAuthAuthorizationCode,
-    oauth_access_token=OAuthAccessToken,
-    oauth_refresh_token=OAuthRefreshToken,
-    oauth_consent=OAuthConsent,
+    oauth_client=OAuthServerClient,
+    oauth_authorization_state=OAuthServerAuthorizationState,
+    oauth_authorization_code=OAuthServerAuthorizationCode,
+    oauth_access_token=OAuthServerAccessToken,
+    oauth_refresh_token=OAuthServerRefreshToken,
+    oauth_consent=OAuthServerConsent,
 )
 
 oauth_settings = OAuthServer(
