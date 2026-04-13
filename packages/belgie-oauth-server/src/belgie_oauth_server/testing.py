@@ -432,6 +432,24 @@ class InMemoryOAuthServerAdapter(
             self.access_tokens.pop(key, None)
         return len(keys)
 
+    async def delete_access_tokens_for_client_individual_and_session(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        individual_id: UUID,
+        session_id: UUID,
+    ) -> int:
+        _ = session
+        keys = [
+            key
+            for key, value in self.access_tokens.items()
+            if value.client_id == client_id and value.individual_id == individual_id and value.session_id == session_id
+        ]
+        for key in keys:
+            self.access_tokens.pop(key, None)
+        return len(keys)
+
     async def create_refresh_token(
         self,
         session: DBConnection,
@@ -496,6 +514,24 @@ class InMemoryOAuthServerAdapter(
             key
             for key, value in self.refresh_tokens.items()
             if value.client_id == client_id and value.individual_id == individual_id
+        ]
+        for key in keys:
+            self.refresh_tokens.pop(key, None)
+        return len(keys)
+
+    async def delete_refresh_tokens_for_client_individual_and_session(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        individual_id: UUID,
+        session_id: UUID,
+    ) -> int:
+        _ = session
+        keys = [
+            key
+            for key, value in self.refresh_tokens.items()
+            if value.client_id == client_id and value.individual_id == individual_id and value.session_id == session_id
         ]
         for key in keys:
             self.refresh_tokens.pop(key, None)

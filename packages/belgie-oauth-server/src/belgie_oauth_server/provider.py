@@ -818,6 +818,21 @@ class SimpleOAuthProvider:
         session: DBConnection,
         refresh_token: OAuthRefreshTokenProtocol,
     ) -> None:
+        if refresh_token.individual_id is not None and refresh_token.session_id is not None:
+            await self.adapter.delete_access_tokens_for_client_individual_and_session(
+                session,
+                client_id=refresh_token.client_id,
+                individual_id=refresh_token.individual_id,
+                session_id=refresh_token.session_id,
+            )
+            await self.adapter.delete_refresh_tokens_for_client_individual_and_session(
+                session,
+                client_id=refresh_token.client_id,
+                individual_id=refresh_token.individual_id,
+                session_id=refresh_token.session_id,
+            )
+            return
+
         if refresh_token.individual_id is not None:
             await self.adapter.delete_access_tokens_for_client_and_individual(
                 session,
@@ -938,7 +953,7 @@ class SimpleOAuthProvider:
     ) -> OAuthClientInformationFull:
         return OAuthClientInformationFull(
             client_id=client.client_id,
-            client_secret=client.client_secret_hash,
+            client_secret=None,
             redirect_uris=[AnyUrl(uri) for uri in client.redirect_uris],
             post_logout_redirect_uris=(
                 [AnyUrl(uri) for uri in client.post_logout_redirect_uris]

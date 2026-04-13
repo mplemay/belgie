@@ -198,6 +198,15 @@ class OAuthServerAdapterProtocol[
         individual_id: UUID,
     ) -> int: ...
 
+    async def delete_access_tokens_for_client_individual_and_session(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        individual_id: UUID,
+        session_id: UUID,
+    ) -> int: ...
+
     async def create_refresh_token(
         self,
         session: DBConnection,
@@ -239,6 +248,15 @@ class OAuthServerAdapterProtocol[
         *,
         client_id: str,
         individual_id: UUID,
+    ) -> int: ...
+
+    async def delete_refresh_tokens_for_client_individual_and_session(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        individual_id: UUID,
+        session_id: UUID,
     ) -> int: ...
 
     async def upsert_consent(

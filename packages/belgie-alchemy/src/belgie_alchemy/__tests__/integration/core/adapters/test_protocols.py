@@ -324,6 +324,7 @@ class ExampleOAuthRefreshToken:
     individual_id: UUID | None
     session_id: UUID | None
     created_at: datetime
+    updated_at: datetime
     expires_at: datetime
     revoked_at: datetime | None
 
@@ -730,6 +731,7 @@ def test_oauth_entity_protocol_runtime_checks() -> None:
         individual_id=individual_id,
         session_id=session_id,
         created_at=now,
+        updated_at=now,
         expires_at=now,
         revoked_at=None,
     )

@@ -420,6 +420,56 @@ async def test_exchange_refresh_token_preserves_resource_binding() -> None:
 
 
 @pytest.mark.asyncio
+async def test_exchange_refresh_token_replay_only_purges_current_session() -> None:
+    _settings, provider, adapter, db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    individual_id = provider._parse_uuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    session_a = provider._parse_uuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    session_b = provider._parse_uuid("cccccccc-cccc-cccc-cccc-cccccccccccc")
+    assert individual_id is not None
+    assert session_a is not None
+    assert session_b is not None
+
+    original_refresh = await provider._issue_refresh_token(
+        db,
+        client_id="test-client",
+        scopes=["user"],
+        individual_id=individual_id,
+        session_id=session_a,
+    )
+    other_refresh = await provider._issue_refresh_token(
+        db,
+        client_id="test-client",
+        scopes=["user"],
+        individual_id=individual_id,
+        session_id=session_b,
+    )
+    rotated_token = await provider.exchange_refresh_token(original_refresh, ["user"])
+    other_refresh_id = adapter.refresh_tokens[provider._hash_value(other_refresh.token)].id
+    other_access = await provider._issue_access_token(
+        db,
+        client_id="test-client",
+        scopes=["user"],
+        refresh_token_id=other_refresh_id,
+        refresh_token=other_refresh.token,
+        individual_id=individual_id,
+        session_id=session_b,
+    )
+
+    with pytest.raises(ValueError, match="revoked"):
+        await provider.exchange_refresh_token(original_refresh, ["user"])
+
+    assert rotated_token.refresh_token is not None
+    assert await provider.load_refresh_token(rotated_token.refresh_token) is None
+    assert await provider.load_access_token(rotated_token.access_token) is None
+    assert await provider.load_refresh_token(other_refresh.token) is not None
+    assert await provider.load_access_token(other_access.token) is not None
+
+
+@pytest.mark.asyncio
 async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
     _settings, provider, _adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],

@@ -3,8 +3,10 @@ from __future__ import annotations
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import jwt
 import pytest
 from belgie_oauth_server import OAuthResource
+from belgie_oauth_server.plugin import _id_token_signing_key
 from belgie_oauth_server.provider import AuthorizationParams
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import FastAPI
@@ -432,6 +434,73 @@ async def test_token_authorization_code_issues_id_token_for_public_client(
 
     assert token_response.status_code == 200
     assert token_response.json().get("id_token") is not None
+
+
+@pytest.mark.asyncio
+async def test_token_authorization_code_dynamic_confidential_client_uses_server_signing_secret(
+    async_client,
+    belgie_instance,
+    db_session,
+    create_individual_session,
+    register_dynamic_client,
+) -> None:
+    session_id = await create_individual_session(belgie_instance, db_session, "openid-dynamic@test.com")
+    async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+    dynamic_client = await register_dynamic_client(
+        redirect_uris=["http://testserver/callback"],
+        token_endpoint_auth_method="client_secret_post",
+        type="web",
+        scope="openid profile email",
+    )
+
+    assert dynamic_client.client_secret is not None
+    code_verifier = "openid-dynamic-verifier"
+    authorize_response = await async_client.get(
+        "/auth/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": dynamic_client.client_id,
+            "redirect_uri": "http://testserver/callback",
+            "code_challenge": create_code_challenge(code_verifier),
+            "code_challenge_method": "S256",
+            "scope": "openid profile email",
+            "state": "openid-dynamic-state",
+        },
+        follow_redirects=False,
+    )
+    code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
+
+    token_response = await async_client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": dynamic_client.client_id,
+            "client_secret": dynamic_client.client_secret,
+            "code": code,
+            "redirect_uri": "http://testserver/callback",
+            "code_verifier": code_verifier,
+        },
+    )
+
+    assert token_response.status_code == 200
+    id_token = token_response.json()["id_token"]
+    with pytest.raises(jwt.InvalidSignatureError):
+        jwt.decode(
+            id_token,
+            _id_token_signing_key(dynamic_client.client_secret),
+            algorithms=["HS256"],
+            audience=dynamic_client.client_id,
+            issuer="http://testserver/auth/oauth",
+        )
+
+    decoded = jwt.decode(
+        id_token,
+        _id_token_signing_key(belgie_instance.settings.secret),
+        algorithms=["HS256"],
+        audience=dynamic_client.client_id,
+        issuer="http://testserver/auth/oauth",
+    )
+    assert decoded["sub"]
 
 
 @pytest.mark.asyncio

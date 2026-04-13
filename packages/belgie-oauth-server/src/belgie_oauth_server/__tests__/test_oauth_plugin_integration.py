@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
 import jwt
+import pytest
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import OAuthServerPlugin, _id_token_signing_key
@@ -633,6 +634,81 @@ def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
         "error": "invalid_grant",
         "error_description": "invalid code_verifier",
     }
+
+
+def test_dynamic_confidential_client_id_token_uses_server_signing_secret() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        allow_dynamic_client_registration=True,
+    )
+    client, _plugin, belgie_client = _build_fixture(settings)
+
+    registration = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["http://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+            "scope": "openid user",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert registration.status_code == 201
+    registered_client = registration.json()
+    client_secret = registered_client["client_secret"]
+    verifier = "dynamic-client-verifier"
+    authorize = client.get(
+        "/auth/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registered_client["client_id"],
+            "redirect_uri": "http://client.local/callback",
+            "scope": "openid user",
+            "state": "dynamic-client-state",
+            "code_challenge": create_code_challenge(verifier),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    code = _query(authorize.headers["location"])["code"][0]
+    token_response = client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": registered_client["client_id"],
+            "client_secret": client_secret,
+            "code": code,
+            "redirect_uri": "http://client.local/callback",
+            "code_verifier": verifier,
+        },
+    )
+
+    assert token_response.status_code == 200
+    payload = token_response.json()
+    with pytest.raises(jwt.InvalidSignatureError):
+        jwt.decode(
+            payload["id_token"],
+            _id_token_signing_key(client_secret),
+            algorithms=["HS256"],
+            audience=registered_client["client_id"],
+            issuer="http://testserver/auth/oauth",
+        )
+
+    decoded = jwt.decode(
+        payload["id_token"],
+        _id_token_signing_key("test-secret"),
+        algorithms=["HS256"],
+        audience=registered_client["client_id"],
+        issuer="http://testserver/auth/oauth",
+    )
+    assert decoded["sub"] == str(belgie_client.user.id)
 
 
 def test_consent_flow_preserves_broader_persisted_scopes_after_narrower_reconsent() -> None:

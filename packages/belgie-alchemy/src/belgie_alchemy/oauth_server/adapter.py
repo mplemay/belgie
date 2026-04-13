@@ -350,6 +350,27 @@ class OAuthServerAdapter[
             raise
         return result.rowcount  # type: ignore[attr-defined]
 
+    async def delete_access_tokens_for_client_individual_and_session(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        individual_id: UUID,
+        session_id: UUID,
+    ) -> int:
+        stmt = delete(self.oauth_access_token_model).where(
+            self.oauth_access_token_model.client_id == client_id,
+            self.oauth_access_token_model.individual_id == individual_id,
+            self.oauth_access_token_model.session_id == session_id,
+        )
+        result = await session.execute(stmt)
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        return result.rowcount  # type: ignore[attr-defined]
+
     async def create_refresh_token(
         self,
         session: DBConnection,
@@ -415,6 +436,27 @@ class OAuthServerAdapter[
         stmt = delete(self.oauth_refresh_token_model).where(
             self.oauth_refresh_token_model.client_id == client_id,
             self.oauth_refresh_token_model.individual_id == individual_id,
+        )
+        result = await session.execute(stmt)
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        return result.rowcount  # type: ignore[attr-defined]
+
+    async def delete_refresh_tokens_for_client_individual_and_session(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        individual_id: UUID,
+        session_id: UUID,
+    ) -> int:
+        stmt = delete(self.oauth_refresh_token_model).where(
+            self.oauth_refresh_token_model.client_id == client_id,
+            self.oauth_refresh_token_model.individual_id == individual_id,
+            self.oauth_refresh_token_model.session_id == session_id,
         )
         result = await session.execute(stmt)
         try:
