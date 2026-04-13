@@ -5,15 +5,17 @@ import hashlib
 import hmac
 import secrets
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from inspect import isawaitable
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 from uuid import UUID
 
 from belgie_proto.core.connection import DBConnection
+from jwt import InvalidTokenError
 from pydantic import AnyUrl
 
 from belgie_oauth_server.models import (
@@ -21,11 +23,10 @@ from belgie_oauth_server.models import (
     OAuthServerClientMetadata,
     OAuthServerToken,
 )
-from belgie_oauth_server.utils import construct_redirect_uri
+from belgie_oauth_server.signing import OAuthServerSigningState, build_signing_state
+from belgie_oauth_server.utils import construct_redirect_uri, dedupe_scopes, parse_scope_string
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from belgie_proto.oauth_server import (
         OAuthServerAccessTokenProtocol,
         OAuthServerAuthorizationCodeProtocol,
@@ -114,8 +115,10 @@ class StateEntry:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConsentEntry:
+    id: UUID
     client_id: str
     individual_id: str
+    reference_id: str | None
     scopes: list[str]
     created_at: int
 
@@ -129,6 +132,7 @@ class SimpleOAuthProvider:
         issuer_url: str,
         *,
         database_factory: Callable[[], DBConnection | AsyncGenerator[DBConnection, None]] | None = None,
+        fallback_signing_secret: str | None = None,
     ) -> None:
         self.settings = settings
         self.issuer_url = issuer_url
@@ -136,7 +140,12 @@ class SimpleOAuthProvider:
         self.database_factory = database_factory
 
         client_secret = settings.client_secret.get_secret_value() if settings.client_secret is not None else None
-        self.static_client = OAuthServerClientInformationFull(
+        self.fallback_signing_secret = fallback_signing_secret or client_secret or ""
+        self.signing_state: OAuthServerSigningState = build_signing_state(
+            settings.signing,
+            self.fallback_signing_secret,
+        )
+        self.static_client = OAuthServerClientInformationFull.model_construct(
             client_id=settings.client_id,
             client_secret=client_secret,
             redirect_uris=settings.redirect_uris,
@@ -145,6 +154,10 @@ class SimpleOAuthProvider:
             require_pkce=settings.static_client_require_pkce,
             subject_type="public",
             enable_end_session=settings.enable_end_session,
+            disabled=False,
+            skip_consent=False,
+            reference_id=None,
+            metadata_json=None,
         )
 
     async def get_client(
@@ -161,6 +174,74 @@ class SimpleOAuthProvider:
                 return None
             return self._client_information_from_record(client)
 
+    async def list_clients(
+        self,
+        *,
+        individual_id: str | None = None,
+        reference_id: str | None = None,
+        db: DBConnection | None = None,
+    ) -> list[OAuthServerClientInformationFull]:
+        async with self._db_session(db) as session:
+            clients = await self.adapter.list_clients(
+                session,
+                individual_id=self._parse_uuid(individual_id),
+                reference_id=reference_id,
+            )
+        return [self._client_information_from_record(client) for client in clients]
+
+    async def update_client(
+        self,
+        client_id: str,
+        *,
+        updates: dict[str, object],
+        db: DBConnection | None = None,
+    ) -> OAuthServerClientInformationFull | None:
+        async with self._db_session(db, transactional=True) as session:
+            client = await self.adapter.update_client(session, client_id=client_id, updates=updates)
+            if client is None:
+                return None
+            return self._client_information_from_record(client)
+
+    async def delete_client(
+        self,
+        client_id: str,
+        *,
+        db: DBConnection | None = None,
+    ) -> bool:
+        async with self._db_session(db, transactional=True) as session:
+            return await self.adapter.delete_client(session, client_id=client_id)
+
+    async def rotate_client_secret(
+        self,
+        client_id: str,
+        *,
+        db: DBConnection | None = None,
+    ) -> OAuthServerClientInformationFull | None:
+        async with self._db_session(db, transactional=True) as session:
+            client = await self.adapter.get_client_by_client_id(session, client_id=client_id)
+            if client is None:
+                return None
+            if client.token_endpoint_auth_method == "none":  # noqa: S105
+                msg = "public clients cannot rotate secrets"
+                raise ValueError(msg)
+
+            raw_client_secret = await self._generate_client_secret()
+            stored_client_secret, client_secret_hash = self._store_client_secret(raw_client_secret)
+            rotated = await self.adapter.update_client(
+                session,
+                client_id=client_id,
+                updates={
+                    "client_secret": stored_client_secret,
+                    "client_secret_hash": client_secret_hash,
+                    "client_secret_expires_at": self._resolve_client_secret_expiration(),
+                },
+            )
+            if rotated is None:
+                return None
+            info = self._client_information_from_record(rotated)
+            info.client_secret = self._prefix_client_secret(raw_client_secret)
+            return info
+
     async def authenticate_client(  # noqa: PLR0911
         self,
         client_id: str,
@@ -170,9 +251,10 @@ class SimpleOAuthProvider:
         require_confidential: bool = False,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
+        normalized_client_secret = self._strip_client_secret_prefix(client_secret)
         if client_id == self.static_client.client_id:
             return self._authenticate_static_client(
-                client_secret,
+                normalized_client_secret,
                 require_credentials=require_credentials,
                 require_confidential=require_confidential,
             )
@@ -183,15 +265,17 @@ class SimpleOAuthProvider:
                 return None
 
             oauth_client = self._client_information_from_record(client)
+            if oauth_client.disabled:
+                return None
             if oauth_client.token_endpoint_auth_method == "none":  # noqa: S105
-                if require_credentials or require_confidential or client_secret:
+                if require_credentials or require_confidential or normalized_client_secret:
                     return None
                 return oauth_client
 
-            if not client_secret or client.client_secret_hash is None:
+            if not normalized_client_secret or client.client_secret_hash is None:
                 return None
 
-            if not hmac.compare_digest(self._hash_value(client_secret), client.client_secret_hash):
+            if not hmac.compare_digest(self._hash_value(normalized_client_secret), client.client_secret_hash):
                 return None
             return oauth_client
 
@@ -200,6 +284,7 @@ class SimpleOAuthProvider:
         metadata: OAuthServerClientMetadata,
         *,
         individual_id: str | None = None,
+        reference_id: str | None = None,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull:
         token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
@@ -212,28 +297,30 @@ class SimpleOAuthProvider:
             msg = "pkce is required for registered clients"
             raise ValueError(msg)
 
+        raw_client_secret = None
         client_secret = None
         client_secret_hash = None
-        client_secret_expires_at = None
+        client_secret_expires_at = self._resolve_client_secret_expiration()
         if token_endpoint_auth_method != "none":  # noqa: S105
-            client_secret = secrets.token_hex(16)
-            client_secret_hash = self._hash_value(client_secret)
-            client_secret_expires_at = 0
+            raw_client_secret = await self._generate_client_secret()
+            client_secret, client_secret_hash = self._store_client_secret(raw_client_secret)
 
         issued_at = int(time.time())
         async with self._db_session(db, transactional=True) as session:
-            client_id = self._generate_client_id()
+            client_id = await self._generate_client_id()
             while (
                 client_id == self.static_client.client_id
                 or (await self.adapter.get_client_by_client_id(session, client_id=client_id)) is not None
             ):
-                client_id = self._generate_client_id()
+                client_id = await self._generate_client_id()
 
             client = await self.adapter.create_client(
                 session,
                 client_id=client_id,
                 client_secret=client_secret,
                 client_secret_hash=client_secret_hash,
+                disabled=metadata.disabled,
+                skip_consent=metadata.skip_consent,
                 redirect_uris=(
                     [str(uri) for uri in metadata.redirect_uris] if metadata.redirect_uris is not None else None
                 ),
@@ -245,7 +332,8 @@ class SimpleOAuthProvider:
                 token_endpoint_auth_method=token_endpoint_auth_method,
                 grant_types=list(metadata.grant_types),
                 response_types=list(metadata.response_types),
-                scope=metadata.scope,
+                scope=metadata.scope
+                or " ".join(self.settings.client_registration_default_scopes or [self.settings.default_scope]),
                 client_name=metadata.client_name,
                 client_uri=str(metadata.client_uri) if metadata.client_uri is not None else None,
                 logo_uri=str(metadata.logo_uri) if metadata.logo_uri is not None else None,
@@ -261,11 +349,16 @@ class SimpleOAuthProvider:
                 subject_type=metadata.subject_type,
                 require_pkce=require_pkce,
                 enable_end_session=None,
+                reference_id=reference_id or metadata.reference_id,
+                metadata_json=metadata.metadata_json,
                 client_id_issued_at=issued_at,
                 client_secret_expires_at=client_secret_expires_at,
                 individual_id=self._parse_uuid(individual_id),
             )
-            return self._client_information_from_record(client)
+            client_info = self._client_information_from_record(client)
+            if raw_client_secret is not None:
+                client_info.client_secret = self._prefix_client_secret(raw_client_secret)
+            return client_info
 
     async def authorize(
         self,
@@ -463,7 +556,7 @@ class SimpleOAuthProvider:
         return OAuthServerToken(
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
-            expires_in=self.settings.access_token_ttl_seconds,
+            expires_in=self._access_token_expires_in_seconds(code_record.scopes),
             scope=scope,
             refresh_token=refresh_token.token if refresh_token is not None else None,
         )
@@ -474,10 +567,11 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> AccessToken | None:
+        normalized_token = self._strip_access_token_prefix(token)
         async with self._db_session(db, transactional=True) as session:
             access_token = await self.adapter.get_access_token_by_token_hash(
                 session,
-                token_hash=self._hash_value(token),
+                token_hash=self._hash_value(normalized_token),
             )
             if access_token is None:
                 return None
@@ -493,10 +587,14 @@ class SimpleOAuthProvider:
         include_revoked: bool = False,
         db: DBConnection | None = None,
     ) -> RefreshToken | None:
+        decoded_refresh_token = await self._decode_refresh_token(refresh_token_value)
+        if decoded_refresh_token is None:
+            return None
+        _decoded_session_id, raw_refresh_token = decoded_refresh_token
         async with self._db_session(db, transactional=True) as session:
             refresh_token = await self.adapter.get_refresh_token_by_token_hash(
                 session,
-                token_hash=self._hash_value(refresh_token_value),
+                token_hash=self._hash_value(raw_refresh_token),
             )
             if refresh_token is None:
                 return None
@@ -516,7 +614,12 @@ class SimpleOAuthProvider:
         refresh_token_resource: str | None = None,
         db: DBConnection | None = None,
     ) -> OAuthServerToken:
-        token_hash = self._hash_value(refresh_token.token)
+        decoded_refresh_token = await self._decode_refresh_token(refresh_token.token)
+        if decoded_refresh_token is None:
+            msg = "Invalid refresh token"
+            raise ValueError(msg)
+        _decoded_session_id, raw_refresh_token = decoded_refresh_token
+        token_hash = self._hash_value(raw_refresh_token)
         async with self._db_session(db, transactional=True) as session:
             stored_refresh_token = await self.adapter.get_refresh_token_by_token_hash(session, token_hash=token_hash)
             if stored_refresh_token is None:
@@ -569,7 +672,7 @@ class SimpleOAuthProvider:
         return OAuthServerToken(
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
-            expires_in=self.settings.access_token_ttl_seconds,
+            expires_in=self._access_token_expires_in_seconds(scopes),
             scope=" ".join(scopes),
             refresh_token=new_refresh_token.token,
         )
@@ -592,7 +695,7 @@ class SimpleOAuthProvider:
         return OAuthServerToken(
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
-            expires_in=self.settings.access_token_ttl_seconds,
+            expires_in=self._access_token_expires_in_seconds(scopes),
             scope=" ".join(scopes),
         )
 
@@ -604,12 +707,19 @@ class SimpleOAuthProvider:
     ) -> None:
         async with self._db_session(db, transactional=True) as session:
             if isinstance(token, AccessToken):
-                await self.adapter.delete_access_token_by_token_hash(session, token_hash=self._hash_value(token.token))
+                await self.adapter.delete_access_token_by_token_hash(
+                    session,
+                    token_hash=self._hash_value(self._strip_access_token_prefix(token.token)),
+                )
                 return
 
+            decoded_refresh_token = await self._decode_refresh_token(token.token)
+            if decoded_refresh_token is None:
+                return
+            _decoded_session_id, raw_refresh_token = decoded_refresh_token
             stored_refresh_token = await self.adapter.get_refresh_token_by_token_hash(
                 session,
-                token_hash=self._hash_value(token.token),
+                token_hash=self._hash_value(raw_refresh_token),
             )
             if stored_refresh_token is None:
                 return
@@ -620,14 +730,34 @@ class SimpleOAuthProvider:
             )
             await self.adapter.delete_refresh_token_by_token_hash(session, token_hash=stored_refresh_token.token_hash)
 
-    def default_scopes_for_client(self, client: OAuthServerClientInformationFull) -> list[str]:
+    def default_scopes_for_client(
+        self,
+        client: OAuthServerClientInformationFull,
+        *,
+        grant_type: str | None = None,
+    ) -> list[str]:
+        if grant_type == "client_credentials" and self.settings.client_credentials_default_scopes is not None:
+            return dedupe_scopes(self.settings.client_credentials_default_scopes)
         raw_scope = client.scope.strip() if client.scope else ""
         if raw_scope:
-            return [scope for scope in raw_scope.split(" ") if scope]
+            return parse_scope_string(raw_scope) or []
         return [self.settings.default_scope]
 
-    def validate_scopes_for_client(self, client: OAuthServerClientInformationFull, scopes: list[str]) -> None:
-        allowed_scopes = set(self.default_scopes_for_client(client))
+    def validate_scopes_for_client(
+        self,
+        client: OAuthServerClientInformationFull,
+        scopes: list[str],
+        *,
+        grant_type: str | None = None,
+    ) -> None:
+        if grant_type == "client_credentials":
+            invalid_oidc_scopes = [
+                scope for scope in scopes if scope in {"openid", "profile", "email", "offline_access"}
+            ]
+            if invalid_oidc_scopes:
+                msg = f"scope {invalid_oidc_scopes[0]} is not allowed for client_credentials"
+                raise ValueError(msg)
+        allowed_scopes = set(self.default_scopes_for_client(client, grant_type=grant_type))
         invalid_scopes = [scope for scope in scopes if scope not in allowed_scopes]
         if invalid_scopes:
             msg = f"Client was not registered with scope {invalid_scopes[0]}"
@@ -639,11 +769,13 @@ class SimpleOAuthProvider:
         individual_id: str,
         scopes: list[str],
         *,
+        reference_id: str | None = None,
         db: DBConnection | None = None,
     ) -> None:
         merged_scopes = (
             list(existing.scopes)
-            if (existing := await self.load_consent(client_id, individual_id, db=db)) is not None
+            if (existing := await self.load_consent(client_id, individual_id, reference_id=reference_id, db=db))
+            is not None
             else []
         )
         for scope in scopes:
@@ -655,7 +787,8 @@ class SimpleOAuthProvider:
                 session,
                 client_id=client_id,
                 individual_id=self._require_uuid(individual_id),
-                scopes=merged_scopes,
+                reference_id=reference_id,
+                scopes=dedupe_scopes(merged_scopes),
             )
 
     async def load_consent(
@@ -663,6 +796,7 @@ class SimpleOAuthProvider:
         client_id: str,
         individual_id: str,
         *,
+        reference_id: str | None = None,
         db: DBConnection | None = None,
     ) -> ConsentEntry | None:
         async with self._db_session(db) as session:
@@ -670,6 +804,7 @@ class SimpleOAuthProvider:
                 session,
                 client_id=client_id,
                 individual_id=self._require_uuid(individual_id),
+                reference_id=reference_id,
             )
             if consent is None:
                 return None
@@ -681,22 +816,66 @@ class SimpleOAuthProvider:
         individual_id: str,
         scopes: list[str],
         *,
+        reference_id: str | None = None,
         db: DBConnection | None = None,
     ) -> bool:
-        if (consent := await self.load_consent(client_id, individual_id, db=db)) is None:
+        if (consent := await self.load_consent(client_id, individual_id, reference_id=reference_id, db=db)) is None:
             return False
         return all(scope in consent.scopes for scope in scopes)
 
-    def _allowed_dynamic_client_registration_scopes(self) -> list[str]:
-        allowed_scopes = [self.settings.default_scope, "openid", "profile", "email", "offline_access"]
-        if self.settings.resources is not None:
-            allowed_scopes.extend(self.settings.resources[0].scopes or [])
+    async def list_consents(
+        self,
+        individual_id: str,
+        *,
+        reference_id: str | None = None,
+        db: DBConnection | None = None,
+    ) -> list[ConsentEntry]:
+        async with self._db_session(db) as session:
+            consents = await self.adapter.list_consents(
+                session,
+                individual_id=self._require_uuid(individual_id),
+                reference_id=reference_id,
+            )
+        return [self._consent_entry_from_record(consent) for consent in consents]
 
-        deduped_scopes: list[str] = []
-        for scope in allowed_scopes:
-            if scope not in deduped_scopes:
-                deduped_scopes.append(scope)
-        return deduped_scopes
+    async def get_consent_by_id(
+        self,
+        consent_id: UUID,
+        *,
+        db: DBConnection | None = None,
+    ) -> ConsentEntry | None:
+        async with self._db_session(db) as session:
+            consent = await self.adapter.get_consent_by_id(session, consent_id=consent_id)
+            if consent is None:
+                return None
+            return self._consent_entry_from_record(consent)
+
+    async def update_consent(
+        self,
+        consent_id: UUID,
+        *,
+        scopes: list[str],
+        db: DBConnection | None = None,
+    ) -> ConsentEntry | None:
+        async with self._db_session(db, transactional=True) as session:
+            consent = await self.adapter.update_consent(session, consent_id=consent_id, scopes=dedupe_scopes(scopes))
+            if consent is None:
+                return None
+            return self._consent_entry_from_record(consent)
+
+    async def delete_consent(
+        self,
+        consent_id: UUID,
+        *,
+        db: DBConnection | None = None,
+    ) -> bool:
+        async with self._db_session(db, transactional=True) as session:
+            return await self.adapter.delete_consent(session, consent_id=consent_id)
+
+    def _allowed_dynamic_client_registration_scopes(self) -> list[str]:
+        allowed_scopes = self.settings.client_registration_allowed_scopes or self.settings.supported_scopes()
+        default_scopes = self.settings.client_registration_default_scopes or [self.settings.default_scope]
+        return dedupe_scopes([*default_scopes, *allowed_scopes])
 
     def resolve_subject_identifier(self, client: OAuthServerClientInformationFull, individual_id: str) -> str:
         if client.subject_type != "pairwise":
@@ -753,8 +932,13 @@ class SimpleOAuthProvider:
         if metadata.require_pkce is False:
             msg = "pkce is required for registered clients"
             raise ValueError(msg)
+        if metadata.skip_consent:
+            msg = "skip_consent cannot be set during dynamic client registration"
+            raise ValueError(msg)
         if metadata.scope is not None:
-            invalid_scopes = [scope for scope in metadata.scope.split(" ") if scope and scope not in allowed_scopes]
+            invalid_scopes = [
+                scope for scope in (parse_scope_string(metadata.scope) or []) if scope and scope not in allowed_scopes
+            ]
             if invalid_scopes:
                 msg = f"cannot request scope {invalid_scopes[0]}"
                 raise ValueError(msg)
@@ -772,17 +956,31 @@ class SimpleOAuthProvider:
         session_id: UUID | None = None,
     ) -> AccessToken:
         now = int(time.time())
-        token_value = f"belgie_{secrets.token_hex(32)}"
+        expires_in = self._access_token_expires_in_seconds(scopes)
+        expires_at = self._expires_at(expires_in)
+        token_value = (
+            await self._generate_signed_access_token(
+                client_id=client_id,
+                scopes=scopes,
+                resource=resource,
+                individual_id=individual_id,
+                session_id=session_id,
+                issued_at=now,
+                expires_at=int(expires_at.timestamp()),
+            )
+            if resource is not None
+            else self._prefix_access_token(await self._generate_opaque_access_token())
+        )
         access_token = await self.adapter.create_access_token(
             session,
-            token_hash=self._hash_value(token_value),
+            token_hash=self._hash_value(self._strip_access_token_prefix(token_value)),
             client_id=client_id,
             scopes=list(scopes),
             resource=resource,
             refresh_token_id=refresh_token_id,
             individual_id=individual_id,
             session_id=session_id,
-            expires_at=self._expires_at(self.settings.access_token_ttl_seconds),
+            expires_at=expires_at,
         )
         return AccessToken(
             token=token_value,
@@ -806,10 +1004,10 @@ class SimpleOAuthProvider:
         session_id: UUID | None = None,
         resource: str | None = None,
     ) -> RefreshToken:
-        token_value = f"belgie_{secrets.token_hex(32)}"
+        token_body = await self._generate_refresh_token()
         refresh_token = await self.adapter.create_refresh_token(
             session,
-            token_hash=self._hash_value(token_value),
+            token_hash=self._hash_value(token_body),
             client_id=client_id,
             scopes=list(scopes),
             resource=resource,
@@ -817,7 +1015,44 @@ class SimpleOAuthProvider:
             session_id=session_id,
             expires_at=self._expires_at(self.settings.refresh_token_ttl_seconds),
         )
-        return self._refresh_token_from_record(token_value, refresh_token)
+        return self._refresh_token_from_record(await self._encode_refresh_token(token_body, session_id), refresh_token)
+
+    def verify_signed_access_token(
+        self,
+        token: str,
+        *,
+        audience: str | list[str] | None = None,
+        verify_exp: bool = True,
+    ) -> AccessToken | None:
+        try:
+            payload = self.signing_state.decode(
+                token,
+                audience=audience,
+                issuer=self.issuer_url,
+                verify_exp=verify_exp,
+            )
+        except InvalidTokenError:
+            return None
+
+        client_id = payload.get("azp")
+        if not isinstance(client_id, str) or not client_id:
+            return None
+
+        scopes = parse_scope_string(payload.get("scope")) or []
+        issued_at = payload.get("iat")
+        expires_at = payload.get("exp")
+        subject = payload.get("sub")
+        session_id = payload.get("sid")
+        return AccessToken(
+            token=token,
+            client_id=client_id,
+            scopes=scopes,
+            created_at=issued_at if isinstance(issued_at, int) else int(time.time()),
+            expires_at=expires_at if isinstance(expires_at, int) else None,
+            resource=payload.get("aud") if isinstance(payload.get("aud"), (str, list)) else None,
+            individual_id=subject if isinstance(subject, str) else None,
+            session_id=session_id if isinstance(session_id, str) else None,
+        )
 
     async def _purge_refresh_token_family(
         self,
@@ -934,9 +1169,154 @@ class SimpleOAuthProvider:
     def _is_async_generator(value: object) -> bool:
         return isinstance(value, AsyncGenerator)
 
-    @staticmethod
-    def _generate_client_id() -> str:
+    async def _generate_client_id(self) -> str:
+        if self.settings.generate_client_id is not None:
+            generated = self.settings.generate_client_id()
+            if isinstance(generated, str):
+                return generated
+            return await generated
         return f"belgie_client_{secrets.token_hex(8)}"
+
+    async def _generate_client_secret(self) -> str:
+        if self.settings.generate_client_secret is not None:
+            generated = self.settings.generate_client_secret()
+            if isinstance(generated, str):
+                return generated
+            return await generated
+        return secrets.token_hex(16)
+
+    def _store_client_secret(self, client_secret: str) -> tuple[str | None, str]:
+        if self.settings.signing.algorithm == "HS256":
+            return client_secret, self._hash_value(client_secret)
+        return None, self._hash_value(client_secret)
+
+    def _resolve_client_secret_expiration(self) -> int | None:
+        configured = self.settings.client_registration_client_secret_expires_at
+        if configured is None:
+            return None
+        if isinstance(configured, datetime):
+            return int(configured.timestamp())
+        return configured
+
+    def _prefix_client_secret(self, client_secret: str) -> str:
+        if self.settings.token_prefixes.client_secret:
+            return f"{self.settings.token_prefixes.client_secret}{client_secret}"
+        return client_secret
+
+    def _strip_client_secret_prefix(self, client_secret: str | None) -> str | None:
+        if client_secret is None:
+            return None
+        prefix = self.settings.token_prefixes.client_secret
+        if prefix and client_secret.startswith(prefix):
+            return client_secret.removeprefix(prefix)
+        return client_secret
+
+    async def _generate_opaque_access_token(self) -> str:
+        if self.settings.generate_access_token is not None:
+            generated = self.settings.generate_access_token()
+            if isinstance(generated, str):
+                return generated
+            return await generated
+        return f"belgie_{secrets.token_hex(16)}"
+
+    async def _generate_refresh_token(self) -> str:
+        if self.settings.generate_refresh_token is not None:
+            generated = self.settings.generate_refresh_token()
+            if isinstance(generated, str):
+                return generated
+            return await generated
+        return f"belgie_refresh_{secrets.token_hex(16)}"
+
+    async def _generate_signed_access_token(  # noqa: PLR0913
+        self,
+        *,
+        client_id: str,
+        scopes: list[str],
+        resource: OAuthServerAudience,
+        individual_id: UUID | None,
+        session_id: UUID | None,
+        issued_at: int,
+        expires_at: int,
+    ) -> str:
+        payload: dict[str, Any] = {
+            "iss": self.issuer_url,
+            "sub": self._stringify_uuid(individual_id),
+            "aud": resource if not isinstance(resource, list) or len(resource) != 1 else resource[0],
+            "azp": client_id,
+            "scope": " ".join(scopes),
+            "iat": issued_at,
+            "exp": expires_at,
+        }
+        if session_id is not None:
+            payload["sid"] = str(session_id)
+
+        custom_claims = await self._resolve_custom_claims(
+            self.settings.custom_access_token_claims,
+            {
+                "client_id": client_id,
+                "scopes": list(scopes),
+                "resource": resource,
+                "individual_id": self._stringify_uuid(individual_id),
+                "session_id": self._stringify_uuid(session_id),
+            },
+        )
+        payload.update(custom_claims)
+        return self.signing_state.sign(payload)
+
+    async def _encode_refresh_token(self, token: str, session_id: UUID | None) -> str:
+        encoded = token
+        if self.settings.refresh_token_encoder is not None:
+            resolved = self.settings.refresh_token_encoder(encoded, self._stringify_uuid(session_id))
+            encoded = await resolved if isawaitable(resolved) else resolved
+        if self.settings.token_prefixes.refresh_token:
+            return f"{self.settings.token_prefixes.refresh_token}{encoded}"
+        return encoded
+
+    async def _decode_refresh_token(self, token: str) -> tuple[str | None, str] | None:
+        decoded = token
+        prefix = self.settings.token_prefixes.refresh_token
+        if prefix and decoded.startswith(prefix):
+            decoded = decoded.removeprefix(prefix)
+
+        if self.settings.refresh_token_decoder is None:
+            return None, decoded
+
+        resolved = self.settings.refresh_token_decoder(decoded)
+        return await resolved if isawaitable(resolved) else resolved
+
+    def _prefix_access_token(self, token: str) -> str:
+        if self.settings.token_prefixes.access_token:
+            return f"{self.settings.token_prefixes.access_token}{token}"
+        return token
+
+    def _strip_access_token_prefix(self, token: str) -> str:
+        prefix = self.settings.token_prefixes.access_token
+        if prefix and token.startswith(prefix):
+            return token.removeprefix(prefix)
+        return token
+
+    def _access_token_expires_in_seconds(self, scopes: list[str]) -> int:
+        default_exp = self.settings.access_token_ttl_seconds
+        if not self.settings.scope_expirations:
+            return default_exp
+
+        expirations = [
+            self.settings.scope_expirations[scope] for scope in scopes if scope in self.settings.scope_expirations
+        ]
+        if not expirations:
+            return default_exp
+        return min([default_exp, *expirations])
+
+    async def _resolve_custom_claims(
+        self,
+        resolver: Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]] | None,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        if resolver is None:
+            return {}
+        resolved = resolver(payload)
+        claims = await resolved if isawaitable(resolved) else resolved
+        return dict(claims)
 
     @staticmethod
     def _hash_value(value: str) -> str:
@@ -996,6 +1376,8 @@ class SimpleOAuthProvider:
         return OAuthServerClientInformationFull(
             client_id=client.client_id,
             client_secret=client.client_secret,
+            disabled=client.disabled,
+            skip_consent=client.skip_consent,
             redirect_uris=[AnyUrl(uri) for uri in client.redirect_uris] if client.redirect_uris is not None else None,
             post_logout_redirect_uris=(
                 [AnyUrl(uri) for uri in client.post_logout_redirect_uris]
@@ -1023,6 +1405,9 @@ class SimpleOAuthProvider:
             client_id_issued_at=client.client_id_issued_at,
             client_secret_expires_at=client.client_secret_expires_at,
             enable_end_session=client.enable_end_session,
+            individual_id=self._stringify_uuid(client.individual_id),
+            reference_id=client.reference_id,
+            metadata_json=client.metadata_json,
         )
 
     @staticmethod
@@ -1098,8 +1483,10 @@ class SimpleOAuthProvider:
     @staticmethod
     def _consent_entry_from_record(consent: OAuthServerConsentProtocol) -> ConsentEntry:
         return ConsentEntry(
+            id=consent.id,
             client_id=consent.client_id,
             individual_id=str(consent.individual_id),
+            reference_id=consent.reference_id,
             scopes=list(consent.scopes),
             created_at=int(consent.created_at.timestamp()),
         )

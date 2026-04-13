@@ -36,6 +36,8 @@ class InMemoryOAuthClient:
     client_id: str
     client_secret: str | None
     client_secret_hash: str | None
+    disabled: bool | None
+    skip_consent: bool | None
     redirect_uris: list[str] | None
     post_logout_redirect_uris: list[str] | None
     token_endpoint_auth_method: TokenEndpointAuthMethod
@@ -57,6 +59,8 @@ class InMemoryOAuthClient:
     subject_type: OAuthServerSubjectType | None
     require_pkce: bool | None
     enable_end_session: bool | None
+    reference_id: str | None
+    metadata_json: dict[str, str] | dict[str, object] | None
     client_id_issued_at: int | None
     client_secret_expires_at: int | None
     individual_id: UUID | None
@@ -137,6 +141,7 @@ class InMemoryRefreshToken:
 class InMemoryConsent:
     client_id: str
     individual_id: UUID
+    reference_id: str | None
     scopes: list[str]
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -159,7 +164,7 @@ class InMemoryOAuthServerAdapter(
         self.authorization_codes: dict[str, InMemoryAuthorizationCode] = {}
         self.access_tokens: dict[str, InMemoryAccessToken] = {}
         self.refresh_tokens: dict[str, InMemoryRefreshToken] = {}
-        self.consents: dict[tuple[str, UUID], InMemoryConsent] = {}
+        self.consents: dict[tuple[str, UUID, str | None], InMemoryConsent] = {}
 
     @staticmethod
     def _now() -> datetime:
@@ -178,6 +183,8 @@ class InMemoryOAuthServerAdapter(
         client_id: str,
         client_secret: str | None,
         client_secret_hash: str | None,
+        disabled: bool | None,
+        skip_consent: bool | None,
         redirect_uris: list[str] | None,
         post_logout_redirect_uris: list[str] | None,
         token_endpoint_auth_method: TokenEndpointAuthMethod,
@@ -199,6 +206,8 @@ class InMemoryOAuthServerAdapter(
         subject_type: OAuthServerSubjectType | None,
         require_pkce: bool | None,
         enable_end_session: bool | None,
+        reference_id: str | None,
+        metadata_json: dict[str, str] | dict[str, object] | None,
         client_id_issued_at: int | None,
         client_secret_expires_at: int | None,
         individual_id: UUID | None,
@@ -208,6 +217,8 @@ class InMemoryOAuthServerAdapter(
             client_id=client_id,
             client_secret=client_secret,
             client_secret_hash=client_secret_hash,
+            disabled=disabled,
+            skip_consent=skip_consent,
             redirect_uris=None if redirect_uris is None else list(redirect_uris),
             post_logout_redirect_uris=(None if post_logout_redirect_uris is None else list(post_logout_redirect_uris)),
             token_endpoint_auth_method=token_endpoint_auth_method,
@@ -229,6 +240,8 @@ class InMemoryOAuthServerAdapter(
             subject_type=subject_type,
             require_pkce=require_pkce,
             enable_end_session=enable_end_session,
+            reference_id=reference_id,
+            metadata_json=metadata_json,
             client_id_issued_at=client_id_issued_at,
             client_secret_expires_at=client_secret_expires_at,
             individual_id=individual_id,
@@ -239,6 +252,45 @@ class InMemoryOAuthServerAdapter(
     async def get_client_by_client_id(self, session: DBConnection, *, client_id: str) -> InMemoryOAuthClient | None:
         _ = session
         return self.clients.get(client_id)
+
+    async def list_clients(
+        self,
+        session: DBConnection,
+        *,
+        individual_id: UUID | None = None,
+        reference_id: str | None = None,
+    ) -> list[InMemoryOAuthClient]:
+        _ = session
+        clients = list(self.clients.values())
+        if reference_id is not None:
+            return [client for client in clients if client.reference_id == reference_id]
+        if individual_id is not None:
+            return [client for client in clients if client.individual_id == individual_id]
+        return clients
+
+    async def update_client(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        updates: dict[str, object],
+    ) -> InMemoryOAuthClient | None:
+        _ = session
+        client = self.clients.get(client_id)
+        if client is None:
+            return None
+        for update_field, value in updates.items():
+            setattr(client, update_field, value)
+        return self._touch(client)
+
+    async def delete_client(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+    ) -> bool:
+        _ = session
+        return self.clients.pop(client_id, None) is not None
 
     async def create_authorization_state(
         self,
@@ -546,13 +598,19 @@ class InMemoryOAuthServerAdapter(
         *,
         client_id: str,
         individual_id: UUID,
+        reference_id: str | None,
         scopes: list[str],
     ) -> InMemoryConsent:
         _ = session
-        consent_key = (client_id, individual_id)
+        consent_key = (client_id, individual_id, reference_id)
         consent = self.consents.get(consent_key)
         if consent is None:
-            consent = InMemoryConsent(client_id=client_id, individual_id=individual_id, scopes=list(scopes))
+            consent = InMemoryConsent(
+                client_id=client_id,
+                individual_id=individual_id,
+                reference_id=reference_id,
+                scopes=list(scopes),
+            )
             self.consents[consent_key] = consent
             return consent
 
@@ -565,9 +623,59 @@ class InMemoryOAuthServerAdapter(
         *,
         client_id: str,
         individual_id: UUID,
+        reference_id: str | None = None,
     ) -> InMemoryConsent | None:
         _ = session
-        return self.consents.get((client_id, individual_id))
+        return self.consents.get((client_id, individual_id, reference_id))
+
+    async def get_consent_by_id(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+    ) -> InMemoryConsent | None:
+        _ = session
+        return next((consent for consent in self.consents.values() if consent.id == consent_id), None)
+
+    async def list_consents(
+        self,
+        session: DBConnection,
+        *,
+        individual_id: UUID,
+        reference_id: str | None = None,
+    ) -> list[InMemoryConsent]:
+        _ = session
+        consents = [consent for consent in self.consents.values() if consent.individual_id == individual_id]
+        if reference_id is not None:
+            consents = [consent for consent in consents if consent.reference_id == reference_id]
+        return consents
+
+    async def update_consent(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+        scopes: list[str],
+    ) -> InMemoryConsent | None:
+        _ = session
+        consent = await self.get_consent_by_id(session, consent_id=consent_id)
+        if consent is None:
+            return None
+        consent.scopes = list(scopes)
+        return self._touch(consent)
+
+    async def delete_consent(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+    ) -> bool:
+        _ = session
+        matched_key = next((key for key, consent in self.consents.items() if consent.id == consent_id), None)
+        if matched_key is None:
+            return False
+        self.consents.pop(matched_key, None)
+        return True
 
     @classmethod
     def create_session(cls) -> tuple[Self, InMemoryDBConnection]:

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from uuid import UUID  # noqa: TC003
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
+
+from belgie_oauth_server.utils import parse_scope_string, redirect_uris_match, validate_safe_redirect_uri
 
 
 class OAuthServerToken(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"  # noqa: S105
     expires_in: int | None = None
@@ -32,6 +37,8 @@ class OAuthServerErrorResponse(BaseModel):
 
 
 class OAuthServerIntrospectionResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     active: bool
     client_id: str | None = None
     scope: str | None = None
@@ -45,6 +52,8 @@ class OAuthServerIntrospectionResponse(BaseModel):
 
 
 class UserInfoResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     sub: str
     name: str | None = None
     picture: str | None = None
@@ -65,6 +74,8 @@ class InvalidRedirectUriError(Exception):
 
 
 class OAuthServerClientMetadata(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     redirect_uris: list[AnyUrl] | None = Field(default=None, min_length=1)
     token_endpoint_auth_method: (
         Literal[
@@ -94,12 +105,23 @@ class OAuthServerClientMetadata(BaseModel):
     type: OAuthServerClientType | None = None
     subject_type: OAuthServerSubjectType | None = None
     require_pkce: bool | None = None
+    disabled: bool | None = None
+    skip_consent: bool | None = None
+    reference_id: str | None = None
+    metadata_json: dict[str, Any] | None = None
+
+    @field_validator("redirect_uris", "post_logout_redirect_uris", mode="before")
+    @classmethod
+    def validate_redirect_uris(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [validate_safe_redirect_uri(str(uri)) for uri in value]
 
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:
             return None
-        requested_scopes = requested_scope.split(" ")
-        allowed_scopes = [] if self.scope is None else self.scope.split(" ")
+        requested_scopes = parse_scope_string(requested_scope) or []
+        allowed_scopes = [] if self.scope is None else parse_scope_string(self.scope) or []
         for scope in requested_scopes:
             if scope not in allowed_scopes:
                 message = f"Client was not registered with scope {scope}"
@@ -108,7 +130,11 @@ class OAuthServerClientMetadata(BaseModel):
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
-            if self.redirect_uris is None or redirect_uri not in self.redirect_uris:
+            redirect_uri_str = str(redirect_uri)
+            if self.redirect_uris is None or not any(
+                redirect_uris_match(str(registered_redirect_uri), redirect_uri_str)
+                for registered_redirect_uri in self.redirect_uris
+            ):
                 message = f"Redirect URI '{redirect_uri}' not registered for client"
                 raise InvalidRedirectUriError(message)
             return redirect_uri
@@ -124,12 +150,33 @@ class OAuthServerClientInformationFull(OAuthServerClientMetadata):
     client_id_issued_at: int | None = None
     client_secret_expires_at: int | None = None
     enable_end_session: bool | None = None
+    individual_id: str | None = None
+
+
+class OAuthServerPublicClient(BaseModel):
+    client_id: str
+    client_name: str | None = None
+    client_uri: AnyHttpUrl | None = None
+    logo_uri: AnyHttpUrl | None = None
+    contacts: list[str] | None = None
+    tos_uri: AnyHttpUrl | None = None
+    policy_uri: AnyHttpUrl | None = None
+
+
+class OAuthServerConsentResponse(BaseModel):
+    id: UUID
+    client_id: str
+    individual_id: str
+    reference_id: str | None = None
+    scopes: list[str]
+    created_at: int
 
 
 class OAuthServerMetadata(BaseModel):
     issuer: AnyHttpUrl
     authorization_endpoint: AnyHttpUrl
     token_endpoint: AnyHttpUrl
+    jwks_uri: AnyHttpUrl | None = None
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     response_types_supported: list[str] = ["code"]

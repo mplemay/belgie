@@ -71,7 +71,7 @@ def test_build_openid_metadata_contains_oidc_endpoints() -> None:
 
     assert str(metadata.userinfo_endpoint) == "https://auth.local/auth/oauth/userinfo"
     assert str(metadata.end_session_endpoint) == "https://auth.local/auth/oauth/end-session"
-    assert metadata.id_token_signing_alg_values_supported == ["HS256"]
+    assert metadata.id_token_signing_alg_values_supported == ["RS256"]
     assert metadata.subject_types_supported == ["public"]
     assert "sub" in metadata.claims_supported
     assert "openid" in (metadata.scopes_supported or [])
