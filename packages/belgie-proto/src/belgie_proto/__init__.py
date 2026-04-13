@@ -1,4 +1,18 @@
 from belgie_proto.core import AccountProtocol, AccountType, IndividualProtocol
+from belgie_proto.oauth_server import (
+    AuthorizationIntent,
+    OAuthAccessTokenProtocol,
+    OAuthAudience,
+    OAuthAuthorizationCodeProtocol,
+    OAuthAuthorizationStateProtocol,
+    OAuthClientProtocol,
+    OAuthClientType,
+    OAuthConsentProtocol,
+    OAuthRefreshTokenProtocol,
+    OAuthServerAdapterProtocol,
+    OAuthSubjectType,
+    TokenEndpointAuthMethod,
+)
 from belgie_proto.sso import (
     OIDCClaimMapping,
     OIDCProviderConfig,
@@ -17,7 +31,18 @@ from belgie_proto.stripe import (
 __all__ = [
     "AccountProtocol",
     "AccountType",
+    "AuthorizationIntent",
     "IndividualProtocol",
+    "OAuthAccessTokenProtocol",
+    "OAuthAudience",
+    "OAuthAuthorizationCodeProtocol",
+    "OAuthAuthorizationStateProtocol",
+    "OAuthClientProtocol",
+    "OAuthClientType",
+    "OAuthConsentProtocol",
+    "OAuthRefreshTokenProtocol",
+    "OAuthServerAdapterProtocol",
+    "OAuthSubjectType",
     "OIDCClaimMapping",
     "OIDCProviderConfig",
     "SSOAdapterProtocol",
@@ -28,4 +53,5 @@ __all__ = [
     "StripeBillingInterval",
     "StripeSubscriptionProtocol",
     "StripeSubscriptionStatus",
+    "TokenEndpointAuthMethod",
 ]

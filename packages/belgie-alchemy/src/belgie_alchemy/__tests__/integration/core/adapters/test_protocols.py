@@ -8,6 +8,15 @@ from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.oauth_account import OAuthAccountProtocol
 from belgie_proto.core.oauth_state import OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
+from belgie_proto.oauth_server import (
+    OAuthAccessTokenProtocol,
+    OAuthAuthorizationCodeProtocol,
+    OAuthAuthorizationStateProtocol,
+    OAuthClientProtocol,
+    OAuthConsentProtocol,
+    OAuthRefreshTokenProtocol,
+    OAuthServerAdapterProtocol,
+)
 from belgie_proto.organization import (
     OrganizationAdapterProtocol,
     OrganizationProtocol,
@@ -22,7 +31,16 @@ from belgie_proto.stripe import (
 )
 from belgie_proto.team import TeamAdapterProtocol, TeamProtocol
 
+from belgie_alchemy.__tests__.fixtures.core.models import (
+    OAuthAccessToken,
+    OAuthAuthorizationCode,
+    OAuthAuthorizationState,
+    OAuthClient,
+    OAuthConsent,
+    OAuthRefreshToken,
+)
 from belgie_alchemy.core import BelgieAdapter
+from belgie_alchemy.oauth_server import OAuthServerAdapter
 from belgie_alchemy.organization import OrganizationAdapter
 from belgie_alchemy.sso import SSOAdapter
 from belgie_alchemy.stripe import StripeAdapter
@@ -208,6 +226,114 @@ class ExampleSSODomain:
     domain: str
     verification_token: str
     verified_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
+class ExampleOAuthClient:
+    id: UUID
+    client_id: str
+    client_secret_hash: str | None
+    redirect_uris: list[str]
+    post_logout_redirect_uris: list[str] | None
+    token_endpoint_auth_method: str
+    grant_types: list[str]
+    response_types: list[str]
+    scope: str | None
+    client_name: str | None
+    client_uri: str | None
+    logo_uri: str | None
+    contacts: list[str] | None
+    tos_uri: str | None
+    policy_uri: str | None
+    jwks_uri: str | None
+    jwks: dict[str, str] | dict[str, object] | None
+    software_id: str | None
+    software_version: str | None
+    software_statement: str | None
+    type: str | None
+    subject_type: str | None
+    require_pkce: bool | None
+    enable_end_session: bool | None
+    client_id_issued_at: int | None
+    client_secret_expires_at: int | None
+    individual_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
+class ExampleOAuthAuthorizationState:
+    id: UUID
+    state: str
+    client_id: str
+    redirect_uri: str
+    redirect_uri_provided_explicitly: bool
+    code_challenge: str | None
+    resource: str | None
+    scopes: list[str] | None
+    nonce: str | None
+    prompt: str | None
+    intent: str
+    individual_id: UUID | None
+    session_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime
+
+
+@dataclass
+class ExampleOAuthAuthorizationCode:
+    id: UUID
+    code_hash: str
+    client_id: str
+    redirect_uri: str
+    redirect_uri_provided_explicitly: bool
+    code_challenge: str | None
+    scopes: list[str]
+    resource: str | None
+    nonce: str | None
+    individual_id: UUID | None
+    session_id: UUID | None
+    created_at: datetime
+    expires_at: datetime
+
+
+@dataclass
+class ExampleOAuthAccessToken:
+    id: UUID
+    token_hash: str
+    client_id: str
+    scopes: list[str]
+    resource: str | list[str] | None
+    refresh_token_id: UUID | None
+    individual_id: UUID | None
+    session_id: UUID | None
+    created_at: datetime
+    expires_at: datetime
+
+
+@dataclass
+class ExampleOAuthRefreshToken:
+    id: UUID
+    token_hash: str
+    client_id: str
+    scopes: list[str]
+    resource: str | None
+    individual_id: UUID | None
+    session_id: UUID | None
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+
+
+@dataclass
+class ExampleOAuthConsent:
+    id: UUID
+    client_id: str
+    individual_id: UUID
+    scopes: list[str]
     created_at: datetime
     updated_at: datetime
 
@@ -512,3 +638,126 @@ def test_stripe_adapter_satisfies_protocol() -> None:
     assert callable(adapter.get_active_subscription)
     assert callable(adapter.get_incomplete_subscription)
     assert callable(adapter.update_subscription)
+
+
+def test_oauth_entity_protocol_runtime_checks() -> None:
+    now = datetime.now(UTC)
+    individual_id = uuid4()
+    session_id = uuid4()
+    refresh_token_id = uuid4()
+    client = ExampleOAuthClient(
+        id=uuid4(),
+        client_id="client-123",
+        client_secret_hash="secret-hash",
+        redirect_uris=["https://client.example/callback"],
+        post_logout_redirect_uris=["https://client.example/logout"],
+        token_endpoint_auth_method="client_secret_post",
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+        scope="openid profile",
+        client_name="Example Client",
+        client_uri="https://client.example",
+        logo_uri="https://client.example/logo.png",
+        contacts=["ops@client.example"],
+        tos_uri="https://client.example/tos",
+        policy_uri="https://client.example/policy",
+        jwks_uri="https://client.example/jwks.json",
+        jwks={"keys": []},
+        software_id="software-id",
+        software_version="1.0.0",
+        software_statement="software-statement",
+        type="web",
+        subject_type="pairwise",
+        require_pkce=True,
+        enable_end_session=True,
+        client_id_issued_at=123,
+        client_secret_expires_at=0,
+        individual_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+    authorization_state = ExampleOAuthAuthorizationState(
+        id=uuid4(),
+        state="state-123",
+        client_id=client.client_id,
+        redirect_uri="https://client.example/callback",
+        redirect_uri_provided_explicitly=True,
+        code_challenge="challenge",
+        resource="https://api.example",
+        scopes=["openid"],
+        nonce="nonce-123",
+        prompt="login",
+        intent="login",
+        individual_id=individual_id,
+        session_id=session_id,
+        created_at=now,
+        updated_at=now,
+        expires_at=now,
+    )
+    authorization_code = ExampleOAuthAuthorizationCode(
+        id=uuid4(),
+        code_hash="code-hash",
+        client_id=client.client_id,
+        redirect_uri="https://client.example/callback",
+        redirect_uri_provided_explicitly=True,
+        code_challenge="challenge",
+        scopes=["openid"],
+        resource="https://api.example",
+        nonce="nonce-123",
+        individual_id=individual_id,
+        session_id=session_id,
+        created_at=now,
+        expires_at=now,
+    )
+    access_token = ExampleOAuthAccessToken(
+        id=uuid4(),
+        token_hash="access-hash",
+        client_id=client.client_id,
+        scopes=["openid"],
+        resource=["https://api.example", "https://userinfo.example"],
+        refresh_token_id=refresh_token_id,
+        individual_id=individual_id,
+        session_id=session_id,
+        created_at=now,
+        expires_at=now,
+    )
+    refresh_token = ExampleOAuthRefreshToken(
+        id=refresh_token_id,
+        token_hash="refresh-hash",
+        client_id=client.client_id,
+        scopes=["openid", "offline_access"],
+        resource="https://api.example",
+        individual_id=individual_id,
+        session_id=session_id,
+        created_at=now,
+        expires_at=now,
+        revoked_at=None,
+    )
+    consent = ExampleOAuthConsent(
+        id=uuid4(),
+        client_id=client.client_id,
+        individual_id=individual_id,
+        scopes=["openid", "profile"],
+        created_at=now,
+        updated_at=now,
+    )
+
+    assert isinstance(client, OAuthClientProtocol)
+    assert isinstance(authorization_state, OAuthAuthorizationStateProtocol)
+    assert isinstance(authorization_code, OAuthAuthorizationCodeProtocol)
+    assert isinstance(access_token, OAuthAccessTokenProtocol)
+    assert isinstance(refresh_token, OAuthRefreshTokenProtocol)
+    assert isinstance(consent, OAuthConsentProtocol)
+
+
+def test_oauth_server_adapter_satisfies_protocol() -> None:
+    adapter = OAuthServerAdapter(
+        oauth_client=OAuthClient,
+        oauth_authorization_state=OAuthAuthorizationState,
+        oauth_authorization_code=OAuthAuthorizationCode,
+        oauth_access_token=OAuthAccessToken,
+        oauth_refresh_token=OAuthRefreshToken,
+        oauth_consent=OAuthConsent,
+    )
+
+    assert isinstance(adapter, OAuthServerAdapterProtocol)

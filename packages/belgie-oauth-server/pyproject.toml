@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "belgie-core",
+    "belgie-proto",
     "fastapi>=0.100",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",

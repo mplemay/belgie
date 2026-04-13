@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import httpx
 import pytest
-from belgie_oauth_server.settings import OAuthServer
 from fastapi import FastAPI
+
+if TYPE_CHECKING:
+    from belgie_oauth_server.settings import OAuthServer
 
 
 @pytest.mark.asyncio
@@ -26,9 +30,7 @@ async def test_register_enabled_requires_authentication(
     belgie_instance,
     oauth_settings: OAuthServer,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(update={"allow_dynamic_client_registration": True})
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -54,9 +56,7 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
     db_session,
     create_individual_session,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(update={"allow_dynamic_client_registration": True})
     plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -77,7 +77,7 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
     assert payload["client_id"]
     assert payload["client_secret"]
     assert "scope" not in payload
-    assert payload["client_id"] in plugin._provider.clients
+    assert await plugin._provider.get_client(payload["client_id"]) is not None
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
 
@@ -87,10 +87,12 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
     belgie_instance,
     oauth_settings: OAuthServer,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings_payload["allow_unauthenticated_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(
+        update={
+            "allow_dynamic_client_registration": True,
+            "allow_unauthenticated_client_registration": True,
+        },
+    )
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -117,10 +119,12 @@ async def test_register_enabled_unauthenticated_rejects_omitted_confidential_aut
     belgie_instance,
     oauth_settings: OAuthServer,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings_payload["allow_unauthenticated_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(
+        update={
+            "allow_dynamic_client_registration": True,
+            "allow_unauthenticated_client_registration": True,
+        },
+    )
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -147,10 +151,12 @@ async def test_register_enabled_unauthenticated_rejects_explicit_confidential_cl
     oauth_settings: OAuthServer,
     auth_method: str,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings_payload["allow_unauthenticated_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(
+        update={
+            "allow_dynamic_client_registration": True,
+            "allow_unauthenticated_client_registration": True,
+        },
+    )
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -178,9 +184,7 @@ async def test_register_enabled_without_unauthenticated_registration_rejects_con
     oauth_settings: OAuthServer,
     auth_method: str,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(update={"allow_dynamic_client_registration": True})
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -206,10 +210,12 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
     db_session,
     create_individual_session,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings_payload["allow_unauthenticated_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(
+        update={
+            "allow_dynamic_client_registration": True,
+            "allow_unauthenticated_client_registration": True,
+        },
+    )
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -237,9 +243,7 @@ async def test_register_allows_post_logout_redirect_uris(
     db_session,
     create_individual_session,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(update={"allow_dynamic_client_registration": True})
     plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -258,8 +262,8 @@ async def test_register_allows_post_logout_redirect_uris(
     assert response.status_code == 201
     payload = response.json()
     assert payload["post_logout_redirect_uris"] == ["http://testserver/logout-complete"]
-    assert payload["client_id"] in plugin._provider.clients
-    registered_client = plugin._provider.clients[payload["client_id"]]
+    registered_client = await plugin._provider.get_client(payload["client_id"])
+    assert registered_client is not None
     assert [str(uri) for uri in registered_client.post_logout_redirect_uris] == ["http://testserver/logout-complete"]
 
 
@@ -270,9 +274,7 @@ async def test_register_ignores_enable_end_session_in_metadata(
     db_session,
     create_individual_session,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(update={"allow_dynamic_client_registration": True})
     plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
@@ -291,8 +293,8 @@ async def test_register_ignores_enable_end_session_in_metadata(
     assert response.status_code == 201
     payload = response.json()
     assert "enable_end_session" not in payload
-    assert payload["client_id"] in plugin._provider.clients
-    registered_client = plugin._provider.clients[payload["client_id"]]
+    registered_client = await plugin._provider.get_client(payload["client_id"])
+    assert registered_client is not None
     assert registered_client.enable_end_session is None
 
 
@@ -301,10 +303,12 @@ async def test_register_returns_explicit_scope_when_requested(
     belgie_instance,
     oauth_settings: OAuthServer,
 ) -> None:
-    settings_payload = oauth_settings.model_dump(mode="python")
-    settings_payload["allow_dynamic_client_registration"] = True
-    settings_payload["allow_unauthenticated_client_registration"] = True
-    settings = OAuthServer(**settings_payload)
+    settings = oauth_settings.model_copy(
+        update={
+            "allow_dynamic_client_registration": True,
+            "allow_unauthenticated_client_registration": True,
+        },
+    )
     belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)

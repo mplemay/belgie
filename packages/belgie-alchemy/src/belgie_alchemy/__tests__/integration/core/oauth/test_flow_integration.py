@@ -14,16 +14,13 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def _build_custom_pages_app(belgie_instance: Belgie) -> tuple[FastAPI, OAuthServer]:
-    settings = OAuthServer(
-        base_url="http://testserver",
-        prefix="/oauth",
-        login_url="/login/custom",
-        signup_url="/signup/custom",
-        client_id="test-client",
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=["http://testserver/callback"],
-        default_scope="user",
+def _build_custom_pages_app(belgie_instance: Belgie, oauth_settings: OAuthServer) -> tuple[FastAPI, OAuthServer]:
+    settings = oauth_settings.model_copy(
+        update={
+            "login_url": "/login/custom",
+            "signup_url": "/signup/custom",
+            "client_secret": SecretStr("test-secret"),
+        },
     )
     oauth_plugin = belgie_instance.add_plugin(settings)
 
@@ -146,8 +143,9 @@ async def test_full_oauth_flow(
 @pytest.mark.asyncio
 async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    app, settings = _build_custom_pages_app(belgie_instance)
+    app, settings = _build_custom_pages_app(belgie_instance, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -193,8 +191,9 @@ async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
 @pytest.mark.asyncio
 async def test_custom_login_route_supports_direct_entry_without_state(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance)
+    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -216,8 +215,9 @@ async def test_custom_login_route_supports_direct_entry_without_state(
 @pytest.mark.asyncio
 async def test_custom_signup_route_supports_direct_entry_without_state(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance)
+    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -231,8 +231,9 @@ async def test_custom_signup_route_supports_direct_entry_without_state(
 @pytest.mark.asyncio
 async def test_custom_google_login_route_supports_direct_entry_without_state(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance)
+    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -248,8 +249,9 @@ async def test_custom_google_login_route_supports_direct_entry_without_state(
 @pytest.mark.asyncio
 async def test_custom_login_route_rejects_invalid_state(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance)
+    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -262,8 +264,9 @@ async def test_custom_login_route_rejects_invalid_state(
 @pytest.mark.asyncio
 async def test_custom_signup_route_rejects_invalid_state(
     belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance)
+    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

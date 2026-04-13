@@ -3,8 +3,6 @@ from __future__ import annotations
 import time
 
 import pytest
-from belgie_oauth_server.models import OAuthClientInformationFull
-from belgie_oauth_server.provider import AccessToken, RefreshToken
 
 BEARER = "Bearer"
 
@@ -53,11 +51,10 @@ async def test_introspect_unknown_token(
 async def test_introspect_active_access_token(
     async_client,
     oauth_settings,
-    oauth_plugin,
+    seed_access_token,
 ) -> None:
-    provider = oauth_plugin._provider
     created_at = int(time.time()) - 5
-    provider.tokens["token-123"] = AccessToken(
+    await seed_access_token(
         token="token-123",
         client_id=oauth_settings.client_id,
         scopes=["user"],
@@ -88,11 +85,10 @@ async def test_introspect_active_access_token(
 async def test_introspect_active_access_token_with_list_audience(
     async_client,
     oauth_settings,
-    oauth_plugin,
+    seed_access_token,
 ) -> None:
-    provider = oauth_plugin._provider
     created_at = int(time.time()) - 5
-    provider.tokens["token-aud-list"] = AccessToken(
+    await seed_access_token(
         token="token-aud-list",
         client_id=oauth_settings.client_id,
         scopes=["openid", "profile"],
@@ -119,11 +115,10 @@ async def test_introspect_active_access_token_with_list_audience(
 async def test_introspect_accepts_basic_auth(
     async_client,
     oauth_settings,
-    oauth_plugin,
+    seed_access_token,
     basic_auth_header,
 ) -> None:
-    provider = oauth_plugin._provider
-    provider.tokens["token-basic"] = AccessToken(
+    await seed_access_token(
         token="token-basic",
         client_id=oauth_settings.client_id,
         scopes=["user"],
@@ -150,11 +145,10 @@ async def test_introspect_accepts_basic_auth(
 async def test_introspect_refresh_token_with_hint(
     async_client,
     oauth_settings,
-    oauth_plugin,
+    seed_refresh_token,
 ) -> None:
-    provider = oauth_plugin._provider
     created_at = int(time.time()) - 2
-    provider.refresh_tokens["refresh-123"] = RefreshToken(
+    await seed_refresh_token(
         token="refresh-123",
         client_id=oauth_settings.client_id,
         scopes=["user", "offline_access"],
@@ -186,11 +180,10 @@ async def test_introspect_refresh_token_with_hint(
 async def test_introspect_refresh_token_without_resource_omits_aud(
     async_client,
     oauth_settings,
-    oauth_plugin,
+    seed_refresh_token,
 ) -> None:
-    provider = oauth_plugin._provider
     created_at = int(time.time()) - 2
-    provider.refresh_tokens["refresh-no-resource"] = RefreshToken(
+    await seed_refresh_token(
         token="refresh-no-resource",
         client_id=oauth_settings.client_id,
         scopes=["user", "offline_access"],
@@ -222,10 +215,9 @@ async def test_introspect_refresh_token_without_resource_omits_aud(
 async def test_introspect_token_type_hint_access_token_does_not_match_refresh(
     async_client,
     oauth_settings,
-    oauth_plugin,
+    seed_refresh_token,
 ) -> None:
-    provider = oauth_plugin._provider
-    provider.refresh_tokens["refresh-only"] = RefreshToken(
+    await seed_refresh_token(
         token="refresh-only",
         client_id=oauth_settings.client_id,
         scopes=["user"],
@@ -269,15 +261,16 @@ async def test_introspect_inactive_for_mismatched_client(
     async_client,
     oauth_settings,
     oauth_plugin,
+    seed_access_token,
+    seed_client,
 ) -> None:
-    provider = oauth_plugin._provider
-    provider.clients["other-client"] = OAuthClientInformationFull(
+    await seed_client(
         client_id="other-client",
-        client_secret="other-secret",
         redirect_uris=oauth_settings.redirect_uris,
         scope=oauth_settings.default_scope,
+        client_secret_hash=oauth_plugin._provider._hash_value("other-secret"),
     )
-    provider.tokens["token-mismatch"] = AccessToken(
+    await seed_access_token(
         token="token-mismatch",
         client_id=oauth_settings.client_id,
         scopes=["user"],

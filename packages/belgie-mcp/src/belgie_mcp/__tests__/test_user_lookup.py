@@ -3,8 +3,9 @@ from __future__ import annotations
 import base64
 import json
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
@@ -15,11 +16,15 @@ pytest.importorskip("mcp")
 
 from belgie_core.core.settings import BelgieSettings
 from belgie_mcp.user import get_user_from_access_token
+from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.models import OAuthClientMetadata
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.provider import AccessToken as OAuthAccessToken, AuthorizationParams, SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthServer
+from belgie_oauth_server.testing import InMemoryDBConnection
 from mcp.server.auth.middleware.auth_context import auth_context_var
+
+if TYPE_CHECKING:
+    from belgie_oauth_server.settings import OAuthServer
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -142,7 +147,8 @@ async def test_get_user_provider_backed_token_returns_user() -> None:
 async def test_get_user_provider_backed_token_returns_none_without_user_id() -> None:
     oauth_plugin, provider = _build_oauth_plugin()
     token, stored_token = await _issue_dynamic_client_access_token(provider, individual_id=str(uuid4()))
-    provider.tokens[token] = replace(stored_token, individual_id=None)
+    _ = stored_token
+    provider.adapter.access_tokens[provider._hash_value(token)].individual_id = None
     belgie = _build_belgie(user=None, plugins=[oauth_plugin])
 
     with _set_access_token(token):
@@ -155,7 +161,8 @@ async def test_get_user_provider_backed_token_returns_none_without_user_id() -> 
 async def test_get_user_provider_backed_token_returns_none_for_invalid_user_id() -> None:
     oauth_plugin, provider = _build_oauth_plugin()
     token, stored_token = await _issue_dynamic_client_access_token(provider, individual_id=str(uuid4()))
-    provider.tokens[token] = replace(stored_token, individual_id="not-a-uuid")
+    _ = stored_token
+    provider.adapter.access_tokens[provider._hash_value(token)].individual_id = "not-a-uuid"  # type: ignore[assignment]
     belgie = _build_belgie(user=None, plugins=[oauth_plugin])
 
     with _set_access_token(token):
@@ -208,7 +215,7 @@ async def test_get_user_valid_sub_returns_user_when_no_provider_matches() -> Non
 
 
 def _oauth_settings() -> OAuthServer:
-    return OAuthServer(
+    return build_oauth_settings(
         base_url="https://issuer.local",
         redirect_uris=["http://localhost:6274/oauth/callback"],
         client_id="test-client",
@@ -219,7 +226,8 @@ def _oauth_settings() -> OAuthServer:
 
 def _build_oauth_plugin() -> tuple[OAuthServerPlugin, SimpleOAuthProvider]:
     settings = _oauth_settings()
-    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    db = InMemoryDBConnection()
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url), database_factory=lambda: db)
     plugin = OAuthServerPlugin(
         BelgieSettings(secret="test-secret", base_url="http://localhost:8000"),
         settings,

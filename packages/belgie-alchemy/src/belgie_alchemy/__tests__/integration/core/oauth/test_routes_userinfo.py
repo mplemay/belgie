@@ -26,13 +26,14 @@ async def test_userinfo_requires_bearer_token(async_client) -> None:
 @pytest.mark.asyncio
 async def test_userinfo_rejects_token_without_openid_scope(
     async_client,
-    oauth_plugin,
     oauth_settings,
     belgie_instance,
     db_session,
+    seed_access_token,
 ) -> None:
     user = await _create_individual(belgie_instance, db_session, "userinfo-no-openid@test.com")
-    access_token = oauth_plugin._provider._issue_access_token(
+    await seed_access_token(
+        token="userinfo-no-openid-token",
         client_id=oauth_settings.client_id,
         scopes=[oauth_settings.default_scope],
         individual_id=str(user.id),
@@ -40,7 +41,7 @@ async def test_userinfo_rejects_token_without_openid_scope(
 
     response = await async_client.get(
         "/auth/oauth/userinfo",
-        headers={"authorization": f"Bearer {access_token.token}"},
+        headers={"authorization": "Bearer userinfo-no-openid-token"},
     )
 
     assert response.status_code == 400
@@ -50,17 +51,18 @@ async def test_userinfo_rejects_token_without_openid_scope(
 @pytest.mark.asyncio
 async def test_userinfo_rejects_token_without_user_binding(
     async_client,
-    oauth_plugin,
     oauth_settings,
+    seed_access_token,
 ) -> None:
-    access_token = oauth_plugin._provider._issue_access_token(
+    await seed_access_token(
+        token="userinfo-no-user-token",
         client_id=oauth_settings.client_id,
         scopes=["openid"],
     )
 
     response = await async_client.get(
         "/auth/oauth/userinfo",
-        headers={"authorization": f"Bearer {access_token.token}"},
+        headers={"authorization": "Bearer userinfo-no-user-token"},
     )
 
     assert response.status_code == 400
@@ -70,21 +72,22 @@ async def test_userinfo_rejects_token_without_user_binding(
 @pytest.mark.asyncio
 async def test_userinfo_filters_claims_by_scope(
     async_client,
-    oauth_plugin,
     oauth_settings,
     belgie_instance,
     db_session,
+    seed_access_token,
 ) -> None:
     user = await _create_individual(belgie_instance, db_session, "userinfo-claims@test.com")
 
-    profile_token = oauth_plugin._provider._issue_access_token(
+    await seed_access_token(
+        token="userinfo-profile-token",
         client_id=oauth_settings.client_id,
         scopes=["openid", "profile"],
         individual_id=str(user.id),
     )
     profile_response = await async_client.get(
         "/auth/oauth/userinfo",
-        headers={"authorization": f"Bearer {profile_token.token}"},
+        headers={"authorization": "Bearer userinfo-profile-token"},
     )
 
     assert profile_response.status_code == 200
@@ -96,14 +99,15 @@ async def test_userinfo_filters_claims_by_scope(
     assert profile_payload["family_name"] == "Doe"
     assert "email" not in profile_payload
 
-    email_token = oauth_plugin._provider._issue_access_token(
+    await seed_access_token(
+        token="userinfo-email-token",
         client_id=oauth_settings.client_id,
         scopes=["openid", "email"],
         individual_id=str(user.id),
     )
     email_response = await async_client.get(
         "/auth/oauth/userinfo",
-        headers={"authorization": f"Bearer {email_token.token}"},
+        headers={"authorization": "Bearer userinfo-email-token"},
     )
 
     assert email_response.status_code == 200

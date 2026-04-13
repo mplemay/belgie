@@ -11,10 +11,22 @@ from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
-from belgie.alchemy import BelgieAdapter
+from belgie.alchemy import BelgieAdapter, OAuthServerAdapter
 from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
 from belgie.oauth.server import OAuthServer, OAuthServerClient
-from examples.alchemy.auth_models import Account, Individual, OAuthAccount, OAuthState, Session
+from examples.alchemy.auth_models import (
+    Account,
+    Individual,
+    OAuthAccessToken,
+    OAuthAccount,
+    OAuthAuthorizationCode,
+    OAuthAuthorizationState,
+    OAuthClient,
+    OAuthConsent,
+    OAuthRefreshToken,
+    OAuthState,
+    Session,
+)
 
 DB_PATH = "./belgie_oauth_custom_pages_example.db"
 
@@ -81,6 +93,15 @@ belgie = Belgie(
     database=get_db,
 )
 
+oauth_adapter = OAuthServerAdapter(
+    oauth_client=OAuthClient,
+    oauth_authorization_state=OAuthAuthorizationState,
+    oauth_authorization_code=OAuthAuthorizationCode,
+    oauth_access_token=OAuthAccessToken,
+    oauth_refresh_token=OAuthRefreshToken,
+    oauth_consent=OAuthConsent,
+)
+
 google_plugin = belgie.add_plugin(
     GoogleOAuth(
         client_id="your-google-client-id",
@@ -91,6 +112,7 @@ google_plugin = belgie.add_plugin(
 
 oauth_plugin = belgie.add_plugin(
     OAuthServer(
+        adapter=oauth_adapter,
         base_url=AnyHttpUrl(settings.base_url),
         prefix="/oauth",
         client_id="demo-client",

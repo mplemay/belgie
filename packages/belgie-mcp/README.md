@@ -36,6 +36,7 @@ from fastapi import FastAPI
 from mcp.server.mcpserver import MCPServer
 
 from belgie import Belgie
+from belgie.alchemy.oauth_server import OAuthServerAdapter
 from belgie.mcp import Mcp, get_user_from_access_token
 from belgie.oauth.server import OAuthResource, OAuthServer
 
@@ -47,7 +48,17 @@ belgie = Belgie(
     database=...,  # async DB dependency
 )
 
+oauth_adapter = OAuthServerAdapter(
+    oauth_client=...,  # your OAuth client model
+    oauth_authorization_state=...,  # your OAuth authorization state model
+    oauth_authorization_code=...,  # your OAuth authorization code model
+    oauth_access_token=...,  # your OAuth access token model
+    oauth_refresh_token=...,  # your OAuth refresh token model
+    oauth_consent=...,  # your OAuth consent model
+)
+
 oauth_settings = OAuthServer(
+    adapter=oauth_adapter,
     base_url="https://auth.local",
     prefix="/oauth",
     client_id="demo-client",
@@ -96,6 +107,7 @@ mounting and any `streamable_http_app(...)` options.
 
 ## Notes
 
+- `OAuthServer.adapter` is required because the MCP token verifier expects OAuth server state to be persistent.
 - If the MCP server shares a host with Belgie, set `base_url` and let `Mcp` derive the resource URL from
   `server_path`.
 - If you pass a `server_url` directly, it takes precedence over `base_url` and `server_path`.

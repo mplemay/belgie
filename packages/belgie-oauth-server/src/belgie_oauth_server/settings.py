@@ -5,6 +5,15 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse, urlunparse
 
+from belgie_proto.oauth_server import (
+    OAuthAccessTokenProtocol,
+    OAuthAuthorizationCodeProtocol,
+    OAuthAuthorizationStateProtocol,
+    OAuthClientProtocol,
+    OAuthConsentProtocol,
+    OAuthRefreshTokenProtocol,
+    OAuthServerAdapterProtocol,
+)
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -48,6 +57,15 @@ class OAuthServer(BaseSettings):
         extra="ignore",
         arbitrary_types_allowed=True,
     )
+
+    adapter: OAuthServerAdapterProtocol[
+        OAuthClientProtocol,
+        OAuthAuthorizationStateProtocol,
+        OAuthAuthorizationCodeProtocol,
+        OAuthAccessTokenProtocol,
+        OAuthRefreshTokenProtocol,
+        OAuthConsentProtocol,
+    ] = Field(exclude=True)
 
     base_url: AnyHttpUrl | None = None
     prefix: str = "/oauth"
@@ -93,6 +111,31 @@ class OAuthServer(BaseSettings):
                 msg = "`resource_scopes` has been removed; use `resources=[OAuthResource(scopes=[...])]` instead"
                 raise ValueError(msg)
         return values
+
+    @field_validator("adapter")
+    @classmethod
+    def validate_adapter(
+        cls,
+        value: OAuthServerAdapterProtocol[
+            OAuthClientProtocol,
+            OAuthAuthorizationStateProtocol,
+            OAuthAuthorizationCodeProtocol,
+            OAuthAccessTokenProtocol,
+            OAuthRefreshTokenProtocol,
+            OAuthConsentProtocol,
+        ],
+    ) -> OAuthServerAdapterProtocol[
+        OAuthClientProtocol,
+        OAuthAuthorizationStateProtocol,
+        OAuthAuthorizationCodeProtocol,
+        OAuthAccessTokenProtocol,
+        OAuthRefreshTokenProtocol,
+        OAuthConsentProtocol,
+    ]:
+        if not isinstance(value, OAuthServerAdapterProtocol):
+            msg = "adapter must implement OAuthServerAdapterProtocol"
+            raise TypeError(msg)
+        return value
 
     @cached_property
     def issuer_url(self) -> AnyHttpUrl | None:

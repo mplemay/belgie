@@ -1,8 +1,9 @@
 # Belgie OAuth Server
 
 > [!WARNING]
-> This package keeps client, token, and authorization state in memory by default through `SimpleOAuthProvider`. That is
-> fine for development and tests, but production deployments should use a persistent provider implementation.
+> `OAuthServer.adapter` is required. Use a persistent adapter such as
+> `belgie.alchemy.oauth_server.OAuthServerAdapter` so clients, interaction state, authorization codes, refresh tokens,
+> and consents survive process restarts.
 
 Belgie OAuth Server is the OAuth 2.1 authorization server package for Belgie apps. It gives you the server-side OAuth
 plumbing, metadata endpoints, PKCE handling, dynamic client registration, and prompt-aware login flows without leaving
@@ -29,7 +30,8 @@ uv add belgie-oauth-server
 
 - Resource matching is strict. If a client sends `resource` and no OAuth resource is configured, the server returns
   `invalid_target`.
-- `SimpleOAuthProvider` keeps secrets in memory too. Use a persistent provider before shipping.
+- OAuth server persistence is adapter-backed. Static configured clients stay config-backed, while dynamic clients,
+  interaction state, authorization codes, access tokens, refresh tokens, and consents live in the adapter.
 - `allow_unauthenticated_client_registration=True` is intentionally permissive. Treat it as a compatibility or
   development setting unless you have separate controls around registration.
 
@@ -64,8 +66,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from belgie import Belgie, BelgieClient, BelgieSettings
 from belgie.alchemy import BelgieAdapter
+from belgie.alchemy.oauth_server import OAuthServerAdapter
 from belgie.oauth.server import OAuthServer, OAuthServerClient
-from yourapp.models import Account, OAuthState, Session, Individual
+from yourapp.models import (
+    Account,
+    Individual,
+    OAuthAccessToken,
+    OAuthAuthorizationCode,
+    OAuthAuthorizationState,
+    OAuthClient,
+    OAuthConsent,
+    OAuthRefreshToken,
+    OAuthState,
+    Session,
+)
 
 app = FastAPI()
 
@@ -84,16 +98,26 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 adapter = BelgieAdapter(
-    user=Individual,
+    individual=Individual,
     account=Account,
     session=Session,
     oauth_state=OAuthState,
+)
+
+oauth_adapter = OAuthServerAdapter(
+    oauth_client=OAuthClient,
+    oauth_authorization_state=OAuthAuthorizationState,
+    oauth_authorization_code=OAuthAuthorizationCode,
+    oauth_access_token=OAuthAccessToken,
+    oauth_refresh_token=OAuthRefreshToken,
+    oauth_consent=OAuthConsent,
 )
 
 belgie = Belgie(settings=settings, adapter=adapter, database=get_db)
 
 oauth_plugin = belgie.add_plugin(
     OAuthServer(
+        adapter=oauth_adapter,
         base_url=settings.base_url,
         client_id="demo-client",
         client_secret="demo-secret",
@@ -139,6 +163,7 @@ uv run uvicorn server:app --reload
 
 ## Configuration
 
+- `adapter` is required and is responsible for persisting OAuth server state.
 - `prefix` controls where the OAuth server routes are mounted. The default is `/oauth`.
 - `base_url` is used to derive issuer and metadata URLs.
 - `redirect_uris` is required and must contain at least one callback URL.
