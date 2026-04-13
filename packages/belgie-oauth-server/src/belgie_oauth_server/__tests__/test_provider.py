@@ -363,6 +363,26 @@ async def test_register_client_accepts_client_secret_basic() -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_client_preserves_missing_redirect_uris_for_client_credentials() -> None:
+    _settings, provider, _adapter, db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+
+    metadata = OAuthClientMetadata(
+        grant_types=["client_credentials"],
+        response_types=[],
+    )
+    client_info = await provider.register_client(metadata, db=db)
+    loaded_client = await provider.get_client(client_info.client_id, db=db)
+
+    assert client_info.redirect_uris is None
+    assert loaded_client is not None
+    assert loaded_client.redirect_uris is None
+
+
+@pytest.mark.asyncio
 async def test_load_refresh_token_purges_expired() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
         redirect_uris=["http://example.com/callback"],
@@ -679,6 +699,38 @@ def test_validate_client_metadata_rejects_unsupported_response_type() -> None:
             OAuthClientMetadata(
                 redirect_uris=["http://example.com/callback"],
                 response_types=["token"],
+            ),
+        )
+
+
+def test_validate_client_metadata_allows_client_credentials_without_redirect_uris() -> None:
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+
+    provider.validate_client_metadata(
+        OAuthClientMetadata(
+            grant_types=["client_credentials"],
+            response_types=[],
+        ),
+    )
+
+
+def test_validate_client_metadata_rejects_authorization_code_without_redirect_uris() -> None:
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["http://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+
+    with pytest.raises(ValueError, match="Redirect URIs are required for authorization_code clients"):
+        provider.validate_client_metadata(
+            OAuthClientMetadata(
+                redirect_uris=None,
+                grant_types=["authorization_code"],
+                response_types=["code"],
             ),
         )
 

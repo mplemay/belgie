@@ -233,7 +233,9 @@ class SimpleOAuthProvider:
                 client_id=client_id,
                 client_secret=client_secret,
                 client_secret_hash=client_secret_hash,
-                redirect_uris=[str(uri) for uri in metadata.redirect_uris or []],
+                redirect_uris=(
+                    [str(uri) for uri in metadata.redirect_uris] if metadata.redirect_uris is not None else None
+                ),
                 post_logout_redirect_uris=(
                     [str(uri) for uri in metadata.post_logout_redirect_uris]
                     if metadata.post_logout_redirect_uris is not None
@@ -988,7 +990,7 @@ class SimpleOAuthProvider:
         return OAuthClientInformationFull(
             client_id=client.client_id,
             client_secret=client.client_secret,
-            redirect_uris=[AnyUrl(uri) for uri in client.redirect_uris],
+            redirect_uris=[AnyUrl(uri) for uri in client.redirect_uris] if client.redirect_uris is not None else None,
             post_logout_redirect_uris=(
                 [AnyUrl(uri) for uri in client.post_logout_redirect_uris]
                 if client.post_logout_redirect_uris is not None

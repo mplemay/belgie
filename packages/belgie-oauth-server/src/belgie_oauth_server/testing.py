@@ -36,7 +36,7 @@ class InMemoryOAuthClient:
     client_id: str
     client_secret: str | None
     client_secret_hash: str | None
-    redirect_uris: list[str]
+    redirect_uris: list[str] | None
     post_logout_redirect_uris: list[str] | None
     token_endpoint_auth_method: TokenEndpointAuthMethod
     grant_types: list[str]
@@ -178,7 +178,7 @@ class InMemoryOAuthServerAdapter(
         client_id: str,
         client_secret: str | None,
         client_secret_hash: str | None,
-        redirect_uris: list[str],
+        redirect_uris: list[str] | None,
         post_logout_redirect_uris: list[str] | None,
         token_endpoint_auth_method: TokenEndpointAuthMethod,
         grant_types: list[str],
@@ -208,7 +208,7 @@ class InMemoryOAuthServerAdapter(
             client_id=client_id,
             client_secret=client_secret,
             client_secret_hash=client_secret_hash,
-            redirect_uris=list(redirect_uris),
+            redirect_uris=None if redirect_uris is None else list(redirect_uris),
             post_logout_redirect_uris=(None if post_logout_redirect_uris is None else list(post_logout_redirect_uris)),
             token_endpoint_auth_method=token_endpoint_auth_method,
             grant_types=list(grant_types),

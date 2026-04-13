@@ -268,6 +268,38 @@ async def test_register_allows_post_logout_redirect_uris(
 
 
 @pytest.mark.asyncio
+async def test_register_allows_client_credentials_without_redirect_uris(
+    belgie_instance,
+    oauth_settings: OAuthServer,
+    db_session,
+    create_individual_session,
+) -> None:
+    settings = oauth_settings.model_copy(update={"allow_dynamic_client_registration": True})
+    plugin = belgie_instance.add_plugin(settings)
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        session_id = await create_individual_session(belgie_instance, db_session, "client-credentials@test.com")
+        client.cookies.set(belgie_instance.settings.cookie.name, session_id)
+        response = await client.post(
+            "/auth/oauth/register",
+            json={
+                "grant_types": ["client_credentials"],
+                "response_types": [],
+            },
+        )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["client_id"]
+    assert "redirect_uris" not in payload
+    registered_client = await plugin._provider.get_client(payload["client_id"])
+    assert registered_client is not None
+    assert registered_client.redirect_uris is None
+
+
+@pytest.mark.asyncio
 async def test_register_ignores_enable_end_session_in_metadata(
     belgie_instance,
     oauth_settings: OAuthServer,
