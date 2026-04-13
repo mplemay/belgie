@@ -438,7 +438,7 @@ def test_openapi_generation_succeeds_with_continue_and_consent_routes() -> None:
     assert "/auth/oauth/consent" in schema["paths"]
 
 
-def test_register_rejects_unauthenticated_confidential_clients_and_allows_public_clients() -> None:
+def test_register_allows_unauthenticated_confidential_and_public_clients() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
@@ -456,11 +456,24 @@ def test_register_rejects_unauthenticated_confidential_clients_and_allows_public
         },
     )
 
-    assert confidential.status_code == 401
-    assert confidential.json() == {
-        "error": "invalid_request",
-        "error_description": "authentication required for confidential client registration",
-    }
+    assert confidential.status_code == 201
+    confidential_payload = confidential.json()
+    assert confidential_payload["token_endpoint_auth_method"] == "client_secret_post"  # noqa: S105
+    assert confidential_payload["client_secret"]
+    assert confidential_payload["require_pkce"] is True
+
+    omitted_auth_method = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["http://client.local/callback"],
+        },
+    )
+
+    assert omitted_auth_method.status_code == 201
+    omitted_payload = omitted_auth_method.json()
+    assert omitted_payload["token_endpoint_auth_method"] == "client_secret_post"  # noqa: S105
+    assert omitted_payload["client_secret"]
+    assert omitted_payload["require_pkce"] is True
 
     public = client.post(
         "/auth/oauth/register",
@@ -473,10 +486,10 @@ def test_register_rejects_unauthenticated_confidential_clients_and_allows_public
     )
 
     assert public.status_code == 201
-    payload = public.json()
-    assert payload["token_endpoint_auth_method"] == "none"  # noqa: S105
-    assert "client_secret" not in payload
-    assert payload["require_pkce"] is True
+    public_payload = public.json()
+    assert public_payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert "client_secret" not in public_payload
+    assert public_payload["require_pkce"] is True
 
 
 def test_register_allows_public_clients_with_configured_resource_scopes() -> None:

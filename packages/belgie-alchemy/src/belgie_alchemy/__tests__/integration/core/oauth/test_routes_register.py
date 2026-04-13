@@ -115,7 +115,7 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
 
 
 @pytest.mark.asyncio
-async def test_register_enabled_unauthenticated_rejects_omitted_confidential_auth_method(
+async def test_register_enabled_unauthenticated_allows_omitted_confidential_auth_method(
     belgie_instance,
     oauth_settings: OAuthServer,
 ) -> None:
@@ -137,16 +137,17 @@ async def test_register_enabled_unauthenticated_rejects_omitted_confidential_aut
             },
         )
 
-    assert response.status_code == 401
-    assert response.json() == {
-        "error": "invalid_request",
-        "error_description": "authentication required for confidential client registration",
-    }
+    assert response.status_code == 201
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    payload = response.json()
+    assert payload["client_secret"]
+    assert payload["token_endpoint_auth_method"] == "client_secret_post"  # noqa: S105
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("auth_method", ["client_secret_post", "client_secret_basic"])
-async def test_register_enabled_unauthenticated_rejects_explicit_confidential_clients(
+async def test_register_enabled_unauthenticated_allows_explicit_confidential_clients(
     belgie_instance,
     oauth_settings: OAuthServer,
     auth_method: str,
@@ -170,11 +171,12 @@ async def test_register_enabled_unauthenticated_rejects_explicit_confidential_cl
             },
         )
 
-    assert response.status_code == 401
-    assert response.json() == {
-        "error": "invalid_request",
-        "error_description": "authentication required for confidential client registration",
-    }
+    assert response.status_code == 201
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    payload = response.json()
+    assert payload["client_secret"]
+    assert payload["token_endpoint_auth_method"] == auth_method  # noqa: S105
 
 
 @pytest.mark.asyncio

@@ -504,14 +504,6 @@ class OAuthServerPlugin(PluginClient):
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 )
 
-            token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
-            if not authenticated and token_endpoint_auth_method != "none":  # noqa: S105
-                return _oauth_error(
-                    "invalid_request",
-                    "authentication required for confidential client registration",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                )
-
             try:
                 provider.validate_client_metadata(metadata)
                 client_info = await provider.register_client(
