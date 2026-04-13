@@ -9,8 +9,8 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "asyncer>=0.0.17",
-    "belgie-core",
-    "belgie-proto",
+    "belgie-core==0.1.0",
+    "belgie-proto==0.1.0",
     "fastapi>=0.100",
     "httpx>=0.24",
     "pydantic>=2.0",
@@ -20,41 +20,41 @@ dependencies = [
 
 [project.optional-dependencies]
 alchemy = [
-    "belgie-alchemy",
+    "belgie-alchemy==0.1.0",
 ]
 all = [
-    "belgie-alchemy",
-    "belgie-mcp",
-    "belgie-oauth",
-    "belgie-oauth-server",
-    "belgie-organization",
-    "belgie-sso",
-    "belgie-stripe",
-    "belgie-team",
+    "belgie-alchemy==0.1.0",
+    "belgie-mcp==0.1.0",
+    "belgie-oauth==0.1.0",
+    "belgie-oauth-server==0.1.0",
+    "belgie-organization==0.1.0",
+    "belgie-sso==0.1.0",
+    "belgie-stripe==0.1.0",
+    "belgie-team==0.1.0",
 ]
 examples = [
     "uvicorn[standard]>=0.38.0",
 ]
 mcp = [
-    "belgie-mcp",
+    "belgie-mcp==0.1.0",
 ]
 oauth = [
-    "belgie-oauth-server",
+    "belgie-oauth-server==0.1.0",
 ]
 oauth-client = [
-    "belgie-oauth",
+    "belgie-oauth==0.1.0",
 ]
 organization = [
-    "belgie-organization",
+    "belgie-organization==0.1.0",
 ]
 sso = [
-    "belgie-sso",
+    "belgie-sso==0.1.0",
 ]
 stripe = [
-    "belgie-stripe",
+    "belgie-stripe==0.1.0",
 ]
 team = [
-    "belgie-team",
+    "belgie-team==0.1.0",
 ]
 
 [build-system]

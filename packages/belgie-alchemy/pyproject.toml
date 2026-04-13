@@ -9,7 +9,7 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "aiosqlite>=0.22.1",
-    "belgie-proto",
+    "belgie-proto==0.1.0",
     "brussels>=0.3.0",
     "sqlalchemy[asyncio]>=2.0",
 ]
