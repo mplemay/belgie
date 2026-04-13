@@ -37,49 +37,29 @@ jobs:
           VERSION="${{ github.event.release.tag_name }}"
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Bump belgie-proto version
+      - name: Prepare versions
         if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-proto
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-core version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-core
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-alchemy version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-alchemy
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-mcp version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-mcp
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-oauth version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-oauth
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-oauth-server version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-oauth-server
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-organization version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-organization
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-team version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-team
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-sso version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-sso
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie-stripe version
-        if: steps.tag_check.outputs.on_main == 'true'
-        working-directory: packages/belgie-stripe
-        run: uv version "${{ steps.version.outputs.version }}"
-      - name: Bump belgie version
-        if: steps.tag_check.outputs.on_main == 'true'
-        run: uv version "${{ steps.version.outputs.version }}"
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          for package in \
+            belgie-proto \
+            belgie-core \
+            belgie-alchemy \
+            belgie-mcp \
+            belgie-oauth \
+            belgie-oauth-server \
+            belgie-organization \
+            belgie-team \
+            belgie-sso \
+            belgie-stripe \
+            belgie
+          do
+            uv version --package "$package" "$VERSION"
+          done
+
+          for file in pyproject.toml packages/*/pyproject.toml; do
+            sed -i -E "s/(belgie-[a-z-]+)==0\\.1\\.0/\\1==$VERSION/g" "$file"
+          done
       - name: Build all packages
         if: steps.tag_check.outputs.on_main == 'true'
         run: uv build --all-packages
