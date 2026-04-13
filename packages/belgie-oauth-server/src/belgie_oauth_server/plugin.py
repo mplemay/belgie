@@ -462,7 +462,7 @@ class OAuthServerPlugin(PluginClient):
         provider: SimpleOAuthProvider,
         settings: OAuthServer,
     ) -> APIRouter:
-        async def register_handler(  # noqa: PLR0911
+        async def register_handler(
             request: Request,
             response: Response,
             client: Annotated[BelgieClient, Depends(belgie)],
@@ -501,14 +501,6 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error(
                     "invalid_token",
                     "authentication required for client registration",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
-            if not authenticated and token_endpoint_auth_method != "none":  # noqa: S105
-                return _oauth_error(
-                    "invalid_request",
-                    "authentication required for confidential client registration",
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 )
 
