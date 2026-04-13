@@ -111,9 +111,9 @@ google_oauth_plugin = belgie.add_plugin(
         scopes=["openid", "email", "profile"],
     ),
 )
-google_client_dependency = Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)]
-current_individual_dependency = Annotated[Individual, Depends(belgie.individual)]
-current_session_dependency = Annotated[Session, Depends(belgie.session)]
+type GoogleClientDep = Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)]
+type CurrentIndividualDep = Annotated[Individual, Depends(belgie.individual)]
+type CurrentSessionDep = Annotated[Session, Depends(belgie.session)]
 
 app.include_router(belgie.router)
 
@@ -133,7 +133,7 @@ async def home() -> HomeResponse:
 
 @app.get("/login/google")
 async def login_google(
-    google: google_client_dependency,
+    google: GoogleClientDep,
     return_to: Annotated[str | None, Query()] = None,
 ) -> RedirectResponse:
     auth_url = await google.signin_url(return_to=return_to)
@@ -141,7 +141,7 @@ async def login_google(
 
 
 @app.get("/dashboard")
-async def dashboard(user: current_individual_dependency) -> DashboardResponse:
+async def dashboard(user: CurrentIndividualDep) -> DashboardResponse:
     return DashboardResponse(
         individual_id=str(user.id),
         email=user.email,
@@ -151,7 +151,7 @@ async def dashboard(user: current_individual_dependency) -> DashboardResponse:
 
 
 @app.get("/profile")
-async def profile(user: current_individual_dependency) -> ProfileResponse:
+async def profile(user: CurrentIndividualDep) -> ProfileResponse:
     return ProfileResponse(
         individual_id=str(user.id),
         email=user.email,
@@ -170,7 +170,7 @@ async def profile_email(
 
 
 @app.get("/session")
-async def session_info(session: current_session_dependency) -> SessionInfoResponse:
+async def session_info(session: CurrentSessionDep) -> SessionInfoResponse:
     return SessionInfoResponse(
         session_id=str(session.id),
         individual_id=str(session.individual_id),

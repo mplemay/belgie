@@ -119,9 +119,9 @@ class GoogleOAuthPlugin(PluginClient):
         if self._resolve_client is not None:
             return
 
-        belgie_client_dependency = Annotated[BelgieClient, Depends(belgie)]
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 
-        def resolve_client(client: belgie_client_dependency) -> GoogleOAuthClient:
+        def resolve_client(client: BelgieClientDep) -> GoogleOAuthClient:
             return GoogleOAuthClient(plugin=self, client=client)
 
         self._resolve_client = resolve_client

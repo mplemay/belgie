@@ -143,23 +143,23 @@ def app(auth: Belgie, db_session: AsyncSession) -> FastAPI:  # noqa: C901
         return await auth.individual(security_scopes, request, db)
 
     # Type aliases for Security dependencies
-    ReadIndividual = Annotated[  # noqa: N806
+    type ReadIndividual = Annotated[
         IndividualProtocol,
         Security(get_individual_with_read_scope, scopes=[AppScope.READ]),
     ]
-    WriteIndividual = Annotated[  # noqa: N806
+    type WriteIndividual = Annotated[
         IndividualProtocol,
         Security(get_individual_with_write_scope, scopes=[AppScope.WRITE]),
     ]
-    AdminIndividual = Annotated[  # noqa: N806
+    type AdminIndividual = Annotated[
         IndividualProtocol,
         Security(get_individual_with_admin_scope, scopes=[AppScope.ADMIN]),
     ]
-    ReadWriteIndividual = Annotated[  # noqa: N806
+    type ReadWriteIndividual = Annotated[
         IndividualProtocol,
         Security(get_individual_with_read_scope, scopes=[AppScope.READ, AppScope.WRITE]),
     ]
-    AuthenticatedIndividual = Annotated[IndividualProtocol, Depends(get_authenticated_individual)]  # noqa: N806
+    type AuthenticatedIndividual = Annotated[IndividualProtocol, Depends(get_authenticated_individual)]
 
     # Add test endpoints using Security with scopes
     @app.get("/api/read")

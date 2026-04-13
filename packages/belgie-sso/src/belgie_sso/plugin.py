@@ -186,12 +186,12 @@ class SSOPlugin[
         self._ensure_dependency_resolver(belgie)
         organization_plugin = self._ensure_organization_plugin(belgie)
         router = APIRouter(prefix="/provider/sso", tags=["auth", "sso"])
-        belgie_client_dependency = Annotated[BelgieClient, Depends(belgie)]
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 
         @router.get("/signin")
         async def signin(
             _request: Request,
-            client: belgie_client_dependency,
+            client: BelgieClientDep,
             provider_id: Annotated[str | None, Query()] = None,
             email: Annotated[str | None, Query()] = None,
             redirect_to: Annotated[str | None, Query()] = None,
@@ -238,7 +238,7 @@ class SSOPlugin[
             code: Annotated[str, Query(min_length=1)],
             state: Annotated[str, Query(min_length=1)],
             request: Request,
-            client: belgie_client_dependency,
+            client: BelgieClientDep,
         ) -> RedirectResponse:
             oauth_state = await client.adapter.get_oauth_state(client.db, state)
             if oauth_state is None:

@@ -111,9 +111,9 @@ class OAuthServerPlugin(PluginClient):
         if self._resolve_client is not None:
             return
 
-        belgie_client_dependency = Annotated[BelgieClient, Depends(belgie)]
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 
-        def resolve_client(_client: belgie_client_dependency) -> OAuthServerClient:
+        def resolve_client(_client: BelgieClientDep) -> OAuthServerClient:
             return OAuthServerClient(provider=provider, issuer_url=issuer_url)
 
         self._resolve_client = resolve_client
@@ -285,7 +285,7 @@ class OAuthServerPlugin(PluginClient):
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
-        belgie_client_dependency = Annotated[BelgieClient, Depends(belgie)]
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 
         async def _authorize(  # noqa: PLR0911
             request: Request,
@@ -396,13 +396,13 @@ class OAuthServerPlugin(PluginClient):
 
         async def authorize_get_handler(
             request: Request,
-            client: belgie_client_dependency,
+            client: BelgieClientDep,
         ) -> Response:
             return await _authorize(request, client)
 
         async def authorize_post_handler(
             request: Request,
-            client: belgie_client_dependency,
+            client: BelgieClientDep,
         ) -> Response:
             return await _authorize(request, client)
 
@@ -779,7 +779,7 @@ class OAuthServerPlugin(PluginClient):
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
-        belgie_client_dependency = Annotated[BelgieClient, Depends(belgie)]
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 
         async def _handle_continue(
             request: Request,
@@ -824,13 +824,13 @@ class OAuthServerPlugin(PluginClient):
 
         async def continue_get_handler(
             request: Request,
-            client: belgie_client_dependency,
+            client: BelgieClientDep,
         ) -> Response:
             return await _handle_continue(request, client)
 
         async def continue_post_handler(
             request: Request,
-            client: belgie_client_dependency,
+            client: BelgieClientDep,
         ) -> Response:
             return await _handle_continue(request, client)
 
@@ -846,7 +846,7 @@ class OAuthServerPlugin(PluginClient):
         settings: OAuthServer,
         issuer_url: str,
     ) -> APIRouter:
-        belgie_client_dependency = Annotated[BelgieClient, Depends(belgie)]
+        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 
         async def _handle_consent(
             request: Request,
@@ -914,13 +914,13 @@ class OAuthServerPlugin(PluginClient):
 
         async def consent_get_handler(
             request: Request,
-            client: belgie_client_dependency,
+            client: BelgieClientDep,
         ) -> Response:
             return await _handle_consent(request, client)
 
         async def consent_post_handler(
             request: Request,
-            client: belgie_client_dependency,
+            client: BelgieClientDep,
         ) -> Response:
             return await _handle_consent(request, client)
 
