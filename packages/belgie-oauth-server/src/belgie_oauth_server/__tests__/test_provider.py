@@ -190,6 +190,57 @@ async def test_exchange_authorization_code_with_offline_access_issues_refresh_to
 
 
 @pytest.mark.asyncio
+async def test_refresh_token_encoder_round_trip_supports_load_exchange_and_revoke() -> None:
+    settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["https://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        refresh_token_encoder=lambda token, session_id: f"wrapped:{session_id}:{token}",
+        refresh_token_decoder=lambda token: (
+            None if token.split(":", maxsplit=2)[1] == "None" else token.split(":", maxsplit=2)[1],
+            token.split(":", maxsplit=2)[2],
+        ),
+    )
+
+    oauth_client = await provider.get_client("test-client")
+    assert oauth_client is not None
+    verifier = "wrapped-verifier"
+    await provider.authorize(
+        oauth_client,
+        AuthorizationParams(
+            state="state-refresh-wrapped",
+            scopes=["user", "offline_access"],
+            code_challenge=create_code_challenge(verifier),
+            redirect_uri=settings.redirect_uris[0],
+            redirect_uri_provided_explicitly=True,
+            resource=None,
+        ),
+    )
+    redirect_url = await provider.issue_authorization_code("state-refresh-wrapped")
+    code = parse_qs(urlparse(redirect_url).query)["code"][0]
+    authorization_code = await provider.load_authorization_code(code)
+    assert authorization_code is not None
+
+    issued_token = await provider.exchange_authorization_code(authorization_code, issue_refresh_token=True)
+
+    assert issued_token.refresh_token is not None
+    assert issued_token.refresh_token.startswith("wrapped:")
+    stored_refresh = await provider.load_refresh_token(issued_token.refresh_token)
+    assert stored_refresh is not None
+
+    rotated_token = await provider.exchange_refresh_token(stored_refresh, ["user", "offline_access"])
+
+    assert rotated_token.refresh_token is not None
+    assert rotated_token.refresh_token.startswith("wrapped:")
+    rotated_refresh = await provider.load_refresh_token(rotated_token.refresh_token)
+    assert rotated_refresh is not None
+
+    await provider.revoke_token(rotated_refresh)
+
+    assert await provider.load_refresh_token(rotated_token.refresh_token) is None
+
+
+@pytest.mark.asyncio
 async def test_load_access_token_purges_expired() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
         redirect_uris=["https://example.com/callback"],

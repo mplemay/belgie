@@ -15,7 +15,7 @@ async def test_register_disabled_by_default(async_client: httpx.AsyncClient) -> 
     response = await async_client.post(
         "/auth/oauth/register",
         json={
-            "redirect_uris": ["http://testserver/callback"],
+            "redirect_uris": ["http://localhost/callback"],
             "client_name": "Demo",
         },
     )
@@ -39,7 +39,7 @@ async def test_register_enabled_requires_authentication(
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
                 "client_name": "Demo",
             },
         )
@@ -67,7 +67,7 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
                 "client_name": "Demo",
             },
         )
@@ -76,7 +76,7 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
     payload = response.json()
     assert payload["client_id"]
     assert payload["client_secret"]
-    assert "scope" not in payload
+    assert payload["scope"] == settings.default_scope
     assert await plugin._provider.get_client(payload["client_id"]) is not None
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
@@ -101,7 +101,7 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": "none",
             },
         )
@@ -109,7 +109,7 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
     assert response.status_code == 201
     payload = response.json()
     assert "client_secret" not in payload
-    assert "scope" not in payload
+    assert payload["scope"] == settings.default_scope
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
 
@@ -133,7 +133,7 @@ async def test_register_enabled_unauthenticated_allows_omitted_confidential_auth
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
             },
         )
 
@@ -141,8 +141,8 @@ async def test_register_enabled_unauthenticated_allows_omitted_confidential_auth
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
     payload = response.json()
-    assert payload["client_secret"]
-    assert payload["token_endpoint_auth_method"] == "client_secret_post"  # noqa: S105
+    assert "client_secret" not in payload
+    assert payload["token_endpoint_auth_method"] == "none"  # noqa: S105
 
 
 @pytest.mark.asyncio
@@ -166,7 +166,7 @@ async def test_register_enabled_unauthenticated_allows_explicit_confidential_cli
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": auth_method,
             },
         )
@@ -175,8 +175,8 @@ async def test_register_enabled_unauthenticated_allows_explicit_confidential_cli
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
     payload = response.json()
-    assert payload["client_secret"]
-    assert payload["token_endpoint_auth_method"] == auth_method
+    assert "client_secret" not in payload
+    assert payload["token_endpoint_auth_method"] == "none"  # noqa: S105
 
 
 @pytest.mark.asyncio
@@ -195,7 +195,7 @@ async def test_register_enabled_without_unauthenticated_registration_rejects_con
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": auth_method,
             },
         )
@@ -228,7 +228,7 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": "private_key_jwt",
             },
         )
@@ -256,17 +256,17 @@ async def test_register_allows_post_logout_redirect_uris(
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
-                "post_logout_redirect_uris": ["http://testserver/logout-complete"],
+                "redirect_uris": ["http://localhost/callback"],
+                "post_logout_redirect_uris": ["http://localhost/logout-complete"],
             },
         )
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["post_logout_redirect_uris"] == ["http://testserver/logout-complete"]
+    assert payload["post_logout_redirect_uris"] == ["http://localhost/logout-complete"]
     registered_client = await plugin._provider.get_client(payload["client_id"])
     assert registered_client is not None
-    assert [str(uri) for uri in registered_client.post_logout_redirect_uris] == ["http://testserver/logout-complete"]
+    assert [str(uri) for uri in registered_client.post_logout_redirect_uris] == ["http://localhost/logout-complete"]
 
 
 @pytest.mark.asyncio
@@ -319,7 +319,7 @@ async def test_register_ignores_enable_end_session_in_metadata(
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
                 "enable_end_session": True,
             },
         )
@@ -351,7 +351,7 @@ async def test_register_returns_explicit_scope_when_requested(
         response = await client.post(
             "/auth/oauth/register",
             json={
-                "redirect_uris": ["http://testserver/callback"],
+                "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": "none",
                 "scope": "user",
             },

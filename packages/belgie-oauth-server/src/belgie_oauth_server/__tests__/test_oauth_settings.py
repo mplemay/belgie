@@ -139,6 +139,23 @@ def test_oauth_settings_rejects_multiple_resources() -> None:
     assert "resources" in str(exc.value)
 
 
+def test_oauth_settings_rejects_refresh_token_encoder_without_decoder() -> None:
+    with pytest.raises(ValidationError) as exc:
+        build_oauth_settings(
+            refresh_token_encoder=lambda token, session_id: f"wrapped:{session_id}:{token}",
+        )
+
+    assert "refresh_token_decoder" in str(exc.value)
+
+
+def test_oauth_settings_allows_refresh_token_decoder_without_encoder() -> None:
+    settings = build_oauth_settings(
+        refresh_token_decoder=lambda token: (None, token),
+    )
+
+    assert settings.refresh_token_decoder is not None
+
+
 def test_oauth_settings_default_rs256_requires_private_key() -> None:
     settings = OAuthServer(
         adapter=build_oauth_settings().adapter,

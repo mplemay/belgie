@@ -11,7 +11,7 @@ from belgie_core.core.settings import BelgieSettings
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
-from belgie_oauth_server.testing import InMemoryDBConnection
+from belgie_oauth_server.testing import InMemoryConsent, InMemoryDBConnection
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
@@ -1137,6 +1137,109 @@ def test_client_management_secret_responses_are_not_cacheable() -> None:
     assert rotated.headers["cache-control"] == "no-store"
     assert rotated.headers["pragma"] == "no-cache"
     assert rotated.json()["client_secret"] != created_payload["client_secret"]
+
+
+def test_consent_management_requires_action_specific_delegated_privileges() -> None:
+    reference_id = "workspace-123"
+    delegated_actions = {"read"}
+
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_reference_resolver=lambda _individual_id, _session_id: reference_id,
+        client_privileges=lambda action, _individual_id, _session_id, candidate_reference_id: (
+            candidate_reference_id == reference_id and action in delegated_actions
+        ),
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    assert plugin.provider is not None
+    adapter = plugin.provider.adapter
+
+    delegated_consent_individual_id = uuid4()
+    consent = InMemoryConsent(
+        client_id=settings.client_id,
+        individual_id=delegated_consent_individual_id,
+        reference_id=reference_id,
+        scopes=["user"],
+    )
+    adapter.consents[(settings.client_id, delegated_consent_individual_id, reference_id)] = consent
+
+    fetched = client.get(
+        f"/auth/oauth/consents/{consent.id}",
+        headers=_auth_headers(),
+    )
+
+    assert fetched.status_code == 200
+    assert fetched.json()["reference_id"] == reference_id
+
+    patched = client.patch(
+        f"/auth/oauth/consents/{consent.id}",
+        json={"scopes": ["openid"]},
+        headers=_auth_headers(),
+    )
+
+    assert patched.status_code == 403
+    assert patched.json() == {"error": "access_denied"}
+
+    deleted = client.delete(
+        f"/auth/oauth/consents/{consent.id}",
+        headers=_auth_headers(),
+    )
+
+    assert deleted.status_code == 403
+    assert deleted.json() == {"error": "access_denied"}
+
+    assert adapter.consents[(settings.client_id, delegated_consent_individual_id, reference_id)].scopes == ["user"]
+
+
+def test_consent_management_allows_delegated_write_privileges() -> None:
+    reference_id = "workspace-123"
+    delegated_actions = {"read", "update", "delete"}
+
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_reference_resolver=lambda _individual_id, _session_id: reference_id,
+        client_privileges=lambda action, _individual_id, _session_id, candidate_reference_id: (
+            candidate_reference_id == reference_id and action in delegated_actions
+        ),
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    assert plugin.provider is not None
+    adapter = plugin.provider.adapter
+
+    delegated_consent_individual_id = uuid4()
+    consent = InMemoryConsent(
+        client_id=settings.client_id,
+        individual_id=delegated_consent_individual_id,
+        reference_id=reference_id,
+        scopes=["user"],
+    )
+    adapter.consents[(settings.client_id, delegated_consent_individual_id, reference_id)] = consent
+
+    patched = client.patch(
+        f"/auth/oauth/consents/{consent.id}",
+        json={"scopes": ["user", "openid"]},
+        headers=_auth_headers(),
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["scopes"] == ["user", "openid"]
+    assert adapter.consents[(settings.client_id, delegated_consent_individual_id, reference_id)].scopes == [
+        "user",
+        "openid",
+    ]
+
+    deleted = client.delete(
+        f"/auth/oauth/consents/{consent.id}",
+        headers=_auth_headers(),
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {}
+    assert (settings.client_id, delegated_consent_individual_id, reference_id) not in adapter.consents
 
 
 def test_authorize_rate_limit_ignores_x_forwarded_for() -> None:

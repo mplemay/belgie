@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime  # noqa: TC003
 from functools import cached_property
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Self
 from urllib.parse import urlparse, urlunparse
 
 from belgie_proto.oauth_server import (
@@ -211,6 +211,13 @@ class OAuthServer(BaseSettings):
             msg = "adapter must implement OAuthServerAdapterProtocol"
             raise TypeError(msg)
         return value
+
+    @model_validator(mode="after")
+    def validate_refresh_token_hooks(self) -> Self:
+        if self.refresh_token_encoder is not None and self.refresh_token_decoder is None:
+            msg = "refresh_token_decoder is required when refresh_token_encoder is configured"
+            raise ValueError(msg)
+        return self
 
     @cached_property
     def issuer_url(self) -> AnyHttpUrl | None:

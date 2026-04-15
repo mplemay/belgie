@@ -115,7 +115,7 @@ async def test_end_session_signs_out_session_and_redirects(
     create_individual_session,
     update_static_client,
 ) -> None:
-    redirect_uri = "http://testserver/logout-complete"
+    redirect_uri = "http://localhost/logout-complete"
     id_token, session_id = await _issue_id_token(
         async_client,
         oauth_settings,
@@ -140,7 +140,7 @@ async def test_end_session_signs_out_session_and_redirects(
     )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "http://testserver/logout-complete?state=goodbye"
+    assert response.headers["location"] == "http://localhost/logout-complete?state=goodbye"
     deleted_session = await belgie_instance.session_manager.get_session(db_session, UUID(session_id))
     assert deleted_session is None
 
@@ -165,7 +165,7 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
         update_static_client,
         email="end-session-invalid-redirect@test.com",
         enable_end_session=True,
-        post_logout_redirect_uris=["http://testserver/logout-complete"],
+        post_logout_redirect_uris=["http://localhost/logout-complete"],
     )
 
     response = await async_client.get(
@@ -196,11 +196,11 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
 
     await seed_client(
         client_id="public-end-session",
-        redirect_uris=["http://testserver/callback"],
+        redirect_uris=["http://localhost/callback"],
         scope="openid profile email",
         token_endpoint_auth_method="none",
         enable_end_session=True,
-        post_logout_redirect_uris=["http://testserver/logout-complete"],
+        post_logout_redirect_uris=["http://localhost/logout-complete"],
     )
 
     code_verifier = "end-session-public-verifier"
@@ -209,7 +209,7 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
         params={
             "response_type": "code",
             "client_id": "public-end-session",
-            "redirect_uri": "http://testserver/callback",
+            "redirect_uri": "http://localhost/callback",
             "code_challenge": create_code_challenge(code_verifier),
             "code_challenge_method": "S256",
             "scope": "openid profile email",
@@ -225,7 +225,7 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
             "grant_type": "authorization_code",
             "client_id": "public-end-session",
             "code": code,
-            "redirect_uri": "http://testserver/callback",
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -237,13 +237,13 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
         "/auth/oauth/end-session",
         params={
             "id_token_hint": id_token,
-            "post_logout_redirect_uri": "http://testserver/logout-complete",
+            "post_logout_redirect_uri": "http://localhost/logout-complete",
         },
         follow_redirects=False,
     )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "http://testserver/logout-complete"
+    assert response.headers["location"] == "http://localhost/logout-complete"
     deleted_session = await belgie_instance.session_manager.get_session(db_session, UUID(session_id))
     assert deleted_session is None
 
@@ -261,7 +261,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
 
     await seed_client(
         client_id="public-end-session-disabled",
-        redirect_uris=["http://testserver/callback"],
+        redirect_uris=["http://localhost/callback"],
         scope="openid profile email",
         token_endpoint_auth_method="none",
         enable_end_session=False,
@@ -273,7 +273,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
         params={
             "response_type": "code",
             "client_id": "public-end-session-disabled",
-            "redirect_uri": "http://testserver/callback",
+            "redirect_uri": "http://localhost/callback",
             "code_challenge": create_code_challenge(code_verifier),
             "code_challenge_method": "S256",
             "scope": "openid profile email",
@@ -289,7 +289,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
             "grant_type": "authorization_code",
             "client_id": "public-end-session-disabled",
             "code": code,
-            "redirect_uri": "http://testserver/callback",
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )

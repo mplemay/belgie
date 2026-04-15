@@ -146,7 +146,7 @@ async def test_authorize_rejects_prompt_with_select_account_when_not_configured(
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
-    assert parsed.netloc == "testserver"
+    assert parsed.netloc == "localhost"
     assert parsed.path == "/callback"
     assert query["error"][0] == "invalid_request"
     assert query["error_description"][0] == "unsupported prompt type"
@@ -174,7 +174,7 @@ async def test_authorize_rejects_select_account_prompt_without_configured_page(
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
-    assert parsed.netloc == "testserver"
+    assert parsed.netloc == "localhost"
     assert parsed.path == "/callback"
     assert query["error"][0] == "invalid_request"
     assert query["error_description"][0] == "unsupported prompt type"

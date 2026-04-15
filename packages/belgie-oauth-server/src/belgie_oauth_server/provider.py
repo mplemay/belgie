@@ -39,6 +39,8 @@ if TYPE_CHECKING:
 
     from belgie_oauth_server.settings import OAuthServer
 
+_RESERVED_ACCESS_TOKEN_CLAIMS = frozenset({"iss", "sub", "aud", "azp", "scope", "iat", "exp", "sid"})
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AuthorizationParams:
@@ -1260,7 +1262,9 @@ class SimpleOAuthProvider:
                 "session_id": self._stringify_uuid(session_id),
             },
         )
-        payload.update(custom_claims)
+        payload.update(
+            {key: value for key, value in custom_claims.items() if key not in _RESERVED_ACCESS_TOKEN_CLAIMS},
+        )
         return self.signing_state.sign(payload)
 
     async def _encode_refresh_token(self, token: str, session_id: UUID | None) -> str:

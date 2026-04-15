@@ -232,7 +232,7 @@ async def test_revoke_public_client_cannot_authenticate(
 ) -> None:
     await seed_client(
         client_id="public-client",
-        redirect_uris=["http://testserver/callback"],
+        redirect_uris=["http://localhost/callback"],
         scope="user",
         token_endpoint_auth_method="none",
     )

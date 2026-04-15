@@ -1484,6 +1484,7 @@ class OAuthServerPlugin(PluginClient):
             if not await _can_manage_consent(
                 settings,
                 consent,
+                action="read",
                 individual_id=str(individual.id),
                 session_id=str(session.id),
             ):
@@ -1503,6 +1504,7 @@ class OAuthServerPlugin(PluginClient):
             if not await _can_manage_consent(
                 settings,
                 existing_consent,
+                action="update",
                 individual_id=str(individual.id),
                 session_id=str(session.id),
             ):
@@ -1533,6 +1535,7 @@ class OAuthServerPlugin(PluginClient):
             if not await _can_manage_consent(
                 settings,
                 existing_consent,
+                action="delete",
                 individual_id=str(individual.id),
                 session_id=str(session.id),
             ):
@@ -2896,11 +2899,12 @@ async def _can_manage_consent(
     settings: OAuthServer,
     consent: _ConsentLike,
     *,
+    action: Literal["read", "update", "delete"],
     individual_id: str,
     session_id: str,
 ) -> bool:
     reference_id = consent.reference_id
-    if await _has_client_privilege(settings, "read", individual_id, session_id, reference_id):
+    if await _has_client_privilege(settings, action, individual_id, session_id, reference_id):
         return True
     if consent.individual_id != individual_id:
         return False
