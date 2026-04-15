@@ -6,9 +6,10 @@ import httpx
 import jwt
 import pytest
 from belgie_oauth_server import OAuthServerResource
-from belgie_oauth_server.plugin import _id_token_signing_key
 from belgie_oauth_server.provider import AuthorizationParams
 from belgie_oauth_server.utils import create_code_challenge
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from pydantic import SecretStr
 
@@ -400,7 +401,7 @@ async def test_token_authorization_code_issues_id_token_for_public_client(
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
     await seed_client(
         client_id="public-openid",
-        redirect_uris=["http://testserver/callback"],
+        redirect_uris=["http://localhost/callback"],
         scope="openid profile email",
         token_endpoint_auth_method="none",
     )
@@ -411,7 +412,7 @@ async def test_token_authorization_code_issues_id_token_for_public_client(
         params={
             "response_type": "code",
             "client_id": "public-openid",
-            "redirect_uri": "http://testserver/callback",
+            "redirect_uri": "http://localhost/callback",
             "code_challenge": create_code_challenge(code_verifier),
             "code_challenge_method": "S256",
             "scope": "openid profile email",
@@ -427,7 +428,7 @@ async def test_token_authorization_code_issues_id_token_for_public_client(
             "grant_type": "authorization_code",
             "client_id": "public-openid",
             "code": code,
-            "redirect_uri": "http://testserver/callback",
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -443,11 +444,12 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
     db_session,
     create_individual_session,
     register_dynamic_client,
+    oauth_plugin,
 ) -> None:
     session_id = await create_individual_session(belgie_instance, db_session, "openid-dynamic@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
     dynamic_client = await register_dynamic_client(
-        redirect_uris=["http://testserver/callback"],
+        redirect_uris=["http://localhost/callback"],
         token_endpoint_auth_method="client_secret_post",
         type="web",
         scope="openid profile email",
@@ -460,7 +462,7 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
         params={
             "response_type": "code",
             "client_id": dynamic_client.client_id,
-            "redirect_uri": "http://testserver/callback",
+            "redirect_uri": "http://localhost/callback",
             "code_challenge": create_code_challenge(code_verifier),
             "code_challenge_method": "S256",
             "scope": "openid profile email",
@@ -477,27 +479,34 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
             "client_id": dynamic_client.client_id,
             "client_secret": dynamic_client.client_secret,
             "code": code,
-            "redirect_uri": "http://testserver/callback",
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
 
     assert token_response.status_code == 200
     id_token = token_response.json()["id_token"]
+    provider = oauth_plugin.provider
+    assert provider is not None
     decoded = jwt.decode(
         id_token,
-        _id_token_signing_key(dynamic_client.client_secret),
-        algorithms=["HS256"],
+        provider.signing_state.verification_key,
+        algorithms=[provider.signing_state.algorithm],
         audience=dynamic_client.client_id,
         issuer="http://testserver/auth/oauth",
     )
     assert decoded["sub"]
 
+    wrong_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    wrong_public_key = wrong_private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
     with pytest.raises(jwt.InvalidSignatureError):
         jwt.decode(
             id_token,
-            _id_token_signing_key(belgie_instance.settings.secret),
-            algorithms=["HS256"],
+            wrong_public_key,
+            algorithms=[provider.signing_state.algorithm],
             audience=dynamic_client.client_id,
             issuer="http://testserver/auth/oauth",
         )
@@ -683,7 +692,7 @@ async def test_token_client_credentials_rejects_public_client(
 ) -> None:
     await seed_client(
         client_id="public-client",
-        redirect_uris=["http://testserver/callback"],
+        redirect_uris=["http://localhost/callback"],
         scope="user",
         token_endpoint_auth_method="none",
     )

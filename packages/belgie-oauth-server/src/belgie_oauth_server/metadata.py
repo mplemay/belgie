@@ -19,6 +19,7 @@ _ROOT_OPENID_METADATA_PATH = "/.well-known/openid-configuration"
 def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerMetadata:
     authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
     token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
+    jwks_uri = AnyHttpUrl(join_url(issuer_url, "jwks")) if settings.signing.algorithm != "HS256" else None
     registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))
     revocation_endpoint = AnyHttpUrl(join_url(issuer_url, "revoke"))
     introspection_endpoint = AnyHttpUrl(join_url(issuer_url, "introspect"))
@@ -27,6 +28,7 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerM
         issuer=AnyHttpUrl(issuer_url),
         authorization_endpoint=authorization_endpoint,
         token_endpoint=token_endpoint,
+        jwks_uri=jwks_uri,
         registration_endpoint=registration_endpoint,
         scopes_supported=_build_supported_scopes(settings),
         response_types_supported=["code"],
@@ -57,24 +59,28 @@ def build_openid_metadata(issuer_url: str, settings: OAuthServer) -> OIDCMetadat
     return OIDCMetadata(
         **oidc_metadata,
         userinfo_endpoint=AnyHttpUrl(join_url(issuer_url, "userinfo")),
-        claims_supported=[
-            "sub",
-            "iss",
-            "aud",
-            "exp",
-            "iat",
-            "sid",
-            "scope",
-            "azp",
-            "email",
-            "email_verified",
-            "name",
-            "picture",
-            "family_name",
-            "given_name",
-        ],
+        claims_supported=(
+            settings.advertised_metadata.claims_supported
+            if settings.advertised_metadata is not None and settings.advertised_metadata.claims_supported is not None
+            else [
+                "sub",
+                "iss",
+                "aud",
+                "exp",
+                "iat",
+                "sid",
+                "scope",
+                "azp",
+                "email",
+                "email_verified",
+                "name",
+                "picture",
+                "family_name",
+                "given_name",
+            ]
+        ),
         subject_types_supported=["public", "pairwise"] if settings.pairwise_secret is not None else ["public"],
-        id_token_signing_alg_values_supported=["HS256"],
+        id_token_signing_alg_values_supported=[settings.signing.algorithm],
         end_session_endpoint=AnyHttpUrl(join_url(issuer_url, "end-session")),
         acr_values_supported=["urn:mace:incommon:iap:bronze"],
         prompt_values_supported=prompt_values_supported,
@@ -102,11 +108,18 @@ def build_protected_resource_metadata(
     *,
     resource_url: str | AnyHttpUrl,
     resource_scopes: list[str] | None = None,
+    settings: OAuthServer | None = None,
 ) -> ProtectedResourceMetadata:
     return ProtectedResourceMetadata(
         resource=AnyHttpUrl(str(resource_url)),
         authorization_servers=[AnyHttpUrl(issuer_url)],
-        scopes_supported=resource_scopes,
+        scopes_supported=(
+            settings.advertised_metadata.protected_resource_scopes_supported
+            if settings is not None
+            and settings.advertised_metadata is not None
+            and settings.advertised_metadata.protected_resource_scopes_supported is not None
+            else resource_scopes
+        ),
     )
 
 
@@ -117,9 +130,6 @@ def build_protected_resource_metadata_well_known_path(resource_server_url: str |
 
 
 def _build_supported_scopes(settings: OAuthServer) -> list[str]:
-    supported_scopes = [settings.default_scope, "openid", "profile", "email", "offline_access"]
-    deduped_scopes: list[str] = []
-    for scope in supported_scopes:
-        if scope not in deduped_scopes:
-            deduped_scopes.append(scope)
-    return deduped_scopes
+    if settings.advertised_metadata is not None and settings.advertised_metadata.scopes_supported is not None:
+        return list(settings.advertised_metadata.scopes_supported)
+    return settings.supported_scopes()

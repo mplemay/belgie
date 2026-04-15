@@ -32,6 +32,8 @@ async def test_oauth_server_adapter_client_and_state_lifecycle(
         client_id="adapter-client",
         client_secret="secret-value",
         client_secret_hash="secret-hash",
+        disabled=False,
+        skip_consent=False,
         redirect_uris=["https://client.example/callback"],
         post_logout_redirect_uris=["https://client.example/logout"],
         token_endpoint_auth_method="client_secret_post",
@@ -53,6 +55,8 @@ async def test_oauth_server_adapter_client_and_state_lifecycle(
         subject_type="pairwise",
         require_pkce=True,
         enable_end_session=True,
+        reference_id=None,
+        metadata_json=None,
         client_id_issued_at=123,
         client_secret_expires_at=0,
         individual_id=session.individual_id,
@@ -204,12 +208,14 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
         db_session,
         client_id=oauth_settings.client_id,
         individual_id=session.individual_id,
+        reference_id=None,
         scopes=["openid"],
     )
     updated_consent = await adapter.upsert_consent(
         db_session,
         client_id=oauth_settings.client_id,
         individual_id=session.individual_id,
+        reference_id=None,
         scopes=["openid", "profile"],
     )
     loaded_consent = await adapter.get_consent(

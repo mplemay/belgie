@@ -184,6 +184,33 @@ async def test_get_user_provider_backed_token_returns_none_when_user_is_missing(
 
 
 @pytest.mark.asyncio
+async def test_get_user_provider_backed_revoked_signed_token_returns_none() -> None:
+    user = FakeUser(
+        id=uuid4(),
+        email="user@example.com",
+        email_verified_at=datetime.now(UTC),
+        name="Test Individual",
+        image=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        scopes=["user"],
+    )
+    oauth_plugin, provider = _build_oauth_plugin()
+    token, stored_token = await _issue_dynamic_client_access_token(
+        provider,
+        individual_id=str(user.id),
+        resource="https://mcp.local/mcp",
+    )
+    await provider.revoke_token(stored_token)
+    belgie = _build_belgie(user=user, plugins=[oauth_plugin])
+
+    with _set_access_token(token):
+        result = await get_user_from_access_token(belgie)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_get_user_malformed_jwt_returns_none() -> None:
     belgie = _build_belgie(user=None)
 
@@ -240,6 +267,7 @@ async def _issue_dynamic_client_access_token(
     provider: SimpleOAuthProvider,
     *,
     individual_id: str | None = None,
+    resource: str | None = None,
 ) -> tuple[str, OAuthServerAccessToken]:
     client = await provider.register_client(
         OAuthServerClientMetadata(
@@ -258,6 +286,7 @@ async def _issue_dynamic_client_access_token(
             code_challenge="test-challenge",
             redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
             redirect_uri_provided_explicitly=True,
+            resource=resource,
             individual_id=individual_id,
             session_id=str(uuid4()),
         ),

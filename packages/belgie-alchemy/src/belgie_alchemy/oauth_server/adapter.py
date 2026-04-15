@@ -72,6 +72,8 @@ class OAuthServerAdapter[
         client_id: str,
         client_secret: str | None,
         client_secret_hash: str | None,
+        disabled: bool | None,
+        skip_consent: bool | None,
         redirect_uris: list[str] | None,
         post_logout_redirect_uris: list[str] | None,
         token_endpoint_auth_method: TokenEndpointAuthMethod,
@@ -93,6 +95,8 @@ class OAuthServerAdapter[
         subject_type: OAuthServerSubjectType | None,
         require_pkce: bool | None,
         enable_end_session: bool | None,
+        reference_id: str | None,
+        metadata_json: dict[str, str] | dict[str, object] | None,
         client_id_issued_at: int | None,
         client_secret_expires_at: int | None,
         individual_id: UUID | None,
@@ -101,6 +105,8 @@ class OAuthServerAdapter[
             client_id=client_id,
             client_secret=client_secret,
             client_secret_hash=client_secret_hash,
+            disabled=disabled,
+            skip_consent=skip_consent,
             redirect_uris=redirect_uris,
             post_logout_redirect_uris=post_logout_redirect_uris,
             token_endpoint_auth_method=token_endpoint_auth_method,
@@ -122,6 +128,8 @@ class OAuthServerAdapter[
             subject_type=subject_type,
             require_pkce=require_pkce,
             enable_end_session=enable_end_session,
+            reference_id=reference_id,
+            metadata_json=metadata_json,
             client_id_issued_at=client_id_issued_at,
             client_secret_expires_at=client_secret_expires_at,
             individual_id=individual_id,
@@ -133,6 +141,46 @@ class OAuthServerAdapter[
         stmt = select(self.oauth_client_model).where(self.oauth_client_model.client_id == client_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def list_clients(
+        self,
+        session: DBConnection,
+        *,
+        individual_id: UUID | None = None,
+        reference_id: str | None = None,
+    ) -> list[ClientT]:
+        stmt = select(self.oauth_client_model)
+        if reference_id is not None:
+            stmt = stmt.where(self.oauth_client_model.reference_id == reference_id)
+        elif individual_id is not None:
+            stmt = stmt.where(self.oauth_client_model.individual_id == individual_id)
+        result = await session.execute(stmt.order_by(self.oauth_client_model.created_at.desc()))
+        return list(result.scalars().all())
+
+    async def update_client(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        updates: dict[str, object],
+    ) -> ClientT | None:
+        client = await self.get_client_by_client_id(session, client_id=client_id)
+        if client is None:
+            return None
+        for field, value in updates.items():
+            setattr(client, field, value)
+        client.updated_at = datetime.now(UTC)
+        return await self._flush_and_refresh(session, client)  # type: ignore[return-value]
+
+    async def delete_client(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+    ) -> bool:
+        stmt = delete(self.oauth_client_model).where(self.oauth_client_model.client_id == client_id)
+        result = await session.execute(stmt)
+        return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def create_authorization_state(
         self,
@@ -425,13 +473,20 @@ class OAuthServerAdapter[
         *,
         client_id: str,
         individual_id: UUID,
+        reference_id: str | None,
         scopes: list[str],
     ) -> ConsentT:
-        consent = await self.get_consent(session, client_id=client_id, individual_id=individual_id)
+        consent = await self.get_consent(
+            session,
+            client_id=client_id,
+            individual_id=individual_id,
+            reference_id=reference_id,
+        )
         if consent is None:
             consent = self.oauth_consent_model(
                 client_id=client_id,
                 individual_id=individual_id,
+                reference_id=reference_id,
                 scopes=scopes,
             )
             session.add(consent)
@@ -447,10 +502,59 @@ class OAuthServerAdapter[
         *,
         client_id: str,
         individual_id: UUID,
+        reference_id: str | None = None,
     ) -> ConsentT | None:
         stmt = select(self.oauth_consent_model).where(
             self.oauth_consent_model.client_id == client_id,
             self.oauth_consent_model.individual_id == individual_id,
+            self.oauth_consent_model.reference_id == reference_id,
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_consent_by_id(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+    ) -> ConsentT | None:
+        stmt = select(self.oauth_consent_model).where(self.oauth_consent_model.id == consent_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_consents(
+        self,
+        session: DBConnection,
+        *,
+        individual_id: UUID,
+        reference_id: str | None = None,
+    ) -> list[ConsentT]:
+        stmt = select(self.oauth_consent_model).where(self.oauth_consent_model.individual_id == individual_id)
+        if reference_id is not None:
+            stmt = stmt.where(self.oauth_consent_model.reference_id == reference_id)
+        result = await session.execute(stmt.order_by(self.oauth_consent_model.created_at.desc()))
+        return list(result.scalars().all())
+
+    async def update_consent(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+        scopes: list[str],
+    ) -> ConsentT | None:
+        consent = await self.get_consent_by_id(session, consent_id=consent_id)
+        if consent is None:
+            return None
+        consent.scopes = scopes
+        consent.updated_at = datetime.now(UTC)
+        return await self._flush_and_refresh(session, consent)  # type: ignore[return-value]
+
+    async def delete_consent(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+    ) -> bool:
+        stmt = delete(self.oauth_consent_model).where(self.oauth_consent_model.id == consent_id)
+        result = await session.execute(stmt)
+        return result.rowcount > 0  # type: ignore[attr-defined]

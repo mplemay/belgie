@@ -60,6 +60,14 @@ class OAuthServerClientMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
+    def disabled(self) -> Mapped[bool | None]:
+        return mapped_column(Boolean, default=False, kw_only=True)
+
+    @declared_attr
+    def skip_consent(self) -> Mapped[bool | None]:
+        return mapped_column(Boolean, default=False, kw_only=True)
+
+    @declared_attr
     def redirect_uris(self) -> Mapped[list[str] | None]:
         return _string_list_column(nullable=True, default=None)
 
@@ -142,6 +150,14 @@ class OAuthServerClientMixin(MappedAsDataclass):
     @declared_attr
     def enable_end_session(self) -> Mapped[bool | None]:
         return mapped_column(Boolean, default=None, kw_only=True)
+
+    @declared_attr
+    def reference_id(self) -> Mapped[str | None]:
+        return mapped_column(Text, default=None, index=True, kw_only=True)
+
+    @declared_attr
+    def metadata_json(self) -> Mapped[dict[str, str] | dict[str, object] | None]:
+        return mapped_column(Json, default=None, kw_only=True)
 
     @declared_attr
     def client_id_issued_at(self) -> Mapped[int | None]:
@@ -414,6 +430,10 @@ class OAuthServerConsentMixin(MappedAsDataclass):
         )
 
     @declared_attr
+    def reference_id(self) -> Mapped[str | None]:
+        return mapped_column(Text, default=None, index=True, kw_only=True)
+
+    @declared_attr
     def scopes(self) -> Mapped[list[str]]:
         return _string_list_column(nullable=False, default_factory=list)
 
@@ -423,7 +443,8 @@ class OAuthServerConsentMixin(MappedAsDataclass):
             UniqueConstraint(
                 self.client_id,
                 self.individual_id,
-                name="uq_oauth_consent_client_id_individual_id",
+                self.reference_id,
+                name="uq_oauth_consent_client_id_individual_id_reference_id",
             ),
         )
 

@@ -28,6 +28,8 @@ class Mcp:
     server_path: str = "/mcp"
     required_scopes: list[str] | None = None
     introspection_endpoint: str | None = None
+    introspection_client_id: str | None = None
+    introspection_client_secret: str | None = None
     oauth_strict: bool = False
 
     def __call__(self, belgie_settings: BelgieSettings) -> McpPlugin:
@@ -53,6 +55,8 @@ class McpPlugin(PluginClient):
             settings.oauth,
             server_url=resolved_server_url,
             introspection_endpoint=settings.introspection_endpoint,
+            introspection_client_id=settings.introspection_client_id,
+            introspection_client_secret=settings.introspection_client_secret,
             oauth_strict=settings.oauth_strict,
             provider_resolver=self._resolve_oauth_provider,
         )

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 from urllib.parse import urlencode, urlunparse
 
+from belgie_oauth_server.development import build_development_signing
 from brussels.base import DataclassBase
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import RedirectResponse
@@ -121,6 +122,7 @@ oauth_plugin = belgie.add_plugin(
         default_scope="user",
         login_url="/login",
         signup_url="/signup",
+        signing=build_development_signing(),
     ),
 )
 type OAuthClientDep = Annotated[OAuthServerClient, Depends(oauth_plugin)]

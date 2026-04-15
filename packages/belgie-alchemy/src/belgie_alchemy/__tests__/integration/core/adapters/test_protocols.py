@@ -236,6 +236,8 @@ class ExampleOAuthClient:
     client_id: str
     client_secret: str | None
     client_secret_hash: str | None
+    disabled: bool | None
+    skip_consent: bool | None
     redirect_uris: list[str] | None
     post_logout_redirect_uris: list[str] | None
     token_endpoint_auth_method: str
@@ -257,6 +259,8 @@ class ExampleOAuthClient:
     subject_type: str | None
     require_pkce: bool | None
     enable_end_session: bool | None
+    reference_id: str | None
+    metadata_json: dict[str, str] | dict[str, object] | None
     client_id_issued_at: int | None
     client_secret_expires_at: int | None
     individual_id: UUID | None
@@ -335,6 +339,7 @@ class ExampleOAuthConsent:
     id: UUID
     client_id: str
     individual_id: UUID
+    reference_id: str | None
     scopes: list[str]
     created_at: datetime
     updated_at: datetime
@@ -652,6 +657,8 @@ def test_oauth_entity_protocol_runtime_checks() -> None:
         client_id="client-123",
         client_secret="secret-value",
         client_secret_hash="secret-hash",
+        disabled=False,
+        skip_consent=False,
         redirect_uris=["https://client.example/callback"],
         post_logout_redirect_uris=["https://client.example/logout"],
         token_endpoint_auth_method="client_secret_post",
@@ -673,6 +680,8 @@ def test_oauth_entity_protocol_runtime_checks() -> None:
         subject_type="pairwise",
         require_pkce=True,
         enable_end_session=True,
+        reference_id=None,
+        metadata_json=None,
         client_id_issued_at=123,
         client_secret_expires_at=0,
         individual_id=None,
@@ -741,6 +750,7 @@ def test_oauth_entity_protocol_runtime_checks() -> None:
         id=uuid4(),
         client_id=client.client_id,
         individual_id=individual_id,
+        reference_id=None,
         scopes=["openid", "profile"],
         created_at=now,
         updated_at=now,

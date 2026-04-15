@@ -9,9 +9,9 @@ import jwt
 import pytest
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
-from belgie_oauth_server.plugin import OAuthServerPlugin, _id_token_signing_key
+from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
-from belgie_oauth_server.testing import InMemoryDBConnection
+from belgie_oauth_server.testing import InMemoryConsent, InMemoryDBConnection
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
@@ -137,8 +137,58 @@ def _update_static_client(plugin: OAuthServerPlugin, client_id: str, **updates: 
     plugin.provider.static_client = plugin.provider.static_client.model_copy(update=updates)
 
 
+def _decode_id_token(plugin: OAuthServerPlugin, token: str, audience: str) -> dict[str, object]:
+    assert plugin.provider is not None
+    return jwt.decode(
+        token,
+        plugin.provider.signing_state.verification_key,
+        algorithms=[plugin.provider.signing_state.algorithm],
+        audience=audience,
+        issuer="http://testserver/auth/oauth",
+    )
+
+
 def _build_settings(**overrides: object) -> OAuthServer:
     return build_oauth_settings(**overrides)
+
+
+def _issue_resource_bound_token(
+    client: TestClient,
+    plugin: OAuthServerPlugin,
+    settings: OAuthServer,
+    *,
+    state: str,
+    scope: str = "openid user",
+    verifier: str = "verifier",
+) -> dict[str, object]:
+    _update_static_client(plugin, settings.client_id, scope=scope)
+
+    authorize = client.get(
+        "/auth/oauth/authorize",
+        params={
+            **_authorize_params(settings, state=state, scope=scope, verifier=verifier),
+            "resource": "http://testserver/mcp",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    code = _query(authorize.headers["location"])["code"][0]
+    token_request = {
+        "grant_type": "authorization_code",
+        "client_id": settings.client_id,
+        "code": code,
+        "redirect_uri": str(settings.redirect_uris[0]),
+        "code_verifier": verifier,
+    }
+    if settings.client_secret is not None:
+        token_request["client_secret"] = settings.client_secret.get_secret_value()
+
+    token_response = client.post("/auth/oauth/token", data=token_request)
+
+    assert token_response.status_code == 200
+    return token_response.json()
 
 
 def test_authorize_success_and_error_redirects_include_iss() -> None:
@@ -438,7 +488,7 @@ def test_openapi_generation_succeeds_with_continue_and_consent_routes() -> None:
     assert "/auth/oauth/consent" in schema["paths"]
 
 
-def test_register_allows_unauthenticated_confidential_and_public_clients() -> None:
+def test_register_coerces_unauthenticated_clients_to_public() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
@@ -451,34 +501,34 @@ def test_register_allows_unauthenticated_confidential_and_public_clients() -> No
     confidential = client.post(
         "/auth/oauth/register",
         json={
-            "redirect_uris": ["http://client.local/callback"],
+            "redirect_uris": ["https://client.local/callback"],
             "token_endpoint_auth_method": "client_secret_post",
         },
     )
 
     assert confidential.status_code == 201
     confidential_payload = confidential.json()
-    assert confidential_payload["token_endpoint_auth_method"] == "client_secret_post"  # noqa: S105
-    assert confidential_payload["client_secret"]
+    assert confidential_payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert "client_secret" not in confidential_payload
     assert confidential_payload["require_pkce"] is True
 
     omitted_auth_method = client.post(
         "/auth/oauth/register",
         json={
-            "redirect_uris": ["http://client.local/callback"],
+            "redirect_uris": ["https://client.local/callback"],
         },
     )
 
     assert omitted_auth_method.status_code == 201
     omitted_payload = omitted_auth_method.json()
-    assert omitted_payload["token_endpoint_auth_method"] == "client_secret_post"  # noqa: S105
-    assert omitted_payload["client_secret"]
+    assert omitted_payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert "client_secret" not in omitted_payload
     assert omitted_payload["require_pkce"] is True
 
     public = client.post(
         "/auth/oauth/register",
         json={
-            "redirect_uris": ["http://client.local/callback"],
+            "redirect_uris": ["https://client.local/callback"],
             "token_endpoint_auth_method": "none",
             "type": "native",
             "scope": "user",
@@ -506,7 +556,7 @@ def test_register_allows_public_clients_with_configured_resource_scopes() -> Non
     response = client.post(
         "/auth/oauth/register",
         json={
-            "redirect_uris": ["http://client.local/callback"],
+            "redirect_uris": ["https://client.local/callback"],
             "token_endpoint_auth_method": "none",
             "type": "native",
             "scope": "user files:read",
@@ -533,7 +583,7 @@ def test_register_preserves_success_headers_with_response_model_serialization() 
     response = client.post(
         "/auth/oauth/register",
         json={
-            "redirect_uris": ["http://client.local/callback"],
+            "redirect_uris": ["https://client.local/callback"],
             "token_endpoint_auth_method": "none",
             "type": "native",
             "scope": "user",
@@ -677,7 +727,7 @@ def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:
     }
 
 
-def test_dynamic_confidential_client_id_token_uses_client_secret() -> None:
+def test_dynamic_confidential_client_id_token_uses_server_signing_key() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
@@ -690,7 +740,7 @@ def test_dynamic_confidential_client_id_token_uses_client_secret() -> None:
     registration = client.post(
         "/auth/oauth/register",
         json={
-            "redirect_uris": ["http://client.local/callback"],
+            "redirect_uris": ["https://client.local/callback"],
             "token_endpoint_auth_method": "client_secret_post",
             "type": "web",
             "scope": "openid user",
@@ -707,7 +757,7 @@ def test_dynamic_confidential_client_id_token_uses_client_secret() -> None:
         params={
             "response_type": "code",
             "client_id": registered_client["client_id"],
-            "redirect_uri": "http://client.local/callback",
+            "redirect_uri": "https://client.local/callback",
             "scope": "openid user",
             "state": "dynamic-client-state",
             "code_challenge": create_code_challenge(verifier),
@@ -726,26 +776,20 @@ def test_dynamic_confidential_client_id_token_uses_client_secret() -> None:
             "client_id": registered_client["client_id"],
             "client_secret": client_secret,
             "code": code,
-            "redirect_uri": "http://client.local/callback",
+            "redirect_uri": "https://client.local/callback",
             "code_verifier": verifier,
         },
     )
 
     assert token_response.status_code == 200
     payload = token_response.json()
-    decoded = jwt.decode(
-        payload["id_token"],
-        _id_token_signing_key(client_secret),
-        algorithms=["HS256"],
-        audience=registered_client["client_id"],
-        issuer="http://testserver/auth/oauth",
-    )
+    decoded = _decode_id_token(_plugin, payload["id_token"], registered_client["client_id"])
     assert decoded["sub"] == str(belgie_client.user.id)
 
-    with pytest.raises(jwt.InvalidSignatureError):
+    with pytest.raises(jwt.InvalidTokenError):
         jwt.decode(
             payload["id_token"],
-            _id_token_signing_key("test-secret"),
+            "test-secret",
             algorithms=["HS256"],
             audience=registered_client["client_id"],
             issuer="http://testserver/auth/oauth",
@@ -908,13 +952,7 @@ def test_pairwise_subject_is_stable_across_id_token_userinfo_introspection_and_r
 
     assert token_response.status_code == 200
     token_payload = token_response.json()
-    id_token = jwt.decode(
-        token_payload["id_token"],
-        _id_token_signing_key("static-secret"),
-        algorithms=["HS256"],
-        audience=settings.client_id,
-        issuer="http://testserver/auth/oauth",
-    )
+    id_token = _decode_id_token(plugin, token_payload["id_token"], settings.client_id)
 
     userinfo = client.get(
         "/auth/oauth/userinfo",
@@ -943,13 +981,7 @@ def test_pairwise_subject_is_stable_across_id_token_userinfo_introspection_and_r
     )
     assert refresh.status_code == 200
     refresh_payload = refresh.json()
-    refreshed_id_token = jwt.decode(
-        refresh_payload["id_token"],
-        _id_token_signing_key("static-secret"),
-        algorithms=["HS256"],
-        audience=settings.client_id,
-        issuer="http://testserver/auth/oauth",
-    )
+    refreshed_id_token = _decode_id_token(plugin, refresh_payload["id_token"], settings.client_id)
 
     refresh_introspection = client.post(
         "/auth/oauth/introspect",
@@ -991,3 +1023,340 @@ def test_introspect_missing_token_returns_modeled_error_body() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"active": False}
+
+
+def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+
+    token_payload = _issue_resource_bound_token(client, plugin, settings, state="state-revoked-jwt")
+    assert token_payload["access_token"].count(".") == 2
+
+    revoke = client.post(
+        "/auth/oauth/revoke",
+        data={
+            "client_id": settings.client_id,
+            "client_secret": "static-secret",
+            "token": token_payload["access_token"],
+            "token_type_hint": "access_token",
+        },
+    )
+
+    assert revoke.status_code == 200
+    assert revoke.json() == {}
+
+    userinfo = client.get(
+        "/auth/oauth/userinfo",
+        headers={"authorization": f"Bearer {token_payload['access_token']}"},
+    )
+
+    assert userinfo.status_code == 401
+    assert userinfo.json() == {"error": "invalid_token"}
+
+    introspection = client.post(
+        "/auth/oauth/introspect",
+        data={
+            "client_id": settings.client_id,
+            "client_secret": "static-secret",
+            "token": token_payload["access_token"],
+        },
+    )
+
+    assert introspection.status_code == 200
+    assert introspection.json() == {"active": False}
+
+
+def test_patch_client_rejects_invalid_merged_metadata() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    created = client.post(
+        "/auth/oauth/clients",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "user",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert created.status_code == 201
+    patched = client.patch(
+        f"/auth/oauth/clients/{created.json()['client_id']}",
+        json={"redirect_uris": ["not-a-uri"]},
+        headers=_auth_headers(),
+    )
+
+    assert patched.status_code == 400
+    assert patched.json()["error"] == "invalid_request"
+    assert "redirect_uris" in patched.json()["error_description"]
+
+
+def test_patch_client_rejects_public_to_confidential_transition_without_secret() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    created = client.post(
+        "/auth/oauth/clients",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "user",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert created.status_code == 201
+    client_id = created.json()["client_id"]
+
+    patched = client.patch(
+        f"/auth/oauth/clients/{client_id}",
+        json={"token_endpoint_auth_method": "client_secret_post", "type": "web"},
+        headers=_auth_headers(),
+    )
+
+    assert patched.status_code == 400
+    assert patched.json() == {
+        "error": "invalid_request",
+        "error_description": "confidential clients require a stored client secret",
+    }
+    reloaded_client = client.get(
+        f"/auth/oauth/clients/{client_id}",
+        headers=_auth_headers(),
+    )
+
+    assert reloaded_client.status_code == 200
+    assert reloaded_client.json()["token_endpoint_auth_method"] == "none"  # noqa: S105
+
+
+def test_authorize_allows_loopback_port_mismatch_only_for_public_clients() -> None:
+    public_settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://localhost/callback"],
+        client_id="test-client",
+    )
+    public_client, _plugin, _belgie_client = _build_fixture(public_settings)
+
+    public_response = public_client.get(
+        "/auth/oauth/authorize",
+        params={
+            **_authorize_params(public_settings, state="state-public-loopback"),
+            "redirect_uri": "http://localhost:43123/callback",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert public_response.status_code == 302
+    assert public_response.headers["location"].startswith("http://localhost:43123/callback?")
+    assert "code" in _query(public_response.headers["location"])
+
+    confidential_settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://localhost/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    confidential_client, _plugin, _belgie_client = _build_fixture(confidential_settings)
+
+    confidential_response = confidential_client.get(
+        "/auth/oauth/authorize",
+        params={
+            **_authorize_params(confidential_settings, state="state-confidential-loopback"),
+            "redirect_uri": "http://localhost:43123/callback",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert confidential_response.status_code == 400
+    assert confidential_response.json() == {
+        "error": "invalid_request",
+        "error_description": "Redirect URI 'http://localhost:43123/callback' not registered for client",
+    }
+
+
+def test_client_management_secret_responses_are_not_cacheable() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    created = client.post(
+        "/auth/oauth/clients",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+            "scope": "user",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert created.status_code == 201
+    assert created.headers["cache-control"] == "no-store"
+    assert created.headers["pragma"] == "no-cache"
+    created_payload = created.json()
+    assert created_payload["client_secret"]
+
+    rotated = client.post(
+        f"/auth/oauth/clients/{created_payload['client_id']}/rotate-secret",
+        headers=_auth_headers(),
+    )
+
+    assert rotated.status_code == 200
+    assert rotated.headers["cache-control"] == "no-store"
+    assert rotated.headers["pragma"] == "no-cache"
+    assert rotated.json()["client_secret"] != created_payload["client_secret"]
+
+
+def test_consent_management_requires_action_specific_delegated_privileges() -> None:
+    reference_id = "workspace-123"
+    delegated_actions = {"read"}
+
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_reference_resolver=lambda _individual_id, _session_id: reference_id,
+        client_privileges=lambda action, _individual_id, _session_id, candidate_reference_id: (
+            candidate_reference_id == reference_id and action in delegated_actions
+        ),
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    assert plugin.provider is not None
+    adapter = plugin.provider.adapter
+
+    delegated_consent_individual_id = uuid4()
+    consent = InMemoryConsent(
+        client_id=settings.client_id,
+        individual_id=delegated_consent_individual_id,
+        reference_id=reference_id,
+        scopes=["user"],
+    )
+    adapter.consents[(settings.client_id, delegated_consent_individual_id, reference_id)] = consent
+
+    fetched = client.get(
+        f"/auth/oauth/consents/{consent.id}",
+        headers=_auth_headers(),
+    )
+
+    assert fetched.status_code == 200
+    assert fetched.json()["reference_id"] == reference_id
+
+    patched = client.patch(
+        f"/auth/oauth/consents/{consent.id}",
+        json={"scopes": ["openid"]},
+        headers=_auth_headers(),
+    )
+
+    assert patched.status_code == 403
+    assert patched.json() == {"error": "access_denied"}
+
+    deleted = client.delete(
+        f"/auth/oauth/consents/{consent.id}",
+        headers=_auth_headers(),
+    )
+
+    assert deleted.status_code == 403
+    assert deleted.json() == {"error": "access_denied"}
+
+    assert adapter.consents[(settings.client_id, delegated_consent_individual_id, reference_id)].scopes == ["user"]
+
+
+def test_consent_management_allows_delegated_write_privileges() -> None:
+    reference_id = "workspace-123"
+    delegated_actions = {"read", "update", "delete"}
+
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_reference_resolver=lambda _individual_id, _session_id: reference_id,
+        client_privileges=lambda action, _individual_id, _session_id, candidate_reference_id: (
+            candidate_reference_id == reference_id and action in delegated_actions
+        ),
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    assert plugin.provider is not None
+    adapter = plugin.provider.adapter
+
+    delegated_consent_individual_id = uuid4()
+    consent = InMemoryConsent(
+        client_id=settings.client_id,
+        individual_id=delegated_consent_individual_id,
+        reference_id=reference_id,
+        scopes=["user"],
+    )
+    adapter.consents[(settings.client_id, delegated_consent_individual_id, reference_id)] = consent
+
+    patched = client.patch(
+        f"/auth/oauth/consents/{consent.id}",
+        json={"scopes": ["user", "openid"]},
+        headers=_auth_headers(),
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["scopes"] == ["user", "openid"]
+    assert adapter.consents[(settings.client_id, delegated_consent_individual_id, reference_id)].scopes == [
+        "user",
+        "openid",
+    ]
+
+    deleted = client.delete(
+        f"/auth/oauth/consents/{consent.id}",
+        headers=_auth_headers(),
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {}
+    assert (settings.client_id, delegated_consent_individual_id, reference_id) not in adapter.consents
+
+
+def test_authorize_rate_limit_ignores_x_forwarded_for() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        rate_limit={"authorize": {"window": 60, "max": 1}},
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    first = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-rate-limit-1"),
+        headers={"x-forwarded-for": "203.0.113.1"},
+        follow_redirects=False,
+    )
+    second = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-rate-limit-2"),
+        headers={"x-forwarded-for": "198.51.100.7"},
+        follow_redirects=False,
+    )
+
+    assert first.status_code != 429
+    assert second.status_code == 429
+    assert second.json() == {
+        "error": "rate_limited",
+        "error_description": "too many requests",
+    }
+    assert "retry-after" in second.headers

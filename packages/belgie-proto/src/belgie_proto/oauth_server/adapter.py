@@ -40,6 +40,8 @@ class OAuthServerAdapterProtocol[
         client_id: str,
         client_secret: str | None,
         client_secret_hash: str | None,
+        disabled: bool | None,
+        skip_consent: bool | None,
         redirect_uris: list[str] | None,
         post_logout_redirect_uris: list[str] | None,
         token_endpoint_auth_method: TokenEndpointAuthMethod,
@@ -61,6 +63,8 @@ class OAuthServerAdapterProtocol[
         subject_type: OAuthServerSubjectType | None,
         require_pkce: bool | None,
         enable_end_session: bool | None,
+        reference_id: str | None,
+        metadata_json: dict[str, str] | dict[str, object] | None,
         client_id_issued_at: int | None,
         client_secret_expires_at: int | None,
         individual_id: UUID | None,
@@ -72,6 +76,29 @@ class OAuthServerAdapterProtocol[
         *,
         client_id: str,
     ) -> ClientT | None: ...
+
+    async def list_clients(
+        self,
+        session: DBConnection,
+        *,
+        individual_id: UUID | None = None,
+        reference_id: str | None = None,
+    ) -> list[ClientT]: ...
+
+    async def update_client(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+        updates: dict[str, object],
+    ) -> ClientT | None: ...
+
+    async def delete_client(
+        self,
+        session: DBConnection,
+        *,
+        client_id: str,
+    ) -> bool: ...
 
     async def create_authorization_state(
         self,
@@ -266,6 +293,7 @@ class OAuthServerAdapterProtocol[
         *,
         client_id: str,
         individual_id: UUID,
+        reference_id: str | None,
         scopes: list[str],
     ) -> ConsentT: ...
 
@@ -275,4 +303,35 @@ class OAuthServerAdapterProtocol[
         *,
         client_id: str,
         individual_id: UUID,
+        reference_id: str | None = None,
     ) -> ConsentT | None: ...
+
+    async def get_consent_by_id(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+    ) -> ConsentT | None: ...
+
+    async def list_consents(
+        self,
+        session: DBConnection,
+        *,
+        individual_id: UUID,
+        reference_id: str | None = None,
+    ) -> list[ConsentT]: ...
+
+    async def update_consent(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+        scopes: list[str],
+    ) -> ConsentT | None: ...
+
+    async def delete_consent(
+        self,
+        session: DBConnection,
+        *,
+        consent_id: UUID,
+    ) -> bool: ...

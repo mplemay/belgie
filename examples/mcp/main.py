@@ -4,6 +4,7 @@ import datetime
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated
 
+from belgie_oauth_server.development import build_development_signing
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from fastapi import Depends, FastAPI, Query, Request, status
@@ -164,6 +165,7 @@ oauth_settings = OAuthServer(
     default_scope="user",
     login_url="/login",
     resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+    signing=build_development_signing(),
 )
 
 _ = belgie.add_plugin(oauth_settings)

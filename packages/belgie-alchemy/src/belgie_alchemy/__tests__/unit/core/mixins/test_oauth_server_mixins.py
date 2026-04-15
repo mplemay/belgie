@@ -187,9 +187,11 @@ def test_oauth_token_and_consent_mixins_defaults() -> None:
     consent_constraint = next(
         constraint
         for constraint in OAuthServerConsent.__table__.constraints
-        if isinstance(constraint, UniqueConstraint) and constraint.name == "uq_oauth_consent_client_id_individual_id"
+        if isinstance(constraint, UniqueConstraint)
+        and constraint.name == "uq_oauth_consent_client_id_individual_id_reference_id"
     )
     assert tuple(consent_constraint.columns) == (
         OAuthServerConsent.__table__.c.client_id,
         OAuthServerConsent.__table__.c.individual_id,
+        OAuthServerConsent.__table__.c.reference_id,
     )
