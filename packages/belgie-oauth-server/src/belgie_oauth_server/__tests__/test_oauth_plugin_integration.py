@@ -1103,6 +1103,95 @@ def test_patch_client_rejects_invalid_merged_metadata() -> None:
     assert "redirect_uris" in patched.json()["error_description"]
 
 
+def test_patch_client_rejects_public_to_confidential_transition_without_secret() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    created = client.post(
+        "/auth/oauth/clients",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "user",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert created.status_code == 201
+    client_id = created.json()["client_id"]
+
+    patched = client.patch(
+        f"/auth/oauth/clients/{client_id}",
+        json={"token_endpoint_auth_method": "client_secret_post", "type": "web"},
+        headers=_auth_headers(),
+    )
+
+    assert patched.status_code == 400
+    assert patched.json() == {
+        "error": "invalid_request",
+        "error_description": "confidential clients require a stored client secret",
+    }
+    reloaded_client = client.get(
+        f"/auth/oauth/clients/{client_id}",
+        headers=_auth_headers(),
+    )
+
+    assert reloaded_client.status_code == 200
+    assert reloaded_client.json()["token_endpoint_auth_method"] == "none"  # noqa: S105
+
+
+def test_authorize_allows_loopback_port_mismatch_only_for_public_clients() -> None:
+    public_settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://localhost/callback"],
+        client_id="test-client",
+    )
+    public_client, _plugin, _belgie_client = _build_fixture(public_settings)
+
+    public_response = public_client.get(
+        "/auth/oauth/authorize",
+        params={
+            **_authorize_params(public_settings, state="state-public-loopback"),
+            "redirect_uri": "http://localhost:43123/callback",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert public_response.status_code == 302
+    assert public_response.headers["location"].startswith("http://localhost:43123/callback?")
+    assert "code" in _query(public_response.headers["location"])
+
+    confidential_settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://localhost/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    confidential_client, _plugin, _belgie_client = _build_fixture(confidential_settings)
+
+    confidential_response = confidential_client.get(
+        "/auth/oauth/authorize",
+        params={
+            **_authorize_params(confidential_settings, state="state-confidential-loopback"),
+            "redirect_uri": "http://localhost:43123/callback",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert confidential_response.status_code == 400
+    assert confidential_response.json() == {
+        "error": "invalid_request",
+        "error_description": "Redirect URI 'http://localhost:43123/callback' not registered for client",
+    }
+
+
 def test_client_management_secret_responses_are_not_cacheable() -> None:
     settings = _build_settings(
         base_url="http://testserver",

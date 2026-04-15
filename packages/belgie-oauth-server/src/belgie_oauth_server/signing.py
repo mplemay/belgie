@@ -15,7 +15,7 @@ type SigningAlgorithm = Literal["RS256", "HS256"]
 
 
 class OAuthServerSigning(BaseModel):
-    algorithm: SigningAlgorithm = "RS256"
+    algorithm: SigningAlgorithm = "HS256"
     key_id: str | None = None
     private_key_pem: SecretStr | None = None
     public_key_pem: SecretStr | None = None

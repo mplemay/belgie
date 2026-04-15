@@ -5,7 +5,7 @@ from uuid import UUID  # noqa: TC003
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
 
-from belgie_oauth_server.utils import parse_scope_string, redirect_uris_match, validate_safe_redirect_uri
+from belgie_oauth_server.utils import parse_scope_string, validate_safe_redirect_uri
 
 
 class OAuthServerToken(BaseModel):
@@ -130,11 +130,9 @@ class OAuthServerClientMetadata(BaseModel):
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
-            redirect_uri_str = str(redirect_uri)
-            if self.redirect_uris is None or not any(
-                redirect_uris_match(str(registered_redirect_uri), redirect_uri_str)
-                for registered_redirect_uri in self.redirect_uris
-            ):
+            if self.redirect_uris is None or str(redirect_uri) not in {
+                str(registered_redirect_uri) for registered_redirect_uri in self.redirect_uris
+            }:
                 message = f"Redirect URI '{redirect_uri}' not registered for client"
                 raise InvalidRedirectUriError(message)
             return redirect_uri

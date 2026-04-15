@@ -199,6 +199,18 @@ class SimpleOAuthProvider:
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
         async with self._db_session(db, transactional=True) as session:
+            existing_client = await self.adapter.get_client_by_client_id(session, client_id=client_id)
+            if existing_client is None:
+                return None
+
+            updated_auth_method = updates.get("token_endpoint_auth_method", existing_client.token_endpoint_auth_method)
+            if (
+                updated_auth_method in {"client_secret_post", "client_secret_basic"}
+                and existing_client.client_secret_hash is None
+            ):
+                msg = "confidential clients require a stored client secret"
+                raise ValueError(msg)
+
             client = await self.adapter.update_client(session, client_id=client_id, updates=updates)
             if client is None:
                 return None

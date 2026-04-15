@@ -407,6 +407,36 @@ async def test_register_client_no_secret_when_auth_method_none() -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_client_rejects_confidential_auth_without_secret() -> None:
+    _settings, provider, _adapter, db = build_oauth_provider(
+        redirect_uris=["https://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+
+    client_info = await provider.register_client(
+        OAuthServerClientMetadata(
+            redirect_uris=["https://example.com/callback"],
+            token_endpoint_auth_method="none",
+            type="native",
+        ),
+        db=db,
+    )
+
+    with pytest.raises(ValueError, match="stored client secret"):
+        await provider.update_client(
+            client_info.client_id,
+            updates={"token_endpoint_auth_method": "client_secret_post", "type": "web"},
+            db=db,
+        )
+
+    reloaded_client = await provider.get_client(client_info.client_id, db=db)
+
+    assert reloaded_client is not None
+    assert reloaded_client.token_endpoint_auth_method == "none"  # noqa: S105
+
+
+@pytest.mark.asyncio
 async def test_register_client_rejects_unsupported_auth_method() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["https://example.com/callback"],

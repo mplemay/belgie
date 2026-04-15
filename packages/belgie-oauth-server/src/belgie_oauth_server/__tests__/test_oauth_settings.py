@@ -156,21 +156,24 @@ def test_oauth_settings_allows_refresh_token_decoder_without_encoder() -> None:
     assert settings.refresh_token_decoder is not None
 
 
-def test_oauth_settings_default_rs256_requires_private_key() -> None:
+def test_oauth_settings_default_hs256_initializes_without_private_key() -> None:
     settings = OAuthServer(
         adapter=build_oauth_settings().adapter,
         base_url="http://example.com",
         redirect_uris=["http://example.com/callback"],
     )
 
-    with pytest.raises(ValueError, match=r"signing\.private_key_pem"):
-        _ = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    assert provider.signing_state.algorithm == "HS256"
+    assert provider.signing_state.jwks is None
 
 
-def test_oauth_settings_default_rs256_accepts_private_key() -> None:
+def test_oauth_settings_explicit_rs256_accepts_private_key() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
         redirect_uris=["http://example.com/callback"],
+        signing=build_development_signing(),
     )
 
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
@@ -192,6 +195,7 @@ def test_oauth_settings_rs256_accepts_explicit_public_key() -> None:
         base_url="http://example.com",
         redirect_uris=["http://example.com/callback"],
         signing=OAuthServerSigning(
+            algorithm="RS256",
             private_key_pem=SecretStr(DEVELOPMENT_RSA_PRIVATE_KEY_PEM),
             public_key_pem=SecretStr(public_pem.decode("utf-8")),
         ),

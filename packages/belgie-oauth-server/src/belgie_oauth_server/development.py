@@ -37,4 +37,7 @@ DEVELOPMENT_RSA_PRIVATE_KEY_PEM = base64.b64decode(
 
 
 def build_development_signing() -> OAuthServerSigning:
-    return OAuthServerSigning(private_key_pem=SecretStr(DEVELOPMENT_RSA_PRIVATE_KEY_PEM))
+    return OAuthServerSigning(
+        algorithm="RS256",
+        private_key_pem=SecretStr(DEVELOPMENT_RSA_PRIVATE_KEY_PEM),
+    )

@@ -56,6 +56,7 @@ from belgie_oauth_server.utils import (
     create_code_challenge,
     is_fetch_request,
     join_url,
+    redirect_uris_match,
 )
 from belgie_oauth_server.verifier import verify_local_access_token
 
@@ -1328,7 +1329,10 @@ class OAuthServerPlugin(PluginClient):
                 ):
                     return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
 
-            updated_client = await provider.update_client(client_id, updates=updates, db=client.db)
+            try:
+                updated_client = await provider.update_client(client_id, updates=updates, db=client.db)
+            except ValueError as exc:
+                return _oauth_error("invalid_request", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
             if updated_client is None:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
             return _redact_client_secret(updated_client)
@@ -1720,7 +1724,7 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
     redirect_uri_raw = _get_str(resolved_data, "redirect_uri")
     redirect_uri = AnyUrl(redirect_uri_raw) if redirect_uri_raw else None
     try:
-        validated_redirect_uri = oauth_client.validate_redirect_uri(redirect_uri)
+        validated_redirect_uri = _validate_authorize_redirect_uri(oauth_client, redirect_uri)
     except InvalidRedirectUriError as exc:
         return _oauth_error("invalid_request", exc.message, status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -1990,15 +1994,37 @@ def _derive_initial_intent(prompt_values: frozenset[AuthorizePrompt]) -> OAuthSe
     return "login"
 
 
+def _oauth_client_is_public(oauth_client: OAuthServerClientInformationFull) -> bool:
+    return oauth_client.token_endpoint_auth_method == "none" or oauth_client.type in {  # noqa: S105
+        "native",
+        "user-agent-based",
+    }
+
+
+def _validate_authorize_redirect_uri(
+    oauth_client: OAuthServerClientInformationFull,
+    redirect_uri: AnyUrl | None,
+) -> AnyUrl:
+    try:
+        return oauth_client.validate_redirect_uri(redirect_uri)
+    except InvalidRedirectUriError:
+        if redirect_uri is None or not _oauth_client_is_public(oauth_client) or oauth_client.redirect_uris is None:
+            raise
+
+        redirect_uri_str = str(redirect_uri)
+        if any(
+            redirect_uris_match(str(registered_redirect_uri), redirect_uri_str)
+            for registered_redirect_uri in oauth_client.redirect_uris
+        ):
+            return redirect_uri
+        raise
+
+
 def _pkce_requirement_for_client(
     oauth_client: OAuthServerClientInformationFull,
     scopes: list[str],
 ) -> str | None:
-    is_public_client = oauth_client.token_endpoint_auth_method == "none" or oauth_client.type in {  # noqa: S105
-        "native",
-        "user-agent-based",
-    }
-    if is_public_client:
+    if _oauth_client_is_public(oauth_client):
         return "pkce is required for public clients"
     if "offline_access" in scopes:
         return "pkce is required when requesting offline_access scope"

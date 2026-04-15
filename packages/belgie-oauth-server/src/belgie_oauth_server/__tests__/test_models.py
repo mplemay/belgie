@@ -56,6 +56,13 @@ def test_client_metadata_validate_redirect_uri_explicit_ok() -> None:
     assert str(metadata.validate_redirect_uri(AnyUrl("https://example.com/callback"))) == "https://example.com/callback"
 
 
+def test_client_metadata_validate_redirect_uri_rejects_loopback_port_mismatch() -> None:
+    metadata = OAuthServerClientMetadata(redirect_uris=["http://localhost/callback"])
+
+    with pytest.raises(InvalidRedirectUriError):
+        metadata.validate_redirect_uri(AnyUrl("http://localhost:43123/callback"))
+
+
 def test_client_metadata_validate_redirect_uri_invalid() -> None:
     metadata = OAuthServerClientMetadata(redirect_uris=["https://example.com/callback"])
 

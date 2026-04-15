@@ -40,6 +40,18 @@ def test_build_oauth_metadata_omits_jwks_uri_for_hs256() -> None:
     assert metadata.jwks_uri is None
 
 
+def test_build_oauth_metadata_default_hs256_omits_jwks_uri() -> None:
+    metadata = build_oauth_metadata(
+        "https://auth.local/auth/oauth",
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            signing=OAuthServerSigning(),
+        ),
+    )
+
+    assert metadata.jwks_uri is None
+
+
 def test_build_protected_resource_metadata() -> None:
     metadata = build_protected_resource_metadata(
         "https://auth.local/auth/oauth",
@@ -90,6 +102,18 @@ def test_build_openid_metadata_contains_oidc_endpoints() -> None:
     assert "sub" in metadata.claims_supported
     assert "openid" in (metadata.scopes_supported or [])
     assert metadata.prompt_values_supported == ["login", "none"]
+
+
+def test_build_openid_metadata_default_hs256_advertises_hs256() -> None:
+    metadata = build_openid_metadata(
+        "https://auth.local/auth/oauth",
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            signing=OAuthServerSigning(),
+        ),
+    )
+
+    assert metadata.id_token_signing_alg_values_supported == ["HS256"]
 
 
 def test_build_openid_metadata_advertises_optional_prompt_values_and_pairwise_subjects() -> None:
