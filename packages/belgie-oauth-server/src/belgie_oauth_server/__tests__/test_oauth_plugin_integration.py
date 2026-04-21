@@ -1576,6 +1576,44 @@ def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
     assert introspection.json() == {"active": False}
 
 
+def test_introspect_rejects_tokens_issued_to_different_confidential_client() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        allow_dynamic_client_registration=True,
+        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+
+    token_payload = _issue_resource_bound_token(client, plugin, settings, state="state-other-client-introspection")
+    registration = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://other-client.local/callback"],
+            "type": "web",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert registration.status_code == 201
+    confidential_client = registration.json()
+    assert confidential_client["client_secret"]
+
+    introspection = client.post(
+        "/auth/oauth/introspect",
+        data={
+            "client_id": confidential_client["client_id"],
+            "client_secret": confidential_client["client_secret"],
+            "token": token_payload["access_token"],
+        },
+    )
+
+    assert introspection.status_code == 200
+    assert introspection.json() == {"active": False}
+
+
 def test_patch_client_rejects_invalid_merged_metadata() -> None:
     settings = _build_settings(
         base_url="http://testserver",

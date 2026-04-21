@@ -4,8 +4,8 @@
 > This package follows the current MCP Python SDK auth APIs. Expect small compatibility updates as the SDK evolves.
 
 `belgie-mcp` connects Belgie's OAuth server to the MCP Python SDK. It builds MCP `AuthSettings`, provides a token
-verifier that understands both local OAuth provider state and HTTP introspection, and includes a helper for resolving
-the current user from the active access token.
+verifier that understands local OAuth provider state, remote JWT/JWKS verification, and HTTP introspection, and
+includes a helper for resolving the current user from the active access token.
 
 ## Installation
 
@@ -111,7 +111,15 @@ mounting and any `streamable_http_app(...)` options.
 - If the MCP server shares a host with Belgie, set `base_url` and let `Mcp` derive the resource URL from
   `server_path`.
 - If you pass a `server_url` directly, it takes precedence over `base_url` and `server_path`.
-- `oauth_strict=True` enables strict resource validation against the issued token audience.
+- `oauth_strict=True` enables strict resource validation against the issued token audience across both the
+  local-provider and remote JWT/JWKS verification paths.
+- Verification order is: linked local OAuth provider, then remote JWKS validation for resource-bound JWTs, then
+  introspection fallback.
+- For a standalone MCP resource server, prefer asymmetric signing on the OAuth server so `/auth/oauth/jwks` is
+  available. With `HS256`, standalone verification cannot use JWKS and must fall back to introspection.
+- Introspection remains client-bound: a confidential introspection caller only receives `active: true` for tokens issued
+  to that same OAuth client. For distributed MCP setups with public dynamically registered clients, RS256/JWKS is the
+  interoperable path.
 - `get_user_from_access_token` resolves the current user from a co-located OAuth provider first, then falls back to
   decoding a JWT `sub` claim.
 - The package is designed to work with the example in [`examples/mcp`](../../examples/mcp).

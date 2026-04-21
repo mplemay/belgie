@@ -80,6 +80,112 @@ async def test_verify_token_active_returns_access_token() -> None:
     assert token.resource == "https://mcp.local"
 
 
+@pytest.mark.asyncio
+async def test_verify_token_remote_jwks_accepts_resource_bound_signed_token() -> None:
+    settings = _oauth_settings()
+    provider = _build_provider(settings)
+    token_value, stored_token = await _issue_dynamic_client_access_token(
+        provider,
+        individual_id=str(uuid4()),
+        resource="https://mcp.local/mcp",
+    )
+    issuer_url = str(settings.issuer_url)
+    endpoint = join_url(issuer_url, "introspect")
+    jwks_endpoint = join_url(issuer_url, "jwks")
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint=endpoint,
+        server_url="https://mcp.local/mcp",
+        jwt_issuer=issuer_url,
+        jwks_endpoint=jwks_endpoint,
+    )
+    with respx.mock(assert_all_called=False) as router:
+        jwks_route = router.get(jwks_endpoint).mock(return_value=Response(200, json=provider.signing_state.jwks))
+        introspection_route = router.post(endpoint).mock(return_value=Response(500))
+        token = await verifier.verify_token(token_value)
+
+    assert stored_token.client_id != settings.client_id
+    assert token == AccessToken(
+        token=token_value,
+        client_id=stored_token.client_id,
+        scopes=["user"],
+        expires_at=stored_token.expires_at,
+        resource="https://mcp.local/mcp",
+    )
+    assert jwks_route.called is True
+    assert introspection_route.called is False
+
+
+@pytest.mark.asyncio
+async def test_verify_token_remote_jwks_falls_back_to_introspection_for_opaque_tokens() -> None:
+    settings = _oauth_settings()
+    provider = _build_provider(settings)
+    token_value, _stored_token = await _issue_dynamic_client_access_token(
+        provider,
+        individual_id=str(uuid4()),
+    )
+    issuer_url = str(settings.issuer_url)
+    endpoint = join_url(issuer_url, "introspect")
+    jwks_endpoint = join_url(issuer_url, "jwks")
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint=endpoint,
+        server_url="https://mcp.local/mcp",
+        jwt_issuer=issuer_url,
+        jwks_endpoint=jwks_endpoint,
+    )
+    with respx.mock(assert_all_called=False) as router:
+        jwks_route = router.get(jwks_endpoint).mock(return_value=Response(200, json=provider.signing_state.jwks))
+        introspection_route = router.post(endpoint).mock(
+            return_value=Response(
+                200,
+                json={
+                    "active": True,
+                    "client_id": "client",
+                    "scope": "user",
+                    "exp": 123,
+                    "aud": "https://mcp.local",
+                },
+            ),
+        )
+        token = await verifier.verify_token(token_value)
+
+    assert token == AccessToken(
+        token=token_value,
+        client_id="client",
+        scopes=["user"],
+        expires_at=123,
+        resource="https://mcp.local",
+    )
+    assert jwks_route.called is False
+    assert introspection_route.called is True
+
+
+@pytest.mark.asyncio
+async def test_verify_token_remote_jwks_strict_resource_rejects_without_introspection() -> None:
+    settings = _oauth_settings()
+    provider = _build_provider(settings)
+    token_value, _stored_token = await _issue_dynamic_client_access_token(
+        provider,
+        resource="https://other.local/mcp",
+    )
+    issuer_url = str(settings.issuer_url)
+    endpoint = join_url(issuer_url, "introspect")
+    jwks_endpoint = join_url(issuer_url, "jwks")
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint=endpoint,
+        server_url="https://mcp.local/mcp",
+        validate_resource=True,
+        jwt_issuer=issuer_url,
+        jwks_endpoint=jwks_endpoint,
+    )
+    with respx.mock(assert_all_called=False) as router:
+        jwks_route = router.get(jwks_endpoint).mock(return_value=Response(200, json=provider.signing_state.jwks))
+        introspection_route = router.post(endpoint).mock(return_value=Response(500))
+        assert await verifier.verify_token(token_value) is None
+
+    assert jwks_route.called is True
+    assert introspection_route.called is False
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_verify_token_local_provider_accepts_dynamic_client_access_tokens() -> None:
@@ -290,6 +396,7 @@ def test_mcp_token_verifier_defaults() -> None:
     verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
 
     assert verifier.introspection_endpoint == join_url("https://issuer.local/auth/oauth", "introspect")
+    assert verifier.jwks_endpoint == join_url("https://issuer.local/auth/oauth", "jwks")
 
 
 def test_mcp_token_verifier_overrides() -> None:

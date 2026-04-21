@@ -30,6 +30,11 @@ uv add belgie-oauth-server
 
 - Resource matching is strict. If a client sends `resource` and no OAuth resource is configured, the server returns
   `invalid_target`.
+- Standalone MCP or API resource servers should prefer asymmetric signing (`RS256`). Belgie only exposes
+  `/auth/oauth/jwks` for asymmetric signing, so `HS256` deployments cannot offer remote JWKS validation to external
+  resource servers.
+- Introspection is client-bound. A confidential caller only gets `active: true` for tokens issued to that same OAuth
+  client, so separate resource servers should not rely on introspection for public dynamically registered MCP clients.
 - If `authorization_code` is enabled, `login_url` and `consent_url` are required. Belgie does not silently auto-consent
   by default. To mirror Better Auth's trusted-client behavior, use `trusted_client_resolver` to let the server mark
   selected clients as `skip_consent` without allowing `skip_consent` in dynamic registration payloads.
@@ -229,6 +234,9 @@ uv run uvicorn server:app --reload
   `custom_token_response_fields` let you inject product-specific claims and token response fields.
 - Protected resource metadata is exposed automatically when you configure `resources=[OAuthServerResource(...)]`, with
   optional root well-known fallbacks controlled by the metadata fallback settings.
+- When those protected resources are consumed by standalone MCP servers, combine `resources=[...]` with asymmetric
+  signing so the resource server can verify resource-bound JWT access tokens via the issuer and JWKS endpoints instead
+  of same-client introspection.
 
 ## Migration Note
 
