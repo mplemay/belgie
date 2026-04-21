@@ -88,6 +88,7 @@ def _build_app(
     auth_router = APIRouter(prefix="/auth")
     auth_router.include_router(plugin.router(belgie))
     app.include_router(auth_router)
+    app.include_router(plugin.public(belgie))
     assert plugin.provider is not None
     plugin.provider.static_client = plugin.provider.static_client.model_copy(update={"skip_consent": True})
 
@@ -597,6 +598,36 @@ def test_register_coerces_unauthenticated_clients_to_public() -> None:
     assert "client_secret" not in omitted_payload
     assert omitted_payload["require_pkce"] is True
 
+    confidential_basic = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_basic",
+        },
+    )
+
+    assert confidential_basic.status_code == 201
+    confidential_basic_payload = confidential_basic.json()
+    assert confidential_basic_payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert confidential_basic_payload["grant_types"] == ["authorization_code"]
+    assert "client_secret" not in confidential_basic_payload
+    assert confidential_basic_payload["require_pkce"] is True
+
+    web_type = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+        },
+    )
+
+    assert web_type.status_code == 201
+    web_type_payload = web_type.json()
+    assert web_type_payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert "type" not in web_type_payload
+    assert "client_secret" not in web_type_payload
+
     public = client.post(
         "/auth/oauth/register",
         json={
@@ -639,6 +670,44 @@ def test_register_defaults_authenticated_confidential_clients_to_client_secret_b
     assert payload["client_secret"]
 
 
+def test_metadata_prioritizes_public_token_auth_when_anonymous_registration_is_enabled() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+        allow_unauthenticated_client_registration=True,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get("/.well-known/oauth-authorization-server")
+
+    assert response.status_code == 200
+    assert response.json()["token_endpoint_auth_methods_supported"] == [
+        "none",
+        "client_secret_basic",
+        "client_secret_post",
+    ]
+
+
+def test_metadata_omits_public_token_auth_when_anonymous_registration_is_disabled() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get("/.well-known/oauth-authorization-server")
+
+    assert response.status_code == 200
+    assert response.json()["token_endpoint_auth_methods_supported"] == [
+        "client_secret_basic",
+        "client_secret_post",
+    ]
+
+
 def test_register_rejects_grant_types_disabled_by_server() -> None:
     settings = _build_settings(
         base_url="http://testserver",
@@ -663,7 +732,7 @@ def test_register_rejects_grant_types_disabled_by_server() -> None:
 
     assert response.status_code == 400
     assert response.json() == {
-        "error": "invalid_request",
+        "error": "invalid_client_metadata",
         "error_description": "unsupported grant_type authorization_code",
     }
 
@@ -722,6 +791,70 @@ def test_register_preserves_success_headers_with_response_model_serialization() 
     payload = response.json()
     assert payload["token_endpoint_auth_method"] == "none"  # noqa: S105
     assert "client_secret" not in payload
+
+
+def test_unauthenticated_dcr_public_client_completes_authorize_and_token_exchange() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+        allow_unauthenticated_client_registration=True,
+    )
+    client, plugin, belgie_client = _build_fixture(settings)
+
+    registration = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+            "scope": "openid user",
+        },
+    )
+
+    assert registration.status_code == 201
+    registered_client = registration.json()
+    assert registered_client["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert "client_secret" not in registered_client
+    assert "type" not in registered_client
+
+    _grant_consent(plugin, registered_client["client_id"], belgie_client.user.id, ["openid", "user"])
+    verifier = "dynamic-public-verifier"
+    authorize = client.get(
+        "/auth/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registered_client["client_id"],
+            "redirect_uri": "https://client.local/callback",
+            "scope": "openid user",
+            "state": "dynamic-public-state",
+            "code_challenge": create_code_challenge(verifier),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    code = _query(authorize.headers["location"])["code"][0]
+    token_response = client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": registered_client["client_id"],
+            "code": code,
+            "redirect_uri": "https://client.local/callback",
+            "code_verifier": verifier,
+        },
+    )
+
+    assert token_response.status_code == 200
+    payload = token_response.json()
+    assert payload["access_token"]
+    assert payload["scope"] == "openid user"
+    decoded = _decode_id_token(plugin, payload["id_token"], registered_client["client_id"])
+    assert decoded["sub"] == str(belgie_client.user.id)
 
 
 def test_confidential_pkce_requirements_and_token_mismatch_cases() -> None:

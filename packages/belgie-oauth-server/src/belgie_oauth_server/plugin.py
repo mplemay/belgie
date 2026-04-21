@@ -563,16 +563,17 @@ class OAuthServerPlugin(PluginClient):
 
             try:
                 payload = await request.json()
-                metadata = OAuthServerClientMetadata.model_validate(payload)
-            except ValidationError as exc:
+            except ValueError:
                 return _oauth_error(
                     "invalid_request",
-                    _format_validation_error(exc),
+                    "invalid JSON body",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-            except ValueError as exc:
-                description = str(exc) or "invalid client metadata"
-                return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                metadata = OAuthServerClientMetadata.model_validate(payload)
+            except ValidationError as exc:
+                return _registration_validation_error(exc)
 
             authenticated = False
             authenticated_individual_id: str | None = None
@@ -593,29 +594,16 @@ class OAuthServerPlugin(PluginClient):
 
             if not authenticated:
                 if "client_credentials" in metadata.grant_types:
-                    return _oauth_error(
-                        "invalid_request",
-                        "client_credentials is not allowed for unauthenticated client registration",
-                        status_code=status.HTTP_400_BAD_REQUEST,
+                    return _registration_metadata_error(
+                        "client_credentials grant requires authenticated registration",
                     )
                 if metadata.require_pkce is False:
-                    return _oauth_error(
-                        "invalid_request",
-                        "pkce is required for registered clients",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
-                if metadata.skip_consent:
-                    return _oauth_error(
-                        "invalid_request",
+                    return _registration_metadata_error("pkce is required for registered clients")
+                if metadata.skip_consent is not None:
+                    return _registration_metadata_error(
                         "skip_consent cannot be set during dynamic client registration",
-                        status_code=status.HTTP_400_BAD_REQUEST,
                     )
-                metadata = metadata.model_copy(
-                    update={
-                        "token_endpoint_auth_method": "none",
-                        "type": None if metadata.type == "web" else metadata.type,
-                    },
-                )
+                metadata = _coerce_unauthenticated_registration(metadata)
 
             try:
                 provider.validate_client_metadata(metadata)
@@ -626,9 +614,8 @@ class OAuthServerPlugin(PluginClient):
                 )
             except ValueError as exc:
                 description = str(exc) or "invalid client metadata"
-                return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["Pragma"] = "no-cache"
+                return _registration_metadata_error(description)
+            _set_no_store_headers(response)
             return client_info
 
         router.add_api_route(
@@ -2361,6 +2348,41 @@ def _format_validation_error(error: ValidationError) -> str:
     if loc:
         return f"{loc}: {msg}"
     return msg
+
+
+def _coerce_unauthenticated_registration(
+    metadata: OAuthServerClientMetadata,
+) -> OAuthServerClientMetadata:
+    return metadata.model_copy(
+        update={
+            "token_endpoint_auth_method": "none",
+            "type": None if metadata.type == "web" else metadata.type,
+        },
+    )
+
+
+def _registration_validation_error(error: ValidationError) -> JSONResponse:
+    description = _format_validation_error(error)
+    if any("redirect_uris" in ".".join(str(part) for part in entry.get("loc", [])) for entry in error.errors()):
+        return _oauth_error(
+            "invalid_redirect_uri",
+            description,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return _oauth_error(
+        "invalid_client_metadata",
+        description,
+        status_code=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _registration_metadata_error(description: str) -> JSONResponse:
+    error = "invalid_client_metadata"
+    if description.startswith("cannot request scope "):
+        error = "invalid_scope"
+    elif "redirect_uri" in description.lower():
+        error = "invalid_redirect_uri"
+    return _oauth_error(error, description, status_code=status.HTTP_400_BAD_REQUEST)
 
 
 async def _get_request_params(request: Request) -> dict[str, str]:
