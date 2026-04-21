@@ -170,7 +170,8 @@ def _decode_id_token(plugin: OAuthServerPlugin, token: str, audience: str) -> di
 
 
 def _build_settings(**overrides: object) -> OAuthServer:
-    return build_oauth_settings(**overrides)
+    settings_overrides = {"default_scopes": ["user"], **overrides}
+    return build_oauth_settings(**settings_overrides)
 
 
 def _issue_resource_bound_token(
