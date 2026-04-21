@@ -133,7 +133,7 @@ class OAuthServer(BaseSettings):
     grant_types: list[OAuthServerGrantType] = Field(
         default_factory=lambda: ["authorization_code", "client_credentials", "refresh_token"],
     )
-    default_scopes: Sequence[str] = Field(default_factory=lambda: ["user"])
+    default_scopes: Sequence[str] = Field(default_factory=tuple)
     static_client_require_pkce: bool = True
     pairwise_secret: SecretStr | None = None
     signing: OAuthServerSigning = Field(default_factory=OAuthServerSigning)

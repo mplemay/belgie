@@ -17,7 +17,7 @@ def test_oauth_settings_defaults() -> None:
     assert settings.consent_url == "/consent"
     assert settings.select_account_url is None
     assert settings.grant_types == ["authorization_code", "client_credentials", "refresh_token"]
-    assert settings.default_scopes == ["user"]
+    assert settings.default_scopes == ()
     assert settings.static_client_require_pkce is True
     assert settings.pairwise_secret is None
     assert settings.authorization_code_ttl_seconds == 300
