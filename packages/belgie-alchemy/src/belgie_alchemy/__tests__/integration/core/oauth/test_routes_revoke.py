@@ -72,7 +72,7 @@ async def test_revoke_success_removes_access_token(
     await seed_access_token(
         token="token-123",
         client_id=oauth_settings.client_id,
-        scopes=[oauth_settings.default_scope],
+        scopes=list(oauth_settings.default_scopes),
         created_at=int(time.time()),
         expires_at=int(time.time()) + 3600,
         resource=None,
@@ -102,7 +102,7 @@ async def test_revoke_success_removes_refresh_token(
     await seed_refresh_token(
         token="refresh-123",
         client_id=oauth_settings.client_id,
-        scopes=[oauth_settings.default_scope, "offline_access"],
+        scopes=[*oauth_settings.default_scopes, "offline_access"],
         created_at=int(time.time()),
         expires_at=int(time.time()) + 3600,
     )
@@ -132,7 +132,7 @@ async def test_revoke_accepts_basic_auth(
     await seed_access_token(
         token="token-basic",
         client_id=oauth_settings.client_id,
-        scopes=[oauth_settings.default_scope],
+        scopes=list(oauth_settings.default_scopes),
         created_at=int(time.time()),
         expires_at=int(time.time()) + 3600,
         resource=None,
@@ -182,7 +182,7 @@ async def test_revoke_ignores_tokens_owned_by_another_client(
     await seed_client(
         client_id="other-client",
         redirect_uris=oauth_settings.redirect_uris,
-        scope=oauth_settings.default_scope,
+        scope=" ".join(oauth_settings.default_scopes),
         client_secret_hash=oauth_plugin._provider._hash_value("other-secret"),
     )
     await seed_access_token(

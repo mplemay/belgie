@@ -232,11 +232,12 @@ async def test_authorize_accepts_configured_resource_when_authenticated(
 
 
 @pytest.mark.asyncio
-async def test_authorize_accepts_default_scope_for_scope_less_dynamic_client(
+async def test_authorize_accepts_default_scopes_for_scope_less_dynamic_client(
     async_client: httpx.AsyncClient,
     belgie_instance: Belgie,
     db_session: AsyncSession,
     oauth_plugin,
+    oauth_settings: OAuthServer,
     create_individual_session,
 ) -> None:
     session_id = await create_individual_session(belgie_instance, db_session, "dynamic-client@test.com")
@@ -252,7 +253,7 @@ async def test_authorize_accepts_default_scope_for_scope_less_dynamic_client(
         "response_type": "code",
         "client_id": dynamic_client.client_id,
         "redirect_uri": "http://localhost/callback",
-        "scope": "user",
+        "scope": " ".join(oauth_settings.default_scopes),
         "code_challenge": create_code_challenge("dynamic-client-verifier"),
         "code_challenge_method": "S256",
         "state": "state-dynamic-client",

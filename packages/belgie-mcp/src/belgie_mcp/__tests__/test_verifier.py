@@ -247,6 +247,18 @@ def test_mcp_auth_defaults() -> None:
     assert auth.required_scopes == ["user"]
 
 
+def test_mcp_auth_uses_configured_default_scopes() -> None:
+    settings = build_oauth_settings(
+        base_url="https://issuer.local",
+        redirect_uris=["https://app.local/callback"],
+        default_scopes=["user", "profile"],
+    )
+
+    auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
+
+    assert auth.required_scopes == ["user", "profile"]
+
+
 def test_mcp_auth_overrides() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
@@ -318,7 +330,7 @@ def _oauth_settings() -> OAuthServer:
         redirect_uris=["http://localhost:6274/oauth/callback"],
         client_id="test-client",
         client_secret="test-secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
 
 

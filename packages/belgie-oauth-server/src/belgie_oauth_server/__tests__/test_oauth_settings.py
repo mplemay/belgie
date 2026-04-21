@@ -16,7 +16,7 @@ def test_oauth_settings_defaults() -> None:
     assert settings.signup_url is None
     assert settings.consent_url is None
     assert settings.select_account_url is None
-    assert settings.default_scope == "user"
+    assert settings.default_scopes == ["user"]
     assert settings.static_client_require_pkce is True
     assert settings.pairwise_secret is None
     assert settings.authorization_code_ttl_seconds == 300
@@ -105,6 +105,15 @@ def test_oauth_settings_accepts_resource_metadata_settings() -> None:
     resource_url, resource_scopes = settings.resolve_resource()
     assert str(resource_url) == "http://example.com/mcp"
     assert resource_scopes == ["user", "files:read"]
+
+
+def test_oauth_settings_accepts_multiple_default_scopes() -> None:
+    settings = build_oauth_settings(
+        redirect_uris=["http://example.com/callback"],
+        default_scopes=["user", "profile"],
+    )
+
+    assert settings.default_scopes == ["user", "profile"]
 
 
 def test_oauth_settings_preserves_resource_trailing_slash() -> None:

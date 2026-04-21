@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime  # noqa: TC003
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal, Self
@@ -127,7 +127,7 @@ class OAuthServer(BaseSettings):
     client_id: str = "belgie_client"
     client_secret: SecretStr | None = None
     redirect_uris: list[AnyUrl] = Field(min_length=1)
-    default_scope: str = "user"
+    default_scopes: Sequence[str] = Field(default_factory=lambda: ["user"])
     static_client_require_pkce: bool = True
     pairwise_secret: SecretStr | None = None
     signing: OAuthServerSigning = Field(default_factory=OAuthServerSigning)
@@ -247,7 +247,7 @@ class OAuthServer(BaseSettings):
         return resource.resolve_url(base_url), resource.scopes
 
     def supported_scopes(self) -> list[str]:
-        scopes = [self.default_scope, "openid", "profile", "email", "offline_access"]
+        scopes = [*self.default_scopes, "openid", "profile", "email", "offline_access"]
         if self.resources is not None:
             scopes.extend(self.resources[0].scopes or [])
         if self.client_registration_allowed_scopes is not None:

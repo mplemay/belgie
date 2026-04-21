@@ -150,7 +150,7 @@ def mcp_auth(
 ) -> AuthSettings:
     issuer_url = _require_issuer_url(settings)
     resource_server_url = AnyHttpUrl(str(server_url))
-    scopes = required_scopes if required_scopes is not None else _split_scopes(settings.default_scope)
+    scopes = required_scopes if required_scopes is not None else list(settings.default_scopes)
 
     return AuthSettings(
         issuer_url=AnyHttpUrl(issuer_url),
@@ -179,10 +179,6 @@ def mcp_token_verifier(  # noqa: PLR0913
         introspection_client_id=introspection_client_id,
         introspection_client_secret=introspection_client_secret,
     )
-
-
-def _split_scopes(raw_scopes: str) -> list[str]:
-    return [scope for scope in raw_scopes.split(" ") if scope]
 
 
 def _is_safe_introspection_endpoint(endpoint: str) -> bool:

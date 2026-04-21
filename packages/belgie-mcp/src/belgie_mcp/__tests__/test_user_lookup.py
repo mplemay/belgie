@@ -247,7 +247,7 @@ def _oauth_settings() -> OAuthServer:
         redirect_uris=["http://localhost:6274/oauth/callback"],
         client_id="test-client",
         client_secret="test-secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
 
 

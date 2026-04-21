@@ -35,7 +35,7 @@ async def test_userinfo_rejects_token_without_openid_scope(
     await seed_access_token(
         token="userinfo-no-openid-token",
         client_id=oauth_settings.client_id,
-        scopes=[oauth_settings.default_scope],
+        scopes=list(oauth_settings.default_scopes),
         individual_id=str(user.id),
     )
 

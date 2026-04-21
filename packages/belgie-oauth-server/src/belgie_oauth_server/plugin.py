@@ -446,7 +446,7 @@ class OAuthServerPlugin(PluginClient):
                 await provider.save_consent(
                     authorize_request.oauth_client.client_id or settings.client_id,
                     str(individual.id),
-                    params_with_principal.scopes or [settings.default_scope],
+                    params_with_principal.scopes or list(settings.default_scopes),
                     reference_id=reference_id,
                 )
             state_value = await _authorize_state(provider, authorize_request.oauth_client, params_with_principal)
@@ -1027,7 +1027,7 @@ class OAuthServerPlugin(PluginClient):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_client")
 
             requested_scopes = _parse_scope_param(_get_payload_str(payload, "scope"))
-            original_scopes = state_data.scopes or [settings.default_scope]
+            original_scopes = state_data.scopes or list(settings.default_scopes)
             consent_scopes = requested_scopes or original_scopes
             if not all(scope in original_scopes for scope in consent_scopes):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Scope not originally requested")
@@ -2135,7 +2135,7 @@ async def _consent_required(
     return not await provider.has_consent(
         oauth_client.client_id or settings.client_id,
         params.individual_id,
-        params.scopes or [settings.default_scope],
+        params.scopes or list(settings.default_scopes),
         reference_id=reference_id,
     )
 
@@ -2154,7 +2154,7 @@ async def _select_account_required(
         oauth_client.client_id or settings.client_id,
         params.individual_id,
         params.session_id,
-        params.scopes or [settings.default_scope],
+        params.scopes or list(settings.default_scopes),
     )
     if inspect.isawaitable(should_select):
         should_select = await should_select
@@ -2175,7 +2175,7 @@ async def _post_login_required(
         oauth_client.client_id or settings.client_id,
         params.individual_id,
         params.session_id,
-        params.scopes or [settings.default_scope],
+        params.scopes or list(settings.default_scopes),
     )
     if inspect.isawaitable(should_redirect):
         should_redirect = await should_redirect
@@ -2196,7 +2196,7 @@ async def _resolve_consent_reference(
         oauth_client.client_id or settings.client_id,
         params.individual_id,
         params.session_id,
-        params.scopes or [settings.default_scope],
+        params.scopes or list(settings.default_scopes),
     )
     if inspect.isawaitable(resolved_reference):
         resolved_reference = await resolved_reference
@@ -2267,7 +2267,7 @@ async def _resume_authorization_flow(
         await provider.save_consent(
             oauth_client.client_id or settings.client_id,
             state_data.individual_id,
-            state_data.scopes or [settings.default_scope],
+            state_data.scopes or list(settings.default_scopes),
             reference_id=reference_id,
         )
     return await _issue_authorization_code(provider, state, issuer_url)

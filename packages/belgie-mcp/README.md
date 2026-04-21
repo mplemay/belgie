@@ -64,7 +64,7 @@ oauth_settings = OAuthServer(
     client_id="demo-client",
     client_secret="demo-secret",  # noqa: S106
     redirect_uris=["http://localhost:3030/callback"],
-    default_scope="user",
+    default_scopes=["user"],
     login_url="/login",
     resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
 )
