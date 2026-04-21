@@ -171,7 +171,15 @@ class OAuthServerPlugin(PluginClient):
         router = self._add_metadata_route(router, metadata)
         router = self._add_openid_metadata_route(router, openid_metadata)
         router = self._add_jwks_route(router, provider)
-        router = self._add_authorize_route(router, belgie, provider, self._settings, issuer_url, self._rate_limiter)
+        if self._settings.supports_authorization_code():
+            router = self._add_authorize_route(
+                router,
+                belgie,
+                provider,
+                self._settings,
+                issuer_url,
+                self._rate_limiter,
+            )
         router = self._add_token_route(
             router,
             belgie,
@@ -185,10 +193,11 @@ class OAuthServerPlugin(PluginClient):
         router = self._add_revoke_route(router, provider, self._settings, self._rate_limiter)
         router = self._add_userinfo_route(router, belgie, provider, self._settings, self._rate_limiter)
         router = self._add_end_session_route(router, belgie, provider, issuer_url)
-        router = self._add_login_route(router, belgie, issuer_url, self._settings, provider)
-        router = self._add_continue_route(router, belgie, provider, self._settings, issuer_url)
-        router = self._add_consent_route(router, belgie, provider, self._settings, issuer_url)
-        router = self._add_login_callback_route(router, belgie, provider, self._settings, issuer_url)
+        if self._settings.supports_authorization_code():
+            router = self._add_login_route(router, belgie, issuer_url, self._settings, provider)
+            router = self._add_continue_route(router, belgie, provider, self._settings, issuer_url)
+            router = self._add_consent_route(router, belgie, provider, self._settings, issuer_url)
+            router = self._add_login_callback_route(router, belgie, provider, self._settings, issuer_url)
         router = self._add_client_management_routes(router, belgie, provider, self._settings)
         router = self._add_consent_management_routes(router, belgie, provider, self._settings)
         return self._add_introspect_route(router, belgie, provider, self._settings, self._rate_limiter)
@@ -331,7 +340,7 @@ class OAuthServerPlugin(PluginClient):
     ) -> APIRouter:
         type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 
-        async def _authorize(  # noqa: C901, PLR0911
+        async def _authorize(  # noqa: PLR0911
             request: Request,
             client: BelgieClient,
         ) -> Response:
@@ -437,18 +446,6 @@ class OAuthServerPlugin(PluginClient):
                 login_url = _build_login_redirect(issuer_url, state_value)
                 return _redirect_response(request, login_url)
 
-            if settings.consent_url is None:
-                reference_id = await _resolve_consent_reference(
-                    settings,
-                    authorize_request.oauth_client,
-                    params_with_principal,
-                )
-                await provider.save_consent(
-                    authorize_request.oauth_client.client_id or settings.client_id,
-                    str(individual.id),
-                    params_with_principal.scopes or list(settings.default_scopes),
-                    reference_id=reference_id,
-                )
             state_value = await _authorize_state(provider, authorize_request.oauth_client, params_with_principal)
             redirect_url = await _issue_authorization_code(provider, state_value, issuer_url)
             return _redirect_response(request, redirect_url)
@@ -509,16 +506,22 @@ class OAuthServerPlugin(PluginClient):
                 client_secret=client_secret,
             )
 
-            if grant_type == "authorization_code":
-                return await _handle_authorization_code_grant(token_context)
+            if grant_type is not None and not settings.supports_grant_type(grant_type):
+                response: OAuthServerToken | Response = _oauth_error(
+                    "unsupported_grant_type",
+                    f"unsupported grant_type {grant_type}",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            elif grant_type == "authorization_code":
+                response = await _handle_authorization_code_grant(token_context)
+            elif grant_type == "refresh_token":
+                response = await _handle_refresh_token_grant(token_context)
+            elif grant_type == "client_credentials":
+                response = await _handle_client_credentials_grant(token_context)
+            else:
+                response = _oauth_error("unsupported_grant_type", status_code=status.HTTP_400_BAD_REQUEST)
 
-            if grant_type == "refresh_token":
-                return await _handle_refresh_token_grant(token_context)
-
-            if grant_type == "client_credentials":
-                return await _handle_client_credentials_grant(token_context)
-
-            return _oauth_error("unsupported_grant_type", status_code=status.HTTP_400_BAD_REQUEST)
+            return response
 
         router.add_api_route("/token", token_handler, methods=["POST"], response_model=OAuthServerToken)
         return router
@@ -2116,7 +2119,10 @@ async def _resolve_next_interaction(  # noqa: C901, PLR0911, PLR0913
             msg = "consent_url not configured"
             raise ValueError(msg)
         return "consent"
-    if settings.consent_url is not None and await _consent_required(provider, settings, oauth_client, params):
+    if await _consent_required(provider, settings, oauth_client, params):
+        if settings.consent_url is None:
+            msg = "consent_url not configured"
+            raise ValueError(msg)
         return "consent"
     return None
 
@@ -2262,14 +2268,6 @@ async def _resume_authorization_flow(
         )
         return _build_login_redirect(issuer_url, state)
 
-    if state_data.individual_id is not None and settings.consent_url is None:
-        reference_id = await _resolve_consent_reference(settings, oauth_client, params)
-        await provider.save_consent(
-            oauth_client.client_id or settings.client_id,
-            state_data.individual_id,
-            state_data.scopes or list(settings.default_scopes),
-            reference_id=reference_id,
-        )
     return await _issue_authorization_code(provider, state, issuer_url)
 
 
