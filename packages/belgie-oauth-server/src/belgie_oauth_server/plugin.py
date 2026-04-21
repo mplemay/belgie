@@ -225,12 +225,14 @@ class OAuthServerPlugin(PluginClient):
             metadata_handler,
             methods=["GET"],
             response_model=OAuthServerMetadata,
+            response_model_exclude_none=True,
         )
         router.add_api_route(
             openid_well_known_path,
             openid_metadata_handler,
             methods=["GET"],
             response_model=OIDCMetadata,
+            response_model_exclude_none=True,
         )
 
         if self._settings.include_root_oauth_metadata_fallback and well_known_path != _ROOT_OAUTH_METADATA_PATH:
@@ -239,6 +241,7 @@ class OAuthServerPlugin(PluginClient):
                 metadata_handler,
                 methods=["GET"],
                 response_model=OAuthServerMetadata,
+                response_model_exclude_none=True,
             )
 
         if (
@@ -250,6 +253,7 @@ class OAuthServerPlugin(PluginClient):
                 openid_metadata_handler,
                 methods=["GET"],
                 response_model=OIDCMetadata,
+                response_model_exclude_none=True,
             )
 
         resolved_resource = self._settings.resolve_resource(belgie.settings.base_url)
@@ -303,6 +307,7 @@ class OAuthServerPlugin(PluginClient):
             metadata_handler,
             methods=["GET"],
             response_model=OAuthServerMetadata,
+            response_model_exclude_none=True,
         )
         return router
 
@@ -316,6 +321,7 @@ class OAuthServerPlugin(PluginClient):
             metadata_handler,
             methods=["GET"],
             response_model=OIDCMetadata,
+            response_model_exclude_none=True,
         )
         return router
 

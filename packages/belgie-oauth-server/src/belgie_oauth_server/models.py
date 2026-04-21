@@ -172,7 +172,7 @@ class OAuthServerConsentResponse(BaseModel):
 
 class OAuthServerMetadata(BaseModel):
     issuer: AnyHttpUrl
-    authorization_endpoint: AnyHttpUrl
+    authorization_endpoint: AnyHttpUrl | None = None
     token_endpoint: AnyHttpUrl
     jwks_uri: AnyHttpUrl | None = None
     registration_endpoint: AnyHttpUrl | None = None

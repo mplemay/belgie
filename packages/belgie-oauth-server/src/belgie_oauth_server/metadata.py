@@ -17,7 +17,10 @@ _ROOT_OPENID_METADATA_PATH = "/.well-known/openid-configuration"
 
 
 def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerMetadata:
-    authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
+    if settings.supports_authorization_code():
+        authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
+    else:
+        authorization_endpoint = None
     token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
     jwks_uri = AnyHttpUrl(join_url(issuer_url, "jwks")) if settings.signing.algorithm != "HS256" else None
     registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))

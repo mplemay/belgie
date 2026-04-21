@@ -41,6 +41,7 @@ def test_build_oauth_metadata_reflects_configured_server_grants() -> None:
     )
 
     assert metadata.grant_types_supported == ["client_credentials"]
+    assert metadata.authorization_endpoint is None
     assert metadata.response_types_supported == []
 
 
