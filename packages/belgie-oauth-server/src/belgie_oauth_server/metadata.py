@@ -37,7 +37,7 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerM
         response_types_supported=["code"] if settings.supports_authorization_code() else [],
         response_modes_supported=["query"],
         grant_types_supported=list(settings.grant_types),
-        token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic", "none"],
+        token_endpoint_auth_methods_supported=_build_token_endpoint_auth_methods(settings),
         code_challenge_methods_supported=["S256"],
         revocation_endpoint=revocation_endpoint,
         revocation_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
@@ -132,3 +132,11 @@ def _build_supported_scopes(settings: OAuthServer) -> list[str]:
     if settings.advertised_metadata is not None and settings.advertised_metadata.scopes_supported is not None:
         return list(settings.advertised_metadata.scopes_supported)
     return settings.supported_scopes()
+
+
+def _build_token_endpoint_auth_methods(settings: OAuthServer) -> list[str]:
+    methods: list[str] = []
+    if settings.allow_unauthenticated_client_registration:
+        methods.append("none")
+    methods.extend(["client_secret_basic", "client_secret_post"])
+    return methods

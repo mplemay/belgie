@@ -22,7 +22,10 @@ def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
     assert metadata.grant_types_supported == ["authorization_code", "client_credentials", "refresh_token"]
     assert metadata.response_types_supported == ["code"]
     assert metadata.response_modes_supported == ["query"]
-    assert metadata.token_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic", "none"]
+    assert metadata.token_endpoint_auth_methods_supported == [
+        "client_secret_basic",
+        "client_secret_post",
+    ]
     assert metadata.introspection_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
     assert metadata.revocation_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
     assert metadata.authorization_response_iss_parameter_supported is True
