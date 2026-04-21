@@ -55,9 +55,13 @@ async def test_authorize_returns_401_without_login_url(
     oauth_settings: OAuthServer,
 ) -> None:
     settings = oauth_settings.model_copy(update={"client_secret": SecretStr("test-secret"), "login_url": None})
-    belgie_instance.add_plugin(settings)
+    oauth_plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
+    assert oauth_plugin.provider is not None
+    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
+        update={"skip_consent": True},
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         verifier = "verifier"
@@ -83,9 +87,13 @@ async def test_authorize_redirects_when_prompt_create_and_signup_url_is_configur
             "signup_url": "/signup",
         },
     )
-    belgie_instance.add_plugin(settings)
+    oauth_plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
+    assert oauth_plugin.provider is not None
+    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
+        update={"skip_consent": True},
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         verifier = "verifier"
@@ -111,9 +119,13 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     create_individual_session,
 ) -> None:
     settings = oauth_settings.model_copy(update={"client_secret": SecretStr("test-secret"), "login_url": None})
-    belgie_instance.add_plugin(settings)
+    oauth_plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
+    assert oauth_plugin.provider is not None
+    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
+        update={"skip_consent": True},
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
@@ -239,6 +251,7 @@ async def test_authorize_accepts_default_scopes_for_scope_less_dynamic_client(
     oauth_plugin,
     oauth_settings: OAuthServer,
     create_individual_session,
+    seed_consent,
 ) -> None:
     session_id = await create_individual_session(belgie_instance, db_session, "dynamic-client@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
@@ -248,6 +261,11 @@ async def test_authorize_accepts_default_scopes_for_scope_less_dynamic_client(
             redirect_uris=["http://localhost/callback"],
             token_endpoint_auth_method="none",
         ),
+    )
+    await seed_consent(
+        client_id=dynamic_client.client_id,
+        session_id=session_id,
+        scopes=list(oauth_settings.default_scopes),
     )
     params = {
         "response_type": "code",
@@ -304,9 +322,13 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
             "resources": [OAuthServerResource(prefix="/mcp/", scopes=["user"])],
         },
     )
-    belgie_instance.add_plugin(settings)
+    oauth_plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
+    assert oauth_plugin.provider is not None
+    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
+        update={"skip_consent": True},
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         session_id = await create_individual_session(belgie_instance, db_session, "trailing-resource@test.com")

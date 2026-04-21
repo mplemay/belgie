@@ -137,6 +137,7 @@ def oauth_settings() -> OAuthServer:
         base_url="http://testserver",
         prefix="/oauth",
         login_url="/login/google",
+        consent_url="/consent",
         signup_url="/signup",
         client_id="test-client",
         client_secret=SecretStr("test-secret"),
@@ -160,6 +161,10 @@ def app(belgie_instance: Belgie, oauth_plugin: OAuthServerPlugin) -> FastAPI:
     _ = oauth_plugin
     app = FastAPI()
     app.include_router(belgie_instance.router)
+    assert oauth_plugin.provider is not None
+    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
+        update={"skip_consent": True},
+    )
     return app
 
 
@@ -207,6 +212,31 @@ async def register_dynamic_client(oauth_plugin: OAuthServerPlugin, db_session: A
 
 
 @pytest_asyncio.fixture
+async def seed_consent(oauth_settings: OAuthServer, db_session: AsyncSession):
+    async def _seed(
+        *,
+        client_id: str,
+        session_id: str,
+        scopes: list[str],
+        reference_id: str | None = None,
+    ):
+        session = await db_session.get(Session, UUID(session_id))
+        assert session is not None
+        consent = await oauth_settings.adapter.upsert_consent(
+            db_session,
+            client_id=client_id,
+            individual_id=session.individual_id,
+            reference_id=reference_id,
+            scopes=scopes,
+        )
+        await db_session.commit()
+        await db_session.refresh(consent)
+        return consent
+
+    return _seed
+
+
+@pytest_asyncio.fixture
 async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
     async def _seed(
         *,
@@ -233,7 +263,7 @@ async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
             client_secret=client_secret,
             client_secret_hash=client_secret_hash,
             disabled=False,
-            skip_consent=False,
+            skip_consent=True,
             redirect_uris=[str(uri) for uri in (redirect_uris or ["http://localhost/callback"])],
             post_logout_redirect_uris=(
                 None if post_logout_redirect_uris is None else [str(uri) for uri in post_logout_redirect_uris]

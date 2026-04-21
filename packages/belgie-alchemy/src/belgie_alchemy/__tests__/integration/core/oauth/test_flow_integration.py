@@ -26,6 +26,10 @@ def _build_custom_pages_app(belgie_instance: Belgie, oauth_settings: OAuthServer
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
+    assert oauth_plugin.provider is not None
+    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
+        update={"skip_consent": True},
+    )
 
     @app.get("/login/custom")
     async def custom_login(

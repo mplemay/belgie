@@ -302,6 +302,10 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
     oauth_plugin = belgie_instance.add_plugin(settings)
     app = FastAPI()
     app.include_router(belgie_instance.router)
+    assert oauth_plugin.provider is not None
+    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
+        update={"skip_consent": True},
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         session_id = await create_individual_session(belgie_instance, db_session, "token-trailing-resource@test.com")
@@ -444,6 +448,7 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
     db_session,
     create_individual_session,
     register_dynamic_client,
+    seed_consent,
     oauth_plugin,
 ) -> None:
     session_id = await create_individual_session(belgie_instance, db_session, "openid-dynamic@test.com")
@@ -453,6 +458,11 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
         token_endpoint_auth_method="client_secret_post",
         type="web",
         scope="openid profile email",
+    )
+    await seed_consent(
+        client_id=dynamic_client.client_id,
+        session_id=session_id,
+        scopes=["openid", "profile", "email"],
     )
 
     assert dynamic_client.client_secret is not None
