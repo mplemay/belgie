@@ -23,6 +23,7 @@ def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
     assert metadata.response_types_supported == ["code"]
     assert metadata.response_modes_supported == ["query"]
     assert metadata.token_endpoint_auth_methods_supported == [
+        "none",
         "client_secret_basic",
         "client_secret_post",
     ]
@@ -118,6 +119,11 @@ def test_build_openid_metadata_contains_oidc_endpoints() -> None:
     assert str(metadata.userinfo_endpoint) == "https://auth.local/auth/oauth/userinfo"
     assert str(metadata.end_session_endpoint) == "https://auth.local/auth/oauth/end-session"
     assert metadata.id_token_signing_alg_values_supported == ["RS256"]
+    assert metadata.token_endpoint_auth_methods_supported == [
+        "none",
+        "client_secret_basic",
+        "client_secret_post",
+    ]
     assert metadata.subject_types_supported == ["public"]
     assert "sub" in metadata.claims_supported
     assert "openid" in (metadata.scopes_supported or [])

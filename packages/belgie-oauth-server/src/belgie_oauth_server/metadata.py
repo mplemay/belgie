@@ -134,9 +134,5 @@ def _build_supported_scopes(settings: OAuthServer) -> list[str]:
     return settings.supported_scopes()
 
 
-def _build_token_endpoint_auth_methods(settings: OAuthServer) -> list[str]:
-    methods: list[str] = []
-    if settings.allow_unauthenticated_client_registration:
-        methods.append("none")
-    methods.extend(["client_secret_basic", "client_secret_post"])
-    return methods
+def _build_token_endpoint_auth_methods(_settings: OAuthServer) -> list[str]:
+    return ["none", "client_secret_basic", "client_secret_post"]

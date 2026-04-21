@@ -690,7 +690,7 @@ def test_metadata_prioritizes_public_token_auth_when_anonymous_registration_is_e
     ]
 
 
-def test_metadata_omits_public_token_auth_when_anonymous_registration_is_disabled() -> None:
+def test_metadata_advertises_public_token_auth_when_authenticated_registration_can_create_public_clients() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
@@ -703,6 +703,27 @@ def test_metadata_omits_public_token_auth_when_anonymous_registration_is_disable
 
     assert response.status_code == 200
     assert response.json()["token_endpoint_auth_methods_supported"] == [
+        "none",
+        "client_secret_basic",
+        "client_secret_post",
+    ]
+
+
+def test_metadata_advertises_public_token_auth_for_public_static_client() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=False,
+        client_secret=None,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get("/.well-known/oauth-authorization-server")
+
+    assert response.status_code == 200
+    assert response.json()["token_endpoint_auth_methods_supported"] == [
+        "none",
         "client_secret_basic",
         "client_secret_post",
     ]
