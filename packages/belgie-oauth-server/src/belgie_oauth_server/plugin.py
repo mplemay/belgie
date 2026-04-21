@@ -2378,7 +2378,9 @@ def _registration_validation_error(error: ValidationError) -> JSONResponse:
 
 def _registration_metadata_error(description: str) -> JSONResponse:
     error = "invalid_client_metadata"
-    if description.startswith("cannot request scope "):
+    if description.startswith("unsupported token_endpoint_auth_method: "):
+        error = "invalid_request"
+    elif description.startswith("cannot request scope "):
         error = "invalid_scope"
     elif "redirect_uri" in description.lower():
         error = "invalid_redirect_uri"

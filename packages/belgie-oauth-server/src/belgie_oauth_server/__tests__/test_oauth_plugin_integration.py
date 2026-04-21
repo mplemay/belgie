@@ -729,6 +729,31 @@ def test_metadata_advertises_public_token_auth_for_public_static_client() -> Non
     ]
 
 
+def test_register_rejects_unsupported_auth_method() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "private_key_jwt",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_request",
+        "error_description": "unsupported token_endpoint_auth_method: private_key_jwt",
+    }
+
+
 def test_register_rejects_grant_types_disabled_by_server() -> None:
     settings = _build_settings(
         base_url="http://testserver",
