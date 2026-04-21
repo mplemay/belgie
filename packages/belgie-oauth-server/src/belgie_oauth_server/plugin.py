@@ -2128,7 +2128,7 @@ async def _consent_required(
 ) -> bool:
     if params.individual_id is None:
         return False
-    if oauth_client.skip_consent:
+    if await settings.is_trusted_client(oauth_client):
         return False
     reference_id = await _resolve_consent_reference(settings, oauth_client, params)
     return not await provider.has_consent(

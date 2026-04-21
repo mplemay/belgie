@@ -30,7 +30,9 @@ uv add belgie-oauth-server
 
 - Resource matching is strict. If a client sends `resource` and no OAuth resource is configured, the server returns
   `invalid_target`.
-- If `authorization_code` is enabled, `login_url` and `consent_url` are required. Belgie does not silently auto-consent.
+- If `authorization_code` is enabled, `login_url` and `consent_url` are required. Belgie does not silently auto-consent
+  by default. To mirror Better Auth's trusted-client behavior, use `trusted_client_resolver` to let the server mark
+  selected clients as `skip_consent` without allowing `skip_consent` in dynamic registration payloads.
 - `grant_types` defaults to `["authorization_code", "client_credentials", "refresh_token"]`. If you disable
   `authorization_code`, `/authorize` is not mounted and metadata advertises no `code` response support.
 - `pairwise_secret` is optional, but when you enable pairwise subject identifiers it must be at least 32 characters.
