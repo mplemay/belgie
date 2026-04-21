@@ -151,7 +151,7 @@ class SimpleOAuthProvider:
             client_id=settings.client_id,
             client_secret=client_secret,
             redirect_uris=settings.redirect_uris,
-            scope=settings.default_scope,
+            scope=" ".join(settings.default_scopes),
             token_endpoint_auth_method="none" if client_secret is None else "client_secret_post",
             require_pkce=settings.static_client_require_pkce,
             subject_type="public",
@@ -347,7 +347,7 @@ class SimpleOAuthProvider:
                 grant_types=list(metadata.grant_types),
                 response_types=list(metadata.response_types),
                 scope=metadata.scope
-                or " ".join(self.settings.client_registration_default_scopes or [self.settings.default_scope]),
+                or " ".join(self.settings.client_registration_default_scopes or self.settings.default_scopes),
                 client_name=metadata.client_name,
                 client_uri=str(metadata.client_uri) if metadata.client_uri is not None else None,
                 logo_uri=str(metadata.logo_uri) if metadata.logo_uri is not None else None,
@@ -486,7 +486,9 @@ class SimpleOAuthProvider:
                 msg = "Invalid state parameter"
                 raise ValueError(msg)
 
-            scopes = list(state_record.scopes) if state_record.scopes is not None else [self.settings.default_scope]
+            scopes = (
+                list(state_record.scopes) if state_record.scopes is not None else list(self.settings.default_scopes)
+            )
             new_code = f"belgie_{secrets.token_hex(16)}"
             redirect_uri = state_record.redirect_uri
             await self.adapter.create_authorization_code(
@@ -755,7 +757,7 @@ class SimpleOAuthProvider:
         raw_scope = client.scope.strip() if client.scope else ""
         if raw_scope:
             return parse_scope_string(raw_scope) or []
-        return [self.settings.default_scope]
+        return list(self.settings.default_scopes)
 
     def validate_scopes_for_client(
         self,
@@ -888,7 +890,7 @@ class SimpleOAuthProvider:
 
     def _allowed_dynamic_client_registration_scopes(self) -> list[str]:
         allowed_scopes = self.settings.client_registration_allowed_scopes or self.settings.supported_scopes()
-        default_scopes = self.settings.client_registration_default_scopes or [self.settings.default_scope]
+        default_scopes = self.settings.client_registration_default_scopes or self.settings.default_scopes
         return dedupe_scopes([*default_scopes, *allowed_scopes])
 
     def resolve_subject_identifier(self, client: OAuthServerClientInformationFull, individual_id: str) -> str:

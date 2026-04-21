@@ -267,7 +267,7 @@ async def test_introspect_inactive_for_mismatched_client(
     await seed_client(
         client_id="other-client",
         redirect_uris=oauth_settings.redirect_uris,
-        scope=oauth_settings.default_scope,
+        scope=" ".join(oauth_settings.default_scopes),
         client_secret_hash=oauth_plugin._provider._hash_value("other-secret"),
     )
     await seed_access_token(

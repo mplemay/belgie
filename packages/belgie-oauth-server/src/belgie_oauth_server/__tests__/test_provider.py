@@ -724,11 +724,12 @@ async def test_consent_storage_supports_subset_checks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_scope_less_dynamic_clients_fall_back_to_default_scope() -> None:
+async def test_scope_less_dynamic_clients_fall_back_to_default_scopes() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
+        default_scopes=["user", "profile"],
     )
     client = await provider.register_client(
         OAuthServerClientMetadata(
@@ -737,12 +738,47 @@ async def test_scope_less_dynamic_clients_fall_back_to_default_scope() -> None:
         ),
     )
 
-    assert client.scope == "user"
-    assert provider.default_scopes_for_client(client) == ["user"]
-    provider.validate_scopes_for_client(client, ["user"])
+    assert client.scope == "user profile"
+    assert provider.default_scopes_for_client(client) == ["user", "profile"]
+    provider.validate_scopes_for_client(client, ["user", "profile"])
 
     with pytest.raises(ValueError, match="Client was not registered with scope admin"):
         provider.validate_scopes_for_client(client, ["admin"])
+
+
+@pytest.mark.asyncio
+async def test_default_scopes_propagate_through_static_client_and_state_fallback() -> None:
+    settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["https://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        default_scopes=["user", "profile"],
+    )
+
+    oauth_client = await provider.get_client("test-client")
+    assert oauth_client is not None
+    assert oauth_client.scope == "user profile"
+    assert provider.default_scopes_for_client(oauth_client) == ["user", "profile"]
+    assert settings.supported_scopes()[:2] == ["user", "profile"]
+
+    await provider.authorize(
+        oauth_client,
+        AuthorizationParams(
+            state="state-default-scopes",
+            scopes=None,
+            code_challenge="challenge",
+            redirect_uri=settings.redirect_uris[0],
+            redirect_uri_provided_explicitly=True,
+            resource=None,
+        ),
+    )
+
+    redirect_url = await provider.issue_authorization_code("state-default-scopes")
+    code = parse_qs(urlparse(redirect_url).query)["code"][0]
+    authorization_code = await provider.load_authorization_code(code)
+
+    assert authorization_code is not None
+    assert authorization_code.scopes == ["user", "profile"]
 
 
 def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:

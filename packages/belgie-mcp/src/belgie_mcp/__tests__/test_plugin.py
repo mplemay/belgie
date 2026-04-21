@@ -28,7 +28,7 @@ def test_mcp_plugin_builds_auth_and_verifier() -> None:
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
 
     plugin = McpPlugin(
@@ -50,7 +50,7 @@ def test_mcp_plugin_public_returns_none() -> None:
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
 
     plugin = McpPlugin(
@@ -70,7 +70,7 @@ def test_mcp_plugin_builds_server_url_from_base_url() -> None:
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
 
     plugin = McpPlugin(
@@ -91,7 +91,7 @@ def test_mcp_plugin_preserves_trailing_slash_in_server_path() -> None:
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
 
     plugin = McpPlugin(
@@ -113,7 +113,7 @@ def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
 
     plugin = McpPlugin(
@@ -133,7 +133,7 @@ def test_mcp_plugin_preserves_trailing_slash_in_server_url() -> None:
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
 
     plugin = McpPlugin(
@@ -155,7 +155,7 @@ async def test_mcp_plugin_verifier_uses_linked_oauth_plugin_provider() -> None:
         redirect_uris=["http://localhost/callback"],
         client_id="client",
         client_secret="secret",
-        default_scope="user",
+        default_scopes=["user"],
     )
     db = InMemoryDBConnection()
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url), database_factory=lambda: db)

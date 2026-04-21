@@ -76,7 +76,7 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
     payload = response.json()
     assert payload["client_id"]
     assert payload["client_secret"]
-    assert payload["scope"] == settings.default_scope
+    assert payload["scope"] == " ".join(settings.default_scopes)
     assert await plugin._provider.get_client(payload["client_id"]) is not None
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
@@ -109,7 +109,7 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
     assert response.status_code == 201
     payload = response.json()
     assert "client_secret" not in payload
-    assert payload["scope"] == settings.default_scope
+    assert payload["scope"] == " ".join(settings.default_scopes)
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
 

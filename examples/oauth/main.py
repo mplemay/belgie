@@ -119,7 +119,7 @@ oauth_settings = OAuthServer(
     client_id="demo-client",
     client_secret=SecretStr("demo-secret"),
     redirect_uris=[AnyUrl("http://localhost:8000/client/callback")],
-    default_scope="user",
+    default_scopes=["user"],
     signing=build_development_signing(),
 )
 

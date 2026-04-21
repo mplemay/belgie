@@ -162,7 +162,7 @@ oauth_settings = OAuthServer(
     client_id="demo-client",
     client_secret=SecretStr("demo-secret"),
     redirect_uris=[AnyUrl("http://localhost:3030/callback")],
-    default_scope="user",
+    default_scopes=["user"],
     login_url="/login",
     resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
     signing=build_development_signing(),

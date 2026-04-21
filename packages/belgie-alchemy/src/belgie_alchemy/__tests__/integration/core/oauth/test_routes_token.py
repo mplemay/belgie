@@ -30,7 +30,7 @@ async def _create_authorization_code(
     oauth_client = await provider.get_client(oauth_settings.client_id)
     params = AuthorizationParams(
         state="state-token",
-        scopes=scopes or [oauth_settings.default_scope],
+        scopes=scopes or list(oauth_settings.default_scopes),
         code_challenge=create_code_challenge(code_verifier),
         redirect_uri=oauth_settings.redirect_uris[0],
         redirect_uri_provided_explicitly=True,
@@ -51,13 +51,13 @@ async def _create_refresh_token(
     *,
     resource: str | None = None,
 ) -> str:
-    update_static_client(scope=f"{oauth_settings.default_scope} offline_access")
+    update_static_client(scope=" ".join([*oauth_settings.default_scopes, "offline_access"]))
     code_verifier = "refresh-verifier"
     code = await _create_authorization_code(
         oauth_plugin,
         oauth_settings,
         code_verifier,
-        scopes=[oauth_settings.default_scope, "offline_access"],
+        scopes=[*oauth_settings.default_scopes, "offline_access"],
         resource=resource,
     )
     response = await async_client.post(
@@ -167,7 +167,7 @@ async def test_token_authorization_code_success_no_offline_access(
     assert response.status_code == 200
     payload = response.json()
     assert payload["token_type"] == BEARER
-    assert payload["scope"] == oauth_settings.default_scope
+    assert payload["scope"] == " ".join(oauth_settings.default_scopes)
     assert payload.get("refresh_token") is None
 
 
@@ -182,7 +182,7 @@ async def test_token_authorization_code_success_with_offline_access_issues_refre
         oauth_plugin,
         oauth_settings,
         code_verifier,
-        scopes=[oauth_settings.default_scope, "offline_access"],
+        scopes=[*oauth_settings.default_scopes, "offline_access"],
     )
 
     response = await async_client.post(
@@ -200,7 +200,7 @@ async def test_token_authorization_code_success_with_offline_access_issues_refre
     assert response.status_code == 200
     payload = response.json()
     assert payload["refresh_token"] is not None
-    assert payload["scope"] == f"{oauth_settings.default_scope} offline_access"
+    assert payload["scope"] == " ".join([*oauth_settings.default_scopes, "offline_access"])
 
 
 @pytest.mark.asyncio
@@ -528,13 +528,13 @@ async def test_token_refresh_token_success_rotates_and_narrows_scope(
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
             "refresh_token": old_refresh_token,
-            "scope": oauth_settings.default_scope,
+            "scope": " ".join(oauth_settings.default_scopes),
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["scope"] == oauth_settings.default_scope
+    assert payload["scope"] == " ".join(oauth_settings.default_scopes)
     assert payload["refresh_token"] is not None
     assert payload["refresh_token"] != old_refresh_token
 
@@ -614,14 +614,14 @@ async def test_token_client_credentials_success_post_auth(
             "grant_type": "client_credentials",
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
-            "scope": oauth_settings.default_scope,
+            "scope": " ".join(oauth_settings.default_scopes),
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["token_type"] == BEARER
-    assert payload["scope"] == oauth_settings.default_scope
+    assert payload["scope"] == " ".join(oauth_settings.default_scopes)
     assert payload.get("refresh_token") is None
 
 
@@ -637,7 +637,7 @@ async def test_token_client_credentials_success_basic_auth(
         "/auth/oauth/token",
         data={
             "grant_type": "client_credentials",
-            "scope": oauth_settings.default_scope,
+            "scope": " ".join(oauth_settings.default_scopes),
         },
         headers={"authorization": auth_header},
     )
@@ -676,7 +676,7 @@ async def test_token_client_credentials_rejects_mismatched_resource(
             "grant_type": "client_credentials",
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
-            "scope": oauth_settings.default_scope,
+            "scope": " ".join(oauth_settings.default_scopes),
             "resource": "http://testserver/other",
         },
     )
