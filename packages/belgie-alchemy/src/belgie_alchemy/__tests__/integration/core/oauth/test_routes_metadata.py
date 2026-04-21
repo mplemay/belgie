@@ -22,7 +22,11 @@ def test_metadata_endpoint(client: TestClient) -> None:
     assert payload["introspection_endpoint"] == f"{AUTH_BASE_URL}/introspect"
     assert payload["grant_types_supported"] == ["authorization_code", "client_credentials", "refresh_token"]
     assert payload["response_modes_supported"] == ["query"]
-    assert payload["token_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic", "none"]
+    assert payload["token_endpoint_auth_methods_supported"] == [
+        "none",
+        "client_secret_basic",
+        "client_secret_post",
+    ]
     assert payload["revocation_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
     assert payload["introspection_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
 
