@@ -20,7 +20,7 @@ def test_metadata_endpoint(client: TestClient) -> None:
     assert payload["registration_endpoint"] == f"{AUTH_BASE_URL}/register"
     assert payload["revocation_endpoint"] == f"{AUTH_BASE_URL}/revoke"
     assert payload["introspection_endpoint"] == f"{AUTH_BASE_URL}/introspect"
-    assert payload["grant_types_supported"] == ["authorization_code", "refresh_token", "client_credentials"]
+    assert payload["grant_types_supported"] == ["authorization_code", "client_credentials", "refresh_token"]
     assert payload["response_modes_supported"] == ["query"]
     assert payload["token_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic", "none"]
     assert payload["revocation_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
@@ -182,3 +182,34 @@ def test_openid_metadata_root_fallback_absent_when_disabled(
         assert response.status_code == 404
         response = client.get("/auth/oauth/.well-known/openid-configuration")
         assert response.status_code == 200
+
+
+def test_metadata_endpoints_omit_authorization_endpoint_when_client_credentials_only(
+    belgie_instance: Belgie,
+    oauth_settings: OAuthServer,
+) -> None:
+    settings = oauth_settings.model_copy(
+        update={
+            "grant_types": ["client_credentials"],
+            "login_url": None,
+            "consent_url": None,
+        },
+    )
+    belgie_instance.add_plugin(settings)
+
+    app = FastAPI()
+    app.include_router(belgie_instance.router)
+
+    with TestClient(app) as client:
+        for path in (
+            "/auth/oauth/.well-known/oauth-authorization-server",
+            "/.well-known/oauth-authorization-server/auth/oauth",
+            "/auth/oauth/.well-known/openid-configuration",
+            "/.well-known/openid-configuration",
+        ):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert "authorization_endpoint" not in response.json()
+
+        response = client.get("/auth/oauth/authorize", follow_redirects=False)
+        assert response.status_code == 404

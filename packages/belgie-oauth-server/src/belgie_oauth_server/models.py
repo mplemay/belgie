@@ -86,8 +86,8 @@ class OAuthServerClientMetadata(BaseModel):
         ]
         | None
     ) = None
-    grant_types: list[str] = ["authorization_code", "refresh_token"]
-    response_types: list[str] = ["code"]
+    grant_types: list[str] = Field(default_factory=lambda: ["authorization_code"])
+    response_types: list[str] = Field(default_factory=lambda: ["code"])
     scope: str | None = None
 
     client_name: str | None = None
@@ -172,7 +172,7 @@ class OAuthServerConsentResponse(BaseModel):
 
 class OAuthServerMetadata(BaseModel):
     issuer: AnyHttpUrl
-    authorization_endpoint: AnyHttpUrl
+    authorization_endpoint: AnyHttpUrl | None = None
     token_endpoint: AnyHttpUrl
     jwks_uri: AnyHttpUrl | None = None
     registration_endpoint: AnyHttpUrl | None = None

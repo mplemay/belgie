@@ -244,7 +244,7 @@ def test_mcp_auth_defaults() -> None:
 
     assert str(auth.issuer_url) == "https://issuer.local/auth/oauth"
     assert str(auth.resource_server_url) == "https://mcp.local/mcp"
-    assert auth.required_scopes == ["user"]
+    assert auth.required_scopes == []
 
 
 def test_mcp_auth_uses_configured_default_scopes() -> None:

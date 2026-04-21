@@ -29,6 +29,7 @@ type RequestURIParams = Mapping[str, str]
 type RequestURIResolver = Callable[[str, str], RequestURIParams | Awaitable[RequestURIParams | None] | None]
 type SelectAccountResolver = Callable[[str, str, str, list[str]], bool | Awaitable[bool]]
 type PostLoginResolver = Callable[[str, str, str, list[str]], bool | Awaitable[bool]]
+type OAuthServerGrantType = Literal["authorization_code", "client_credentials", "refresh_token"]
 type ConsentReferenceResolver = Callable[[str, str, str, list[str]], str | Awaitable[str | None] | None]
 type ClientReferenceResolver = Callable[[str, str], str | Awaitable[str | None] | None]
 type ClientPrivilegesResolver = Callable[
@@ -43,6 +44,8 @@ type TokenResponseFieldsResolver = Callable[[dict[str, object]], dict[str, objec
 type TokenGenerator = Callable[[], str | Awaitable[str]]
 type RefreshTokenEncoder = Callable[[str, str | None], str | Awaitable[str]]
 type RefreshTokenDecoder = Callable[[str], tuple[str | None, str] | Awaitable[tuple[str | None, str]]]
+
+PAIRWISE_SECRET_MIN_LENGTH = 32
 
 
 class OAuthServerTokenPrefixSettings(BaseModel):
@@ -127,7 +130,10 @@ class OAuthServer(BaseSettings):
     client_id: str = "belgie_client"
     client_secret: SecretStr | None = None
     redirect_uris: list[AnyUrl] = Field(min_length=1)
-    default_scopes: Sequence[str] = Field(default_factory=lambda: ["user"])
+    grant_types: list[OAuthServerGrantType] = Field(
+        default_factory=lambda: ["authorization_code", "client_credentials", "refresh_token"],
+    )
+    default_scopes: Sequence[str] = Field(default_factory=tuple)
     static_client_require_pkce: bool = True
     pairwise_secret: SecretStr | None = None
     signing: OAuthServerSigning = Field(default_factory=OAuthServerSigning)
@@ -217,7 +223,31 @@ class OAuthServer(BaseSettings):
         if self.refresh_token_encoder is not None and self.refresh_token_decoder is None:
             msg = "refresh_token_decoder is required when refresh_token_encoder is configured"
             raise ValueError(msg)
+        if "refresh_token" in self.grant_types and "authorization_code" not in self.grant_types:
+            msg = "refresh_token grant requires authorization_code grant"
+            raise ValueError(msg)
+        if "authorization_code" in self.grant_types:
+            if self.login_url is None:
+                msg = "login_url is required when authorization_code grant is enabled"
+                raise ValueError(msg)
+            if self.consent_url is None:
+                msg = "consent_url is required when authorization_code grant is enabled"
+                raise ValueError(msg)
+        if self.pairwise_secret is not None:
+            pairwise_secret_value = self.pairwise_secret.get_secret_value()
+            if len(pairwise_secret_value) < PAIRWISE_SECRET_MIN_LENGTH:
+                msg = "pairwise_secret must be at least 32 characters"
+                raise ValueError(msg)
         return self
+
+    @field_validator("grant_types")
+    @classmethod
+    def validate_grant_types(cls, value: list[OAuthServerGrantType]) -> list[OAuthServerGrantType]:
+        deduped: list[OAuthServerGrantType] = []
+        for grant_type in value:
+            if grant_type not in deduped:
+                deduped.append(grant_type)
+        return deduped
 
     @cached_property
     def issuer_url(self) -> AnyHttpUrl | None:
@@ -258,6 +288,12 @@ class OAuthServer(BaseSettings):
             if normalized and normalized not in supported:
                 supported.append(normalized)
         return supported
+
+    def supports_grant_type(self, grant_type: str) -> bool:
+        return grant_type in self.grant_types
+
+    def supports_authorization_code(self) -> bool:
+        return self.supports_grant_type("authorization_code")
 
     def __call__(self, belgie_settings: BelgieSettings) -> OAuthServerPlugin:
         plugin_class = __import__("belgie_oauth_server.plugin", fromlist=["OAuthServerPlugin"]).OAuthServerPlugin

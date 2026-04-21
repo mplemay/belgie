@@ -387,6 +387,8 @@ async def test_register_client_issues_secret_by_default() -> None:
     assert client_info.client_id is not None
     assert client_info.client_secret is not None
     assert client_info.client_id_issued_at is not None
+    assert client_info.token_endpoint_auth_method == "client_secret_basic"  # noqa: S105
+    assert client_info.grant_types == ["authorization_code"]
 
 
 @pytest.mark.asyncio
@@ -797,6 +799,24 @@ def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
         )
 
 
+def test_validate_client_metadata_rejects_grant_type_disabled_by_server() -> None:
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["https://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        grant_types=["client_credentials"],
+        login_url=None,
+        consent_url=None,
+    )
+
+    with pytest.raises(ValueError, match="unsupported grant_type authorization_code"):
+        provider.validate_client_metadata(
+            OAuthServerClientMetadata(
+                redirect_uris=["https://example.com/callback"],
+            ),
+        )
+
+
 def test_validate_client_metadata_allows_configured_resource_scopes() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["https://example.com/callback"],
@@ -945,7 +965,7 @@ def test_resolve_subject_identifier_uses_pairwise_secret() -> None:
         redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
-        pairwise_secret="pairwise-secret",
+        pairwise_secret="pairwise-secret-for-tests-123456",
     )
     pairwise_client = provider.static_client.model_copy(
         update={

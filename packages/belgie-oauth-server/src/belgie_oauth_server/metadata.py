@@ -17,7 +17,10 @@ _ROOT_OPENID_METADATA_PATH = "/.well-known/openid-configuration"
 
 
 def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerMetadata:
-    authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
+    if settings.supports_authorization_code():
+        authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
+    else:
+        authorization_endpoint = None
     token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
     jwks_uri = AnyHttpUrl(join_url(issuer_url, "jwks")) if settings.signing.algorithm != "HS256" else None
     registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))
@@ -31,9 +34,9 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerM
         jwks_uri=jwks_uri,
         registration_endpoint=registration_endpoint,
         scopes_supported=_build_supported_scopes(settings),
-        response_types_supported=["code"],
+        response_types_supported=["code"] if settings.supports_authorization_code() else [],
         response_modes_supported=["query"],
-        grant_types_supported=["authorization_code", "refresh_token", "client_credentials"],
+        grant_types_supported=list(settings.grant_types),
         token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic", "none"],
         code_challenge_methods_supported=["S256"],
         revocation_endpoint=revocation_endpoint,
@@ -48,12 +51,8 @@ def build_openid_metadata(issuer_url: str, settings: OAuthServer) -> OIDCMetadat
     oauth_metadata = build_oauth_metadata(issuer_url, settings)
     oidc_metadata = oauth_metadata.model_dump(mode="python")
     oidc_metadata["scopes_supported"] = _build_supported_scopes(settings)
-    prompt_values_supported = ["login", "none"]
-    if settings.consent_url is not None:
-        prompt_values_supported.append("consent")
-    if settings.login_url is not None or settings.signup_url is not None:
-        prompt_values_supported.append("create")
-    if settings.select_account_url is not None:
+    prompt_values_supported = ["login", "consent", "create", "none"] if settings.supports_authorization_code() else []
+    if settings.supports_authorization_code() and settings.select_account_url is not None:
         prompt_values_supported.append("select_account")
 
     return OIDCMetadata(
