@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime  # noqa: TC003
 from functools import cached_property
@@ -18,6 +19,7 @@ from belgie_proto.oauth_server import (
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from belgie_oauth_server.models import OAuthServerClientInformationFull, OAuthServerClientMetadata
 from belgie_oauth_server.signing import OAuthServerSigning
 
 if TYPE_CHECKING:
@@ -44,6 +46,8 @@ type TokenResponseFieldsResolver = Callable[[dict[str, object]], dict[str, objec
 type TokenGenerator = Callable[[], str | Awaitable[str]]
 type RefreshTokenEncoder = Callable[[str, str | None], str | Awaitable[str]]
 type RefreshTokenDecoder = Callable[[str], tuple[str | None, str] | Awaitable[tuple[str | None, str]]]
+type TrustedClient = OAuthServerClientMetadata | OAuthServerClientInformationFull
+type TrustedClientResolver = Callable[[TrustedClient], bool | Awaitable[bool] | None]
 
 PAIRWISE_SECRET_MIN_LENGTH = 32
 
@@ -164,6 +168,7 @@ class OAuthServer(BaseSettings):
     consent_reference_resolver: ConsentReferenceResolver | None = None
     client_reference_resolver: ClientReferenceResolver | None = None
     client_privileges: ClientPrivilegesResolver | None = None
+    trusted_client_resolver: TrustedClientResolver | None = None
     custom_access_token_claims: AccessTokenClaimsResolver | None = None
     custom_id_token_claims: IdTokenClaimsResolver | None = None
     custom_userinfo_claims: UserInfoClaimsResolver | None = None
@@ -294,6 +299,17 @@ class OAuthServer(BaseSettings):
 
     def supports_authorization_code(self) -> bool:
         return self.supports_grant_type("authorization_code")
+
+    async def is_trusted_client(self, oauth_client: TrustedClient) -> bool:
+        if oauth_client.skip_consent:
+            return True
+        if self.trusted_client_resolver is None:
+            return False
+
+        trusted = self.trusted_client_resolver(oauth_client)
+        if inspect.isawaitable(trusted):
+            trusted = await trusted
+        return bool(trusted)
 
     def __call__(self, belgie_settings: BelgieSettings) -> OAuthServerPlugin:
         plugin_class = __import__("belgie_oauth_server.plugin", fromlist=["OAuthServerPlugin"]).OAuthServerPlugin

@@ -164,6 +164,16 @@ class SimpleOAuthProvider:
             metadata_json=None,
         )
 
+    async def _apply_trusted_client_policy(
+        self,
+        oauth_client: OAuthServerClientInformationFull,
+    ) -> OAuthServerClientInformationFull:
+        if oauth_client.skip_consent:
+            return oauth_client
+        if not await self.settings.is_trusted_client(oauth_client):
+            return oauth_client
+        return oauth_client.model_copy(update={"skip_consent": True})
+
     async def get_client(
         self,
         client_id: str,
@@ -171,12 +181,12 @@ class SimpleOAuthProvider:
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
         if client_id == self.static_client.client_id:
-            return self.static_client
+            return await self._apply_trusted_client_policy(self.static_client)
 
         async with self._db_session(db) as session:
             if (client := await self.adapter.get_client_by_client_id(session, client_id=client_id)) is None:
                 return None
-            return self._client_information_from_record(client)
+            return await self._apply_trusted_client_policy(self._client_information_from_record(client))
 
     async def list_clients(
         self,
@@ -191,7 +201,9 @@ class SimpleOAuthProvider:
                 individual_id=self._parse_uuid(individual_id),
                 reference_id=reference_id,
             )
-        return [self._client_information_from_record(client) for client in clients]
+        return [
+            await self._apply_trusted_client_policy(self._client_information_from_record(client)) for client in clients
+        ]
 
     async def update_client(
         self,
@@ -216,7 +228,7 @@ class SimpleOAuthProvider:
             client = await self.adapter.update_client(session, client_id=client_id, updates=updates)
             if client is None:
                 return None
-            return self._client_information_from_record(client)
+            return await self._apply_trusted_client_policy(self._client_information_from_record(client))
 
     async def delete_client(
         self,
@@ -256,7 +268,7 @@ class SimpleOAuthProvider:
                 return None
             info = self._client_information_from_record(rotated)
             info.client_secret = self._prefix_client_secret(raw_client_secret)
-            return info
+            return await self._apply_trusted_client_policy(info)
 
     async def authenticate_client(  # noqa: PLR0911
         self,
@@ -269,18 +281,21 @@ class SimpleOAuthProvider:
     ) -> OAuthServerClientInformationFull | None:
         normalized_client_secret = self._strip_client_secret_prefix(client_secret)
         if client_id == self.static_client.client_id:
-            return self._authenticate_static_client(
+            static_client = self._authenticate_static_client(
                 normalized_client_secret,
                 require_credentials=require_credentials,
                 require_confidential=require_confidential,
             )
+            if static_client is None:
+                return None
+            return await self._apply_trusted_client_policy(static_client)
 
         async with self._db_session(db) as session:
             client = await self.adapter.get_client_by_client_id(session, client_id=client_id)
             if client is None:
                 return None
 
-            oauth_client = self._client_information_from_record(client)
+            oauth_client = await self._apply_trusted_client_policy(self._client_information_from_record(client))
             if oauth_client.disabled:
                 return None
             if oauth_client.token_endpoint_auth_method == "none":  # noqa: S105
@@ -317,6 +332,7 @@ class SimpleOAuthProvider:
         client_secret = None
         client_secret_hash = None
         client_secret_expires_at = self._resolve_client_secret_expiration()
+        skip_consent = metadata.skip_consent or await self.settings.is_trusted_client(metadata)
         if token_endpoint_auth_method != "none":  # noqa: S105
             raw_client_secret = await self._generate_client_secret()
             client_secret, client_secret_hash = self._store_client_secret(raw_client_secret)
@@ -336,7 +352,7 @@ class SimpleOAuthProvider:
                 client_secret=client_secret,
                 client_secret_hash=client_secret_hash,
                 disabled=metadata.disabled,
-                skip_consent=metadata.skip_consent,
+                skip_consent=skip_consent,
                 redirect_uris=(
                     [str(uri) for uri in metadata.redirect_uris] if metadata.redirect_uris is not None else None
                 ),
@@ -374,7 +390,7 @@ class SimpleOAuthProvider:
             client_info = self._client_information_from_record(client)
             if raw_client_secret is not None:
                 client_info.client_secret = self._prefix_client_secret(raw_client_secret)
-            return client_info
+            return await self._apply_trusted_client_policy(client_info)
 
     async def authorize(
         self,

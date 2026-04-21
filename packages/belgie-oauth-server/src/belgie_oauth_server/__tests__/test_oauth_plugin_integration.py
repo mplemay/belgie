@@ -175,6 +175,16 @@ def _build_settings(**overrides: object) -> OAuthServer:
     return build_oauth_settings(**settings_overrides)
 
 
+def _trust_dynamic_callback_client(oauth_client) -> bool:
+    redirect_uris = {str(uri) for uri in oauth_client.redirect_uris or []}
+    grant_types = set(oauth_client.grant_types)
+    return (
+        redirect_uris == {"https://trusted.local/callback"}
+        and oauth_client.token_endpoint_auth_method == "none"  # noqa: S105
+        and "authorization_code" in grant_types
+    )
+
+
 def _issue_resource_bound_token(
     client: TestClient,
     plugin: OAuthServerPlugin,
@@ -668,6 +678,194 @@ def test_register_defaults_authenticated_confidential_clients_to_client_secret_b
     assert payload["token_endpoint_auth_method"] == "client_secret_basic"  # noqa: S105
     assert payload["grant_types"] == ["authorization_code"]
     assert payload["client_secret"]
+
+
+def test_register_rejects_client_supplied_skip_consent_even_for_trusted_clients() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+        allow_unauthenticated_client_registration=True,
+        trusted_client_resolver=_trust_dynamic_callback_client,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://trusted.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "skip_consent": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_client_metadata",
+        "error_description": "skip_consent cannot be set during dynamic client registration",
+    }
+
+
+def test_trusted_unauthenticated_dcr_public_client_skips_consent() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+        allow_unauthenticated_client_registration=True,
+        trusted_client_resolver=_trust_dynamic_callback_client,
+    )
+    client, plugin, belgie_client = _build_fixture(settings)
+
+    registration = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://trusted.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "openid user",
+        },
+    )
+
+    assert registration.status_code == 201
+    registered_client = registration.json()
+    assert registered_client["skip_consent"] is True
+
+    verifier = "trusted-dynamic-public-verifier"
+    authorize = client.get(
+        "/auth/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registered_client["client_id"],
+            "redirect_uri": "https://trusted.local/callback",
+            "scope": "openid user",
+            "state": "trusted-dynamic-public-state",
+            "code_challenge": create_code_challenge(verifier),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    assert authorize.headers["location"].startswith("https://trusted.local/callback?")
+    code = _query(authorize.headers["location"])["code"][0]
+    token_response = client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": registered_client["client_id"],
+            "code": code,
+            "redirect_uri": "https://trusted.local/callback",
+            "code_verifier": verifier,
+        },
+    )
+
+    assert token_response.status_code == 200
+    payload = token_response.json()
+    assert payload["scope"] == "openid user"
+    decoded = _decode_id_token(plugin, payload["id_token"], registered_client["client_id"])
+    assert decoded["sub"] == str(belgie_client.user.id)
+
+
+def test_untrusted_unauthenticated_dcr_public_client_still_requires_consent() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        consent_url="/consent-screen",
+        allow_dynamic_client_registration=True,
+        allow_unauthenticated_client_registration=True,
+        trusted_client_resolver=_trust_dynamic_callback_client,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    registration = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "openid user",
+        },
+    )
+
+    assert registration.status_code == 201
+    registered_client = registration.json()
+    assert registered_client["skip_consent"] is False
+
+    authorize = client.get(
+        "/auth/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registered_client["client_id"],
+            "redirect_uri": "https://client.local/callback",
+            "scope": "openid user",
+            "state": "untrusted-dynamic-public-state",
+            "code_challenge": create_code_challenge("untrusted-dynamic-public-verifier"),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    assert authorize.headers["location"].startswith("http://testserver/auth/oauth/login?")
+    state = _query(authorize.headers["location"])["state"][0]
+    consent_redirect = client.get(authorize.headers["location"], follow_redirects=False)
+
+    assert consent_redirect.status_code == 302
+    assert consent_redirect.headers["location"].startswith("http://testserver/consent-screen?")
+    assert _query(consent_redirect.headers["location"])["return_to"] == [
+        f"http://testserver/auth/oauth/consent?state={state}",
+    ]
+
+
+def test_existing_dynamic_client_uses_trusted_policy_without_reconsent() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+        allow_unauthenticated_client_registration=True,
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+
+    registration = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://trusted.local/callback"],
+            "token_endpoint_auth_method": "none",
+            "type": "native",
+            "scope": "openid user",
+        },
+    )
+
+    assert registration.status_code == 201
+    registered_client = registration.json()
+    assert registered_client["skip_consent"] is False
+
+    plugin.settings.trusted_client_resolver = _trust_dynamic_callback_client
+
+    authorize = client.get(
+        "/auth/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registered_client["client_id"],
+            "redirect_uri": "https://trusted.local/callback",
+            "scope": "openid user",
+            "state": "trusted-dynamic-existing-state",
+            "code_challenge": create_code_challenge("trusted-dynamic-existing-verifier"),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    assert authorize.headers["location"].startswith("https://trusted.local/callback?")
 
 
 def test_metadata_prioritizes_public_token_auth_when_anonymous_registration_is_enabled() -> None:
