@@ -15,6 +15,8 @@ class OAuthServerClientProtocol(Protocol):
     client_id: str
     client_secret: str | None
     client_secret_hash: str | None
+    disabled: bool | None
+    skip_consent: bool | None
     redirect_uris: list[str] | None
     post_logout_redirect_uris: list[str] | None
     token_endpoint_auth_method: TokenEndpointAuthMethod
@@ -36,6 +38,8 @@ class OAuthServerClientProtocol(Protocol):
     subject_type: OAuthServerSubjectType | None
     require_pkce: bool | None
     enable_end_session: bool | None
+    reference_id: str | None
+    metadata_json: dict[str, str] | dict[str, object] | None
     client_id_issued_at: int | None
     client_secret_expires_at: int | None
     individual_id: UUID | None

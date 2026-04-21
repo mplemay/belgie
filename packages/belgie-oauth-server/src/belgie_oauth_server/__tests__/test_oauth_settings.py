@@ -1,7 +1,11 @@
 import pytest
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
+from belgie_oauth_server.development import DEVELOPMENT_RSA_PRIVATE_KEY_PEM, build_development_signing
+from belgie_oauth_server.provider import SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
-from pydantic import ValidationError
+from belgie_oauth_server.signing import OAuthServerSigning
+from cryptography.hazmat.primitives import serialization
+from pydantic import SecretStr, ValidationError
 
 
 def test_oauth_settings_defaults() -> None:
@@ -48,6 +52,7 @@ def test_oauth_settings_rejects_legacy_route_prefix() -> None:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
+            signing=build_development_signing(),
             route_prefix="/oauth",
         )
     assert "route_prefix" in str(exc.value)
@@ -58,6 +63,7 @@ def test_oauth_settings_rejects_legacy_resource_settings() -> None:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
+            signing=build_development_signing(),
             resource_server_url="http://example.com/mcp",
         )
     assert "resource_server_url" in str(exc.value)
@@ -68,6 +74,7 @@ def test_oauth_settings_rejects_legacy_resource_scopes() -> None:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
+            signing=build_development_signing(),
             resource_scopes=["user"],
         )
     assert "resource_scopes" in str(exc.value)
@@ -126,9 +133,77 @@ def test_oauth_settings_rejects_multiple_resources() -> None:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
+            signing=build_development_signing(),
             resources=[OAuthServerResource(prefix="/mcp"), OAuthServerResource(prefix="/files")],
         )
     assert "resources" in str(exc.value)
+
+
+def test_oauth_settings_rejects_refresh_token_encoder_without_decoder() -> None:
+    with pytest.raises(ValidationError) as exc:
+        build_oauth_settings(
+            refresh_token_encoder=lambda token, session_id: f"wrapped:{session_id}:{token}",
+        )
+
+    assert "refresh_token_decoder" in str(exc.value)
+
+
+def test_oauth_settings_allows_refresh_token_decoder_without_encoder() -> None:
+    settings = build_oauth_settings(
+        refresh_token_decoder=lambda token: (None, token),
+    )
+
+    assert settings.refresh_token_decoder is not None
+
+
+def test_oauth_settings_default_hs256_initializes_without_private_key() -> None:
+    settings = OAuthServer(
+        adapter=build_oauth_settings().adapter,
+        base_url="http://example.com",
+        redirect_uris=["http://example.com/callback"],
+    )
+
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    assert provider.signing_state.algorithm == "HS256"
+    assert provider.signing_state.jwks is None
+
+
+def test_oauth_settings_explicit_rs256_accepts_private_key() -> None:
+    settings = build_oauth_settings(
+        base_url="http://example.com",
+        redirect_uris=["http://example.com/callback"],
+        signing=build_development_signing(),
+    )
+
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    assert provider.signing_state.algorithm == "RS256"
+    assert provider.signing_state.jwks is not None
+
+
+def test_oauth_settings_rs256_accepts_explicit_public_key() -> None:
+    private_key = serialization.load_pem_private_key(
+        DEVELOPMENT_RSA_PRIVATE_KEY_PEM.encode("utf-8"),
+        password=None,
+    )
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    settings = build_oauth_settings(
+        base_url="http://example.com",
+        redirect_uris=["http://example.com/callback"],
+        signing=OAuthServerSigning(
+            algorithm="RS256",
+            private_key_pem=SecretStr(DEVELOPMENT_RSA_PRIVATE_KEY_PEM),
+            public_key_pem=SecretStr(public_pem.decode("utf-8")),
+        ),
+    )
+
+    provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
+
+    assert provider.signing_state.verification_key == public_pem
 
 
 def test_oauth_settings_resolves_resource_with_fallback_base_url() -> None:

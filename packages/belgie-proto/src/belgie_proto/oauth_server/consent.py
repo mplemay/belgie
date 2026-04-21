@@ -12,6 +12,7 @@ class OAuthServerConsentProtocol(Protocol):
     id: UUID
     client_id: str
     individual_id: UUID
+    reference_id: str | None
     scopes: list[str]
     created_at: datetime
     updated_at: datetime

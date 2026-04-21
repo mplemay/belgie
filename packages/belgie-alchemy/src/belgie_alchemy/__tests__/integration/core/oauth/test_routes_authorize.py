@@ -127,7 +127,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
-    assert parsed.netloc == "testserver"
+    assert parsed.netloc == "localhost"
     assert query["state"][0] == "state-auth"
     assert "code" in query
 
@@ -151,7 +151,7 @@ async def test_authorize_issues_code_when_authenticated(
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
-    assert parsed.netloc == "testserver"
+    assert parsed.netloc == "localhost"
     assert query["state"][0] == "state-auth"
     assert "code" in query
 
@@ -175,7 +175,7 @@ async def test_authorize_issues_code_when_authenticated_via_post(
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
-    assert parsed.netloc == "testserver"
+    assert parsed.netloc == "localhost"
     assert query["state"][0] == "state-auth-post"
     assert "code" in query
 
@@ -226,7 +226,7 @@ async def test_authorize_accepts_configured_resource_when_authenticated(
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
-    assert parsed.netloc == "testserver"
+    assert parsed.netloc == "localhost"
     assert query["state"][0] == "state-with-resource"
     assert "code" in query
 
@@ -244,14 +244,14 @@ async def test_authorize_accepts_default_scope_for_scope_less_dynamic_client(
 
     dynamic_client = await oauth_plugin._provider.register_client(
         OAuthServerClientMetadata(
-            redirect_uris=["http://testserver/callback"],
+            redirect_uris=["http://localhost/callback"],
             token_endpoint_auth_method="none",
         ),
     )
     params = {
         "response_type": "code",
         "client_id": dynamic_client.client_id,
-        "redirect_uri": "http://testserver/callback",
+        "redirect_uri": "http://localhost/callback",
         "scope": "user",
         "code_challenge": create_code_challenge("dynamic-client-verifier"),
         "code_challenge_method": "S256",
@@ -266,7 +266,7 @@ async def test_authorize_accepts_default_scope_for_scope_less_dynamic_client(
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
-    assert parsed.netloc == "testserver"
+    assert parsed.netloc == "localhost"
     assert query["state"][0] == "state-dynamic-client"
     assert "code" in query
 
@@ -324,6 +324,6 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
-    assert parsed.netloc == "testserver"
+    assert parsed.netloc == "localhost"
     assert query["state"][0] == "state-trailing-resource"
     assert "code" in query

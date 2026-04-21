@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
+from belgie_oauth_server.development import build_development_signing
 from brussels.base import DataclassBase
 from fastapi import FastAPI, Query
 from pydantic import AnyUrl, BaseModel, SecretStr
@@ -119,6 +120,7 @@ oauth_settings = OAuthServer(
     client_secret=SecretStr("demo-secret"),
     redirect_uris=[AnyUrl("http://localhost:8000/client/callback")],
     default_scope="user",
+    signing=build_development_signing(),
 )
 
 belgie.add_plugin(oauth_settings)

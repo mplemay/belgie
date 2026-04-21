@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import datetime  # noqa: TC003
 from functools import cached_property
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Self
 from urllib.parse import urlparse, urlunparse
 
 from belgie_proto.oauth_server import (
@@ -17,6 +18,8 @@ from belgie_proto.oauth_server import (
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from belgie_oauth_server.signing import OAuthServerSigning
+
 if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
 
@@ -25,6 +28,53 @@ if TYPE_CHECKING:
 type RequestURIParams = Mapping[str, str]
 type RequestURIResolver = Callable[[str, str], RequestURIParams | Awaitable[RequestURIParams | None] | None]
 type SelectAccountResolver = Callable[[str, str, str, list[str]], bool | Awaitable[bool]]
+type PostLoginResolver = Callable[[str, str, str, list[str]], bool | Awaitable[bool]]
+type ConsentReferenceResolver = Callable[[str, str, str, list[str]], str | Awaitable[str | None] | None]
+type ClientReferenceResolver = Callable[[str, str], str | Awaitable[str | None] | None]
+type ClientPrivilegesResolver = Callable[
+    [Literal["create", "read", "update", "delete", "list", "rotate"], str, str, str | None],
+    bool | Awaitable[bool] | None,
+]
+type ScopeExpirations = dict[str, int]
+type AccessTokenClaimsResolver = Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]]
+type IdTokenClaimsResolver = Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]]
+type UserInfoClaimsResolver = Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]]
+type TokenResponseFieldsResolver = Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]]
+type TokenGenerator = Callable[[], str | Awaitable[str]]
+type RefreshTokenEncoder = Callable[[str, str | None], str | Awaitable[str]]
+type RefreshTokenDecoder = Callable[[str], tuple[str | None, str] | Awaitable[tuple[str | None, str]]]
+
+
+class OAuthServerTokenPrefixSettings(BaseModel):
+    access_token: str | None = None
+    refresh_token: str | None = None
+    client_secret: str | None = None
+
+
+class OAuthServerAdvertisedMetadata(BaseModel):
+    scopes_supported: list[str] | None = None
+    claims_supported: list[str] | None = None
+    protected_resource_scopes_supported: list[str] | None = None
+
+
+class OAuthServerRateLimitRule(BaseModel):
+    window: int = 60
+    max: int = 20
+
+
+class OAuthServerRateLimitSettings(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    token: OAuthServerRateLimitRule | None = Field(default_factory=OAuthServerRateLimitRule)
+    authorize: OAuthServerRateLimitRule | None = Field(default_factory=lambda: OAuthServerRateLimitRule(max=30))
+    introspect: OAuthServerRateLimitRule | None = Field(default_factory=lambda: OAuthServerRateLimitRule(max=100))
+    revoke: OAuthServerRateLimitRule | None = Field(default_factory=lambda: OAuthServerRateLimitRule(max=30))
+    registration: OAuthServerRateLimitRule | None = Field(
+        default_factory=lambda: OAuthServerRateLimitRule(max=5),
+        alias="register",
+        serialization_alias="register",
+    )
+    userinfo: OAuthServerRateLimitRule | None = Field(default_factory=lambda: OAuthServerRateLimitRule(max=60))
 
 
 class OAuthServerResource(BaseModel):
@@ -80,6 +130,7 @@ class OAuthServer(BaseSettings):
     default_scope: str = "user"
     static_client_require_pkce: bool = True
     pairwise_secret: SecretStr | None = None
+    signing: OAuthServerSigning = Field(default_factory=OAuthServerSigning)
 
     authorization_code_ttl_seconds: int = 300
     access_token_ttl_seconds: int = 3600
@@ -87,15 +138,39 @@ class OAuthServer(BaseSettings):
     id_token_ttl_seconds: int = 36000
     state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"
+    scope_expirations: ScopeExpirations | None = None
     enable_end_session: bool = False
     allow_dynamic_client_registration: bool = False
     allow_unauthenticated_client_registration: bool = False
+    allow_public_client_prelogin: bool = False
+    client_registration_default_scopes: list[str] | None = None
+    client_registration_allowed_scopes: list[str] | None = None
+    client_registration_client_secret_expires_at: int | datetime | None = 0
+    client_credentials_default_scopes: list[str] | None = None
     resources: list[OAuthServerResource] | None = Field(default=None, min_length=1, max_length=1)
     include_root_resource_metadata_fallback: bool = True
     include_root_oauth_metadata_fallback: bool = True
     include_root_openid_metadata_fallback: bool = True
     request_uri_resolver: RequestURIResolver | None = None
     select_account_resolver: SelectAccountResolver | None = None
+    post_login_url: str | None = None
+    post_login_resolver: PostLoginResolver | None = None
+    consent_reference_resolver: ConsentReferenceResolver | None = None
+    client_reference_resolver: ClientReferenceResolver | None = None
+    client_privileges: ClientPrivilegesResolver | None = None
+    custom_access_token_claims: AccessTokenClaimsResolver | None = None
+    custom_id_token_claims: IdTokenClaimsResolver | None = None
+    custom_userinfo_claims: UserInfoClaimsResolver | None = None
+    custom_token_response_fields: TokenResponseFieldsResolver | None = None
+    generate_client_id: TokenGenerator | None = None
+    generate_client_secret: TokenGenerator | None = None
+    generate_access_token: TokenGenerator | None = None
+    generate_refresh_token: TokenGenerator | None = None
+    refresh_token_encoder: RefreshTokenEncoder | None = None
+    refresh_token_decoder: RefreshTokenDecoder | None = None
+    token_prefixes: OAuthServerTokenPrefixSettings = Field(default_factory=OAuthServerTokenPrefixSettings)
+    advertised_metadata: OAuthServerAdvertisedMetadata | None = None
+    rate_limit: OAuthServerRateLimitSettings = Field(default_factory=OAuthServerRateLimitSettings)
 
     @model_validator(mode="before")
     @classmethod
@@ -137,6 +212,13 @@ class OAuthServer(BaseSettings):
             raise TypeError(msg)
         return value
 
+    @model_validator(mode="after")
+    def validate_refresh_token_hooks(self) -> Self:
+        if self.refresh_token_encoder is not None and self.refresh_token_decoder is None:
+            msg = "refresh_token_decoder is required when refresh_token_encoder is configured"
+            raise ValueError(msg)
+        return self
+
     @cached_property
     def issuer_url(self) -> AnyHttpUrl | None:
         if self.base_url is None:
@@ -163,6 +245,19 @@ class OAuthServer(BaseSettings):
 
         resource = self.resources[0]
         return resource.resolve_url(base_url), resource.scopes
+
+    def supported_scopes(self) -> list[str]:
+        scopes = [self.default_scope, "openid", "profile", "email", "offline_access"]
+        if self.resources is not None:
+            scopes.extend(self.resources[0].scopes or [])
+        if self.client_registration_allowed_scopes is not None:
+            scopes.extend(self.client_registration_allowed_scopes)
+        supported: list[str] = []
+        for scope in scopes:
+            normalized = scope.strip()
+            if normalized and normalized not in supported:
+                supported.append(normalized)
+        return supported
 
     def __call__(self, belgie_settings: BelgieSettings) -> OAuthServerPlugin:
         plugin_class = __import__("belgie_oauth_server.plugin", fromlist=["OAuthServerPlugin"]).OAuthServerPlugin

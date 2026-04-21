@@ -11,7 +11,7 @@ from belgie_oauth_server.utils import construct_redirect_uri, join_url
 if TYPE_CHECKING:
     from belgie_oauth_server.provider import SimpleOAuthProvider
 
-type OAuthServerLoginIntent = Literal["login", "create", "consent", "select_account"]
+type OAuthServerLoginIntent = Literal["login", "create", "consent", "select_account", "post_login"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -65,6 +65,8 @@ def _build_return_to_url(issuer_url: str, state: str, intent: OAuthServerLoginIn
         return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, created="true")
     if intent == "select_account":
         return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, selected="true")
+    if intent == "post_login":
+        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, post_login="true")
     if intent == "consent":
         return construct_redirect_uri(join_url(issuer_url, "consent"), state=state)
     return construct_redirect_uri(join_url(issuer_url, "login/callback"), state=state)

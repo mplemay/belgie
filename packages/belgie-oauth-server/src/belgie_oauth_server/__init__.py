@@ -9,6 +9,7 @@ from belgie_oauth_server.metadata import (
 )
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
+from belgie_oauth_server.verifier import VerifiedAccessToken, verify_local_access_token
 
 __all__ = [
     "OAuthServer",
@@ -17,10 +18,12 @@ __all__ = [
     "OAuthServerLoginIntent",
     "OAuthServerPlugin",
     "OAuthServerResource",
+    "VerifiedAccessToken",
     "build_oauth_metadata",
     "build_oauth_metadata_well_known_path",
     "build_openid_metadata",
     "build_openid_metadata_well_known_path",
     "build_protected_resource_metadata",
     "build_protected_resource_metadata_well_known_path",
+    "verify_local_access_token",
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from belgie_oauth_server.development import build_development_signing
 from belgie_oauth_server.provider import SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.testing import InMemoryDBConnection, InMemoryOAuthServerAdapter
@@ -11,6 +12,7 @@ def build_oauth_settings(**overrides: object) -> OAuthServer:
         "redirect_uris": ["http://example.com/callback"],
         "base_url": "http://example.com",
         "client_id": "test-client",
+        "signing": overrides.pop("signing", build_development_signing()),
     }
     defaults.update(overrides)
     return OAuthServer(**defaults)

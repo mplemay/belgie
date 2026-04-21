@@ -10,6 +10,7 @@ from belgie_oauth_server.metadata import (
     build_protected_resource_metadata,
     build_protected_resource_metadata_well_known_path,
 )
+from belgie_oauth_server.signing import OAuthServerSigning
 
 
 def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
@@ -24,6 +25,31 @@ def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
     assert metadata.introspection_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
     assert metadata.revocation_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
     assert metadata.authorization_response_iss_parameter_supported is True
+    assert str(metadata.jwks_uri) == "https://auth.local/auth/oauth/jwks"
+
+
+def test_build_oauth_metadata_omits_jwks_uri_for_hs256() -> None:
+    metadata = build_oauth_metadata(
+        "https://auth.local/auth/oauth",
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            signing=OAuthServerSigning(algorithm="HS256"),
+        ),
+    )
+
+    assert metadata.jwks_uri is None
+
+
+def test_build_oauth_metadata_default_hs256_omits_jwks_uri() -> None:
+    metadata = build_oauth_metadata(
+        "https://auth.local/auth/oauth",
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            signing=OAuthServerSigning(),
+        ),
+    )
+
+    assert metadata.jwks_uri is None
 
 
 def test_build_protected_resource_metadata() -> None:
@@ -71,11 +97,23 @@ def test_build_openid_metadata_contains_oidc_endpoints() -> None:
 
     assert str(metadata.userinfo_endpoint) == "https://auth.local/auth/oauth/userinfo"
     assert str(metadata.end_session_endpoint) == "https://auth.local/auth/oauth/end-session"
-    assert metadata.id_token_signing_alg_values_supported == ["HS256"]
+    assert metadata.id_token_signing_alg_values_supported == ["RS256"]
     assert metadata.subject_types_supported == ["public"]
     assert "sub" in metadata.claims_supported
     assert "openid" in (metadata.scopes_supported or [])
     assert metadata.prompt_values_supported == ["login", "none"]
+
+
+def test_build_openid_metadata_default_hs256_advertises_hs256() -> None:
+    metadata = build_openid_metadata(
+        "https://auth.local/auth/oauth",
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            signing=OAuthServerSigning(),
+        ),
+    )
+
+    assert metadata.id_token_signing_alg_values_supported == ["HS256"]
 
 
 def test_build_openid_metadata_advertises_optional_prompt_values_and_pairwise_subjects() -> None:

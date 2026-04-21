@@ -6,6 +6,7 @@ from typing import Any, Literal
 from belgie_oauth_server.provider import SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import join_url
+from belgie_oauth_server.verifier import verify_local_access_token
 from httpx import AsyncClient, HTTPError, Limits, Timeout
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
@@ -24,18 +25,22 @@ class _LocalTokenVerification:
 
 
 class BelgieOAuthTokenVerifier(TokenVerifier):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         introspection_endpoint: str,
         server_url: str,
         *,
         provider_resolver: Callable[[], SimpleOAuthProvider | None] | None = None,
         validate_resource: bool = False,
+        introspection_client_id: str | None = None,
+        introspection_client_secret: str | None = None,
     ) -> None:
         self.introspection_endpoint = str(introspection_endpoint)
         self.server_url = str(server_url)
         self.provider_resolver = provider_resolver
         self.validate_resource = validate_resource
+        self.introspection_client_id = introspection_client_id
+        self.introspection_client_secret = introspection_client_secret
         self.resource_url = resource_url_from_server_url(self.server_url)
 
     async def verify_token(self, token: str) -> AccessToken | None:
@@ -52,8 +57,10 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
         provider: SimpleOAuthProvider,
         token: str,
     ) -> _LocalTokenVerification:
-        if (stored_token := await provider.load_access_token(token)) is None:
+        verified_token = await verify_local_access_token(provider, token)
+        if verified_token is None:
             return _LocalTokenVerification(status="not_found")
+        stored_token = verified_token.token
 
         if self.validate_resource and not self._validate_resource_value(stored_token.resource):
             logger.warning("Token resource validation failed. Expected: %s", self.resource_url)
@@ -87,6 +94,11 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
                     self.introspection_endpoint,
                     data={"token": token},
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    auth=(
+                        (self.introspection_client_id, self.introspection_client_secret)
+                        if self.introspection_client_id is not None and self.introspection_client_secret is not None
+                        else None
+                    ),
                 )
             except HTTPError as exc:
                 logger.warning("Token introspection failed: %s", exc)
@@ -147,11 +159,13 @@ def mcp_auth(
     )
 
 
-def mcp_token_verifier(
+def mcp_token_verifier(  # noqa: PLR0913
     settings: OAuthServer,
     *,
     server_url: str | AnyHttpUrl,
     introspection_endpoint: str | None = None,
+    introspection_client_id: str | None = None,
+    introspection_client_secret: str | None = None,
     oauth_strict: bool = False,
     provider_resolver: Callable[[], SimpleOAuthProvider | None] | None = None,
 ) -> TokenVerifier:
@@ -162,6 +176,8 @@ def mcp_token_verifier(
         server_url=str(server_url),
         provider_resolver=provider_resolver,
         validate_resource=oauth_strict,
+        introspection_client_id=introspection_client_id,
+        introspection_client_secret=introspection_client_secret,
     )
 
 

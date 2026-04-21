@@ -40,6 +40,7 @@ if str(OAUTH_SRC) not in sys.path:
     sys.path.insert(0, str(OAUTH_SRC))
 
 from belgie_oauth_server import OAuthServer, OAuthServerPlugin, OAuthServerResource  # noqa: E402
+from belgie_oauth_server.development import build_development_signing  # noqa: E402
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -139,9 +140,10 @@ def oauth_settings() -> OAuthServer:
         signup_url="/signup",
         client_id="test-client",
         client_secret=SecretStr("test-secret"),
-        redirect_uris=["http://testserver/callback"],
+        redirect_uris=["http://localhost/callback"],
         default_scope="user",
         resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+        signing=build_development_signing(),
     )
 
 
@@ -230,7 +232,9 @@ async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
             client_id=client_id,
             client_secret=client_secret,
             client_secret_hash=client_secret_hash,
-            redirect_uris=[str(uri) for uri in (redirect_uris or ["http://testserver/callback"])],
+            disabled=False,
+            skip_consent=False,
+            redirect_uris=[str(uri) for uri in (redirect_uris or ["http://localhost/callback"])],
             post_logout_redirect_uris=(
                 None if post_logout_redirect_uris is None else [str(uri) for uri in post_logout_redirect_uris]
             ),
@@ -253,6 +257,8 @@ async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
             subject_type=subject_type,  # type: ignore[arg-type]
             require_pkce=require_pkce,
             enable_end_session=enable_end_session,
+            reference_id=None,
+            metadata_json=None,
             client_id_issued_at=client_id_issued_at,
             client_secret_expires_at=client_secret_expires_at,
             individual_id=None if individual_id is None else UUID(individual_id),
