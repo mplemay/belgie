@@ -153,6 +153,8 @@ class SimpleOAuthProvider:
             redirect_uris=settings.redirect_uris,
             scope=" ".join(settings.default_scopes),
             token_endpoint_auth_method="none" if client_secret is None else "client_secret_post",
+            grant_types=list(settings.grant_types),
+            response_types=["code"] if settings.supports_authorization_code() else [],
             require_pkce=settings.static_client_require_pkce,
             subject_type="public",
             enable_end_session=settings.enable_end_session,
@@ -301,7 +303,7 @@ class SimpleOAuthProvider:
         reference_id: str | None = None,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull:
-        token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
+        token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_basic"
         if token_endpoint_auth_method not in {"client_secret_post", "client_secret_basic", "none"}:
             msg = f"unsupported token_endpoint_auth_method: {token_endpoint_auth_method}"
             raise ValueError(msg)
@@ -909,11 +911,11 @@ class SimpleOAuthProvider:
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("utf-8")
 
     def validate_client_metadata(self, metadata: OAuthServerClientMetadata) -> None:  # noqa: C901, PLR0912
-        token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_post"
+        token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_basic"
         is_public = token_endpoint_auth_method == "none"  # noqa: S105
-        grant_types = metadata.grant_types or ["authorization_code", "refresh_token"]
+        grant_types = metadata.grant_types or ["authorization_code"]
         response_types = metadata.response_types or ["code"]
-        allowed_grant_types = {"authorization_code", "refresh_token", "client_credentials"}
+        allowed_grant_types = set(self.settings.grant_types)
         allowed_scopes = set(self._allowed_dynamic_client_registration_scopes())
 
         invalid_grant_types = [grant_type for grant_type in grant_types if grant_type not in allowed_grant_types]

@@ -12,6 +12,8 @@ def build_oauth_settings(**overrides: object) -> OAuthServer:
         "redirect_uris": ["http://example.com/callback"],
         "base_url": "http://example.com",
         "client_id": "test-client",
+        "login_url": "/login",
+        "consent_url": "/consent",
         "signing": overrides.pop("signing", build_development_signing()),
     }
     defaults.update(overrides)

@@ -88,6 +88,8 @@ def _build_app(
     auth_router = APIRouter(prefix="/auth")
     auth_router.include_router(plugin.router(belgie))
     app.include_router(auth_router)
+    assert plugin.provider is not None
+    plugin.provider.static_client = plugin.provider.static_client.model_copy(update={"skip_consent": True})
 
     return app, plugin, belgie_client
 
@@ -135,6 +137,25 @@ def _update_static_client(plugin: OAuthServerPlugin, client_id: str, **updates: 
     assert plugin.provider is not None
     assert plugin.provider.static_client.client_id == client_id
     plugin.provider.static_client = plugin.provider.static_client.model_copy(update=updates)
+
+
+def _grant_consent(
+    plugin: OAuthServerPlugin,
+    client_id: str,
+    individual_id: UUID | str,
+    scopes: list[str],
+    *,
+    reference_id: str | None = None,
+) -> None:
+    assert plugin.provider is not None
+    adapter = plugin.provider.adapter
+    individual_uuid = individual_id if isinstance(individual_id, UUID) else UUID(str(individual_id))
+    adapter.consents[(client_id, individual_uuid, reference_id)] = InMemoryConsent(
+        client_id=client_id,
+        individual_id=individual_uuid,
+        reference_id=reference_id,
+        scopes=scopes,
+    )
 
 
 def _decode_id_token(plugin: OAuthServerPlugin, token: str, audience: str) -> dict[str, object]:
@@ -225,6 +246,53 @@ def test_authorize_success_and_error_redirects_include_iss() -> None:
     assert error_query["error_description"] == ["pkce is required for public clients"]
     assert error_query["state"] == ["state-error"]
     assert error_query["iss"] == ["http://testserver/auth/oauth"]
+
+
+def test_authorize_route_is_unavailable_when_authorization_code_grant_is_disabled() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        grant_types=["client_credentials"],
+        login_url=None,
+        consent_url=None,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-disabled"),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 404
+
+
+def test_token_rejects_disabled_grants_before_dispatch() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        grant_types=["client_credentials"],
+        login_url=None,
+        consent_url=None,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": settings.client_id,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "unsupported_grant_type",
+        "error_description": "unsupported grant_type authorization_code",
+    }
 
 
 def test_prompt_none_returns_login_required_without_redirecting_to_interaction() -> None:
@@ -339,7 +407,7 @@ def test_authorize_consent_flow_persists_and_requires_reconsent_for_expanded_sco
         consent_url="/consent-screen",
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="user openid")
+    _update_static_client(plugin, settings.client_id, scope="user openid", skip_consent=False)
 
     first_authorize = client.get(
         "/auth/oauth/authorize",
@@ -400,7 +468,8 @@ def test_prompt_none_returns_consent_required_when_consent_is_missing() -> None:
         client_id="test-client",
         consent_url="/consent-screen",
     )
-    client, _plugin, _belgie_client = _build_fixture(settings)
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, skip_consent=False)
 
     response = client.get(
         "/auth/oauth/authorize",
@@ -509,6 +578,7 @@ def test_register_coerces_unauthenticated_clients_to_public() -> None:
     assert confidential.status_code == 201
     confidential_payload = confidential.json()
     assert confidential_payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert confidential_payload["grant_types"] == ["authorization_code"]
     assert "client_secret" not in confidential_payload
     assert confidential_payload["require_pkce"] is True
 
@@ -522,6 +592,7 @@ def test_register_coerces_unauthenticated_clients_to_public() -> None:
     assert omitted_auth_method.status_code == 201
     omitted_payload = omitted_auth_method.json()
     assert omitted_payload["token_endpoint_auth_method"] == "none"  # noqa: S105
+    assert omitted_payload["grant_types"] == ["authorization_code"]
     assert "client_secret" not in omitted_payload
     assert omitted_payload["require_pkce"] is True
 
@@ -540,6 +611,60 @@ def test_register_coerces_unauthenticated_clients_to_public() -> None:
     assert public_payload["token_endpoint_auth_method"] == "none"  # noqa: S105
     assert "client_secret" not in public_payload
     assert public_payload["require_pkce"] is True
+
+
+def test_register_defaults_authenticated_confidential_clients_to_client_secret_basic() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "type": "web",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["token_endpoint_auth_method"] == "client_secret_basic"  # noqa: S105
+    assert payload["grant_types"] == ["authorization_code"]
+    assert payload["client_secret"]
+
+
+def test_register_rejects_grant_types_disabled_by_server() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+        grant_types=["client_credentials"],
+        login_url=None,
+        consent_url=None,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "grant_types": ["authorization_code"],
+            "type": "web",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_request",
+        "error_description": "unsupported grant_type authorization_code",
+    }
 
 
 def test_register_allows_public_clients_with_configured_resource_scopes() -> None:
@@ -751,6 +876,7 @@ def test_dynamic_confidential_client_id_token_uses_server_signing_key() -> None:
     assert registration.status_code == 201
     registered_client = registration.json()
     client_secret = registered_client["client_secret"]
+    _grant_consent(_plugin, registered_client["client_id"], belgie_client.user.id, ["openid", "user"])
     verifier = "dynamic-client-verifier"
     authorize = client.get(
         "/auth/oauth/authorize",
@@ -804,7 +930,7 @@ def test_consent_flow_preserves_broader_persisted_scopes_after_narrower_reconsen
         consent_url="/consent-screen",
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="user openid")
+    _update_static_client(plugin, settings.client_id, scope="user openid", skip_consent=False)
 
     initial_authorize = client.get(
         "/auth/oauth/authorize",
@@ -915,7 +1041,7 @@ def test_pairwise_subject_is_stable_across_id_token_userinfo_introspection_and_r
         client_id="test-client",
         client_secret="static-secret",
         static_client_require_pkce=False,
-        pairwise_secret="pairwise-secret",
+        pairwise_secret="pairwise-secret-for-tests-123456",
         enable_end_session=True,
     )
     client, plugin, belgie_client = _build_fixture(settings)

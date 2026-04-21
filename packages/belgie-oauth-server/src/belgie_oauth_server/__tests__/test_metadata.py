@@ -19,13 +19,29 @@ def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
         build_oauth_settings(redirect_uris=["https://client.local/callback"]),
     )
 
-    assert metadata.grant_types_supported == ["authorization_code", "refresh_token", "client_credentials"]
+    assert metadata.grant_types_supported == ["authorization_code", "client_credentials", "refresh_token"]
+    assert metadata.response_types_supported == ["code"]
     assert metadata.response_modes_supported == ["query"]
     assert metadata.token_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic", "none"]
     assert metadata.introspection_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
     assert metadata.revocation_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
     assert metadata.authorization_response_iss_parameter_supported is True
     assert str(metadata.jwks_uri) == "https://auth.local/auth/oauth/jwks"
+
+
+def test_build_oauth_metadata_reflects_configured_server_grants() -> None:
+    metadata = build_oauth_metadata(
+        "https://auth.local/auth/oauth",
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            grant_types=["client_credentials"],
+            login_url=None,
+            consent_url=None,
+        ),
+    )
+
+    assert metadata.grant_types_supported == ["client_credentials"]
+    assert metadata.response_types_supported == []
 
 
 def test_build_oauth_metadata_omits_jwks_uri_for_hs256() -> None:
@@ -101,7 +117,7 @@ def test_build_openid_metadata_contains_oidc_endpoints() -> None:
     assert metadata.subject_types_supported == ["public"]
     assert "sub" in metadata.claims_supported
     assert "openid" in (metadata.scopes_supported or [])
-    assert metadata.prompt_values_supported == ["login", "none"]
+    assert metadata.prompt_values_supported == ["login", "consent", "create", "none"]
 
 
 def test_build_openid_metadata_default_hs256_advertises_hs256() -> None:
@@ -124,11 +140,11 @@ def test_build_openid_metadata_advertises_optional_prompt_values_and_pairwise_su
             login_url="/login",
             consent_url="/consent",
             select_account_url="/select-account",
-            pairwise_secret="pairwise-secret",
+            pairwise_secret="pairwise-secret-for-tests-123456",
         ),
     )
 
-    assert metadata.prompt_values_supported == ["login", "none", "consent", "create", "select_account"]
+    assert metadata.prompt_values_supported == ["login", "consent", "create", "none", "select_account"]
     assert metadata.subject_types_supported == ["public", "pairwise"]
 
 

@@ -12,10 +12,11 @@ def test_oauth_settings_defaults() -> None:
     settings = build_oauth_settings(redirect_uris=["http://example.com/callback"])
 
     assert settings.prefix == "/oauth"
-    assert settings.login_url is None
+    assert settings.login_url == "/login"
     assert settings.signup_url is None
-    assert settings.consent_url is None
+    assert settings.consent_url == "/consent"
     assert settings.select_account_url is None
+    assert settings.grant_types == ["authorization_code", "client_credentials", "refresh_token"]
     assert settings.default_scopes == ["user"]
     assert settings.static_client_require_pkce is True
     assert settings.pairwise_secret is None
@@ -52,6 +53,8 @@ def test_oauth_settings_rejects_legacy_route_prefix() -> None:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
+            login_url="/login",
+            consent_url="/consent",
             signing=build_development_signing(),
             route_prefix="/oauth",
         )
@@ -63,6 +66,8 @@ def test_oauth_settings_rejects_legacy_resource_settings() -> None:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
+            login_url="/login",
+            consent_url="/consent",
             signing=build_development_signing(),
             resource_server_url="http://example.com/mcp",
         )
@@ -74,6 +79,8 @@ def test_oauth_settings_rejects_legacy_resource_scopes() -> None:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
+            login_url="/login",
+            consent_url="/consent",
             signing=build_development_signing(),
             resource_scopes=["user"],
         )
@@ -137,11 +144,57 @@ def test_oauth_settings_accepts_signup_url() -> None:
     assert settings.signup_url == "/signup"
 
 
+def test_oauth_settings_rejects_missing_login_url_when_authorization_code_enabled() -> None:
+    with pytest.raises(ValidationError) as exc:
+        OAuthServer(
+            adapter=build_oauth_settings().adapter,
+            base_url="http://example.com",
+            redirect_uris=["http://example.com/callback"],
+            consent_url="/consent",
+            signing=build_development_signing(),
+        )
+
+    assert "login_url is required when authorization_code grant is enabled" in str(exc.value)
+
+
+def test_oauth_settings_rejects_missing_consent_url_when_authorization_code_enabled() -> None:
+    with pytest.raises(ValidationError) as exc:
+        OAuthServer(
+            adapter=build_oauth_settings().adapter,
+            base_url="http://example.com",
+            redirect_uris=["http://example.com/callback"],
+            login_url="/login",
+            signing=build_development_signing(),
+        )
+
+    assert "consent_url is required when authorization_code grant is enabled" in str(exc.value)
+
+
+def test_oauth_settings_rejects_short_pairwise_secret() -> None:
+    with pytest.raises(ValidationError) as exc:
+        build_oauth_settings(pairwise_secret="too-short")
+
+    assert "pairwise_secret must be at least 32 characters" in str(exc.value)
+
+
+def test_oauth_settings_rejects_refresh_token_without_authorization_code() -> None:
+    with pytest.raises(ValidationError) as exc:
+        build_oauth_settings(
+            grant_types=["client_credentials", "refresh_token"],
+            login_url=None,
+            consent_url=None,
+        )
+
+    assert "refresh_token grant requires authorization_code grant" in str(exc.value)
+
+
 def test_oauth_settings_rejects_multiple_resources() -> None:
     with pytest.raises(ValidationError) as exc:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             redirect_uris=["http://example.com/callback"],
+            login_url="/login",
+            consent_url="/consent",
             signing=build_development_signing(),
             resources=[OAuthServerResource(prefix="/mcp"), OAuthServerResource(prefix="/files")],
         )
@@ -170,6 +223,8 @@ def test_oauth_settings_default_hs256_initializes_without_private_key() -> None:
         adapter=build_oauth_settings().adapter,
         base_url="http://example.com",
         redirect_uris=["http://example.com/callback"],
+        login_url="/login",
+        consent_url="/consent",
     )
 
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
