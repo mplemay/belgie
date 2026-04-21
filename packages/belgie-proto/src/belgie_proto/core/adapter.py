@@ -109,6 +109,7 @@ class AdapterProtocol[
         expires_at: datetime,
         code_verifier: str | None = None,
         redirect_url: str | None = None,
+        request_sign_up: bool | None = None,  # noqa: FBT001
         individual_id: UUID | None = None,
     ) -> OAuthStateT: ...
 

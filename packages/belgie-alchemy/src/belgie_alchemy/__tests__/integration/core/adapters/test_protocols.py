@@ -105,6 +105,7 @@ class ExampleOAuthState:
     individual_id: UUID | None
     code_verifier: str | None
     redirect_url: str | None
+    request_sign_up: bool | None
     created_at: datetime
     expires_at: datetime
 
@@ -420,6 +421,7 @@ def test_oauth_state_protocol_runtime_check() -> None:
         individual_id=uuid4(),
         code_verifier="verifier",
         redirect_url="/dashboard",
+        request_sign_up=None,
         created_at=now,
         expires_at=now,
     )

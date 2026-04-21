@@ -11,7 +11,7 @@ from belgie_proto.sso import OIDCClaimMapping, OIDCProviderConfig
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import OIDCDiscoveryResult
 from belgie_sso.settings import EnterpriseSSO
-from belgie_sso.utils import serialize_oidc_config
+from belgie_sso.utils import deserialize_oidc_config, serialize_oidc_config
 from fastapi import HTTPException
 
 
@@ -53,7 +53,7 @@ class FakeProvider:
     organization_id: UUID
     provider_id: str
     issuer: str
-    oidc_config: dict[str, str | list[str] | dict[str, str]]
+    oidc_config: dict[str, str | bool | list[str] | dict[str, str | dict[str, str]]]
     created_at: datetime
     updated_at: datetime
 
@@ -81,7 +81,7 @@ class MemorySSOAdapter:
         organization_id: UUID,
         provider_id: str,
         issuer: str,
-        oidc_config: dict[str, str | list[str] | dict[str, str]],
+        oidc_config: dict[str, str | bool | list[str] | dict[str, str | dict[str, str]]],
     ) -> FakeProvider:
         now = datetime.now(UTC)
         provider = FakeProvider(
@@ -111,7 +111,7 @@ class MemorySSOAdapter:
         *,
         sso_provider_id: UUID,
         issuer: str | None = None,
-        oidc_config: dict[str, str | list[str] | dict[str, str]] | None = None,
+        oidc_config: dict[str, str | bool | list[str] | dict[str, str | dict[str, str]]] | None = None,
     ) -> FakeProvider | None:
         provider = self.providers.get(sso_provider_id)
         if provider is None:
@@ -163,6 +163,17 @@ class MemorySSOAdapter:
             (item for item in self.domains.values() if item.domain == domain and item.verified_at is not None),
             None,
         )
+
+    async def get_best_verified_domain(self, _session: object, *, domain: str) -> FakeDomain | None:
+        matches = [
+            item
+            for item in self.domains.values()
+            if item.verified_at is not None and (domain == item.domain or domain.endswith(f".{item.domain}"))
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: len(item.domain), reverse=True)
+        return matches[0]
 
     async def list_domains_for_provider(self, _session: object, *, sso_provider_id: UUID) -> list[FakeDomain]:
         return [item for item in self.domains.values() if item.sso_provider_id == sso_provider_id]
@@ -240,7 +251,9 @@ class MemoryOrganizationAdapter:
         return member
 
 
-def build_client() -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapter, FakeOrganization, FakeIndividual]:
+def build_client(
+    **settings_kwargs: object,
+) -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapter, FakeOrganization, FakeIndividual]:
     admin_individual = FakeIndividual(
         id=uuid4(),
         email="owner@example.com",
@@ -269,7 +282,7 @@ def build_client() -> tuple[SSOClient, MemorySSOAdapter, MemoryOrganizationAdapt
     )
     sso_adapter = MemorySSOAdapter()
     organization_adapter = MemoryOrganizationAdapter(organization, member)
-    settings = EnterpriseSSO(adapter=sso_adapter)
+    settings = EnterpriseSSO(adapter=sso_adapter, **settings_kwargs)
     client = SSOClient(
         client=SimpleNamespace(db=object()),
         settings=settings,
@@ -617,3 +630,124 @@ async def test_delete_provider_removes_provider_and_domains(monkeypatch) -> None
     assert (
         await sso_client.settings.adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id)
     ) == []
+
+
+@pytest.mark.asyncio
+async def test_register_oidc_provider_supports_skip_discovery_with_manual_endpoints() -> None:
+    sso_client, sso_adapter, _, organization, _ = build_client()
+
+    provider = await sso_client.register_oidc_provider(
+        organization_id=organization.id,
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        domains=["example.com"],
+        authorization_endpoint="https://idp.example.com/authorize",
+        token_endpoint="https://idp.example.com/token",
+        userinfo_endpoint="https://idp.example.com/userinfo",
+        jwks_uri="https://idp.example.com/jwks",
+        pkce=False,
+        override_user_info=True,
+        skip_discovery=True,
+    )
+
+    stored_provider = await sso_adapter.get_provider_by_provider_id(object(), provider_id="acme")
+    assert stored_provider is not None
+    config = deserialize_oidc_config(stored_provider.oidc_config)
+    assert config.authorization_endpoint == "https://idp.example.com/authorize"
+    assert config.token_endpoint == "https://idp.example.com/token"  # noqa: S105
+    assert config.userinfo_endpoint == "https://idp.example.com/userinfo"
+    assert config.jwks_uri == "https://idp.example.com/jwks"
+    assert config.pkce is False
+    assert config.override_user_info is True
+
+
+@pytest.mark.asyncio
+async def test_register_oidc_provider_requires_manual_endpoints_when_skip_discovery_enabled() -> None:
+    sso_client, _, _, organization, _ = build_client()
+
+    with pytest.raises(HTTPException, match="authorization_endpoint is required"):
+        await sso_client.register_oidc_provider(
+            organization_id=organization.id,
+            provider_id="acme",
+            issuer="https://idp.example.com",
+            client_id="client-id",
+            client_secret="client-secret",
+            domains=["example.com"],
+            skip_discovery=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_register_oidc_provider_enforces_provider_limit(monkeypatch) -> None:
+    sso_client, _, _, organization, _ = build_client(providers_limit=1)
+    discovery = OIDCDiscoveryResult(
+        issuer="https://idp.example.com",
+        config=OIDCProviderConfig(
+            client_id="client-id",
+            client_secret="client-secret",
+            authorization_endpoint="https://idp.example.com/authorize",
+            token_endpoint="https://idp.example.com/token",
+            userinfo_endpoint="https://idp.example.com/userinfo",
+        ),
+    )
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(return_value=discovery),
+    )
+
+    await sso_client.register_oidc_provider(
+        organization_id=organization.id,
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        domains=["example.com"],
+    )
+
+    with pytest.raises(HTTPException, match="provider limit"):
+        await sso_client.register_oidc_provider(
+            organization_id=organization.id,
+            provider_id="acme-two",
+            issuer="https://idp.example.com",
+            client_id="client-id",
+            client_secret="client-secret",
+            domains=["example.org"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_provider_details_masks_client_id_and_returns_domains(monkeypatch) -> None:
+    sso_client, _, _, organization, _ = build_client()
+    discovery = OIDCDiscoveryResult(
+        issuer="https://idp.example.com",
+        config=OIDCProviderConfig(
+            client_id="client-1234",
+            client_secret="client-secret",
+            authorization_endpoint="https://idp.example.com/authorize",
+            token_endpoint="https://idp.example.com/token",
+            userinfo_endpoint="https://idp.example.com/userinfo",
+            pkce=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(return_value=discovery),
+    )
+
+    provider = await sso_client.register_oidc_provider(
+        organization_id=organization.id,
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-1234",
+        client_secret="client-secret",
+        domains=["example.com", "dept.example.com"],
+    )
+
+    details = await sso_client.get_provider_details(provider_id=provider.provider_id)
+
+    assert details.provider_id == "acme"
+    assert details.oidc_config.client_id_last_four == "****1234"
+    assert details.oidc_config.pkce is False
+    assert [domain.domain for domain in details.domains] == ["example.com", "dept.example.com"]

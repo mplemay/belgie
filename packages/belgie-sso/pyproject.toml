@@ -16,6 +16,7 @@ dependencies = [
     "httpx>=0.24",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
+    "pyjwt[crypto]>=2.12.1",
 ]
 
 [build-system]

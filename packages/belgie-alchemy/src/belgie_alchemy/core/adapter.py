@@ -288,6 +288,7 @@ class BelgieAdapter[
         expires_at: datetime,
         code_verifier: str | None = None,
         redirect_url: str | None = None,
+        request_sign_up: bool | None = None,  # noqa: FBT001
         individual_id: UUID | None = None,
     ) -> OAuthStateT:
         oauth_state = self.oauth_state_model(
@@ -295,6 +296,7 @@ class BelgieAdapter[
             individual_id=individual_id,
             code_verifier=code_verifier,
             redirect_url=redirect_url,
+            request_sign_up=request_sign_up,
             expires_at=expires_at,
         )
         session.add(oauth_state)

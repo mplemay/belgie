@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
-type OIDCConfigValue = str | list[str] | dict[str, str]
+type OIDCConfigValue = str | bool | None | list[str] | dict[str, str | dict[str, str]]
 
 
 @runtime_checkable

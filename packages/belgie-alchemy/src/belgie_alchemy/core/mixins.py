@@ -238,6 +238,10 @@ class OAuthStateMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
+    def request_sign_up(self) -> Mapped[bool | None]:
+        return mapped_column(default=None, kw_only=True)
+
+    @declared_attr
     def individual(self) -> Mapped[object | None]:
         return relationship(
             "Individual",

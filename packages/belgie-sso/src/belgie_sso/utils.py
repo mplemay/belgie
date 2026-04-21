@@ -1,4 +1,7 @@
+import base64
+import hashlib
 import re
+import secrets
 from dataclasses import asdict
 from urllib.parse import urlencode, urlparse, urlunparse
 
@@ -6,6 +9,7 @@ from belgie_proto.sso import OIDCClaimMapping, OIDCProviderConfig
 
 _DOMAIN_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
 _PROVIDER_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
+_CLIENT_ID_SUFFIX_LENGTH = 4
 
 
 def normalize_issuer(issuer: str) -> str:
@@ -62,6 +66,12 @@ def normalize_return_to(return_to: str | None, *, base_url: str) -> str | None:
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, parsed.query, ""))
 
 
+def domain_matches(search_domain: str, registered_domain: str) -> bool:
+    search = search_domain.strip().lower().rstrip(".")
+    registered = registered_domain.strip().lower().rstrip(".")
+    return search == registered or search.endswith(f".{registered}")
+
+
 def build_provider_callback_url(base_url: str, *, provider_id: str) -> str:
     parsed = urlparse(base_url)
     base_path = parsed.path.rstrip("/")
@@ -78,6 +88,8 @@ def build_authorization_url(  # noqa: PLR0913
     scopes: list[str],
     state: str,
     login_hint: str | None = None,
+    code_challenge: str | None = None,
+    code_challenge_method: str | None = None,
 ) -> str:
     params = {
         "client_id": client_id,
@@ -88,39 +100,79 @@ def build_authorization_url(  # noqa: PLR0913
     }
     if login_hint:
         params["login_hint"] = login_hint
+    if code_challenge:
+        params["code_challenge"] = code_challenge
+    if code_challenge_method:
+        params["code_challenge_method"] = code_challenge_method
 
     parsed = urlparse(authorization_endpoint)
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", urlencode(params), ""))
 
 
-def serialize_oidc_config(config: OIDCProviderConfig) -> dict[str, str | list[str] | dict[str, str]]:
+def generate_pkce_code_verifier() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def generate_pkce_code_challenge(code_verifier: str) -> str:
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _coerce_bool(value: object, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes"}
+    return default
+
+
+def serialize_oidc_config(
+    config: OIDCProviderConfig,
+) -> dict[str, str | bool | list[str] | dict[str, str | dict[str, str]]]:
     payload = asdict(config)
     payload["scopes"] = list(config.scopes)
-    return payload
+    return {key: value for key, value in payload.items() if value is not None}
 
 
-def deserialize_oidc_config(payload: dict[str, str | list[str] | dict[str, str]]) -> OIDCProviderConfig:
+def deserialize_oidc_config(
+    payload: dict[str, str | bool | list[str] | dict[str, str | dict[str, str]]],
+) -> OIDCProviderConfig:
     raw_claim_mapping = payload.get("claim_mapping", {})
+    if not isinstance(raw_claim_mapping, dict):
+        raw_claim_mapping = {}
+    raw_extra_fields = raw_claim_mapping.get("extra_fields", {})
+    if not isinstance(raw_extra_fields, dict):
+        raw_extra_fields = {}
     claim_mapping = OIDCClaimMapping(
         subject=str(raw_claim_mapping.get("subject", "sub")),
         email=str(raw_claim_mapping.get("email", "email")),
         email_verified=str(raw_claim_mapping.get("email_verified", "email_verified")),
         name=str(raw_claim_mapping.get("name", "name")),
         image=str(raw_claim_mapping.get("image", "picture")),
+        extra_fields={str(key): str(value) for key, value in raw_extra_fields.items() if isinstance(value, str)},
     )
     raw_scopes = payload.get("scopes", ["openid", "email", "profile"])
+    if not isinstance(raw_scopes, list):
+        raw_scopes = ["openid", "email", "profile"]
     scopes = tuple(scope for scope in raw_scopes if isinstance(scope, str))
 
     return OIDCProviderConfig(
         client_id=str(payload["client_id"]),
         client_secret=str(payload["client_secret"]),
-        authorization_endpoint=str(payload["authorization_endpoint"]),
-        token_endpoint=str(payload["token_endpoint"]),
-        userinfo_endpoint=str(payload["userinfo_endpoint"]),
+        authorization_endpoint=(
+            str(payload["authorization_endpoint"]) if payload.get("authorization_endpoint") is not None else None
+        ),
+        token_endpoint=str(payload["token_endpoint"]) if payload.get("token_endpoint") is not None else None,
+        userinfo_endpoint=(str(payload["userinfo_endpoint"]) if payload.get("userinfo_endpoint") is not None else None),
         jwks_uri=str(payload["jwks_uri"]) if payload.get("jwks_uri") is not None else None,
+        discovery_endpoint=(
+            str(payload["discovery_endpoint"]) if payload.get("discovery_endpoint") is not None else None
+        ),
         scopes=scopes,
         token_endpoint_auth_method=str(payload.get("token_endpoint_auth_method", "client_secret_basic")),
         claim_mapping=claim_mapping,
+        pkce=_coerce_bool(payload.get("pkce"), default=True),
+        override_user_info=_coerce_bool(payload.get("override_user_info"), default=False),
     )
 
 
@@ -134,3 +186,9 @@ def parse_bool_claim(*, value: str | bool | None) -> bool:
     if value is None:
         return False
     return value.strip().lower() in {"1", "true", "yes"}
+
+
+def mask_client_id(client_id: str) -> str:
+    if len(client_id) <= _CLIENT_ID_SUFFIX_LENGTH:
+        return "****"
+    return f"****{client_id[-_CLIENT_ID_SUFFIX_LENGTH:]}"

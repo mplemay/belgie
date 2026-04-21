@@ -14,6 +14,12 @@ if TYPE_CHECKING:
     from belgie_proto.sso.domain import SSODomainProtocol
 
 
+def _domain_matches(search_domain: str, registered_domain: str) -> bool:
+    search = search_domain.lower()
+    registered = registered_domain.lower()
+    return search == registered or search.endswith(f".{registered}")
+
+
 class SSOAdapter[
     ProviderT: SSOProviderProtocol,
     DomainT: SSODomainProtocol,
@@ -176,6 +182,20 @@ class SSOAdapter[
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_best_verified_domain(
+        self,
+        session: DBConnection,
+        *,
+        domain: str,
+    ) -> DomainT | None:
+        stmt = select(self.sso_domain_model).where(self.sso_domain_model.verified_at.is_not(None))
+        result = await session.execute(stmt)
+        matches = [item for item in result.scalars().all() if _domain_matches(domain, item.domain)]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: len(item.domain), reverse=True)
+        return matches[0]
 
     async def list_domains_for_provider(
         self,

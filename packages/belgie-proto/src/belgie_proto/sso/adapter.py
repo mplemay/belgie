@@ -94,6 +94,13 @@ class SSOAdapterProtocol[
         domain: str,
     ) -> DomainT | None: ...
 
+    async def get_best_verified_domain(
+        self,
+        session: DBConnection,
+        *,
+        domain: str,
+    ) -> DomainT | None: ...
+
     async def list_domains_for_provider(
         self,
         session: DBConnection,

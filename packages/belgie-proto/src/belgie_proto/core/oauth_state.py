@@ -14,5 +14,6 @@ class OAuthStateProtocol(Protocol):
     individual_id: UUID | None
     code_verifier: str | None
     redirect_url: str | None
+    request_sign_up: bool | None
     created_at: datetime
     expires_at: datetime

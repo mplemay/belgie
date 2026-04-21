@@ -24,6 +24,7 @@ from belgie_sso import EnterpriseSSO
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import OIDCDiscoveryResult
 from belgie_sso.plugin import TokenResponse
+from belgie_sso.settings import OrganizationProvisioningOptions
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from fastapi import FastAPI
@@ -221,3 +222,277 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
         )
         assert member is not None
         assert member.role == "member"
+
+
+@pytest.mark.asyncio
+async def test_enterprise_sso_signin_persists_pkce_state(monkeypatch, session_factory) -> None:
+    core_adapter = BelgieAdapter(
+        account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
+        session=Session,
+        oauth_state=OAuthState,
+    )
+    organization_adapter = OrganizationAdapter(
+        organization=OrganizationModel,
+        member=OrganizationMember,
+        invitation=OrganizationInvitation,
+    )
+    sso_adapter = SSOAdapter(
+        sso_provider=SSOProvider,
+        sso_domain=SSODomain,
+    )
+
+    settings = BelgieSettings(secret="secret", base_url="http://localhost:8000")
+
+    async def database() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            yield session
+
+    belgie = Belgie(
+        settings=settings,
+        adapter=core_adapter,
+        database=database,
+    )
+    belgie.add_plugin(
+        Organization(
+            adapter=organization_adapter,
+        ),
+    )
+    sso_settings = EnterpriseSSO(adapter=sso_adapter)
+    belgie.add_plugin(sso_settings)
+
+    async with session_factory() as session:
+        owner = await core_adapter.create_individual(
+            session,
+            email="owner@example.com",
+            name="Owner",
+            email_verified_at=datetime.now(UTC),
+        )
+        organization = await organization_adapter.create_organization(
+            session,
+            name="Acme",
+            slug="acme",
+        )
+        await organization_adapter.create_member(
+            session,
+            organization_id=organization.id,
+            individual_id=owner.id,
+            role="owner",
+        )
+        management_client = SSOClient(
+            client=BelgieClient(
+                db=session,
+                adapter=core_adapter,
+                session_manager=belgie.session_manager,
+                cookie_settings=belgie.settings.cookie,
+            ),
+            settings=sso_settings,
+            organization_adapter=organization_adapter,
+            current_individual=owner,
+        )
+        monkeypatch.setattr(
+            "belgie_sso.client.discover_oidc_configuration",
+            AsyncMock(
+                return_value=OIDCDiscoveryResult(
+                    issuer="https://idp.example.com",
+                    config=OIDCProviderConfig(
+                        client_id="client-id",
+                        client_secret="client-secret",
+                        authorization_endpoint="https://idp.example.com/authorize",
+                        token_endpoint="https://idp.example.com/token",
+                        userinfo_endpoint="https://idp.example.com/userinfo",
+                    ),
+                ),
+            ),
+        )
+        provider = await management_client.register_oidc_provider(
+            organization_id=organization.id,
+            provider_id="acme",
+            issuer="https://idp.example.com",
+            client_id="client-id",
+            client_secret="client-secret",
+            domains=["example.com"],
+        )
+        domain = (await sso_adapter.list_domains_for_provider(session, sso_provider_id=provider.id))[0]
+        monkeypatch.setattr(
+            "belgie_sso.client.lookup_txt_records",
+            AsyncMock(return_value=[domain.verification_token]),
+        )
+        await management_client.verify_domain(provider_id="acme", domain="example.com")
+
+    app = FastAPI()
+    app.include_router(belgie.router)
+
+    signin_response = TestClient(app).get(
+        "/auth/provider/sso/signin?email=person@example.com",
+        follow_redirects=False,
+    )
+
+    assert signin_response.status_code == 302
+    assert "code_challenge=" in signin_response.headers["location"]
+    state = parse_qs(urlparse(signin_response.headers["location"]).query)["state"][0]
+
+    async with session_factory() as session:
+        oauth_state = await core_adapter.get_oauth_state(session, state)
+        assert oauth_state is not None
+        assert oauth_state.code_verifier is not None
+        assert oauth_state.request_sign_up is False
+
+
+@pytest.mark.asyncio
+async def test_enterprise_sso_flow_assigns_custom_org_role(monkeypatch, session_factory) -> None:
+    core_adapter = BelgieAdapter(
+        account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
+        session=Session,
+        oauth_state=OAuthState,
+    )
+    organization_adapter = OrganizationAdapter(
+        organization=OrganizationModel,
+        member=OrganizationMember,
+        invitation=OrganizationInvitation,
+    )
+    sso_adapter = SSOAdapter(
+        sso_provider=SSOProvider,
+        sso_domain=SSODomain,
+    )
+
+    settings = BelgieSettings(secret="secret", base_url="http://localhost:8000")
+
+    async def database() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            yield session
+
+    belgie = Belgie(
+        settings=settings,
+        adapter=core_adapter,
+        database=database,
+    )
+    belgie.add_plugin(
+        Organization(
+            adapter=organization_adapter,
+        ),
+    )
+    sso_settings = EnterpriseSSO(
+        adapter=sso_adapter,
+        organization_provisioning=OrganizationProvisioningOptions(default_role="admin"),
+    )
+    sso_plugin = belgie.add_plugin(sso_settings)
+
+    async with session_factory() as session:
+        owner = await core_adapter.create_individual(
+            session,
+            email="owner@example.com",
+            name="Owner",
+            email_verified_at=datetime.now(UTC),
+        )
+        organization = await organization_adapter.create_organization(
+            session,
+            name="Acme",
+            slug="acme",
+        )
+        await organization_adapter.create_member(
+            session,
+            organization_id=organization.id,
+            individual_id=owner.id,
+            role="owner",
+        )
+
+        management_client = SSOClient(
+            client=BelgieClient(
+                db=session,
+                adapter=core_adapter,
+                session_manager=belgie.session_manager,
+                cookie_settings=belgie.settings.cookie,
+            ),
+            settings=sso_settings,
+            organization_adapter=organization_adapter,
+            current_individual=owner,
+        )
+
+        monkeypatch.setattr(
+            "belgie_sso.client.discover_oidc_configuration",
+            AsyncMock(
+                return_value=OIDCDiscoveryResult(
+                    issuer="https://idp.example.com",
+                    config=OIDCProviderConfig(
+                        client_id="client-id",
+                        client_secret="client-secret",
+                        authorization_endpoint="https://idp.example.com/authorize",
+                        token_endpoint="https://idp.example.com/token",
+                        userinfo_endpoint="https://idp.example.com/userinfo",
+                    ),
+                ),
+            ),
+        )
+
+        provider = await management_client.register_oidc_provider(
+            organization_id=organization.id,
+            provider_id="acme",
+            issuer="https://idp.example.com",
+            client_id="client-id",
+            client_secret="client-secret",
+            domains=["example.com"],
+        )
+        domain = (await sso_adapter.list_domains_for_provider(session, sso_provider_id=provider.id))[0]
+        monkeypatch.setattr(
+            "belgie_sso.client.lookup_txt_records",
+            AsyncMock(return_value=[domain.verification_token]),
+        )
+        await management_client.verify_domain(provider_id="acme", domain="example.com")
+
+    monkeypatch.setattr(
+        sso_plugin,
+        "_exchange_code_for_tokens",
+        AsyncMock(
+            return_value=TokenResponse(
+                access_token="access-token",
+                token_type="Bearer",
+                refresh_token="refresh-token",
+                scope="openid email profile",
+                id_token="id-token",
+                expires_at=None,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        sso_plugin,
+        "get_user_info",
+        AsyncMock(
+            return_value={
+                "sub": "oidc-user-1",
+                "email": "person@example.com",
+                "email_verified": True,
+                "name": "Person Example",
+            },
+        ),
+    )
+
+    app = FastAPI()
+    app.include_router(belgie.router)
+
+    signin_response = TestClient(app).get(
+        "/auth/provider/sso/signin?email=person@example.com",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlparse(signin_response.headers["location"]).query)["state"][0]
+
+    callback_response = TestClient(app).get(
+        f"/auth/provider/sso/callback/acme?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert callback_response.status_code == 302
+
+    async with session_factory() as session:
+        created_user = await core_adapter.get_individual_by_email(session, "person@example.com")
+        assert created_user is not None
+        member = await organization_adapter.get_member(
+            session,
+            organization_id=organization.id,
+            individual_id=created_user.id,
+        )
+        assert member is not None
+        assert member.role == "admin"
