@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -25,6 +26,8 @@ def test_microsoft_settings_defaults() -> None:
     )
 
     assert settings.tenant == "common"
+    assert settings.authority == "https://login.microsoftonline.com"
+    assert settings.profile_photo_size == 48
     assert settings.scopes == ["openid", "profile", "email", "offline_access", "User.Read"]
 
 
@@ -73,6 +76,15 @@ def test_microsoft_tenant_specific_preset_sets_expected_issuer() -> None:
     assert provider.jwks_uri == "https://login.microsoftonline.com/tenant-123/discovery/v2.0/keys"
 
 
+def test_microsoft_settings_reject_invalid_profile_photo_size() -> None:
+    with pytest.raises(ValidationError):
+        MicrosoftOAuth(
+            client_id="microsoft-client-id",
+            client_secret="microsoft-client-secret",
+            profile_photo_size=72,
+        )
+
+
 @pytest.mark.asyncio
 async def test_microsoft_authorization_url_includes_query_response_mode() -> None:
     plugin = _build_plugin()
@@ -82,6 +94,30 @@ async def test_microsoft_authorization_url_includes_query_response_mode() -> Non
 
     assert query["response_mode"][0] == "query"
     assert query["scope"][0] == "openid profile email offline_access User.Read"
+
+
+@pytest.mark.asyncio
+async def test_microsoft_refresh_reuses_existing_or_default_scope() -> None:
+    provider = MicrosoftOAuth(
+        client_id="microsoft-client-id",
+        client_secret="microsoft-client-secret",
+    ).to_provider()
+    oauth_client = AsyncMock()
+    oauth_client.load_server_metadata.return_value = {
+        "token_endpoint": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    }
+    oauth_client.refresh_token.return_value = {
+        "access_token": "fresh-access-token",
+        "token_type": "Bearer",
+    }
+
+    await provider.refresh_tokens(  # type: ignore[union-attr]
+        oauth_client,
+        type("TokenSet", (), {"refresh_token": "refresh-token", "scope": "openid email profile"})(),
+        {},
+    )
+
+    assert oauth_client.refresh_token.await_args.kwargs["scope"] == "openid email profile"
 
 
 def test_microsoft_profile_mapper_falls_back_to_preferred_username() -> None:
@@ -106,3 +142,13 @@ def test_microsoft_userinfo_model_resolves_email() -> None:
     )
 
     assert profile.resolved_email == "person@example.com"
+
+
+def test_microsoft_userinfo_model_uses_verified_email_lists() -> None:
+    profile = MicrosoftUserInfo(
+        sub="microsoft-user-1",
+        verified_primary_email=["person@example.com"],
+    )
+
+    assert profile.resolved_email == "person@example.com"
+    assert profile.resolved_email_verified is True

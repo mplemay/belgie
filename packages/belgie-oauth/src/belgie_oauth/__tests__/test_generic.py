@@ -461,7 +461,8 @@ async def test_callback_link_flow_does_not_set_session_cookie(monkeypatch) -> No
     plugin = _build_plugin()
     individual_id = uuid4()
     adapter = _build_state_adapter(
-        get_individual_by_id=AsyncMock(return_value=SimpleNamespace(id=individual_id)),
+        get_individual_by_id=AsyncMock(return_value=SimpleNamespace(id=individual_id, email="linked@example.com")),
+        update_individual=AsyncMock(),
     )
     client_dependency = SimpleNamespace(
         db=object(),
@@ -612,7 +613,7 @@ async def test_callback_redirects_to_error_url_on_oauth_failure(monkeypatch) -> 
         )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/error?error=oauth_callback_failed"
+    assert response.headers["location"] == "/error?error=oauth_code_verification_failed"
 
 
 @pytest.mark.asyncio
@@ -655,7 +656,7 @@ async def test_signin_disallows_signup_when_provider_forbids_it(monkeypatch) -> 
         )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/error?error=oauth_callback_failed"
+    assert response.headers["location"] == "/error?error=signup_disabled"
     client_dependency.get_or_create_individual.assert_not_awaited()
 
 
@@ -699,8 +700,353 @@ async def test_signin_requires_explicit_signup_flag(monkeypatch) -> None:
         )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/error?error=oauth_callback_failed"
+    assert response.headers["location"] == "/error?error=signup_disabled"
     client_dependency.get_or_create_individual.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_existing_account_signin_can_skip_account_updates(monkeypatch) -> None:
+    plugin = _build_plugin(update_account_on_sign_in=False)
+    individual = SimpleNamespace(id=uuid4(), email="person@example.com")
+    existing_account = _build_account(individual_id=individual.id, provider_account_id="provider-account-1")
+    session = SimpleNamespace(id=uuid4())
+    adapter = _build_state_adapter(
+        get_individual_by_id=AsyncMock(return_value=individual),
+    )
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=adapter,
+        get_oauth_account=AsyncMock(return_value=existing_account),
+        sign_in_individual=AsyncMock(return_value=session),
+        update_oauth_account_by_id=AsyncMock(),
+        create_session_cookie=MagicMock(side_effect=lambda _session, response: response),
+    )
+    app = _build_app(plugin, client_dependency)
+    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+
+    with TestClient(app) as test_client:
+        start_url = await oauth_client.signin_url(return_to="/after")
+        _, state = _start_provider_flow(test_client, start_url)
+        monkeypatch.setattr(plugin._transport, "resolve_server_metadata", AsyncMock(return_value={}))
+        monkeypatch.setattr(plugin._transport, "exchange_code_for_tokens", AsyncMock(return_value=_token_set()))
+        monkeypatch.setattr(
+            plugin._transport,
+            "fetch_provider_profile",
+            AsyncMock(
+                return_value=OAuthUserInfo(
+                    provider_account_id="provider-account-1",
+                    email="person@example.com",
+                    email_verified=False,
+                    raw={"sub": "provider-account-1"},
+                ),
+            ),
+        )
+        response = test_client.get(
+            f"/auth/provider/acme/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/after"
+    client_dependency.update_oauth_account_by_id.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_signin_implicitly_links_existing_verified_user(monkeypatch) -> None:
+    plugin = _build_plugin()
+    individual = SimpleNamespace(id=uuid4(), email="person@example.com")
+    session = SimpleNamespace(id=uuid4())
+    adapter = _build_state_adapter(
+        get_individual_by_email=AsyncMock(return_value=individual),
+        update_individual=AsyncMock(return_value=individual),
+    )
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=adapter,
+        get_oauth_account=AsyncMock(return_value=None),
+        get_or_create_individual=AsyncMock(return_value=(individual, False)),
+        sign_in_individual=AsyncMock(return_value=session),
+        after_sign_up=AsyncMock(),
+        upsert_oauth_account=AsyncMock(),
+        create_session_cookie=MagicMock(side_effect=lambda _session, response: response),
+    )
+    app = _build_app(plugin, client_dependency)
+    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+
+    with TestClient(app) as test_client:
+        start_url = await oauth_client.signin_url()
+        _, state = _start_provider_flow(test_client, start_url)
+        monkeypatch.setattr(plugin._transport, "resolve_server_metadata", AsyncMock(return_value={}))
+        monkeypatch.setattr(plugin._transport, "exchange_code_for_tokens", AsyncMock(return_value=_token_set()))
+        monkeypatch.setattr(
+            plugin._transport,
+            "fetch_provider_profile",
+            AsyncMock(
+                return_value=OAuthUserInfo(
+                    provider_account_id="provider-account-1",
+                    email="person@example.com",
+                    email_verified=True,
+                    raw={"sub": "provider-account-1"},
+                ),
+            ),
+        )
+        response = test_client.get(
+            f"/auth/provider/acme/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
+    client_dependency.upsert_oauth_account.assert_awaited_once_with(
+        individual_id=individual.id,
+        provider="acme",
+        provider_account_id="provider-account-1",
+        access_token="access-token",
+        refresh_token="refresh-token",
+        access_token_expires_at=ANY,
+        refresh_token_expires_at=ANY,
+        scope="openid email profile",
+        token_type="Bearer",
+        id_token="id-token",
+    )
+
+
+@pytest.mark.asyncio
+async def test_signin_rejects_untrusted_implicit_linking(monkeypatch) -> None:
+    plugin = _build_plugin()
+    individual = SimpleNamespace(id=uuid4(), email="person@example.com")
+    adapter = _build_state_adapter(
+        get_individual_by_email=AsyncMock(return_value=individual),
+    )
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=adapter,
+        get_oauth_account=AsyncMock(return_value=None),
+        get_or_create_individual=AsyncMock(),
+    )
+    app = _build_app(plugin, client_dependency)
+    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+
+    with TestClient(app) as test_client:
+        start_url = await oauth_client.signin_url(error_redirect_url="/error")
+        _, state = _start_provider_flow(test_client, start_url)
+        monkeypatch.setattr(plugin._transport, "resolve_server_metadata", AsyncMock(return_value={}))
+        monkeypatch.setattr(plugin._transport, "exchange_code_for_tokens", AsyncMock(return_value=_token_set()))
+        monkeypatch.setattr(
+            plugin._transport,
+            "fetch_provider_profile",
+            AsyncMock(
+                return_value=OAuthUserInfo(
+                    provider_account_id="provider-account-1",
+                    email="person@example.com",
+                    email_verified=False,
+                    raw={"sub": "provider-account-1"},
+                ),
+            ),
+        )
+        response = test_client.get(
+            f"/auth/provider/acme/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/error?error=account_not_linked"
+    client_dependency.get_or_create_individual.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_signin_trusted_provider_can_implicitly_link_unverified_email(monkeypatch) -> None:
+    plugin = _build_plugin(trusted_for_account_linking=True)
+    individual = SimpleNamespace(id=uuid4(), email="person@example.com")
+    session = SimpleNamespace(id=uuid4())
+    adapter = _build_state_adapter(
+        get_individual_by_email=AsyncMock(return_value=individual),
+    )
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=adapter,
+        get_oauth_account=AsyncMock(return_value=None),
+        get_or_create_individual=AsyncMock(return_value=(individual, False)),
+        sign_in_individual=AsyncMock(return_value=session),
+        after_sign_up=AsyncMock(),
+        upsert_oauth_account=AsyncMock(),
+        create_session_cookie=MagicMock(side_effect=lambda _session, response: response),
+    )
+    app = _build_app(plugin, client_dependency)
+    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+
+    with TestClient(app) as test_client:
+        start_url = await oauth_client.signin_url()
+        _, state = _start_provider_flow(test_client, start_url)
+        monkeypatch.setattr(plugin._transport, "resolve_server_metadata", AsyncMock(return_value={}))
+        monkeypatch.setattr(plugin._transport, "exchange_code_for_tokens", AsyncMock(return_value=_token_set()))
+        monkeypatch.setattr(
+            plugin._transport,
+            "fetch_provider_profile",
+            AsyncMock(
+                return_value=OAuthUserInfo(
+                    provider_account_id="provider-account-1",
+                    email="person@example.com",
+                    email_verified=False,
+                    raw={"sub": "provider-account-1"},
+                ),
+            ),
+        )
+        response = test_client.get(
+            f"/auth/provider/acme/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
+    client_dependency.upsert_oauth_account.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_link_flow_rejects_mismatched_email(monkeypatch) -> None:
+    plugin = _build_plugin()
+    individual_id = uuid4()
+    adapter = _build_state_adapter(
+        get_individual_by_id=AsyncMock(return_value=SimpleNamespace(id=individual_id, email="owner@example.com")),
+    )
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=adapter,
+        get_oauth_account=AsyncMock(return_value=None),
+        upsert_oauth_account=AsyncMock(),
+    )
+    app = _build_app(plugin, client_dependency)
+    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+
+    with TestClient(app) as test_client:
+        start_url = await oauth_client.link_url(
+            individual_id=individual_id,
+            return_to="/linked",
+            error_redirect_url="/error",
+        )
+        _, state = _start_provider_flow(test_client, start_url)
+        monkeypatch.setattr(plugin._transport, "resolve_server_metadata", AsyncMock(return_value={}))
+        monkeypatch.setattr(plugin._transport, "exchange_code_for_tokens", AsyncMock(return_value=_token_set()))
+        monkeypatch.setattr(
+            plugin._transport,
+            "fetch_provider_profile",
+            AsyncMock(
+                return_value=OAuthUserInfo(
+                    provider_account_id="provider-account-2",
+                    email="other@example.com",
+                    email_verified=True,
+                    raw={"sub": "provider-account-2"},
+                ),
+            ),
+        )
+        response = test_client.get(
+            f"/auth/provider/acme/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/error?error=email_does_not_match"
+    client_dependency.upsert_oauth_account.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_link_flow_rejects_missing_email(monkeypatch) -> None:
+    plugin = _build_plugin()
+    individual_id = uuid4()
+    adapter = _build_state_adapter(
+        get_individual_by_id=AsyncMock(return_value=SimpleNamespace(id=individual_id, email="owner@example.com")),
+    )
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=adapter,
+        get_oauth_account=AsyncMock(return_value=None),
+        upsert_oauth_account=AsyncMock(),
+    )
+    app = _build_app(plugin, client_dependency)
+    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+
+    with TestClient(app) as test_client:
+        start_url = await oauth_client.link_url(
+            individual_id=individual_id,
+            return_to="/linked",
+            error_redirect_url="/error",
+        )
+        _, state = _start_provider_flow(test_client, start_url)
+        monkeypatch.setattr(plugin._transport, "resolve_server_metadata", AsyncMock(return_value={}))
+        monkeypatch.setattr(plugin._transport, "exchange_code_for_tokens", AsyncMock(return_value=_token_set()))
+        monkeypatch.setattr(
+            plugin._transport,
+            "fetch_provider_profile",
+            AsyncMock(
+                return_value=OAuthUserInfo(
+                    provider_account_id="provider-account-2",
+                    email=None,
+                    email_verified=False,
+                    raw={"sub": "provider-account-2"},
+                ),
+            ),
+        )
+        response = test_client.get(
+            f"/auth/provider/acme/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/error?error=email_missing"
+    client_dependency.upsert_oauth_account.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_email_verification_only_updates_when_provider_email_matches(monkeypatch) -> None:
+    plugin = _build_plugin(override_user_info_on_sign_in=True)
+    individual = SimpleNamespace(id=uuid4(), email="person@example.com")
+    updated_individual = SimpleNamespace(id=individual.id, email=individual.email)
+    existing_account = _build_account(individual_id=individual.id, provider_account_id="provider-account-1")
+    session = SimpleNamespace(id=uuid4())
+    adapter = _build_state_adapter(
+        get_individual_by_id=AsyncMock(return_value=individual),
+        update_individual=AsyncMock(return_value=updated_individual),
+    )
+    client_dependency = SimpleNamespace(
+        db=object(),
+        adapter=adapter,
+        get_oauth_account=AsyncMock(return_value=existing_account),
+        sign_in_individual=AsyncMock(return_value=session),
+        update_oauth_account_by_id=AsyncMock(return_value=existing_account),
+        create_session_cookie=MagicMock(side_effect=lambda _session, response: response),
+    )
+    app = _build_app(plugin, client_dependency)
+    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+
+    with TestClient(app) as test_client:
+        start_url = await oauth_client.signin_url()
+        _, state = _start_provider_flow(test_client, start_url)
+        monkeypatch.setattr(plugin._transport, "resolve_server_metadata", AsyncMock(return_value={}))
+        monkeypatch.setattr(plugin._transport, "exchange_code_for_tokens", AsyncMock(return_value=_token_set()))
+        monkeypatch.setattr(
+            plugin._transport,
+            "fetch_provider_profile",
+            AsyncMock(
+                return_value=OAuthUserInfo(
+                    provider_account_id="provider-account-1",
+                    email="other@example.com",
+                    email_verified=True,
+                    name="Updated Name",
+                    image="https://example.com/photo.jpg",
+                    raw={"sub": "provider-account-1"},
+                ),
+            ),
+        )
+        response = test_client.get(
+            f"/auth/provider/acme/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    update_kwargs = adapter.update_individual.await_args.kwargs
+    assert update_kwargs["name"] == "Updated Name"
+    assert update_kwargs["image"] == "https://example.com/photo.jpg"
+    assert "email_verified_at" not in update_kwargs
 
 
 @pytest.mark.asyncio

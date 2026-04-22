@@ -9,6 +9,7 @@ from authlib.integrations.base_client.async_openid import AsyncOpenIDMixin
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from belgie_core.core.exceptions import ConfigurationError, OAuthError
 
+from belgie_oauth._errors import OAuthCallbackError
 from belgie_oauth._helpers import coerce_optional_str, serialize_scopes
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo, RawProfile
 
@@ -179,8 +180,10 @@ class OAuthTransport:
                     id_token_claims = await oauth_client.parse_id_token(token_set.raw, nonce=nonce)
                     raw_profile.update(dict(id_token_claims))
                 except Exception as exc:
-                    msg = "failed to validate provider id token"
-                    raise OAuthError(msg) from exc
+                    raise OAuthCallbackError(
+                        "oauth_code_verification_failed",
+                        "failed to validate provider id token",
+                    ) from exc
 
             fetched_profile = await self._fetch_userinfo(oauth_client, token_set)
             if isinstance(fetched_profile, OAuthUserInfo):
@@ -200,8 +203,7 @@ class OAuthTransport:
                 raw_profile.update(fetched_profile)
 
         if not raw_profile:
-            msg = "provider did not return a usable profile"
-            raise OAuthError(msg)
+            raise OAuthCallbackError("user_info_missing", "provider did not return a usable profile")
         return self.map_profile(raw_profile, token_set)
 
     def map_profile(self, raw_profile: RawProfile, token_set: OAuthTokenSet) -> OAuthUserInfo:
@@ -234,12 +236,10 @@ class OAuthTransport:
             return
         if issuer is None:
             if self.config.require_issuer_parameter_validation:
-                msg = "missing OAuth issuer parameter"
-                raise OAuthError(msg)
+                raise OAuthCallbackError("issuer_missing", "missing OAuth issuer parameter")
             return
         if issuer != expected_issuer:
-            msg = "OAuth issuer mismatch"
-            raise OAuthError(msg)
+            raise OAuthCallbackError("issuer_mismatch", "OAuth issuer mismatch")
 
     def token_payload(self, token_set: OAuthTokenSet) -> dict[str, Any]:
         payload = dict(token_set.raw)
@@ -282,8 +282,7 @@ class OAuthTransport:
         try:
             profile = await oauth_client.userinfo()
         except Exception as exc:
-            msg = "failed to fetch provider user info"
-            raise OAuthError(msg) from exc
+            raise OAuthCallbackError("user_info_missing", "failed to fetch provider user info") from exc
         return dict(profile)
 
     def _manual_metadata(self) -> dict[str, Any]:

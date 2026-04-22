@@ -10,6 +10,7 @@ from belgie_core.utils.crypto import generate_state_token
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse
 
+from belgie_oauth._errors import OAuthCallbackError
 from belgie_oauth._helpers import append_query_params, generate_code_verifier
 from belgie_oauth._models import ConsumedOAuthState, OAuthLinkedAccount, OAuthTokenSet, OAuthUserInfo, PendingOAuthState
 
@@ -199,15 +200,12 @@ class OAuthFlowCoordinator:
                 return normalization
 
             callback_params = await self.extract_callback_params(request)
-            state = callback_params.get("state")
-            if not state:
-                msg = "missing OAuth state"
-                raise OAuthError(msg)
+            if not (state := callback_params.get("state")):
+                raise OAuthCallbackError("state_mismatch", "missing OAuth state")
 
             consumed_state = await self.state_store.consume_callback_state(client, request, state)
             if consumed_state.provider and consumed_state.provider != self.provider_id:
-                msg = "OAuth state provider mismatch"
-                raise OAuthError(msg)
+                raise OAuthCallbackError("state_mismatch", "OAuth state provider mismatch")
 
             metadata = await self.transport.resolve_server_metadata()
             self.transport.validate_issuer_parameter(callback_params.get("iss"), metadata)
@@ -217,20 +215,29 @@ class OAuthFlowCoordinator:
 
             if callback_params.get("error"):
                 description = callback_params.get("error_description") or callback_params["error"]
-                raise OAuthError(description)
+                raise OAuthCallbackError(str(callback_params["error"]), description)
 
             if not (code := callback_params.get("code")):
-                msg = "missing OAuth authorization code"
-                raise OAuthError(msg)
+                raise OAuthCallbackError("oauth_code_verification_failed", "missing OAuth authorization code")
 
-            token_set = await self.transport.exchange_code_for_tokens(
-                code,
-                code_verifier=consumed_state.code_verifier,
-            )
-            provider_user = await self.transport.fetch_provider_profile(
-                token_set,
-                nonce=consumed_state.nonce,
-            )
+            try:
+                token_set = await self.transport.exchange_code_for_tokens(
+                    code,
+                    code_verifier=consumed_state.code_verifier,
+                )
+            except OAuthError as exc:
+                if isinstance(exc, OAuthCallbackError):
+                    raise
+                raise OAuthCallbackError("oauth_code_verification_failed", str(exc)) from exc
+            try:
+                provider_user = await self.transport.fetch_provider_profile(
+                    token_set,
+                    nonce=consumed_state.nonce,
+                )
+            except OAuthError as exc:
+                if isinstance(exc, OAuthCallbackError):
+                    raise
+                raise OAuthCallbackError("user_info_missing", str(exc)) from exc
 
             if consumed_state.intent == "link":
                 response = await self._complete_link_flow(
@@ -251,12 +258,14 @@ class OAuthFlowCoordinator:
                 )
             self.state_store.clear_cookies(response)
             return response
-        except OAuthError:
+        except OAuthError as exc:
             if consumed_state and consumed_state.error_redirect_url:
                 response = RedirectResponse(
                     url=append_query_params(
                         consumed_state.error_redirect_url,
-                        {"error": "oauth_callback_failed"},
+                        {
+                            "error": exc.code if isinstance(exc, OAuthCallbackError) else "oauth_callback_failed",
+                        },
                     ),
                     status_code=status.HTTP_302_FOUND,
                 )
@@ -304,16 +313,16 @@ class OAuthFlowCoordinator:
             if individual is None:
                 msg = "linked individual not found"
                 raise OAuthError(msg)
-            if self.config.override_user_info_on_sign_in:
-                individual = await self._refresh_individual_profile(client, individual.id, provider_user) or individual
+            individual = await self._refresh_individual_profile(client, individual, provider_user) or individual
             session = await client.sign_in_individual(individual, request=request)
-            updated_account = await client.update_oauth_account_by_id(
-                existing_account.id,
-                **self._encoded_token_updates(token_set),
-            )
-            if updated_account is None:
-                msg = "failed to update linked oauth account"
-                raise OAuthError(msg)
+            if self.config.update_account_on_sign_in:
+                updated_account = await client.update_oauth_account_by_id(
+                    existing_account.id,
+                    **self._encoded_token_updates(token_set),
+                )
+                if updated_account is None:
+                    msg = "failed to update linked oauth account"
+                    raise OAuthError(msg)
             await belgie.after_authenticate(
                 client=client,
                 request=request,
@@ -334,17 +343,19 @@ class OAuthFlowCoordinator:
             return client.create_session_cookie(session, response)
 
         if provider_user.email is None:
-            msg = "provider user info missing email"
-            raise OAuthError(msg)
+            raise OAuthCallbackError("email_missing", "provider user info missing email")
 
         existing_individual = await client.adapter.get_individual_by_email(client.db, provider_user.email)
-        if existing_individual is None:
-            if self.config.disable_sign_up:
-                msg = "sign up is disabled for this provider"
-                raise OAuthError(msg)
-            if self.config.disable_implicit_sign_up and not oauth_state.request_sign_up:
-                msg = "sign up requires an explicit request"
-                raise OAuthError(msg)
+        if existing_individual is not None:
+            if not self.config.allow_implicit_account_linking:
+                raise OAuthCallbackError("account_not_linked", "implicit account linking is disabled")
+            if not (provider_user.email_verified or self.config.trusted_for_account_linking):
+                raise OAuthCallbackError(
+                    "account_not_linked",
+                    "provider email is not trusted for implicit account linking",
+                )
+        elif self.config.disable_sign_up or (self.config.disable_implicit_sign_up and not oauth_state.request_sign_up):
+            raise OAuthCallbackError("signup_disabled", "sign up is disabled for this provider")
 
         verified_at = datetime.now(UTC) if provider_user.email_verified else None
         individual, created = await client.get_or_create_individual(
@@ -353,8 +364,15 @@ class OAuthFlowCoordinator:
             image=provider_user.image,
             email_verified_at=verified_at,
         )
-        if not created and self.config.override_user_info_on_sign_in:
-            individual = await self._refresh_individual_profile(client, individual.id, provider_user) or individual
+        if not created:
+            if not self.config.allow_implicit_account_linking:
+                raise OAuthCallbackError("account_not_linked", "implicit account linking is disabled")
+            if not (provider_user.email_verified or self.config.trusted_for_account_linking):
+                raise OAuthCallbackError(
+                    "account_not_linked",
+                    "provider email is not trusted for implicit account linking",
+                )
+            individual = await self._refresh_individual_profile(client, individual, provider_user) or individual
         session = await client.sign_in_individual(individual, request=request)
         if created and client.after_sign_up is not None:
             await client.after_sign_up(
@@ -363,12 +381,17 @@ class OAuthFlowCoordinator:
                 individual=individual,
             )
 
-        await client.upsert_oauth_account(
-            individual_id=individual.id,
-            provider=self.provider_id,
-            provider_account_id=provider_user.provider_account_id,
-            **self._encoded_token_updates(token_set),
-        )
+        try:
+            await client.upsert_oauth_account(
+                individual_id=individual.id,
+                provider=self.provider_id,
+                provider_account_id=provider_user.provider_account_id,
+                **self._encoded_token_updates(token_set),
+            )
+        except OAuthError as exc:
+            if "already linked to another individual" in str(exc):
+                raise OAuthCallbackError("account_already_linked_to_different_user", str(exc)) from exc
+            raise
         await belgie.after_authenticate(
             client=client,
             request=request,
@@ -404,23 +427,45 @@ class OAuthFlowCoordinator:
         if oauth_state.individual_id is None:
             msg = "link flow is missing the initiating individual"
             raise OAuthError(msg)
-        if await client.adapter.get_individual_by_id(client.db, oauth_state.individual_id) is None:
+        if (individual := await client.adapter.get_individual_by_id(client.db, oauth_state.individual_id)) is None:
             msg = "initiating individual not found"
             raise OAuthError(msg)
+
+        if not self.config.allow_different_link_emails:
+            if provider_user.email is None:
+                raise OAuthCallbackError("email_missing", "provider user info missing email")
+            if not self._emails_match(getattr(individual, "email", None), provider_user.email):
+                raise OAuthCallbackError(
+                    "email_does_not_match",
+                    "provider email does not match the initiating individual",
+                )
 
         existing_account = await client.get_oauth_account(
             provider=self.provider_id,
             provider_account_id=provider_user.provider_account_id,
         )
         if existing_account is not None and existing_account.individual_id != oauth_state.individual_id:
-            msg = "oauth account already linked to another individual"
-            raise OAuthError(msg)
+            raise OAuthCallbackError(
+                "account_already_linked_to_different_user",
+                "oauth account already linked to another individual",
+            )
 
-        await client.upsert_oauth_account(
+        try:
+            await client.upsert_oauth_account(
+                individual_id=oauth_state.individual_id,
+                provider=self.provider_id,
+                provider_account_id=provider_user.provider_account_id,
+                **self._encoded_token_updates(token_set),
+            )
+        except OAuthError as exc:
+            if "already linked to another individual" in str(exc):
+                raise OAuthCallbackError("account_already_linked_to_different_user", str(exc)) from exc
+            raise
+        await self._refresh_verified_email(
+            client,
             individual_id=oauth_state.individual_id,
-            provider=self.provider_id,
-            provider_account_id=provider_user.provider_account_id,
-            **self._encoded_token_updates(token_set),
+            individual_email=getattr(individual, "email", None),
+            provider_user=provider_user,
         )
 
         return RedirectResponse(
@@ -431,19 +476,35 @@ class OAuthFlowCoordinator:
     async def _refresh_individual_profile(
         self,
         client: BelgieClient,
-        individual_id: UUID,
+        individual,
         provider_user: OAuthUserInfo,
     ):
         updates: dict[str, Any] = {}
-        if provider_user.name is not None:
+        if self.config.override_user_info_on_sign_in and provider_user.name is not None:
             updates["name"] = provider_user.name
-        if provider_user.image is not None:
+        if self.config.override_user_info_on_sign_in and provider_user.image is not None:
             updates["image"] = provider_user.image
-        if provider_user.email_verified:
+        if self._emails_match(getattr(individual, "email", None), provider_user.email) and provider_user.email_verified:
             updates["email_verified_at"] = datetime.now(UTC)
         if not updates:
             return None
-        return await client.adapter.update_individual(client.db, individual_id, **updates)
+        return await client.adapter.update_individual(client.db, individual.id, **updates)
+
+    async def _refresh_verified_email(
+        self,
+        client: BelgieClient,
+        *,
+        individual_id: UUID,
+        individual_email: str | None,
+        provider_user: OAuthUserInfo,
+    ) -> None:
+        if not self._emails_match(individual_email, provider_user.email) or not provider_user.email_verified:
+            return
+        await client.adapter.update_individual(
+            client.db,
+            individual_id,
+            email_verified_at=datetime.now(UTC),
+        )
 
     async def _get_linked_account(
         self,
@@ -484,3 +545,10 @@ class OAuthFlowCoordinator:
         if account.access_token_expires_at is None or account.refresh_token is None:
             return False
         return account.access_token_expires_at <= datetime.now(UTC) + timedelta(seconds=30)
+
+    def _emails_match(self, current_email: str | None, provider_email: str | None) -> bool:
+        return (
+            current_email is not None
+            and provider_email is not None
+            and current_email.casefold() == provider_email.casefold()
+        )

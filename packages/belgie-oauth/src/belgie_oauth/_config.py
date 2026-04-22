@@ -44,12 +44,16 @@ class OAuthProvider(BaseModel):
     code_challenge_method: str = "S256"
     use_nonce: bool = True
     override_user_info_on_sign_in: bool = False
+    update_account_on_sign_in: bool = True
     token_endpoint_auth_method: TokenEndpointAuthMethod = "client_secret_post"  # noqa: S105
     authorization_params: dict[str, str] = Field(default_factory=dict)
     token_params: dict[str, str] = Field(default_factory=dict)
     discovery_headers: dict[str, str] = Field(default_factory=dict)
     disable_sign_up: bool = False
     disable_implicit_sign_up: bool = False
+    allow_implicit_account_linking: bool = True
+    allow_different_link_emails: bool = False
+    trusted_for_account_linking: bool = False
     encrypt_tokens: bool = False
     token_encryption_secret: SecretStr | None = None
     get_token: TokenExchangeOverride | None = None
