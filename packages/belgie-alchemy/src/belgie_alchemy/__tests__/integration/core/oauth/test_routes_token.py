@@ -4,13 +4,15 @@ from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
 import httpx
-import jwt
 import pytest
 from belgie_oauth_server.provider import AuthorizationParams
 from belgie_oauth_server.utils import create_code_challenge
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
+from joserfc import jwt
+from joserfc.errors import BadSignatureError
+from joserfc.jwk import RSAKey
 from pydantic import SecretStr
 
 BEARER = "Bearer"
@@ -563,10 +565,8 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
     id_token = token_response.json()["id_token"]
     provider = oauth_plugin.provider
     assert provider is not None
-    decoded = jwt.decode(
+    decoded = provider.signing_state.decode(
         id_token,
-        provider.signing_state.verification_key,
-        algorithms=[provider.signing_state.algorithm],
         audience=dynamic_client.client_id,
         issuer="http://testserver/auth",
     )
@@ -577,13 +577,11 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
-    with pytest.raises(jwt.InvalidSignatureError):
+    with pytest.raises(BadSignatureError):
         jwt.decode(
             id_token,
-            wrong_public_key,
+            key=RSAKey.import_key(wrong_public_key),
             algorithms=[provider.signing_state.algorithm],
-            audience=dynamic_client.client_id,
-            issuer="http://testserver/auth",
         )
 
 

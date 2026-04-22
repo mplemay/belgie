@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-15T04:06:52.960619Z"
+exclude-newer = "2026-04-15T05:31:27.922972Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -290,9 +290,9 @@ dependencies = [
     { name = "belgie-proto" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "joserfc" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pyjwt" },
     { name = "python-multipart" },
 ]
 
@@ -303,9 +303,9 @@ requires-dist = [
     { name = "belgie-proto", editable = "packages/belgie-proto" },
     { name = "fastapi", specifier = ">=0.100" },
     { name = "httpx", specifier = ">=0.24" },
+    { name = "joserfc", specifier = ">=1.6.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "pyjwt", specifier = ">=2.10" },
     { name = "python-multipart", specifier = ">=0.0.20" },
 ]
 

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
-import jwt
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import OAuthServerPlugin
@@ -14,6 +13,8 @@ from belgie_oauth_server.testing import InMemoryConsent, InMemoryDBConnection
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
+from joserfc import jwt
+from joserfc.jwk import OctKey
 
 if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer
@@ -137,10 +138,8 @@ def _query(location: str) -> dict[str, list[str]]:
 
 def _decode_id_token(plugin: OAuthServerPlugin, token: str, audience: str) -> dict[str, object]:
     assert plugin.provider is not None
-    return jwt.decode(
+    return plugin.provider.signing_state.decode(
         token,
-        plugin.provider.signing_state.verification_key,
-        algorithms=[plugin.provider.signing_state.algorithm],
         audience=audience,
         issuer="http://testserver/auth",
     )
@@ -148,12 +147,9 @@ def _decode_id_token(plugin: OAuthServerPlugin, token: str, audience: str) -> di
 
 def _decode_access_token(plugin: OAuthServerPlugin, token: str) -> dict[str, object]:
     assert plugin.provider is not None
-    return jwt.decode(
+    return plugin.provider.signing_state.decode(
         token,
-        plugin.provider.signing_state.verification_key,
-        algorithms=[plugin.provider.signing_state.algorithm],
         issuer="http://testserver/auth",
-        options={"verify_aud": False},
     )
 
 
@@ -764,13 +760,15 @@ def test_disable_jwt_plugin_issues_opaque_access_tokens_and_hs256_id_tokens() ->
 
     id_token = jwt.decode(
         token_payload["id_token"],
-        client_secret,
+        key=OctKey.import_key(client_secret),
         algorithms=["HS256"],
-        audience=settings.client_id,
-        issuer="http://testserver/auth",
     )
-    assert id_token["iss"] == "http://testserver/auth"
-    assert id_token["aud"] == settings.client_id
+    jwt.JWTClaimsRegistry(
+        iss={"essential": True, "value": "http://testserver/auth"},
+        aud={"essential": True, "value": settings.client_id},
+    ).validate(id_token.claims)
+    assert id_token.claims["iss"] == "http://testserver/auth"
+    assert id_token.claims["aud"] == settings.client_id
 
 
 def test_disable_jwt_plugin_omits_id_token_for_public_clients() -> None:

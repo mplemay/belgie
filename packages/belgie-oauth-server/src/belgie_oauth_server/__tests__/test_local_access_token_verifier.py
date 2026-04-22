@@ -1,6 +1,5 @@
 from urllib.parse import parse_qs, urlparse
 
-import jwt
 import pytest
 from belgie_oauth_server.__tests__.helpers import build_oauth_provider
 from belgie_oauth_server.provider import AuthorizationParams
@@ -124,10 +123,8 @@ async def test_verify_local_access_token_preserves_reserved_claims_with_custom_c
         authorization_code,
         access_token_resource="http://example.com/mcp",
     )
-    decoded = jwt.decode(
+    decoded = provider.signing_state.decode(
         token.access_token,
-        provider.signing_state.verification_key,
-        algorithms=[provider.signing_state.algorithm],
         audience="http://example.com/mcp",
         issuer=str(settings.issuer_url),
     )
