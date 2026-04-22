@@ -110,6 +110,7 @@ class AuthorizationParams:
     state: str | None
     scopes: list[str] | None
     code_challenge: str | None
+    code_challenge_method: str | None = None
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None

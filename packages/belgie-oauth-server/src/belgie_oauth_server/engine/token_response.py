@@ -160,7 +160,7 @@ def _build_userinfo(
 
 async def build_access_token_jwt_payload(  # noqa: PLR0913
     client: BelgieClient,
-    provider: SimpleOAuthProvider,
+    _provider: SimpleOAuthProvider,
     settings: OAuthServer,
     issuer_url: str,
     oauth_client: OAuthServerClientInformationFull,
@@ -178,11 +178,9 @@ async def build_access_token_jwt_payload(  # noqa: PLR0913
             base["sid"] = session_id
         return base
 
-    subject_identifier = (
-        provider.resolve_subject_identifier(oauth_client, access_token.individual_id)
-        if access_token.individual_id is not None
-        else None
-    )
+    # JWT access tokens use the real user id as `sub` (public), matching better-auth's
+    # createJwtAccessToken. Pairwise applies to id_token, userinfo, and introspection only.
+    access_sub: str | None = str(access_token.individual_id) if access_token.individual_id is not None else None
     custom_claims = await resolve_custom_mapping(
         settings.custom_access_token_claims,
         {
@@ -198,7 +196,7 @@ async def build_access_token_jwt_payload(  # noqa: PLR0913
     payload: dict[str, JSONValue] = {
         "iss": issuer_url,
         "client_id": access_token.client_id,
-        "sub": subject_identifier,
+        "sub": access_sub,
         "sid": session_id,
         "exp": access_token.expires_at,
         "iat": access_token.created_at,
@@ -216,6 +214,25 @@ async def build_access_token_jwt_payload(  # noqa: PLR0913
         },
     )
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def resolve_introspection_sub_for_response(
+    provider: SimpleOAuthProvider,
+    oauth_client: OAuthServerClientInformationFull,
+    payload: dict[str, JSONValue],
+) -> dict[str, JSONValue]:
+    """Apply pairwise to introspection `sub` only (better-auth's resolveIntrospectionSub).
+
+    Internal access-token JWTs and validation use the public user id; this adjusts the
+    presentation layer for RFC 7662 responses.
+    """
+    sub_val = payload.get("sub")
+    if sub_val is None or not isinstance(sub_val, str) or not sub_val:
+        return payload
+    resolved = provider.resolve_subject_identifier(oauth_client, sub_val)
+    if resolved == sub_val:
+        return payload
+    return {**payload, "sub": resolved}
 
 
 async def resolve_custom_mapping(

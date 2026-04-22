@@ -41,9 +41,12 @@ first, then create clients through:
 - `POST /auth/oauth2/register` when dynamic registration is enabled
 - server-side calls to `provider.register_client(...)`
 
-The legacy compatibility fields `client_id`, `client_secret`, and
-`redirect_uris` are still available, but they are optional and should only be
-used when you intentionally want one config-backed client.
+**Optional in-config client:** `client_id`, `client_secret`, and `redirect_uris` on
+`OAuthServer` are a **Belgie extension** (a single “static” or demo client in
+settings). Better Auth typically creates clients only via
+`create-client` / admin APIs / DCR. Prefer those for parity with a greenfield
+Better Auth install; use the in-config client only for bootstraps, tests, or
+deliberate single-client deployments.
 
 ## Quick Start
 

@@ -169,21 +169,17 @@ async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
 
         assert authorize_response.status_code == 302
         login_redirect = authorize_response.headers["location"]
-        assert urlparse(login_redirect).path == "/auth/oauth2/login"
+        assert urlparse(login_redirect).path == "/login/custom"
 
         login_page_redirect = await client.get(login_redirect, follow_redirects=False)
         assert login_page_redirect.status_code == 302
-        assert urlparse(login_page_redirect.headers["location"]).path == "/login/custom"
+        assert urlparse(login_page_redirect.headers["location"]).path == "/login/google"
 
         provider_redirect = await client.get(login_page_redirect.headers["location"], follow_redirects=False)
         assert provider_redirect.status_code == 302, provider_redirect.text
-        assert urlparse(provider_redirect.headers["location"]).path == "/login/google"
+        assert urlparse(provider_redirect.headers["location"]).path == "/auth/oauth2/login/callback"
 
-        callback_redirect = await client.get(provider_redirect.headers["location"], follow_redirects=False)
-        assert callback_redirect.status_code == 302
-        assert urlparse(callback_redirect.headers["location"]).path == "/auth/oauth2/login/callback"
-
-        code_redirect = await client.get(callback_redirect.headers["location"], follow_redirects=False)
+        code_redirect = await client.get(provider_redirect.headers["location"], follow_redirects=False)
         assert code_redirect.status_code == 302
         parsed_redirect = urlparse(code_redirect.headers["location"])
         query = parse_qs(parsed_redirect.query)

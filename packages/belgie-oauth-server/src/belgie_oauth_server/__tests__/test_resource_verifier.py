@@ -50,7 +50,11 @@ async def test_verify_resource_access_token_returns_local_token_and_subject() ->
 
 
 @pytest.mark.asyncio
-async def test_verify_resource_access_token_resolves_pairwise_subject() -> None:
+async def test_verify_resource_access_token_uses_public_sub_for_pairwise_clients() -> None:
+    """Resource verification exposes JWT `sub` (public id) even when the client is pairwise.
+
+    id_token and introspection use pairwise; access tokens follow better-auth's createJwtAccessToken.
+    """
     individual_id = str(uuid4())
     settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["https://example.com/callback"],
@@ -67,11 +71,10 @@ async def test_verify_resource_access_token_resolves_pairwise_subject() -> None:
     )
 
     verified = await verify_resource_access_token(token_value, provider=provider)
-
     assert verified is not None
     assert verified.individual_id == individual_id
-    assert verified.subject == provider.resolve_subject_identifier(client, individual_id)
-    assert verified.subject != individual_id
+    assert verified.subject == individual_id
+    assert provider.resolve_subject_identifier(client, individual_id) != individual_id
     assert settings.pairwise_secret is not None
 
 

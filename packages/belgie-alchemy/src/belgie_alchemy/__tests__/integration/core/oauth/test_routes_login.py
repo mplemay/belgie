@@ -45,7 +45,7 @@ async def _create_login_state(
     location = authorize_response.headers["location"]
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
-    assert parsed.path == "/auth/oauth2/login"
+    assert "state" in query
     return query["state"][0]
 
 

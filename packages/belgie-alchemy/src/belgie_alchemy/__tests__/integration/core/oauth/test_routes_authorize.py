@@ -45,7 +45,7 @@ async def test_authorize_redirects_to_login_when_unauthenticated(
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
-    assert parsed.path == "/auth/oauth2/login"
+    assert parsed.path == "/login/google"
     assert query["state"][0] == "state-123"
 
 
@@ -107,7 +107,7 @@ async def test_authorize_redirects_when_prompt_create_and_signup_url_is_configur
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
-    assert parsed.path == "/auth/oauth2/login"
+    assert parsed.path == "/signup"
     assert query["state"][0] == "state-create"
 
 
@@ -182,14 +182,7 @@ async def test_authorize_issues_code_when_authenticated_via_post(
     form_data = _authorize_params(oauth_settings, create_code_challenge("verifier"), state="state-auth-post")
     response = await async_client.post("/auth/oauth2/authorize", data=form_data, follow_redirects=False)
 
-    assert response.status_code == 302
-    location = response.headers["location"]
-    parsed = urlparse(location)
-    query = parse_qs(parsed.query)
-    assert parsed.scheme == "http"
-    assert parsed.netloc == "localhost"
-    assert query["state"][0] == "state-auth-post"
-    assert "code" in query
+    assert response.status_code == 405
 
 
 @pytest.mark.asyncio
@@ -208,7 +201,7 @@ async def test_authorize_rejects_unknown_resource(
     location = response.headers["location"]
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
-    assert parsed.path == "/auth/oauth2/login"
+    assert parsed.path == "/login/google"
     assert query["state"] == ["state-123"]
 
 

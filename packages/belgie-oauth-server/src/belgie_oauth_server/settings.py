@@ -116,6 +116,7 @@ class OAuthServer(BaseSettings):
     static_client_require_pkce: bool = True
     pairwise_secret: SecretStr | None = None
     signing: OAuthServerSigning = Field(default_factory=OAuthServerSigning)
+    oauth_query_signing_secret: SecretStr | None = None
 
     authorization_code_ttl_seconds: int = 600
     access_token_ttl_seconds: int = 3600

@@ -124,7 +124,7 @@ async def verify_resource_access_token(  # noqa: PLR0911
                 )
             ):
                 return None
-            verified_token = await _build_local_verified_token(provider, local_token.source, local_token.token)
+            verified_token = _build_local_verified_token(provider, local_token.source, local_token.token)
             if not _resource_allowed(verified_token.token.resource, resource_validator):
                 return None
             return verified_token
@@ -156,20 +156,16 @@ async def verify_resource_access_token(  # noqa: PLR0911
     return verified_token
 
 
-async def _build_local_verified_token(
+def _build_local_verified_token(
     provider: SimpleOAuthProvider,
     source: Literal["jwt", "stored"],
     token: AccessToken,
 ) -> VerifiedResourceAccessToken:
-    subject = token.individual_id
-    if token.individual_id is not None:
-        oauth_client = await provider.get_client(token.client_id)
-        if oauth_client is not None:
-            subject = provider.resolve_subject_identifier(oauth_client, token.individual_id)
+    # `subject` matches JWT `sub` (public user id), consistent with better-auth mcpHandler/decode
     return VerifiedResourceAccessToken(
         source=source,
         token=token,
-        subject=subject,
+        subject=token.individual_id,
         issuer=provider.issuer_url,
     )
 

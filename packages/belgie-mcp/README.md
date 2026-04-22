@@ -99,6 +99,11 @@ same OAuth settings that power the verifier.
   advertised Better Auth-compatible path: `{issuer}/oauth2/introspect`.
 - If you need remote introspection, set `introspection_endpoint`,
   `introspection_client_id`, and `introspection_client_secret`.
+- `resource_metadata_mappings` maps non-URL audience strings (e.g. URNs) to a full protected-resource metadata URL,
+  matching
+  [better-auth `handleMcpErrors`](https://github.com/better-auth/better-auth/blob/main/packages/oauth-provider/src/mcp.ts).
+  Use with `McpPlugin.mcp_www_authenticate_value(...)` or `build_mcp_www_authenticate_value(...)` when you return 401
+  responses outside `MCPServer.streamable_http_app` (the SDK still sets `www-authenticate` for you).
 
 ## Public Surface
 
@@ -109,6 +114,7 @@ The primary public surface is:
 - `BelgieOAuthTokenVerifier`
 - `mcp_auth`
 - `mcp_token_verifier`
+- `build_mcp_www_authenticate_value`
 
 The older top-level `get_user_from_access_token` helper is no longer part of
 the recommended public API. If you need application-specific subject-to-user

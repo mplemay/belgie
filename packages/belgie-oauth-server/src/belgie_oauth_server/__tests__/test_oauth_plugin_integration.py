@@ -422,15 +422,11 @@ def test_authorize_and_consent_interactions_use_oauth2_paths() -> None:
     )
 
     assert authorize.status_code == 302
-    assert authorize.headers["location"].startswith("http://testserver/auth/oauth2/login?")
-    state = _query(authorize.headers["location"])["state"][0]
-
-    consent_redirect = client.get(authorize.headers["location"], headers=_auth_headers(), follow_redirects=False)
-    assert consent_redirect.status_code == 302
-    assert consent_redirect.headers["location"].startswith("http://testserver/consent-screen?")
-    assert _query(consent_redirect.headers["location"])["return_to"] == [
-        f"http://testserver/auth/oauth2/consent?state={state}",
-    ]
+    consent_url = authorize.headers["location"]
+    assert consent_url.startswith("http://testserver/consent-screen?")
+    state = _query(consent_url)["state"][0]
+    assert "sig=" in consent_url
+    assert "exp=" in consent_url
 
     approved = client.post(
         "/auth/oauth2/consent",
@@ -747,6 +743,7 @@ def test_pairwise_subject_is_stable_across_http_endpoints() -> None:
         static_client_require_pkce=False,
         pairwise_secret="pairwise-secret-for-tests-123456",
         enable_end_session=True,
+        valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, belgie_client = _build_fixture(settings)
     _update_static_client(
@@ -761,12 +758,20 @@ def test_pairwise_subject_is_stable_across_http_endpoints() -> None:
         settings,
         state="state-pairwise",
         scope="openid profile email offline_access",
+        extra_params={"resource": "http://testserver/mcp"},
     )
     code = _query(callback)["code"][0]
-    token_response = _exchange_code(client, settings, code=code)
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        resource="http://testserver/mcp",
+    )
 
     assert token_response.status_code == 200
     token_payload = token_response.json()
+    access_jwt = _decode_access_token(plugin, token_payload["access_token"])
+    assert access_jwt["sub"] == str(belgie_client.user.id)
     id_token = _decode_id_token(plugin, token_payload["id_token"], settings.client_id)
 
     userinfo = client.get(
@@ -2317,3 +2322,60 @@ def test_loopback_redirect_uri_rejects_path_mismatch() -> None:
         "error": "invalid_request",
         "error_description": "Redirect URI 'http://127.0.0.1:43123/other' not registered for client",
     }
+
+
+def test_consent_post_with_accept_json_returns_redirect_uri() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        consent_url="/consent-screen",
+    )
+    client, plugin, _bc = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user", skip_consent=False)
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(settings, state="state-json-consent", scope="openid user"),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+    assert authorize.status_code == 302
+    state = _query(authorize.headers["location"])["state"][0]
+    res = client.post(
+        "/auth/oauth2/consent",
+        json={"state": state, "accept": True, "scope": "openid user"},
+        headers={**_auth_headers(), "Accept": "application/json"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert "redirect_uri" in data
+    assert "code=" in data["redirect_uri"]
+    assert "iss=" in data["redirect_uri"]
+
+
+def test_admin_update_client_accepts_post() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, _plugin, _bc = _build_fixture(settings)
+    created = client.post(
+        "/auth/admin/oauth2/create-client",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+            "scope": "openid user",
+        },
+        headers=_auth_headers(),
+    )
+    assert created.status_code == 201
+    cid = created.json()["client_id"]
+    updated = client.post(
+        "/auth/admin/oauth2/update-client",
+        json={"client_id": cid, "update": {"client_name": "PostMethod"}},
+        headers=_auth_headers(),
+    )
+    assert updated.status_code == 200
+    assert updated.json()["client_name"] == "PostMethod"

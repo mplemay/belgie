@@ -8,8 +8,10 @@ from belgie_core.core.plugin import PluginClient
 from belgie_oauth_server import build_protected_resource_metadata
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
+from belgie_mcp.www_authenticate import build_mcp_www_authenticate_value
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -35,6 +37,7 @@ class Mcp:
     introspection_client_id: str | None = None
     introspection_client_secret: str | None = None
     oauth_strict: bool = False
+    resource_metadata_mappings: dict[str, str] | None = None
 
     def __call__(self, belgie_settings: BelgieSettings) -> McpPlugin:
         return McpPlugin(belgie_settings, self)
@@ -49,6 +52,7 @@ class McpPlugin(PluginClient):
             else _build_server_url(_require_base_url(resolved_base_url), settings.server_path)
         )
         self._oauth_settings = settings.oauth
+        self._mcp_config = settings
         self._oauth_plugin: OAuthServerPlugin | None = None
         self.auth = mcp_auth(
             settings.oauth,
@@ -80,8 +84,49 @@ class McpPlugin(PluginClient):
     def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
         return None
 
+    def protected_resource_router(self) -> APIRouter:
+        """Serves `/.well-known/oauth-protected-resource/...` for this MCP resource (Better Auth style).
+
+        Use when the MCP app is not using ``MCPServer.streamable_http_app`` built-in well-known
+        registration; ``include_router(plugin.protected_resource_router())`` on the FastAPI app.
+        """
+        metadata = self.protected_resource_metadata()
+        parsed = urlparse(self.server_url)
+        path = parsed.path.rstrip("/")
+        if path in ("", "/"):
+            route = "/.well-known/oauth-protected-resource"
+        else:
+            route = f"/.well-known/oauth-protected-resource{path}"
+        body = metadata.model_dump(mode="json", exclude_none=True)
+        cache = "public, max-age=15, stale-while-revalidate=15, stale-if-error=86400"
+        router = APIRouter()
+
+        @router.get(
+            route,
+            tags=["mcp", "well-known"],
+            name="mcp_oauth_protected_resource_metadata",
+        )
+        def protected_resource_get() -> JSONResponse:
+            return JSONResponse(
+                content=body,
+                headers={"Cache-Control": cache, "Content-Type": "application/json"},
+            )
+
+        return router
+
     def _resolve_oauth_provider(self) -> SimpleOAuthProvider | None:
         return None if self._oauth_plugin is None else self._oauth_plugin.provider
+
+    @property
+    def resource_metadata_mappings(self) -> dict[str, str] | None:
+        return self._mcp_config.resource_metadata_mappings
+
+    def mcp_www_authenticate_value(self, resources: str | list[str]) -> str:
+        """``WWW-Authenticate`` for 401s when replicating better-auth :js:func:`handleMcpErrors` outside the MCP SDK."""
+        return build_mcp_www_authenticate_value(
+            resources,
+            resource_metadata_mappings=self._mcp_config.resource_metadata_mappings,
+        )
 
     def protected_resource_metadata(
         self,
