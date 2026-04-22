@@ -9,9 +9,10 @@ from authlib.oauth2.rfc6749 import JsonPayload, JsonRequest, OAuth2Payload, OAut
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from belgie_oauth_server.types import JSONValue  # noqa: TC001
+
 _REDIRECT_STATUS_MIN = 300
 _REDIRECT_STATUS_MAX = 400
-type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -81,6 +82,7 @@ class StarletteOAuth2Request(OAuth2Request):
         self.credential = None
         self._scope = None
         self._request = request
+        self.belgie_resolved_resource: str | None = None
 
     @cached_property
     def args(self) -> dict[str, str]:

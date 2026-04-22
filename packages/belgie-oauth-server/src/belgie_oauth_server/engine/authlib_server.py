@@ -7,19 +7,19 @@ from authlib.oauth2.rfc6749.authenticate_client import ClientAuthentication
 
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.helpers import build_access_token_audience, parse_scope_param
-from belgie_oauth_server.engine.models import AuthlibClient
+from belgie_oauth_server.engine.models import AuthlibClient, AuthlibUser
 from belgie_oauth_server.engine.token_generator import (
     build_token_payload,
     resolve_refresh_token_resource,
     resolve_request_session_id,
 )
 from belgie_oauth_server.engine.transport_starlette import (
-    JSONValue,
     StarletteJsonRequest,
     StarletteOAuth2Request,
     TransportRequestData,
     TransportResponse,
 )
+from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 if TYPE_CHECKING:
     from belgie_oauth_server.engine.runtime import OAuthEngineRuntime
@@ -39,7 +39,7 @@ class BelgieAuthorizationServer(AuthorizationServer):
             return None
         return AuthlibClient(record=record, runtime=self.runtime)
 
-    def save_token(self, token: dict[str, object], request: StarletteOAuth2Request) -> None:
+    def save_token(self, token: dict[str, JSONValue], request: StarletteOAuth2Request) -> None:
         client = request.client
         if client is None:
             msg = "missing client on token request"
@@ -47,8 +47,8 @@ class BelgieAuthorizationServer(AuthorizationServer):
 
         requested_scope = token.get("scope") if isinstance(token.get("scope"), str) else request.scope
         scopes = parse_scope_param(requested_scope) or []
-        user = getattr(request, "user", None)
-        individual_id = user.get_user_id() if user is not None else None
+        user = request.user
+        individual_id = user.get_user_id() if isinstance(user, AuthlibUser) else None
         run_async(
             self.runtime.provider.persist_token_response,
             token,
@@ -56,7 +56,7 @@ class BelgieAuthorizationServer(AuthorizationServer):
             scopes=scopes,
             resource=build_access_token_audience(
                 self.runtime.issuer_url,
-                base_resource=getattr(request, "belgie_resolved_resource", None),
+                base_resource=request.belgie_resolved_resource,
                 scopes=scopes,
             ),
             refresh_token_resource=resolve_refresh_token_resource(request),
@@ -69,11 +69,11 @@ class BelgieAuthorizationServer(AuthorizationServer):
         *,
         grant_type: str,
         client: AuthlibClient,
-        user: object = None,
+        user: AuthlibUser | None = None,
         scope: str | None = None,
         expires_in: int | None = None,
         include_refresh_token: bool = True,
-    ) -> dict[str, object]:
+    ) -> dict[str, JSONValue]:
         request = self._current_request
         if request is None:
             msg = "missing request context for token generation"

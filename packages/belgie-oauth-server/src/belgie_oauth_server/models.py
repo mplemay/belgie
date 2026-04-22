@@ -5,10 +5,8 @@ from uuid import UUID  # noqa: TC003
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from belgie_oauth_server.types import JSONObject, JSONValue  # noqa: TC001
 from belgie_oauth_server.utils import parse_scope_string, validate_safe_redirect_uri
-
-type JSONValue = None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
-type JSONObject = dict[str, JSONValue]
 
 
 class OAuthServerToken(BaseModel):
@@ -193,6 +191,33 @@ class OAuthServerConsentResponse(BaseModel):
     reference_id: str | None = None
     scopes: list[str]
     created_at: int
+
+
+class OAuthServerJwksResponse(BaseModel):
+    """JWKS document (`keys` array) for `/jwks`."""
+
+    keys: list[dict[str, JSONValue]]
+
+
+class OAuthServerConsentRpcResponse(BaseModel):
+    """CamelCase JSON keys (better-auth RPC contract); Python fields are snake_case."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    client_id: str = Field(validation_alias="clientId", serialization_alias="clientId")
+    user_id: str = Field(validation_alias="userId", serialization_alias="userId")
+    reference_id: str | None = Field(validation_alias="referenceId", serialization_alias="referenceId")
+    scopes: list[str]
+    created_at: int = Field(validation_alias="createdAt", serialization_alias="createdAt")
+
+
+class OAuthServerClientRpcResponse(BaseModel):
+    """Dynamic client create/list/get/update responses (excludes `response_model=None` error bodies)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    client_id: str | None = None
 
 
 class OAuthServerMetadata(BaseModel):

@@ -5,17 +5,27 @@ from uuid import UUID
 from authlib.oauth2.rfc6749.errors import InvalidGrantError, InvalidRequestError
 from authlib.oauth2.rfc7636.challenge import create_s256_code_challenge
 
+from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer  # noqa: TC001
 from belgie_oauth_server.engine.bridge import run_async
+from belgie_oauth_server.engine.grants import (
+    BelgieAuthorizationCodeGrant,
+    BelgieClientCredentialsGrant,
+    BelgieRefreshTokenGrant,
+)
 from belgie_oauth_server.engine.helpers import parse_scope_param, pkce_requirement_for_client
 from belgie_oauth_server.engine.models import AuthlibAuthorizationCode, AuthlibClient, AuthlibUser
 from belgie_oauth_server.engine.token_generator import resolve_request_session_id
 from belgie_oauth_server.engine.token_response import (
+    _to_json_value,
     apply_custom_token_response_fields,
     maybe_build_id_token,
 )
-from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request
+from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request  # noqa: TC001
+from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 _MIN_TOKEN_RESPONSE_ITEMS = 2
+
+type _BelgieGrant = BelgieAuthorizationCodeGrant | BelgieClientCredentialsGrant | BelgieRefreshTokenGrant
 
 
 class BelgieCodeChallenge:
@@ -23,7 +33,7 @@ class BelgieCodeChallenge:
         grant.register_hook("after_validate_authorization_request_payload", self.validate_code_challenge)
         grant.register_hook("after_validate_token_request", self.validate_code_verifier)
 
-    def validate_code_challenge(self, grant: object, _redirect_uri: str) -> None:
+    def validate_code_challenge(self, grant: _BelgieGrant, _redirect_uri: str) -> None:
         request = _require_oauth_request(grant)
         client = request.client
         if not isinstance(client, AuthlibClient):
@@ -46,7 +56,7 @@ class BelgieCodeChallenge:
             msg = "invalid code_challenge method, only S256 is supported"
             raise InvalidRequestError(msg)
 
-    def validate_code_verifier(self, grant: object, _result: object) -> None:
+    def validate_code_verifier(self, grant: _BelgieGrant, _result: object) -> None:
         request = _require_oauth_request(grant)
         client = request.client
         if not isinstance(client, AuthlibClient):
@@ -79,7 +89,7 @@ class BelgieTokenResponseEnhancer:
     def __call__(self, grant: object) -> None:
         grant.register_hook("after_create_token_response", self.enhance_token_response)
 
-    def enhance_token_response(self, grant: object, response: object) -> None:
+    def enhance_token_response(self, grant: _BelgieGrant, response: object) -> None:
         if not isinstance(response, tuple) or len(response) < _MIN_TOKEN_RESPONSE_ITEMS:
             return
 
@@ -87,11 +97,8 @@ class BelgieTokenResponseEnhancer:
         if not isinstance(payload, dict):
             return
 
-        server = getattr(grant, "server", None)
-        runtime = getattr(server, "runtime", None)
-        if runtime is None:
-            msg = "missing belgie authorization server runtime"
-            raise RuntimeError(msg)
+        server: BelgieAuthorizationServer = grant.server
+        runtime = server.runtime
         request = _require_oauth_request(grant)
         client = request.client
         if client is None:
@@ -126,8 +133,8 @@ class BelgieTokenResponseEnhancer:
                 session_id=resolve_request_session_id(request),
             )
 
-        verification_value = None
-        authorization_code = getattr(request, "authorization_code", None)
+        verification_value: dict[str, JSONValue] | None = None
+        authorization_code = request.authorization_code
         if isinstance(authorization_code, AuthlibAuthorizationCode):
             verification_value = {
                 "type": "authorization_code",
@@ -147,7 +154,7 @@ class BelgieTokenResponseEnhancer:
         updated_payload = run_async(
             apply_custom_token_response_fields,
             runtime.settings,
-            dict(payload),
+            {k: _to_json_value(v) for k, v in dict(payload).items()},
             grant_type=grant.GRANT_TYPE,
             oauth_client=client.record,
             scopes=scopes,
@@ -158,16 +165,12 @@ class BelgieTokenResponseEnhancer:
         payload.update(updated_payload.model_dump(mode="json", exclude_none=True))
 
 
-def _require_oauth_request(grant: object) -> StarletteOAuth2Request:
-    request = getattr(grant, "request", None)
-    if not isinstance(request, StarletteOAuth2Request):
-        msg = "missing oauth request on grant"
-        raise TypeError(msg)
-    return request
+def _require_oauth_request(grant: _BelgieGrant) -> StarletteOAuth2Request:
+    return grant.request
 
 
 def _resolve_request_nonce(request: StarletteOAuth2Request) -> str | None:
-    authorization_code = getattr(request, "authorization_code", None)
+    authorization_code = request.authorization_code
     if not isinstance(authorization_code, AuthlibAuthorizationCode):
         return None
     return authorization_code.record.nonce

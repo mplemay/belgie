@@ -8,10 +8,12 @@ from authlib.oauth2.rfc6749.errors import InvalidRequestError
 from authlib.oauth2.rfc7009 import RevocationEndpoint
 from authlib.oauth2.rfc7662 import IntrospectionEndpoint
 
+from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer  # noqa: TC001
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.errors import UnsupportedTokenTypeHintError
 from belgie_oauth_server.engine.models import AuthlibAccessToken, AuthlibClient, AuthlibRefreshToken
 from belgie_oauth_server.engine.token_response import build_access_token_jwt_payload, resolve_active_session_id
+from belgie_oauth_server.types import JSONValue
 from belgie_oauth_server.verifier import verify_local_access_token
 
 if TYPE_CHECKING:
@@ -19,7 +21,7 @@ if TYPE_CHECKING:
     from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request
 
 
-type EndpointResponse = tuple[int, dict[str, object], list[tuple[str, str]]]
+type EndpointResponse = tuple[int, dict[str, JSONValue], list[tuple[str, str]]]
 type IntrospectableToken = AuthlibAccessToken | AuthlibRefreshToken
 
 ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
@@ -28,14 +30,11 @@ REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
 
 
 class BelgieEndpointMixin:
+    server: BelgieAuthorizationServer
+
     @property
     def runtime(self) -> OAuthEngineRuntime:
-        server = getattr(self, "server", None)
-        runtime = getattr(server, "runtime", None)
-        if runtime is None:
-            msg = "missing belgie authorization server runtime"
-            raise RuntimeError(msg)
-        return runtime
+        return self.server.runtime
 
 
 class BelgieRevocationEndpoint(BelgieEndpointMixin, RevocationEndpoint):
@@ -141,7 +140,7 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
                 return AuthlibRefreshToken(record=refresh_token, runtime=self.runtime)
         return None
 
-    def introspect_token(self, token: IntrospectableToken) -> dict[str, object]:
+    def introspect_token(self, token: IntrospectableToken) -> dict[str, JSONValue]:
         if isinstance(token, AuthlibAccessToken):
             oauth_client = token.get_client()
             if oauth_client is None or oauth_client.record.disabled:
@@ -156,7 +155,7 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
                     )
                 except ValueError:
                     user = None
-            payload = run_async(
+            claims_payload = run_async(
                 build_access_token_jwt_payload,
                 self.runtime.belgie_client,
                 self.runtime.provider,
@@ -166,7 +165,7 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
                 token.record,
                 user=user,
             )
-            return {"active": True, **payload}
+            return {"active": True, **claims_payload}
 
         oauth_client = token.get_client()
         if oauth_client is None or oauth_client.record.disabled:
@@ -176,7 +175,7 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
             if token.record.individual_id is not None
             else None
         )
-        payload = {
+        payload: dict[str, JSONValue] = {
             "active": True,
             "client_id": token.record.client_id,
             "scope": " ".join(token.record.scopes),

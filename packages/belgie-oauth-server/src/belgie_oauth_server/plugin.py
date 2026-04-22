@@ -39,8 +39,11 @@ from belgie_oauth_server.models import (
     OAuthServerAdminClientMetadata,
     OAuthServerClientInformationFull,
     OAuthServerClientMetadata,
+    OAuthServerClientRpcResponse,
+    OAuthServerConsentRpcResponse,
     OAuthServerErrorResponse,
     OAuthServerIntrospectionResponse,
+    OAuthServerJwksResponse,
     OAuthServerMetadata,
     OAuthServerToken,
     OIDCMetadata,
@@ -49,6 +52,7 @@ from belgie_oauth_server.models import (
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.rate_limit import OAuthServerRateLimiter
 from belgie_oauth_server.settings import OAuthServer
+from belgie_oauth_server.types import JSONValue
 from belgie_oauth_server.utils import (
     construct_redirect_uri,
     is_fetch_request,
@@ -58,7 +62,6 @@ from belgie_oauth_server.utils import (
 from belgie_oauth_server.verifier import verify_local_access_token
 
 _OAUTH_ENDPOINT_PREFIX = "/oauth2"
-type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 type FormValue = str | UploadFile
 type FormInput = Mapping[str, FormValue] | FormData
 type AuthorizePrompt = Literal["none", "consent", "login", "create", "select_account"]
@@ -334,12 +337,18 @@ class OAuthServerPlugin(PluginClient):
 
     @staticmethod
     def _add_jwks_route(router: APIRouter, provider: SimpleOAuthProvider, settings: OAuthServer) -> APIRouter:
-        async def jwks_handler(_: Request) -> dict[str, list[dict[str, JSONValue]]]:
+        async def jwks_handler(_: Request) -> OAuthServerJwksResponse:
             if settings.disable_jwt_plugin or provider.signing_state.jwks is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="jwks unavailable")
-            return provider.signing_state.jwks
+            jwks = provider.signing_state.jwks
+            return OAuthServerJwksResponse.model_validate(jwks)
 
-        router.add_api_route("/jwks", jwks_handler, methods=["GET"])
+        router.add_api_route(
+            "/jwks",
+            jwks_handler,
+            methods=["GET"],
+            response_model=OAuthServerJwksResponse,
+        )
         return router
 
     @staticmethod
@@ -536,7 +545,7 @@ class OAuthServerPlugin(PluginClient):
             request: Request,
             response: Response,
             client: Annotated[BelgieClient, Depends(belgie)],
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerClientRpcResponse | Response:
             if (
                 rate_limited := _enforce_rate_limit(
                     request,
@@ -620,7 +629,8 @@ class OAuthServerPlugin(PluginClient):
             register_handler,
             methods=["POST"],
             status_code=status.HTTP_201_CREATED,
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
         )
         return router
 
@@ -1118,7 +1128,7 @@ class OAuthServerPlugin(PluginClient):
             request: Request,
             response: Response,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerClientRpcResponse | Response:
             try:
                 individual = await client.get_individual(SecurityScopes(), request)
                 session = await client.get_session(request)
@@ -1175,7 +1185,7 @@ class OAuthServerPlugin(PluginClient):
         async def list_clients_handler(
             request: Request,
             client: BelgieClientDep,
-        ) -> list[dict[str, JSONValue]] | Response:
+        ) -> list[OAuthServerClientRpcResponse] | Response:
             try:
                 individual = await client.get_individual(SecurityScopes(), request)
                 session = await client.get_session(request)
@@ -1209,7 +1219,7 @@ class OAuthServerPlugin(PluginClient):
                 deduped[oauth_client.client_id] = _redact_client_secret(oauth_client)
             return [_serialize_oauth_client(oauth_client, include_secret=False) for oauth_client in deduped.values()]
 
-        async def prelogin_client_handler(request: Request) -> dict[str, JSONValue] | Response:
+        async def prelogin_client_handler(request: Request) -> OAuthServerClientRpcResponse | Response:
             if not settings.allow_public_client_prelogin:
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
             payload = await _get_request_payload(request)
@@ -1230,7 +1240,7 @@ class OAuthServerPlugin(PluginClient):
         async def public_client_handler(
             request: Request,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerClientRpcResponse | Response:
             try:
                 await client.get_individual(SecurityScopes(), request)
                 await client.get_session(request)
@@ -1249,7 +1259,7 @@ class OAuthServerPlugin(PluginClient):
         async def get_client_handler(
             request: Request,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerClientRpcResponse | Response:
             client_id = request.query_params.get("client_id")
             if not client_id:
                 return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
@@ -1272,7 +1282,7 @@ class OAuthServerPlugin(PluginClient):
         async def update_client_handler(  # noqa: PLR0911
             request: Request,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerClientRpcResponse | Response:
             raw_payload = await request.json()
             client_id = raw_payload.get("client_id") if isinstance(raw_payload, dict) else None
             if not isinstance(client_id, str) or not client_id:
@@ -1337,7 +1347,7 @@ class OAuthServerPlugin(PluginClient):
             request: Request,
             response: Response,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerClientRpcResponse | Response:
             try:
                 individual = await client.get_individual(SecurityScopes(), request)
                 session = await client.get_session(request)
@@ -1398,7 +1408,7 @@ class OAuthServerPlugin(PluginClient):
         async def admin_update_client_handler(  # noqa: PLR0911
             request: Request,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerClientRpcResponse | Response:
             raw_payload = await request.json()
             client_id = raw_payload.get("client_id") if isinstance(raw_payload, dict) else None
             if not isinstance(client_id, str) or not client_id:
@@ -1484,7 +1494,7 @@ class OAuthServerPlugin(PluginClient):
             request: Request,
             response: Response,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerClientRpcResponse | Response:
             payload = await request.json()
             client_id = payload.get("client_id") if isinstance(payload, dict) else None
             if not isinstance(client_id, str) or not client_id:
@@ -1516,20 +1526,23 @@ class OAuthServerPlugin(PluginClient):
             f"{_OAUTH_ENDPOINT_PREFIX}/public-client-prelogin",
             prelogin_client_handler,
             methods=["POST"],
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/public-client",
             public_client_handler,
             methods=["GET"],
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
         )
         router.add_api_route(
             f"/admin{_OAUTH_ENDPOINT_PREFIX}/create-client",
             admin_create_client_handler,
             methods=["POST"],
             status_code=status.HTTP_201_CREATED,
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
             include_in_schema=False,
         )
         router.add_api_route(
@@ -1537,32 +1550,37 @@ class OAuthServerPlugin(PluginClient):
             create_client_handler,
             methods=["POST"],
             status_code=status.HTTP_201_CREATED,
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/get-clients",
             list_clients_handler,
             methods=["GET"],
-            response_model=None,
+            response_model=list[OAuthServerClientRpcResponse],
+            response_model_exclude_none=True,
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/get-client",
             get_client_handler,
             methods=["GET"],
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
         )
         router.add_api_route(
             f"/admin{_OAUTH_ENDPOINT_PREFIX}/update-client",
             admin_update_client_handler,
             methods=["PATCH"],
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
             include_in_schema=False,
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/update-client",
             update_client_handler,
             methods=["POST"],
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/delete-client",
@@ -1574,7 +1592,8 @@ class OAuthServerPlugin(PluginClient):
             f"{_OAUTH_ENDPOINT_PREFIX}/client/rotate-secret",
             rotate_client_secret_handler,
             methods=["POST"],
-            response_model=None,
+            response_model=OAuthServerClientRpcResponse,
+            response_model_exclude_none=True,
         )
         return router
 
@@ -1590,7 +1609,7 @@ class OAuthServerPlugin(PluginClient):
         async def list_consents_handler(
             request: Request,
             client: BelgieClientDep,
-        ) -> list[dict[str, JSONValue]] | Response:
+        ) -> list[OAuthServerConsentRpcResponse] | Response:
             individual = await client.get_individual(SecurityScopes(), request)
             session = await client.get_session(request)
             individual_id = str(individual.id)
@@ -1614,7 +1633,7 @@ class OAuthServerPlugin(PluginClient):
         async def get_consent_handler(
             request: Request,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerConsentRpcResponse | Response:
             consent_id_raw = request.query_params.get("id")
             if not consent_id_raw:
                 return _oauth_error("not_found", "missing id parameter", status_code=status.HTTP_404_NOT_FOUND)
@@ -1640,7 +1659,7 @@ class OAuthServerPlugin(PluginClient):
         async def update_consent_handler(  # noqa: PLR0911
             request: Request,
             client: BelgieClientDep,
-        ) -> dict[str, JSONValue] | Response:
+        ) -> OAuthServerConsentRpcResponse | Response:
             payload = await request.json()
             consent_id_raw = payload.get("id") if isinstance(payload, dict) else None
             if not isinstance(consent_id_raw, str) or not consent_id_raw:
@@ -1711,19 +1730,19 @@ class OAuthServerPlugin(PluginClient):
             f"{_OAUTH_ENDPOINT_PREFIX}/get-consents",
             list_consents_handler,
             methods=["GET"],
-            response_model=None,
+            response_model=list[OAuthServerConsentRpcResponse],
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/get-consent",
             get_consent_handler,
             methods=["GET"],
-            response_model=None,
+            response_model=OAuthServerConsentRpcResponse,
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/update-consent",
             update_consent_handler,
             methods=["POST"],
-            response_model=None,
+            response_model=OAuthServerConsentRpcResponse,
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/delete-consent",
@@ -2536,7 +2555,7 @@ def _serialize_oauth_client(
     client_info: OAuthServerClientInformationFull,
     *,
     include_secret: bool,
-) -> dict[str, JSONValue]:
+) -> OAuthServerClientRpcResponse:
     metadata = (
         {
             key: value
@@ -2582,26 +2601,30 @@ def _serialize_oauth_client(
     }
     if include_secret and client_info.client_secret is not None:
         payload["client_secret"] = client_info.client_secret
-    return {key: value for key, value in payload.items() if value is not None}
+    filtered = {key: value for key, value in payload.items() if value is not None}
+    return OAuthServerClientRpcResponse.model_validate(filtered)
 
 
-def _public_client_information(client_info: OAuthServerClientInformationFull) -> dict[str, JSONValue]:
-    payload = _serialize_oauth_client(client_info, include_secret=False)
+def _public_client_information(client_info: OAuthServerClientInformationFull) -> OAuthServerClientRpcResponse:
+    payload = _serialize_oauth_client(client_info, include_secret=False).model_dump(exclude_none=True, mode="json")
+    if not isinstance(payload, dict):
+        msg = "unexpected client record payload"
+        raise TypeError(msg)
     allowed = {"client_id", "client_name", "client_uri", "logo_uri", "contacts", "tos_uri", "policy_uri"}
-    return {key: value for key, value in payload.items() if key in allowed}
+    return OAuthServerClientRpcResponse.model_validate({key: value for key, value in payload.items() if key in allowed})
 
 
-def _serialize_consent(consent: _ConsentLike) -> dict[str, JSONValue]:
+def _serialize_consent(consent: _ConsentLike) -> OAuthServerConsentRpcResponse:
     created_at = consent.created_at
-    created_at_timestamp = int(created_at.timestamp()) if hasattr(created_at, "timestamp") else int(created_at)
-    return {
-        "id": str(consent.id),
-        "clientId": consent.client_id,
-        "userId": consent.individual_id,
-        "referenceId": consent.reference_id,
-        "scopes": list(consent.scopes),
-        "createdAt": created_at_timestamp,
-    }
+    created_at_timestamp = int(created_at.timestamp()) if isinstance(created_at, datetime) else int(created_at)
+    return OAuthServerConsentRpcResponse(
+        id=str(consent.id),
+        client_id=consent.client_id,
+        user_id=consent.individual_id,
+        reference_id=consent.reference_id,
+        scopes=list(consent.scopes),
+        created_at=created_at_timestamp,
+    )
 
 
 async def _can_manage_consent(
@@ -2626,7 +2649,7 @@ def _normalize_client_updates(
     payload: Mapping[str, JSONValue],
     *,
     allowed_fields: frozenset[str],
-) -> dict[str, object]:
+) -> dict[str, JSONValue]:
     list_fields = {"redirect_uris", "post_logout_redirect_uris", "contacts", "grant_types", "response_types"}
     string_fields = {
         "token_endpoint_auth_method",
@@ -2647,7 +2670,7 @@ def _normalize_client_updates(
     bool_fields = {"disabled", "skip_consent", "require_pkce", "enable_end_session"}
     dict_fields = {"metadata", "metadata_json"}
 
-    normalized: dict[str, object] = {}
+    normalized: dict[str, JSONValue] = {}
     for key, value in payload.items():
         if key not in allowed_fields:
             continue
@@ -2665,13 +2688,12 @@ def _normalize_client_updates(
 
 def _merge_client_metadata(
     oauth_client: OAuthServerClientInformationFull,
-    updates: Mapping[str, object],
+    updates: Mapping[str, JSONValue],
 ) -> OAuthServerClientMetadata:
-    merged_payload = {field: getattr(oauth_client, field) for field in OAuthServerClientMetadata.model_fields}
-    merged_payload.update(
-        {field: value for field, value in updates.items() if field in OAuthServerClientMetadata.model_fields},
-    )
-    return OAuthServerClientMetadata.model_validate(merged_payload)
+    base = OAuthServerClientMetadata.model_validate(oauth_client)
+    field_names = set(OAuthServerClientMetadata.model_fields)
+    merged = {**base.model_dump(), **{k: v for k, v in updates.items() if k in field_names}}
+    return OAuthServerClientMetadata.model_validate(merged)
 
 
 def _with_authorization_principal(

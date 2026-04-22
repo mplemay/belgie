@@ -10,10 +10,10 @@ from joserfc import jwt
 from joserfc.jwk import OctKey, RSAKey
 from pydantic import BaseModel, SecretStr
 
+from belgie_oauth_server.types import JSONValue  # noqa: TC001
 from belgie_oauth_server.utils import urlsafe_b64encode
 
 type SigningAlgorithm = Literal["RS256", "HS256"]
-type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 
 
 class OAuthServerSigning(BaseModel):

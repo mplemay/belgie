@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeGuard
 from uuid import UUID
@@ -41,9 +42,8 @@ class UserLookup:
 
     @staticmethod
     def _extract_token_value(access_token: AccessToken) -> str | None:
-        token_value = getattr(access_token, "token", None)
-        if isinstance(token_value, str) and token_value:
-            return token_value
+        if access_token.token and isinstance(access_token.token, str):
+            return access_token.token
         return None
 
     @staticmethod
@@ -101,7 +101,7 @@ class UserLookup:
 
     @staticmethod
     def _is_async_generator(value: object) -> TypeGuard[AsyncGenerator[DBConnection, None]]:
-        return hasattr(value, "__aiter__")
+        return inspect.isasyncgen(value)
 
     @staticmethod
     async def _load_user_from_db(belgie: Belgie, db: DBConnection, individual_id: UUID) -> IndividualProtocol | None:

@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.helpers import build_access_token_audience, parse_scope_param
-
-if TYPE_CHECKING:
-    from belgie_oauth_server.engine.models import AuthlibClient, AuthlibUser
-    from belgie_oauth_server.engine.runtime import OAuthEngineRuntime
-    from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request
+from belgie_oauth_server.engine.models import AuthlibAuthorizationCode, AuthlibClient, AuthlibRefreshToken, AuthlibUser
+from belgie_oauth_server.engine.runtime import OAuthEngineRuntime  # noqa: TC001
+from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request  # noqa: TC001
+from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 
 def build_token_payload(  # noqa: PLR0913
@@ -23,12 +21,12 @@ def build_token_payload(  # noqa: PLR0913
     scope: str | None,
     expires_in: int | None,
     include_refresh_token: bool,
-) -> dict[str, object]:
+) -> dict[str, JSONValue]:
     scopes = parse_scope_param(scope) or []
     if grant_type == "authorization_code" and "offline_access" not in scopes:
         include_refresh_token = False
 
-    resolved_resource = getattr(request, "belgie_resolved_resource", None)
+    resolved_resource = request.belgie_resolved_resource
     access_token_resource = build_access_token_audience(
         runtime.issuer_url,
         base_resource=resolved_resource,
@@ -77,7 +75,7 @@ def build_token_payload(  # noqa: PLR0913
             run_async(runtime.provider._generate_opaque_access_token),  # noqa: SLF001
         )
 
-    token: dict[str, object] = {
+    token: dict[str, JSONValue] = {
         "access_token": access_token,
         "token_type": "Bearer",
         "expires_in": resolved_expires_in,
@@ -96,12 +94,12 @@ def build_token_payload(  # noqa: PLR0913
 
 
 def resolve_request_session_id(request: StarletteOAuth2Request) -> str | None:
-    authorization_code = getattr(request, "authorization_code", None)
-    if authorization_code is not None and authorization_code.record.session_id is not None:
+    authorization_code = request.authorization_code
+    if isinstance(authorization_code, AuthlibAuthorizationCode) and authorization_code.record.session_id is not None:
         return authorization_code.record.session_id
 
-    refresh_token = getattr(request, "refresh_token", None)
-    if refresh_token is not None and refresh_token.record.session_id is not None:
+    refresh_token = request.refresh_token
+    if isinstance(refresh_token, AuthlibRefreshToken) and refresh_token.record.session_id is not None:
         return refresh_token.record.session_id
 
     return None

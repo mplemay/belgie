@@ -10,9 +10,10 @@ from authlib.oidc.core.claims import UserInfo
 from belgie_oauth_server.engine.helpers import oauth_client_is_public
 from belgie_oauth_server.models import OAuthServerClientInformationFull, OAuthServerToken
 from belgie_oauth_server.signing import encode_jwt
+from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
     from datetime import datetime
 
     from belgie_core.core.client import BelgieClient
@@ -40,15 +41,29 @@ _RESERVED_TOKEN_RESPONSE_FIELDS = frozenset(
 )
 
 
+def _to_json_value(value: object) -> JSONValue:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_to_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(k): _to_json_value(v) for k, v in value.items()}
+    return str(value)
+
+
+def _claims_mapping_to_json(claims: Mapping[str, object]) -> dict[str, JSONValue]:
+    return {str(k): _to_json_value(v) for k, v in claims.items()}
+
+
 async def apply_custom_token_response_fields(  # noqa: PLR0913
     settings: OAuthServer,
-    payload: dict[str, object],
+    payload: dict[str, JSONValue],
     *,
     grant_type: str,
     oauth_client: OAuthServerClientInformationFull,
     scopes: list[str],
     user: UserClaimsSource | None = None,
-    verification_value: dict[str, object] | None = None,
+    verification_value: dict[str, JSONValue] | None = None,
 ) -> OAuthServerToken:
     custom_fields = await resolve_custom_mapping(
         settings.custom_token_response_fields,
@@ -152,16 +167,16 @@ async def build_access_token_jwt_payload(  # noqa: PLR0913
     access_token: AccessToken,
     *,
     user: UserClaimsSource | None = None,
-) -> dict[str, object]:
+) -> dict[str, JSONValue]:
     session_id = await resolve_active_session_id(client, access_token.session_id)
     if access_token.claims is not None:
-        payload = dict(access_token.claims)
-        payload["client_id"] = access_token.client_id
+        base = _claims_mapping_to_json(dict(access_token.claims))
+        base["client_id"] = access_token.client_id
         if session_id is None:
-            payload.pop("sid", None)
+            base.pop("sid", None)
         else:
-            payload["sid"] = session_id
-        return payload
+            base["sid"] = session_id
+        return base
 
     subject_identifier = (
         provider.resolve_subject_identifier(oauth_client, access_token.individual_id)
@@ -180,7 +195,7 @@ async def build_access_token_jwt_payload(  # noqa: PLR0913
             "client_id": access_token.client_id,
         },
     )
-    payload: dict[str, object] = {
+    payload: dict[str, JSONValue] = {
         "iss": issuer_url,
         "client_id": access_token.client_id,
         "sub": subject_identifier,
@@ -216,12 +231,9 @@ async def resolve_custom_mapping(
 
 async def resolve_session_auth_time(client: BelgieClient, session_id: str | None) -> int | None:
     session = await load_session(client, session_id)
-    if session is None:
+    if session is None or session.created_at is None:
         return None
-    created_at = getattr(session, "created_at", None)
-    if created_at is None:
-        return None
-    return int(created_at.timestamp())
+    return int(session.created_at.timestamp())
 
 
 async def resolve_active_session_id(client: BelgieClient, session_id: str | None) -> str | None:
@@ -289,7 +301,7 @@ async def build_id_token(  # noqa: PLR0913
     return provider.signing_state.sign(payload)
 
 
-async def load_session(client: BelgieClient, session_id: str | None) -> SessionLike | None:  # noqa: PLR0911
+async def load_session(client: BelgieClient, session_id: str | None) -> SessionLike | None:
     if session_id is None:
         return None
     try:
@@ -297,21 +309,7 @@ async def load_session(client: BelgieClient, session_id: str | None) -> SessionL
     except ValueError:
         return None
 
-    session_manager = getattr(client, "session_manager", None)
-    if session_manager is not None:
-        db = getattr(client, "db", None)
-        loaded_session = await session_manager.get_session(db, parsed_session_id)
-        if loaded_session is None or not hasattr(loaded_session, "id"):
-            return None
+    loaded_session = await client.session_manager.get_session(client.db, parsed_session_id)
+    if loaded_session is not None:
         return loaded_session
-
-    session = getattr(client, "session", None)
-    if session is None:
-        return None
-
-    active_session_id = getattr(session, "id", None)
-    if active_session_id is None:
-        return None
-    if active_session_id == parsed_session_id or str(active_session_id) == session_id:
-        return session
     return None

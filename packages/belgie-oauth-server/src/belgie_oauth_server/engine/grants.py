@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from authlib.oauth2.rfc6749 import AuthorizationCodeGrant, ClientCredentialsGrant, RefreshTokenGrant
 from authlib.oauth2.rfc6749.errors import (
@@ -10,6 +10,7 @@ from authlib.oauth2.rfc6749.errors import (
     UnauthorizedClientError,
 )
 
+from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer  # noqa: TC001
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.errors import InvalidTargetError
 from belgie_oauth_server.engine.helpers import parse_scope_param, resolve_token_resource
@@ -19,20 +20,17 @@ from belgie_oauth_server.engine.models import (
     AuthlibRefreshToken,
     AuthlibUser,
 )
-
-if TYPE_CHECKING:
-    from belgie_oauth_server.engine.runtime import OAuthEngineRuntime
+from belgie_oauth_server.engine.runtime import OAuthEngineRuntime  # noqa: TC001
+from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request  # noqa: TC001
 
 
 class BelgieGrantMixin:
+    server: BelgieAuthorizationServer
+    request: StarletteOAuth2Request
+
     @property
     def runtime(self) -> OAuthEngineRuntime:
-        server = getattr(self, "server", None)
-        runtime = getattr(server, "runtime", None)
-        if runtime is None:
-            msg = "missing belgie authorization server runtime"
-            raise RuntimeError(msg)
-        return runtime
+        return self.server.runtime
 
     def authenticate_belgie_client(self) -> AuthlibClient:
         client = self.authenticate_token_endpoint_client()
@@ -42,7 +40,7 @@ class BelgieGrantMixin:
         return client
 
     def require_request_client(self) -> AuthlibClient:
-        client = getattr(self.request, "client", None)
+        client = self.request.client
         if not isinstance(client, AuthlibClient):
             msg = "missing authlib client on request"
             raise TypeError(msg)
