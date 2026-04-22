@@ -1,6 +1,5 @@
 from belgie_oauth_server.client import (
     OAuthLoginFlowClient,
-    OAuthServerClient,
     OAuthServerLoginContext,
     OAuthServerLoginIntent,
 )
@@ -29,7 +28,6 @@ from belgie_oauth_server.verifier import VerifiedAccessToken, verify_local_acces
 __all__ = [
     "OAuthLoginFlowClient",
     "OAuthServer",
-    "OAuthServerClient",
     "OAuthServerLoginContext",
     "OAuthServerLoginIntent",
     "OAuthServerPlugin",

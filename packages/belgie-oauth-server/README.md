@@ -6,9 +6,8 @@
 > state, authorization codes, access tokens, refresh tokens, and consents
 > survive process restarts.
 
-Belgie OAuth Server is Belgie's OAuth 2.1 and OpenID Connect provider package.
-Its route surface and runtime behavior are aligned with
-`@better-auth/oauth-provider`, while keeping Belgie's Pythonic naming.
+Belgie OAuth Server is Belgie's OAuth 2.1 and OpenID Connect provider package,
+with a fixed `/oauth2/*` route layout and Pythonic naming.
 
 ## Installation
 
@@ -18,18 +17,18 @@ uv add belgie-oauth-server
 
 ## What It Provides
 
-- Fixed Better Auth-compatible `/oauth2/*` routes for authorize, token,
-  register, introspect, revoke, userinfo, and end-session.
+- Fixed `/oauth2/*` routes for authorize, token, register, introspect, revoke,
+  userinfo, and end-session.
 - OAuth and OIDC discovery metadata under
   `/.well-known/oauth-authorization-server` and
   `/.well-known/openid-configuration`.
-- Client CRUD and consent CRUD RPC routes that mirror Better Auth's management
-  endpoints, including server-only `/admin/oauth2/create-client` and
-  `/admin/oauth2/update-client` routes for restricted client fields.
+- Client CRUD and consent CRUD RPC routes, including server-only
+  `/admin/oauth2/create-client` and `/admin/oauth2/update-client` for restricted
+  client fields.
 - PKCE enforcement, pairwise subject identifiers, refresh-token rotation,
   prompt-aware login and consent flows, and dynamic client registration.
 - Custom access-token claims, id-token claims, userinfo claims, and token
-  response fields with Better Auth-style reserved-field protections.
+  response fields with reserved-field protections for standard OAuth/OIDC keys.
 
 ## Provider-First Setup
 
@@ -127,8 +126,8 @@ or `/auth/oauth2/register`.
 
 - `login_url` and `consent_url` are required whenever the
   `authorization_code` grant is enabled.
-- `/auth/oauth2/create-client` and `/auth/oauth2/update-client` only honor the
-  Better Auth public client fields. Restricted fields such as
+- `/auth/oauth2/create-client` and `/auth/oauth2/update-client` only honor public
+  client fields. Restricted fields such as
   `skip_consent`, `enable_end_session`, `require_pkce`, `subject_type`,
   `metadata`, and `client_secret_expires_at` belong on the server-only
   `/auth/admin/oauth2/*` routes.
@@ -150,7 +149,7 @@ or `/auth/oauth2/register`.
 
 - By default, access tokens are JWTs when a valid `resource` is requested and
   opaque otherwise.
-- `disable_jwt_plugin=True` changes the behavior to Better Auth's non-JWT mode:
+- `disable_jwt_plugin=True` switches to non-JWT access tokens:
   - access tokens are always opaque
   - confidential clients still receive an `id_token`
   - the `id_token` is signed in `HS256` with the client's secret
@@ -190,7 +189,7 @@ async def protected_resource_metadata() -> JSONResponse:
 
 ## Custom Claim Hooks
 
-Belgie exposes the same hook families as Better Auth, with snake_case names:
+Belgie exposes these hook families with snake_case names:
 
 - `custom_access_token_claims`
 - `custom_id_token_claims`
@@ -215,7 +214,6 @@ resource metadata helper from this package.
 - Restricted client fields are available through server-only
   `/admin/oauth2/create-client` and `/admin/oauth2/update-client`.
 - In-config static OAuth client fields on `OAuthServer` were removed; create
-  clients through DCR, RPC, admin, or your adapter/seed (same as Better Auth’s
-  model).
+  clients through DCR, RPC, admin, or your adapter/seed.
 - The old auth-server-owned protected-resource metadata model is gone. Resource
   servers publish that metadata themselves.

@@ -161,16 +161,10 @@ class OAuthServer(BaseSettings):
     def reject_legacy_settings(cls, values: object) -> object:  # noqa: C901
         if isinstance(values, dict):
             if "route_prefix" in values:
-                msg = (
-                    "`route_prefix` has been removed; belgie-oauth-server now exposes "
-                    "fixed Better Auth-compatible routes"
-                )
+                msg = "`route_prefix` has been removed; belgie-oauth-server now exposes fixed /oauth2 routes"
                 raise ValueError(msg)
             if "prefix" in values:
-                msg = (
-                    "`prefix` has been removed; belgie-oauth-server now exposes fixed "
-                    "Better Auth-compatible /oauth2 routes"
-                )
+                msg = "`prefix` has been removed; belgie-oauth-server now exposes fixed /oauth2 routes"
                 raise ValueError(msg)
             if "resource_server_url" in values:
                 msg = "`resource_server_url` has been removed; use `valid_audiences=[...]` instead"
@@ -199,8 +193,7 @@ class OAuthServer(BaseSettings):
                 msg = (
                     "`client_id`, `redirect_uris`, and `static_client_require_pkce` were removed. "
                     "Register OAuth clients via `/oauth2/create-client`, admin routes, or "
-                    "`POST /oauth2/register` when dynamic registration is enabled — matching "
-                    "Better Auth."
+                    "`POST /oauth2/register` when dynamic registration is enabled."
                 )
                 raise ValueError(msg)
             if "client_secret" in values:

@@ -1,4 +1,4 @@
-"""ASGI wrapper matching better-auth ``mcpHandler``: verify Bearer, attach ``WWW-Authenticate`` on failure."""
+"""ASGI wrapper: verify Bearer token, attach ``WWW-Authenticate`` on failure."""
 
 from __future__ import annotations
 
@@ -34,8 +34,7 @@ def mcp_handler(
     """Return an ASGI app that verifies a Bearer token before delegating to ``inner``.
 
     On verification failure, responds with 401, a minimal JSON error body, and ``WWW-Authenticate`` built
-    from the verifier's configured resource URL, as in
-    ``@better-auth/oauth-provider`` ``handleMcpErrors`` / ``mcp.ts``.
+    from the verifier's configured resource URL.
     """
     default_resource = verifier.resource_url
 

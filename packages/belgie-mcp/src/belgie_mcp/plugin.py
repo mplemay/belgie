@@ -85,7 +85,7 @@ class McpPlugin(PluginClient):
         return None
 
     def protected_resource_router(self) -> APIRouter:
-        """Serves `/.well-known/oauth-protected-resource/...` for this MCP resource (Better Auth style).
+        """Serves `/.well-known/oauth-protected-resource/...` for this MCP resource.
 
         Use when the MCP app is not using ``MCPServer.streamable_http_app`` built-in well-known
         registration; ``include_router(plugin.protected_resource_router())`` on the FastAPI app.
@@ -122,7 +122,7 @@ class McpPlugin(PluginClient):
         return self._mcp_config.resource_metadata_mappings
 
     def mcp_www_authenticate_value(self, resources: str | list[str]) -> str:
-        """``WWW-Authenticate`` for 401s when replicating better-auth :js:func:`handleMcpErrors` outside the MCP SDK."""
+        """``WWW-Authenticate`` for 401s when handling MCP HTTP outside the SDK's built-in responses."""
         return build_mcp_www_authenticate_value(
             resources,
             resource_metadata_mappings=self._mcp_config.resource_metadata_mappings,

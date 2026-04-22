@@ -178,8 +178,8 @@ async def build_access_token_jwt_payload(  # noqa: PLR0913
             base["sid"] = session_id
         return base
 
-    # JWT access tokens use the real user id as `sub` (public), matching better-auth's
-    # createJwtAccessToken. Pairwise applies to id_token, userinfo, and introspection only.
+    # JWT access tokens use the real user id as `sub` (public). Pairwise applies to id_token, userinfo, and
+    # introspection only.
     access_sub: str | None = str(access_token.individual_id) if access_token.individual_id is not None else None
     custom_claims = await resolve_custom_mapping(
         settings.custom_access_token_claims,
@@ -221,7 +221,7 @@ def resolve_introspection_sub_for_response(
     oauth_client: OAuthServerClientInformationFull,
     payload: dict[str, JSONValue],
 ) -> dict[str, JSONValue]:
-    """Apply pairwise to introspection `sub` only (better-auth's resolveIntrospectionSub).
+    """Apply pairwise to introspection `sub` only.
 
     Internal access-token JWTs and validation use the public user id; this adjusts the
     presentation layer for RFC 7662 responses.

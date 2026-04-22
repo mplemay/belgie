@@ -52,7 +52,7 @@ async def test_verify_resource_access_token_returns_local_token_and_subject() ->
 async def test_verify_resource_access_token_uses_public_sub_for_pairwise_clients() -> None:
     """Resource verification exposes JWT `sub` (public id) even when the client is pairwise.
 
-    id_token and introspection use pairwise; access tokens follow better-auth's createJwtAccessToken.
+    id_token and introspection use pairwise; access tokens keep the public subject in ``sub``.
     """
     individual_id = str(uuid4())
     settings, provider, _adapter, _db = build_oauth_provider(

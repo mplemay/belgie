@@ -1,7 +1,6 @@
-"""HMAC-SHA256 signing for oauth_query strings (Better Auth compatible).
+"""HMAC-SHA256 signing for signed OAuth authorization query strings (``oauth_query``).
 
-See better-auth: ``makeSignature`` in better-auth/src/crypto, ``verifyOAuthQueryParams`` in
-oauth-provider ``utils`` and ``signParams``/``serializeAuthorizationQuery`` in ``authorize``."""
+Covers parameter canonicalization, expiry, and verification used by the authorization endpoint."""
 
 from __future__ import annotations
 
@@ -30,7 +29,7 @@ def make_signature(value: str, secret: str) -> str:
 
 
 def verify_oauth_query_params(oauth_query: str, secret: str) -> bool:
-    """Validate ``exp`` and ``sig`` on an oauth_query string (Better Auth)."""
+    """Validate ``exp`` and ``sig`` on an oauth_query string."""
     pairs = parse_qsl(oauth_query, keep_blank_values=True)
     sig: str | None = None
     for key, value in pairs:
@@ -106,10 +105,9 @@ def build_signed_oauth_query(
     code_expires_in_seconds: int,
     extra: Mapping[str, str | list[str] | None] | None = None,
 ) -> str:
-    """Build ``&exp=`` and ``&sig=`` over a query string in Better Auth's canonical key order.
+    """Build ``&exp=`` and ``&sig=`` over a query string in canonical key order.
 
-    Scalars and lists (for repeated keys) are serialized with the same key order as
-    ``serializeAuthorizationQuery``; unknown keys are appended in sorted order at the end.
+    Scalars and lists (for repeated keys) use a fixed key order; unknown keys are appended in sorted order at the end.
     """
     merged: dict[str, str | list[str] | None] = {**dict(parts), **(dict(extra) if extra else {})}
     pairs: list[tuple[str, str]] = _flatten_oauth_query_parts(merged, include_unknown=True)

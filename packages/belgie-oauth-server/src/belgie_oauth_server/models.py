@@ -201,7 +201,7 @@ class OAuthServerJwksResponse(BaseModel):
 
 
 class OAuthServerConsentRpcResponse(BaseModel):
-    """CamelCase JSON keys (better-auth RPC contract); Python fields are snake_case."""
+    """CamelCase JSON keys for client RPC responses; Python fields are snake_case."""
 
     model_config = ConfigDict(populate_by_name=True)
 

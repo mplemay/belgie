@@ -79,8 +79,7 @@ async def get_time() -> dict[str, str]:
 
 ## Resource Metadata Flow
 
-This package follows the same protected-resource split that Better Auth
-documents:
+This package follows the usual protected-resource split:
 
 - the auth server publishes OAuth and OIDC discovery metadata
 - the MCP server publishes `/.well-known/oauth-protected-resource`
@@ -95,13 +94,10 @@ same OAuth settings that power the verifier.
   `server_path`.
 - `oauth_strict=True` enables strict audience checks during verification.
 - `required_scopes` applies MCP-side scope checks after token verification.
-- `mcp_token_verifier(...)` defaults remote introspection to the OAuth server's
-  advertised Better Auth-compatible path: `{issuer}/oauth2/introspect`.
+- `mcp_token_verifier(...)` defaults remote introspection to `{issuer}/oauth2/introspect`.
 - If you need remote introspection, set `introspection_endpoint`,
   `introspection_client_id`, and `introspection_client_secret`.
-- `resource_metadata_mappings` maps non-URL audience strings (e.g. URNs) to a full protected-resource metadata URL,
-  matching
-  [better-auth `handleMcpErrors`](https://github.com/better-auth/better-auth/blob/main/packages/oauth-provider/src/mcp.ts).
+- `resource_metadata_mappings` maps non-URL audience strings (e.g. URNs) to a full protected-resource metadata URL.
   Use with `McpPlugin.mcp_www_authenticate_value(...)` or `build_mcp_www_authenticate_value(...)` when you return 401
   responses outside `MCPServer.streamable_http_app` (the SDK still sets `www-authenticate` for you).
 

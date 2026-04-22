@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from belgie import Belgie, BelgieClient, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import BelgieAdapter, OAuthServerAdapter
 from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
-from belgie.oauth.server import OAuthServer, OAuthServerClient
+from belgie.oauth.server import OAuthLoginFlowClient, OAuthServer
 from examples.alchemy.auth_models import (
     Account,
     Individual,
@@ -125,7 +125,7 @@ oauth_plugin = belgie.add_plugin(
         signing=build_development_signing(),
     ),
 )
-type OAuthClientDep = Annotated[OAuthServerClient, Depends(oauth_plugin)]
+type OAuthClientDep = Annotated[OAuthLoginFlowClient, Depends(oauth_plugin)]
 type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 type GoogleClientDep = Annotated[GoogleOAuthClient, Depends(google_plugin)]
 

@@ -1,7 +1,7 @@
 """SQLAlchemy mixins for OAuth server persistence.
 
-DCR does not persist ``jwks`` / ``jwks_uri`` on clients (Better Auth parity); those
-columns are intentionally absent from :class:`OAuthServerClientMixin`.
+DCR does not persist ``jwks`` / ``jwks_uri`` on clients; those columns are intentionally absent from
+:class:`OAuthServerClientMixin`.
 """
 
 from __future__ import annotations

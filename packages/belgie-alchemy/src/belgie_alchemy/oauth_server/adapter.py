@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: PLR0913, A002
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 from belgie_proto.oauth_server import OAuthServerAdapterProtocol
 from sqlalchemy import delete, select
@@ -24,8 +24,6 @@ if TYPE_CHECKING:
         OAuthServerSubjectType,
         TokenEndpointAuthMethod,
     )
-
-TModel = TypeVar("TModel")
 
 
 def _execute_rowcount(result: object) -> int:
@@ -66,11 +64,6 @@ class OAuthServerAdapter[
         self.oauth_access_token_model = oauth_access_token
         self.oauth_refresh_token_model = oauth_refresh_token
         self.oauth_consent_model = oauth_consent
-
-    async def _flush_and_refresh(self, session: DBConnection, instance: TModel) -> TModel:
-        await session.flush()
-        await session.refresh(instance)
-        return instance
 
     async def create_client(
         self,
@@ -138,7 +131,9 @@ class OAuthServerAdapter[
             individual_id=individual_id,
         )
         session.add(client)
-        return await self._flush_and_refresh(session, client)
+        await session.flush()
+        await session.refresh(client)
+        return client
 
     async def get_client_by_client_id(self, session: DBConnection, *, client_id: str) -> ClientT | None:
         stmt = select(self.oauth_client_model).where(self.oauth_client_model.client_id == client_id)
@@ -173,7 +168,9 @@ class OAuthServerAdapter[
         for field, value in updates.items():
             setattr(client, field, value)
         client.updated_at = datetime.now(UTC)
-        return await self._flush_and_refresh(session, client)
+        await session.flush()
+        await session.refresh(client)
+        return client
 
     async def delete_client(
         self,
@@ -219,7 +216,9 @@ class OAuthServerAdapter[
             expires_at=expires_at,
         )
         session.add(authorization_state)
-        return await self._flush_and_refresh(session, authorization_state)
+        await session.flush()
+        await session.refresh(authorization_state)
+        return authorization_state
 
     async def get_authorization_state(self, session: DBConnection, *, state: str) -> AuthorizationStateT | None:
         stmt = select(self.oauth_authorization_state_model).where(self.oauth_authorization_state_model.state == state)
@@ -240,7 +239,9 @@ class OAuthServerAdapter[
         authorization_state.individual_id = individual_id
         authorization_state.session_id = session_id
         authorization_state.updated_at = datetime.now(UTC)
-        return await self._flush_and_refresh(session, authorization_state)
+        await session.flush()
+        await session.refresh(authorization_state)
+        return authorization_state
 
     async def update_authorization_state_interaction(
         self,
@@ -259,7 +260,9 @@ class OAuthServerAdapter[
         if scopes is not None:
             authorization_state.scopes = scopes
         authorization_state.updated_at = datetime.now(UTC)
-        return await self._flush_and_refresh(session, authorization_state)
+        await session.flush()
+        await session.refresh(authorization_state)
+        return authorization_state
 
     async def delete_authorization_state(self, session: DBConnection, *, state: str) -> bool:
         stmt = delete(self.oauth_authorization_state_model).where(self.oauth_authorization_state_model.state == state)
@@ -296,7 +299,9 @@ class OAuthServerAdapter[
             expires_at=expires_at,
         )
         session.add(authorization_code)
-        return await self._flush_and_refresh(session, authorization_code)
+        await session.flush()
+        await session.refresh(authorization_code)
+        return authorization_code
 
     async def get_authorization_code_by_code_hash(
         self,
@@ -341,7 +346,9 @@ class OAuthServerAdapter[
             expires_at=expires_at,
         )
         session.add(access_token)
-        return await self._flush_and_refresh(session, access_token)
+        await session.flush()
+        await session.refresh(access_token)
+        return access_token
 
     async def get_access_token_by_token_hash(self, session: DBConnection, *, token_hash: str) -> AccessTokenT | None:
         stmt = select(self.oauth_access_token_model).where(self.oauth_access_token_model.token_hash == token_hash)
@@ -412,7 +419,9 @@ class OAuthServerAdapter[
             expires_at=expires_at,
         )
         session.add(refresh_token)
-        return await self._flush_and_refresh(session, refresh_token)
+        await session.flush()
+        await session.refresh(refresh_token)
+        return refresh_token
 
     async def get_refresh_token_by_token_hash(self, session: DBConnection, *, token_hash: str) -> RefreshTokenT | None:
         stmt = select(self.oauth_refresh_token_model).where(self.oauth_refresh_token_model.token_hash == token_hash)
@@ -433,7 +442,9 @@ class OAuthServerAdapter[
             return None
         refresh_token.revoked_at = revoked_at
         refresh_token.updated_at = datetime.now(UTC)
-        return await self._flush_and_refresh(session, refresh_token)
+        await session.flush()
+        await session.refresh(refresh_token)
+        return refresh_token
 
     async def delete_refresh_token_by_token_hash(self, session: DBConnection, *, token_hash: str) -> bool:
         stmt = delete(self.oauth_refresh_token_model).where(self.oauth_refresh_token_model.token_hash == token_hash)
@@ -493,11 +504,15 @@ class OAuthServerAdapter[
                 scopes=scopes,
             )
             session.add(consent)
-            return await self._flush_and_refresh(session, consent)
+            await session.flush()
+            await session.refresh(consent)
+            return consent
 
         consent.scopes = scopes
         consent.updated_at = datetime.now(UTC)
-        return await self._flush_and_refresh(session, consent)
+        await session.flush()
+        await session.refresh(consent)
+        return consent
 
     async def get_consent(
         self,
@@ -550,7 +565,9 @@ class OAuthServerAdapter[
             return None
         consent.scopes = scopes
         consent.updated_at = datetime.now(UTC)
-        return await self._flush_and_refresh(session, consent)
+        await session.flush()
+        await session.refresh(consent)
+        return consent
 
     async def delete_consent(
         self,

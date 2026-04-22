@@ -161,7 +161,7 @@ def _build_local_verified_token(
     source: Literal["jwt", "stored"],
     token: AccessToken,
 ) -> VerifiedResourceAccessToken:
-    # `subject` matches JWT `sub` (public user id), consistent with better-auth mcpHandler/decode
+    # `subject` matches JWT `sub` (public user id)
     return VerifiedResourceAccessToken(
         source=source,
         token=token,

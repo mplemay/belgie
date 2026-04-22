@@ -1,4 +1,4 @@
-"""OAuth 2.1 / OIDC server routes aligned with ``@better-auth/oauth-provider`` (oauth.ts).
+"""OAuth 2.1 / OIDC server routes and FastAPI integration.
 
 Registers authorize, token, register, introspect, revoke, userinfo, end-session, consent, login, continue, and client
 RPCs; RFC 9207 ``iss`` on success redirects, PKCE, per-endpoint rate limits, and DCR without ``jwks``/``jwks_uri`` in

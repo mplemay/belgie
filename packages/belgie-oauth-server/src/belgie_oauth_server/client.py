@@ -70,6 +70,3 @@ def _build_return_to_url(issuer_url: str, state: str, intent: OAuthServerLoginIn
     if intent == "consent":
         return construct_redirect_uri(join_url(issuer_url, "oauth2/consent"), state=state)
     return construct_redirect_uri(join_url(issuer_url, "oauth2/login/callback"), state=state)
-
-
-OAuthServerClient = OAuthLoginFlowClient

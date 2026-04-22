@@ -6,7 +6,6 @@ try:
     from belgie_oauth_server import (  # type: ignore[import-not-found]
         OAuthLoginFlowClient,
         OAuthServer,
-        OAuthServerClient,
         OAuthServerLoginContext,
         OAuthServerLoginIntent,
         OAuthServerPlugin,
@@ -21,7 +20,6 @@ except ModuleNotFoundError as exc:
 __all__ = [
     "OAuthLoginFlowClient",
     "OAuthServer",
-    "OAuthServerClient",
     "OAuthServerLoginContext",
     "OAuthServerLoginIntent",
     "OAuthServerPlugin",

@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 
 import pytest
 from belgie_oauth_server.__tests__.helpers import build_oauth_provider
-from belgie_oauth_server.client import OAuthServerClient
+from belgie_oauth_server.client import OAuthLoginFlowClient
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -31,12 +31,12 @@ def _build_request(query: dict[str, str]) -> Request:
 TEST_REDIRECT = "https://example.com/callback"
 
 
-async def _build_client() -> tuple[OAuthServerClient, SimpleOAuthProvider, OAuthServer]:
+async def _build_client() -> tuple[OAuthLoginFlowClient, SimpleOAuthProvider, OAuthServer]:
     settings, provider, _adapter, _db = build_oauth_provider(
         test_redirect_uris=[TEST_REDIRECT],
         base_url="https://example.com",
     )
-    return OAuthServerClient(provider=provider, issuer_url=str(settings.issuer_url)), provider, settings
+    return OAuthLoginFlowClient(provider=provider, issuer_url=str(settings.issuer_url)), provider, settings
 
 
 async def _store_state(

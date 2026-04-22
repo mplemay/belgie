@@ -355,7 +355,7 @@ def _trust_dynamic_callback_client(oauth_client) -> bool:
     )
 
 
-def test_metadata_and_openapi_match_better_auth_contract() -> None:
+def test_metadata_and_openapi_match_reference_contract() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         test_redirect_uris=["https://client.local/callback"],
@@ -1079,7 +1079,7 @@ def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
     assert introspection.json() == {"active": False}
 
 
-def test_client_management_rpc_routes_match_better_auth_shape() -> None:
+def test_client_management_rpc_routes_match_reference_shape() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         test_redirect_uris=["https://client.local/callback"],
@@ -1292,7 +1292,7 @@ def test_admin_client_routes_support_restricted_fields() -> None:
     assert updated_payload["subject_type"] == "pairwise"
 
 
-def test_consent_management_rpc_routes_match_better_auth_shape() -> None:
+def test_consent_management_rpc_routes_match_reference_shape() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         test_redirect_uris=["https://client.local/callback"],

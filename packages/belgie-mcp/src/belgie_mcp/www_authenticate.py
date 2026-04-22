@@ -1,4 +1,4 @@
-"""Build ``WWW-Authenticate`` values for MCP / OAuth protected-resource (better-auth ``handleMcpErrors``)."""
+"""Build ``WWW-Authenticate`` values for MCP / OAuth protected-resource metadata."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _www_authenticate_single(
     if resource_metadata_mappings is None or resource not in resource_metadata_mappings:
         msg = f"missing resource_metadata mapping for non-URL resource {resource!r}"
         raise ValueError(msg)
-    # Non-URL audiences (e.g. URN) use an unquoted metadata URL per better-auth mcpHandler.
+    # Non-URL audiences (e.g. URN) use an unquoted metadata URL from the mapping.
     return f"Bearer resource_metadata={resource_metadata_mappings[resource]}"
 
 
@@ -34,12 +34,11 @@ def build_mcp_www_authenticate_value(
     *,
     resource_metadata_mappings: dict[str, str] | None = None,
 ) -> str:
-    """Return a ``WWW-Authenticate`` header value (possibly comma-separated), matching better-auth's logic.
+    """Return a ``WWW-Authenticate`` header value (possibly comma-separated).
 
     For each HTTP(s) *audience* (resource) string, the metadata URL is
     ``{origin}/.well-known/oauth-protected-resource{path}``. For other strings (e.g. URNs), supply
-    ``resource_metadata_mappings`` with the full metadata document URL, as in
-    ``@better-auth/oauth-provider`` ``handleMcpErrors``.
+    ``resource_metadata_mappings`` with the full metadata document URL.
     """
     items = [resources] if isinstance(resources, str) else list(resources)
     if not items:

@@ -5,7 +5,7 @@ import httpx
 import pytest
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
-from belgie_oauth_server.client import OAuthServerClient
+from belgie_oauth_server.client import OAuthLoginFlowClient
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import construct_redirect_uri, create_code_challenge
 from fastapi import Depends, FastAPI, Request, status
@@ -38,7 +38,7 @@ async def _build_custom_pages_app(
     @app.get("/login/custom")
     async def custom_login(
         request: Request,
-        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+        oauth: Annotated[OAuthLoginFlowClient, Depends(oauth_plugin)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
         if context is None:
@@ -59,7 +59,7 @@ async def _build_custom_pages_app(
     @app.get("/signup/custom")
     async def custom_signup(
         request: Request,
-        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+        oauth: Annotated[OAuthLoginFlowClient, Depends(oauth_plugin)],
         client: Annotated[BelgieClient, Depends(belgie_instance)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
@@ -71,7 +71,7 @@ async def _build_custom_pages_app(
     @app.get("/login/google")
     async def login_google(
         request: Request,
-        oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+        oauth: Annotated[OAuthLoginFlowClient, Depends(oauth_plugin)],
         client: Annotated[BelgieClient, Depends(belgie_instance)],
     ) -> RedirectResponse:
         context = await oauth.try_resolve_login_context(request)
