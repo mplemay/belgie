@@ -10,6 +10,7 @@ from pydantic import AnyUrl
 pytest.importorskip("mcp")
 pytest.importorskip("belgie_oauth_server")
 
+from belgie_mcp.auth_context import get_verified_access_token, set_verified_access_token
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.models import OAuthServerClientMetadata
@@ -82,6 +83,42 @@ async def test_verify_token_active_returns_access_token() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_verify_token_stores_verified_subject_for_request_context() -> None:
+    endpoint = "https://issuer.local/introspect"
+    subject = str(uuid4())
+    respx.post(endpoint).mock(
+        return_value=Response(
+            200,
+            json={
+                "active": True,
+                "client_id": "client",
+                "scope": "user",
+                "exp": 123,
+                "aud": "https://mcp.local",
+                "sub": subject,
+                "iss": "https://issuer.local/auth",
+            },
+        ),
+    )
+
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint=endpoint,
+        server_url="https://mcp.local/mcp",
+    )
+
+    token_value = str(uuid4())
+    token = await verifier.verify_token(token_value)
+    verified_token = get_verified_access_token()
+
+    assert token is not None
+    assert verified_token is not None
+    assert verified_token.subject == subject
+    assert verified_token.token.token == token_value
+    set_verified_access_token(None)
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_verify_token_local_provider_accepts_dynamic_client_access_tokens() -> None:
     endpoint = "https://issuer.local/introspect"
     route = respx.post(endpoint).mock(return_value=Response(500))
@@ -101,7 +138,7 @@ async def test_verify_token_local_provider_accepts_dynamic_client_access_tokens(
 
     token = await verifier.verify_token(token_value)
 
-    assert stored_token.client_id != settings.client_id
+    assert stored_token.client_id != "test-client"
     assert token == AccessToken(
         token=token_value,
         client_id=stored_token.client_id,
@@ -237,12 +274,12 @@ async def test_verify_token_strict_resource_rejects_mismatch() -> None:
 def test_mcp_auth_defaults() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
 
     auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
 
-    assert str(auth.issuer_url) == "https://issuer.local/auth/oauth"
+    assert str(auth.issuer_url) == "https://issuer.local/auth"
     assert str(auth.resource_server_url) == "https://mcp.local/mcp"
     assert auth.required_scopes == []
 
@@ -250,7 +287,7 @@ def test_mcp_auth_defaults() -> None:
 def test_mcp_auth_uses_configured_default_scopes() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
         default_scopes=["user", "profile"],
     )
 
@@ -262,7 +299,7 @@ def test_mcp_auth_uses_configured_default_scopes() -> None:
 def test_mcp_auth_overrides() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
 
     auth = mcp_auth(
@@ -275,7 +312,7 @@ def test_mcp_auth_overrides() -> None:
 
 
 def test_mcp_auth_requires_issuer_url() -> None:
-    settings = build_oauth_settings(redirect_uris=["https://app.local/callback"], base_url=None)
+    settings = build_oauth_settings(test_redirect_uris=["https://app.local/callback"], base_url=None)
 
     with pytest.raises(ValueError, match="issuer_url"):
         mcp_auth(settings, server_url="https://mcp.local/mcp")
@@ -284,18 +321,18 @@ def test_mcp_auth_requires_issuer_url() -> None:
 def test_mcp_token_verifier_defaults() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
 
     verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
 
-    assert verifier.introspection_endpoint == join_url("https://issuer.local/auth/oauth", "introspect")
+    assert verifier.introspection_endpoint == join_url("https://issuer.local/auth", "oauth2/introspect")
 
 
 def test_mcp_token_verifier_overrides() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
 
     verifier = mcp_token_verifier(
@@ -310,7 +347,7 @@ def test_mcp_token_verifier_overrides() -> None:
 def test_mcp_server_init_with_bundle() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
     auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
     token_verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
@@ -327,9 +364,8 @@ def test_mcp_server_init_with_bundle() -> None:
 def _oauth_settings() -> OAuthServer:
     return build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["http://localhost:6274/oauth/callback"],
-        client_id="test-client",
-        client_secret="test-secret",
+        test_redirect_uris=["http://localhost:6274/oauth/callback"],
+        test_client_secret="test-secret",
         default_scopes=["user"],
     )
 
@@ -362,7 +398,7 @@ async def _issue_dynamic_client_access_token(
             code_challenge="test-challenge",
             redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
             redirect_uri_provided_explicitly=True,
-            resource=resource,
+            resource=None,
             individual_id=individual_id,
             session_id=str(uuid4()),
         ),
@@ -371,7 +407,10 @@ async def _issue_dynamic_client_access_token(
     code = parse_qs(urlparse(redirect).query)["code"][0]
     authorization_code = await provider.load_authorization_code(code)
     assert authorization_code is not None
-    token_response = await provider.exchange_authorization_code(authorization_code)
+    token_response = await provider.exchange_authorization_code(
+        authorization_code,
+        access_token_resource=resource,
+    )
     stored_token = await provider.load_access_token(token_response.access_token)
     assert stored_token is not None
     return token_response.access_token, stored_token

@@ -14,7 +14,7 @@ from belgie_alchemy.team import TeamAdapter
 
 
 @pytest_asyncio.fixture
-async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
+async def core_adapter(alchemy_session: AsyncSession):
     adapter = BelgieAdapter(
         account=Account,
         individual=Individual,

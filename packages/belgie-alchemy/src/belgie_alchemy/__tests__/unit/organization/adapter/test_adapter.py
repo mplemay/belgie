@@ -17,7 +17,7 @@ from belgie_alchemy.organization import OrganizationAdapter
 
 
 @pytest_asyncio.fixture
-async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
+async def core_adapter(alchemy_session: AsyncSession):
     adapter = BelgieAdapter(
         account=Account,
         individual=Individual,
@@ -29,7 +29,7 @@ async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
 
 
 @pytest_asyncio.fixture
-async def organization_adapter(core_adapter: BelgieAdapter, alchemy_session: AsyncSession):  # noqa: ARG001
+async def organization_adapter(core_adapter: BelgieAdapter, alchemy_session: AsyncSession):
     adapter = OrganizationAdapter(
         organization=Organization,
         member=OrganizationMember,

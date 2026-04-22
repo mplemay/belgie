@@ -14,7 +14,7 @@ async def _issue_id_token(
     belgie_instance,
     db_session,
     create_individual_session,
-    update_static_client,
+    update_oauth_test_client,
     *,
     email: str,
     enable_end_session: bool,
@@ -23,7 +23,7 @@ async def _issue_id_token(
     session_id = await create_individual_session(belgie_instance, db_session, email)
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
-    update_static_client(
+    await update_oauth_test_client(
         scope="openid profile email",
         enable_end_session=enable_end_session,
         post_logout_redirect_uris=post_logout_redirect_uris,
@@ -31,11 +31,11 @@ async def _issue_id_token(
 
     code_verifier = "end-session-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
-            "client_id": oauth_settings.client_id,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "client_id": "test-client",
+            "redirect_uri": "http://localhost/callback",
             "code_challenge": create_code_challenge(code_verifier),
             "code_challenge_method": "S256",
             "scope": "openid profile email",
@@ -46,13 +46,13 @@ async def _issue_id_token(
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -66,7 +66,7 @@ async def _issue_id_token(
 @pytest.mark.asyncio
 async def test_end_session_rejects_invalid_id_token(async_client) -> None:
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={"id_token_hint": "not-a-jwt"},
     )
 
@@ -82,7 +82,7 @@ async def test_end_session_rejects_clients_without_permission(
     belgie_instance,
     db_session,
     create_individual_session,
-    update_static_client,
+    update_oauth_test_client,
 ) -> None:
     id_token, _session_id = await _issue_id_token(
         async_client,
@@ -91,13 +91,13 @@ async def test_end_session_rejects_clients_without_permission(
         belgie_instance,
         db_session,
         create_individual_session,
-        update_static_client,
+        update_oauth_test_client,
         email="end-session-disabled@test.com",
         enable_end_session=False,
     )
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={"id_token_hint": id_token},
     )
 
@@ -113,7 +113,7 @@ async def test_end_session_signs_out_session_and_redirects(
     belgie_instance,
     db_session,
     create_individual_session,
-    update_static_client,
+    update_oauth_test_client,
 ) -> None:
     redirect_uri = "http://localhost/logout-complete"
     id_token, session_id = await _issue_id_token(
@@ -123,14 +123,14 @@ async def test_end_session_signs_out_session_and_redirects(
         belgie_instance,
         db_session,
         create_individual_session,
-        update_static_client,
+        update_oauth_test_client,
         email="end-session-success@test.com",
         enable_end_session=True,
         post_logout_redirect_uris=[redirect_uri],
     )
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={
             "id_token_hint": id_token,
             "post_logout_redirect_uri": redirect_uri,
@@ -153,7 +153,7 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
     belgie_instance,
     db_session,
     create_individual_session,
-    update_static_client,
+    update_oauth_test_client,
 ) -> None:
     id_token, session_id = await _issue_id_token(
         async_client,
@@ -162,14 +162,14 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
         belgie_instance,
         db_session,
         create_individual_session,
-        update_static_client,
+        update_oauth_test_client,
         email="end-session-invalid-redirect@test.com",
         enable_end_session=True,
         post_logout_redirect_uris=["http://localhost/logout-complete"],
     )
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={
             "id_token_hint": id_token,
             "post_logout_redirect_uri": "http://testserver/not-allowed",
@@ -205,7 +205,7 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
 
     code_verifier = "end-session-public-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
             "client_id": "public-end-session",
@@ -220,7 +220,7 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": "public-end-session",
@@ -234,7 +234,7 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
     assert id_token is not None
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={
             "id_token_hint": id_token,
             "post_logout_redirect_uri": "http://localhost/logout-complete",
@@ -269,7 +269,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
 
     code_verifier = "end-session-public-disabled-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
             "client_id": "public-end-session-disabled",
@@ -284,7 +284,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": "public-end-session-disabled",
@@ -298,7 +298,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
     assert id_token is not None
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={"id_token_hint": id_token},
     )
 

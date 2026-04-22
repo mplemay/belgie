@@ -17,7 +17,7 @@ async def _create_individual(belgie_instance, db_session, email: str):
 
 @pytest.mark.asyncio
 async def test_userinfo_requires_bearer_token(async_client) -> None:
-    response = await async_client.get("/auth/oauth/userinfo")
+    response = await async_client.get("/auth/oauth2/userinfo")
 
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_token"
@@ -34,13 +34,13 @@ async def test_userinfo_rejects_token_without_openid_scope(
     user = await _create_individual(belgie_instance, db_session, "userinfo-no-openid@test.com")
     await seed_access_token(
         token="userinfo-no-openid-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=list(oauth_settings.default_scopes),
         individual_id=str(user.id),
     )
 
     response = await async_client.get(
-        "/auth/oauth/userinfo",
+        "/auth/oauth2/userinfo",
         headers={"authorization": "Bearer userinfo-no-openid-token"},
     )
 
@@ -56,12 +56,12 @@ async def test_userinfo_rejects_token_without_user_binding(
 ) -> None:
     await seed_access_token(
         token="userinfo-no-user-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid"],
     )
 
     response = await async_client.get(
-        "/auth/oauth/userinfo",
+        "/auth/oauth2/userinfo",
         headers={"authorization": "Bearer userinfo-no-user-token"},
     )
 
@@ -81,12 +81,12 @@ async def test_userinfo_filters_claims_by_scope(
 
     await seed_access_token(
         token="userinfo-profile-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid", "profile"],
         individual_id=str(user.id),
     )
     profile_response = await async_client.get(
-        "/auth/oauth/userinfo",
+        "/auth/oauth2/userinfo",
         headers={"authorization": "Bearer userinfo-profile-token"},
     )
 
@@ -101,12 +101,12 @@ async def test_userinfo_filters_claims_by_scope(
 
     await seed_access_token(
         token="userinfo-email-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid", "email"],
         individual_id=str(user.id),
     )
     email_response = await async_client.get(
-        "/auth/oauth/userinfo",
+        "/auth/oauth2/userinfo",
         headers={"authorization": "Bearer userinfo-email-token"},
     )
 

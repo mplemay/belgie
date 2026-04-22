@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "asyncer>=0.0.17",
+    "authlib>=1.7.0",
     "belgie-core==0.1.0",
     "belgie-proto==0.1.0",
     "fastapi>=0.100",
@@ -76,6 +77,9 @@ dev = [
 [tool.uv]
 exclude-newer = "7 days"
 
+[tool.uv.exclude-newer-package]
+authlib = false
+
 [tool.uv.build-backend]
 source-exclude = ["**/__tests__/**"]
 
@@ -124,11 +128,13 @@ ignore = [
     "ANN001",  # missing type annotation for function argument
     "ANN201",  # missing return type annotation for public function
     "ANN202",  # missing return type annotation for private function
+    "ARG001",  # unused function argument (pytest fixture / plugin API surface)
     "B008",    # function call in argument defaults (required for FastAPI Depends)
     "F841",    # local variable assigned but never used
     "INP001",  # implicit namespace package (tests dir may not need __init__.py)
     "PLR0913", # too many arguments in function definition
     "PLR2004", # magic value used in comparison (fine in test cases)
+    "RUF059",  # unused unpacked variable (often from helpers returning tuples)
     "S101",    # use of assert (tests typically use assert directly)
     "S106",    # possible hardcoded password (test secrets are fine)
     "SLF001",  # private member accessed

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 @pytest.mark.asyncio
 async def test_register_disabled_by_default(async_client: httpx.AsyncClient) -> None:
     response = await async_client.post(
-        "/auth/oauth/register",
+        "/auth/oauth2/register",
         json={
             "redirect_uris": ["http://localhost/callback"],
             "client_name": "Demo",
@@ -37,7 +37,7 @@ async def test_register_enabled_requires_authentication(
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "client_name": "Demo",
@@ -65,7 +65,7 @@ async def test_register_enabled_allows_authenticated_confidential_registration(
         session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "client_name": "Demo",
@@ -99,7 +99,7 @@ async def test_register_enabled_unauthenticated_allows_public_clients(
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": "none",
@@ -131,7 +131,7 @@ async def test_register_enabled_unauthenticated_allows_omitted_confidential_auth
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
             },
@@ -164,7 +164,7 @@ async def test_register_enabled_unauthenticated_allows_explicit_confidential_cli
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": auth_method,
@@ -193,7 +193,7 @@ async def test_register_enabled_without_unauthenticated_registration_rejects_con
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": auth_method,
@@ -226,7 +226,7 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
         session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": "private_key_jwt",
@@ -235,7 +235,7 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
 
     assert response.status_code == 400
     payload = response.json()
-    assert payload["error"] == "invalid_request"
+    assert payload["error"] == "invalid_client_metadata"
 
 
 @pytest.mark.asyncio
@@ -254,7 +254,7 @@ async def test_register_allows_post_logout_redirect_uris(
         session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "post_logout_redirect_uris": ["http://localhost/logout-complete"],
@@ -285,7 +285,7 @@ async def test_register_allows_client_credentials_without_redirect_uris(
         session_id = await create_individual_session(belgie_instance, db_session, "client-credentials@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "grant_types": ["client_credentials"],
                 "response_types": [],
@@ -295,7 +295,7 @@ async def test_register_allows_client_credentials_without_redirect_uris(
     assert response.status_code == 201
     payload = response.json()
     assert payload["client_id"]
-    assert "redirect_uris" not in payload
+    assert payload.get("redirect_uris") in (None, [])
     registered_client = await plugin._provider.get_client(payload["client_id"])
     assert registered_client is not None
     assert registered_client.redirect_uris is None
@@ -317,7 +317,7 @@ async def test_register_ignores_enable_end_session_in_metadata(
         session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "enable_end_session": True,
@@ -349,7 +349,7 @@ async def test_register_returns_explicit_scope_when_requested(
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
-            "/auth/oauth/register",
+            "/auth/oauth2/register",
             json={
                 "redirect_uris": ["http://localhost/callback"],
                 "token_endpoint_auth_method": "none",

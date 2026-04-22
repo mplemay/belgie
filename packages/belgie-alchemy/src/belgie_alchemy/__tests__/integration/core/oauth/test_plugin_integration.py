@@ -15,7 +15,7 @@ def test_oauth_plugin_registers_routes(
     app.include_router(belgie_instance.router)
 
     with TestClient(app) as client:
-        response = client.get("/auth/oauth/.well-known/oauth-authorization-server")
+        response = client.get("/auth/.well-known/oauth-authorization-server")
         assert response.status_code == 200
 
 
@@ -35,15 +35,15 @@ def test_oauth_plugin_openapi_exposes_typed_response_models(
     assert "OAuthServerIntrospectionResponse" in components
     assert "UserInfoResponse" in components
 
-    token_schema = schema["paths"]["/auth/oauth/token"]["post"]["responses"]["200"]["content"]["application/json"][
+    token_schema = schema["paths"]["/auth/oauth2/token"]["post"]["responses"]["200"]["content"]["application/json"][
         "schema"
     ]
-    introspect_schema = schema["paths"]["/auth/oauth/introspect"]["post"]["responses"]["200"]["content"][
+    introspect_schema = schema["paths"]["/auth/oauth2/introspect"]["post"]["responses"]["200"]["content"][
         "application/json"
     ]["schema"]
-    userinfo_schema = schema["paths"]["/auth/oauth/userinfo"]["get"]["responses"]["200"]["content"]["application/json"][
-        "schema"
-    ]
+    userinfo_schema = schema["paths"]["/auth/oauth2/userinfo"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
 
     assert token_schema["$ref"] == "#/components/schemas/OAuthServerToken"
     assert introspect_schema["$ref"] == "#/components/schemas/OAuthServerIntrospectionResponse"

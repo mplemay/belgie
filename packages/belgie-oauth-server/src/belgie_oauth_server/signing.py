@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
-import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from joserfc import jwt
+from joserfc.jwk import OctKey, RSAKey
 from pydantic import BaseModel, SecretStr
 
+from belgie_oauth_server.types import JSONValue  # noqa: TC001
 from belgie_oauth_server.utils import urlsafe_b64encode
 
 type SigningAlgorithm = Literal["RS256", "HS256"]
@@ -21,17 +23,21 @@ class OAuthServerSigning(BaseModel):
     public_key_pem: SecretStr | None = None
 
 
+class _NonExpiringClaimsRegistry(jwt.JWTClaimsRegistry):
+    def validate_exp(self, value: int) -> None:
+        pass
+
+
 @dataclass(frozen=True, slots=True)
 class OAuthServerSigningState:
     algorithm: SigningAlgorithm
     key_id: str
     signing_key: str | bytes
     verification_key: str | bytes
-    jwk: dict[str, Any] | None = None
+    jwk: dict[str, JSONValue] | None = None
 
-    def sign(self, payload: dict[str, Any]) -> str:
-        headers = {"alg": self.algorithm, "kid": self.key_id}
-        return jwt.encode(payload, self.signing_key, algorithm=self.algorithm, headers=headers)
+    def sign(self, payload: dict[str, JSONValue]) -> str:
+        return encode_jwt(payload, key=self.signing_key, algorithm=self.algorithm, key_id=self.key_id)
 
     def decode(
         self,
@@ -40,26 +46,41 @@ class OAuthServerSigningState:
         audience: str | list[str] | None = None,
         issuer: str | None = None,
         verify_exp: bool = True,
-    ) -> dict[str, Any]:
-        options = {
-            "verify_exp": verify_exp,
-            "verify_aud": audience is not None,
-            "verify_iss": issuer is not None,
-        }
-        return jwt.decode(
-            token,
-            self.verification_key,
-            algorithms=[self.algorithm],
+        required_claims: list[str] | None = None,
+    ) -> dict[str, JSONValue]:
+        claims_options = _build_claims_options(
             audience=audience,
             issuer=issuer,
-            options=options,
+            required_claims=required_claims,
         )
+        claims_registry_cls = jwt.JWTClaimsRegistry if verify_exp else _NonExpiringClaimsRegistry
+        decoded_token = jwt.decode(
+            token,
+            key=_import_key(self.verification_key, self.algorithm),
+            algorithms=[self.algorithm],
+        )
+        claims_registry_cls(**claims_options).validate(decoded_token.claims)
+        return dict(decoded_token.claims)
 
     @property
-    def jwks(self) -> dict[str, list[dict[str, Any]]] | None:
+    def jwks(self) -> dict[str, list[dict[str, JSONValue]]] | None:
         if self.jwk is None:
             return None
         return {"keys": [self.jwk]}
+
+
+def encode_jwt(
+    payload: dict[str, JSONValue],
+    *,
+    key: str | bytes,
+    algorithm: SigningAlgorithm,
+    key_id: str | None = None,
+) -> str:
+    headers: dict[str, str] = {"alg": algorithm}
+    if key_id is not None:
+        headers["kid"] = key_id
+    token = jwt.encode(headers, payload, _import_key(key, algorithm))
+    return token.decode("utf-8") if isinstance(token, bytes) else token
 
 
 def build_signing_state(signing: OAuthServerSigning, fallback_secret: str) -> OAuthServerSigningState:
@@ -115,7 +136,32 @@ def _load_rsa_public_key(secret: SecretStr) -> rsa.RSAPublicKey:
     return public_key
 
 
-def _rsa_public_jwk(public_key: rsa.RSAPublicKey, key_id: str) -> dict[str, Any]:
+def _build_claims_options(
+    *,
+    audience: str | list[str] | None,
+    issuer: str | None,
+    required_claims: list[str] | None,
+) -> dict[str, dict[str, object]]:
+    claims_options: dict[str, dict[str, object]] = {}
+    if audience is not None:
+        claims_options["aud"] = {
+            "essential": True,
+            **({"values": audience} if isinstance(audience, list) else {"value": audience}),
+        }
+    if issuer is not None:
+        claims_options["iss"] = {"essential": True, "value": issuer}
+    for claim in required_claims or []:
+        claims_options.setdefault(claim, {})["essential"] = True
+    return claims_options
+
+
+def _import_key(key: str | bytes, algorithm: SigningAlgorithm) -> OctKey | RSAKey:
+    if algorithm == "HS256":
+        return OctKey.import_key(key)
+    return RSAKey.import_key(key)
+
+
+def _rsa_public_jwk(public_key: rsa.RSAPublicKey, key_id: str) -> dict[str, str]:
     public_numbers = public_key.public_numbers()
     e = public_numbers.e.to_bytes((public_numbers.e.bit_length() + 7) // 8, "big")
     n = public_numbers.n.to_bytes((public_numbers.n.bit_length() + 7) // 8, "big")

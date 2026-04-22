@@ -7,7 +7,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_revoke_requires_client_auth(async_client) -> None:
-    response = await async_client.post("/auth/oauth/revoke", data={"token": "token-123"})
+    response = await async_client.post("/auth/oauth2/revoke", data={"token": "token-123"})
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_client"
 
@@ -18,10 +18,10 @@ async def test_revoke_missing_token(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
         },
     )
 
@@ -32,7 +32,7 @@ async def test_revoke_missing_token(
 @pytest.mark.asyncio
 async def test_revoke_invalid_client_id(async_client) -> None:
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
             "client_id": "wrong",
             "client_secret": "bad",
@@ -40,7 +40,7 @@ async def test_revoke_invalid_client_id(async_client) -> None:
         },
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 400
     assert response.json()["error"] == "invalid_client"
 
 
@@ -50,9 +50,9 @@ async def test_revoke_invalid_client_secret(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
-            "client_id": oauth_settings.client_id,
+            "client_id": "test-client",
             "client_secret": "wrong",
             "token": "token-123",
         },
@@ -71,7 +71,7 @@ async def test_revoke_success_removes_access_token(
 ) -> None:
     await seed_access_token(
         token="token-123",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=list(oauth_settings.default_scopes),
         created_at=int(time.time()),
         expires_at=int(time.time()) + 3600,
@@ -79,10 +79,10 @@ async def test_revoke_success_removes_access_token(
     )
 
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "token-123",
             "token_type_hint": "access_token",
         },
@@ -101,17 +101,17 @@ async def test_revoke_success_removes_refresh_token(
 ) -> None:
     await seed_refresh_token(
         token="refresh-123",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=[*oauth_settings.default_scopes, "offline_access"],
         created_at=int(time.time()),
         expires_at=int(time.time()) + 3600,
     )
 
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "refresh-123",
             "token_type_hint": "refresh_token",
         },
@@ -131,7 +131,7 @@ async def test_revoke_accepts_basic_auth(
 ) -> None:
     await seed_access_token(
         token="token-basic",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=list(oauth_settings.default_scopes),
         created_at=int(time.time()),
         expires_at=int(time.time()) + 3600,
@@ -139,12 +139,12 @@ async def test_revoke_accepts_basic_auth(
     )
 
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={"token": "token-basic"},
         headers={
             "authorization": basic_auth_header(
-                oauth_settings.client_id,
-                oauth_settings.client_secret.get_secret_value(),
+                "test-client",
+                "test-secret",
             ),
         },
     )
@@ -159,10 +159,10 @@ async def test_revoke_unknown_token_returns_success(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "missing",
         },
     )
@@ -181,7 +181,7 @@ async def test_revoke_ignores_tokens_owned_by_another_client(
 ) -> None:
     await seed_client(
         client_id="other-client",
-        redirect_uris=oauth_settings.redirect_uris,
+        redirect_uris=["http://localhost/callback"],
         scope=" ".join(oauth_settings.default_scopes),
         client_secret_hash=oauth_plugin._provider._hash_value("other-secret"),
     )
@@ -195,10 +195,10 @@ async def test_revoke_ignores_tokens_owned_by_another_client(
     )
 
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "foreign-token",
         },
     )
@@ -213,10 +213,10 @@ async def test_revoke_rejects_unsupported_token_type_hint(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "token-123",
             "token_type_hint": "id_token",
         },
@@ -238,7 +238,7 @@ async def test_revoke_public_client_cannot_authenticate(
     )
 
     response = await async_client.post(
-        "/auth/oauth/revoke",
+        "/auth/oauth2/revoke",
         data={
             "client_id": "public-client",
             "token": "missing",

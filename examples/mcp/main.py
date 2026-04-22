@@ -9,6 +9,7 @@ from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from fastapi import Depends, FastAPI, Query, Request, status
 from fastapi.responses import RedirectResponse
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver import MCPServer
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, SecretStr
 from sqlalchemy.engine import URL
@@ -26,8 +27,8 @@ from belgie.alchemy import (
     OAuthServerRefreshTokenMixin,
 )
 from belgie.alchemy.mixins import AccountMixin, IndividualMixin, OAuthAccountMixin, OAuthStateMixin, SessionMixin
-from belgie.mcp import Mcp, get_user_from_access_token
-from belgie.oauth.server import OAuthServer, OAuthServerResource
+from belgie.mcp import Mcp
+from belgie.oauth.server import OAuthServer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
@@ -78,8 +79,7 @@ class OAuthServerConsent(DataclassBase, PrimaryKeyMixin, TimestampMixin, OAuthSe
 
 
 class TimeToolResponse(BaseModel):
-    individual_id: str | None
-    user_email: str | None
+    client_id: str | None
     current_time: str
     timezone: str
     timestamp: float
@@ -158,13 +158,12 @@ oauth_adapter = OAuthServerAdapter(
 oauth_settings = OAuthServer(
     adapter=oauth_adapter,
     base_url=AnyHttpUrl(settings.base_url),
-    prefix="/oauth",
     client_id="demo-client",
     client_secret=SecretStr("demo-secret"),
     redirect_uris=[AnyUrl("http://localhost:3030/callback")],
     default_scopes=["user"],
     login_url="/login",
-    resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+    valid_audiences=[AnyUrl("http://localhost:8000/mcp")],
     signing=build_development_signing(),
 )
 
@@ -195,11 +194,10 @@ app.mount(
 
 @mcp_server.tool()
 async def get_time() -> dict[str, str | float | None]:
-    user = await get_user_from_access_token(belgie)
+    access_token = get_access_token()
     now = datetime.datetime.now(datetime.UTC)
     return TimeToolResponse(
-        individual_id=str(user.id) if user else None,
-        user_email=user.email if user else None,
+        client_id=getattr(access_token, "client_id", None),
         current_time=now.isoformat(),
         timezone="UTC",
         timestamp=now.timestamp(),

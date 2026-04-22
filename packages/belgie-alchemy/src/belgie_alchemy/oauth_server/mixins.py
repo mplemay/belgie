@@ -1,3 +1,20 @@
+"""SQLAlchemy mixins for OAuth server persistence.
+
+**Clients:** DCR and client registration do not persist ``jwks`` / ``jwks_uri``;
+those columns are intentionally absent from :class:`OAuthServerClientMixin`
+(aligned with the Better Auth OAuth provider plugin, which also omits them from
+supported registration fields).
+
+**Keys:** Real models are expected to add ``PrimaryKeyMixin`` for a stable
+internal UUID and keep ``client_id`` as the public OAuth 2.0 client identifier
+string on ``oauth_client``.
+
+**Refresh tokens:** These tables have no ``auth_time`` column; OIDC
+``auth_time`` for ``id_token`` is derived from the login session in the
+authorization server engine when tokens are issued or refreshed, not from a
+per-row value on :class:`OAuthServerRefreshTokenMixin`.
+"""
+
 from __future__ import annotations
 
 # ruff: noqa: TC002, TC003
@@ -114,14 +131,6 @@ class OAuthServerClientMixin(MappedAsDataclass):
     @declared_attr
     def policy_uri(self) -> Mapped[str | None]:
         return mapped_column(Text, default=None, kw_only=True)
-
-    @declared_attr
-    def jwks_uri(self) -> Mapped[str | None]:
-        return mapped_column(Text, default=None, kw_only=True)
-
-    @declared_attr
-    def jwks(self) -> Mapped[dict[str, str] | dict[str, object] | None]:
-        return mapped_column(Json, default=None, kw_only=True)
 
     @declared_attr
     def software_id(self) -> Mapped[str | None]:

@@ -7,7 +7,7 @@ try:
         BelgieOAuthTokenVerifier,
         Mcp,
         McpPlugin,
-        get_user_from_access_token,
+        build_mcp_www_authenticate_value,
     )
 except ModuleNotFoundError as exc:
     raise ImportError(_MCP_IMPORT_ERROR) from exc
@@ -16,5 +16,5 @@ __all__ = [
     "BelgieOAuthTokenVerifier",
     "Mcp",
     "McpPlugin",
-    "get_user_from_access_token",
+    "build_mcp_www_authenticate_value",
 ]

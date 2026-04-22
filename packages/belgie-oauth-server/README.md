@@ -2,15 +2,12 @@
 
 > [!WARNING]
 > `OAuthServer.adapter` is required. Use a persistent adapter such as
-> `belgie.alchemy.oauth_server.OAuthServerAdapter` so clients, interaction state, authorization codes, refresh tokens,
-> and consents survive process restarts.
+> `belgie.alchemy.oauth_server.OAuthServerAdapter` so clients, authorization
+> state, authorization codes, access tokens, refresh tokens, and consents
+> survive process restarts.
 
-Belgie OAuth Server is the OAuth 2.1 authorization server package for Belgie apps. It gives you the server-side OAuth
-plumbing, metadata endpoints, PKCE handling, dynamic client registration, and prompt-aware login and consent flows
-without leaving the Python stack.
-
-It is designed to pair with `belgie-core` and FastAPI. The package exposes a small settings object, a plugin, a client
-helper for custom auth pages, and metadata builders for OAuth, OpenID Connect, and protected resource discovery.
+Belgie OAuth Server is Belgie's OAuth 2.1 and OpenID Connect provider package,
+with a fixed `/oauth2/*` route layout and Pythonic naming.
 
 ## Installation
 
@@ -18,50 +15,32 @@ helper for custom auth pages, and metadata builders for OAuth, OpenID Connect, a
 uv add belgie-oauth-server
 ```
 
-## What It Covers
+## What It Provides
 
-- OAuth 2.1 authorization, token, revoke, introspect, and userinfo routes.
-- OpenID Connect metadata and `id_token` support.
-- OAuth protected resource metadata when you configure `resources=[OAuthServerResource(...)]`.
-- Dynamic client registration, including the anonymous registration escape hatch when you explicitly enable it.
-- Custom login, consent, and signup pages via `login_url`, `consent_url`, and `signup_url`.
+- Fixed `/oauth2/*` routes for authorize, token, register, introspect, revoke,
+  userinfo, and end-session.
+- OAuth and OIDC discovery metadata under
+  `/.well-known/oauth-authorization-server` and
+  `/.well-known/openid-configuration`.
+- Client CRUD and consent CRUD RPC routes, including server-only
+  `/admin/oauth2/create-client` and `/admin/oauth2/update-client` for restricted
+  client fields.
+- PKCE enforcement, pairwise subject identifiers, refresh-token rotation,
+  prompt-aware login and consent flows, and dynamic client registration.
+- Custom access-token claims, id-token claims, userinfo claims, and token
+  response fields with reserved-field protections for standard OAuth/OIDC keys.
 
-## Important Notes
+## Provider-First Setup
 
-- Resource matching is strict. If a client sends `resource` and no OAuth resource is configured, the server returns
-  `invalid_target`.
-- If `authorization_code` is enabled, `login_url` and `consent_url` are required. Belgie does not silently auto-consent
-  by default. To mirror Better Auth's trusted-client behavior, use `trusted_client_resolver` to let the server mark
-  selected clients as `skip_consent` without allowing `skip_consent` in dynamic registration payloads.
-- `grant_types` defaults to `["authorization_code", "client_credentials", "refresh_token"]`. If you disable
-  `authorization_code`, `/authorize` is not mounted and metadata advertises no `code` response support.
-- `pairwise_secret` is optional, but when you enable pairwise subject identifiers it must be at least 32 characters.
-- OAuth server persistence is adapter-backed. Static configured clients stay config-backed, while dynamic clients,
-  interaction state, authorization codes, access tokens, refresh tokens, and consents live in the adapter.
-- `allow_unauthenticated_client_registration=True` is intentionally permissive. Treat it as a compatibility or
-  development setting unless you have separate controls around registration. Anonymous registration always coerces
-  clients to `token_endpoint_auth_method="none"`.
+The OAuth server no longer needs a baked-in static client. Configure the server
+first, then create clients through:
 
-## Examples
-
-- **[Custom pages](../../examples/oauth_server_custom_pages):** prompt-aware login and signup routes with
-  `OAuthServerClient`.
-- **[MCP auth](../../examples/mcp):** OAuth server configuration paired with an MCP resource server.
+- authenticated client RPC routes such as `/auth/oauth2/create-client`
+- server-only admin routes such as `/auth/admin/oauth2/create-client`
+- `POST /auth/oauth2/register` when dynamic registration is enabled
+- server-side calls to `provider.register_client(...)`
 
 ## Quick Start
-
-Here is the smallest practical setup for a Belgie OAuth server with explicit login and consent pages:
-
-**Project Structure:**
-
-```text
-my-app/
-├── server.py
-└── views/
-    └── ...
-```
-
-**server.py:**
 
 ```python
 from collections.abc import AsyncGenerator
@@ -74,19 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from belgie import Belgie, BelgieClient, BelgieSettings
 from belgie.alchemy import BelgieAdapter
 from belgie.alchemy.oauth_server import OAuthServerAdapter
-from belgie.oauth.server import OAuthServer, OAuthServerClient
-from yourapp.models import (
-    Account,
-    Individual,
-    OAuthServerAccessToken,
-    OAuthServerAuthorizationCode,
-    OAuthServerAuthorizationState,
-    OAuthServerClient as OAuthServerClientModel,
-    OAuthServerConsent,
-    OAuthServerRefreshToken,
-    OAuthState,
-    Session,
-)
+from belgie.oauth.server import OAuthLoginFlowClient, OAuthServer
 
 app = FastAPI()
 
@@ -104,34 +71,20 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-adapter = BelgieAdapter(
-    individual=Individual,
-    account=Account,
-    session=Session,
-    oauth_state=OAuthState,
+belgie = Belgie(
+    settings=settings,
+    adapter=BelgieAdapter(...),
+    database=get_db,
 )
-
-oauth_adapter = OAuthServerAdapter(
-    oauth_client=OAuthServerClientModel,
-    oauth_authorization_state=OAuthServerAuthorizationState,
-    oauth_authorization_code=OAuthServerAuthorizationCode,
-    oauth_access_token=OAuthServerAccessToken,
-    oauth_refresh_token=OAuthServerRefreshToken,
-    oauth_consent=OAuthServerConsent,
-)
-
-belgie = Belgie(settings=settings, adapter=adapter, database=get_db)
 
 oauth_plugin = belgie.add_plugin(
     OAuthServer(
-        adapter=oauth_adapter,
+        adapter=OAuthServerAdapter(...),
         base_url=settings.base_url,
-        client_id="demo-client",
-        client_secret="demo-secret",
-        redirect_uris=["http://localhost:3030/callback"],
         login_url="/login",
         consent_url="/consent",
         signup_url="/signup",
+        valid_audiences=["http://localhost:8000/mcp"],
     ),
 )
 
@@ -141,97 +94,126 @@ app.include_router(belgie.router)
 @app.get("/login")
 async def login(
     request: Request,
-    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+    oauth: Annotated[OAuthLoginFlowClient, Depends(oauth_plugin)],
 ) -> RedirectResponse:
     context = await oauth.try_resolve_login_context(request)
     if context is None:
-        return RedirectResponse(url="/login/google", status_code=302)
-    if context.intent == "create":
-        return RedirectResponse(url=f"/signup?state={context.state}", status_code=302)
-    return RedirectResponse(url=f"/login/google?state={context.state}", status_code=302)
+        return RedirectResponse("/", status_code=302)
+    return RedirectResponse(context.return_to, status_code=302)
 
 
 @app.get("/consent")
 async def consent(
     request: Request,
-    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+    oauth: Annotated[OAuthLoginFlowClient, Depends(oauth_plugin)],
 ) -> HTMLResponse:
     context = await oauth.resolve_login_context(request)
     return HTMLResponse(
         f"""
-        <form method="post" action="/auth/oauth/consent">
+        <form method="post" action="/auth/oauth2/consent">
           <input type="hidden" name="state" value="{context.state}" />
           <input type="hidden" name="accept" value="true" />
           <button type="submit">Approve</button>
         </form>
         """
     )
-
-
-@app.get("/signup")
-async def signup(
-    request: Request,
-    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
-    client: Annotated[BelgieClient, Depends(belgie)],
-) -> RedirectResponse:
-    context = await oauth.resolve_login_context(request)
-    response = RedirectResponse(url=context.return_to, status_code=302)
-    _user, session = await client.sign_up("dev@example.com", request=request)
-    return client.create_session_cookie(session, response)
 ```
 
-Run the app with:
+After the server is running, create clients through `/auth/oauth2/create-client`
+or `/auth/oauth2/register`.
 
-```bash
-uv run uvicorn server:app --reload
+## Important Behavior
+
+- `login_url` and `consent_url` are required whenever the
+  `authorization_code` grant is enabled.
+- `/auth/oauth2/create-client` and `/auth/oauth2/update-client` only honor public
+  client fields. Restricted fields such as
+  `skip_consent`, `enable_end_session`, `require_pkce`, `subject_type`,
+  `metadata`, and `client_secret_expires_at` belong on the server-only
+  `/auth/admin/oauth2/*` routes.
+- `resource` values are validated against `valid_audiences`. Invalid resources
+  return `invalid_target`.
+- Public clients and `offline_access` requests always require PKCE.
+- `cached_trusted_clients` and `trusted_client_resolver` can mark clients as
+  trusted without allowing dynamic registration payloads to persist
+  `skip_consent`.
+- `/auth/oauth2/public-client` requires an authenticated session. Use
+  `/auth/oauth2/public-client-prelogin` only when
+  `allow_public_client_prelogin=True`.
+- Trusted clients are immutable through the RPC routes. Update them in config or
+  directly in persistence instead.
+- `private_key_jwt`, `jwks`, and `jwks_uri` are not part of the persisted client
+  surface.
+
+## JWT And OIDC Behavior
+
+- By default, access tokens are JWTs when a valid `resource` is requested and
+  opaque otherwise.
+- `disable_jwt_plugin=True` switches to non-JWT access tokens:
+  - access tokens are always opaque
+  - confidential clients still receive an `id_token`
+  - the `id_token` is signed in `HS256` with the client's secret
+  - public clients do not receive an `id_token`
+  - JWKS is not exposed
+- `m2m_access_token_ttl_seconds` lets machine-to-machine access tokens use a
+  different default TTL than user tokens.
+
+## Protected Resource Metadata
+
+Protected resources should publish their own
+`/.well-known/oauth-protected-resource` document. The OAuth server does not own
+that route.
+
+Use `build_protected_resource_metadata()` to build the RFC 9728 document:
+
+```python
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+
+from belgie.oauth.server import OAuthServer, build_protected_resource_metadata
+
+app = FastAPI()
+
+oauth_settings = OAuthServer(...)
+
+
+@app.get("/.well-known/oauth-protected-resource")
+async def protected_resource_metadata() -> JSONResponse:
+    metadata = build_protected_resource_metadata(
+        "https://api.example.com/mcp",
+        settings=oauth_settings,
+        scopes_supported=["user"],
+    )
+    return JSONResponse(metadata.model_dump(mode="json", exclude_none=True))
 ```
 
-## Configuration
+## Custom Claim Hooks
 
-- `adapter` is required and is responsible for persisting OAuth server state.
-- `prefix` controls where the OAuth server routes are mounted. The default is `/oauth`.
-- `base_url` is used to derive issuer and metadata URLs.
-- `redirect_uris` is required and must contain at least one callback URL.
-- `grant_types` controls which server grants are active. The default is
-  `["authorization_code", "client_credentials", "refresh_token"]`.
-- `refresh_token` cannot be enabled unless `authorization_code` is also enabled.
-- `login_url` and `consent_url` are required when `authorization_code` is enabled.
-- `signup_url` is optional. `prompt=create` uses it when present and otherwise falls back to `login_url`.
-- `pairwise_secret` enables pairwise subject identifiers and must be at least 32 characters.
-- `resources=[OAuthServerResource(prefix=..., scopes=...)]` enables protected resource metadata.
-- `enable_end_session` turns on RP-initiated logout support.
-- `allow_dynamic_client_registration` enables `POST /auth/oauth/register`.
-- Authenticated dynamic registration defaults to:
-  - `token_endpoint_auth_method="client_secret_basic"` for confidential clients.
-  - `grant_types=["authorization_code"]` when the client omits `grant_types`.
-- `allow_unauthenticated_client_registration` lets anonymous callers register clients without authentication, but those
-  registrations are always coerced to public clients with `token_endpoint_auth_method="none"` and cannot request
-  `client_credentials`.
-- Registered client `grant_types` must be a subset of the server-level `grant_types`.
+Belgie exposes these hook families with snake_case names:
 
-## Login Flow
+- `custom_access_token_claims`
+- `custom_id_token_claims`
+- `custom_userinfo_claims`
+- `custom_token_response_fields`
 
-- Auth-code servers are interactive by design: unauthenticated requests go through `login_url`, missing consent goes
-  through `consent_url`, and `prompt=none` returns protocol errors instead of redirecting to UI.
-- `prompt=create` prefers `signup_url` when it is configured.
-- Otherwise `login_url` is used.
-- `OAuthServerClient.try_resolve_login_context(request)` returns `None` when no OAuth state is present, which makes it
-  easy to support both direct visits and redirect-driven entry points.
+Reserved OAuth and OIDC fields are protected:
 
-## Advanced Capabilities
+- `custom_access_token_claims` cannot overwrite standard JWT claims
+- `custom_id_token_claims` cannot overwrite pinned OIDC claims
+- `custom_token_response_fields` cannot overwrite standard token response fields
 
-- `request_uri_resolver` lets you resolve pushed or out-of-band authorization parameters before request validation.
-- Client and consent management routes are built in under the OAuth server prefix.
-- `allow_public_client_prelogin` enables public-client lookup before login for custom UX.
-- `rate_limit` exposes per-endpoint rate limiting for authorize, token, registration, introspection, revoke, and
-  userinfo.
-- `custom_access_token_claims`, `custom_id_token_claims`, `custom_userinfo_claims`, and
-  `custom_token_response_fields` let you inject product-specific claims and token response fields.
-- Protected resource metadata is exposed automatically when you configure `resources=[OAuthServerResource(...)]`, with
-  optional root well-known fallbacks controlled by the metadata fallback settings.
+## MCP Pairing
 
-## Migration Note
+If you are protecting an MCP server, pair this package with `belgie-mcp`. The
+MCP plugin consumes the OAuth metadata, token verifier behavior, and protected
+resource metadata helper from this package.
 
-- `route_prefix` has been removed. Use `prefix` instead.
-- `resource_server_url` has been removed. Use `resources=[OAuthServerResource(...)]` instead.
-- `resource_scopes` has been removed. Put scopes on `OAuthServerResource(scopes=[...])` instead.
+## Compatibility Notes
+
+- OAuth server protocol routes are fixed to `/oauth2/*`.
+- Restricted client fields are available through server-only
+  `/admin/oauth2/create-client` and `/admin/oauth2/update-client`.
+- In-config static OAuth client fields on `OAuthServer` were removed; create
+  clients through DCR, RPC, admin, or your adapter/seed.
+- The old auth-server-owned protected-resource metadata model is gone. Resource
+  servers publish that metadata themselves.

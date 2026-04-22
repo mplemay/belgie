@@ -250,8 +250,6 @@ class ExampleOAuthClient:
     contacts: list[str] | None
     tos_uri: str | None
     policy_uri: str | None
-    jwks_uri: str | None
-    jwks: dict[str, str] | dict[str, object] | None
     software_id: str | None
     software_version: str | None
     software_statement: str | None
@@ -671,8 +669,6 @@ def test_oauth_entity_protocol_runtime_checks() -> None:
         contacts=["ops@client.example"],
         tos_uri="https://client.example/tos",
         policy_uri="https://client.example/policy",
-        jwks_uri="https://client.example/jwks.json",
-        jwks={"keys": []},
         software_id="software-id",
         software_version="1.0.0",
         software_statement="software-statement",

@@ -1,7 +1,6 @@
-import asyncio
-
 import dns.exception
 import dns.resolver
+from asyncer import asyncify
 
 
 async def lookup_txt_records(record_name: str) -> list[str]:
@@ -14,6 +13,6 @@ async def lookup_txt_records(record_name: str) -> list[str]:
         return records
 
     try:
-        return await asyncio.to_thread(_lookup)
+        return await asyncify(_lookup)()
     except (dns.exception.DNSException, OSError):
         return []

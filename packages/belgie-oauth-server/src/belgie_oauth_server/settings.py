@@ -61,7 +61,6 @@ class OAuthServerTokenPrefixSettings(BaseModel):
 class OAuthServerAdvertisedMetadata(BaseModel):
     scopes_supported: list[str] | None = None
     claims_supported: list[str] | None = None
-    protected_resource_scopes_supported: list[str] | None = None
 
 
 class OAuthServerRateLimitRule(BaseModel):
@@ -84,29 +83,6 @@ class OAuthServerRateLimitSettings(BaseModel):
     userinfo: OAuthServerRateLimitRule | None = Field(default_factory=lambda: OAuthServerRateLimitRule(max=60))
 
 
-class OAuthServerResource(BaseModel):
-    prefix: str
-    scopes: list[str] | None = None
-
-    @field_validator("prefix")
-    @classmethod
-    def validate_prefix(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            msg = "prefix must be a non-empty path"
-            raise ValueError(msg)
-        if not normalized.startswith("/"):
-            msg = "prefix must start with '/'"
-            raise ValueError(msg)
-        return normalized
-
-    def resolve_url(self, base_url: str | AnyHttpUrl) -> AnyHttpUrl:
-        parsed = urlparse(str(base_url))
-        base_path = parsed.path.rstrip("/")
-        full_path = f"{base_path}{self.prefix}" if base_path else self.prefix
-        return AnyHttpUrl(urlunparse(parsed._replace(path=full_path, query="", fragment="")))
-
-
 class OAuthServer(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_OAUTH_",
@@ -125,30 +101,29 @@ class OAuthServer(BaseSettings):
     ] = Field(exclude=True)
 
     base_url: AnyHttpUrl | None = None
-    prefix: str = "/oauth"
     login_url: str | None = None
     signup_url: str | None = None
     consent_url: str | None = None
     select_account_url: str | None = None
 
-    client_id: str = "belgie_client"
-    client_secret: SecretStr | None = None
-    redirect_uris: list[AnyUrl] = Field(min_length=1)
+    fallback_signing_secret: SecretStr | None = None
     grant_types: list[OAuthServerGrantType] = Field(
         default_factory=lambda: ["authorization_code", "client_credentials", "refresh_token"],
     )
     default_scopes: Sequence[str] = Field(default_factory=tuple)
-    static_client_require_pkce: bool = True
     pairwise_secret: SecretStr | None = None
     signing: OAuthServerSigning = Field(default_factory=OAuthServerSigning)
+    oauth_query_signing_secret: SecretStr | None = None
 
-    authorization_code_ttl_seconds: int = 300
+    authorization_code_ttl_seconds: int = 600
     access_token_ttl_seconds: int = 3600
+    m2m_access_token_ttl_seconds: int = 3600
     refresh_token_ttl_seconds: int = 2592000
     id_token_ttl_seconds: int = 36000
     state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"
     scope_expirations: ScopeExpirations | None = None
+    disable_jwt_plugin: bool = False
     enable_end_session: bool = False
     allow_dynamic_client_registration: bool = False
     allow_unauthenticated_client_registration: bool = False
@@ -157,10 +132,7 @@ class OAuthServer(BaseSettings):
     client_registration_allowed_scopes: list[str] | None = None
     client_registration_client_secret_expires_at: int | datetime | None = 0
     client_credentials_default_scopes: list[str] | None = None
-    resources: list[OAuthServerResource] | None = Field(default=None, min_length=1, max_length=1)
-    include_root_resource_metadata_fallback: bool = True
-    include_root_oauth_metadata_fallback: bool = True
-    include_root_openid_metadata_fallback: bool = True
+    valid_audiences: list[AnyUrl] | None = None
     request_uri_resolver: RequestURIResolver | None = None
     select_account_resolver: SelectAccountResolver | None = None
     post_login_url: str | None = None
@@ -180,21 +152,55 @@ class OAuthServer(BaseSettings):
     refresh_token_encoder: RefreshTokenEncoder | None = None
     refresh_token_decoder: RefreshTokenDecoder | None = None
     token_prefixes: OAuthServerTokenPrefixSettings = Field(default_factory=OAuthServerTokenPrefixSettings)
+    cached_trusted_clients: set[str] = Field(default_factory=set)
     advertised_metadata: OAuthServerAdvertisedMetadata | None = None
     rate_limit: OAuthServerRateLimitSettings = Field(default_factory=OAuthServerRateLimitSettings)
 
     @model_validator(mode="before")
     @classmethod
-    def reject_legacy_settings(cls, values: object) -> object:
+    def reject_legacy_settings(cls, values: object) -> object:  # noqa: C901
         if isinstance(values, dict):
             if "route_prefix" in values:
-                msg = "`route_prefix` has been removed; use `prefix` instead"
+                msg = "`route_prefix` has been removed; belgie-oauth-server now exposes fixed /oauth2 routes"
+                raise ValueError(msg)
+            if "prefix" in values:
+                msg = "`prefix` has been removed; belgie-oauth-server now exposes fixed /oauth2 routes"
                 raise ValueError(msg)
             if "resource_server_url" in values:
-                msg = "`resource_server_url` has been removed; use `resources=[OAuthServerResource(...)]` instead"
+                msg = "`resource_server_url` has been removed; use `valid_audiences=[...]` instead"
                 raise ValueError(msg)
             if "resource_scopes" in values:
-                msg = "`resource_scopes` has been removed; use `resources=[OAuthServerResource(scopes=[...])]` instead"
+                msg = (
+                    "`resource_scopes` has been removed; protected resource metadata is "
+                    "no longer exposed by the auth server"
+                )
+                raise ValueError(msg)
+            if "resources" in values:
+                msg = "`resources` has been removed; use `valid_audiences=[...]` instead"
+                raise ValueError(msg)
+            if "include_root_resource_metadata_fallback" in values:
+                msg = (
+                    "`include_root_resource_metadata_fallback` has been removed with protected resource metadata routes"
+                )
+                raise ValueError(msg)
+            if "include_root_oauth_metadata_fallback" in values:
+                msg = "`include_root_oauth_metadata_fallback` has been removed"
+                raise ValueError(msg)
+            if "include_root_openid_metadata_fallback" in values:
+                msg = "`include_root_openid_metadata_fallback` has been removed"
+                raise ValueError(msg)
+            if "client_id" in values or "redirect_uris" in values or "static_client_require_pkce" in values:
+                msg = (
+                    "`client_id`, `redirect_uris`, and `static_client_require_pkce` were removed. "
+                    "Register OAuth clients via `/oauth2/create-client`, admin routes, or "
+                    "`POST /oauth2/register` when dynamic registration is enabled."
+                )
+                raise ValueError(msg)
+            if "client_secret" in values:
+                msg = (
+                    "`client_secret` on OAuthServer was removed. Use `fallback_signing_secret` for "
+                    "JWT signing material when needed, and create clients through the OAuth client APIs."
+                )
                 raise ValueError(msg)
         return values
 
@@ -243,7 +249,18 @@ class OAuthServer(BaseSettings):
             if len(pairwise_secret_value) < PAIRWISE_SECRET_MIN_LENGTH:
                 msg = "pairwise_secret must be at least 32 characters"
                 raise ValueError(msg)
+        self._validate_advertised_metadata_scopes()
         return self
+
+    def _validate_advertised_metadata_scopes(self) -> None:
+        if self.advertised_metadata is None or self.advertised_metadata.scopes_supported is None:
+            return
+
+        supported_scopes = set(self.supported_scopes())
+        invalid_scopes = [scope for scope in self.advertised_metadata.scopes_supported if scope not in supported_scopes]
+        if invalid_scopes:
+            msg = f"advertised_metadata.scopes_supported {invalid_scopes[0]} not found in supported scopes"
+            raise ValueError(msg)
 
     @field_validator("grant_types")
     @classmethod
@@ -261,30 +278,31 @@ class OAuthServer(BaseSettings):
 
         parsed = urlparse(str(self.base_url))
         base_path = parsed.path.rstrip("/")
-        prefix = self.prefix.strip("/")
         auth_path = "auth"
-        full_path = f"{base_path}/{auth_path}/{prefix}" if prefix else f"{base_path}/{auth_path}"
+        full_path = f"{base_path}/{auth_path}" if base_path else f"/{auth_path}"
         return AnyHttpUrl(urlunparse(parsed._replace(path=full_path, query="", fragment="")))
 
-    def resolve_resource(
+    def resolved_valid_audiences(
         self,
-        fallback_base_url: str | AnyHttpUrl | None = None,
-    ) -> tuple[AnyHttpUrl, list[str] | None] | None:
-        if self.resources is None:
-            return None
-
-        base_url = self.base_url if self.base_url is not None else fallback_base_url
-        if base_url is None:
-            msg = "base_url is required to resolve OAuth resources"
-            raise ValueError(msg)
-
-        resource = self.resources[0]
-        return resource.resolve_url(base_url), resource.scopes
+        fallback_issuer_url: str | AnyHttpUrl | None = None,
+    ) -> list[str]:
+        fallback = self.issuer_url or fallback_issuer_url
+        raw_audiences = (
+            [str(value) for value in self.valid_audiences]
+            if self.valid_audiences is not None
+            else [str(fallback)]
+            if fallback is not None
+            else []
+        )
+        resolved: list[str] = []
+        for audience in raw_audiences:
+            normalized = audience.strip()
+            if normalized and normalized not in resolved:
+                resolved.append(normalized)
+        return resolved
 
     def supported_scopes(self) -> list[str]:
         scopes = [*self.default_scopes, "openid", "profile", "email", "offline_access"]
-        if self.resources is not None:
-            scopes.extend(self.resources[0].scopes or [])
         if self.client_registration_allowed_scopes is not None:
             scopes.extend(self.client_registration_allowed_scopes)
         supported: list[str] = []
@@ -302,6 +320,8 @@ class OAuthServer(BaseSettings):
 
     async def is_trusted_client(self, oauth_client: TrustedClient) -> bool:
         if oauth_client.skip_consent:
+            return True
+        if oauth_client.client_id in self.cached_trusted_clients:
             return True
         if self.trusted_client_resolver is None:
             return False

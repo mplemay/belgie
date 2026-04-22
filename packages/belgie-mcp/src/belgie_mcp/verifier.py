@@ -1,27 +1,21 @@
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, Literal
 
 from belgie_oauth_server.provider import SimpleOAuthProvider
+from belgie_oauth_server.resource_verifier import (
+    RemoteIntrospectionConfig,
+    verify_resource_access_token,
+)
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import join_url
-from belgie_oauth_server.verifier import verify_local_access_token
-from httpx import AsyncClient, HTTPError, Limits, Timeout
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
 from pydantic import AnyHttpUrl
 
+from belgie_mcp.auth_context import set_verified_access_token
+
 logger = logging.getLogger(__name__)
-
-_HTTP_OK = 200
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _LocalTokenVerification:
-    status: Literal["not_found", "rejected", "verified"]
-    token: AccessToken | None = None
 
 
 class BelgieOAuthTokenVerifier(TokenVerifier):
@@ -44,92 +38,30 @@ class BelgieOAuthTokenVerifier(TokenVerifier):
         self.resource_url = resource_url_from_server_url(self.server_url)
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        if self.provider_resolver is not None and (provider := self.provider_resolver()) is not None:
-            local_result = await self._verify_token_locally(provider, token)
-            if local_result.status == "verified":
-                return local_result.token
-            if local_result.status == "rejected":
-                return None
-        return await self._verify_token_via_introspection(token)
-
-    async def _verify_token_locally(
-        self,
-        provider: SimpleOAuthProvider,
-        token: str,
-    ) -> _LocalTokenVerification:
-        verified_token = await verify_local_access_token(provider, token)
-        if verified_token is None:
-            return _LocalTokenVerification(status="not_found")
-        stored_token = verified_token.token
-
-        if self.validate_resource and not self._validate_resource_value(stored_token.resource):
-            logger.warning("Token resource validation failed. Expected: %s", self.resource_url)
-            return _LocalTokenVerification(status="rejected")
-
-        return _LocalTokenVerification(
-            status="verified",
-            token=AccessToken(
-                token=token,
-                client_id=stored_token.client_id,
-                scopes=stored_token.scopes,
-                expires_at=stored_token.expires_at,
-                resource=_normalize_resource(stored_token.resource),
+        set_verified_access_token(None)
+        provider = self.provider_resolver() if self.provider_resolver is not None else None
+        verified_token = await verify_resource_access_token(
+            token,
+            provider=provider,
+            resource_validator=self._validate_resource_value if self.validate_resource else None,
+            introspection=RemoteIntrospectionConfig(
+                introspection_endpoint=self.introspection_endpoint,
+                client_id=self.introspection_client_id,
+                client_secret=self.introspection_client_secret,
             ),
         )
-
-    async def _verify_token_via_introspection(self, token: str) -> AccessToken | None:
-        if not _is_safe_introspection_endpoint(self.introspection_endpoint):
-            logger.warning("Rejecting introspection endpoint with unsafe scheme: %s", self.introspection_endpoint)
+        if verified_token is None:
+            logger.debug("Access token verification failed for resource %s", self.resource_url)
             return None
 
-        timeout = Timeout(10.0, connect=5.0)
-        limits = Limits(max_connections=10, max_keepalive_connections=5)
-        async with AsyncClient(
-            timeout=timeout,
-            limits=limits,
-            verify=True,
-        ) as client:
-            try:
-                response = await client.post(
-                    self.introspection_endpoint,
-                    data={"token": token},
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    auth=(
-                        (self.introspection_client_id, self.introspection_client_secret)
-                        if self.introspection_client_id is not None and self.introspection_client_secret is not None
-                        else None
-                    ),
-                )
-            except HTTPError as exc:
-                logger.warning("Token introspection failed: %s", exc)
-                return None
-
-        if response.status_code != _HTTP_OK:
-            logger.debug("Token introspection returned status %s", response.status_code)
-            return None
-
-        data = response.json()
-        if not data.get("active", False):
-            return None
-
-        if self.validate_resource and not self._validate_resource(data):
-            logger.warning("Token resource validation failed. Expected: %s", self.resource_url)
-            return None
-
-        scopes = data.get("scope", "")
+        set_verified_access_token(verified_token)
         return AccessToken(
             token=token,
-            client_id=data.get("client_id", "unknown"),
-            scopes=scopes.split() if scopes else [],
-            expires_at=data.get("exp"),
-            resource=_normalize_resource(data.get("aud")),
+            client_id=verified_token.token.client_id,
+            scopes=verified_token.token.scopes,
+            expires_at=verified_token.token.expires_at,
+            resource=_normalize_resource(verified_token.token.resource),
         )
-
-    def _validate_resource(self, token_data: dict[str, Any]) -> bool:
-        if not self.server_url or not self.resource_url:
-            return False
-
-        return self._validate_resource_value(token_data.get("aud"))
 
     def _validate_resource_value(self, resource: list[str] | str | None) -> bool:
         if isinstance(resource, list):
@@ -170,7 +102,7 @@ def mcp_token_verifier(  # noqa: PLR0913
     provider_resolver: Callable[[], SimpleOAuthProvider | None] | None = None,
 ) -> TokenVerifier:
     issuer_url = _require_issuer_url(settings)
-    endpoint = join_url(issuer_url, "introspect") if introspection_endpoint is None else introspection_endpoint
+    endpoint = join_url(issuer_url, "oauth2/introspect") if introspection_endpoint is None else introspection_endpoint
     return BelgieOAuthTokenVerifier(
         introspection_endpoint=endpoint,
         server_url=str(server_url),
@@ -179,10 +111,6 @@ def mcp_token_verifier(  # noqa: PLR0913
         introspection_client_id=introspection_client_id,
         introspection_client_secret=introspection_client_secret,
     )
-
-
-def _is_safe_introspection_endpoint(endpoint: str) -> bool:
-    return endpoint.startswith(("https://", "http://localhost", "http://127.0.0.1"))
 
 
 def _require_issuer_url(settings: OAuthServer) -> str:

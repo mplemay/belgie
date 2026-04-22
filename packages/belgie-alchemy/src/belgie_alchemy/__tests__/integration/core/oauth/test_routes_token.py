@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 import httpx
-import jwt
 import pytest
-from belgie_oauth_server import OAuthServerResource
 from belgie_oauth_server.provider import AuthorizationParams
 from belgie_oauth_server.utils import create_code_challenge
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
+from joserfc import jwt
+from joserfc.errors import BadSignatureError
+from joserfc.jwk import RSAKey
 from pydantic import SecretStr
+
+from belgie_alchemy.__tests__.integration.core.oauth.conftest import ensure_oauth_test_client_seeded
 
 BEARER = "Bearer"
 
@@ -21,21 +25,25 @@ async def _create_authorization_code(
     oauth_settings,
     code_verifier: str,
     *,
+    belgie_instance,
+    db_session,
+    create_individual_session,
     scopes: list[str] | None = None,
     resource: str | None = None,
-    individual_id: str | None = None,
-    session_id: str | None = None,
 ) -> str:
     provider = oauth_plugin._provider
-    oauth_client = await provider.get_client(oauth_settings.client_id)
+    oauth_client = await provider.get_client("test-client")
+    session_id = await create_individual_session(belgie_instance, db_session, f"{code_verifier}@test.com")
+    session = await belgie_instance.session_manager.get_session(db_session, UUID(session_id))
+    assert session is not None
     params = AuthorizationParams(
         state="state-token",
         scopes=scopes or list(oauth_settings.default_scopes),
         code_challenge=create_code_challenge(code_verifier),
-        redirect_uri=oauth_settings.redirect_uris[0],
+        redirect_uri="http://localhost/callback",
         redirect_uri_provided_explicitly=True,
         resource=resource,
-        individual_id=individual_id,
+        individual_id=str(session.individual_id),
         session_id=session_id,
     )
     await provider.authorize(oauth_client, params)
@@ -47,27 +55,33 @@ async def _create_refresh_token(
     async_client,
     oauth_settings,
     oauth_plugin,
-    update_static_client,
+    update_oauth_test_client,
+    belgie_instance,
+    db_session,
+    create_individual_session,
     *,
     resource: str | None = None,
 ) -> str:
-    update_static_client(scope=" ".join([*oauth_settings.default_scopes, "offline_access"]))
+    await update_oauth_test_client(scope=" ".join([*oauth_settings.default_scopes, "offline_access"]))
     code_verifier = "refresh-verifier"
     code = await _create_authorization_code(
         oauth_plugin,
         oauth_settings,
         code_verifier,
+        belgie_instance=belgie_instance,
+        db_session=db_session,
+        create_individual_session=create_individual_session,
         scopes=[*oauth_settings.default_scopes, "offline_access"],
         resource=resource,
     )
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -77,14 +91,14 @@ async def _create_refresh_token(
 
 @pytest.mark.asyncio
 async def test_token_missing_grant_type(async_client) -> None:
-    response = await async_client.post("/auth/oauth/token", data={})
+    response = await async_client.post("/auth/oauth2/token", data={})
     assert response.status_code == 400
     assert response.json()["error"] == "unsupported_grant_type"
 
 
 @pytest.mark.asyncio
 async def test_token_unsupported_grant_type(async_client) -> None:
-    response = await async_client.post("/auth/oauth/token", data={"grant_type": "urn:custom"})
+    response = await async_client.post("/auth/oauth2/token", data={"grant_type": "urn:custom"})
     assert response.status_code == 400
     assert response.json()["error"] == "unsupported_grant_type"
 
@@ -95,11 +109,11 @@ async def test_token_authorization_code_missing_code(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
         },
     )
     assert response.status_code == 400
@@ -109,7 +123,7 @@ async def test_token_authorization_code_missing_code(
 @pytest.mark.asyncio
 async def test_token_authorization_code_invalid_client(async_client) -> None:
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": "wrong",
@@ -118,7 +132,7 @@ async def test_token_authorization_code_invalid_client(async_client) -> None:
             "code_verifier": "verifier",
         },
     )
-    assert response.status_code == 401
+    assert response.status_code == 400
     assert response.json()["error"] == "invalid_client"
 
 
@@ -127,13 +141,23 @@ async def test_token_authorization_code_invalid_client_secret(
     async_client,
     oauth_settings,
     oauth_plugin,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
-    code = await _create_authorization_code(oauth_plugin, oauth_settings, "verifier")
+    code = await _create_authorization_code(
+        oauth_plugin,
+        oauth_settings,
+        "verifier",
+        belgie_instance=belgie_instance,
+        db_session=db_session,
+        create_individual_session=create_individual_session,
+    )
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
+            "client_id": "test-client",
             "client_secret": "wrong",
             "code": code,
             "code_verifier": "verifier",
@@ -148,18 +172,28 @@ async def test_token_authorization_code_success_no_offline_access(
     async_client,
     oauth_settings,
     oauth_plugin,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
     code_verifier = "verifier"
-    code = await _create_authorization_code(oauth_plugin, oauth_settings, code_verifier)
+    code = await _create_authorization_code(
+        oauth_plugin,
+        oauth_settings,
+        code_verifier,
+        belgie_instance=belgie_instance,
+        db_session=db_session,
+        create_individual_session=create_individual_session,
+    )
 
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -176,23 +210,29 @@ async def test_token_authorization_code_success_with_offline_access_issues_refre
     async_client,
     oauth_settings,
     oauth_plugin,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
     code_verifier = "offline-verifier"
     code = await _create_authorization_code(
         oauth_plugin,
         oauth_settings,
         code_verifier,
+        belgie_instance=belgie_instance,
+        db_session=db_session,
+        create_individual_session=create_individual_session,
         scopes=[*oauth_settings.default_scopes, "offline_access"],
     )
 
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -209,17 +249,27 @@ async def test_token_authorization_code_accepts_basic_auth(
     oauth_settings,
     oauth_plugin,
     basic_auth_header,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
     code_verifier = "basic-verifier"
-    code = await _create_authorization_code(oauth_plugin, oauth_settings, code_verifier)
-    auth_header = basic_auth_header(oauth_settings.client_id, oauth_settings.client_secret.get_secret_value())
+    code = await _create_authorization_code(
+        oauth_plugin,
+        oauth_settings,
+        code_verifier,
+        belgie_instance=belgie_instance,
+        db_session=db_session,
+        create_individual_session=create_individual_session,
+    )
+    auth_header = basic_auth_header("test-client", "test-secret")
 
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
         headers={"authorization": auth_header},
@@ -234,25 +284,38 @@ async def test_token_authorization_code_rejects_resource_without_bound_resource(
     async_client,
     oauth_settings,
     oauth_plugin,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
     code_verifier = "resource-missing-verifier"
-    code = await _create_authorization_code(oauth_plugin, oauth_settings, code_verifier)
+    code = await _create_authorization_code(
+        oauth_plugin,
+        oauth_settings,
+        code_verifier,
+        belgie_instance=belgie_instance,
+        db_session=db_session,
+        create_individual_session=create_individual_session,
+    )
 
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
             "resource": "http://testserver/mcp",
         },
     )
 
-    assert response.status_code == 400
-    assert response.json()["error"] == "invalid_target"
+    assert response.status_code == 200
+    access_token = response.json()["access_token"]
+    stored_access_token = await oauth_plugin._provider.load_access_token(access_token)
+    assert stored_access_token is not None
+    assert stored_access_token.resource == "http://testserver/mcp"
 
 
 @pytest.mark.asyncio
@@ -260,23 +323,29 @@ async def test_token_authorization_code_rejects_mismatched_bound_resource(
     async_client,
     oauth_settings,
     oauth_plugin,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
     code_verifier = "resource-mismatch-verifier"
     code = await _create_authorization_code(
         oauth_plugin,
         oauth_settings,
         code_verifier,
+        belgie_instance=belgie_instance,
+        db_session=db_session,
+        create_individual_session=create_individual_session,
         resource="http://testserver/mcp",
     )
 
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
             "resource": "http://testserver/other",
         },
@@ -295,17 +364,15 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
 ) -> None:
     settings = oauth_settings.model_copy(
         update={
-            "client_secret": SecretStr("test-secret"),
-            "resources": [OAuthServerResource(prefix="/mcp/", scopes=["user"])],
+            "fallback_signing_secret": SecretStr("test-secret"),
+            "valid_audiences": ["http://testserver/mcp/"],
         },
     )
     oauth_plugin = belgie_instance.add_plugin(settings)
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, settings, oauth_plugin)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     assert oauth_plugin.provider is not None
-    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
-        update={"skip_consent": True},
-    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         session_id = await create_individual_session(belgie_instance, db_session, "token-trailing-resource@test.com")
@@ -313,11 +380,11 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
 
         code_verifier = "trailing-resource-verifier"
         authorize_response = await client.get(
-            "/auth/oauth/authorize",
+            "/auth/oauth2/authorize",
             params={
                 "response_type": "code",
-                "client_id": settings.client_id,
-                "redirect_uri": str(settings.redirect_uris[0]),
+                "client_id": "test-client",
+                "redirect_uri": "http://localhost/callback",
                 "code_challenge": create_code_challenge(code_verifier),
                 "code_challenge_method": "S256",
                 "state": "state-trailing-resource",
@@ -329,13 +396,13 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
         code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
         token_response = await client.post(
-            "/auth/oauth/token",
+            "/auth/oauth2/token",
             data={
                 "grant_type": "authorization_code",
-                "client_id": settings.client_id,
-                "client_secret": settings.client_secret.get_secret_value(),
+                "client_id": "test-client",
+                "client_secret": "test-secret",
                 "code": code,
-                "redirect_uri": str(settings.redirect_uris[0]),
+                "redirect_uri": "http://localhost/callback",
                 "code_verifier": code_verifier,
                 "resource": "http://testserver/mcp",
             },
@@ -355,19 +422,19 @@ async def test_token_authorization_code_issues_id_token_for_confidential_openid_
     belgie_instance,
     db_session,
     create_individual_session,
-    update_static_client,
+    update_oauth_test_client,
 ) -> None:
     session_id = await create_individual_session(belgie_instance, db_session, "openid-confidential@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
-    update_static_client(scope="openid profile email")
+    await update_oauth_test_client(scope="openid profile email")
 
     code_verifier = "openid-confidential-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
-            "client_id": oauth_settings.client_id,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "client_id": "test-client",
+            "redirect_uri": "http://localhost/callback",
             "code_challenge": create_code_challenge(code_verifier),
             "code_challenge_method": "S256",
             "scope": "openid profile email",
@@ -378,13 +445,13 @@ async def test_token_authorization_code_issues_id_token_for_confidential_openid_
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -412,7 +479,7 @@ async def test_token_authorization_code_issues_id_token_for_public_client(
 
     code_verifier = "openid-public-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
             "client_id": "public-openid",
@@ -427,7 +494,7 @@ async def test_token_authorization_code_issues_id_token_for_public_client(
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": "public-openid",
@@ -468,7 +535,7 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
     assert dynamic_client.client_secret is not None
     code_verifier = "openid-dynamic-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
             "client_id": dynamic_client.client_id,
@@ -483,7 +550,7 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": dynamic_client.client_id,
@@ -498,12 +565,10 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
     id_token = token_response.json()["id_token"]
     provider = oauth_plugin.provider
     assert provider is not None
-    decoded = jwt.decode(
+    decoded = provider.signing_state.decode(
         id_token,
-        provider.signing_state.verification_key,
-        algorithms=[provider.signing_state.algorithm],
         audience=dynamic_client.client_id,
-        issuer="http://testserver/auth/oauth",
+        issuer="http://testserver/auth",
     )
     assert decoded["sub"]
 
@@ -512,13 +577,11 @@ async def test_token_authorization_code_dynamic_confidential_client_uses_client_
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
-    with pytest.raises(jwt.InvalidSignatureError):
+    with pytest.raises(BadSignatureError):
         jwt.decode(
             id_token,
-            wrong_public_key,
+            key=RSAKey.import_key(wrong_public_key),
             algorithms=[provider.signing_state.algorithm],
-            audience=dynamic_client.client_id,
-            issuer="http://testserver/auth/oauth",
         )
 
 
@@ -527,16 +590,27 @@ async def test_token_refresh_token_success_rotates_and_narrows_scope(
     async_client,
     oauth_settings,
     oauth_plugin,
-    update_static_client,
+    update_oauth_test_client,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
-    old_refresh_token = await _create_refresh_token(async_client, oauth_settings, oauth_plugin, update_static_client)
+    old_refresh_token = await _create_refresh_token(
+        async_client,
+        oauth_settings,
+        oauth_plugin,
+        update_oauth_test_client,
+        belgie_instance,
+        db_session,
+        create_individual_session,
+    )
 
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "refresh_token": old_refresh_token,
             "scope": " ".join(oauth_settings.default_scopes),
         },
@@ -549,11 +623,11 @@ async def test_token_refresh_token_success_rotates_and_narrows_scope(
     assert payload["refresh_token"] != old_refresh_token
 
     old_refresh_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "refresh_token": old_refresh_token,
         },
     )
@@ -566,15 +640,26 @@ async def test_token_refresh_token_rejects_scope_escalation(
     async_client,
     oauth_settings,
     oauth_plugin,
-    update_static_client,
+    update_oauth_test_client,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
-    refresh_token = await _create_refresh_token(async_client, oauth_settings, oauth_plugin, update_static_client)
+    refresh_token = await _create_refresh_token(
+        async_client,
+        oauth_settings,
+        oauth_plugin,
+        update_oauth_test_client,
+        belgie_instance,
+        db_session,
+        create_individual_session,
+    )
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "refresh_token": refresh_token,
             "scope": "admin",
         },
@@ -589,21 +674,27 @@ async def test_token_refresh_token_rejects_mismatched_resource(
     async_client,
     oauth_settings,
     oauth_plugin,
-    update_static_client,
+    update_oauth_test_client,
+    belgie_instance,
+    db_session,
+    create_individual_session,
 ) -> None:
     refresh_token = await _create_refresh_token(
         async_client,
         oauth_settings,
         oauth_plugin,
-        update_static_client,
+        update_oauth_test_client,
+        belgie_instance,
+        db_session,
+        create_individual_session,
         resource="http://testserver/mcp",
     )
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "refresh_token": refresh_token,
             "resource": "http://testserver/other",
         },
@@ -619,11 +710,11 @@ async def test_token_client_credentials_success_post_auth(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "client_credentials",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "scope": " ".join(oauth_settings.default_scopes),
         },
     )
@@ -641,10 +732,10 @@ async def test_token_client_credentials_success_basic_auth(
     oauth_settings,
     basic_auth_header,
 ) -> None:
-    auth_header = basic_auth_header(oauth_settings.client_id, oauth_settings.client_secret.get_secret_value())
+    auth_header = basic_auth_header("test-client", "test-secret")
 
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "client_credentials",
             "scope": " ".join(oauth_settings.default_scopes),
@@ -662,11 +753,11 @@ async def test_token_client_credentials_rejects_unknown_scope(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "client_credentials",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "scope": "admin",
         },
     )
@@ -681,11 +772,11 @@ async def test_token_client_credentials_rejects_mismatched_resource(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "client_credentials",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "scope": " ".join(oauth_settings.default_scopes),
             "resource": "http://testserver/other",
         },
@@ -708,7 +799,7 @@ async def test_token_client_credentials_rejects_public_client(
     )
 
     response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "client_credentials",
             "client_id": "public-client",

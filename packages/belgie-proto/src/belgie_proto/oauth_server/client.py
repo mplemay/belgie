@@ -11,6 +11,15 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class OAuthServerClientProtocol(Protocol):
+    """Registered OAuth 2.0 / OIDC client (RFC 7591-style field names on the wire).
+
+    UI-oriented names in other ecosystems (e.g. ``name`` / ``uri`` / ``icon`` /
+    ``userId``) correspond to :py:attr:`client_name`, :py:attr:`client_uri`,
+    :py:attr:`logo_uri`, and :py:attr:`individual_id` here. Public vs
+    confidential clients are implied by :py:attr:`token_endpoint_auth_method`
+    and the presence of stored secrets, not a separate boolean column.
+    """
+
     id: UUID
     client_id: str
     client_secret: str | None
@@ -29,8 +38,6 @@ class OAuthServerClientProtocol(Protocol):
     contacts: list[str] | None
     tos_uri: str | None
     policy_uri: str | None
-    jwks_uri: str | None
-    jwks: dict[str, str] | dict[str, object] | None
     software_id: str | None
     software_version: str | None
     software_statement: str | None

@@ -14,12 +14,12 @@ from belgie_alchemy.stripe import StripeAdapter
 
 
 @pytest_asyncio.fixture
-async def adapter(alchemy_session: AsyncSession):  # noqa: ARG001
+async def adapter(alchemy_session: AsyncSession):
     yield StripeAdapter(subscription=Subscription)
 
 
 @pytest_asyncio.fixture
-async def core_adapter(alchemy_session: AsyncSession):  # noqa: ARG001
+async def core_adapter(alchemy_session: AsyncSession):
     yield BelgieAdapter(
         account=Account,
         individual=Individual,

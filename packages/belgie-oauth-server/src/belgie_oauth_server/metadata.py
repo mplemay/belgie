@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -9,23 +10,28 @@ from belgie_oauth_server.models import OAuthServerMetadata, OIDCMetadata, Protec
 from belgie_oauth_server.utils import join_url
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from belgie_oauth_server.settings import OAuthServer
 
-_ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 _ROOT_OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
 _ROOT_OPENID_METADATA_PATH = "/.well-known/openid-configuration"
 
 
 def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerMetadata:
     if settings.supports_authorization_code():
-        authorization_endpoint = AnyHttpUrl(join_url(issuer_url, "authorize"))
+        authorization_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "authorize"))
     else:
         authorization_endpoint = None
-    token_endpoint = AnyHttpUrl(join_url(issuer_url, "token"))
-    jwks_uri = AnyHttpUrl(join_url(issuer_url, "jwks")) if settings.signing.algorithm != "HS256" else None
-    registration_endpoint = AnyHttpUrl(join_url(issuer_url, "register"))
-    revocation_endpoint = AnyHttpUrl(join_url(issuer_url, "revoke"))
-    introspection_endpoint = AnyHttpUrl(join_url(issuer_url, "introspect"))
+    token_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "token"))
+    jwks_uri = (
+        None
+        if settings.disable_jwt_plugin or settings.signing.algorithm == "HS256"
+        else AnyHttpUrl(join_url(issuer_url, "jwks"))
+    )
+    registration_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "register"))
+    revocation_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "revoke"))
+    introspection_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "introspect"))
 
     return OAuthServerMetadata(
         issuer=AnyHttpUrl(issuer_url),
@@ -40,9 +46,9 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerM
         token_endpoint_auth_methods_supported=_build_token_endpoint_auth_methods(settings),
         code_challenge_methods_supported=["S256"],
         revocation_endpoint=revocation_endpoint,
-        revocation_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
+        revocation_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post"],
         introspection_endpoint=introspection_endpoint,
-        introspection_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
+        introspection_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post"],
         authorization_response_iss_parameter_supported=True,
     )
 
@@ -51,13 +57,13 @@ def build_openid_metadata(issuer_url: str, settings: OAuthServer) -> OIDCMetadat
     oauth_metadata = build_oauth_metadata(issuer_url, settings)
     oidc_metadata = oauth_metadata.model_dump(mode="python")
     oidc_metadata["scopes_supported"] = _build_supported_scopes(settings)
-    prompt_values_supported = ["login", "consent", "create", "none"] if settings.supports_authorization_code() else []
-    if settings.supports_authorization_code() and settings.select_account_url is not None:
-        prompt_values_supported.append("select_account")
+    prompt_values_supported = (
+        ["login", "consent", "create", "select_account", "none"] if settings.supports_authorization_code() else []
+    )
 
     return OIDCMetadata(
         **oidc_metadata,
-        userinfo_endpoint=AnyHttpUrl(join_url(issuer_url, "userinfo")),
+        userinfo_endpoint=AnyHttpUrl(_oauth_endpoint(issuer_url, "userinfo")),
         claims_supported=(
             settings.advertised_metadata.claims_supported
             if settings.advertised_metadata is not None and settings.advertised_metadata.claims_supported is not None
@@ -79,8 +85,8 @@ def build_openid_metadata(issuer_url: str, settings: OAuthServer) -> OIDCMetadat
             ]
         ),
         subject_types_supported=["public", "pairwise"] if settings.pairwise_secret is not None else ["public"],
-        id_token_signing_alg_values_supported=[settings.signing.algorithm],
-        end_session_endpoint=AnyHttpUrl(join_url(issuer_url, "end-session")),
+        id_token_signing_alg_values_supported=["HS256" if settings.disable_jwt_plugin else settings.signing.algorithm],
+        end_session_endpoint=AnyHttpUrl(_oauth_endpoint(issuer_url, "end-session")),
         acr_values_supported=["urn:mace:incommon:iap:bronze"],
         prompt_values_supported=prompt_values_supported,
     )
@@ -102,30 +108,52 @@ def build_openid_metadata_well_known_path(issuer_url: str) -> str:
     return "/.well-known/openid-configuration"
 
 
-def build_protected_resource_metadata(
-    issuer_url: str,
+def build_protected_resource_metadata(  # noqa: C901, PLR0913
+    resource: str,
     *,
-    resource_url: str | AnyHttpUrl,
-    resource_scopes: list[str] | None = None,
+    authorization_server: str | None = None,
+    authorization_servers: Sequence[str] | None = None,
+    scopes_supported: Sequence[str] | None = None,
     settings: OAuthServer | None = None,
+    external_scopes: Sequence[str] | None = None,
+    silence_oidc_scope_warnings: bool = False,
 ) -> ProtectedResourceMetadata:
-    return ProtectedResourceMetadata(
-        resource=AnyHttpUrl(str(resource_url)),
-        authorization_servers=[AnyHttpUrl(issuer_url)],
-        scopes_supported=(
-            settings.advertised_metadata.protected_resource_scopes_supported
-            if settings is not None
-            and settings.advertised_metadata is not None
-            and settings.advertised_metadata.protected_resource_scopes_supported is not None
-            else resource_scopes
-        ),
-    )
+    resolved_authorization_servers = list(authorization_servers or [])
+    if authorization_server is not None:
+        resolved_authorization_servers.insert(0, authorization_server)
+    if not resolved_authorization_servers and settings is not None and settings.issuer_url is not None:
+        resolved_authorization_servers.append(str(settings.issuer_url))
 
+    if external_scopes and len(resolved_authorization_servers) <= 1:
+        msg = "external scopes should not be provided with one authorization server"
+        raise ValueError(msg)
 
-def build_protected_resource_metadata_well_known_path(resource_server_url: str | AnyHttpUrl) -> str:
-    parsed = urlparse(str(resource_server_url))
-    resource_path = parsed.path if parsed.path != "/" else ""
-    return f"{_ROOT_RESOURCE_METADATA_PATH}{resource_path}"
+    supported_scopes = list(scopes_supported) if scopes_supported is not None else None
+    if supported_scopes is not None:
+        valid_scopes = set(settings.supported_scopes()) if settings is not None else set()
+        valid_scopes.update(external_scopes or [])
+        for scope in supported_scopes:
+            if scope == "openid":
+                msg = "Only the authorization server should utilize the openid scope"
+                raise ValueError(msg)
+            if scope in {"profile", "email", "phone", "address"} and not silence_oidc_scope_warnings:
+                warnings.warn(
+                    (
+                        f'"{scope}" is typically restricted for the authorization server; '
+                        "a resource server typically should not advertise this scope"
+                    ),
+                    stacklevel=2,
+                )
+            if valid_scopes and scope not in valid_scopes:
+                msg = f'Unsupported scope "{scope}". If external, add it to external_scopes.'
+                raise ValueError(msg)
+
+    payload: dict[str, object] = {"resource": resource}
+    if resolved_authorization_servers:
+        payload["authorization_servers"] = resolved_authorization_servers
+    if supported_scopes is not None:
+        payload["scopes_supported"] = supported_scopes
+    return ProtectedResourceMetadata.model_validate(payload)
 
 
 def _build_supported_scopes(settings: OAuthServer) -> list[str]:
@@ -134,5 +162,12 @@ def _build_supported_scopes(settings: OAuthServer) -> list[str]:
     return settings.supported_scopes()
 
 
-def _build_token_endpoint_auth_methods(_settings: OAuthServer) -> list[str]:
-    return ["none", "client_secret_basic", "client_secret_post"]
+def _build_token_endpoint_auth_methods(settings: OAuthServer) -> list[str]:
+    methods = ["client_secret_basic", "client_secret_post"]
+    if settings.allow_unauthenticated_client_registration:
+        methods.insert(0, "none")
+    return methods
+
+
+def _oauth_endpoint(issuer_url: str, path: str) -> str:
+    return join_url(issuer_url, f"oauth2/{path}")

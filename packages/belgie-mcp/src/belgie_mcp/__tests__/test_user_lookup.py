@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,11 +13,13 @@ from pydantic import AnyUrl
 pytest.importorskip("mcp")
 
 from belgie_core.core.settings import BelgieSettings
+from belgie_mcp.auth_context import set_verified_access_token
 from belgie_mcp.user import get_user_from_access_token
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.provider import AccessToken as OAuthServerAccessToken, AuthorizationParams, SimpleOAuthProvider
+from belgie_oauth_server.resource_verifier import VerifiedResourceAccessToken
 from belgie_oauth_server.testing import InMemoryDBConnection
 from mcp.server.auth.middleware.auth_context import auth_context_var
 
@@ -91,15 +91,13 @@ def _set_access_token(value: str):
         auth_context_var.reset(token)
 
 
-def _build_jwt(payload: dict[str, object]) -> str:
-    header = _b64url({"alg": "none", "typ": "JWT"})
-    body = _b64url(payload)
-    return f"{header}.{body}.sig"
-
-
-def _b64url(payload: dict[str, object]) -> str:
-    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+@contextmanager
+def _set_verified_token(value: VerifiedResourceAccessToken | None):
+    set_verified_access_token(value)
+    try:
+        yield
+    finally:
+        set_verified_access_token(None)
 
 
 def _build_belgie(user: FakeUser | None, *, plugins: list[OAuthServerPlugin] | None = None) -> FakeBelgie:
@@ -233,9 +231,24 @@ async def test_get_user_valid_sub_returns_user_when_no_provider_matches() -> Non
         scopes=["user"],
     )
     belgie = _build_belgie(user=user)
-    token = _build_jwt({"sub": str(user.id)})
+    token = str(uuid4())
+    verified_token = VerifiedResourceAccessToken(
+        source="introspection",
+        token=OAuthServerAccessToken(
+            token=token,
+            client_id="client",
+            scopes=["user"],
+            created_at=int(datetime.now(UTC).timestamp()),
+            expires_at=None,
+            resource="https://mcp.local/mcp",
+            individual_id=None,
+            session_id=None,
+        ),
+        subject=str(user.id),
+        issuer="https://issuer.local/auth",
+    )
 
-    with _set_access_token(token):
+    with _set_access_token(token), _set_verified_token(verified_token):
         result = await get_user_from_access_token(belgie)
 
     assert result is user
@@ -244,9 +257,8 @@ async def test_get_user_valid_sub_returns_user_when_no_provider_matches() -> Non
 def _oauth_settings() -> OAuthServer:
     return build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["http://localhost:6274/oauth/callback"],
-        client_id="test-client",
-        client_secret="test-secret",
+        test_redirect_uris=["http://localhost:6274/oauth/callback"],
+        test_client_secret="test-secret",
         default_scopes=["user"],
     )
 
@@ -286,7 +298,7 @@ async def _issue_dynamic_client_access_token(
             code_challenge="test-challenge",
             redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
             redirect_uri_provided_explicitly=True,
-            resource=resource,
+            resource=None,
             individual_id=individual_id,
             session_id=str(uuid4()),
         ),
@@ -295,7 +307,10 @@ async def _issue_dynamic_client_access_token(
     code = parse_qs(urlparse(redirect).query)["code"][0]
     authorization_code = await provider.load_authorization_code(code)
     assert authorization_code is not None
-    token_response = await provider.exchange_authorization_code(authorization_code)
+    token_response = await provider.exchange_authorization_code(
+        authorization_code,
+        access_token_resource=resource,
+    )
     stored_token = await provider.load_access_token(token_response.access_token)
     assert stored_token is not None
     return token_response.access_token, stored_token
