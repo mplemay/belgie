@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
@@ -11,12 +11,13 @@ import pytest
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import OAuthServerPlugin
-from belgie_oauth_server.testing import InMemoryConsent, InMemoryDBConnection
+from belgie_oauth_server.testing import InMemoryConsent, InMemoryDBConnection, InMemoryOAuthServerAdapter
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
 from joserfc import jwt
 from joserfc.jwk import OctKey
+from pydantic import SecretStr
 
 if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer
@@ -24,6 +25,9 @@ if TYPE_CHECKING:
 ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
 BEARER_TOKEN_TYPE = "Bearer"  # noqa: S105
 REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
+TEST_CLIENT_ID = "test-client"
+TEST_DEFAULT_REDIRECT = "https://client.local/callback"
+TEST_CLIENT_SECRET = "test-secret"  # noqa: S105
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -113,7 +117,6 @@ def _build_app(settings: OAuthServer) -> tuple[FastAPI, OAuthServerPlugin, FakeB
     app.include_router(auth_router)
     app.include_router(plugin.public(belgie))
     assert plugin.provider is not None
-    plugin.provider.static_client = plugin.provider.static_client.model_copy(update={"skip_consent": True})
     return app, plugin, belgie_client
 
 
@@ -141,8 +144,8 @@ def _authorize_params(
 ) -> dict[str, str]:
     params = {
         "response_type": "code",
-        "client_id": settings.client_id,
-        "redirect_uri": str(settings.redirect_uris[0]),
+        "client_id": TEST_CLIENT_ID,
+        "redirect_uri": TEST_DEFAULT_REDIRECT,
         "scope": scope,
         "state": state,
     }
@@ -175,10 +178,14 @@ def _decode_access_token(plugin: OAuthServerPlugin, token: str) -> dict[str, obj
     )
 
 
-def _update_static_client(plugin: OAuthServerPlugin, client_id: str, **updates: object) -> None:
+def _update_seeded_client(plugin: OAuthServerPlugin, client_id: str, **updates: object) -> None:
     assert plugin.provider is not None
-    assert plugin.provider.static_client.client_id == client_id
-    plugin.provider.static_client = plugin.provider.static_client.model_copy(update=updates)
+    adapter = plugin.provider.adapter
+    if not isinstance(adapter, InMemoryOAuthServerAdapter):
+        msg = "integration tests require InMemoryOAuthServerAdapter"
+        raise TypeError(msg)
+    current = adapter.clients[client_id]
+    adapter.clients[client_id] = replace(current, **updates)
 
 
 def _grant_consent(
@@ -250,16 +257,17 @@ def _exchange_code(
 ) -> TestClient:
     payload: dict[str, str] = {
         "grant_type": "authorization_code",
-        "client_id": client_id or settings.client_id,
+        "client_id": client_id or TEST_CLIENT_ID,
         "code": code,
-        "redirect_uri": redirect_uri or str(settings.redirect_uris[0]),
+        "redirect_uri": redirect_uri or TEST_DEFAULT_REDIRECT,
     }
     if verifier:
         payload["code_verifier"] = verifier
     if client_secret is not None:
-        payload["client_secret"] = client_secret
-    elif settings.client_secret is not None:
-        payload["client_secret"] = settings.client_secret.get_secret_value()
+        if client_secret:
+            payload["client_secret"] = client_secret
+    else:
+        payload["client_secret"] = TEST_CLIENT_SECRET
     if resource is not None:
         payload["resource"] = resource
     return client.post("/auth/oauth2/token", data=payload)
@@ -298,15 +306,16 @@ def _introspect_token(
     client_id: str | None = None,
     client_secret: str | None = None,
 ) -> TestClient:
+    _ = settings
     payload: dict[str, str] = {"token": token}
     if client_id is not None:
         payload["client_id"] = client_id
-    elif settings.client_id is not None:
-        payload["client_id"] = settings.client_id
+    else:
+        payload["client_id"] = TEST_CLIENT_ID
     if client_secret is not None:
         payload["client_secret"] = client_secret
-    elif settings.client_secret is not None:
-        payload["client_secret"] = settings.client_secret.get_secret_value()
+    else:
+        payload["client_secret"] = TEST_CLIENT_SECRET
     if token_type_hint is not None:
         payload["token_type_hint"] = token_type_hint
     return client.post("/auth/oauth2/introspect", data=payload)
@@ -321,15 +330,16 @@ def _revoke_token(
     client_id: str | None = None,
     client_secret: str | None = None,
 ) -> TestClient:
+    _ = settings
     payload: dict[str, str] = {"token": token}
     if client_id is not None:
         payload["client_id"] = client_id
-    elif settings.client_id is not None:
-        payload["client_id"] = settings.client_id
+    else:
+        payload["client_id"] = TEST_CLIENT_ID
     if client_secret is not None:
         payload["client_secret"] = client_secret
-    elif settings.client_secret is not None:
-        payload["client_secret"] = settings.client_secret.get_secret_value()
+    else:
+        payload["client_secret"] = TEST_CLIENT_SECRET
     if token_type_hint is not None:
         payload["token_type_hint"] = token_type_hint
     return client.post("/auth/oauth2/revoke", data=payload)
@@ -348,8 +358,7 @@ def _trust_dynamic_callback_client(oauth_client) -> bool:
 def test_metadata_and_openapi_match_better_auth_contract() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
 
@@ -407,12 +416,11 @@ def test_metadata_and_openapi_match_better_auth_contract() -> None:
 def test_authorize_and_consent_interactions_use_oauth2_paths() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         consent_url="/consent-screen",
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user", skip_consent=False)
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user", skip_consent=False)
 
     authorize = client.get(
         "/auth/oauth2/authorize",
@@ -442,9 +450,9 @@ def test_authorize_and_consent_interactions_use_oauth2_paths() -> None:
     assert approved_query["iss"] == ["http://testserver/auth"]
 
     prompt_none_client, prompt_none_plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(
+    _update_seeded_client(
         prompt_none_plugin,
-        settings.client_id,
+        TEST_CLIENT_ID,
         scope="openid user",
         skip_consent=False,
     )
@@ -470,11 +478,10 @@ def test_authorize_and_consent_interactions_use_oauth2_paths() -> None:
 def test_request_uri_resolution_uses_stored_params() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         request_uri_resolver=lambda _request_uri, _client_id: {
             "response_type": "code",
-            "redirect_uri": "http://client.local/callback",
+            "redirect_uri": "https://client.local/callback",
             "scope": "openid user",
             "state": "state-from-par",
             "code_challenge": create_code_challenge("par-verifier"),
@@ -482,17 +489,17 @@ def test_request_uri_resolution_uses_stored_params() -> None:
         },
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     response = client.get(
         "/auth/oauth2/authorize",
-        params={"client_id": settings.client_id, "request_uri": "urn:belgie:par:test"},
+        params={"client_id": TEST_CLIENT_ID, "request_uri": "urn:belgie:par:test"},
         headers=_auth_headers(),
         follow_redirects=False,
     )
 
     assert response.status_code == 302
-    assert response.headers["location"].startswith("http://client.local/callback?")
+    assert response.headers["location"].startswith("https://client.local/callback?")
     assert "request_uri=" not in response.headers["location"]
     assert _query(response.headers["location"])["state"] == ["state-from-par"]
     assert _query(response.headers["location"])["iss"] == ["http://testserver/auth"]
@@ -501,8 +508,7 @@ def test_request_uri_resolution_uses_stored_params() -> None:
 def test_register_coerces_anonymous_clients_to_public_and_supports_prelogin_lookup() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         allow_dynamic_client_registration=True,
         allow_unauthenticated_client_registration=True,
         allow_public_client_prelogin=True,
@@ -554,8 +560,7 @@ def test_register_coerces_anonymous_clients_to_public_and_supports_prelogin_look
 def test_authenticated_dynamic_registration_defaults_to_confidential_client() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         allow_dynamic_client_registration=True,
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
@@ -579,8 +584,7 @@ def test_authenticated_dynamic_registration_defaults_to_confidential_client() ->
 def test_trusted_dynamic_client_skips_consent_without_persisting_skip_consent() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         allow_dynamic_client_registration=True,
         allow_unauthenticated_client_registration=True,
         trusted_client_resolver=_trust_dynamic_callback_client,
@@ -623,8 +627,7 @@ def test_trusted_dynamic_client_skips_consent_without_persisting_skip_consent() 
 def test_admin_create_client_allows_confidential_pkce_opt_out() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
     )
     client, plugin, belgie_client = _build_fixture(settings)
 
@@ -683,13 +686,12 @@ def test_admin_create_client_allows_confidential_pkce_opt_out() -> None:
 def test_token_resource_is_applied_at_token_and_refresh_time() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         valid_audiences=["http://testserver/mcp", "http://other.local/mcp"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user offline_access")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user offline_access")
 
     callback = _authorize_to_next_location(
         client,
@@ -706,6 +708,7 @@ def test_token_resource_is_applied_at_token_and_refresh_time() -> None:
         code=code,
         verifier="resource-verifier",
         resource="http://testserver/mcp",
+        client_secret="static-secret",
     )
     assert first_token.status_code == 200
     first_payload = first_token.json()
@@ -720,7 +723,7 @@ def test_token_resource_is_applied_at_token_and_refresh_time() -> None:
         "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "client_secret": "static-secret",
             "refresh_token": first_payload["refresh_token"],
             "resource": "http://other.local/mcp",
@@ -737,20 +740,20 @@ def test_token_resource_is_applied_at_token_and_refresh_time() -> None:
 def test_pairwise_subject_is_stable_across_http_endpoints() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
-        static_client_require_pkce=False,
-        pairwise_secret="pairwise-secret-for-tests-123456",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
+        test_require_pkce=False,
+        pairwise_secret=SecretStr("pairwise-secret-for-tests-123456"),
         enable_end_session=True,
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, belgie_client = _build_fixture(settings)
-    _update_static_client(
+    _update_seeded_client(
         plugin,
-        settings.client_id,
+        TEST_CLIENT_ID,
         scope="user openid profile email offline_access",
         subject_type="pairwise",
+        enable_end_session=True,
     )
 
     callback = _authorize_to_next_location(
@@ -766,13 +769,14 @@ def test_pairwise_subject_is_stable_across_http_endpoints() -> None:
         settings,
         code=code,
         resource="http://testserver/mcp",
+        client_secret="static-secret",
     )
 
     assert token_response.status_code == 200
     token_payload = token_response.json()
     access_jwt = _decode_access_token(plugin, token_payload["access_token"])
     assert access_jwt["sub"] == str(belgie_client.user.id)
-    id_token = _decode_id_token(plugin, token_payload["id_token"], settings.client_id)
+    id_token = _decode_id_token(plugin, token_payload["id_token"], TEST_CLIENT_ID)
 
     userinfo = client.get(
         "/auth/oauth2/userinfo",
@@ -783,7 +787,7 @@ def test_pairwise_subject_is_stable_across_http_endpoints() -> None:
     introspection = client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "client_secret": "static-secret",
             "token": token_payload["access_token"],
         },
@@ -794,19 +798,19 @@ def test_pairwise_subject_is_stable_across_http_endpoints() -> None:
         "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "client_secret": "static-secret",
             "refresh_token": token_payload["refresh_token"],
         },
     )
     assert refresh.status_code == 200
     refresh_payload = refresh.json()
-    refreshed_id_token = _decode_id_token(plugin, refresh_payload["id_token"], settings.client_id)
+    refreshed_id_token = _decode_id_token(plugin, refresh_payload["id_token"], TEST_CLIENT_ID)
 
     refresh_introspection = client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "client_secret": "static-secret",
             "token": refresh_payload["refresh_token"],
             "token_type_hint": "refresh_token",
@@ -828,14 +832,18 @@ def test_disable_jwt_plugin_issues_opaque_access_tokens_and_hs256_id_tokens() ->
     client_secret = "static-secret-for-disable-jwt-tests-123456"  # noqa: S105
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret=client_secret,
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret=client_secret,
         disable_jwt_plugin=True,
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(
+        plugin,
+        TEST_CLIENT_ID,
+        scope="openid user",
+        client_secret=client_secret,
+    )
 
     callback = _authorize_to_next_location(
         client,
@@ -849,6 +857,7 @@ def test_disable_jwt_plugin_issues_opaque_access_tokens_and_hs256_id_tokens() ->
         settings,
         code=code,
         resource="http://testserver/mcp",
+        client_secret=client_secret,
     )
 
     assert token_response.status_code == 200
@@ -863,22 +872,29 @@ def test_disable_jwt_plugin_issues_opaque_access_tokens_and_hs256_id_tokens() ->
     )
     jwt.JWTClaimsRegistry(
         iss={"essential": True, "value": "http://testserver/auth"},
-        aud={"essential": True, "value": settings.client_id},
+        aud={"essential": True, "value": TEST_CLIENT_ID},
     ).validate(id_token.claims)
     assert id_token.claims["iss"] == "http://testserver/auth"
-    assert id_token.claims["aud"] == settings.client_id
+    assert id_token.claims["aud"] == TEST_CLIENT_ID
 
 
 def test_disable_jwt_plugin_omits_id_token_for_public_clients() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret=None,
         disable_jwt_plugin=True,
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(
+        plugin,
+        TEST_CLIENT_ID,
+        scope="openid user",
+        token_endpoint_auth_method="none",
+        client_secret=None,
+        client_secret_hash=None,
+    )
 
     callback = _authorize_to_next_location(
         client,
@@ -892,6 +908,7 @@ def test_disable_jwt_plugin_omits_id_token_for_public_clients() -> None:
         settings,
         code=code,
         resource="http://testserver/mcp",
+        client_secret="",
     )
 
     assert token_response.status_code == 200
@@ -905,9 +922,8 @@ def test_custom_claim_callbacks_share_opaque_token_payload_shape() -> None:
     client_secret = "static-secret-for-custom-claims-123456"  # noqa: S105
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret=client_secret,
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret=client_secret,
         disable_jwt_plugin=True,
         valid_audiences=["http://testserver/mcp"],
         custom_access_token_claims=lambda payload: {
@@ -919,7 +935,13 @@ def test_custom_claim_callbacks_share_opaque_token_payload_shape() -> None:
         },
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user", metadata_json={"tenant": "acme"})
+    _update_seeded_client(
+        plugin,
+        TEST_CLIENT_ID,
+        scope="openid user",
+        metadata_json={"tenant": "acme"},
+        client_secret=client_secret,
+    )
 
     callback = _authorize_to_next_location(
         client,
@@ -933,13 +955,14 @@ def test_custom_claim_callbacks_share_opaque_token_payload_shape() -> None:
         settings,
         code=code,
         resource="http://testserver/mcp",
+        client_secret=client_secret,
     )
     token_payload = token_response.json()
 
     introspection = client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "client_secret": client_secret,
             "token": token_payload["access_token"],
         },
@@ -959,9 +982,8 @@ def test_custom_claim_callbacks_share_opaque_token_payload_shape() -> None:
 def test_custom_callbacks_cannot_override_reserved_token_fields() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         custom_token_response_fields=lambda _payload: {
             "expires_in": 1,
             "tenant_id": "acme",
@@ -973,7 +995,7 @@ def test_custom_callbacks_cannot_override_reserved_token_fields() -> None:
         },
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     callback = _authorize_to_next_location(
         client,
@@ -983,14 +1005,14 @@ def test_custom_callbacks_cannot_override_reserved_token_fields() -> None:
         extra_params={"nonce": "expected-nonce"},
     )
     code = _query(callback)["code"][0]
-    token_response = _exchange_code(client, settings, code=code)
+    token_response = _exchange_code(client, settings, code=code, client_secret="static-secret")
 
     assert token_response.status_code == 200
     token_payload = token_response.json()
     assert token_payload["tenant_id"] == "acme"
     assert token_payload["expires_in"] != 1
 
-    id_token = _decode_id_token(plugin, token_payload["id_token"], settings.client_id)
+    id_token = _decode_id_token(plugin, token_payload["id_token"], TEST_CLIENT_ID)
     assert id_token["iss"] == "http://testserver/auth"
     assert id_token["nonce"] == "expected-nonce"
     assert id_token["tenant"] == "acme"
@@ -999,13 +1021,12 @@ def test_custom_callbacks_cannot_override_reserved_token_fields() -> None:
 def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     callback = _authorize_to_next_location(
         client,
@@ -1021,6 +1042,7 @@ def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
         code=code,
         verifier="revoked-verifier",
         resource="http://testserver/mcp",
+        client_secret="static-secret",
     )
     assert token_response.status_code == 200
     token_payload = token_response.json()
@@ -1029,7 +1051,7 @@ def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
     revoke = client.post(
         "/auth/oauth2/revoke",
         data={
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "client_secret": "static-secret",
             "token": token_payload["access_token"],
             "token_type_hint": "access_token",
@@ -1048,7 +1070,7 @@ def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
     introspection = client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "client_secret": "static-secret",
             "token": token_payload["access_token"],
         },
@@ -1060,8 +1082,7 @@ def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
 def test_client_management_rpc_routes_match_better_auth_shape() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         allow_public_client_prelogin=True,
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
@@ -1143,8 +1164,7 @@ def test_client_management_rpc_routes_match_better_auth_shape() -> None:
 def test_public_client_routes_ignore_admin_only_fields() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         pairwise_secret="pairwise-secret-for-tests-123456",
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
@@ -1217,8 +1237,7 @@ def test_public_client_routes_ignore_admin_only_fields() -> None:
 def test_admin_client_routes_support_restricted_fields() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         pairwise_secret="pairwise-secret-for-tests-123456",
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
@@ -1276,11 +1295,10 @@ def test_admin_client_routes_support_restricted_fields() -> None:
 def test_consent_management_rpc_routes_match_better_auth_shape() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
     )
     client, plugin, belgie_client = _build_fixture(settings)
-    _grant_consent(plugin, settings.client_id, belgie_client.user.id, ["user"])
+    _grant_consent(plugin, TEST_CLIENT_ID, belgie_client.user.id, ["user"])
 
     assert plugin.provider is not None
     adapter = plugin.provider.adapter
@@ -1291,7 +1309,7 @@ def test_consent_management_rpc_routes_match_better_auth_shape() -> None:
     assert listed.json() == [
         {
             "id": str(consent.id),
-            "clientId": settings.client_id,
+            "clientId": TEST_CLIENT_ID,
             "userId": str(belgie_client.user.id),
             "referenceId": None,
             "scopes": ["user"],
@@ -1331,8 +1349,7 @@ def test_consent_management_rpc_routes_match_better_auth_shape() -> None:
 def test_authorize_rate_limit_ignores_x_forwarded_for() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         rate_limit={"authorize": {"window": 60, "max": 1}},
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
@@ -1362,11 +1379,10 @@ def test_authorize_rate_limit_ignores_x_forwarded_for() -> None:
 def test_authorize_prompt_none_returns_login_required_for_unauthenticated_user() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     response = client.get(
         "/auth/oauth2/authorize",
@@ -1391,13 +1407,12 @@ def test_authorize_prompt_none_returns_login_required_for_unauthenticated_user()
 def test_authorize_prompt_none_returns_account_selection_required_when_select_account_is_needed() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         select_account_url="/switch-account",
         select_account_resolver=lambda *_args: True,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     response = client.get(
         "/auth/oauth2/authorize",
@@ -1423,13 +1438,12 @@ def test_authorize_prompt_none_returns_account_selection_required_when_select_ac
 def test_authorize_prompt_none_returns_interaction_required_when_post_login_is_needed() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         post_login_url="/finish-login",
         post_login_resolver=lambda *_args: True,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     response = client.get(
         "/auth/oauth2/authorize",
@@ -1455,12 +1469,11 @@ def test_authorize_prompt_none_returns_interaction_required_when_post_login_is_n
 def test_request_uri_resolution_discards_front_channel_params_not_in_stored_request() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         request_uri_resolver=lambda _request_uri, _client_id: {
             "response_type": "code",
-            "redirect_uri": "http://client.local/callback",
+            "redirect_uri": "https://client.local/callback",
             "scope": "openid user",
             "state": "state-from-par",
             "code_challenge": create_code_challenge("par-verifier"),
@@ -1468,12 +1481,12 @@ def test_request_uri_resolution_discards_front_channel_params_not_in_stored_requ
         },
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     response = client.get(
         "/auth/oauth2/authorize",
         params={
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "request_uri": "urn:belgie:par:stored",
             "redirect_uri": "https://attacker.local/callback",
             "scope": "openid admin",
@@ -1486,7 +1499,7 @@ def test_request_uri_resolution_discards_front_channel_params_not_in_stored_requ
     )
 
     assert response.status_code == 302
-    assert response.headers["location"].startswith("http://client.local/callback?")
+    assert response.headers["location"].startswith("https://client.local/callback?")
     query = _query(response.headers["location"])
     assert query["state"] == ["state-from-par"]
     assert query["iss"] == ["http://testserver/auth"]
@@ -1496,6 +1509,7 @@ def test_request_uri_resolution_discards_front_channel_params_not_in_stored_requ
         settings,
         code=query["code"][0],
         verifier="par-verifier",
+        client_secret="static-secret",
     )
     assert token_response.status_code == 200
 
@@ -1503,11 +1517,18 @@ def test_request_uri_resolution_discards_front_channel_params_not_in_stored_requ
 def test_public_client_without_pkce_returns_invalid_request() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret=None,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(
+        plugin,
+        TEST_CLIENT_ID,
+        scope="openid user",
+        token_endpoint_auth_method="none",
+        client_secret=None,
+        client_secret_hash=None,
+    )
 
     response = client.get(
         "/auth/oauth2/authorize",
@@ -1530,13 +1551,12 @@ def test_public_client_without_pkce_returns_invalid_request() -> None:
 def test_offline_access_requires_pkce_even_for_confidential_opt_out_client() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         static_client_require_pkce=False,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user offline_access")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user offline_access")
 
     response = client.get(
         "/auth/oauth2/authorize",
@@ -1571,13 +1591,12 @@ def test_token_endpoint_validates_pkce_verifier_consistency(
 ) -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         static_client_require_pkce=False,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     code = _authorize_and_return_code(
         client,
@@ -1592,6 +1611,7 @@ def test_token_endpoint_validates_pkce_verifier_consistency(
         settings,
         code=code,
         verifier=exchange_verifier,
+        client_secret="static-secret",
     )
 
     assert token_response.status_code == 400
@@ -1601,15 +1621,14 @@ def test_token_endpoint_validates_pkce_verifier_consistency(
 def test_token_endpoint_accepts_client_secret_basic() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         static_client_require_pkce=False,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(
+    _update_seeded_client(
         plugin,
-        settings.client_id,
+        TEST_CLIENT_ID,
         scope="openid user",
         token_endpoint_auth_method="client_secret_basic",
     )
@@ -1622,14 +1641,14 @@ def test_token_endpoint_accepts_client_secret_basic() -> None:
         verifier="basic-verifier",
     )
     basic_credentials = base64.b64encode(
-        f"{settings.client_id}:{settings.client_secret.get_secret_value()}".encode(),
+        f"{TEST_CLIENT_ID}:static-secret".encode(),
     ).decode("ascii")
     token_response = client.post(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": str(settings.redirect_uris[0]),
+            "redirect_uri": "https://client.local/callback",
             "code_verifier": "basic-verifier",
         },
         headers={"Authorization": f"Basic {basic_credentials}"},
@@ -1642,11 +1661,10 @@ def test_token_endpoint_accepts_client_secret_basic() -> None:
 def test_userinfo_requires_authorization_header() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     response = client.get("/auth/oauth2/userinfo")
 
@@ -1657,12 +1675,11 @@ def test_userinfo_requires_authorization_header() -> None:
 def test_userinfo_requires_openid_scope() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user profile email")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user profile email")
 
     code = _authorize_and_return_code(
         client,
@@ -1671,7 +1688,13 @@ def test_userinfo_requires_openid_scope() -> None:
         scope="user",
         verifier="userinfo-no-openid",
     )
-    token_response = _exchange_code(client, settings, code=code, verifier="userinfo-no-openid")
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="userinfo-no-openid",
+        client_secret="static-secret",
+    )
     assert token_response.status_code == 200
 
     userinfo = client.get(
@@ -1696,13 +1719,12 @@ def test_userinfo_returns_full_claims_for_opaque_and_jwt_access_tokens(
 ) -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid profile email")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid profile email")
 
     code = _authorize_and_return_code(
         client,
@@ -1717,6 +1739,7 @@ def test_userinfo_returns_full_claims_for_opaque_and_jwt_access_tokens(
         code=code,
         verifier="userinfo-verifier",
         resource=resource,
+        client_secret="static-secret",
     )
     assert token_response.status_code == 200
     access_token = token_response.json()["access_token"]
@@ -1770,12 +1793,11 @@ def test_userinfo_filters_claims_by_scope(
 ) -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
     )
     client, plugin, belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid profile email")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid profile email")
 
     code = _authorize_and_return_code(
         client,
@@ -1789,6 +1811,7 @@ def test_userinfo_filters_claims_by_scope(
         settings,
         code=code,
         verifier="userinfo-scope-verifier",
+        client_secret="static-secret",
     )
     assert token_response.status_code == 200
 
@@ -1809,12 +1832,11 @@ def test_userinfo_filters_claims_by_scope(
 def test_introspection_requires_client_auth() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid offline_access")
 
     code = _authorize_and_return_code(
         client,
@@ -1823,7 +1845,13 @@ def test_introspection_requires_client_auth() -> None:
         scope="openid offline_access",
         verifier="introspect-auth-verifier",
     )
-    token_response = _exchange_code(client, settings, code=code, verifier="introspect-auth-verifier")
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="introspect-auth-verifier",
+        client_secret="static-secret",
+    )
     assert token_response.status_code == 200
 
     introspection = client.post(
@@ -1854,13 +1882,12 @@ def test_introspection_respects_token_type_hints(
 ) -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid profile email offline_access")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid profile email offline_access")
 
     code = _authorize_and_return_code(
         client,
@@ -1875,6 +1902,7 @@ def test_introspection_respects_token_type_hints(
         code=code,
         verifier="introspect-hints-verifier",
         resource=resource,
+        client_secret="static-secret",
     )
     assert token_response.status_code == 200
     tokens = token_response.json()
@@ -1884,13 +1912,14 @@ def test_introspection_respects_token_type_hints(
         settings,
         tokens[token_field],
         token_type_hint=token_type_hint,
+        client_secret="static-secret",
     )
 
     assert introspection.status_code == 200
     body = introspection.json()
     assert body["active"] is expected_active
     if expected_active:
-        assert body["client_id"] == settings.client_id
+        assert body["client_id"] == TEST_CLIENT_ID
         assert body["scope"] == "openid profile email offline_access"
         assert body["sub"] == str(belgie_client.user.id)
         assert body["iss"] == "http://testserver/auth"
@@ -1902,12 +1931,11 @@ def test_introspection_respects_token_type_hints(
 def test_refresh_preserves_auth_time_in_id_token() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
     )
     client, plugin, belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid offline_access")
 
     code = _authorize_and_return_code(
         client,
@@ -1916,7 +1944,13 @@ def test_refresh_preserves_auth_time_in_id_token() -> None:
         scope="openid offline_access",
         verifier="auth-time-verifier",
     )
-    token_response = _exchange_code(client, settings, code=code, verifier="auth-time-verifier")
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="auth-time-verifier",
+        client_secret="static-secret",
+    )
     assert token_response.status_code == 200
     initial_tokens = token_response.json()
 
@@ -1924,7 +1958,7 @@ def test_refresh_preserves_auth_time_in_id_token() -> None:
         "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "client_secret": "static-secret",
             "refresh_token": initial_tokens["refresh_token"],
         },
@@ -1932,8 +1966,8 @@ def test_refresh_preserves_auth_time_in_id_token() -> None:
     assert refreshed.status_code == 200
 
     expected_auth_time = int(belgie_client.session.created_at.timestamp())
-    initial_id_token = _decode_id_token(plugin, initial_tokens["id_token"], settings.client_id)
-    refreshed_id_token = _decode_id_token(plugin, refreshed.json()["id_token"], settings.client_id)
+    initial_id_token = _decode_id_token(plugin, initial_tokens["id_token"], TEST_CLIENT_ID)
+    refreshed_id_token = _decode_id_token(plugin, refreshed.json()["id_token"], TEST_CLIENT_ID)
     assert initial_id_token["auth_time"] == expected_auth_time
     assert refreshed_id_token["auth_time"] == expected_auth_time
 
@@ -1941,12 +1975,11 @@ def test_refresh_preserves_auth_time_in_id_token() -> None:
 def test_end_session_rejects_clients_without_end_session_access() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid offline_access")
 
     code = _authorize_and_return_code(
         client,
@@ -1955,7 +1988,13 @@ def test_end_session_rejects_clients_without_end_session_access() -> None:
         scope="openid offline_access",
         verifier="end-session-disabled",
     )
-    token_response = _exchange_code(client, settings, code=code, verifier="end-session-disabled")
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="end-session-disabled",
+        client_secret="static-secret",
+    )
     assert token_response.status_code == 200
 
     logout = client.get(
@@ -1973,13 +2012,17 @@ def test_end_session_rejects_clients_without_end_session_access() -> None:
 def test_end_session_clears_session_and_removes_sid_from_introspection() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         enable_end_session=True,
     )
     client, plugin, belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid profile email offline_access")
+    _update_seeded_client(
+        plugin,
+        TEST_CLIENT_ID,
+        scope="openid profile email offline_access",
+        enable_end_session=True,
+    )
 
     code = _authorize_and_return_code(
         client,
@@ -1988,11 +2031,17 @@ def test_end_session_clears_session_and_removes_sid_from_introspection() -> None
         scope="openid profile email offline_access",
         verifier="end-session-verifier",
     )
-    token_response = _exchange_code(client, settings, code=code, verifier="end-session-verifier")
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="end-session-verifier",
+        client_secret="static-secret",
+    )
     assert token_response.status_code == 200
     tokens = token_response.json()
 
-    id_token = _decode_id_token(plugin, tokens["id_token"], settings.client_id)
+    id_token = _decode_id_token(plugin, tokens["id_token"], TEST_CLIENT_ID)
     assert id_token["sid"] == str(belgie_client.session.id)
 
     before_logout = _introspect_token(
@@ -2000,6 +2049,7 @@ def test_end_session_clears_session_and_removes_sid_from_introspection() -> None
         settings,
         tokens["access_token"],
         token_type_hint="access_token",
+        client_secret="static-secret",
     )
     assert before_logout.status_code == 200
     assert before_logout.json()["sid"] == str(belgie_client.session.id)
@@ -2018,12 +2068,14 @@ def test_end_session_clears_session_and_removes_sid_from_introspection() -> None
         settings,
         tokens["access_token"],
         token_type_hint="access_token",
+        client_secret="static-secret",
     )
     refresh_introspection = _introspect_token(
         client,
         settings,
         tokens["refresh_token"],
         token_type_hint="refresh_token",
+        client_secret="static-secret",
     )
 
     assert access_introspection.status_code == 200
@@ -2037,17 +2089,17 @@ def test_end_session_clears_session_and_removes_sid_from_introspection() -> None
 def test_end_session_redirects_to_registered_post_logout_uri() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         enable_end_session=True,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(
+    _update_seeded_client(
         plugin,
-        settings.client_id,
+        TEST_CLIENT_ID,
         scope="openid profile email offline_access",
         post_logout_redirect_uris=["https://client.local/logout"],
+        enable_end_session=True,
     )
 
     code = _authorize_and_return_code(
@@ -2057,7 +2109,13 @@ def test_end_session_redirects_to_registered_post_logout_uri() -> None:
         scope="openid profile email offline_access",
         verifier="end-session-redirect",
     )
-    token_response = _exchange_code(client, settings, code=code, verifier="end-session-redirect")
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="end-session-redirect",
+        client_secret="static-secret",
+    )
     assert token_response.status_code == 200
 
     logout = client.get(
@@ -2077,8 +2135,7 @@ def test_end_session_redirects_to_registered_post_logout_uri() -> None:
 def test_dynamic_registration_rejects_skip_consent() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         allow_dynamic_client_registration=True,
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
@@ -2102,8 +2159,7 @@ def test_dynamic_registration_rejects_skip_consent() -> None:
 def test_dynamic_registration_ignores_enable_end_session_but_preserves_logout_redirects() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         allow_dynamic_client_registration=True,
     )
     client, _plugin, _belgie_client = _build_fixture(settings)
@@ -2128,12 +2184,11 @@ def test_dynamic_registration_ignores_enable_end_session_but_preserves_logout_re
 def test_revoke_requires_client_auth() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid offline_access")
 
     code = _authorize_and_return_code(
         client,
@@ -2142,7 +2197,13 @@ def test_revoke_requires_client_auth() -> None:
         scope="openid offline_access",
         verifier="revoke-auth-verifier",
     )
-    token_response = _exchange_code(client, settings, code=code, verifier="revoke-auth-verifier")
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="revoke-auth-verifier",
+        client_secret="static-secret",
+    )
     assert token_response.status_code == 200
 
     revoke = client.post(
@@ -2174,13 +2235,12 @@ def test_revoke_respects_token_type_hints(
 ) -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
-        client_secret="static-secret",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid offline_access")
 
     code = _authorize_and_return_code(
         client,
@@ -2195,6 +2255,7 @@ def test_revoke_respects_token_type_hints(
         code=code,
         verifier="revoke-hints-verifier",
         resource=resource,
+        client_secret="static-secret",
     )
     assert token_response.status_code == 200
     tokens = token_response.json()
@@ -2204,6 +2265,7 @@ def test_revoke_respects_token_type_hints(
         settings,
         tokens[token_field],
         token_type_hint=token_type_hint,
+        client_secret="static-secret",
     )
 
     assert revoke.status_code == expected_status
@@ -2215,6 +2277,7 @@ def test_revoke_respects_token_type_hints(
         settings,
         tokens[token_field],
         token_type_hint=REFRESH_TOKEN_HINT if token_field == REFRESH_TOKEN_HINT else ACCESS_TOKEN_HINT,
+        client_secret="static-secret",
     )
 
     assert introspection.status_code == 200
@@ -2227,18 +2290,25 @@ def test_revoke_respects_token_type_hints(
 def test_loopback_redirect_uri_allows_port_mismatch_for_public_clients() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://127.0.0.1/callback"],
-        client_id="test-client",
+        test_redirect_uris=["http://127.0.0.1/callback"],
+        test_client_secret=None,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(
+        plugin,
+        TEST_CLIENT_ID,
+        scope="openid user",
+        token_endpoint_auth_method="none",
+        client_secret=None,
+        client_secret_hash=None,
+    )
     redirect_uri = "http://127.0.0.1:43123/callback"
 
     authorize = client.get(
         "/auth/oauth2/authorize",
         params={
             "response_type": "code",
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "redirect_uri": redirect_uri,
             "scope": "openid user",
             "state": "state-loopback-port",
@@ -2258,6 +2328,7 @@ def test_loopback_redirect_uri_allows_port_mismatch_for_public_clients() -> None
         code=code,
         verifier="loopback-port-verifier",
         redirect_uri=redirect_uri,
+        client_secret="",
     )
     assert token_response.status_code == 200
 
@@ -2265,17 +2336,16 @@ def test_loopback_redirect_uri_allows_port_mismatch_for_public_clients() -> None
 def test_non_loopback_redirect_uri_rejects_port_mismatch() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["https://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     authorize = client.get(
         "/auth/oauth2/authorize",
         params={
             "response_type": "code",
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "redirect_uri": "https://client.local:43123/callback",
             "scope": "openid user",
             "state": "state-non-loopback-port",
@@ -2296,17 +2366,16 @@ def test_non_loopback_redirect_uri_rejects_port_mismatch() -> None:
 def test_loopback_redirect_uri_rejects_path_mismatch() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://127.0.0.1/callback"],
-        client_id="test-client",
+        test_redirect_uris=["http://127.0.0.1/callback"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user")
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user")
 
     authorize = client.get(
         "/auth/oauth2/authorize",
         params={
             "response_type": "code",
-            "client_id": settings.client_id,
+            "client_id": TEST_CLIENT_ID,
             "redirect_uri": "http://127.0.0.1:43123/other",
             "scope": "openid user",
             "state": "state-loopback-path",
@@ -2327,12 +2396,11 @@ def test_loopback_redirect_uri_rejects_path_mismatch() -> None:
 def test_consent_post_with_accept_json_returns_redirect_uri() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
         consent_url="/consent-screen",
     )
     client, plugin, _bc = _build_fixture(settings)
-    _update_static_client(plugin, settings.client_id, scope="openid user", skip_consent=False)
+    _update_seeded_client(plugin, TEST_CLIENT_ID, scope="openid user", skip_consent=False)
     authorize = client.get(
         "/auth/oauth2/authorize",
         params=_authorize_params(settings, state="state-json-consent", scope="openid user"),
@@ -2356,8 +2424,7 @@ def test_consent_post_with_accept_json_returns_redirect_uri() -> None:
 def test_admin_update_client_accepts_post() -> None:
     settings = _build_settings(
         base_url="http://testserver",
-        redirect_uris=["http://client.local/callback"],
-        client_id="test-client",
+        test_redirect_uris=["https://client.local/callback"],
     )
     client, _plugin, _bc = _build_fixture(settings)
     created = client.post(

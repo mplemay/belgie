@@ -7,7 +7,7 @@ from belgie_oauth_server.engine.helpers import resolve_token_resource
 def test_resolve_token_resource_accepts_equivalent_trailing_slash() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
-        redirect_uris=["http://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         valid_audiences=["http://example.com/mcp/"],
     )
 
@@ -23,7 +23,7 @@ def test_resolve_token_resource_accepts_equivalent_trailing_slash() -> None:
 def test_resolve_token_resource_accepts_requested_and_bound_trailing_slash_mismatch() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
-        redirect_uris=["http://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         valid_audiences=["http://example.com/mcp/"],
     )
 
@@ -41,7 +41,7 @@ def test_resolve_token_resource_accepts_requested_and_bound_trailing_slash_misma
 def test_resolve_token_resource_rejects_unknown_audience() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
-        redirect_uris=["http://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         valid_audiences=["http://example.com/mcp/"],
     )
 

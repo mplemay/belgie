@@ -138,7 +138,7 @@ async def test_verify_token_local_provider_accepts_dynamic_client_access_tokens(
 
     token = await verifier.verify_token(token_value)
 
-    assert stored_token.client_id != settings.client_id
+    assert stored_token.client_id != "test-client"
     assert token == AccessToken(
         token=token_value,
         client_id=stored_token.client_id,
@@ -274,7 +274,7 @@ async def test_verify_token_strict_resource_rejects_mismatch() -> None:
 def test_mcp_auth_defaults() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
 
     auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
@@ -287,7 +287,7 @@ def test_mcp_auth_defaults() -> None:
 def test_mcp_auth_uses_configured_default_scopes() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
         default_scopes=["user", "profile"],
     )
 
@@ -299,7 +299,7 @@ def test_mcp_auth_uses_configured_default_scopes() -> None:
 def test_mcp_auth_overrides() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
 
     auth = mcp_auth(
@@ -312,7 +312,7 @@ def test_mcp_auth_overrides() -> None:
 
 
 def test_mcp_auth_requires_issuer_url() -> None:
-    settings = build_oauth_settings(redirect_uris=["https://app.local/callback"], base_url=None)
+    settings = build_oauth_settings(test_redirect_uris=["https://app.local/callback"], base_url=None)
 
     with pytest.raises(ValueError, match="issuer_url"):
         mcp_auth(settings, server_url="https://mcp.local/mcp")
@@ -321,7 +321,7 @@ def test_mcp_auth_requires_issuer_url() -> None:
 def test_mcp_token_verifier_defaults() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
 
     verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
@@ -332,7 +332,7 @@ def test_mcp_token_verifier_defaults() -> None:
 def test_mcp_token_verifier_overrides() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
 
     verifier = mcp_token_verifier(
@@ -347,7 +347,7 @@ def test_mcp_token_verifier_overrides() -> None:
 def test_mcp_server_init_with_bundle() -> None:
     settings = build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["https://app.local/callback"],
+        test_redirect_uris=["https://app.local/callback"],
     )
     auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
     token_verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
@@ -364,9 +364,8 @@ def test_mcp_server_init_with_bundle() -> None:
 def _oauth_settings() -> OAuthServer:
     return build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["http://localhost:6274/oauth/callback"],
-        client_id="test-client",
-        client_secret="test-secret",
+        test_redirect_uris=["http://localhost:6274/oauth/callback"],
+        test_client_secret="test-secret",
         default_scopes=["user"],
     )
 

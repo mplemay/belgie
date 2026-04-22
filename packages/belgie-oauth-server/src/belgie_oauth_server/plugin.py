@@ -1,3 +1,10 @@
+"""OAuth 2.1 / OIDC server routes aligned with ``@better-auth/oauth-provider`` (oauth.ts).
+
+Registers authorize, token, register, introspect, revoke, userinfo, end-session, consent, login, continue, and client
+RPCs; RFC 9207 ``iss`` on success redirects, PKCE, per-endpoint rate limits, and DCR without ``jwks``/``jwks_uri`` in
+registration metadata.
+"""
+
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Mapping
@@ -20,7 +27,7 @@ from joserfc.util import to_bytes
 from pydantic import AnyUrl, ValidationError
 from starlette.datastructures import FormData
 
-from belgie_oauth_server.client import OAuthServerClient, OAuthServerLoginIntent
+from belgie_oauth_server.client import OAuthLoginFlowClient, OAuthServerLoginIntent
 from belgie_oauth_server.engine import BelgieOAuthServerEngine
 from belgie_oauth_server.engine.helpers import (
     oauth_client_is_public,
@@ -380,7 +387,7 @@ class OAuthServerPlugin(PluginClient):
         self._provider: SimpleOAuthProvider | None = None
         self._engine: BelgieOAuthServerEngine | None = None
         self._metadata_router: APIRouter | None = None
-        self._resolve_client: Callable[..., OAuthServerClient] | None = None
+        self._resolve_client: Callable[..., OAuthLoginFlowClient] | None = None
         self._rate_limiter = OAuthServerRateLimiter()
 
     @property
@@ -397,13 +404,13 @@ class OAuthServerPlugin(PluginClient):
 
         type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
 
-        def resolve_client(_client: BelgieClientDep) -> OAuthServerClient:
-            return OAuthServerClient(provider=provider, issuer_url=issuer_url)
+        def resolve_client(_client: BelgieClientDep) -> OAuthLoginFlowClient:
+            return OAuthLoginFlowClient(provider=provider, issuer_url=issuer_url)
 
         self._resolve_client = resolve_client
         self.__signature__ = inspect.signature(resolve_client)
 
-    def __call__(self, *args: object, **kwargs: object) -> OAuthServerClient:
+    def __call__(self, *args: object, **kwargs: object) -> OAuthLoginFlowClient:
         if self._resolve_client is None:
             msg = (
                 "OAuthServerPlugin dependency requires router initialization "

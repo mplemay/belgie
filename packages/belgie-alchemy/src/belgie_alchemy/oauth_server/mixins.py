@@ -1,3 +1,9 @@
+"""SQLAlchemy mixins for OAuth server persistence.
+
+DCR does not persist ``jwks`` / ``jwks_uri`` on clients (Better Auth parity); those
+columns are intentionally absent from :class:`OAuthServerClientMixin`.
+"""
+
 from __future__ import annotations
 
 # ruff: noqa: TC002, TC003
@@ -114,14 +120,6 @@ class OAuthServerClientMixin(MappedAsDataclass):
     @declared_attr
     def policy_uri(self) -> Mapped[str | None]:
         return mapped_column(Text, default=None, kw_only=True)
-
-    @declared_attr
-    def jwks_uri(self) -> Mapped[str | None]:
-        return mapped_column(Text, default=None, kw_only=True)
-
-    @declared_attr
-    def jwks(self) -> Mapped[dict[str, str] | dict[str, object] | None]:
-        return mapped_column(Json, default=None, kw_only=True)
 
     @declared_attr
     def software_id(self) -> Mapped[str | None]:

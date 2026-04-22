@@ -10,6 +10,8 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from belgie_alchemy.__tests__.integration.core.oauth.conftest import ensure_oauth_test_client_seeded
+
 
 def _authorize_params(
     oauth_settings: OAuthServer,
@@ -19,8 +21,8 @@ def _authorize_params(
 ) -> dict[str, str]:
     params = {
         "response_type": "code",
-        "client_id": oauth_settings.client_id,
-        "redirect_uri": str(oauth_settings.redirect_uris[0]),
+        "client_id": "test-client",
+        "redirect_uri": "http://localhost/callback",
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
         "state": state or "state-123",
@@ -52,16 +54,17 @@ async def test_authorize_redirects_to_login_when_unauthenticated(
 @pytest.mark.asyncio
 async def test_authorize_returns_401_without_login_url(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
-    settings = oauth_settings.model_copy(update={"client_secret": SecretStr("test-secret"), "login_url": None})
+    settings = oauth_settings.model_copy(
+        update={"fallback_signing_secret": SecretStr("test-secret"), "login_url": None},
+    )
     oauth_plugin = belgie_instance.add_plugin(settings)
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, settings, oauth_plugin)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     assert oauth_plugin.provider is not None
-    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
-        update={"skip_consent": True},
-    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         verifier = "verifier"
@@ -78,22 +81,21 @@ async def test_authorize_returns_401_without_login_url(
 @pytest.mark.asyncio
 async def test_authorize_redirects_when_prompt_create_and_signup_url_is_configured(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
     settings = oauth_settings.model_copy(
         update={
-            "client_secret": SecretStr("test-secret"),
+            "fallback_signing_secret": SecretStr("test-secret"),
             "login_url": None,
             "signup_url": "/signup",
         },
     )
     oauth_plugin = belgie_instance.add_plugin(settings)
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, settings, oauth_plugin)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     assert oauth_plugin.provider is not None
-    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
-        update={"skip_consent": True},
-    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         verifier = "verifier"
@@ -118,14 +120,14 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
     oauth_settings: OAuthServer,
     create_individual_session,
 ) -> None:
-    settings = oauth_settings.model_copy(update={"client_secret": SecretStr("test-secret"), "login_url": None})
+    settings = oauth_settings.model_copy(
+        update={"fallback_signing_secret": SecretStr("test-secret"), "login_url": None},
+    )
     oauth_plugin = belgie_instance.add_plugin(settings)
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, settings, oauth_plugin)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     assert oauth_plugin.provider is not None
-    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
-        update={"skip_consent": True},
-    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         session_id = await create_individual_session(belgie_instance, db_session, "user@test.com")
@@ -309,17 +311,15 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
 ) -> None:
     settings = oauth_settings.model_copy(
         update={
-            "client_secret": SecretStr("test-secret"),
+            "fallback_signing_secret": SecretStr("test-secret"),
             "valid_audiences": ["http://testserver/mcp/"],
         },
     )
     oauth_plugin = belgie_instance.add_plugin(settings)
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, settings, oauth_plugin)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     assert oauth_plugin.provider is not None
-    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
-        update={"skip_consent": True},
-    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         session_id = await create_individual_session(belgie_instance, db_session, "trailing-resource@test.com")

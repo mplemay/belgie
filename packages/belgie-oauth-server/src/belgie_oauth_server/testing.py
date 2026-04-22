@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 # ruff: noqa: PLR0913, A002
+import base64
+import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Final, Self
 from uuid import UUID, uuid4
 
 from belgie_proto.core.connection import DBConnection
@@ -17,6 +19,13 @@ if TYPE_CHECKING:
         OAuthServerSubjectType,
         TokenEndpointAuthMethod,
     )
+
+_DEFAULT_SEED_TEST_CLIENT_SECRET: Final[str] = "test-secret"  # noqa: S105
+
+
+def _hash_oauth_client_secret(value: str) -> str:
+    digest = hashlib.sha256(value.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
 @dataclass(slots=True)
@@ -50,8 +59,6 @@ class InMemoryOAuthClient:
     contacts: list[str] | None
     tos_uri: str | None
     policy_uri: str | None
-    jwks_uri: str | None
-    jwks: dict[str, str] | dict[str, object] | None
     software_id: str | None
     software_version: str | None
     software_statement: str | None
@@ -166,6 +173,67 @@ class InMemoryOAuthServerAdapter(
         self.refresh_tokens: dict[str, InMemoryRefreshToken] = {}
         self.consents: dict[tuple[str, UUID, str | None], InMemoryConsent] = {}
 
+    def seed_test_client(
+        self,
+        *,
+        client_id: str = "test-client",
+        redirect_uris: list[str] | None = None,
+        client_secret: str | None = _DEFAULT_SEED_TEST_CLIENT_SECRET,
+        require_pkce: bool = True,
+        skip_consent: bool = False,
+        token_endpoint_auth_method: TokenEndpointAuthMethod | None = None,
+        grant_types: list[str] | None = None,
+        response_types: list[str] | None = None,
+        scope: str | None = None,
+        enable_end_session: bool | None = None,
+    ) -> InMemoryOAuthClient:
+        uris: list[str] = list(redirect_uris) if redirect_uris is not None else ["https://example.com/callback"]
+        resolved_method = token_endpoint_auth_method
+        if resolved_method is None:
+            resolved_method = "none" if client_secret is None else "client_secret_post"
+        secret_hash: str | None = None
+        if resolved_method != "none":
+            if not client_secret:
+                msg = "client_secret is required for confidential test clients"
+                raise ValueError(msg)
+            secret_hash = _hash_oauth_client_secret(client_secret)
+        gt = grant_types or ["authorization_code", "client_credentials", "refresh_token"]
+        rt = response_types if response_types is not None else (["code"] if "authorization_code" in gt else [])
+        sc = scope if scope is not None else "user"
+        client = InMemoryOAuthClient(
+            client_id=client_id,
+            client_secret=None,
+            client_secret_hash=secret_hash,
+            disabled=False,
+            skip_consent=skip_consent,
+            redirect_uris=uris,
+            post_logout_redirect_uris=None,
+            token_endpoint_auth_method=resolved_method,
+            grant_types=gt,
+            response_types=rt,
+            scope=sc,
+            client_name=None,
+            client_uri=None,
+            logo_uri=None,
+            contacts=None,
+            tos_uri=None,
+            policy_uri=None,
+            software_id=None,
+            software_version=None,
+            software_statement=None,
+            type=None,
+            subject_type="public",
+            require_pkce=require_pkce,
+            enable_end_session=enable_end_session,
+            reference_id=None,
+            metadata_json=None,
+            client_id_issued_at=None,
+            client_secret_expires_at=0,
+            individual_id=None,
+        )
+        self.clients[client_id] = client
+        return client
+
     @staticmethod
     def _now() -> datetime:
         return datetime.now(UTC)
@@ -197,8 +265,6 @@ class InMemoryOAuthServerAdapter(
         contacts: list[str] | None,
         tos_uri: str | None,
         policy_uri: str | None,
-        jwks_uri: str | None,
-        jwks: dict[str, str] | dict[str, object] | None,
         software_id: str | None,
         software_version: str | None,
         software_statement: str | None,
@@ -231,8 +297,6 @@ class InMemoryOAuthServerAdapter(
             contacts=None if contacts is None else list(contacts),
             tos_uri=tos_uri,
             policy_uri=policy_uri,
-            jwks_uri=jwks_uri,
-            jwks=jwks,
             software_id=software_id,
             software_version=software_version,
             software_statement=software_statement,

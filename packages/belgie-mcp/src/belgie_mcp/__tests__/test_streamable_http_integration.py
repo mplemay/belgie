@@ -35,7 +35,7 @@ def _belgie_settings() -> BelgieSettings:
 def _build_streamable_http_app(server_url: str) -> tuple[McpPlugin, TestClient]:
     oauth_settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
+        test_redirect_uris=["http://localhost/callback"],
         default_scopes=["user"],
     )
     plugin = McpPlugin(
@@ -109,7 +109,7 @@ async def test_streamable_http_client_completes_oauth_flow_and_reads_resource() 
     server_url = "http://testserver/mcp/"
     oauth_settings = build_oauth_settings(
         base_url="http://testserver",
-        redirect_uris=["http://localhost:6274/oauth/callback"],
+        test_redirect_uris=["http://localhost:6274/oauth/callback"],
         default_scopes=["user"],
         allow_dynamic_client_registration=True,
         allow_unauthenticated_client_registration=True,

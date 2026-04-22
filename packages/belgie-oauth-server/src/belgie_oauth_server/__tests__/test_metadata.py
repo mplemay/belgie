@@ -17,7 +17,7 @@ ISSUER_URL = "https://auth.local/auth"
 def test_build_oauth_metadata_supported_grants_and_auth_methods() -> None:
     metadata = build_oauth_metadata(
         ISSUER_URL,
-        build_oauth_settings(redirect_uris=["https://client.local/callback"]),
+        build_oauth_settings(test_redirect_uris=["https://client.local/callback"]),
     )
 
     assert str(metadata.authorization_endpoint) == f"{ISSUER_URL}/oauth2/authorize"
@@ -48,7 +48,7 @@ def test_build_oauth_metadata_advertises_public_clients_only_when_unauthenticate
     metadata = build_oauth_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             allow_unauthenticated_client_registration=True,
         ),
     )
@@ -64,7 +64,7 @@ def test_build_oauth_metadata_uses_advertised_scopes_supported() -> None:
     metadata = build_oauth_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             default_scopes=["user", "files:read"],
             advertised_metadata={
                 "scopes_supported": ["user", "openid"],
@@ -79,7 +79,7 @@ def test_build_oauth_metadata_reflects_configured_server_grants() -> None:
     metadata = build_oauth_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             grant_types=["client_credentials"],
             login_url=None,
             consent_url=None,
@@ -95,7 +95,7 @@ def test_build_oauth_metadata_omits_jwks_uri_for_hs256() -> None:
     metadata = build_oauth_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             signing=OAuthServerSigning(algorithm="HS256"),
         ),
     )
@@ -107,7 +107,7 @@ def test_build_oauth_metadata_default_hs256_omits_jwks_uri() -> None:
     metadata = build_oauth_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             signing=OAuthServerSigning(),
         ),
     )
@@ -119,7 +119,7 @@ def test_build_oauth_metadata_omits_jwks_uri_when_jwt_plugin_is_disabled() -> No
     metadata = build_oauth_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             disable_jwt_plugin=True,
         ),
     )
@@ -140,7 +140,7 @@ def test_build_oauth_metadata_well_known_path_root() -> None:
 def test_build_openid_metadata_contains_oidc_endpoints() -> None:
     metadata = build_openid_metadata(
         ISSUER_URL,
-        build_oauth_settings(redirect_uris=["https://client.local/callback"]),
+        build_oauth_settings(test_redirect_uris=["https://client.local/callback"]),
     )
 
     assert str(metadata.userinfo_endpoint) == f"{ISSUER_URL}/oauth2/userinfo"
@@ -160,7 +160,7 @@ def test_build_openid_metadata_default_hs256_advertises_hs256() -> None:
     metadata = build_openid_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             signing=OAuthServerSigning(),
         ),
     )
@@ -172,7 +172,7 @@ def test_build_openid_metadata_disable_jwt_plugin_advertises_hs256() -> None:
     metadata = build_openid_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             disable_jwt_plugin=True,
         ),
     )
@@ -185,7 +185,7 @@ def test_build_openid_metadata_advertises_pairwise_subjects() -> None:
     metadata = build_openid_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             pairwise_secret="pairwise-secret-for-tests-123456",
         ),
     )
@@ -197,7 +197,7 @@ def test_build_openid_metadata_uses_advertised_claims_supported() -> None:
     metadata = build_openid_metadata(
         ISSUER_URL,
         build_oauth_settings(
-            redirect_uris=["https://client.local/callback"],
+            test_redirect_uris=["https://client.local/callback"],
             advertised_metadata={
                 "claims_supported": ["sub", "tenant"],
             },
@@ -220,7 +220,7 @@ def test_build_openid_metadata_well_known_path_root() -> None:
 def test_build_protected_resource_metadata_defaults_authorization_server() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["https://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         default_scopes=["user"],
     )
 
@@ -238,7 +238,7 @@ def test_build_protected_resource_metadata_defaults_authorization_server() -> No
 def test_build_protected_resource_metadata_allows_overriding_authorization_servers() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["https://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         default_scopes=["user"],
     )
 
@@ -259,7 +259,7 @@ def test_build_protected_resource_metadata_allows_overriding_authorization_serve
 def test_build_protected_resource_metadata_rejects_openid_scope() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["https://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         default_scopes=["user"],
     )
 
@@ -274,7 +274,7 @@ def test_build_protected_resource_metadata_rejects_openid_scope() -> None:
 def test_build_protected_resource_metadata_warns_for_oidc_style_scopes() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["https://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
     )
 
     with pytest.warns(UserWarning, match="typically restricted"):
@@ -290,7 +290,7 @@ def test_build_protected_resource_metadata_warns_for_oidc_style_scopes() -> None
 def test_build_protected_resource_metadata_silences_oidc_scope_warnings() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["https://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
     )
 
     metadata = build_protected_resource_metadata(
@@ -306,7 +306,7 @@ def test_build_protected_resource_metadata_silences_oidc_scope_warnings() -> Non
 def test_build_protected_resource_metadata_rejects_unsupported_scope() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["https://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         default_scopes=["user"],
     )
 
@@ -321,7 +321,7 @@ def test_build_protected_resource_metadata_rejects_unsupported_scope() -> None:
 def test_build_protected_resource_metadata_rejects_external_scopes_with_one_authorization_server() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["https://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         default_scopes=["read:posts"],
     )
 
@@ -338,7 +338,7 @@ def test_build_protected_resource_metadata_rejects_external_scopes_with_one_auth
 def test_build_protected_resource_metadata_allows_external_scopes_with_multiple_authorization_servers() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["https://client.local/callback"],
+        test_redirect_uris=["https://client.local/callback"],
         default_scopes=["read:posts"],
     )
 

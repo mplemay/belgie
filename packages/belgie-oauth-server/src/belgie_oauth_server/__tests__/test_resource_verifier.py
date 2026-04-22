@@ -16,16 +16,15 @@ from belgie_oauth_server.resource_verifier import (
 )
 from belgie_oauth_server.utils import create_code_challenge
 from httpx import Response
-from pydantic import AnyUrl
+from pydantic import AnyUrl, SecretStr
 
 
 @pytest.mark.asyncio
 async def test_verify_resource_access_token_returns_local_token_and_subject() -> None:
     individual_id = str(uuid4())
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="https://issuer.local",
-        client_id="test-client",
         valid_audiences=["https://issuer.local/mcp"],
     )
     token_value, stored_token, _client = await _issue_dynamic_client_access_token(
@@ -57,10 +56,9 @@ async def test_verify_resource_access_token_uses_public_sub_for_pairwise_clients
     """
     individual_id = str(uuid4())
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="https://issuer.local",
-        client_id="test-client",
-        pairwise_secret="x" * 32,
+        pairwise_secret=SecretStr("x" * 32),
         valid_audiences=["https://issuer.local/mcp"],
     )
     token_value, _stored_token, client = await _issue_dynamic_client_access_token(
@@ -136,9 +134,8 @@ async def test_verify_resource_access_token_rejects_invalid_local_resource_witho
         ),
     )
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="https://issuer.local",
-        client_id="test-client",
         valid_audiences=["https://issuer.local/mcp"],
     )
     token_value, _stored_token, _client = await _issue_dynamic_client_access_token(

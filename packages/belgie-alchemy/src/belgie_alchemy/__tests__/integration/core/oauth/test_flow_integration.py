@@ -13,23 +13,27 @@ from fastapi.responses import RedirectResponse
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from belgie_alchemy.__tests__.integration.core.oauth.conftest import ensure_oauth_test_client_seeded
 
-def _build_custom_pages_app(belgie_instance: Belgie, oauth_settings: OAuthServer) -> tuple[FastAPI, OAuthServer]:
+
+async def _build_custom_pages_app(
+    belgie_instance: Belgie,
+    db_session: AsyncSession,
+    oauth_settings: OAuthServer,
+) -> tuple[FastAPI, OAuthServer]:
     settings = oauth_settings.model_copy(
         update={
             "login_url": "/login/custom",
             "signup_url": "/signup/custom",
-            "client_secret": SecretStr("test-secret"),
+            "fallback_signing_secret": SecretStr("test-secret"),
         },
     )
     oauth_plugin = belgie_instance.add_plugin(settings)
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, settings, oauth_plugin)
 
     app = FastAPI()
     app.include_router(belgie_instance.router)
     assert oauth_plugin.provider is not None
-    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
-        update={"skip_consent": True},
-    )
 
     @app.get("/login/custom")
     async def custom_login(
@@ -102,8 +106,8 @@ async def test_full_oauth_flow(
         "/auth/oauth2/authorize",
         params={
             "response_type": "code",
-            "client_id": oauth_settings.client_id,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "client_id": "test-client",
+            "redirect_uri": "http://localhost/callback",
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
             "state": "flow-state",
@@ -119,10 +123,10 @@ async def test_full_oauth_flow(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -134,8 +138,8 @@ async def test_full_oauth_flow(
     introspect_response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": access_token,
         },
     )
@@ -147,9 +151,10 @@ async def test_full_oauth_flow(
 @pytest.mark.asyncio
 async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
-    app, settings = _build_custom_pages_app(belgie_instance, oauth_settings)
+    app, settings = await _build_custom_pages_app(belgie_instance, db_session, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -158,8 +163,8 @@ async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
             "/auth/oauth2/authorize",
             params={
                 "response_type": "code",
-                "client_id": settings.client_id,
-                "redirect_uri": str(settings.redirect_uris[0]),
+                "client_id": "test-client",
+                "redirect_uri": "http://localhost/callback",
                 "code_challenge": create_code_challenge(code_verifier),
                 "code_challenge_method": "S256",
                 "state": "custom-flow",
@@ -191,9 +196,10 @@ async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
 @pytest.mark.asyncio
 async def test_custom_login_route_supports_direct_entry_without_state(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
+    app, _settings = await _build_custom_pages_app(belgie_instance, db_session, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -215,9 +221,10 @@ async def test_custom_login_route_supports_direct_entry_without_state(
 @pytest.mark.asyncio
 async def test_custom_signup_route_supports_direct_entry_without_state(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
+    app, _settings = await _build_custom_pages_app(belgie_instance, db_session, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -231,9 +238,10 @@ async def test_custom_signup_route_supports_direct_entry_without_state(
 @pytest.mark.asyncio
 async def test_custom_google_login_route_supports_direct_entry_without_state(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
+    app, _settings = await _build_custom_pages_app(belgie_instance, db_session, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -249,9 +257,10 @@ async def test_custom_google_login_route_supports_direct_entry_without_state(
 @pytest.mark.asyncio
 async def test_custom_login_route_rejects_invalid_state(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
+    app, _settings = await _build_custom_pages_app(belgie_instance, db_session, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -264,9 +273,10 @@ async def test_custom_login_route_rejects_invalid_state(
 @pytest.mark.asyncio
 async def test_custom_signup_route_rejects_invalid_state(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
-    app, _settings = _build_custom_pages_app(belgie_instance, oauth_settings)
+    app, _settings = await _build_custom_pages_app(belgie_instance, db_session, oauth_settings)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

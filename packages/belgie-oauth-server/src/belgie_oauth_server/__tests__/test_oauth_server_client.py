@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlencode
 
 import pytest
-from belgie_oauth_server.__tests__.helpers import build_oauth_provider, build_oauth_settings
+from belgie_oauth_server.__tests__.helpers import build_oauth_provider
 from belgie_oauth_server.client import OAuthServerClient
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
 from fastapi import HTTPException
@@ -28,19 +28,13 @@ def _build_request(query: dict[str, str]) -> Request:
     )
 
 
-def _build_settings() -> OAuthServer:
-    return build_oauth_settings(
-        redirect_uris=["http://example.com/callback"],
-        base_url="http://example.com",
-        client_id="test-client",
-    )
+TEST_REDIRECT = "https://example.com/callback"
 
 
 async def _build_client() -> tuple[OAuthServerClient, SimpleOAuthProvider, OAuthServer]:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["http://example.com/callback"],
-        base_url="http://example.com",
-        client_id="test-client",
+        test_redirect_uris=[TEST_REDIRECT],
+        base_url="https://example.com",
     )
     return OAuthServerClient(provider=provider, issuer_url=str(settings.issuer_url)), provider, settings
 
@@ -53,7 +47,7 @@ async def _store_state(
     prompt: str | None = None,
     intent: OAuthIntent = "login",
 ) -> None:
-    oauth_client = await provider.get_client(settings.client_id)
+    oauth_client = await provider.get_client("test-client")
     assert oauth_client is not None
     await provider.authorize(
         oauth_client,
@@ -61,7 +55,7 @@ async def _store_state(
             state=state,
             scopes=["user"],
             code_challenge="challenge",
-            redirect_uri=settings.redirect_uris[0],
+            redirect_uri=TEST_REDIRECT,
             redirect_uri_provided_explicitly=True,
             prompt=prompt,
             intent=intent,
@@ -80,7 +74,7 @@ async def test_try_resolve_login_context_returns_state_intent_prompt_and_return_
     assert context.state == "state-123"
     assert context.intent == "create"
     assert context.prompt == "create"
-    assert context.return_to == "http://example.com/auth/oauth2/continue?state=state-123&created=true"
+    assert context.return_to == "https://example.com/auth/oauth2/continue?state=state-123&created=true"
 
 
 @pytest.mark.asyncio
@@ -93,7 +87,7 @@ async def test_try_resolve_login_context_returns_consent_return_to() -> None:
     assert context is not None
     assert context.intent == "consent"
     assert context.prompt == "consent"
-    assert context.return_to == "http://example.com/auth/oauth2/consent?state=state-123"
+    assert context.return_to == "https://example.com/auth/oauth2/consent?state=state-123"
 
 
 @pytest.mark.asyncio
@@ -112,7 +106,7 @@ async def test_try_resolve_login_context_returns_select_account_return_to() -> N
     assert context is not None
     assert context.intent == "select_account"
     assert context.prompt == "select_account"
-    assert context.return_to == "http://example.com/auth/oauth2/continue?state=state-123&selected=true"
+    assert context.return_to == "https://example.com/auth/oauth2/continue?state=state-123&selected=true"
 
 
 @pytest.mark.asyncio
@@ -121,14 +115,14 @@ async def test_try_resolve_login_context_extracts_state_from_return_to_query() -
     await _store_state(provider, settings, state="state-123")
 
     context = await client.try_resolve_login_context(
-        _build_request({"return_to": "http://example.com/auth/oauth2/login/callback?state=state-123"}),
+        _build_request({"return_to": "https://example.com/auth/oauth2/login/callback?state=state-123"}),
     )
 
     assert context is not None
     assert context.state == "state-123"
     assert context.intent == "login"
     assert context.prompt is None
-    assert context.return_to == "http://example.com/auth/oauth2/login/callback?state=state-123"
+    assert context.return_to == "https://example.com/auth/oauth2/login/callback?state=state-123"
 
 
 @pytest.mark.asyncio
@@ -183,7 +177,7 @@ async def test_try_resolve_login_context_prefers_explicit_state_over_return_to_s
             _build_request(
                 {
                     "state": "invalid-state",
-                    "return_to": "http://example.com/auth/oauth2/login/callback?state=valid-state",
+                    "return_to": "https://example.com/auth/oauth2/login/callback?state=valid-state",
                 },
             ),
         )

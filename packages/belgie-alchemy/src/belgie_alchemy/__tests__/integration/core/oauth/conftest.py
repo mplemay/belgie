@@ -16,6 +16,7 @@ from belgie_oauth_server.models import OAuthServerClientInformationFull, OAuthSe
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from belgie_alchemy.__tests__.fixtures.core.database import get_test_engine, get_test_session_factory
 from belgie_alchemy.__tests__.fixtures.core.models import (
@@ -46,6 +47,54 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 DEFAULT_TEST_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_post"  # noqa: S105
+OAUTH_TEST_CLIENT_ID = "test-client"
+OAUTH_TEST_REDIRECT_URI = "http://localhost/callback"
+
+
+async def ensure_oauth_test_client_seeded(
+    belgie_instance: Belgie,
+    db_session: AsyncSession,
+    oauth_settings: OAuthServer,
+    oauth_plugin: OAuthServerPlugin,
+) -> None:
+    _ = belgie_instance.router
+    assert oauth_plugin.provider is not None
+    pr = oauth_plugin.provider
+    if await oauth_settings.adapter.get_client_by_client_id(db_session, client_id=OAUTH_TEST_CLIENT_ID) is not None:
+        return
+    await oauth_settings.adapter.create_client(
+        db_session,
+        client_id=OAUTH_TEST_CLIENT_ID,
+        client_secret=None,
+        client_secret_hash=pr._hash_value("test-secret"),
+        disabled=False,
+        skip_consent=True,
+        redirect_uris=[OAUTH_TEST_REDIRECT_URI],
+        post_logout_redirect_uris=None,
+        token_endpoint_auth_method=DEFAULT_TEST_TOKEN_ENDPOINT_AUTH_METHOD,
+        grant_types=["authorization_code", "client_credentials", "refresh_token"],
+        response_types=["code"],
+        scope="user",
+        client_name=None,
+        client_uri=None,
+        logo_uri=None,
+        contacts=None,
+        tos_uri=None,
+        policy_uri=None,
+        software_id=None,
+        software_version=None,
+        software_statement=None,
+        type=None,
+        subject_type="public",
+        require_pkce=True,
+        enable_end_session=None,
+        reference_id=None,
+        metadata_json=None,
+        client_id_issued_at=None,
+        client_secret_expires_at=0,
+        individual_id=None,
+    )
+    await db_session.commit()
 
 
 @pytest_asyncio.fixture
@@ -138,12 +187,10 @@ def oauth_settings() -> OAuthServer:
         login_url="/login/google",
         consent_url="/consent",
         signup_url="/signup",
-        client_id="test-client",
-        client_secret=SecretStr("test-secret"),
-        redirect_uris=["http://localhost/callback"],
         default_scopes=["user"],
         valid_audiences=["http://testserver/mcp"],
         signing=build_development_signing(),
+        fallback_signing_secret=SecretStr("test-secret"),
     )
 
 
@@ -155,16 +202,17 @@ def oauth_plugin(
     return belgie_instance.add_plugin(oauth_settings)
 
 
-@pytest.fixture
-def app(belgie_instance: Belgie, oauth_plugin: OAuthServerPlugin) -> FastAPI:
-    _ = oauth_plugin
-    app = FastAPI()
-    app.include_router(belgie_instance.router)
-    assert oauth_plugin.provider is not None
-    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
-        update={"skip_consent": True},
-    )
-    return app
+@pytest_asyncio.fixture
+async def app(
+    belgie_instance: Belgie,
+    oauth_plugin: OAuthServerPlugin,
+    oauth_settings: OAuthServer,
+    db_session: AsyncSession,
+) -> FastAPI:
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, oauth_settings, oauth_plugin)
+    application = FastAPI()
+    application.include_router(belgie_instance.router)
+    return application
 
 
 @pytest.fixture
@@ -190,12 +238,27 @@ def basic_auth_header():
     return _build
 
 
-@pytest.fixture
-def update_static_client(oauth_plugin: OAuthServerPlugin):
-    def _update(**updates: object) -> OAuthServerClientInformationFull:
+@pytest_asyncio.fixture
+async def update_oauth_test_client(
+    oauth_plugin: OAuthServerPlugin,
+    oauth_settings: OAuthServer,
+    db_session: AsyncSession,
+):
+    async def _update(**updates: object) -> OAuthServerClientInformationFull:
         assert oauth_plugin._provider is not None
-        oauth_plugin._provider.static_client = oauth_plugin._provider.static_client.model_copy(update=updates)
-        return oauth_plugin._provider.static_client
+        row = await oauth_settings.adapter.get_client_by_client_id(db_session, client_id=OAUTH_TEST_CLIENT_ID)
+        if row is None:
+            msg = "expected seeded OAuth test client"
+            raise RuntimeError(msg)
+        for key, value in updates.items():
+            setattr(row, key, value)
+        await db_session.commit()
+        await db_session.refresh(row)
+        reloaded = await oauth_plugin._provider.get_client(OAUTH_TEST_CLIENT_ID, db=db_session)
+        if reloaded is None:
+            msg = "OAuth test client missing after update"
+            raise RuntimeError(msg)
+        return reloaded
 
     return _update
 
@@ -277,8 +340,6 @@ async def seed_client(oauth_settings: OAuthServer, db_session: AsyncSession):
             contacts=None,
             tos_uri=None,
             policy_uri=None,
-            jwks_uri=None,
-            jwks=None,
             software_id=None,
             software_version=None,
             software_statement=None,
@@ -317,7 +378,7 @@ async def seed_access_token(oauth_plugin: OAuthServerPlugin, oauth_settings: OAu
         record = await oauth_settings.adapter.create_access_token(
             db_session,
             token_hash=oauth_plugin._provider._hash_value(token),
-            client_id=client_id or oauth_settings.client_id,
+            client_id=client_id or OAUTH_TEST_CLIENT_ID,
             scopes=list(scopes or oauth_settings.default_scopes),
             resource=resource,
             refresh_token_id=refresh_token_id,
@@ -356,7 +417,7 @@ async def seed_refresh_token(oauth_plugin: OAuthServerPlugin, oauth_settings: OA
         record = await oauth_settings.adapter.create_refresh_token(
             db_session,
             token_hash=oauth_plugin._provider._hash_value(token),
-            client_id=client_id or oauth_settings.client_id,
+            client_id=client_id or OAUTH_TEST_CLIENT_ID,
             scopes=list(scopes or oauth_settings.default_scopes),
             resource=resource,
             individual_id=None if individual_id is None else UUID(individual_id),

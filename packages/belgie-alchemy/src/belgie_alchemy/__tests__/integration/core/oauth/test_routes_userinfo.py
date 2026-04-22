@@ -34,7 +34,7 @@ async def test_userinfo_rejects_token_without_openid_scope(
     user = await _create_individual(belgie_instance, db_session, "userinfo-no-openid@test.com")
     await seed_access_token(
         token="userinfo-no-openid-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=list(oauth_settings.default_scopes),
         individual_id=str(user.id),
     )
@@ -56,7 +56,7 @@ async def test_userinfo_rejects_token_without_user_binding(
 ) -> None:
     await seed_access_token(
         token="userinfo-no-user-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid"],
     )
 
@@ -81,7 +81,7 @@ async def test_userinfo_filters_claims_by_scope(
 
     await seed_access_token(
         token="userinfo-profile-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid", "profile"],
         individual_id=str(user.id),
     )
@@ -101,7 +101,7 @@ async def test_userinfo_filters_claims_by_scope(
 
     await seed_access_token(
         token="userinfo-email-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid", "email"],
         individual_id=str(user.id),
     )

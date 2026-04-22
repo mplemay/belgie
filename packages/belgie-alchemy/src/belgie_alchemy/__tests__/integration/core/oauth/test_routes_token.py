@@ -15,6 +15,8 @@ from joserfc.errors import BadSignatureError
 from joserfc.jwk import RSAKey
 from pydantic import SecretStr
 
+from belgie_alchemy.__tests__.integration.core.oauth.conftest import ensure_oauth_test_client_seeded
+
 BEARER = "Bearer"
 
 
@@ -30,7 +32,7 @@ async def _create_authorization_code(
     resource: str | None = None,
 ) -> str:
     provider = oauth_plugin._provider
-    oauth_client = await provider.get_client(oauth_settings.client_id)
+    oauth_client = await provider.get_client("test-client")
     session_id = await create_individual_session(belgie_instance, db_session, f"{code_verifier}@test.com")
     session = await belgie_instance.session_manager.get_session(db_session, UUID(session_id))
     assert session is not None
@@ -38,7 +40,7 @@ async def _create_authorization_code(
         state="state-token",
         scopes=scopes or list(oauth_settings.default_scopes),
         code_challenge=create_code_challenge(code_verifier),
-        redirect_uri=oauth_settings.redirect_uris[0],
+        redirect_uri="http://localhost/callback",
         redirect_uri_provided_explicitly=True,
         resource=resource,
         individual_id=str(session.individual_id),
@@ -53,14 +55,14 @@ async def _create_refresh_token(
     async_client,
     oauth_settings,
     oauth_plugin,
-    update_static_client,
+    update_oauth_test_client,
     belgie_instance,
     db_session,
     create_individual_session,
     *,
     resource: str | None = None,
 ) -> str:
-    update_static_client(scope=" ".join([*oauth_settings.default_scopes, "offline_access"]))
+    await update_oauth_test_client(scope=" ".join([*oauth_settings.default_scopes, "offline_access"]))
     code_verifier = "refresh-verifier"
     code = await _create_authorization_code(
         oauth_plugin,
@@ -76,10 +78,10 @@ async def _create_refresh_token(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -110,8 +112,8 @@ async def test_token_authorization_code_missing_code(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
         },
     )
     assert response.status_code == 400
@@ -155,7 +157,7 @@ async def test_token_authorization_code_invalid_client_secret(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
+            "client_id": "test-client",
             "client_secret": "wrong",
             "code": code,
             "code_verifier": "verifier",
@@ -188,10 +190,10 @@ async def test_token_authorization_code_success_no_offline_access(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -227,10 +229,10 @@ async def test_token_authorization_code_success_with_offline_access_issues_refre
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -260,14 +262,14 @@ async def test_token_authorization_code_accepts_basic_auth(
         db_session=db_session,
         create_individual_session=create_individual_session,
     )
-    auth_header = basic_auth_header(oauth_settings.client_id, oauth_settings.client_secret.get_secret_value())
+    auth_header = basic_auth_header("test-client", "test-secret")
 
     response = await async_client.post(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
         headers={"authorization": auth_header},
@@ -300,10 +302,10 @@ async def test_token_authorization_code_rejects_resource_without_bound_resource(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
             "resource": "http://testserver/mcp",
         },
@@ -340,10 +342,10 @@ async def test_token_authorization_code_rejects_mismatched_bound_resource(
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
             "resource": "http://testserver/other",
         },
@@ -362,17 +364,15 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
 ) -> None:
     settings = oauth_settings.model_copy(
         update={
-            "client_secret": SecretStr("test-secret"),
+            "fallback_signing_secret": SecretStr("test-secret"),
             "valid_audiences": ["http://testserver/mcp/"],
         },
     )
     oauth_plugin = belgie_instance.add_plugin(settings)
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, settings, oauth_plugin)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     assert oauth_plugin.provider is not None
-    oauth_plugin.provider.static_client = oauth_plugin.provider.static_client.model_copy(
-        update={"skip_consent": True},
-    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         session_id = await create_individual_session(belgie_instance, db_session, "token-trailing-resource@test.com")
@@ -383,8 +383,8 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
             "/auth/oauth2/authorize",
             params={
                 "response_type": "code",
-                "client_id": settings.client_id,
-                "redirect_uri": str(settings.redirect_uris[0]),
+                "client_id": "test-client",
+                "redirect_uri": "http://localhost/callback",
                 "code_challenge": create_code_challenge(code_verifier),
                 "code_challenge_method": "S256",
                 "state": "state-trailing-resource",
@@ -399,10 +399,10 @@ async def test_token_authorization_code_accepts_resource_without_trailing_slash_
             "/auth/oauth2/token",
             data={
                 "grant_type": "authorization_code",
-                "client_id": settings.client_id,
-                "client_secret": settings.client_secret.get_secret_value(),
+                "client_id": "test-client",
+                "client_secret": "test-secret",
                 "code": code,
-                "redirect_uri": str(settings.redirect_uris[0]),
+                "redirect_uri": "http://localhost/callback",
                 "code_verifier": code_verifier,
                 "resource": "http://testserver/mcp",
             },
@@ -422,19 +422,19 @@ async def test_token_authorization_code_issues_id_token_for_confidential_openid_
     belgie_instance,
     db_session,
     create_individual_session,
-    update_static_client,
+    update_oauth_test_client,
 ) -> None:
     session_id = await create_individual_session(belgie_instance, db_session, "openid-confidential@test.com")
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
-    update_static_client(scope="openid profile email")
+    await update_oauth_test_client(scope="openid profile email")
 
     code_verifier = "openid-confidential-verifier"
     authorize_response = await async_client.get(
         "/auth/oauth2/authorize",
         params={
             "response_type": "code",
-            "client_id": oauth_settings.client_id,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "client_id": "test-client",
+            "redirect_uri": "http://localhost/callback",
             "code_challenge": create_code_challenge(code_verifier),
             "code_challenge_method": "S256",
             "scope": "openid profile email",
@@ -448,10 +448,10 @@ async def test_token_authorization_code_issues_id_token_for_confidential_openid_
         "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "code": code,
-            "redirect_uri": str(oauth_settings.redirect_uris[0]),
+            "redirect_uri": "http://localhost/callback",
             "code_verifier": code_verifier,
         },
     )
@@ -590,7 +590,7 @@ async def test_token_refresh_token_success_rotates_and_narrows_scope(
     async_client,
     oauth_settings,
     oauth_plugin,
-    update_static_client,
+    update_oauth_test_client,
     belgie_instance,
     db_session,
     create_individual_session,
@@ -599,7 +599,7 @@ async def test_token_refresh_token_success_rotates_and_narrows_scope(
         async_client,
         oauth_settings,
         oauth_plugin,
-        update_static_client,
+        update_oauth_test_client,
         belgie_instance,
         db_session,
         create_individual_session,
@@ -609,8 +609,8 @@ async def test_token_refresh_token_success_rotates_and_narrows_scope(
         "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "refresh_token": old_refresh_token,
             "scope": " ".join(oauth_settings.default_scopes),
         },
@@ -626,8 +626,8 @@ async def test_token_refresh_token_success_rotates_and_narrows_scope(
         "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "refresh_token": old_refresh_token,
         },
     )
@@ -640,7 +640,7 @@ async def test_token_refresh_token_rejects_scope_escalation(
     async_client,
     oauth_settings,
     oauth_plugin,
-    update_static_client,
+    update_oauth_test_client,
     belgie_instance,
     db_session,
     create_individual_session,
@@ -649,7 +649,7 @@ async def test_token_refresh_token_rejects_scope_escalation(
         async_client,
         oauth_settings,
         oauth_plugin,
-        update_static_client,
+        update_oauth_test_client,
         belgie_instance,
         db_session,
         create_individual_session,
@@ -658,8 +658,8 @@ async def test_token_refresh_token_rejects_scope_escalation(
         "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "refresh_token": refresh_token,
             "scope": "admin",
         },
@@ -674,7 +674,7 @@ async def test_token_refresh_token_rejects_mismatched_resource(
     async_client,
     oauth_settings,
     oauth_plugin,
-    update_static_client,
+    update_oauth_test_client,
     belgie_instance,
     db_session,
     create_individual_session,
@@ -683,7 +683,7 @@ async def test_token_refresh_token_rejects_mismatched_resource(
         async_client,
         oauth_settings,
         oauth_plugin,
-        update_static_client,
+        update_oauth_test_client,
         belgie_instance,
         db_session,
         create_individual_session,
@@ -693,8 +693,8 @@ async def test_token_refresh_token_rejects_mismatched_resource(
         "/auth/oauth2/token",
         data={
             "grant_type": "refresh_token",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "refresh_token": refresh_token,
             "resource": "http://testserver/other",
         },
@@ -713,8 +713,8 @@ async def test_token_client_credentials_success_post_auth(
         "/auth/oauth2/token",
         data={
             "grant_type": "client_credentials",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "scope": " ".join(oauth_settings.default_scopes),
         },
     )
@@ -732,7 +732,7 @@ async def test_token_client_credentials_success_basic_auth(
     oauth_settings,
     basic_auth_header,
 ) -> None:
-    auth_header = basic_auth_header(oauth_settings.client_id, oauth_settings.client_secret.get_secret_value())
+    auth_header = basic_auth_header("test-client", "test-secret")
 
     response = await async_client.post(
         "/auth/oauth2/token",
@@ -756,8 +756,8 @@ async def test_token_client_credentials_rejects_unknown_scope(
         "/auth/oauth2/token",
         data={
             "grant_type": "client_credentials",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "scope": "admin",
         },
     )
@@ -775,8 +775,8 @@ async def test_token_client_credentials_rejects_mismatched_resource(
         "/auth/oauth2/token",
         data={
             "grant_type": "client_credentials",
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "scope": " ".join(oauth_settings.default_scopes),
             "resource": "http://testserver/other",
         },

@@ -106,14 +106,11 @@ class OAuthServer(BaseSettings):
     consent_url: str | None = None
     select_account_url: str | None = None
 
-    client_id: str | None = None
-    client_secret: SecretStr | None = None
-    redirect_uris: list[AnyUrl] | None = Field(default=None, min_length=1)
+    fallback_signing_secret: SecretStr | None = None
     grant_types: list[OAuthServerGrantType] = Field(
         default_factory=lambda: ["authorization_code", "client_credentials", "refresh_token"],
     )
     default_scopes: Sequence[str] = Field(default_factory=tuple)
-    static_client_require_pkce: bool = True
     pairwise_secret: SecretStr | None = None
     signing: OAuthServerSigning = Field(default_factory=OAuthServerSigning)
     oauth_query_signing_secret: SecretStr | None = None
@@ -161,7 +158,7 @@ class OAuthServer(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def reject_legacy_settings(cls, values: object) -> object:
+    def reject_legacy_settings(cls, values: object) -> object:  # noqa: C901
         if isinstance(values, dict):
             if "route_prefix" in values:
                 msg = (
@@ -198,6 +195,20 @@ class OAuthServer(BaseSettings):
             if "include_root_openid_metadata_fallback" in values:
                 msg = "`include_root_openid_metadata_fallback` has been removed"
                 raise ValueError(msg)
+            if "client_id" in values or "redirect_uris" in values or "static_client_require_pkce" in values:
+                msg = (
+                    "`client_id`, `redirect_uris`, and `static_client_require_pkce` were removed. "
+                    "Register OAuth clients via `/oauth2/create-client`, admin routes, or "
+                    "`POST /oauth2/register` when dynamic registration is enabled — matching "
+                    "Better Auth."
+                )
+                raise ValueError(msg)
+            if "client_secret" in values:
+                msg = (
+                    "`client_secret` on OAuthServer was removed. Use `fallback_signing_secret` for "
+                    "JWT signing material when needed, and create clients through the OAuth client APIs."
+                )
+                raise ValueError(msg)
         return values
 
     @field_validator("adapter")
@@ -229,12 +240,6 @@ class OAuthServer(BaseSettings):
     def validate_refresh_token_hooks(self) -> Self:
         if self.refresh_token_encoder is not None and self.refresh_token_decoder is None:
             msg = "refresh_token_decoder is required when refresh_token_encoder is configured"
-            raise ValueError(msg)
-        if self.client_secret is not None and not self.client_id:
-            msg = "client_id is required when configuring a built-in compatibility client"
-            raise ValueError(msg)
-        if self.client_id is not None and not self.redirect_uris:
-            msg = "redirect_uris is required when configuring a built-in compatibility client"
             raise ValueError(msg)
         if "refresh_token" in self.grant_types and "authorization_code" not in self.grant_types:
             msg = "refresh_token grant requires authorization_code grant"

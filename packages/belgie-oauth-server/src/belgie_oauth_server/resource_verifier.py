@@ -179,17 +179,20 @@ async def _introspect_access_token(
 
     timeout = httpx.Timeout(10.0, connect=5.0)
     limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
-    async with httpx.AsyncClient(timeout=timeout, limits=limits, verify=True) as client:
-        response = await client.post(
-            config.introspection_endpoint,
-            data={"token": token},
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            auth=(
-                (config.client_id, config.client_secret)
-                if config.client_id is not None and config.client_secret is not None
-                else None
-            ),
-        )
+    try:
+        async with httpx.AsyncClient(timeout=timeout, limits=limits, verify=True) as client:
+            response = await client.post(
+                config.introspection_endpoint,
+                data={"token": token},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                auth=(
+                    (config.client_id, config.client_secret)
+                    if config.client_id is not None and config.client_secret is not None
+                    else None
+                ),
+            )
+    except httpx.RequestError:
+        return None
 
     if response.status_code != _HTTP_OK:
         return None

@@ -28,9 +28,9 @@ def _belgie_settings() -> BelgieSettings:
 def test_mcp_plugin_builds_auth_and_verifier() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
-        client_id="client",
-        client_secret="secret",
+        test_redirect_uris=["http://localhost/callback"],
+        test_client_id="client",
+        test_client_secret="secret",
         default_scopes=["user"],
     )
 
@@ -50,9 +50,9 @@ def test_mcp_plugin_builds_auth_and_verifier() -> None:
 def test_mcp_plugin_public_returns_none() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
-        client_id="client",
-        client_secret="secret",
+        test_redirect_uris=["http://localhost/callback"],
+        test_client_id="client",
+        test_client_secret="secret",
         default_scopes=["user"],
     )
 
@@ -70,9 +70,9 @@ def test_mcp_plugin_public_returns_none() -> None:
 def test_mcp_plugin_builds_server_url_from_base_url() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
-        client_id="client",
-        client_secret="secret",
+        test_redirect_uris=["http://localhost/callback"],
+        test_client_id="client",
+        test_client_secret="secret",
         default_scopes=["user"],
     )
 
@@ -91,9 +91,9 @@ def test_mcp_plugin_builds_server_url_from_base_url() -> None:
 def test_mcp_plugin_preserves_trailing_slash_in_server_path() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
-        client_id="client",
-        client_secret="secret",
+        test_redirect_uris=["http://localhost/callback"],
+        test_client_id="client",
+        test_client_secret="secret",
         default_scopes=["user"],
     )
 
@@ -113,9 +113,9 @@ def test_mcp_plugin_preserves_trailing_slash_in_server_path() -> None:
 def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
-        client_id="client",
-        client_secret="secret",
+        test_redirect_uris=["http://localhost/callback"],
+        test_client_id="client",
+        test_client_secret="secret",
         default_scopes=["user"],
     )
 
@@ -133,7 +133,7 @@ def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
 def test_mcp_plugin_builds_protected_resource_metadata() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
+        test_redirect_uris=["http://localhost/callback"],
         default_scopes=["user"],
     )
 
@@ -155,7 +155,7 @@ def test_mcp_plugin_builds_protected_resource_metadata() -> None:
 def test_mcp_plugin_protected_resource_metadata_rejects_openid_scope() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
+        test_redirect_uris=["http://localhost/callback"],
         default_scopes=["user"],
     )
 
@@ -179,9 +179,9 @@ def test_belgie_mcp_no_longer_reexports_user_lookup_helper() -> None:
 def test_mcp_plugin_preserves_trailing_slash_in_server_url() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
-        client_id="client",
-        client_secret="secret",
+        test_redirect_uris=["http://localhost/callback"],
+        test_client_id="client",
+        test_client_secret="secret",
         default_scopes=["user"],
     )
 
@@ -201,9 +201,9 @@ def test_mcp_plugin_preserves_trailing_slash_in_server_url() -> None:
 async def test_mcp_plugin_verifier_uses_linked_oauth_plugin_provider() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
-        redirect_uris=["http://localhost/callback"],
-        client_id="client",
-        client_secret="secret",
+        test_redirect_uris=["http://localhost/callback"],
+        test_client_id="client",
+        test_client_secret="secret",
         default_scopes=["user"],
     )
     db = InMemoryDBConnection()

@@ -9,7 +9,7 @@ from pydantic import SecretStr, ValidationError
 
 
 def test_oauth_settings_defaults() -> None:
-    settings = build_oauth_settings(redirect_uris=["http://example.com/callback"])
+    settings = build_oauth_settings()
 
     assert settings.login_url == "/login"
     assert settings.signup_url is None
@@ -18,7 +18,6 @@ def test_oauth_settings_defaults() -> None:
     assert settings.post_login_url is None
     assert settings.grant_types == ["authorization_code", "client_credentials", "refresh_token"]
     assert settings.default_scopes == ()
-    assert settings.static_client_require_pkce is True
     assert settings.pairwise_secret is None
     assert settings.authorization_code_ttl_seconds == 600
     assert settings.access_token_ttl_seconds == 3600
@@ -36,18 +35,6 @@ def test_oauth_settings_defaults() -> None:
     assert settings.post_login_resolver is None
     assert str(settings.issuer_url) == "http://example.com/auth"
     assert settings.resolved_valid_audiences() == ["http://example.com/auth"]
-
-
-def test_oauth_settings_requires_redirect_uris() -> None:
-    with pytest.raises(ValidationError) as exc:
-        build_oauth_settings(redirect_uris=None)
-    assert "redirect_uris" in str(exc.value)
-
-
-def test_oauth_settings_rejects_empty_redirect_uris() -> None:
-    with pytest.raises(ValidationError) as exc:
-        build_oauth_settings(redirect_uris=[])
-    assert "redirect_uris" in str(exc.value)
 
 
 @pytest.mark.parametrize(
@@ -68,7 +55,6 @@ def test_oauth_settings_rejects_removed_legacy_fields(field_name: str, value: ob
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             base_url="http://example.com",
-            redirect_uris=["http://example.com/callback"],
             login_url="/login",
             consent_url="/consent",
             signing=build_development_signing(),
@@ -81,7 +67,6 @@ def test_oauth_settings_rejects_removed_legacy_fields(field_name: str, value: ob
 def test_oauth_settings_accepts_valid_audiences_and_deduplicates_supported_scopes() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
-        redirect_uris=["http://example.com/callback"],
         default_scopes=["user", "profile"],
         client_registration_allowed_scopes=["profile", "email"],
         valid_audiences=["http://example.com/mcp/", "http://example.com/mcp/"],
@@ -97,7 +82,6 @@ def test_oauth_settings_accepts_valid_audiences_and_deduplicates_supported_scope
 
 def test_oauth_settings_accepts_advertised_metadata_subset() -> None:
     settings = build_oauth_settings(
-        redirect_uris=["http://example.com/callback"],
         default_scopes=["user", "files:read"],
         advertised_metadata={
             "scopes_supported": ["user", "openid"],
@@ -113,7 +97,6 @@ def test_oauth_settings_accepts_advertised_metadata_subset() -> None:
 def test_oauth_settings_rejects_invalid_advertised_scope() -> None:
     with pytest.raises(ValidationError) as exc:
         build_oauth_settings(
-            redirect_uris=["http://example.com/callback"],
             default_scopes=["user"],
             advertised_metadata={
                 "scopes_supported": ["admin"],
@@ -126,7 +109,6 @@ def test_oauth_settings_rejects_invalid_advertised_scope() -> None:
 def test_oauth_settings_resolves_valid_audiences_from_fallback_issuer() -> None:
     settings = OAuthServer(
         adapter=build_oauth_settings().adapter,
-        redirect_uris=["http://example.com/callback"],
         login_url="/login",
         consent_url="/consent",
         base_url=None,
@@ -138,7 +120,6 @@ def test_oauth_settings_resolves_valid_audiences_from_fallback_issuer() -> None:
 
 def test_oauth_settings_accepts_signup_url() -> None:
     settings = build_oauth_settings(
-        redirect_uris=["http://example.com/callback"],
         signup_url="/signup",
     )
 
@@ -150,7 +131,6 @@ def test_oauth_settings_rejects_missing_login_url_when_authorization_code_enable
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             base_url="http://example.com",
-            redirect_uris=["http://example.com/callback"],
             consent_url="/consent",
             signing=build_development_signing(),
         )
@@ -163,7 +143,6 @@ def test_oauth_settings_rejects_missing_consent_url_when_authorization_code_enab
         OAuthServer(
             adapter=build_oauth_settings().adapter,
             base_url="http://example.com",
-            redirect_uris=["http://example.com/callback"],
             login_url="/login",
             signing=build_development_signing(),
         )
@@ -173,7 +152,7 @@ def test_oauth_settings_rejects_missing_consent_url_when_authorization_code_enab
 
 def test_oauth_settings_rejects_short_pairwise_secret() -> None:
     with pytest.raises(ValidationError) as exc:
-        build_oauth_settings(pairwise_secret="too-short")
+        build_oauth_settings(pairwise_secret=SecretStr("too-short"))
 
     assert "pairwise_secret must be at least 32 characters" in str(exc.value)
 
@@ -210,7 +189,6 @@ def test_oauth_settings_default_hs256_initializes_without_private_key() -> None:
     settings = OAuthServer(
         adapter=build_oauth_settings().adapter,
         base_url="http://example.com",
-        redirect_uris=["http://example.com/callback"],
         login_url="/login",
         consent_url="/consent",
     )
@@ -224,7 +202,6 @@ def test_oauth_settings_default_hs256_initializes_without_private_key() -> None:
 def test_oauth_settings_explicit_rs256_accepts_private_key() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
-        redirect_uris=["http://example.com/callback"],
         signing=build_development_signing(),
     )
 
@@ -245,7 +222,6 @@ def test_oauth_settings_rs256_accepts_explicit_public_key() -> None:
     )
     settings = build_oauth_settings(
         base_url="http://example.com",
-        redirect_uris=["http://example.com/callback"],
         signing=OAuthServerSigning(
             algorithm="RS256",
             private_key_pem=SecretStr(DEVELOPMENT_RSA_PRIVATE_KEY_PEM),

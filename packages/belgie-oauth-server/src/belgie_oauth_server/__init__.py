@@ -1,4 +1,9 @@
-from belgie_oauth_server.client import OAuthServerClient, OAuthServerLoginContext, OAuthServerLoginIntent
+from belgie_oauth_server.client import (
+    OAuthLoginFlowClient,
+    OAuthServerClient,
+    OAuthServerLoginContext,
+    OAuthServerLoginIntent,
+)
 from belgie_oauth_server.metadata import (
     build_oauth_metadata,
     build_oauth_metadata_well_known_path,
@@ -22,6 +27,7 @@ from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.verifier import VerifiedAccessToken, verify_local_access_token
 
 __all__ = [
+    "OAuthLoginFlowClient",
     "OAuthServer",
     "OAuthServerClient",
     "OAuthServerLoginContext",

@@ -206,30 +206,16 @@ class SimpleOAuthProvider:
         self.adapter = settings.adapter
         self.database_factory = database_factory
 
-        client_secret = settings.client_secret.get_secret_value() if settings.client_secret is not None else None
-        self.fallback_signing_secret = fallback_signing_secret or client_secret or ""
+        fb = (
+            settings.fallback_signing_secret.get_secret_value()
+            if settings.fallback_signing_secret is not None
+            else None
+        )
+        self.fallback_signing_secret = fallback_signing_secret or fb or ""
         self.signing_state: OAuthServerSigningState = build_signing_state(
             settings.signing,
             self.fallback_signing_secret,
         )
-        self.static_client: OAuthServerClientInformationFull | None = None
-        if settings.client_id is not None and settings.redirect_uris is not None:
-            self.static_client = OAuthServerClientInformationFull.model_construct(
-                client_id=settings.client_id,
-                client_secret=client_secret,
-                redirect_uris=settings.redirect_uris,
-                scope=" ".join(settings.default_scopes),
-                token_endpoint_auth_method="none" if client_secret is None else "client_secret_post",
-                grant_types=list(settings.grant_types),
-                response_types=["code"] if settings.supports_authorization_code() else [],
-                require_pkce=settings.static_client_require_pkce,
-                subject_type="public",
-                enable_end_session=settings.enable_end_session,
-                disabled=False,
-                skip_consent=False,
-                reference_id=None,
-                metadata_json=None,
-            )
 
     async def _apply_trusted_client_policy(
         self,
@@ -247,9 +233,6 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
-        if self.static_client is not None and client_id == self.static_client.client_id:
-            return await self._apply_trusted_client_policy(self.static_client)
-
         async with self._db_session(db) as session:
             if (client := await self.adapter.get_client_by_client_id(session, client_id=client_id)) is None:
                 return None
@@ -279,9 +262,7 @@ class SimpleOAuthProvider:
         updates: dict[str, object],
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
-        if client_id in self.settings.cached_trusted_clients or (
-            self.static_client is not None and client_id == self.static_client.client_id
-        ):
+        if client_id in self.settings.cached_trusted_clients:
             msg = "trusted clients must be updated manually"
             raise ValueError(msg)
         async with self._db_session(db, transactional=True) as session:
@@ -317,9 +298,7 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> bool:
-        if client_id in self.settings.cached_trusted_clients or (
-            self.static_client is not None and client_id == self.static_client.client_id
-        ):
+        if client_id in self.settings.cached_trusted_clients:
             msg = "trusted clients must be updated manually"
             raise ValueError(msg)
         async with self._db_session(db, transactional=True) as session:
@@ -331,9 +310,7 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
-        if client_id in self.settings.cached_trusted_clients or (
-            self.static_client is not None and client_id == self.static_client.client_id
-        ):
+        if client_id in self.settings.cached_trusted_clients:
             msg = "trusted clients must be updated manually"
             raise ValueError(msg)
         async with self._db_session(db, transactional=True) as session:
@@ -371,15 +348,6 @@ class SimpleOAuthProvider:
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
         normalized_client_secret = self._strip_client_secret_prefix(client_secret)
-        if self.static_client is not None and client_id == self.static_client.client_id:
-            static_client = self._authenticate_static_client(
-                normalized_client_secret,
-                require_credentials=require_credentials,
-                require_confidential=require_confidential,
-            )
-            if static_client is None:
-                return None
-            return await self._apply_trusted_client_policy(static_client)
 
         async with self._db_session(db) as session:
             client = await self.adapter.get_client_by_client_id(session, client_id=client_id)
@@ -437,9 +405,7 @@ class SimpleOAuthProvider:
         issued_at = int(time.time())
         async with self._db_session(db, transactional=True) as session:
             client_id = await self._generate_client_id()
-            while (self.static_client is not None and client_id == self.static_client.client_id) or (
-                await self.adapter.get_client_by_client_id(session, client_id=client_id)
-            ) is not None:
+            while (await self.adapter.get_client_by_client_id(session, client_id=client_id)) is not None:
                 client_id = await self._generate_client_id()
 
             client = await self.adapter.create_client(
@@ -468,8 +434,6 @@ class SimpleOAuthProvider:
                 contacts=list(metadata.contacts) if metadata.contacts is not None else None,
                 tos_uri=str(metadata.tos_uri) if metadata.tos_uri is not None else None,
                 policy_uri=str(metadata.policy_uri) if metadata.policy_uri is not None else None,
-                jwks_uri=None,
-                jwks=None,
                 software_id=metadata.software_id,
                 software_version=metadata.software_version,
                 software_statement=metadata.software_statement,
@@ -1178,7 +1142,7 @@ class SimpleOAuthProvider:
         ).digest()
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("utf-8")
 
-    def validate_client_metadata(  # noqa: C901, PLR0912
+    def validate_client_metadata(  # noqa: C901, PLR0912, PLR0915
         self,
         metadata: OAuthServerClientMetadata,
         *,
@@ -1227,6 +1191,10 @@ class SimpleOAuthProvider:
                 raise ValueError(msg)
         if metadata.require_pkce is False and (is_public or not allow_confidential_pkce_opt_out):
             msg = "pkce is required for registered clients"
+            raise ValueError(msg)
+        extras = metadata.model_extra or {}
+        if extras.get("jwks") is not None or extras.get("jwks_uri") is not None:
+            msg = "jwks and jwks_uri client metadata fields are not yet supported"
             raise ValueError(msg)
         if metadata.skip_consent and not allow_privileged_fields:
             msg = "skip_consent cannot be set during dynamic client registration"
@@ -1430,27 +1398,6 @@ class SimpleOAuthProvider:
 
         await self.adapter.delete_access_tokens_by_refresh_token_id(session, refresh_token_id=refresh_token.id)
         await self.adapter.delete_refresh_token_by_token_hash(session, token_hash=refresh_token.token_hash)
-
-    def _authenticate_static_client(
-        self,
-        client_secret: str | None,
-        *,
-        require_credentials: bool,
-        require_confidential: bool,
-    ) -> OAuthServerClientInformationFull | None:
-        if self.static_client is None:
-            return None
-        if self.static_client.token_endpoint_auth_method == "none":  # noqa: S105
-            if require_credentials or require_confidential or client_secret:
-                return None
-            return self.static_client
-
-        expected_secret = self.static_client.client_secret
-        if expected_secret is None or not client_secret:
-            return None
-        if not hmac.compare_digest(client_secret, expected_secret):
-            return None
-        return self.static_client
 
     @asynccontextmanager
     async def _managed_session(
@@ -1763,8 +1710,6 @@ class SimpleOAuthProvider:
             contacts=list(client.contacts) if client.contacts is not None else None,
             tos_uri=AnyUrl(client.tos_uri) if client.tos_uri is not None else None,
             policy_uri=AnyUrl(client.policy_uri) if client.policy_uri is not None else None,
-            jwks_uri=None,
-            jwks=None,
             software_id=client.software_id,
             software_version=client.software_version,
             software_statement=client.software_statement,

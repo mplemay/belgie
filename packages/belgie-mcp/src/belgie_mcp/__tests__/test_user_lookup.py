@@ -257,9 +257,8 @@ async def test_get_user_valid_sub_returns_user_when_no_provider_matches() -> Non
 def _oauth_settings() -> OAuthServer:
     return build_oauth_settings(
         base_url="https://issuer.local",
-        redirect_uris=["http://localhost:6274/oauth/callback"],
-        client_id="test-client",
-        client_secret="test-secret",
+        test_redirect_uris=["http://localhost:6274/oauth/callback"],
+        test_client_secret="test-secret",
         default_scopes=["user"],
     )
 

@@ -4,6 +4,7 @@ _OAUTH_IMPORT_ERROR = "belgie.oauth.server requires the 'oauth' extra. Install w
 
 try:
     from belgie_oauth_server import (  # type: ignore[import-not-found]
+        OAuthLoginFlowClient,
         OAuthServer,
         OAuthServerClient,
         OAuthServerLoginContext,
@@ -18,6 +19,7 @@ except ModuleNotFoundError as exc:
     raise ImportError(_OAUTH_IMPORT_ERROR) from exc
 
 __all__ = [
+    "OAuthLoginFlowClient",
     "OAuthServer",
     "OAuthServerClient",
     "OAuthServerLoginContext",

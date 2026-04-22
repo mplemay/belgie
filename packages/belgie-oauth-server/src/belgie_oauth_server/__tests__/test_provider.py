@@ -8,15 +8,16 @@ from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.testing import InMemoryDBConnection, InMemoryOAuthServerAdapter
 from belgie_oauth_server.utils import create_code_challenge
-from pydantic import ValidationError
+from pydantic import AnyUrl, SecretStr, ValidationError
+
+TEST_REDIRECT = AnyUrl("https://example.com/callback")
 
 
 @pytest.mark.asyncio
 async def test_provider_authorize_and_issue_code() -> None:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
+        test_redirect_uris=["https://example.com/callback"],
     )
 
     oauth_client = await provider.get_client("test-client")
@@ -24,7 +25,7 @@ async def test_provider_authorize_and_issue_code() -> None:
         state="state-123",
         scopes=["user"],
         code_challenge="challenge",
-        redirect_uri=settings.redirect_uris[0],
+        redirect_uri=TEST_REDIRECT,
         redirect_uri_provided_explicitly=True,
         resource=None,
     )
@@ -42,9 +43,8 @@ async def test_provider_authorize_and_issue_code() -> None:
 async def test_provider_closes_async_generator_database_factory() -> None:
     settings = build_oauth_settings(
         adapter=InMemoryOAuthServerAdapter(),
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     db = InMemoryDBConnection()
     closed = False
@@ -68,9 +68,8 @@ async def test_provider_closes_async_generator_database_factory() -> None:
 @pytest.mark.asyncio
 async def test_provider_issue_authorization_code_includes_issuer() -> None:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
+        test_redirect_uris=["https://example.com/callback"],
     )
 
     oauth_client = await provider.get_client("test-client")
@@ -81,7 +80,7 @@ async def test_provider_issue_authorization_code_includes_issuer() -> None:
             state="state-iss",
             scopes=["user"],
             code_challenge="challenge",
-            redirect_uri=settings.redirect_uris[0],
+            redirect_uri=TEST_REDIRECT,
             redirect_uri_provided_explicitly=True,
         ),
     )
@@ -95,9 +94,8 @@ async def test_provider_issue_authorization_code_includes_issuer() -> None:
 @pytest.mark.asyncio
 async def test_provider_authorize_state_carries_nonce_user_and_session() -> None:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
+        test_redirect_uris=["https://example.com/callback"],
     )
 
     oauth_client = await provider.get_client("test-client")
@@ -105,7 +103,7 @@ async def test_provider_authorize_state_carries_nonce_user_and_session() -> None
         state="state-principal",
         scopes=["openid", "profile"],
         code_challenge="challenge",
-        redirect_uri=settings.redirect_uris[0],
+        redirect_uri=TEST_REDIRECT,
         redirect_uri_provided_explicitly=True,
         resource="http://example.com/mcp",
         nonce="nonce-123",
@@ -134,9 +132,8 @@ async def test_provider_authorize_state_carries_nonce_user_and_session() -> None
 @pytest.mark.asyncio
 async def test_exchange_authorization_code_issues_token() -> None:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
+        test_redirect_uris=["https://example.com/callback"],
     )
 
     oauth_client = await provider.get_client("test-client")
@@ -145,7 +142,7 @@ async def test_exchange_authorization_code_issues_token() -> None:
         state="state-456",
         scopes=["user"],
         code_challenge=create_code_challenge(verifier),
-        redirect_uri=settings.redirect_uris[0],
+        redirect_uri=TEST_REDIRECT,
         redirect_uri_provided_explicitly=True,
         resource=None,
     )
@@ -161,9 +158,8 @@ async def test_exchange_authorization_code_issues_token() -> None:
 @pytest.mark.asyncio
 async def test_exchange_authorization_code_with_offline_access_issues_refresh_token() -> None:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
+        test_redirect_uris=["https://example.com/callback"],
     )
 
     oauth_client = await provider.get_client("test-client")
@@ -172,7 +168,7 @@ async def test_exchange_authorization_code_with_offline_access_issues_refresh_to
         state="state-refresh",
         scopes=["user", "offline_access"],
         code_challenge=create_code_challenge(verifier),
-        redirect_uri=settings.redirect_uris[0],
+        redirect_uri=TEST_REDIRECT,
         redirect_uri_provided_explicitly=True,
         resource=None,
     )
@@ -192,9 +188,8 @@ async def test_exchange_authorization_code_with_offline_access_issues_refresh_to
 @pytest.mark.asyncio
 async def test_refresh_token_encoder_round_trip_supports_load_exchange_and_revoke() -> None:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         refresh_token_encoder=lambda token, session_id: f"wrapped:{session_id}:{token}",
         refresh_token_decoder=lambda token: (
             None if token.split(":", maxsplit=2)[1] == "None" else token.split(":", maxsplit=2)[1],
@@ -211,7 +206,7 @@ async def test_refresh_token_encoder_round_trip_supports_load_exchange_and_revok
             state="state-refresh-wrapped",
             scopes=["user", "offline_access"],
             code_challenge=create_code_challenge(verifier),
-            redirect_uri=settings.redirect_uris[0],
+            redirect_uri=TEST_REDIRECT,
             redirect_uri_provided_explicitly=True,
             resource=None,
         ),
@@ -243,9 +238,8 @@ async def test_refresh_token_encoder_round_trip_supports_load_exchange_and_revok
 @pytest.mark.asyncio
 async def test_load_access_token_purges_expired() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     await adapter.create_access_token(
         db,
@@ -266,9 +260,8 @@ async def test_load_access_token_purges_expired() -> None:
 @pytest.mark.asyncio
 async def test_load_access_token_purges_expired_twice() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     await adapter.create_access_token(
         db,
@@ -291,9 +284,8 @@ async def test_load_access_token_purges_expired_twice() -> None:
 @pytest.mark.asyncio
 async def test_authorize_rejects_duplicate_state() -> None:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
+        test_redirect_uris=["https://example.com/callback"],
     )
 
     oauth_client = await provider.get_client("test-client")
@@ -301,7 +293,7 @@ async def test_authorize_rejects_duplicate_state() -> None:
         state="state-dup",
         scopes=["user"],
         code_challenge="challenge",
-        redirect_uri=settings.redirect_uris[0],
+        redirect_uri=TEST_REDIRECT,
         redirect_uri_provided_explicitly=True,
         resource=None,
     )
@@ -313,9 +305,8 @@ async def test_authorize_rejects_duplicate_state() -> None:
 @pytest.mark.asyncio
 async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
     settings, provider, adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         state_ttl_seconds=1,
     )
 
@@ -324,7 +315,7 @@ async def test_state_mapping_expires_and_is_removed(monkeypatch: pytest.MonkeyPa
         state="state-expired",
         scopes=["user"],
         code_challenge="challenge",
-        redirect_uri=settings.redirect_uris[0],
+        redirect_uri=TEST_REDIRECT,
         redirect_uri_provided_explicitly=True,
         resource=None,
     )
@@ -342,9 +333,8 @@ async def test_state_mapping_does_not_expire_when_ttl_is_non_positive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings, provider, adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         state_ttl_seconds=0,
     )
 
@@ -356,7 +346,7 @@ async def test_state_mapping_does_not_expire_when_ttl_is_non_positive(
             state="state-non-expiring",
             scopes=["user"],
             code_challenge="challenge",
-            redirect_uri=settings.redirect_uris[0],
+            redirect_uri=TEST_REDIRECT,
             redirect_uri_provided_explicitly=True,
         ),
     )
@@ -376,9 +366,8 @@ async def test_state_mapping_does_not_expire_when_ttl_is_non_positive(
 @pytest.mark.asyncio
 async def test_register_client_issues_secret_by_default() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     metadata = OAuthServerClientMetadata(redirect_uris=["https://example.com/callback"])
@@ -394,9 +383,8 @@ async def test_register_client_issues_secret_by_default() -> None:
 @pytest.mark.asyncio
 async def test_register_client_no_secret_when_auth_method_none() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     metadata = OAuthServerClientMetadata(
@@ -411,9 +399,8 @@ async def test_register_client_no_secret_when_auth_method_none() -> None:
 @pytest.mark.asyncio
 async def test_update_client_rejects_confidential_auth_without_secret() -> None:
     _settings, provider, _adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     client_info = await provider.register_client(
@@ -441,9 +428,8 @@ async def test_update_client_rejects_confidential_auth_without_secret() -> None:
 @pytest.mark.asyncio
 async def test_register_client_rejects_unsupported_auth_method() -> None:
     _settings, _provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     with pytest.raises(ValidationError, match="token_endpoint_auth_method"):
@@ -456,9 +442,8 @@ async def test_register_client_rejects_unsupported_auth_method() -> None:
 @pytest.mark.asyncio
 async def test_register_client_accepts_client_secret_basic() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     metadata = OAuthServerClientMetadata(
@@ -474,9 +459,8 @@ async def test_register_client_accepts_client_secret_basic() -> None:
 @pytest.mark.asyncio
 async def test_register_client_preserves_missing_redirect_uris_for_client_credentials() -> None:
     _settings, provider, _adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     metadata = OAuthServerClientMetadata(
@@ -494,9 +478,8 @@ async def test_register_client_preserves_missing_redirect_uris_for_client_creden
 @pytest.mark.asyncio
 async def test_load_refresh_token_purges_expired() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     await adapter.create_refresh_token(
         db,
@@ -517,9 +500,8 @@ async def test_load_refresh_token_purges_expired() -> None:
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_rotates_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     _settings, provider, adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     monkeypatch.setattr(provider_module.time, "time", lambda: 1000.0)
     original_refresh = await provider._issue_refresh_token(
@@ -541,9 +523,8 @@ async def test_exchange_refresh_token_rotates_tokens(monkeypatch: pytest.MonkeyP
 @pytest.mark.asyncio
 async def test_issue_refresh_token_uses_refresh_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
     _settings, provider, _adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         access_token_ttl_seconds=300,
         refresh_token_ttl_seconds=7200,
     )
@@ -557,9 +538,8 @@ async def test_issue_refresh_token_uses_refresh_ttl(monkeypatch: pytest.MonkeyPa
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_preserves_resource_binding() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     refresh = await provider._issue_refresh_token(
         db,
@@ -587,9 +567,8 @@ async def test_exchange_refresh_token_preserves_resource_binding() -> None:
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_replay_only_purges_current_session() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     individual_id = provider._parse_uuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
     session_a = provider._parse_uuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
@@ -637,9 +616,8 @@ async def test_exchange_refresh_token_replay_only_purges_current_session() -> No
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
     _settings, provider, _adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     refresh = await provider._issue_refresh_token(db, client_id="test-client", scopes=["user"])
 
@@ -650,9 +628,8 @@ async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
 @pytest.mark.asyncio
 async def test_exchange_refresh_token_allows_removing_offline_access() -> None:
     _settings, provider, _adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     refresh = await provider._issue_refresh_token(
         db,
@@ -675,9 +652,8 @@ async def test_exchange_refresh_token_allows_removing_offline_access() -> None:
 @pytest.mark.asyncio
 async def test_issue_client_credentials_token() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     token = await provider.issue_client_credentials_token("test-client", ["user"])
@@ -693,9 +669,8 @@ async def test_issue_client_credentials_token() -> None:
 @pytest.mark.asyncio
 async def test_revoke_refresh_token_removes_linked_access_tokens() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     refresh = await provider._issue_refresh_token(db, client_id="test-client", scopes=["user"])
     await adapter.create_access_token(
@@ -716,13 +691,14 @@ async def test_revoke_refresh_token_removes_linked_access_tokens() -> None:
     assert provider._hash_value("access-linked") not in adapter.access_tokens
 
 
-def test_validate_scopes_for_client_raises_for_unknown_scope() -> None:
+@pytest.mark.asyncio
+async def test_validate_scopes_for_client_raises_for_unknown_scope() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
-    client = provider.static_client
+    client = await provider.get_client("test-client")
+    assert client is not None
 
     with pytest.raises(ValueError, match="Client was not registered with scope admin"):
         provider.validate_scopes_for_client(client, ["admin"])
@@ -731,9 +707,8 @@ def test_validate_scopes_for_client_raises_for_unknown_scope() -> None:
 @pytest.mark.asyncio
 async def test_consent_storage_supports_subset_checks() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
     individual_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     await provider.save_consent("test-client", individual_id, ["user", "openid"])
@@ -751,9 +726,8 @@ async def test_consent_storage_supports_subset_checks() -> None:
 @pytest.mark.asyncio
 async def test_scope_less_dynamic_clients_fall_back_to_default_scopes() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         default_scopes=["user", "profile"],
     )
     client = await provider.register_client(
@@ -772,11 +746,10 @@ async def test_scope_less_dynamic_clients_fall_back_to_default_scopes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_scopes_propagate_through_static_client_and_state_fallback() -> None:
+async def test_default_scopes_propagate_through_seeded_client_and_state_fallback() -> None:
     settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         default_scopes=["user", "profile"],
     )
 
@@ -792,7 +765,7 @@ async def test_default_scopes_propagate_through_static_client_and_state_fallback
             state="state-default-scopes",
             scopes=None,
             code_challenge="challenge",
-            redirect_uri=settings.redirect_uris[0],
+            redirect_uri=TEST_REDIRECT,
             redirect_uri_provided_explicitly=True,
             resource=None,
         ),
@@ -808,9 +781,8 @@ async def test_default_scopes_propagate_through_static_client_and_state_fallback
 
 def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     with pytest.raises(ValueError, match="unsupported grant_type implicit"):
@@ -822,11 +794,28 @@ def test_validate_client_metadata_rejects_unsupported_grant_type() -> None:
         )
 
 
+def test_validate_client_metadata_rejects_jwks_fields() -> None:
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        test_redirect_uris=["https://example.com/callback"],
+        base_url="http://example.com",
+    )
+    for extra in ({"jwks_uri": "https://client.example/jwks.json"}, {"jwks": {"keys": []}}):
+        with pytest.raises(ValueError, match="not yet supported"):
+            provider.validate_client_metadata(
+                OAuthServerClientMetadata.model_validate(
+                    {
+                        "redirect_uris": ["https://example.com/callback"],
+                        "token_endpoint_auth_method": "none",
+                        **extra,
+                    },
+                ),
+            )
+
+
 def test_validate_client_metadata_rejects_grant_type_disabled_by_server() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         grant_types=["client_credentials"],
         login_url=None,
         consent_url=None,
@@ -842,9 +831,8 @@ def test_validate_client_metadata_rejects_grant_type_disabled_by_server() -> Non
 
 def test_validate_client_metadata_allows_configured_server_scopes() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         default_scopes=["user", "files:read"],
     )
 
@@ -859,9 +847,8 @@ def test_validate_client_metadata_allows_configured_server_scopes() -> None:
 
 def test_validate_client_metadata_rejects_unknown_configured_server_scope() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         default_scopes=["user", "files:read"],
     )
 
@@ -877,9 +864,8 @@ def test_validate_client_metadata_rejects_unknown_configured_server_scope() -> N
 
 def test_validate_client_metadata_rejects_unsupported_response_type() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     with pytest.raises(ValueError, match="unsupported response_type token"):
@@ -893,9 +879,8 @@ def test_validate_client_metadata_rejects_unsupported_response_type() -> None:
 
 def test_validate_client_metadata_allows_client_credentials_without_redirect_uris() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     provider.validate_client_metadata(
@@ -908,9 +893,8 @@ def test_validate_client_metadata_allows_client_credentials_without_redirect_uri
 
 def test_validate_client_metadata_rejects_authorization_code_without_redirect_uris() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     with pytest.raises(ValueError, match="Redirect URIs are required for authorization_code clients"):
@@ -936,9 +920,8 @@ def test_validate_client_metadata_rejects_invalid_type_for_auth_method(
     message: str,
 ) -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     with pytest.raises(ValueError, match=message):
@@ -953,9 +936,8 @@ def test_validate_client_metadata_rejects_invalid_type_for_auth_method(
 
 def test_validate_client_metadata_rejects_pairwise_without_secret() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     with pytest.raises(ValueError, match="pairwise subject_type requires pairwise_secret configuration"):
@@ -969,9 +951,8 @@ def test_validate_client_metadata_rejects_pairwise_without_secret() -> None:
 
 def test_validate_client_metadata_rejects_pairwise_redirect_uris_on_different_hosts() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
         pairwise_secret="pairwise-secret-for-tests-123456",
     )
 
@@ -989,9 +970,8 @@ def test_validate_client_metadata_rejects_pairwise_redirect_uris_on_different_ho
 
 def test_validate_client_metadata_rejects_require_pkce_false() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     with pytest.raises(ValueError, match="pkce is required for registered clients"):
@@ -1005,9 +985,8 @@ def test_validate_client_metadata_rejects_require_pkce_false() -> None:
 
 def test_validate_client_metadata_allows_confidential_pkce_opt_out_when_enabled() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
     )
 
     provider.validate_client_metadata(
@@ -1021,17 +1000,19 @@ def test_validate_client_metadata_allows_confidential_pkce_opt_out_when_enabled(
     )
 
 
-def test_resolve_subject_identifier_uses_pairwise_secret() -> None:
+@pytest.mark.asyncio
+async def test_resolve_subject_identifier_uses_pairwise_secret() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
-        redirect_uris=["https://example.com/callback"],
+        test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
-        client_id="test-client",
-        pairwise_secret="pairwise-secret-for-tests-123456",
+        pairwise_secret=SecretStr("pairwise-secret-for-tests-123456"),
     )
-    pairwise_client = provider.static_client.model_copy(
+    oauth = await provider.get_client("test-client")
+    assert oauth is not None
+    pairwise_client = oauth.model_copy(
         update={
             "subject_type": "pairwise",
-            "redirect_uris": ["https://example.com/callback"],
+            "redirect_uris": [TEST_REDIRECT],
         },
     )
 

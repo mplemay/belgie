@@ -97,8 +97,6 @@ class OAuthServerClientMetadata(BaseModel):
     contacts: list[str] | None = None
     tos_uri: AnyHttpUrl | None = None
     policy_uri: AnyHttpUrl | None = None
-    jwks_uri: AnyHttpUrl | None = None
-    jwks: JSONValue | None = None
     software_id: str | None = None
     software_version: str | None = None
     software_statement: str | None = None
@@ -125,6 +123,9 @@ class OAuthServerClientMetadata(BaseModel):
     @model_validator(mode="after")
     def merge_extra_metadata_fields(self) -> OAuthServerClientMetadata:
         extras = self.model_extra or {}
+        if extras.get("jwks") is not None or extras.get("jwks_uri") is not None:
+            msg = "jwks and jwks_uri client metadata fields are not yet supported"
+            raise ValueError(msg)
         if not extras:
             return self
 

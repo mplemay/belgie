@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from belgie_alchemy.__tests__.integration.core.oauth.conftest import ensure_oauth_test_client_seeded
+
 
 def _authorize_params(
     oauth_settings: OAuthServer,
@@ -18,8 +20,8 @@ def _authorize_params(
 ) -> dict[str, str]:
     params = {
         "response_type": "code",
-        "client_id": oauth_settings.client_id,
-        "redirect_uri": str(oauth_settings.redirect_uris[0]),
+        "client_id": "test-client",
+        "redirect_uri": "http://localhost/callback",
         "code_challenge": create_code_challenge("verifier"),
         "code_challenge_method": "S256",
         "state": state,
@@ -185,16 +187,18 @@ async def test_authorize_rejects_select_account_prompt_without_configured_page(
 @pytest.mark.asyncio
 async def test_login_prompt_create_falls_back_to_login_url_when_signup_url_missing(
     belgie_instance: Belgie,
+    db_session: AsyncSession,
     oauth_settings: OAuthServer,
 ) -> None:
     settings = oauth_settings.model_copy(
         update={
             "login_url": "/login/google",
             "signup_url": None,
-            "client_secret": SecretStr("test-secret"),
+            "fallback_signing_secret": SecretStr("test-secret"),
         },
     )
-    belgie_instance.add_plugin(settings)
+    oauth_plugin = belgie_instance.add_plugin(settings)
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, settings, oauth_plugin)
     app = FastAPI()
     app.include_router(belgie_instance.router)
     transport = httpx.ASGITransport(app=app)

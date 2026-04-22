@@ -20,8 +20,8 @@ async def test_introspect_missing_token(
     response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
         },
     )
     assert response.status_code == 400
@@ -36,8 +36,8 @@ async def test_introspect_unknown_token(
     response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "missing",
         },
     )
@@ -54,7 +54,7 @@ async def test_introspect_active_access_token(
     created_at = int(time.time()) - 5
     await seed_access_token(
         token="token-123",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["user"],
         created_at=created_at,
         expires_at=int(time.time()) + 3600,
@@ -64,15 +64,15 @@ async def test_introspect_active_access_token(
     response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "token-123",
         },
     )
     payload = response.json()
 
     assert payload["active"] is True
-    assert payload["client_id"] == oauth_settings.client_id
+    assert payload["client_id"] == "test-client"
     assert payload["scope"] == "user"
     assert payload["iat"] == created_at
     assert "token_type" not in payload
@@ -88,7 +88,7 @@ async def test_introspect_active_access_token_with_list_audience(
     created_at = int(time.time()) - 5
     await seed_access_token(
         token="token-aud-list",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid", "profile"],
         created_at=created_at,
         expires_at=int(time.time()) + 3600,
@@ -98,8 +98,8 @@ async def test_introspect_active_access_token_with_list_audience(
     response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "token-aud-list",
         },
     )
@@ -118,7 +118,7 @@ async def test_introspect_accepts_basic_auth(
 ) -> None:
     await seed_access_token(
         token="token-basic",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["user"],
         created_at=int(time.time()) - 1,
         expires_at=int(time.time()) + 3600,
@@ -130,8 +130,8 @@ async def test_introspect_accepts_basic_auth(
         data={"token": "token-basic"},
         headers={
             "authorization": basic_auth_header(
-                oauth_settings.client_id,
-                oauth_settings.client_secret.get_secret_value(),
+                "test-client",
+                "test-secret",
             ),
         },
     )
@@ -148,7 +148,7 @@ async def test_introspect_refresh_token_with_hint(
     created_at = int(time.time()) - 2
     await seed_refresh_token(
         token="refresh-123",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["user", "offline_access"],
         created_at=created_at,
         expires_at=int(time.time()) + 3600,
@@ -158,8 +158,8 @@ async def test_introspect_refresh_token_with_hint(
     response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "refresh-123",
             "token_type_hint": "refresh_token",
         },
@@ -167,7 +167,7 @@ async def test_introspect_refresh_token_with_hint(
     payload = response.json()
 
     assert payload["active"] is True
-    assert payload["client_id"] == oauth_settings.client_id
+    assert payload["client_id"] == "test-client"
     assert payload["scope"] == "user offline_access"
     assert "token_type" not in payload
     assert payload["iat"] == created_at
@@ -183,7 +183,7 @@ async def test_introspect_refresh_token_without_resource_omits_aud(
     created_at = int(time.time()) - 2
     await seed_refresh_token(
         token="refresh-no-resource",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["user", "offline_access"],
         created_at=created_at,
         expires_at=int(time.time()) + 3600,
@@ -193,8 +193,8 @@ async def test_introspect_refresh_token_without_resource_omits_aud(
     response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "refresh-no-resource",
             "token_type_hint": "refresh_token",
         },
@@ -202,7 +202,7 @@ async def test_introspect_refresh_token_without_resource_omits_aud(
     payload = response.json()
 
     assert payload["active"] is True
-    assert payload["client_id"] == oauth_settings.client_id
+    assert payload["client_id"] == "test-client"
     assert payload["scope"] == "user offline_access"
     assert "token_type" not in payload
     assert payload["iat"] == created_at
@@ -217,7 +217,7 @@ async def test_introspect_token_type_hint_access_token_does_not_match_refresh(
 ) -> None:
     await seed_refresh_token(
         token="refresh-only",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["user"],
         created_at=int(time.time()) - 1,
         expires_at=int(time.time()) + 3600,
@@ -226,8 +226,8 @@ async def test_introspect_token_type_hint_access_token_does_not_match_refresh(
     response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "refresh-only",
             "token_type_hint": "access_token",
         },
@@ -244,8 +244,8 @@ async def test_introspect_rejects_unsupported_token_type_hint(
     response = await async_client.post(
         "/auth/oauth2/introspect",
         data={
-            "client_id": oauth_settings.client_id,
-            "client_secret": oauth_settings.client_secret.get_secret_value(),
+            "client_id": "test-client",
+            "client_secret": "test-secret",
             "token": "token-123",
             "token_type_hint": "id_token",
         },
@@ -264,13 +264,13 @@ async def test_introspect_inactive_for_mismatched_client(
 ) -> None:
     await seed_client(
         client_id="other-client",
-        redirect_uris=oauth_settings.redirect_uris,
+        redirect_uris=["http://localhost/callback"],
         scope=" ".join(oauth_settings.default_scopes),
         client_secret_hash=oauth_plugin._provider._hash_value("other-secret"),
     )
     await seed_access_token(
         token="token-mismatch",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["user"],
         created_at=int(time.time()) - 1,
         expires_at=int(time.time()) + 3600,

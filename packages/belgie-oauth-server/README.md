@@ -41,13 +41,6 @@ first, then create clients through:
 - `POST /auth/oauth2/register` when dynamic registration is enabled
 - server-side calls to `provider.register_client(...)`
 
-**Optional in-config client:** `client_id`, `client_secret`, and `redirect_uris` on
-`OAuthServer` are a **Belgie extension** (a single “static” or demo client in
-settings). Better Auth typically creates clients only via
-`create-client` / admin APIs / DCR. Prefer those for parity with a greenfield
-Better Auth install; use the in-config client only for bootstraps, tests, or
-deliberate single-client deployments.
-
 ## Quick Start
 
 ```python
@@ -61,7 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from belgie import Belgie, BelgieClient, BelgieSettings
 from belgie.alchemy import BelgieAdapter
 from belgie.alchemy.oauth_server import OAuthServerAdapter
-from belgie.oauth.server import OAuthServer, OAuthServerClient
+from belgie.oauth.server import OAuthLoginFlowClient, OAuthServer
 
 app = FastAPI()
 
@@ -102,7 +95,7 @@ app.include_router(belgie.router)
 @app.get("/login")
 async def login(
     request: Request,
-    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+    oauth: Annotated[OAuthLoginFlowClient, Depends(oauth_plugin)],
 ) -> RedirectResponse:
     context = await oauth.try_resolve_login_context(request)
     if context is None:
@@ -113,7 +106,7 @@ async def login(
 @app.get("/consent")
 async def consent(
     request: Request,
-    oauth: Annotated[OAuthServerClient, Depends(oauth_plugin)],
+    oauth: Annotated[OAuthLoginFlowClient, Depends(oauth_plugin)],
 ) -> HTMLResponse:
     context = await oauth.resolve_login_context(request)
     return HTMLResponse(
@@ -221,8 +214,8 @@ resource metadata helper from this package.
 - OAuth server protocol routes are fixed to `/oauth2/*`.
 - Restricted client fields are available through server-only
   `/admin/oauth2/create-client` and `/admin/oauth2/update-client`.
-- Config-backed `client_id` / `client_secret` / `redirect_uris` support remains
-  as a Belgie compatibility shortcut, not as part of Better Auth's public
-  surface.
+- In-config static OAuth client fields on `OAuthServer` were removed; create
+  clients through DCR, RPC, admin, or your adapter/seed (same as Better Auth’s
+  model).
 - The old auth-server-owned protected-resource metadata model is gone. Resource
   servers publish that metadata themselves.

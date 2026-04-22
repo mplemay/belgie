@@ -29,8 +29,6 @@ class OAuthServerClientProtocol(Protocol):
     contacts: list[str] | None
     tos_uri: str | None
     policy_uri: str | None
-    jwks_uri: str | None
-    jwks: dict[str, str] | dict[str, object] | None
     software_id: str | None
     software_version: str | None
     software_statement: str | None

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from brussels.types import DateTimeUTC, Json
+from brussels.types import DateTimeUTC
 from sqlalchemy import JSON, Enum as SAEnum, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, dialect as postgresql_dialect
 from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
@@ -73,10 +73,6 @@ def test_oauth_client_mixin_columns_and_types() -> None:
     contacts_column = OAuthServerClient.__table__.c.contacts
     assert isinstance(contacts_column.type.dialect_impl(postgres), PG_ARRAY)
     assert contacts_column.nullable
-
-    jwks_column = OAuthServerClient.__table__.c.jwks
-    assert isinstance(jwks_column.type.dialect_impl(postgres), type(Json.dialect_impl(postgres)))
-    assert jwks_column.nullable
 
     individual_id_fk = next(iter(OAuthServerClient.__table__.c.individual_id.foreign_keys))
     assert individual_id_fk.target_fullname == "individual.id"

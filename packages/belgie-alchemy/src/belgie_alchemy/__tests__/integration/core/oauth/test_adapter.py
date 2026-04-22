@@ -13,6 +13,7 @@ from belgie_alchemy.__tests__.fixtures.core.models import (
     OAuthServerRefreshToken,
     Session,
 )
+from belgie_alchemy.__tests__.integration.core.oauth.conftest import ensure_oauth_test_client_seeded
 
 
 @pytest.mark.asyncio
@@ -46,8 +47,6 @@ async def test_oauth_server_adapter_client_and_state_lifecycle(
         contacts=["ops@client.example"],
         tos_uri="https://client.example/tos",
         policy_uri="https://client.example/policy",
-        jwks_uri="https://client.example/jwks.json",
-        jwks={"keys": []},
         software_id="software-id",
         software_version="1.0.0",
         software_statement="statement",
@@ -133,7 +132,7 @@ async def test_oauth_server_adapter_code_and_token_lifecycle(
     code = await adapter.create_authorization_code(
         db_session,
         code_hash="code-hash",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         redirect_uri="https://client.example/callback",
         redirect_uri_provided_explicitly=True,
         code_challenge="challenge",
@@ -152,7 +151,7 @@ async def test_oauth_server_adapter_code_and_token_lifecycle(
     refresh_token = await adapter.create_refresh_token(
         db_session,
         token_hash="refresh-hash",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid", "offline_access"],
         resource="https://api.example",
         individual_id=session.individual_id,
@@ -166,7 +165,7 @@ async def test_oauth_server_adapter_code_and_token_lifecycle(
     access_token = await adapter.create_access_token(
         db_session,
         token_hash="access-hash",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid"],
         resource=["https://api.example", "https://userinfo.example"],
         refresh_token_id=refresh_token.id,
@@ -206,21 +205,21 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
     adapter = oauth_settings.adapter
     created_consent = await adapter.upsert_consent(
         db_session,
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         individual_id=session.individual_id,
         reference_id=None,
         scopes=["openid"],
     )
     updated_consent = await adapter.upsert_consent(
         db_session,
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         individual_id=session.individual_id,
         reference_id=None,
         scopes=["openid", "profile"],
     )
     loaded_consent = await adapter.get_consent(
         db_session,
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         individual_id=session.individual_id,
     )
 
@@ -231,7 +230,7 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
     first_refresh = await adapter.create_refresh_token(
         db_session,
         token_hash="refresh-family-1",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid"],
         resource="https://api.example",
         individual_id=session.individual_id,
@@ -241,7 +240,7 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
     second_refresh = await adapter.create_refresh_token(
         db_session,
         token_hash="refresh-family-2",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid"],
         resource="https://api.example",
         individual_id=session.individual_id,
@@ -251,7 +250,7 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
     await adapter.create_access_token(
         db_session,
         token_hash="access-family-1",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid"],
         resource="https://api.example",
         refresh_token_id=first_refresh.id,
@@ -262,7 +261,7 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
     await adapter.create_access_token(
         db_session,
         token_hash="access-family-2",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["openid"],
         resource="https://api.example",
         refresh_token_id=second_refresh.id,
@@ -274,7 +273,7 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
     assert (
         await adapter.delete_access_tokens_for_client_and_individual(
             db_session,
-            client_id=oauth_settings.client_id,
+            client_id="test-client",
             individual_id=session.individual_id,
         )
         == 2
@@ -282,7 +281,7 @@ async def test_oauth_server_adapter_consent_and_family_cleanup(
     assert (
         await adapter.delete_refresh_tokens_for_client_and_individual(
             db_session,
-            client_id=oauth_settings.client_id,
+            client_id="test-client",
             individual_id=session.individual_id,
         )
         == 2
@@ -297,10 +296,11 @@ async def test_issue_authorization_code_rolls_back_on_delete_failure(
     oauth_settings,
     db_session,
 ) -> None:
-    _ = oauth_plugin.router(belgie_instance)
+    _ = belgie_instance.router
+    await ensure_oauth_test_client_seeded(belgie_instance, db_session, oauth_settings, oauth_plugin)
     assert oauth_plugin._provider is not None
     provider = oauth_plugin._provider
-    oauth_client = await provider.get_client(oauth_settings.client_id, db=db_session)
+    oauth_client = await provider.get_client("test-client", db=db_session)
     assert oauth_client is not None
 
     await provider.authorize(
@@ -309,7 +309,7 @@ async def test_issue_authorization_code_rolls_back_on_delete_failure(
             state="rollback-state",
             scopes=["user"],
             code_challenge="challenge",
-            redirect_uri=oauth_settings.redirect_uris[0],
+            redirect_uri="http://localhost/callback",
             redirect_uri_provided_explicitly=True,
         ),
         db=db_session,
@@ -347,7 +347,7 @@ async def test_exchange_refresh_token_rolls_back_on_access_token_failure(
 
     original_record = await seed_refresh_token(
         token="rollback-refresh-token",
-        client_id=oauth_settings.client_id,
+        client_id="test-client",
         scopes=["user"],
     )
     original_record_id = original_record.id
