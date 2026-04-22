@@ -53,7 +53,7 @@ def database(
 
 
 @pytest_asyncio.fixture
-async def adapter(db_session: AsyncSession):  # noqa: ARG001
+async def adapter(db_session: AsyncSession):
     """Adapter with test database dependency."""
 
     adapter = BelgieAdapter(

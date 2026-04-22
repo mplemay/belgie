@@ -12,7 +12,7 @@ import pytest
 SQLALCHEMY_AVAILABLE = find_spec("sqlalchemy") is not None
 
 
-def pytest_ignore_collect(collection_path, config) -> bool:  # noqa: ARG001
+def pytest_ignore_collect(collection_path, config) -> bool:
     return not SQLALCHEMY_AVAILABLE
 
 

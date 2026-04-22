@@ -10,7 +10,7 @@ from belgie_alchemy.core import BelgieAdapter
 
 
 @pytest_asyncio.fixture
-async def adapter(alchemy_session: AsyncSession):  # noqa: ARG001
+async def adapter(alchemy_session: AsyncSession):
     adapter = BelgieAdapter(
         account=Account,
         individual=Individual,
