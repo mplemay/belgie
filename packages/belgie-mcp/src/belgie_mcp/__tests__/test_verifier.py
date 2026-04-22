@@ -96,7 +96,7 @@ async def test_verify_token_stores_verified_subject_for_request_context() -> Non
                 "exp": 123,
                 "aud": "https://mcp.local",
                 "sub": subject,
-                "iss": "https://issuer.local/auth/oauth",
+                "iss": "https://issuer.local/auth",
             },
         ),
     )
@@ -279,7 +279,7 @@ def test_mcp_auth_defaults() -> None:
 
     auth = mcp_auth(settings, server_url="https://mcp.local/mcp")
 
-    assert str(auth.issuer_url) == "https://issuer.local/auth/oauth"
+    assert str(auth.issuer_url) == "https://issuer.local/auth"
     assert str(auth.resource_server_url) == "https://mcp.local/mcp"
     assert auth.required_scopes == []
 
@@ -326,7 +326,7 @@ def test_mcp_token_verifier_defaults() -> None:
 
     verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
 
-    assert verifier.introspection_endpoint == join_url("https://issuer.local/auth/oauth", "introspect")
+    assert verifier.introspection_endpoint == join_url("https://issuer.local/auth", "introspect")
 
 
 def test_mcp_token_verifier_overrides() -> None:
@@ -399,7 +399,7 @@ async def _issue_dynamic_client_access_token(
             code_challenge="test-challenge",
             redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
             redirect_uri_provided_explicitly=True,
-            resource=resource,
+            resource=None,
             individual_id=individual_id,
             session_id=str(uuid4()),
         ),
@@ -408,7 +408,10 @@ async def _issue_dynamic_client_access_token(
     code = parse_qs(urlparse(redirect).query)["code"][0]
     authorization_code = await provider.load_authorization_code(code)
     assert authorization_code is not None
-    token_response = await provider.exchange_authorization_code(authorization_code)
+    token_response = await provider.exchange_authorization_code(
+        authorization_code,
+        access_token_resource=resource,
+    )
     stored_token = await provider.load_access_token(token_response.access_token)
     assert stored_token is not None
     return token_response.access_token, stored_token

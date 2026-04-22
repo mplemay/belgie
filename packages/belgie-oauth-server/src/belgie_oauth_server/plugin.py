@@ -3,7 +3,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Annotated, Literal, Protocol
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qsl, urlparse, urlunparse
 from uuid import UUID
 
 import jwt
@@ -21,35 +21,26 @@ from starlette.datastructures import FormData
 
 from belgie_oauth_server.client import OAuthServerClient, OAuthServerLoginIntent
 from belgie_oauth_server.engine import BelgieOAuthServerEngine
-from belgie_oauth_server.engine.errors import InvalidTargetError
 from belgie_oauth_server.engine.helpers import (
     oauth_client_is_public,
     parse_scope_param,
-    resolve_token_resource,
     validate_pkce_inputs,
 )
 from belgie_oauth_server.metadata import (
-    _ROOT_OAUTH_METADATA_PATH,
-    _ROOT_OPENID_METADATA_PATH,
     build_oauth_metadata,
     build_oauth_metadata_well_known_path,
     build_openid_metadata,
     build_openid_metadata_well_known_path,
-    build_protected_resource_metadata,
-    build_protected_resource_metadata_well_known_path,
 )
 from belgie_oauth_server.models import (
     InvalidRedirectUriError,
     OAuthServerClientInformationFull,
     OAuthServerClientMetadata,
-    OAuthServerConsentResponse,
     OAuthServerErrorResponse,
     OAuthServerIntrospectionResponse,
     OAuthServerMetadata,
-    OAuthServerPublicClient,
     OAuthServerToken,
     OIDCMetadata,
-    ProtectedResourceMetadata,
     UserInfoResponse,
 )
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
@@ -63,7 +54,8 @@ from belgie_oauth_server.utils import (
 )
 from belgie_oauth_server.verifier import verify_local_access_token
 
-_ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
+_OAUTH_ENDPOINT_PREFIX = "/oauth2"
+_ADMIN_OAUTH_ENDPOINT_PREFIX = "/admin/oauth2"
 type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 type FormValue = str | UploadFile
 type FormInput = Mapping[str, FormValue] | FormData
@@ -153,7 +145,7 @@ class OAuthServerPlugin(PluginClient):
 
         self._metadata_router = self.metadata_router(belgie)
 
-        router = APIRouter(prefix=self._settings.prefix, tags=["oauth"])
+        router = APIRouter(tags=["oauth"])
         metadata = build_oauth_metadata(issuer_url, self._settings)
         openid_metadata = build_openid_metadata(issuer_url, self._settings)
 
@@ -178,7 +170,7 @@ class OAuthServerPlugin(PluginClient):
         )
         router = self._add_register_route(router, belgie, provider, self._settings, self._rate_limiter)
         router = self._add_revoke_route(router, belgie, self._engine, self._settings, self._rate_limiter)
-        router = self._add_userinfo_route(router, belgie, provider, self._settings, self._rate_limiter)
+        router = self._add_userinfo_route(router, belgie, provider, self._settings, issuer_url, self._rate_limiter)
         router = self._add_end_session_route(router, belgie, provider, issuer_url)
         if self._settings.supports_authorization_code():
             router = self._add_login_route(router, belgie, issuer_url, self._settings, provider)
@@ -194,9 +186,8 @@ class OAuthServerPlugin(PluginClient):
             str(self._settings.issuer_url) if self._settings.issuer_url else _build_issuer_url(belgie, self._settings)
         )
         metadata = build_oauth_metadata(issuer_url, self._settings)
-        well_known_path = build_oauth_metadata_well_known_path(issuer_url)
-
         openid_metadata = build_openid_metadata(issuer_url, self._settings)
+        well_known_path = build_oauth_metadata_well_known_path(issuer_url)
         openid_well_known_path = build_openid_metadata_well_known_path(issuer_url)
 
         router = APIRouter(tags=["oauth"])
@@ -214,6 +205,7 @@ class OAuthServerPlugin(PluginClient):
             response_model=OAuthServerMetadata,
             response_model_exclude_none=True,
         )
+
         router.add_api_route(
             openid_well_known_path,
             openid_metadata_handler,
@@ -221,61 +213,6 @@ class OAuthServerPlugin(PluginClient):
             response_model=OIDCMetadata,
             response_model_exclude_none=True,
         )
-
-        if self._settings.include_root_oauth_metadata_fallback and well_known_path != _ROOT_OAUTH_METADATA_PATH:
-            router.add_api_route(
-                _ROOT_OAUTH_METADATA_PATH,
-                metadata_handler,
-                methods=["GET"],
-                response_model=OAuthServerMetadata,
-                response_model_exclude_none=True,
-            )
-
-        if (
-            self._settings.include_root_openid_metadata_fallback
-            and openid_well_known_path != _ROOT_OPENID_METADATA_PATH
-        ):
-            router.add_api_route(
-                _ROOT_OPENID_METADATA_PATH,
-                openid_metadata_handler,
-                methods=["GET"],
-                response_model=OIDCMetadata,
-                response_model_exclude_none=True,
-            )
-
-        resolved_resource = self._settings.resolve_resource(belgie.settings.base_url)
-        if resolved_resource is not None:
-            resource_url, resource_scopes = resolved_resource
-            protected_resource_metadata = build_protected_resource_metadata(
-                issuer_url,
-                resource_url=resource_url,
-                resource_scopes=resource_scopes,
-                settings=self._settings,
-            )
-            protected_resource_well_known_path = build_protected_resource_metadata_well_known_path(
-                resource_url,
-            )
-
-            async def protected_resource_metadata_handler(_: Request) -> "ProtectedResourceMetadata":
-                return protected_resource_metadata
-
-            router.add_api_route(
-                protected_resource_well_known_path,
-                protected_resource_metadata_handler,
-                methods=["GET"],
-                response_model=ProtectedResourceMetadata,
-            )
-
-            if (
-                self._settings.include_root_resource_metadata_fallback
-                and protected_resource_well_known_path != _ROOT_RESOURCE_METADATA_PATH
-            ):
-                router.add_api_route(
-                    _ROOT_RESOURCE_METADATA_PATH,
-                    protected_resource_metadata_handler,
-                    methods=["GET"],
-                    response_model=ProtectedResourceMetadata,
-                )
 
         return router
 
@@ -455,8 +392,8 @@ class OAuthServerPlugin(PluginClient):
         ) -> Response:
             return await _authorize(request, client)
 
-        router.add_api_route("/authorize", authorize_get_handler, methods=["GET"])
-        router.add_api_route("/authorize", authorize_post_handler, methods=["POST"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/authorize", authorize_get_handler, methods=["GET"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/authorize", authorize_post_handler, methods=["POST"])
         return router
 
     @staticmethod
@@ -496,7 +433,12 @@ class OAuthServerPlugin(PluginClient):
 
             return response
 
-        router.add_api_route("/token", token_handler, methods=["POST"], response_model=OAuthServerToken)
+        router.add_api_route(
+            f"{_OAUTH_ENDPOINT_PREFIX}/token",
+            token_handler,
+            methods=["POST"],
+            response_model=OAuthServerToken,
+        )
         return router
 
     @staticmethod
@@ -511,7 +453,7 @@ class OAuthServerPlugin(PluginClient):
             request: Request,
             response: Response,
             client: Annotated[BelgieClient, Depends(belgie)],
-        ) -> OAuthServerClientInformationFull | Response:
+        ) -> dict[str, JSONValue] | Response:
             if (
                 rate_limited := _enforce_rate_limit(
                     request,
@@ -583,15 +525,14 @@ class OAuthServerPlugin(PluginClient):
                 description = str(exc) or "invalid client metadata"
                 return _registration_metadata_error(description)
             _set_no_store_headers(response)
-            return client_info
+            return _serialize_oauth_client(client_info, include_secret=True)
 
         router.add_api_route(
-            "/register",
+            f"{_OAUTH_ENDPOINT_PREFIX}/register",
             register_handler,
             methods=["POST"],
-            response_model=OAuthServerClientInformationFull,
-            response_model_exclude_none=True,
             status_code=status.HTTP_201_CREATED,
+            response_model=None,
         )
         return router
 
@@ -618,15 +559,16 @@ class OAuthServerPlugin(PluginClient):
                 return rate_limited
             return await engine.create_revocation_response(request, client)
 
-        router.add_api_route("/revoke", revoke_handler, methods=["POST"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/revoke", revoke_handler, methods=["POST"])
         return router
 
     @staticmethod
-    def _add_userinfo_route(  # noqa: C901
+    def _add_userinfo_route(  # noqa: C901, PLR0913
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
         settings: OAuthServer,
+        issuer_url: str,
         rate_limiter: OAuthServerRateLimiter,
     ) -> APIRouter:
         async def userinfo_handler(  # noqa: PLR0911
@@ -658,7 +600,11 @@ class OAuthServerPlugin(PluginClient):
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 )
 
-            verified_access_token = await verify_local_access_token(provider, token_value)
+            verified_access_token = await verify_local_access_token(
+                provider,
+                token_value,
+                audience=_oauth_endpoint_url(issuer_url, "userinfo"),
+            )
             if verified_access_token is None:
                 return _oauth_error("invalid_token", status_code=status.HTTP_401_UNAUTHORIZED)
             access_token = verified_access_token.token
@@ -709,7 +655,7 @@ class OAuthServerPlugin(PluginClient):
             )
 
         router.add_api_route(
-            "/userinfo",
+            f"{_OAUTH_ENDPOINT_PREFIX}/userinfo",
             userinfo_handler,
             methods=["GET"],
             response_model=UserInfoResponse,
@@ -804,7 +750,7 @@ class OAuthServerPlugin(PluginClient):
 
             return JSONResponse({})
 
-        router.add_api_route("/end-session", end_session_handler, methods=["GET"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/end-session", end_session_handler, methods=["GET"])
         return router
 
     @staticmethod
@@ -836,7 +782,7 @@ class OAuthServerPlugin(PluginClient):
             redirect_url = construct_redirect_uri(login_url, return_to=return_to_url, intent=state_data.intent)
             return _redirect_response(request, redirect_url)
 
-        router.add_api_route("/login", login_handler, methods=["GET"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/login", login_handler, methods=["GET"])
         return router
 
     @staticmethod
@@ -905,8 +851,8 @@ class OAuthServerPlugin(PluginClient):
         ) -> Response:
             return await _handle_continue(request, client)
 
-        router.add_api_route("/continue", continue_get_handler, methods=["GET"])
-        router.add_api_route("/continue", continue_post_handler, methods=["POST"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/continue", continue_get_handler, methods=["GET"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/continue", continue_post_handler, methods=["POST"])
         return router
 
     @staticmethod
@@ -1012,8 +958,8 @@ class OAuthServerPlugin(PluginClient):
         ) -> Response:
             return await _handle_consent(request, client)
 
-        router.add_api_route("/consent", consent_get_handler, methods=["GET"])
-        router.add_api_route("/consent", consent_post_handler, methods=["POST"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/consent", consent_get_handler, methods=["GET"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/consent", consent_post_handler, methods=["POST"])
         return router
 
     @staticmethod
@@ -1063,7 +1009,7 @@ class OAuthServerPlugin(PluginClient):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
             return _redirect_response(request, redirect_url)
 
-        router.add_api_route("/login/callback", login_callback_handler, methods=["GET"])
+        router.add_api_route(f"{_OAUTH_ENDPOINT_PREFIX}/login/callback", login_callback_handler, methods=["GET"])
         return router
 
     @staticmethod
@@ -1079,7 +1025,7 @@ class OAuthServerPlugin(PluginClient):
             request: Request,
             response: Response,
             client: BelgieClientDep,
-        ) -> OAuthServerClientInformationFull | Response:
+        ) -> dict[str, JSONValue] | Response:
             try:
                 individual = await client.get_individual(SecurityScopes(), request)
                 session = await client.get_session(request)
@@ -1126,12 +1072,12 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("invalid_request", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
             else:
                 _set_no_store_headers(response)
-                return client_info
+                return _serialize_oauth_client(client_info, include_secret=True)
 
         async def list_clients_handler(
             request: Request,
             client: BelgieClientDep,
-        ) -> list[OAuthServerClientInformationFull] | Response:
+        ) -> list[dict[str, JSONValue]] | Response:
             try:
                 individual = await client.get_individual(SecurityScopes(), request)
                 session = await client.get_session(request)
@@ -1164,24 +1110,30 @@ class OAuthServerPlugin(PluginClient):
             for oauth_client in clients:
                 if oauth_client.client_id is not None:
                     deduped[oauth_client.client_id] = _redact_client_secret(oauth_client)
-            return list(deduped.values())
+            return [_serialize_oauth_client(oauth_client, include_secret=False) for oauth_client in deduped.values()]
 
-        async def prelogin_client_handler(state: str) -> OAuthServerPublicClient | Response:
+        async def prelogin_client_handler(request: Request) -> dict[str, JSONValue] | Response:
             if not settings.allow_public_client_prelogin:
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
-            state_data = await provider.load_authorization_state(state)
-            if state_data is None:
+            payload = await _get_request_payload(request)
+            client_id = _get_payload_str(payload, "client_id")
+            if client_id is None:
+                client_id = _client_id_from_oauth_query(_get_payload_str(payload, "oauth_query"))
+            if not client_id:
                 return _oauth_error(
                     "invalid_request",
-                    "Invalid state parameter",
+                    "missing client_id",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-            oauth_client = await provider.get_client(state_data.client_id)
+            oauth_client = await provider.get_client(client_id)
             if oauth_client is None or oauth_client.disabled:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
             return _public_client_information(oauth_client)
 
-        async def public_client_handler(client_id: str) -> OAuthServerPublicClient | Response:
+        async def public_client_handler(request: Request) -> dict[str, JSONValue] | Response:
+            client_id = request.query_params.get("client_id")
+            if not client_id:
+                return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
             oauth_client = await provider.get_client(client_id)
             if oauth_client is None or oauth_client.disabled:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
@@ -1189,9 +1141,11 @@ class OAuthServerPlugin(PluginClient):
 
         async def get_client_handler(
             request: Request,
-            client_id: str,
             client: BelgieClientDep,
-        ) -> OAuthServerClientInformationFull | Response:
+        ) -> dict[str, JSONValue] | Response:
+            client_id = request.query_params.get("client_id")
+            if not client_id:
+                return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
             oauth_client = await provider.get_client(client_id, db=client.db)
             if oauth_client is None:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
@@ -1206,13 +1160,16 @@ class OAuthServerPlugin(PluginClient):
                 session_id=str(session.id),
             ):
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
-            return _redact_client_secret(oauth_client)
+            return _serialize_oauth_client(_redact_client_secret(oauth_client), include_secret=False)
 
         async def update_client_handler(  # noqa: PLR0911
             request: Request,
-            client_id: str,
             client: BelgieClientDep,
-        ) -> OAuthServerClientInformationFull | Response:
+        ) -> dict[str, JSONValue] | Response:
+            raw_payload = await request.json()
+            client_id = raw_payload.get("client_id") if isinstance(raw_payload, dict) else None
+            if not isinstance(client_id, str) or not client_id:
+                return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
             oauth_client = await provider.get_client(client_id, db=client.db)
             if oauth_client is None:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
@@ -1230,7 +1187,6 @@ class OAuthServerPlugin(PluginClient):
             ):
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
 
-            raw_payload = await request.json()
             payload = (
                 raw_payload.get("update")
                 if isinstance(raw_payload, dict) and isinstance(raw_payload.get("update"), dict)
@@ -1268,13 +1224,16 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("invalid_request", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
             if updated_client is None:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
-            return _redact_client_secret(updated_client)
+            return _serialize_oauth_client(_redact_client_secret(updated_client), include_secret=False)
 
         async def delete_client_handler(
             request: Request,
-            client_id: str,
             client: BelgieClientDep,
         ) -> Response:
+            payload = await request.json()
+            client_id = payload.get("client_id") if isinstance(payload, dict) else None
+            if not isinstance(client_id, str) or not client_id:
+                return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
             oauth_client = await provider.get_client(client_id, db=client.db)
             if oauth_client is None:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
@@ -1296,9 +1255,12 @@ class OAuthServerPlugin(PluginClient):
         async def rotate_client_secret_handler(
             request: Request,
             response: Response,
-            client_id: str,
             client: BelgieClientDep,
-        ) -> OAuthServerClientInformationFull | Response:
+        ) -> dict[str, JSONValue] | Response:
+            payload = await request.json()
+            client_id = payload.get("client_id") if isinstance(payload, dict) else None
+            if not isinstance(client_id, str) or not client_id:
+                return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
             oauth_client = await provider.get_client(client_id, db=client.db)
             if oauth_client is None:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
@@ -1320,63 +1282,74 @@ class OAuthServerPlugin(PluginClient):
             if rotated_client is None:
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
             _set_no_store_headers(response)
-            return rotated_client
+            return _serialize_oauth_client(rotated_client, include_secret=True)
 
         router.add_api_route(
-            "/clients/prelogin",
+            f"{_OAUTH_ENDPOINT_PREFIX}/public-client-prelogin",
             prelogin_client_handler,
-            methods=["GET"],
-            response_model=OAuthServerPublicClient,
-            response_model_exclude_none=True,
+            methods=["POST"],
+            response_model=None,
         )
         router.add_api_route(
-            "/clients/{client_id}/public",
+            f"{_OAUTH_ENDPOINT_PREFIX}/public-client",
             public_client_handler,
             methods=["GET"],
-            response_model=OAuthServerPublicClient,
-            response_model_exclude_none=True,
+            response_model=None,
         )
         router.add_api_route(
-            "/clients",
+            f"{_OAUTH_ENDPOINT_PREFIX}/create-client",
             create_client_handler,
             methods=["POST"],
-            response_model=OAuthServerClientInformationFull,
-            response_model_exclude_none=True,
             status_code=status.HTTP_201_CREATED,
+            response_model=None,
         )
         router.add_api_route(
-            "/clients",
+            f"{_ADMIN_OAUTH_ENDPOINT_PREFIX}/create-client",
+            create_client_handler,
+            methods=["POST"],
+            status_code=status.HTTP_201_CREATED,
+            response_model=None,
+        )
+        router.add_api_route(
+            f"{_OAUTH_ENDPOINT_PREFIX}/get-clients",
             list_clients_handler,
             methods=["GET"],
-            response_model=list[OAuthServerClientInformationFull],
-            response_model_exclude_none=True,
+            response_model=None,
         )
         router.add_api_route(
-            "/clients/{client_id}",
+            f"{_OAUTH_ENDPOINT_PREFIX}/get-client",
             get_client_handler,
             methods=["GET"],
-            response_model=OAuthServerClientInformationFull,
-            response_model_exclude_none=True,
+            response_model=None,
         )
         router.add_api_route(
-            "/clients/{client_id}",
+            f"{_OAUTH_ENDPOINT_PREFIX}/update-client",
+            update_client_handler,
+            methods=["POST"],
+            response_model=None,
+        )
+        router.add_api_route(
+            f"{_ADMIN_OAUTH_ENDPOINT_PREFIX}/update-client",
             update_client_handler,
             methods=["PATCH"],
-            response_model=OAuthServerClientInformationFull,
-            response_model_exclude_none=True,
+            response_model=None,
         )
-        router.add_api_route("/clients/{client_id}", delete_client_handler, methods=["DELETE"])
         router.add_api_route(
-            "/clients/{client_id}/rotate-secret",
+            f"{_OAUTH_ENDPOINT_PREFIX}/delete-client",
+            delete_client_handler,
+            methods=["POST"],
+            response_model=None,
+        )
+        router.add_api_route(
+            f"{_OAUTH_ENDPOINT_PREFIX}/client/rotate-secret",
             rotate_client_secret_handler,
             methods=["POST"],
-            response_model=OAuthServerClientInformationFull,
-            response_model_exclude_none=True,
+            response_model=None,
         )
         return router
 
     @staticmethod
-    def _add_consent_management_routes(  # noqa: C901
+    def _add_consent_management_routes(  # noqa: C901, PLR0915
         router: APIRouter,
         belgie: Belgie,
         provider: SimpleOAuthProvider,
@@ -1387,7 +1360,7 @@ class OAuthServerPlugin(PluginClient):
         async def list_consents_handler(
             request: Request,
             client: BelgieClientDep,
-        ) -> list[OAuthServerConsentResponse] | Response:
+        ) -> list[dict[str, JSONValue]] | Response:
             individual = await client.get_individual(SecurityScopes(), request)
             session = await client.get_session(request)
             individual_id = str(individual.id)
@@ -1410,12 +1383,18 @@ class OAuthServerPlugin(PluginClient):
 
         async def get_consent_handler(
             request: Request,
-            consent_id: UUID,
             client: BelgieClientDep,
-        ) -> OAuthServerConsentResponse | Response:
+        ) -> dict[str, JSONValue] | Response:
+            consent_id_raw = request.query_params.get("id")
+            if not consent_id_raw:
+                return _oauth_error("not_found", "missing id parameter", status_code=status.HTTP_404_NOT_FOUND)
+            try:
+                consent_id = UUID(consent_id_raw)
+            except ValueError:
+                return _oauth_error("not_found", "missing id parameter", status_code=status.HTTP_404_NOT_FOUND)
             consent = await provider.get_consent_by_id(consent_id, db=client.db)
             if consent is None:
-                return _oauth_error("not_found", "consent not found", status_code=status.HTTP_404_NOT_FOUND)
+                return _oauth_error("not_found", "no consent", status_code=status.HTTP_404_NOT_FOUND)
             individual = await client.get_individual(SecurityScopes(), request)
             session = await client.get_session(request)
             if not await _can_manage_consent(
@@ -1428,14 +1407,21 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
             return _serialize_consent(consent)
 
-        async def update_consent_handler(
+        async def update_consent_handler(  # noqa: PLR0911
             request: Request,
-            consent_id: UUID,
             client: BelgieClientDep,
-        ) -> OAuthServerConsentResponse | Response:
+        ) -> dict[str, JSONValue] | Response:
+            payload = await request.json()
+            consent_id_raw = payload.get("id") if isinstance(payload, dict) else None
+            if not isinstance(consent_id_raw, str) or not consent_id_raw:
+                return _oauth_error("not_found", "missing id parameter", status_code=status.HTTP_404_NOT_FOUND)
+            try:
+                consent_id = UUID(consent_id_raw)
+            except ValueError:
+                return _oauth_error("not_found", "missing id parameter", status_code=status.HTTP_404_NOT_FOUND)
             existing_consent = await provider.get_consent_by_id(consent_id, db=client.db)
             if existing_consent is None:
-                return _oauth_error("not_found", "consent not found", status_code=status.HTTP_404_NOT_FOUND)
+                return _oauth_error("not_found", "no consent", status_code=status.HTTP_404_NOT_FOUND)
             individual = await client.get_individual(SecurityScopes(), request)
             session = await client.get_session(request)
             if not await _can_manage_consent(
@@ -1446,8 +1432,12 @@ class OAuthServerPlugin(PluginClient):
                 session_id=str(session.id),
             ):
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
-            payload = await request.json()
-            scopes = payload.get("scopes") if isinstance(payload, dict) else None
+            updates = None
+            if isinstance(payload, dict):
+                raw_updates = payload.get("update")
+                if isinstance(raw_updates, dict):
+                    updates = raw_updates
+            scopes = updates.get("scopes") if isinstance(updates, dict) else None
             if not isinstance(scopes, list) or not all(isinstance(scope, str) for scope in scopes):
                 return _oauth_error(
                     "invalid_request",
@@ -1456,17 +1446,24 @@ class OAuthServerPlugin(PluginClient):
                 )
             updated_consent = await provider.update_consent(consent_id, scopes=list(scopes), db=client.db)
             if updated_consent is None:
-                return _oauth_error("not_found", "consent not found", status_code=status.HTTP_404_NOT_FOUND)
+                return _oauth_error("not_found", "no consent", status_code=status.HTTP_404_NOT_FOUND)
             return _serialize_consent(updated_consent)
 
         async def delete_consent_handler(
             request: Request,
-            consent_id: UUID,
             client: BelgieClientDep,
         ) -> Response:
+            payload = await request.json()
+            consent_id_raw = payload.get("id") if isinstance(payload, dict) else None
+            if not isinstance(consent_id_raw, str) or not consent_id_raw:
+                return _oauth_error("not_found", "missing id parameter", status_code=status.HTTP_404_NOT_FOUND)
+            try:
+                consent_id = UUID(consent_id_raw)
+            except ValueError:
+                return _oauth_error("not_found", "missing id parameter", status_code=status.HTTP_404_NOT_FOUND)
             existing_consent = await provider.get_consent_by_id(consent_id, db=client.db)
             if existing_consent is None:
-                return _oauth_error("not_found", "consent not found", status_code=status.HTTP_404_NOT_FOUND)
+                return _oauth_error("not_found", "no consent", status_code=status.HTTP_404_NOT_FOUND)
             individual = await client.get_individual(SecurityScopes(), request)
             session = await client.get_session(request)
             if not await _can_manage_consent(
@@ -1481,27 +1478,29 @@ class OAuthServerPlugin(PluginClient):
             return JSONResponse({})
 
         router.add_api_route(
-            "/consents",
+            f"{_OAUTH_ENDPOINT_PREFIX}/get-consents",
             list_consents_handler,
             methods=["GET"],
-            response_model=list[OAuthServerConsentResponse],
-            response_model_exclude_none=True,
+            response_model=None,
         )
         router.add_api_route(
-            "/consents/{consent_id}",
+            f"{_OAUTH_ENDPOINT_PREFIX}/get-consent",
             get_consent_handler,
             methods=["GET"],
-            response_model=OAuthServerConsentResponse,
-            response_model_exclude_none=True,
+            response_model=None,
         )
         router.add_api_route(
-            "/consents/{consent_id}",
+            f"{_OAUTH_ENDPOINT_PREFIX}/update-consent",
             update_consent_handler,
-            methods=["PATCH"],
-            response_model=OAuthServerConsentResponse,
-            response_model_exclude_none=True,
+            methods=["POST"],
+            response_model=None,
         )
-        router.add_api_route("/consents/{consent_id}", delete_consent_handler, methods=["DELETE"])
+        router.add_api_route(
+            f"{_OAUTH_ENDPOINT_PREFIX}/delete-consent",
+            delete_consent_handler,
+            methods=["POST"],
+            response_model=None,
+        )
         return router
 
     @staticmethod
@@ -1528,7 +1527,7 @@ class OAuthServerPlugin(PluginClient):
             return await engine.create_introspection_response(request, client)
 
         router.add_api_route(
-            "/introspect",
+            f"{_OAUTH_ENDPOINT_PREFIX}/introspect",
             introspect_handler,
             methods=["POST"],
             response_model=OAuthServerIntrospectionResponse,
@@ -1537,12 +1536,11 @@ class OAuthServerPlugin(PluginClient):
         return router
 
 
-def _build_issuer_url(belgie: Belgie, settings: OAuthServer) -> str:
+def _build_issuer_url(belgie: Belgie, _settings: OAuthServer) -> str:
     parsed = urlparse(belgie.settings.base_url)
     base_path = parsed.path.rstrip("/")
-    prefix = settings.prefix.strip("/")
     auth_path = "auth"
-    full_path = f"{base_path}/{auth_path}/{prefix}" if prefix else f"{base_path}/{auth_path}"
+    full_path = f"{base_path}/{auth_path}" if base_path else f"/{auth_path}"
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
 
 
@@ -1550,7 +1548,7 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
     data: dict[str, str],
     provider: SimpleOAuthProvider,
     settings: OAuthServer,
-    belgie_base_url: str,
+    _belgie_base_url: str,
     issuer_url: str,
 ) -> _AuthorizeRequestContext | Response:
     resolved_data = await _resolve_request_uri_params(data, settings)
@@ -1635,20 +1633,6 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
             issuer_url=issuer_url,
         )
 
-    try:
-        resource = resolve_token_resource(
-            settings,
-            belgie_base_url,
-            requested_resource=_get_str(resolved_data, "resource"),
-        )
-    except InvalidTargetError:
-        return _authorize_error(
-            "invalid_target",
-            redirect_uri=redirect_uri_string,
-            state=_get_str(resolved_data, "state"),
-            issuer_url=issuer_url,
-        )
-
     prompt = _normalize_prompt_values(prompt_values)
 
     params = AuthorizationParams(
@@ -1657,7 +1641,7 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
         code_challenge=code_challenge,
         redirect_uri=validated_redirect_uri,
         redirect_uri_provided_explicitly=redirect_uri_raw is not None,
-        resource=resource,
+        resource=None,
         nonce=_get_str(resolved_data, "nonce"),
         prompt=prompt,
         intent=_derive_initial_intent(prompt_values),
@@ -1668,21 +1652,6 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
         prompt_values=prompt_values,
         redirect_uri=redirect_uri_string,
     )
-
-
-def _validate_authorize_resource(
-    settings: OAuthServer,
-    belgie_base_url: str,
-    resource: str | None,
-) -> str | None:
-    try:
-        return resolve_token_resource(
-            settings,
-            belgie_base_url,
-            requested_resource=resource,
-        )
-    except InvalidTargetError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_target") from exc
 
 
 async def _authorize_state(
@@ -1703,8 +1672,12 @@ async def _issue_authorization_code(provider: SimpleOAuthProvider, state: str, i
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+def _oauth_endpoint_url(issuer_url: str, path: str) -> str:
+    return join_url(issuer_url, f"oauth2/{path}")
+
+
 def _build_login_redirect(issuer_url: str, state: str) -> str:
-    return construct_redirect_uri(join_url(issuer_url, "login"), state=state)
+    return construct_redirect_uri(_oauth_endpoint_url(issuer_url, "login"), state=state)
 
 
 def _resolve_auth_redirect_url(
@@ -2075,14 +2048,14 @@ def _remove_prompt_value(prompt: str | None, value: AuthorizePrompt) -> str | No
 
 def _build_interaction_return_to(issuer_url: str, state: str, intent: OAuthServerLoginIntent) -> str:
     if intent == "create":
-        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, created="true")
+        return construct_redirect_uri(_oauth_endpoint_url(issuer_url, "continue"), state=state, created="true")
     if intent == "select_account":
-        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, selected="true")
+        return construct_redirect_uri(_oauth_endpoint_url(issuer_url, "continue"), state=state, selected="true")
     if intent == "post_login":
-        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, post_login="true")
+        return construct_redirect_uri(_oauth_endpoint_url(issuer_url, "continue"), state=state, post_login="true")
     if intent == "consent":
-        return construct_redirect_uri(join_url(issuer_url, "consent"), state=state)
-    return construct_redirect_uri(join_url(issuer_url, "login/callback"), state=state)
+        return construct_redirect_uri(_oauth_endpoint_url(issuer_url, "consent"), state=state)
+    return construct_redirect_uri(_oauth_endpoint_url(issuer_url, "login/callback"), state=state)
 
 
 def _oauth_error(
@@ -2242,6 +2215,26 @@ def _get_payload_bool(payload: Mapping[str, JSONValue], key: str) -> bool | None
     return None
 
 
+def _client_id_from_oauth_query(oauth_query: str | None) -> str | None:
+    if not oauth_query:
+        return None
+    parsed_query = dict(parse_qsl(oauth_query, keep_blank_values=True))
+    client_id = parsed_query.get("client_id")
+    return client_id if isinstance(client_id, str) and client_id else None
+
+
+def _json_value_or_none(value: object) -> JSONValue:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [converted for item in value if (converted := _json_value_or_none(item)) is not None]
+    if isinstance(value, dict):
+        return {
+            str(key): converted for key, item in value.items() if (converted := _json_value_or_none(item)) is not None
+        }
+    return None
+
+
 class _UserClaimsSource(Protocol):
     id: UUID | str
     name: str | None
@@ -2335,32 +2328,79 @@ def _redact_client_secret(client_info: OAuthServerClientInformationFull) -> OAut
     return client_info.model_copy(update={"client_secret": None})
 
 
-def _public_client_information(client_info: OAuthServerClientInformationFull) -> OAuthServerPublicClient:
+def _serialize_oauth_client(
+    client_info: OAuthServerClientInformationFull,
+    *,
+    include_secret: bool,
+) -> dict[str, JSONValue]:
     if client_info.client_id is None:
         msg = "client_id is required"
         raise OAuthError(msg)
-    return OAuthServerPublicClient(
-        client_id=client_info.client_id,
-        client_name=client_info.client_name,
-        client_uri=client_info.client_uri,
-        logo_uri=client_info.logo_uri,
-        contacts=client_info.contacts,
-        tos_uri=client_info.tos_uri,
-        policy_uri=client_info.policy_uri,
-    )
-
-
-def _serialize_consent(consent: _ConsentLike) -> OAuthServerConsentResponse:
-    return OAuthServerConsentResponse.model_validate(
+    metadata = (
         {
-            "id": consent.id,
-            "client_id": consent.client_id,
-            "individual_id": consent.individual_id,
-            "reference_id": consent.reference_id,
-            "scopes": list(consent.scopes),
-            "created_at": consent.created_at,
-        },
+            key: value
+            for key, value in (client_info.metadata_json or {}).items()
+            if _json_value_or_none(value) is not None
+        }
+        if client_info.metadata_json is not None
+        else {}
     )
+    payload: dict[str, JSONValue] = {
+        **metadata,
+        "client_id": client_info.client_id,
+        "client_secret_expires_at": client_info.client_secret_expires_at,
+        "scope": client_info.scope,
+        "user_id": client_info.individual_id,
+        "client_id_issued_at": client_info.client_id_issued_at,
+        "client_name": client_info.client_name,
+        "client_uri": str(client_info.client_uri) if client_info.client_uri is not None else None,
+        "logo_uri": str(client_info.logo_uri) if client_info.logo_uri is not None else None,
+        "contacts": client_info.contacts,
+        "tos_uri": str(client_info.tos_uri) if client_info.tos_uri is not None else None,
+        "policy_uri": str(client_info.policy_uri) if client_info.policy_uri is not None else None,
+        "software_id": client_info.software_id,
+        "software_version": client_info.software_version,
+        "software_statement": client_info.software_statement,
+        "redirect_uris": [str(uri) for uri in client_info.redirect_uris or []],
+        "post_logout_redirect_uris": (
+            [str(uri) for uri in client_info.post_logout_redirect_uris]
+            if client_info.post_logout_redirect_uris is not None
+            else None
+        ),
+        "token_endpoint_auth_method": client_info.token_endpoint_auth_method,
+        "grant_types": client_info.grant_types,
+        "response_types": client_info.response_types,
+        "public": oauth_client_is_public(client_info),
+        "type": client_info.type,
+        "disabled": client_info.disabled,
+        "skip_consent": client_info.skip_consent,
+        "enable_end_session": client_info.enable_end_session,
+        "require_pkce": client_info.require_pkce,
+        "subject_type": client_info.subject_type,
+        "reference_id": client_info.reference_id,
+    }
+    if include_secret and client_info.client_secret is not None:
+        payload["client_secret"] = client_info.client_secret
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _public_client_information(client_info: OAuthServerClientInformationFull) -> dict[str, JSONValue]:
+    payload = _serialize_oauth_client(client_info, include_secret=False)
+    allowed = {"client_id", "client_name", "client_uri", "logo_uri", "contacts", "tos_uri", "policy_uri"}
+    return {key: value for key, value in payload.items() if key in allowed}
+
+
+def _serialize_consent(consent: _ConsentLike) -> dict[str, JSONValue]:
+    created_at = consent.created_at
+    created_at_timestamp = int(created_at.timestamp()) if hasattr(created_at, "timestamp") else int(created_at)
+    return {
+        "id": str(consent.id),
+        "clientId": consent.client_id,
+        "userId": consent.individual_id,
+        "referenceId": consent.reference_id,
+        "scopes": list(consent.scopes),
+        "createdAt": created_at_timestamp,
+    }
 
 
 async def _can_manage_consent(
@@ -2400,7 +2440,7 @@ def _normalize_client_updates(payload: Mapping[str, JSONValue]) -> dict[str, obj
         "reference_id",
     }
     bool_fields = {"disabled", "skip_consent", "require_pkce", "enable_end_session"}
-    dict_fields = {"jwks", "metadata_json"}
+    dict_fields = {"jwks", "metadata", "metadata_json"}
 
     normalized: dict[str, object] = {}
     for key, value in payload.items():
@@ -2411,7 +2451,7 @@ def _normalize_client_updates(payload: Mapping[str, JSONValue]) -> dict[str, obj
             or (key in bool_fields and (value is None or isinstance(value, bool)))
             or (key in dict_fields and (value is None or isinstance(value, dict)))
         ):
-            normalized[key] = value
+            normalized["metadata_json" if key == "metadata" else key] = value
     return normalized
 
 
@@ -2437,29 +2477,6 @@ def _with_authorization_principal(
         individual_id=individual_id,
         session_id=session_id,
     )
-
-
-def _resolve_token_resource(
-    settings: OAuthServer,
-    belgie_base_url: str,
-    *,
-    requested_resource: str | None,
-    bound_resource: str | None = None,
-    require_bound_match: bool = False,
-) -> tuple[str | None, JSONResponse | None]:
-    try:
-        return (
-            resolve_token_resource(
-                settings,
-                belgie_base_url,
-                requested_resource=requested_resource,
-                bound_resource=bound_resource,
-                require_bound_match=require_bound_match,
-            ),
-            None,
-        )
-    except InvalidTargetError:
-        return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
 
 
 def _decode_unverified_jwt(token: str) -> dict[str, JSONValue] | None:

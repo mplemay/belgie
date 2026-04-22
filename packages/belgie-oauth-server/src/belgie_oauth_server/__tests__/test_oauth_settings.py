@@ -2,7 +2,7 @@ import pytest
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.development import DEVELOPMENT_RSA_PRIVATE_KEY_PEM, build_development_signing
 from belgie_oauth_server.provider import SimpleOAuthProvider
-from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
+from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.signing import OAuthServerSigning
 from cryptography.hazmat.primitives import serialization
 from pydantic import SecretStr, ValidationError
@@ -11,16 +11,16 @@ from pydantic import SecretStr, ValidationError
 def test_oauth_settings_defaults() -> None:
     settings = build_oauth_settings(redirect_uris=["http://example.com/callback"])
 
-    assert settings.prefix == "/oauth"
     assert settings.login_url == "/login"
     assert settings.signup_url is None
     assert settings.consent_url == "/consent"
     assert settings.select_account_url is None
+    assert settings.post_login_url is None
     assert settings.grant_types == ["authorization_code", "client_credentials", "refresh_token"]
     assert settings.default_scopes == ()
     assert settings.static_client_require_pkce is True
     assert settings.pairwise_secret is None
-    assert settings.authorization_code_ttl_seconds == 300
+    assert settings.authorization_code_ttl_seconds == 600
     assert settings.access_token_ttl_seconds == 3600
     assert settings.refresh_token_ttl_seconds == 2592000
     assert settings.id_token_ttl_seconds == 36000
@@ -29,11 +29,13 @@ def test_oauth_settings_defaults() -> None:
     assert settings.enable_end_session is False
     assert settings.allow_dynamic_client_registration is False
     assert settings.allow_unauthenticated_client_registration is False
-    assert settings.resources is None
-    assert settings.include_root_resource_metadata_fallback is True
+    assert settings.allow_public_client_prelogin is False
+    assert settings.valid_audiences is None
     assert settings.request_uri_resolver is None
     assert settings.select_account_resolver is None
-    assert settings.include_root_openid_metadata_fallback is True
+    assert settings.post_login_resolver is None
+    assert str(settings.issuer_url) == "http://example.com/auth"
+    assert settings.resolved_valid_audiences() == ["http://example.com/auth"]
 
 
 def test_oauth_settings_requires_redirect_uris() -> None:
@@ -48,91 +50,62 @@ def test_oauth_settings_rejects_empty_redirect_uris() -> None:
     assert "redirect_uris" in str(exc.value)
 
 
-def test_oauth_settings_rejects_legacy_route_prefix() -> None:
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("route_prefix", "/oauth"),
+        ("prefix", "/oauth"),
+        ("resource_server_url", "http://example.com/mcp"),
+        ("resource_scopes", ["user"]),
+        ("resources", [{"prefix": "/mcp"}]),
+        ("include_root_resource_metadata_fallback", False),
+        ("include_root_oauth_metadata_fallback", False),
+        ("include_root_openid_metadata_fallback", False),
+    ],
+)
+def test_oauth_settings_rejects_removed_legacy_fields(field_name: str, value: object) -> None:
     with pytest.raises(ValidationError) as exc:
         OAuthServer(
             adapter=build_oauth_settings().adapter,
+            base_url="http://example.com",
             redirect_uris=["http://example.com/callback"],
             login_url="/login",
             consent_url="/consent",
             signing=build_development_signing(),
-            route_prefix="/oauth",
+            **{field_name: value},
         )
-    assert "route_prefix" in str(exc.value)
+
+    assert field_name in str(exc.value)
 
 
-def test_oauth_settings_rejects_legacy_resource_settings() -> None:
-    with pytest.raises(ValidationError) as exc:
-        OAuthServer(
-            adapter=build_oauth_settings().adapter,
-            redirect_uris=["http://example.com/callback"],
-            login_url="/login",
-            consent_url="/consent",
-            signing=build_development_signing(),
-            resource_server_url="http://example.com/mcp",
-        )
-    assert "resource_server_url" in str(exc.value)
-
-
-def test_oauth_settings_rejects_legacy_resource_scopes() -> None:
-    with pytest.raises(ValidationError) as exc:
-        OAuthServer(
-            adapter=build_oauth_settings().adapter,
-            redirect_uris=["http://example.com/callback"],
-            login_url="/login",
-            consent_url="/consent",
-            signing=build_development_signing(),
-            resource_scopes=["user"],
-        )
-    assert "resource_scopes" in str(exc.value)
-
-
-def test_oauth_settings_populates_issuer_url_from_base_url() -> None:
+def test_oauth_settings_accepts_valid_audiences_and_deduplicates_supported_scopes() -> None:
     settings = build_oauth_settings(
         base_url="http://example.com",
-        redirect_uris=["http://example.com/callback"],
-    )
-
-    assert str(settings.issuer_url) == "http://example.com/auth/oauth"
-
-
-def test_oauth_settings_accepts_resource_metadata_settings() -> None:
-    settings = build_oauth_settings(
-        base_url="http://example.com",
-        redirect_uris=["http://example.com/callback"],
-        resources=[OAuthServerResource(prefix="/mcp", scopes=["user", "files:read"])],
-        include_root_resource_metadata_fallback=False,
-    )
-
-    assert settings.resources is not None
-    assert settings.resources[0].prefix == "/mcp"
-    assert settings.resources[0].scopes == ["user", "files:read"]
-    assert settings.include_root_resource_metadata_fallback is False
-
-    resource_url, resource_scopes = settings.resolve_resource()
-    assert str(resource_url) == "http://example.com/mcp"
-    assert resource_scopes == ["user", "files:read"]
-
-
-def test_oauth_settings_accepts_multiple_default_scopes() -> None:
-    settings = build_oauth_settings(
         redirect_uris=["http://example.com/callback"],
         default_scopes=["user", "profile"],
+        client_registration_allowed_scopes=["profile", "email"],
+        valid_audiences=["http://example.com/mcp/", "http://example.com/mcp/"],
     )
 
-    assert settings.default_scopes == ["user", "profile"]
+    assert [str(value) for value in settings.valid_audiences or []] == [
+        "http://example.com/mcp/",
+        "http://example.com/mcp/",
+    ]
+    assert settings.resolved_valid_audiences() == ["http://example.com/mcp/"]
+    assert settings.supported_scopes() == ["user", "profile", "openid", "email", "offline_access"]
 
 
-def test_oauth_settings_preserves_resource_trailing_slash() -> None:
-    settings = build_oauth_settings(
-        base_url="http://example.com",
+def test_oauth_settings_resolves_valid_audiences_from_fallback_issuer() -> None:
+    settings = OAuthServer(
+        adapter=build_oauth_settings().adapter,
         redirect_uris=["http://example.com/callback"],
-        resources=[OAuthServerResource(prefix="/mcp/", scopes=["user"])],
+        login_url="/login",
+        consent_url="/consent",
+        base_url=None,
     )
 
-    resource_url, resource_scopes = settings.resolve_resource()
-    assert str(resource_url) == "http://example.com/mcp/"
-    assert resource_scopes == ["user"]
+    assert settings.issuer_url is None
+    assert settings.resolved_valid_audiences("http://fallback.local/auth") == ["http://fallback.local/auth"]
 
 
 def test_oauth_settings_accepts_signup_url() -> None:
@@ -186,19 +159,6 @@ def test_oauth_settings_rejects_refresh_token_without_authorization_code() -> No
         )
 
     assert "refresh_token grant requires authorization_code grant" in str(exc.value)
-
-
-def test_oauth_settings_rejects_multiple_resources() -> None:
-    with pytest.raises(ValidationError) as exc:
-        OAuthServer(
-            adapter=build_oauth_settings().adapter,
-            redirect_uris=["http://example.com/callback"],
-            login_url="/login",
-            consent_url="/consent",
-            signing=build_development_signing(),
-            resources=[OAuthServerResource(prefix="/mcp"), OAuthServerResource(prefix="/files")],
-        )
-    assert "resources" in str(exc.value)
 
 
 def test_oauth_settings_rejects_refresh_token_encoder_without_decoder() -> None:
@@ -268,14 +228,3 @@ def test_oauth_settings_rs256_accepts_explicit_public_key() -> None:
     provider = SimpleOAuthProvider(settings, issuer_url=str(settings.issuer_url))
 
     assert provider.signing_state.verification_key == public_pem
-
-
-def test_oauth_settings_resolves_resource_with_fallback_base_url() -> None:
-    settings = build_oauth_settings(
-        redirect_uris=["http://example.com/callback"],
-        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
-    )
-
-    resource_url, resource_scopes = settings.resolve_resource("http://example.com")
-    assert str(resource_url) == "http://example.com/mcp"
-    assert resource_scopes == ["user"]

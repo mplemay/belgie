@@ -27,7 +27,7 @@ from belgie.alchemy import (
 )
 from belgie.alchemy.mixins import AccountMixin, IndividualMixin, OAuthAccountMixin, OAuthStateMixin, SessionMixin
 from belgie.mcp import Mcp, get_user_from_access_token
-from belgie.oauth.server import OAuthServer, OAuthServerResource
+from belgie.oauth.server import OAuthServer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
@@ -158,13 +158,12 @@ oauth_adapter = OAuthServerAdapter(
 oauth_settings = OAuthServer(
     adapter=oauth_adapter,
     base_url=AnyHttpUrl(settings.base_url),
-    prefix="/oauth",
     client_id="demo-client",
     client_secret=SecretStr("demo-secret"),
     redirect_uris=[AnyUrl("http://localhost:3030/callback")],
     default_scopes=["user"],
     login_url="/login",
-    resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+    valid_audiences=[AnyUrl("http://localhost:8000/mcp")],
     signing=build_development_signing(),
 )
 

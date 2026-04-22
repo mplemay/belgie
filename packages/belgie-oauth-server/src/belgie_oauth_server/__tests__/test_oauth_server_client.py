@@ -80,7 +80,7 @@ async def test_try_resolve_login_context_returns_state_intent_prompt_and_return_
     assert context.state == "state-123"
     assert context.intent == "create"
     assert context.prompt == "create"
-    assert context.return_to == "http://example.com/auth/oauth/continue?state=state-123&created=true"
+    assert context.return_to == "http://example.com/auth/oauth2/continue?state=state-123&created=true"
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_try_resolve_login_context_returns_consent_return_to() -> None:
     assert context is not None
     assert context.intent == "consent"
     assert context.prompt == "consent"
-    assert context.return_to == "http://example.com/auth/oauth/consent?state=state-123"
+    assert context.return_to == "http://example.com/auth/oauth2/consent?state=state-123"
 
 
 @pytest.mark.asyncio
@@ -112,7 +112,7 @@ async def test_try_resolve_login_context_returns_select_account_return_to() -> N
     assert context is not None
     assert context.intent == "select_account"
     assert context.prompt == "select_account"
-    assert context.return_to == "http://example.com/auth/oauth/continue?state=state-123&selected=true"
+    assert context.return_to == "http://example.com/auth/oauth2/continue?state=state-123&selected=true"
 
 
 @pytest.mark.asyncio
@@ -121,14 +121,14 @@ async def test_try_resolve_login_context_extracts_state_from_return_to_query() -
     await _store_state(provider, settings, state="state-123")
 
     context = await client.try_resolve_login_context(
-        _build_request({"return_to": "http://example.com/auth/oauth/login/callback?state=state-123"}),
+        _build_request({"return_to": "http://example.com/auth/oauth2/login/callback?state=state-123"}),
     )
 
     assert context is not None
     assert context.state == "state-123"
     assert context.intent == "login"
     assert context.prompt is None
-    assert context.return_to == "http://example.com/auth/oauth/login/callback?state=state-123"
+    assert context.return_to == "http://example.com/auth/oauth2/login/callback?state=state-123"
 
 
 @pytest.mark.asyncio
@@ -183,7 +183,7 @@ async def test_try_resolve_login_context_prefers_explicit_state_over_return_to_s
             _build_request(
                 {
                     "state": "invalid-state",
-                    "return_to": "http://example.com/auth/oauth/login/callback?state=valid-state",
+                    "return_to": "http://example.com/auth/oauth2/login/callback?state=valid-state",
                 },
             ),
         )

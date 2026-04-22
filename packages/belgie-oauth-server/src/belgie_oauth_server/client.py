@@ -62,11 +62,11 @@ class OAuthServerClient:
 
 def _build_return_to_url(issuer_url: str, state: str, intent: OAuthServerLoginIntent) -> str:
     if intent == "create":
-        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, created="true")
+        return construct_redirect_uri(join_url(issuer_url, "oauth2/continue"), state=state, created="true")
     if intent == "select_account":
-        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, selected="true")
+        return construct_redirect_uri(join_url(issuer_url, "oauth2/continue"), state=state, selected="true")
     if intent == "post_login":
-        return construct_redirect_uri(join_url(issuer_url, "continue"), state=state, post_login="true")
+        return construct_redirect_uri(join_url(issuer_url, "oauth2/continue"), state=state, post_login="true")
     if intent == "consent":
-        return construct_redirect_uri(join_url(issuer_url, "consent"), state=state)
-    return construct_redirect_uri(join_url(issuer_url, "login/callback"), state=state)
+        return construct_redirect_uri(join_url(issuer_url, "oauth2/consent"), state=state)
+    return construct_redirect_uri(join_url(issuer_url, "oauth2/login/callback"), state=state)

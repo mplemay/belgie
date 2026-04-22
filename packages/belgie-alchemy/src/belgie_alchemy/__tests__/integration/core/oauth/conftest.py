@@ -39,7 +39,7 @@ OAUTH_SRC = PACKAGES_ROOT / "belgie-oauth-server" / "src"
 if str(OAUTH_SRC) not in sys.path:
     sys.path.insert(0, str(OAUTH_SRC))
 
-from belgie_oauth_server import OAuthServer, OAuthServerPlugin, OAuthServerResource  # noqa: E402
+from belgie_oauth_server import OAuthServer, OAuthServerPlugin  # noqa: E402
 from belgie_oauth_server.development import build_development_signing  # noqa: E402
 
 if TYPE_CHECKING:
@@ -135,7 +135,6 @@ def oauth_settings() -> OAuthServer:
     return OAuthServer(
         adapter=oauth_adapter,
         base_url="http://testserver",
-        prefix="/oauth",
         login_url="/login/google",
         consent_url="/consent",
         signup_url="/signup",
@@ -143,7 +142,7 @@ def oauth_settings() -> OAuthServer:
         client_secret=SecretStr("test-secret"),
         redirect_uris=["http://localhost/callback"],
         default_scopes=["user"],
-        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+        valid_audiences=["http://testserver/mcp"],
         signing=build_development_signing(),
     )
 

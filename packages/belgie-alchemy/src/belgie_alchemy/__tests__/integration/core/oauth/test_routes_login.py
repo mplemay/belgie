@@ -37,7 +37,7 @@ async def _create_login_state(
     prompt: str | None = None,
 ) -> str:
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params=_authorize_params(oauth_settings, state=state, prompt=prompt),
         follow_redirects=False,
     )
@@ -45,13 +45,13 @@ async def _create_login_state(
     location = authorize_response.headers["location"]
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
-    assert parsed.path == "/auth/oauth/login"
+    assert parsed.path == "/auth/oauth2/login"
     return query["state"][0]
 
 
 @pytest.mark.asyncio
 async def test_login_missing_state_returns_400(async_client: httpx.AsyncClient) -> None:
-    response = await async_client.get("/auth/oauth/login")
+    response = await async_client.get("/auth/oauth2/login")
 
     assert response.status_code == 400
     assert response.json()["detail"] == "missing state"
@@ -64,7 +64,7 @@ async def test_login_redirects_to_configured_login_url(
 ) -> None:
     state = await _create_login_state(async_client, oauth_settings, state="state-123")
     response = await async_client.get(
-        "/auth/oauth/login",
+        "/auth/oauth2/login",
         params={"state": state},
         follow_redirects=False,
     )
@@ -76,7 +76,7 @@ async def test_login_redirects_to_configured_login_url(
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
     assert parsed.path == "/login/google"
-    assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-123"
+    assert query["return_to"][0] == "http://testserver/auth/oauth2/login/callback?state=state-123"
     assert query["intent"][0] == "login"
 
 
@@ -87,7 +87,7 @@ async def test_login_redirects_to_signup_url_when_prompt_create(
 ) -> None:
     state = await _create_login_state(async_client, oauth_settings, state="state-create", prompt="create")
     response = await async_client.get(
-        "/auth/oauth/login",
+        "/auth/oauth2/login",
         params={"state": state},
         follow_redirects=False,
     )
@@ -99,7 +99,7 @@ async def test_login_redirects_to_signup_url_when_prompt_create(
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
     assert parsed.path == "/signup"
-    assert query["return_to"][0] == "http://testserver/auth/oauth/continue?state=state-create&created=true"
+    assert query["return_to"][0] == "http://testserver/auth/oauth2/continue?state=state-create&created=true"
     assert query["intent"][0] == "create"
 
 
@@ -110,7 +110,7 @@ async def test_login_redirects_to_configured_login_url_when_prompt_login(
 ) -> None:
     state = await _create_login_state(async_client, oauth_settings, state="state-login", prompt="login")
     response = await async_client.get(
-        "/auth/oauth/login",
+        "/auth/oauth2/login",
         params={"state": state},
         follow_redirects=False,
     )
@@ -122,7 +122,7 @@ async def test_login_redirects_to_configured_login_url_when_prompt_login(
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
     assert parsed.path == "/login/google"
-    assert query["return_to"][0] == "http://testserver/auth/oauth/login/callback?state=state-login"
+    assert query["return_to"][0] == "http://testserver/auth/oauth2/login/callback?state=state-login"
     assert query["intent"][0] == "login"
 
 
@@ -132,7 +132,7 @@ async def test_authorize_rejects_prompt_with_select_account_when_not_configured(
     oauth_settings: OAuthServer,
 ) -> None:
     response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params=_authorize_params(
             oauth_settings,
             state="state-create-multi",
@@ -151,7 +151,7 @@ async def test_authorize_rejects_prompt_with_select_account_when_not_configured(
     assert query["error"][0] == "invalid_request"
     assert query["error_description"][0] == "unsupported prompt type"
     assert query["state"][0] == "state-create-multi"
-    assert query["iss"][0] == "http://testserver/auth/oauth"
+    assert query["iss"][0] == "http://testserver/auth"
 
 
 @pytest.mark.asyncio
@@ -160,7 +160,7 @@ async def test_authorize_rejects_select_account_prompt_without_configured_page(
     oauth_settings: OAuthServer,
 ) -> None:
     response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params=_authorize_params(
             oauth_settings,
             state="state-unknown-prompt",
@@ -179,7 +179,7 @@ async def test_authorize_rejects_select_account_prompt_without_configured_page(
     assert query["error"][0] == "invalid_request"
     assert query["error_description"][0] == "unsupported prompt type"
     assert query["state"][0] == "state-unknown-prompt"
-    assert query["iss"][0] == "http://testserver/auth/oauth"
+    assert query["iss"][0] == "http://testserver/auth"
 
 
 @pytest.mark.asyncio
@@ -201,7 +201,7 @@ async def test_login_prompt_create_falls_back_to_login_url_when_signup_url_missi
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         state = await _create_login_state(client, settings, state="state-fallback", prompt="create")
         response = await client.get(
-            "/auth/oauth/login",
+            "/auth/oauth2/login",
             params={"state": state},
             follow_redirects=False,
         )
@@ -213,14 +213,14 @@ async def test_login_prompt_create_falls_back_to_login_url_when_signup_url_missi
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
     assert parsed.path == "/login/google"
-    assert query["return_to"][0] == "http://testserver/auth/oauth/continue?state=state-fallback&created=true"
+    assert query["return_to"][0] == "http://testserver/auth/oauth2/continue?state=state-fallback&created=true"
     assert query["intent"][0] == "create"
 
 
 @pytest.mark.asyncio
 async def test_login_callback_requires_session(async_client: httpx.AsyncClient) -> None:
     response = await async_client.get(
-        "/auth/oauth/login/callback",
+        "/auth/oauth2/login/callback",
         params={"state": "state-123"},
     )
 
@@ -239,7 +239,7 @@ async def test_login_callback_rejects_invalid_state(
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     response = await async_client.get(
-        "/auth/oauth/login/callback",
+        "/auth/oauth2/login/callback",
         params={"state": "bad-state"},
     )
 

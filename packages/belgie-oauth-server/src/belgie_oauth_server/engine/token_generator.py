@@ -89,14 +89,5 @@ def resolve_request_session_id(request: StarletteOAuth2Request) -> str | None:
     return None
 
 
-def resolve_refresh_token_resource(request: StarletteOAuth2Request) -> str | None:
-    if request.payload.grant_type == "authorization_code":
-        authorization_code = getattr(request, "authorization_code", None)
-        if authorization_code is not None:
-            return authorization_code.record.resource
-        return None
-
-    if request.payload.grant_type == "refresh_token":
-        return getattr(request, "belgie_resolved_resource", None)
-
+def resolve_refresh_token_resource(_request: StarletteOAuth2Request) -> str | None:
     return None

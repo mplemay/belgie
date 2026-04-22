@@ -9,7 +9,7 @@ BEARER = "Bearer"
 
 @pytest.mark.asyncio
 async def test_introspect_requires_client_auth(async_client) -> None:
-    response = await async_client.post("/auth/oauth/introspect", data={"token": "missing"})
+    response = await async_client.post("/auth/oauth2/introspect", data={"token": "missing"})
     assert response.status_code == 401
     assert response.json()["error"] == "invalid_client"
 
@@ -20,7 +20,7 @@ async def test_introspect_missing_token(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -36,7 +36,7 @@ async def test_introspect_unknown_token(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -64,7 +64,7 @@ async def test_introspect_active_access_token(
     )
 
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -94,11 +94,11 @@ async def test_introspect_active_access_token_with_list_audience(
         scopes=["openid", "profile"],
         created_at=created_at,
         expires_at=int(time.time()) + 3600,
-        resource=["http://testserver/mcp", "http://testserver/auth/oauth/userinfo"],
+        resource=["http://testserver/mcp", "http://testserver/auth/oauth2/userinfo"],
     )
 
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -108,7 +108,7 @@ async def test_introspect_active_access_token_with_list_audience(
     payload = response.json()
 
     assert payload["active"] is True
-    assert payload["aud"] == ["http://testserver/mcp", "http://testserver/auth/oauth/userinfo"]
+    assert payload["aud"] == ["http://testserver/mcp", "http://testserver/auth/oauth2/userinfo"]
 
 
 @pytest.mark.asyncio
@@ -128,7 +128,7 @@ async def test_introspect_accepts_basic_auth(
     )
 
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={"token": "token-basic"},
         headers={
             "authorization": basic_auth_header(
@@ -158,7 +158,7 @@ async def test_introspect_refresh_token_with_hint(
     )
 
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -193,7 +193,7 @@ async def test_introspect_refresh_token_without_resource_omits_aud(
     )
 
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -208,7 +208,7 @@ async def test_introspect_refresh_token_without_resource_omits_aud(
     assert payload["scope"] == "user offline_access"
     assert payload["token_type"] == "refresh_token"  # noqa: S105
     assert payload["iat"] == created_at
-    assert "aud" not in payload
+    assert payload["aud"] is None
 
 
 @pytest.mark.asyncio
@@ -226,7 +226,7 @@ async def test_introspect_token_type_hint_access_token_does_not_match_refresh(
     )
 
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -244,7 +244,7 @@ async def test_introspect_rejects_unsupported_token_type_hint(
     oauth_settings,
 ) -> None:
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -280,7 +280,7 @@ async def test_introspect_inactive_for_mismatched_client(
     )
 
     response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": "other-client",
             "client_secret": "other-secret",

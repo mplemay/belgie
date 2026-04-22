@@ -335,7 +335,7 @@ class SimpleOAuthProvider:
         client_secret = None
         client_secret_hash = None
         client_secret_expires_at = self._resolve_client_secret_expiration()
-        skip_consent = metadata.skip_consent or await self.settings.is_trusted_client(metadata)
+        skip_consent = bool(metadata.skip_consent)
         if token_endpoint_auth_method != "none":  # noqa: S105
             raw_client_secret = await self._generate_client_secret()
             client_secret, client_secret_hash = self._store_client_secret(raw_client_secret)
@@ -393,7 +393,7 @@ class SimpleOAuthProvider:
             client_info = self._client_information_from_record(client)
             if raw_client_secret is not None:
                 client_info.client_secret = self._prefix_client_secret(raw_client_secret)
-            return await self._apply_trusted_client_policy(client_info)
+            return client_info
 
     async def authorize(
         self,
@@ -591,14 +591,14 @@ class SimpleOAuthProvider:
                     scopes=list(code_record.scopes),
                     individual_id=code_record.individual_id,
                     session_id=code_record.session_id,
-                    resource=code_record.resource,
+                    resource=None,
                 )
 
             access_token = await self._issue_access_token(
                 session,
                 client_id=code_record.client_id,
                 scopes=list(code_record.scopes),
-                resource=code_record.resource if access_token_resource is None else access_token_resource,
+                resource=access_token_resource,
                 refresh_token_id=refresh_token.id if refresh_token is not None else None,
                 refresh_token=refresh_token.token if refresh_token is not None else None,
                 individual_id=code_record.individual_id,
@@ -795,13 +795,13 @@ class SimpleOAuthProvider:
                 scopes=list(scopes),
                 individual_id=stored_refresh_token.individual_id,
                 session_id=stored_refresh_token.session_id,
-                resource=stored_refresh_token.resource if refresh_token_resource is None else refresh_token_resource,
+                resource=refresh_token_resource,
             )
             access_token = await self._issue_access_token(
                 session,
                 client_id=stored_refresh_token.client_id,
                 scopes=list(scopes),
-                resource=stored_refresh_token.resource if access_token_resource is None else access_token_resource,
+                resource=access_token_resource,
                 refresh_token_id=new_refresh_token.id,
                 refresh_token=new_refresh_token.token,
                 individual_id=stored_refresh_token.individual_id,

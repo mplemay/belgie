@@ -41,14 +41,11 @@ class BelgieAuthorizationCodeGrant(BelgieGrantMixin, AuthorizationCodeGrant):
 
     def validate_token_request(self) -> None:
         super().validate_token_request()
-        authorization_code = cast("AuthlibAuthorizationCode", self.request.authorization_code)
         try:
             resolved_resource = resolve_token_resource(
                 self.runtime.settings,
-                self.runtime.belgie_base_url,
+                self.runtime.issuer_url,
                 requested_resource=self.request.form.get("resource"),
-                bound_resource=authorization_code.record.resource,
-                require_bound_match=True,
             )
         except InvalidTargetError as exc:
             raise InvalidTargetError from exc
@@ -127,10 +124,8 @@ class BelgieRefreshTokenGrant(BelgieGrantMixin, RefreshTokenGrant):
         try:
             resolved_resource = resolve_token_resource(
                 self.runtime.settings,
-                self.runtime.belgie_base_url,
+                self.runtime.issuer_url,
                 requested_resource=self.request.form.get("resource"),
-                bound_resource=refresh_token.resource,
-                require_bound_match=True,
             )
         except InvalidTargetError as exc:
             raise InvalidTargetError from exc
@@ -184,7 +179,7 @@ class BelgieClientCredentialsGrant(BelgieGrantMixin, ClientCredentialsGrant):
         try:
             resolved_resource = resolve_token_resource(
                 self.runtime.settings,
-                self.runtime.belgie_base_url,
+                self.runtime.issuer_url,
                 requested_resource=self.request.form.get("resource"),
             )
         except InvalidTargetError as exc:

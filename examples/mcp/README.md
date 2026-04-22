@@ -23,14 +23,12 @@ The app runs at `http://localhost:8000`.
 ## Endpoints
 
 - `GET /login`
-- `GET /auth/oauth/.well-known/oauth-authorization-server`
-- `GET /.well-known/oauth-authorization-server/auth/oauth`
-- `GET|POST /auth/oauth/authorize`
-- `POST /auth/oauth/token`
-- `POST /auth/oauth/introspect`
+- `GET /auth/.well-known/oauth-authorization-server`
+- `GET /.well-known/oauth-authorization-server/auth`
+- `GET|POST /auth/oauth2/authorize`
+- `POST /auth/oauth2/token`
+- `POST /auth/oauth2/introspect`
 - `POST /mcp/` (MCP streamable HTTP endpoint)
-- `GET /.well-known/oauth-protected-resource/mcp`
-- `GET /.well-known/oauth-protected-resource`
 
 ## Notes
 
@@ -39,9 +37,7 @@ The app runs at `http://localhost:8000`.
   streamable HTTP transport configuration are owned by the application.
 - If you need transport security settings such as allowed hosts/origins, pass them directly to
   `mcp_server.streamable_http_app(...)`.
-- OAuth discovery serving (`/.well-known/oauth-authorization-server*` and
-  `/.well-known/oauth-protected-resource*`) is owned by `OAuthServerPlugin`.
-- Configure `OAuthServer.resources=[OAuthServerResource(prefix="/mcp", ...)]` so protected
-  resource metadata is published at the RFC9728 well-known endpoint.
+- OAuth discovery serving is owned by `OAuthServerPlugin`.
+- Configure `OAuthServer.valid_audiences=[...]` so token `resource` values can be validated for the MCP endpoint.
 - The example uses `OAuthServerAdapter`, so registered clients, issued tokens, and consent survive process restarts.
 - The example uses SQLite and will create `./belgie_mcp_example.db` in the working directory.

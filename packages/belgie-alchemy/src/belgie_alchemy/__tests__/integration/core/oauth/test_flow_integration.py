@@ -99,7 +99,7 @@ async def test_full_oauth_flow(
     code_challenge = create_code_challenge(code_verifier)
 
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
             "client_id": oauth_settings.client_id,
@@ -116,7 +116,7 @@ async def test_full_oauth_flow(
     code = parse_qs(urlparse(redirect_location).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": oauth_settings.client_id,
@@ -132,7 +132,7 @@ async def test_full_oauth_flow(
     access_token = token_payload["access_token"]
 
     introspect_response = await async_client.post(
-        "/auth/oauth/introspect",
+        "/auth/oauth2/introspect",
         data={
             "client_id": oauth_settings.client_id,
             "client_secret": oauth_settings.client_secret.get_secret_value(),
@@ -155,7 +155,7 @@ async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         code_verifier = "verifier"
         authorize_response = await client.get(
-            "/auth/oauth/authorize",
+            "/auth/oauth2/authorize",
             params={
                 "response_type": "code",
                 "client_id": settings.client_id,
@@ -169,7 +169,7 @@ async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
 
         assert authorize_response.status_code == 302
         login_redirect = authorize_response.headers["location"]
-        assert urlparse(login_redirect).path == "/auth/oauth/login"
+        assert urlparse(login_redirect).path == "/auth/oauth2/login"
 
         login_page_redirect = await client.get(login_redirect, follow_redirects=False)
         assert login_page_redirect.status_code == 302
@@ -181,7 +181,7 @@ async def test_full_oauth_flow_unauthenticated_with_custom_login_pages(
 
         callback_redirect = await client.get(provider_redirect.headers["location"], follow_redirects=False)
         assert callback_redirect.status_code == 302
-        assert urlparse(callback_redirect.headers["location"]).path == "/auth/oauth/login/callback"
+        assert urlparse(callback_redirect.headers["location"]).path == "/auth/oauth2/login/callback"
 
         code_redirect = await client.get(callback_redirect.headers["location"], follow_redirects=False)
         assert code_redirect.status_code == 302

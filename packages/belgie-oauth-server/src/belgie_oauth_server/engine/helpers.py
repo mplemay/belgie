@@ -82,28 +82,27 @@ def resource_urls_match(left_resource: str, right_resource: str) -> bool:
 
 def resolve_token_resource(
     settings: OAuthServer,
-    belgie_base_url: str,
+    issuer_url: str,
     *,
     requested_resource: str | None,
     bound_resource: str | None = None,
     require_bound_match: bool = False,
 ) -> str | None:
-    configured_resource = settings.resolve_resource(belgie_base_url)
-    configured_resource_url = str(configured_resource[0]) if configured_resource is not None else None
+    valid_audiences = settings.resolved_valid_audiences(issuer_url)
     canonical_bound_resource = bound_resource
-    if (
-        configured_resource_url is not None
-        and bound_resource is not None
-        and resource_urls_match(configured_resource_url, bound_resource)
-    ):
-        canonical_bound_resource = configured_resource_url
+    for valid_audience in valid_audiences:
+        if bound_resource is not None and resource_urls_match(valid_audience, bound_resource):
+            canonical_bound_resource = valid_audience
+            break
 
     if requested_resource is not None:
-        if configured_resource_url is None:
+        matched_audience = next(
+            (audience for audience in valid_audiences if resource_urls_match(audience, requested_resource)),
+            None,
+        )
+        if matched_audience is None:
             raise InvalidTargetError
-        if not resource_urls_match(configured_resource_url, requested_resource):
-            raise InvalidTargetError
-        requested_resource = configured_resource_url
+        requested_resource = matched_audience
 
     if require_bound_match and requested_resource is not None and bound_resource is None:
         raise InvalidTargetError
@@ -129,5 +128,5 @@ def build_access_token_audience(
         return None
     if "openid" not in scopes:
         return base_resource
-    userinfo_audience = join_url(issuer_url, "userinfo")
+    userinfo_audience = join_url(issuer_url, "oauth2/userinfo")
     return [base_resource, userinfo_audience]

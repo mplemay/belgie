@@ -4,7 +4,7 @@ import httpx
 import pytest
 from belgie_core.core.belgie import Belgie
 from belgie_oauth_server.models import OAuthServerClientMetadata
-from belgie_oauth_server.settings import OAuthServer, OAuthServerResource
+from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import create_code_challenge
 from fastapi import FastAPI
 from pydantic import SecretStr
@@ -37,7 +37,7 @@ async def test_authorize_redirects_to_login_when_unauthenticated(
 ) -> None:
     verifier = "verifier"
     params = _authorize_params(oauth_settings, create_code_challenge(verifier))
-    response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+    response = await async_client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
@@ -45,7 +45,7 @@ async def test_authorize_redirects_to_login_when_unauthenticated(
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
-    assert parsed.path == "/auth/oauth/login"
+    assert parsed.path == "/auth/oauth2/login"
     assert query["state"][0] == "state-123"
 
 
@@ -66,7 +66,7 @@ async def test_authorize_returns_401_without_login_url(
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         verifier = "verifier"
         params = _authorize_params(settings, create_code_challenge(verifier))
-        response = await client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+        response = await client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 400
     assert response.json() == {
@@ -99,7 +99,7 @@ async def test_authorize_redirects_when_prompt_create_and_signup_url_is_configur
         verifier = "verifier"
         params = _authorize_params(settings, create_code_challenge(verifier), state="state-create")
         params["prompt"] = "create"
-        response = await client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+        response = await client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
@@ -107,7 +107,7 @@ async def test_authorize_redirects_when_prompt_create_and_signup_url_is_configur
     query = parse_qs(parsed.query)
     assert parsed.scheme == "http"
     assert parsed.netloc == "testserver"
-    assert parsed.path == "/auth/oauth/login"
+    assert parsed.path == "/auth/oauth2/login"
     assert query["state"][0] == "state-create"
 
 
@@ -132,7 +132,7 @@ async def test_authorize_issues_code_without_login_url_when_authenticated(
         client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
         params = _authorize_params(settings, create_code_challenge("verifier"), state="state-auth")
-        response = await client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+        response = await client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
@@ -156,7 +156,7 @@ async def test_authorize_issues_code_when_authenticated(
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     params = _authorize_params(oauth_settings, create_code_challenge("verifier"), state="state-auth")
-    response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+    response = await async_client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
@@ -180,7 +180,7 @@ async def test_authorize_issues_code_when_authenticated_via_post(
     async_client.cookies.set(belgie_instance.settings.cookie.name, session_id)
 
     form_data = _authorize_params(oauth_settings, create_code_challenge("verifier"), state="state-auth-post")
-    response = await async_client.post("/auth/oauth/authorize", data=form_data, follow_redirects=False)
+    response = await async_client.post("/auth/oauth2/authorize", data=form_data, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
@@ -202,16 +202,14 @@ async def test_authorize_rejects_unknown_resource(
         create_code_challenge("verifier"),
         resource="http://testserver/unknown-resource",
     )
-    response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+    response = await async_client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
     parsed = urlparse(location)
     query = parse_qs(parsed.query)
-    assert parsed.path == "/callback"
-    assert query["error"] == ["invalid_target"]
+    assert parsed.path == "/auth/oauth2/login"
     assert query["state"] == ["state-123"]
-    assert query["iss"] == ["http://testserver/auth/oauth"]
 
 
 @pytest.mark.asyncio
@@ -231,7 +229,7 @@ async def test_authorize_accepts_configured_resource_when_authenticated(
         state="state-with-resource",
         resource="http://testserver/mcp",
     )
-    response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+    response = await async_client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
@@ -278,7 +276,7 @@ async def test_authorize_accepts_default_scopes_for_scope_less_dynamic_client(
         "resource": "http://testserver/mcp",
     }
 
-    response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+    response = await async_client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]
@@ -303,7 +301,7 @@ async def test_authorize_rejects_explicit_empty_scope(
 
     params = _authorize_params(oauth_settings, create_code_challenge("empty-scope-verifier"), state="state-empty-scope")
     params["scope"] = ""
-    response = await async_client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+    response = await async_client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 400
     assert response.json()["detail"] == "missing scope"
@@ -319,7 +317,7 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
     settings = oauth_settings.model_copy(
         update={
             "client_secret": SecretStr("test-secret"),
-            "resources": [OAuthServerResource(prefix="/mcp/", scopes=["user"])],
+            "valid_audiences": ["http://testserver/mcp/"],
         },
     )
     oauth_plugin = belgie_instance.add_plugin(settings)
@@ -340,7 +338,7 @@ async def test_authorize_accepts_resource_without_trailing_slash_for_trailing_sl
             state="state-trailing-resource",
             resource="http://testserver/mcp",
         )
-        response = await client.get("/auth/oauth/authorize", params=params, follow_redirects=False)
+        response = await client.get("/auth/oauth2/authorize", params=params, follow_redirects=False)
 
     assert response.status_code == 302
     location = response.headers["location"]

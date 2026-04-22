@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID  # noqa: TC003
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from belgie_oauth_server.utils import parse_scope_string, validate_safe_redirect_uri
+
+type JSONValue = None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+type JSONObject = dict[str, JSONValue]
 
 
 class OAuthServerToken(BaseModel):
@@ -14,6 +17,7 @@ class OAuthServerToken(BaseModel):
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"  # noqa: S105
     expires_in: int | None = None
+    expires_at: int | None = None
     scope: str | None = None
     refresh_token: str | None = None
     id_token: str | None = None
@@ -74,7 +78,7 @@ class InvalidRedirectUriError(Exception):
 
 
 class OAuthServerClientMetadata(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     redirect_uris: list[AnyUrl] | None = Field(default=None, min_length=1)
     token_endpoint_auth_method: (
@@ -82,7 +86,6 @@ class OAuthServerClientMetadata(BaseModel):
             "none",
             "client_secret_post",
             "client_secret_basic",
-            "private_key_jwt",
         ]
         | None
     ) = None
@@ -97,7 +100,7 @@ class OAuthServerClientMetadata(BaseModel):
     tos_uri: AnyHttpUrl | None = None
     policy_uri: AnyHttpUrl | None = None
     jwks_uri: AnyHttpUrl | None = None
-    jwks: Any | None = None
+    jwks: JSONValue | None = None
     software_id: str | None = None
     software_version: str | None = None
     software_statement: str | None = None
@@ -108,7 +111,11 @@ class OAuthServerClientMetadata(BaseModel):
     disabled: bool | None = None
     skip_consent: bool | None = None
     reference_id: str | None = None
-    metadata_json: dict[str, Any] | None = None
+    metadata_json: JSONObject | None = Field(
+        default=None,
+        validation_alias="metadata",
+        serialization_alias="metadata",
+    )
 
     @field_validator("redirect_uris", "post_logout_redirect_uris", mode="before")
     @classmethod
@@ -116,6 +123,19 @@ class OAuthServerClientMetadata(BaseModel):
         if value is None:
             return value
         return [validate_safe_redirect_uri(str(uri)) for uri in value]
+
+    @model_validator(mode="after")
+    def merge_extra_metadata_fields(self) -> OAuthServerClientMetadata:
+        extras = self.model_extra or {}
+        if not extras:
+            return self
+
+        merged_metadata = {
+            **(self.metadata_json or {}),
+            **{key: value for key, value in extras.items() if key not in type(self).model_fields},
+        }
+        self.metadata_json = merged_metadata or None
+        return self
 
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:
@@ -143,7 +163,7 @@ class OAuthServerClientMetadata(BaseModel):
 
 
 class OAuthServerClientInformationFull(OAuthServerClientMetadata):
-    client_id: str | None = None
+    client_id: str
     client_secret: str | None = None
     client_id_issued_at: int | None = None
     client_secret_expires_at: int | None = None
@@ -211,3 +231,14 @@ class ProtectedResourceMetadata(BaseModel):
     resource: AnyHttpUrl
     authorization_servers: list[AnyHttpUrl] = Field(min_length=1)
     scopes_supported: list[str] | None = None
+    jwks_uri: AnyHttpUrl | None = None
+    bearer_methods_supported: list[Literal["header", "body"]] | None = None
+    resource_signing_alg_values_supported: list[str] | None = None
+    resource_name: str | None = None
+    resource_documentation: AnyHttpUrl | None = None
+    resource_policy_uri: AnyHttpUrl | None = None
+    resource_tos_uri: AnyHttpUrl | None = None
+    tls_client_certificate_bound_access_tokens: bool | None = None
+    authorization_details_types_supported: list[str] | None = None
+    dpop_signing_alg_values_supported: list[str] | None = None
+    dpop_bound_access_tokens_required: bool | None = None

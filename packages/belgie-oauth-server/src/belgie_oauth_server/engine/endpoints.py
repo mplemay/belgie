@@ -58,9 +58,14 @@ class BelgieRevocationEndpoint(BelgieEndpointMixin, RevocationEndpoint):
 
     def query_token(self, token_string: str, token_type_hint: str | None) -> IntrospectableToken | None:
         if token_type_hint in {None, ACCESS_TOKEN_HINT}:
-            access_token = run_async(self.runtime.provider.load_access_token, token_string)
-            if access_token is not None:
-                return AuthlibAccessToken(record=access_token, runtime=self.runtime)
+            verified_access_token = run_async(
+                verify_local_access_token,
+                self.runtime.provider,
+                token_string,
+                audience=self.runtime.settings.resolved_valid_audiences(self.runtime.issuer_url),
+            )
+            if verified_access_token is not None:
+                return AuthlibAccessToken(record=verified_access_token.token, runtime=self.runtime)
             if token_type_hint == ACCESS_TOKEN_HINT:
                 return None
 
@@ -104,7 +109,12 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
 
     def query_token(self, token_string: str, token_type_hint: str | None) -> IntrospectableToken | None:
         if token_type_hint in {None, ACCESS_TOKEN_HINT}:
-            verified_access_token = run_async(verify_local_access_token, self.runtime.provider, token_string)
+            verified_access_token = run_async(
+                verify_local_access_token,
+                self.runtime.provider,
+                token_string,
+                audience=self.runtime.settings.resolved_valid_audiences(self.runtime.issuer_url),
+            )
             if verified_access_token is not None:
                 return AuthlibAccessToken(record=verified_access_token.token, runtime=self.runtime)
             if token_type_hint == ACCESS_TOKEN_HINT:

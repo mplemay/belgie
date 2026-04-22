@@ -14,7 +14,6 @@ from belgie_oauth_server.resource_verifier import (
     RemoteIntrospectionConfig,
     verify_resource_access_token,
 )
-from belgie_oauth_server.settings import OAuthServerResource
 from belgie_oauth_server.utils import create_code_challenge
 from httpx import Response
 from pydantic import AnyUrl
@@ -27,7 +26,7 @@ async def test_verify_resource_access_token_returns_local_token_and_subject() ->
         redirect_uris=["https://example.com/callback"],
         base_url="https://issuer.local",
         client_id="test-client",
-        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+        valid_audiences=["https://issuer.local/mcp"],
     )
     token_value, stored_token, _client = await _issue_dynamic_client_access_token(
         provider,
@@ -58,7 +57,7 @@ async def test_verify_resource_access_token_resolves_pairwise_subject() -> None:
         base_url="https://issuer.local",
         client_id="test-client",
         pairwise_secret="x" * 32,
-        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+        valid_audiences=["https://issuer.local/mcp"],
     )
     token_value, _stored_token, client = await _issue_dynamic_client_access_token(
         provider,
@@ -137,7 +136,7 @@ async def test_verify_resource_access_token_rejects_invalid_local_resource_witho
         redirect_uris=["https://example.com/callback"],
         base_url="https://issuer.local",
         client_id="test-client",
-        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+        valid_audiences=["https://issuer.local/mcp"],
     )
     token_value, _stored_token, _client = await _issue_dynamic_client_access_token(
         provider,
@@ -180,7 +179,7 @@ async def _issue_dynamic_client_access_token(
             code_challenge=create_code_challenge("verifier"),
             redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
             redirect_uri_provided_explicitly=True,
-            resource=resource,
+            resource=None,
             individual_id=individual_id,
             session_id=str(uuid4()),
         ),
@@ -189,7 +188,10 @@ async def _issue_dynamic_client_access_token(
     code = parse_qs(urlparse(redirect).query)["code"][0]
     authorization_code = await provider.load_authorization_code(code)
     assert authorization_code is not None
-    token_response = await provider.exchange_authorization_code(authorization_code)
+    token_response = await provider.exchange_authorization_code(
+        authorization_code,
+        access_token_resource=resource,
+    )
     stored_token = await provider.load_access_token(token_response.access_token)
     assert stored_token is not None
     return token_response.access_token, stored_token, client

@@ -31,7 +31,7 @@ async def _issue_id_token(
 
     code_verifier = "end-session-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
             "client_id": oauth_settings.client_id,
@@ -46,7 +46,7 @@ async def _issue_id_token(
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": oauth_settings.client_id,
@@ -66,7 +66,7 @@ async def _issue_id_token(
 @pytest.mark.asyncio
 async def test_end_session_rejects_invalid_id_token(async_client) -> None:
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={"id_token_hint": "not-a-jwt"},
     )
 
@@ -97,7 +97,7 @@ async def test_end_session_rejects_clients_without_permission(
     )
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={"id_token_hint": id_token},
     )
 
@@ -130,7 +130,7 @@ async def test_end_session_signs_out_session_and_redirects(
     )
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={
             "id_token_hint": id_token,
             "post_logout_redirect_uri": redirect_uri,
@@ -169,7 +169,7 @@ async def test_end_session_returns_empty_object_for_invalid_redirect_uri(
     )
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={
             "id_token_hint": id_token,
             "post_logout_redirect_uri": "http://testserver/not-allowed",
@@ -205,7 +205,7 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
 
     code_verifier = "end-session-public-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
             "client_id": "public-end-session",
@@ -220,7 +220,7 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": "public-end-session",
@@ -234,7 +234,7 @@ async def test_end_session_allows_public_client_when_id_token_hint_is_valid(
     assert id_token is not None
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={
             "id_token_hint": id_token,
             "post_logout_redirect_uri": "http://localhost/logout-complete",
@@ -269,7 +269,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
 
     code_verifier = "end-session-public-disabled-verifier"
     authorize_response = await async_client.get(
-        "/auth/oauth/authorize",
+        "/auth/oauth2/authorize",
         params={
             "response_type": "code",
             "client_id": "public-end-session-disabled",
@@ -284,7 +284,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
     code = parse_qs(urlparse(authorize_response.headers["location"]).query)["code"][0]
 
     token_response = await async_client.post(
-        "/auth/oauth/token",
+        "/auth/oauth2/token",
         data={
             "grant_type": "authorization_code",
             "client_id": "public-end-session-disabled",
@@ -298,7 +298,7 @@ async def test_end_session_rejects_public_client_without_logout_permission(
     assert id_token is not None
 
     response = await async_client.get(
-        "/auth/oauth/end-session",
+        "/auth/oauth2/end-session",
         params={"id_token_hint": id_token},
     )
 

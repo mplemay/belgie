@@ -245,7 +245,7 @@ async def test_get_user_valid_sub_returns_user_when_no_provider_matches() -> Non
             session_id=None,
         ),
         subject=str(user.id),
-        issuer="https://issuer.local/auth/oauth",
+        issuer="https://issuer.local/auth",
     )
 
     with _set_access_token(token), _set_verified_token(verified_token):
@@ -299,7 +299,7 @@ async def _issue_dynamic_client_access_token(
             code_challenge="test-challenge",
             redirect_uri=AnyUrl("http://localhost:6274/oauth/callback"),
             redirect_uri_provided_explicitly=True,
-            resource=resource,
+            resource=None,
             individual_id=individual_id,
             session_id=str(uuid4()),
         ),
@@ -308,7 +308,10 @@ async def _issue_dynamic_client_access_token(
     code = parse_qs(urlparse(redirect).query)["code"][0]
     authorization_code = await provider.load_authorization_code(code)
     assert authorization_code is not None
-    token_response = await provider.exchange_authorization_code(authorization_code)
+    token_response = await provider.exchange_authorization_code(
+        authorization_code,
+        access_token_resource=resource,
+    )
     stored_token = await provider.load_access_token(token_response.access_token)
     assert stored_token is not None
     return token_response.access_token, stored_token

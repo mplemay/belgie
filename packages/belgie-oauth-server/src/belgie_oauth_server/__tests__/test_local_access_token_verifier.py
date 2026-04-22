@@ -4,7 +4,6 @@ import jwt
 import pytest
 from belgie_oauth_server.__tests__.helpers import build_oauth_provider
 from belgie_oauth_server.provider import AuthorizationParams
-from belgie_oauth_server.settings import OAuthServerResource
 from belgie_oauth_server.utils import create_code_challenge
 from belgie_oauth_server.verifier import verify_local_access_token
 
@@ -31,7 +30,7 @@ async def test_verify_local_access_token_rejects_revoked_signed_token() -> None:
         redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
-        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+        valid_audiences=["http://example.com/mcp"],
     )
 
     oauth_client = await provider.get_client("test-client")
@@ -44,7 +43,7 @@ async def test_verify_local_access_token_rejects_revoked_signed_token() -> None:
             code_challenge=create_code_challenge("verifier"),
             redirect_uri=settings.redirect_uris[0],
             redirect_uri_provided_explicitly=True,
-            resource="http://example.com/mcp",
+            resource=None,
             individual_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         ),
@@ -55,7 +54,10 @@ async def test_verify_local_access_token_rejects_revoked_signed_token() -> None:
     authorization_code = await provider.load_authorization_code(code)
     assert authorization_code is not None
 
-    token = await provider.exchange_authorization_code(authorization_code)
+    token = await provider.exchange_authorization_code(
+        authorization_code,
+        access_token_resource="http://example.com/mcp",
+    )
     verified_before_revoke = await verify_local_access_token(
         provider,
         token.access_token,
@@ -86,7 +88,7 @@ async def test_verify_local_access_token_preserves_reserved_claims_with_custom_c
         redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
-        resources=[OAuthServerResource(prefix="/mcp", scopes=["user"])],
+        valid_audiences=["http://example.com/mcp"],
         custom_access_token_claims=lambda payload: {
             "sub": "not-a-uuid",
             "scope": "admin",
@@ -107,7 +109,7 @@ async def test_verify_local_access_token_preserves_reserved_claims_with_custom_c
             code_challenge=create_code_challenge("verifier"),
             redirect_uri=settings.redirect_uris[0],
             redirect_uri_provided_explicitly=True,
-            resource="http://example.com/mcp",
+            resource=None,
             individual_id=individual_id,
             session_id=session_id,
         ),
@@ -118,7 +120,10 @@ async def test_verify_local_access_token_preserves_reserved_claims_with_custom_c
     authorization_code = await provider.load_authorization_code(code)
     assert authorization_code is not None
 
-    token = await provider.exchange_authorization_code(authorization_code)
+    token = await provider.exchange_authorization_code(
+        authorization_code,
+        access_token_resource="http://example.com/mcp",
+    )
     decoded = jwt.decode(
         token.access_token,
         provider.signing_state.verification_key,

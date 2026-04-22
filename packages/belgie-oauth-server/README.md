@@ -10,7 +10,7 @@ plumbing, metadata endpoints, PKCE handling, dynamic client registration, and pr
 without leaving the Python stack.
 
 It is designed to pair with `belgie-core` and FastAPI. The package exposes a small settings object, a plugin, a client
-helper for custom auth pages, and metadata builders for OAuth, OpenID Connect, and protected resource discovery.
+helper for custom auth pages, and metadata builders for OAuth and OpenID Connect discovery.
 
 ## Installation
 
@@ -22,14 +22,14 @@ uv add belgie-oauth-server
 
 - OAuth 2.1 authorization, token, revoke, introspect, and userinfo routes.
 - OpenID Connect metadata and `id_token` support.
-- OAuth protected resource metadata when you configure `resources=[OAuthServerResource(...)]`.
+- Better Auth-compatible `/oauth2/*` routes for authorization, token exchange, registration, and management APIs.
 - Dynamic client registration, including the anonymous registration escape hatch when you explicitly enable it.
 - Custom login, consent, and signup pages via `login_url`, `consent_url`, and `signup_url`.
 
 ## Important Notes
 
-- Resource matching is strict. If a client sends `resource` and no OAuth resource is configured, the server returns
-  `invalid_target`.
+- Resource matching is strict. If a token request sends `resource` and it does not match `valid_audiences`, the server
+  returns `invalid_target`.
 - If `authorization_code` is enabled, `login_url` and `consent_url` are required. Belgie does not silently auto-consent
   by default. To mirror Better Auth's trusted-client behavior, use `trusted_client_resolver` to let the server mark
   selected clients as `skip_consent` without allowing `skip_consent` in dynamic registration payloads.
@@ -159,7 +159,7 @@ async def consent(
     context = await oauth.resolve_login_context(request)
     return HTMLResponse(
         f"""
-        <form method="post" action="/auth/oauth/consent">
+        <form method="post" action="/auth/oauth2/consent">
           <input type="hidden" name="state" value="{context.state}" />
           <input type="hidden" name="accept" value="true" />
           <button type="submit">Approve</button>
@@ -189,8 +189,9 @@ uv run uvicorn server:app --reload
 ## Configuration
 
 - `adapter` is required and is responsible for persisting OAuth server state.
-- `prefix` controls where the OAuth server routes are mounted. The default is `/oauth`.
+- OAuth server protocol routes are fixed to Better Auth-compatible `/oauth2/*` paths.
 - `base_url` is used to derive issuer and metadata URLs.
+- `valid_audiences` controls which `resource` values are accepted at the token endpoint.
 - `redirect_uris` is required and must contain at least one callback URL.
 - `grant_types` controls which server grants are active. The default is
   `["authorization_code", "client_credentials", "refresh_token"]`.
@@ -198,9 +199,8 @@ uv run uvicorn server:app --reload
 - `login_url` and `consent_url` are required when `authorization_code` is enabled.
 - `signup_url` is optional. `prompt=create` uses it when present and otherwise falls back to `login_url`.
 - `pairwise_secret` enables pairwise subject identifiers and must be at least 32 characters.
-- `resources=[OAuthServerResource(prefix=..., scopes=...)]` enables protected resource metadata.
 - `enable_end_session` turns on RP-initiated logout support.
-- `allow_dynamic_client_registration` enables `POST /auth/oauth/register`.
+- `allow_dynamic_client_registration` enables `POST /auth/oauth2/register`.
 - Authenticated dynamic registration defaults to:
   - `token_endpoint_auth_method="client_secret_basic"` for confidential clients.
   - `grant_types=["authorization_code"]` when the client omits `grant_types`.
@@ -221,17 +221,18 @@ uv run uvicorn server:app --reload
 ## Advanced Capabilities
 
 - `request_uri_resolver` lets you resolve pushed or out-of-band authorization parameters before request validation.
-- Client and consent management routes are built in under the OAuth server prefix.
+- Client and consent management routes are built in under Better Auth-compatible `/oauth2/*` RPC endpoints such as
+  `/oauth2/create-client`, `/oauth2/get-client`, `/oauth2/get-consents`, and `/oauth2/update-consent`.
 - `allow_public_client_prelogin` enables public-client lookup before login for custom UX.
 - `rate_limit` exposes per-endpoint rate limiting for authorize, token, registration, introspection, revoke, and
   userinfo.
 - `custom_access_token_claims`, `custom_id_token_claims`, `custom_userinfo_claims`, and
   `custom_token_response_fields` let you inject product-specific claims and token response fields.
-- Protected resource metadata is exposed automatically when you configure `resources=[OAuthServerResource(...)]`, with
-  optional root well-known fallbacks controlled by the metadata fallback settings.
 
 ## Migration Note
 
-- `route_prefix` has been removed. Use `prefix` instead.
-- `resource_server_url` has been removed. Use `resources=[OAuthServerResource(...)]` instead.
-- `resource_scopes` has been removed. Put scopes on `OAuthServerResource(scopes=[...])` instead.
+- `route_prefix` and `prefix` have been removed. The package now exposes fixed Better Auth-compatible `/oauth2/*`
+  routes.
+- `resource_server_url`, `resource_scopes`, and `resources` have been removed. Use `valid_audiences=[...]` for token
+  `resource` validation instead.
+- Root metadata fallback switches for OAuth, OpenID Connect, and protected-resource discovery have been removed.
