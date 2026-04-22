@@ -186,6 +186,115 @@ async def test_get_account_not_found(adapter: BelgieAdapter, alchemy_session: As
 
 
 @pytest.mark.asyncio
+async def test_list_oauth_accounts_supports_multiple_accounts_per_provider(
+    adapter: BelgieAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    user = await adapter.create_individual(
+        alchemy_session,
+        email="multi@example.com",
+    )
+
+    first = await adapter.create_oauth_account(
+        alchemy_session,
+        individual_id=user.id,
+        provider="google",
+        provider_account_id="google-1",
+    )
+    second = await adapter.create_oauth_account(
+        alchemy_session,
+        individual_id=user.id,
+        provider="google",
+        provider_account_id="google-2",
+    )
+
+    accounts = await adapter.list_oauth_accounts(alchemy_session, user.id, provider="google")
+
+    assert [account.id for account in accounts] == [first.id, second.id]
+
+
+@pytest.mark.asyncio
+async def test_get_account_by_individual_provider_account_id(
+    adapter: BelgieAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    user = await adapter.create_individual(
+        alchemy_session,
+        email="lookup@example.com",
+    )
+
+    account = await adapter.create_oauth_account(
+        alchemy_session,
+        individual_id=user.id,
+        provider="google",
+        provider_account_id="google-lookup",
+    )
+
+    found = await adapter.get_oauth_account_by_individual_provider_account_id(
+        alchemy_session,
+        user.id,
+        "google",
+        "google-lookup",
+    )
+
+    assert found is not None
+    assert found.id == account.id
+
+
+@pytest.mark.asyncio
+async def test_update_oauth_account_by_id(
+    adapter: BelgieAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    user = await adapter.create_individual(
+        alchemy_session,
+        email="update-account@example.com",
+    )
+
+    account = await adapter.create_oauth_account(
+        alchemy_session,
+        individual_id=user.id,
+        provider="google",
+        provider_account_id="google-update",
+        access_token="old-token",
+    )
+
+    updated = await adapter.update_oauth_account_by_id(
+        alchemy_session,
+        account.id,
+        access_token="new-token",
+        refresh_token="refresh-token",
+    )
+
+    assert updated is not None
+    assert updated.access_token == "new-token"  # noqa: S105
+    assert updated.refresh_token == "refresh-token"  # noqa: S105
+
+
+@pytest.mark.asyncio
+async def test_delete_oauth_account(
+    adapter: BelgieAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    user = await adapter.create_individual(
+        alchemy_session,
+        email="delete-account@example.com",
+    )
+
+    account = await adapter.create_oauth_account(
+        alchemy_session,
+        individual_id=user.id,
+        provider="google",
+        provider_account_id="google-delete",
+    )
+
+    deleted = await adapter.delete_oauth_account(alchemy_session, account.id)
+
+    assert deleted is True
+    assert await adapter.get_oauth_account(alchemy_session, "google", "google-delete") is None
+
+
+@pytest.mark.asyncio
 async def test_create_session(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     user = await adapter.create_individual(
         alchemy_session,

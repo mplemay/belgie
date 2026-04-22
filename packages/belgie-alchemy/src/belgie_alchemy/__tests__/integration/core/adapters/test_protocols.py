@@ -102,9 +102,16 @@ class ExampleSession:
 class ExampleOAuthState:
     id: UUID
     state: str
+    provider: str | None
     individual_id: UUID | None
     code_verifier: str | None
+    nonce: str | None
+    intent: str
     redirect_url: str | None
+    error_redirect_url: str | None
+    new_user_redirect_url: str | None
+    payload: object | None
+    request_sign_up: bool
     created_at: datetime
     expires_at: datetime
 
@@ -415,9 +422,16 @@ def test_oauth_state_protocol_runtime_check() -> None:
     oauth_state = ExampleOAuthState(
         id=uuid4(),
         state="random_state",
+        provider="google",
         individual_id=uuid4(),
         code_verifier="verifier",
+        nonce="nonce",
+        intent="signin",
         redirect_url="/dashboard",
+        error_redirect_url="/error",
+        new_user_redirect_url="/welcome",
+        payload={"source": "test"},
+        request_sign_up=True,
         created_at=now,
         expires_at=now,
     )
@@ -565,8 +579,13 @@ def test_alchemy_adapter_satisfies_adapter_protocol() -> None:
     assert callable(adapter.update_individual)
     assert callable(adapter.create_oauth_account)
     assert callable(adapter.get_oauth_account)
+    assert callable(adapter.get_oauth_account_by_id)
     assert callable(adapter.get_oauth_account_by_individual_and_provider)
+    assert callable(adapter.get_oauth_account_by_individual_provider_account_id)
+    assert callable(adapter.list_oauth_accounts)
     assert callable(adapter.update_oauth_account)
+    assert callable(adapter.update_oauth_account_by_id)
+    assert callable(adapter.delete_oauth_account)
     assert callable(adapter.create_session)
     assert callable(adapter.get_session)
     assert callable(adapter.update_session)

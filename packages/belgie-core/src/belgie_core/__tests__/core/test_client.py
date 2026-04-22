@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from belgie_core.core.client import BelgieClient
+from belgie_core.core.exceptions import OAuthError
 from belgie_core.core.settings import CookieSettings
 from fastapi import HTTPException, Response
 from fastapi.security import SecurityScopes
@@ -320,7 +321,7 @@ async def test_get_or_create_individual_returns_existing_user(client, mock_adapt
 async def test_upsert_oauth_account_creates_when_missing(client, mock_adapter):
     individual_id = uuid4()
     account = MagicMock()
-    mock_adapter.get_oauth_account_by_individual_and_provider.return_value = None
+    mock_adapter.get_oauth_account.return_value = None
     mock_adapter.create_oauth_account.return_value = account
 
     result = await client.upsert_oauth_account(
@@ -331,7 +332,7 @@ async def test_upsert_oauth_account_creates_when_missing(client, mock_adapter):
     )
 
     assert result is account
-    mock_adapter.update_oauth_account.assert_not_called()
+    mock_adapter.update_oauth_account_by_id.assert_not_called()
     mock_adapter.create_oauth_account.assert_called_once_with(
         client.db,
         individual_id=individual_id,
@@ -345,9 +346,11 @@ async def test_upsert_oauth_account_creates_when_missing(client, mock_adapter):
 async def test_upsert_oauth_account_updates_when_existing(client, mock_adapter):
     individual_id = uuid4()
     existing_account = MagicMock()
+    existing_account.id = uuid4()
+    existing_account.individual_id = individual_id
     updated_account = MagicMock()
-    mock_adapter.get_oauth_account_by_individual_and_provider.return_value = existing_account
-    mock_adapter.update_oauth_account.return_value = updated_account
+    mock_adapter.get_oauth_account.return_value = existing_account
+    mock_adapter.update_oauth_account_by_id.return_value = updated_account
 
     result = await client.upsert_oauth_account(
         individual_id=individual_id,
@@ -357,13 +360,67 @@ async def test_upsert_oauth_account_updates_when_existing(client, mock_adapter):
     )
 
     assert result is updated_account
-    mock_adapter.update_oauth_account.assert_called_once_with(
+    mock_adapter.update_oauth_account_by_id.assert_called_once_with(
         client.db,
-        individual_id=individual_id,
-        provider="google",
+        existing_account.id,
         access_token="new-access-token",
     )
     mock_adapter.create_oauth_account.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_upsert_oauth_account_raises_when_existing_account_belongs_to_another_user(client, mock_adapter):
+    existing_account = MagicMock()
+    existing_account.id = uuid4()
+    existing_account.individual_id = uuid4()
+    mock_adapter.get_oauth_account.return_value = existing_account
+
+    with pytest.raises(OAuthError, match="already linked"):
+        await client.upsert_oauth_account(
+            individual_id=uuid4(),
+            provider="google",
+            provider_account_id="google-123",
+            access_token="new-access-token",
+        )
+
+    mock_adapter.update_oauth_account_by_id.assert_not_called()
+    mock_adapter.create_oauth_account.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_list_oauth_accounts_delegates_to_adapter(client, mock_adapter):
+    individual_id = uuid4()
+    accounts = [MagicMock(), MagicMock()]
+    mock_adapter.list_oauth_accounts.return_value = accounts
+
+    result = await client.list_oauth_accounts(individual_id=individual_id, provider="google")
+
+    assert result == accounts
+    mock_adapter.list_oauth_accounts.assert_called_once_with(client.db, individual_id, provider="google")
+
+
+@pytest.mark.asyncio
+async def test_unlink_oauth_account_deletes_precise_provider_account(client, mock_adapter):
+    individual_id = uuid4()
+    account = MagicMock()
+    account.id = uuid4()
+    mock_adapter.get_oauth_account_by_individual_provider_account_id.return_value = account
+    mock_adapter.delete_oauth_account.return_value = True
+
+    result = await client.unlink_oauth_account(
+        individual_id=individual_id,
+        provider="google",
+        provider_account_id="google-123",
+    )
+
+    assert result is True
+    mock_adapter.get_oauth_account_by_individual_provider_account_id.assert_called_once_with(
+        client.db,
+        individual_id,
+        "google",
+        "google-123",
+    )
+    mock_adapter.delete_oauth_account.assert_called_once_with(client.db, account.id)
 
 
 @pytest.mark.asyncio

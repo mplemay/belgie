@@ -1,67 +1,14 @@
-import inspect
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Literal
-from urllib.parse import urlencode, urlparse, urlunparse
+from __future__ import annotations
 
-import httpx
-from belgie_core.core.client import BelgieClient
-from belgie_core.core.exceptions import InvalidStateError, OAuthError
-from belgie_core.core.plugin import AuthenticatedProfile, PluginClient
-from belgie_core.utils.crypto import generate_state_token
-from belgie_core.utils.scopes import parse_scopes
-from fastapi import APIRouter, Depends, Query, Request, status
-from fastapi.responses import RedirectResponse
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from belgie_oauth.generic import OAuthClient, OAuthPlugin, OAuthProvider, OAuthTokenSet, OAuthUserInfo
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
-
-
-class MicrosoftOAuth(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="BELGIE_MICROSOFT_",
-        env_file=".env",
-        extra="ignore",
-    )
-
-    client_id: str
-    client_secret: SecretStr
-    tenant: str = Field(default="common")
-    scopes: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["openid", "profile", "email", "offline_access", "User.Read"],
-    )
-
-    @field_validator("client_id", "tenant")
-    @classmethod
-    def validate_non_empty(cls, value: str, info: ValidationInfo) -> str:
-        if not value or not value.strip():
-            msg = f"{info.field_name} must be a non-empty string"
-            raise ValueError(msg)
-        return value.strip()
-
-    @field_validator("client_secret")
-    @classmethod
-    def validate_client_secret(cls, value: SecretStr) -> SecretStr:
-        secret = value.get_secret_value()
-        if not secret or not secret.strip():
-            msg = "client_secret must be a non-empty string"
-            raise ValueError(msg)
-        return SecretStr(secret.strip())
-
-    @field_validator("scopes", mode="before")
-    @classmethod
-    def parse_scopes_value(cls, value: str | list[str]) -> list[str]:
-        if isinstance(value, str):
-            return parse_scopes(value)
-        return value
-
-    def __call__(self, belgie_settings: "BelgieSettings") -> "MicrosoftOAuthPlugin":
-        return MicrosoftOAuthPlugin(belgie_settings, self)
 
 
 class MicrosoftUserInfo(BaseModel):
@@ -81,264 +28,93 @@ class MicrosoftUserInfo(BaseModel):
         return self.email or self.preferred_username
 
 
-@dataclass(slots=True, kw_only=True)
-class MicrosoftOAuthClient:
-    plugin: "MicrosoftOAuthPlugin"
-    client: BelgieClient
+class MicrosoftOAuth(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="BELGIE_MICROSOFT_",
+        env_file=".env",
+        extra="ignore",
+    )
 
-    async def signin_url(self, *, return_to: str | None = None) -> str:
-        state = generate_state_token()
-        expires_at = datetime.now(UTC) + timedelta(minutes=10)
-        redirect_url = self.plugin.normalize_return_to(return_to)
-        await self.client.adapter.create_oauth_state(
-            self.client.db,
-            state=state,
-            expires_at=expires_at.replace(tzinfo=None),
-            redirect_url=redirect_url,
+    client_id: str
+    client_secret: SecretStr
+    tenant: str = Field(default="common")
+    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "offline_access", "User.Read"])
+    allow_sign_up: bool = True
+    require_explicit_sign_up: bool = False
+    encrypt_tokens: bool = False
+    token_encryption_secret: SecretStr | None = None
+    authorization_params: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("client_id", "tenant")
+    @classmethod
+    def validate_non_empty(cls, value: str, info: ValidationInfo) -> str:
+        if not value or not value.strip():
+            msg = f"{info.field_name} must be a non-empty string"
+            raise ValueError(msg)
+        return value.strip()
+
+    @field_validator("client_secret")
+    @classmethod
+    def validate_client_secret(cls, value: SecretStr) -> SecretStr:
+        secret = value.get_secret_value().strip()
+        if not secret:
+            msg = "client_secret must be a non-empty string"
+            raise ValueError(msg)
+        return SecretStr(secret)
+
+    def to_provider(self) -> OAuthProvider:
+        issuer = None
+        if self.tenant not in {"common", "organizations", "consumers"}:
+            issuer = f"https://login.microsoftonline.com/{self.tenant}/v2.0"
+
+        return OAuthProvider(
+            provider_id="microsoft",
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            authorization_endpoint=f"https://login.microsoftonline.com/{self.tenant}/oauth2/v2.0/authorize",
+            token_endpoint=f"https://login.microsoftonline.com/{self.tenant}/oauth2/v2.0/token",
+            userinfo_endpoint="https://graph.microsoft.com/oidc/userinfo",
+            jwks_uri=f"https://login.microsoftonline.com/{self.tenant}/discovery/v2.0/keys",
+            issuer=issuer,
+            scopes=self.scopes,
+            response_mode="query",
+            allow_sign_up=self.allow_sign_up,
+            require_explicit_sign_up=self.require_explicit_sign_up,
+            encrypt_tokens=self.encrypt_tokens,
+            token_encryption_secret=self.token_encryption_secret,
+            authorization_params=self.authorization_params,
+            map_profile=_map_microsoft_profile,
         )
-        return self.plugin.generate_authorization_url(state)
+
+    def __call__(self, belgie_settings: BelgieSettings) -> MicrosoftOAuthPlugin:
+        return MicrosoftOAuthPlugin(belgie_settings, self)
 
 
-@dataclass(slots=True, kw_only=True)
-class TokenResponse:
-    access_token: str
-    token_type: str | None
-    refresh_token: str | None
-    scope: str | None
-    id_token: str | None
-    expires_at: datetime | None
+class MicrosoftOAuthClient(OAuthClient):
+    pass
 
 
-class MicrosoftOAuthPlugin(PluginClient):
-    AUTHORIZATION_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
-    TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"  # noqa: S105
-    USER_INFO_URL = "https://graph.microsoft.com/oidc/userinfo"
-
-    def __init__(self, belgie_settings: "BelgieSettings", settings: MicrosoftOAuth) -> None:
+class MicrosoftOAuthPlugin(OAuthPlugin):
+    def __init__(self, belgie_settings: BelgieSettings, settings: MicrosoftOAuth) -> None:
         self.settings = settings
-        self._redirect_uri = self._build_provider_callback_url(
-            belgie_settings.base_url,
-            provider_id=self.provider_id,
-        )
-        self._resolve_client: Callable[..., MicrosoftOAuthClient] | None = None
-        parsed_base_url = urlparse(belgie_settings.base_url)
-        self._base_url_origin = (parsed_base_url.scheme.lower(), parsed_base_url.netloc.lower())
+        super().__init__(belgie_settings, settings.to_provider(), client_type=MicrosoftOAuthClient)
 
-    @property
-    def provider_id(self) -> Literal["microsoft"]:
-        return "microsoft"
 
-    @property
-    def authorization_url(self) -> str:
-        return self.AUTHORIZATION_URL_TEMPLATE.format(tenant=self.settings.tenant)
+def _map_microsoft_profile(raw_profile: dict[str, object], token_set: OAuthTokenSet) -> OAuthUserInfo:  # noqa: ARG001
+    profile = MicrosoftUserInfo(**raw_profile)
+    return OAuthUserInfo(
+        provider_account_id=profile.sub,
+        email=profile.resolved_email,
+        email_verified=profile.email_verified if profile.email_verified is not None else False,
+        name=profile.name,
+        image=profile.picture,
+        raw=dict(raw_profile),
+    )
 
-    @property
-    def token_url(self) -> str:
-        return self.TOKEN_URL_TEMPLATE.format(tenant=self.settings.tenant)
 
-    def _ensure_dependency_resolver(self, belgie: "Belgie") -> None:
-        if self._resolve_client is not None:
-            return
-
-        type BelgieClientDep = Annotated[BelgieClient, Depends(belgie)]
-
-        def resolve_client(client: BelgieClientDep) -> MicrosoftOAuthClient:
-            return MicrosoftOAuthClient(plugin=self, client=client)
-
-        self._resolve_client = resolve_client
-        self.__signature__ = inspect.signature(resolve_client)
-
-    def normalize_return_to(self, return_to: str | None) -> str | None:
-        if not return_to:
-            return None
-
-        parsed = urlparse(return_to)
-
-        if not parsed.scheme and not parsed.netloc:
-            if return_to.startswith("/") and not return_to.startswith("//"):
-                return return_to
-            return None
-
-        if (parsed.scheme.lower(), parsed.netloc.lower()) != self._base_url_origin:
-            return None
-
-        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, parsed.query, ""))
-
-    def __call__(self, *args: object, **kwargs: object) -> MicrosoftOAuthClient:
-        if self._resolve_client is None:
-            msg = (
-                "MicrosoftOAuthPlugin dependency requires router initialization "
-                "(call app.include_router(belgie.router) first)"
-            )
-            raise RuntimeError(msg)
-        return self._resolve_client(*args, **kwargs)
-
-    @property
-    def redirect_uri(self) -> str:
-        return self._redirect_uri
-
-    def generate_authorization_url(self, state: str) -> str:
-        params = {
-            "client_id": self.settings.client_id,
-            "redirect_uri": self.redirect_uri,
-            "response_type": "code",
-            "response_mode": "query",
-            "scope": " ".join(self.settings.scopes),
-            "state": state,
-        }
-        parsed = urlparse(self.authorization_url)
-        return urlunparse(
-            (
-                parsed.scheme,
-                parsed.netloc,
-                parsed.path,
-                "",
-                urlencode(params),
-                "",
-            ),
-        )
-
-    async def exchange_code_for_tokens(self, code: str) -> TokenResponse:
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.token_url,
-                    data={
-                        "client_id": self.settings.client_id,
-                        "client_secret": self.settings.client_secret.get_secret_value(),
-                        "code": code,
-                        "redirect_uri": self.redirect_uri,
-                        "grant_type": "authorization_code",
-                    },
-                )
-                response.raise_for_status()
-                tokens = response.json()
-
-                if "access_token" not in tokens:
-                    msg = "missing required field in token response: access_token"
-                    raise OAuthError(msg)
-
-                expires_at = None
-                if "expires_in" in tokens:
-                    expires_at = datetime.now(UTC) + timedelta(seconds=tokens["expires_in"])
-
-                return TokenResponse(
-                    access_token=tokens["access_token"],
-                    token_type=tokens.get("token_type"),
-                    refresh_token=tokens.get("refresh_token"),
-                    scope=tokens.get("scope"),
-                    id_token=tokens.get("id_token"),
-                    expires_at=expires_at,
-                )
-        except httpx.HTTPStatusError as e:
-            error_detail = ""
-            try:
-                error_data = e.response.json()
-                if isinstance(error_data, dict) and "error" in error_data:
-                    error_detail = f" ({error_data['error']})"
-            except (ValueError, KeyError, TypeError):
-                pass
-            msg = f"oauth token exchange failed: {e.response.status_code}{error_detail}"
-            raise OAuthError(msg) from e
-        except httpx.RequestError as e:
-            msg = "oauth token exchange request failed"
-            raise OAuthError(msg) from e
-
-    async def get_user_info(self, access_token: str) -> MicrosoftUserInfo:
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    self.USER_INFO_URL,
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
-                response.raise_for_status()
-                user_data = response.json()
-                return MicrosoftUserInfo(**user_data)
-        except httpx.HTTPStatusError as e:
-            error_detail = ""
-            try:
-                error_data = e.response.json()
-                if isinstance(error_data, dict) and "error" in error_data:
-                    error_detail = f" ({error_data['error']})"
-            except (ValueError, KeyError, TypeError):
-                pass
-            msg = f"failed to fetch user info: {e.response.status_code}{error_detail}"
-            raise OAuthError(msg) from e
-        except httpx.RequestError as e:
-            msg = "user info request failed"
-            raise OAuthError(msg) from e
-
-    def router(self, belgie: "Belgie") -> APIRouter:
-        self._ensure_dependency_resolver(belgie)
-        router = APIRouter(prefix=f"/provider/{self.provider_id}", tags=["auth", "oauth"])
-
-        @router.get("/callback")
-        async def callback(
-            code: Annotated[str, Query(min_length=1)],
-            state: Annotated[str, Query(min_length=1)],
-            request: Request,
-            client: Annotated[BelgieClient, Depends(belgie)],
-        ) -> RedirectResponse:
-            oauth_state = await client.adapter.get_oauth_state(client.db, state)
-            if not oauth_state:
-                msg = "Invalid OAuth state"
-                raise InvalidStateError(msg)
-            await client.adapter.delete_oauth_state(client.db, state)
-
-            tokens = await self.exchange_code_for_tokens(code)
-            user_info = await self.get_user_info(tokens.access_token)
-            if not (email := user_info.resolved_email):
-                msg = "Microsoft user info missing email"
-                raise OAuthError(msg)
-
-            individual, session = await client.sign_up(
-                email,
-                request=request,
-                name=user_info.name,
-                image=user_info.picture,
-                email_verified_at=None,
-            )
-
-            await client.upsert_oauth_account(
-                individual_id=individual.id,
-                provider=self.provider_id,
-                provider_account_id=user_info.sub,
-                access_token=tokens.access_token,
-                refresh_token=tokens.refresh_token,
-                expires_at=tokens.expires_at,
-                scope=tokens.scope,
-                token_type=tokens.token_type,
-                id_token=tokens.id_token,
-            )
-            await belgie.after_authenticate(
-                client=client,
-                request=request,
-                individual=individual,
-                profile=AuthenticatedProfile(
-                    provider=self.provider_id,
-                    provider_account_id=user_info.sub,
-                    email=email,
-                    email_verified=bool(user_info.email_verified),
-                    name=user_info.name,
-                    image=user_info.picture,
-                ),
-            )
-
-            response = RedirectResponse(
-                url=oauth_state.redirect_url or belgie.settings.urls.signin_redirect,
-                status_code=status.HTTP_302_FOUND,
-            )
-            return client.create_session_cookie(session, response)
-
-        return router
-
-    def public(self, belgie: "Belgie") -> APIRouter:  # noqa: ARG002
-        return APIRouter()
-
-    @staticmethod
-    def _build_provider_callback_url(base_url: str, *, provider_id: str) -> str:
-        parsed = urlparse(base_url)
-        base_path = parsed.path.rstrip("/")
-        callback_path = f"/auth/provider/{provider_id}/callback"
-        full_path = f"{base_path}{callback_path}" if base_path else callback_path
-        return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
+__all__ = [
+    "MicrosoftOAuth",
+    "MicrosoftOAuthClient",
+    "MicrosoftOAuthPlugin",
+    "MicrosoftUserInfo",
+]

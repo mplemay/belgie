@@ -218,6 +218,11 @@ class OAuthStateMixin(MappedAsDataclass):
         return mapped_column(Text, unique=True, index=True, kw_only=True)
 
     @declared_attr
+    def provider(self) -> Mapped[str | None]:
+        provider_type = Text().with_variant(CITEXT(), "postgresql")
+        return mapped_column(provider_type, default=None, kw_only=True)
+
+    @declared_attr
     def individual_id(self) -> Mapped[UUID | None]:
         return mapped_column(
             ForeignKey("individual.id", ondelete="set null", onupdate="cascade"),
@@ -234,8 +239,32 @@ class OAuthStateMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
+    def nonce(self) -> Mapped[str | None]:
+        return mapped_column(Text, default=None, kw_only=True)
+
+    @declared_attr
+    def intent(self) -> Mapped[str]:
+        return mapped_column(Text, default="signin", nullable=False, kw_only=True)
+
+    @declared_attr
     def redirect_url(self) -> Mapped[str | None]:
         return mapped_column(Text, default=None, kw_only=True)
+
+    @declared_attr
+    def error_redirect_url(self) -> Mapped[str | None]:
+        return mapped_column(Text, default=None, kw_only=True)
+
+    @declared_attr
+    def new_user_redirect_url(self) -> Mapped[str | None]:
+        return mapped_column(Text, default=None, kw_only=True)
+
+    @declared_attr
+    def payload(self) -> Mapped[dict[str, object] | list[object] | str | int | float | bool | None]:
+        return mapped_column(JSON, default=None, kw_only=True)
+
+    @declared_attr
+    def request_sign_up(self) -> Mapped[bool]:
+        return mapped_column(default=False, nullable=False, kw_only=True)
 
     @declared_attr
     def individual(self) -> Mapped[object | None]:

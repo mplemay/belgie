@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from belgie import Belgie, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import BelgieAdapter
-from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
+from belgie.oauth.provider import OAuthClient, OAuthProvider
 from examples.alchemy.auth_models import Account, Individual, OAuthAccount, OAuthState, Session
 
 DB_PATH = "./belgie_oauth_client_example.db"
@@ -70,6 +70,13 @@ class SessionInfoResponse(BaseModel):
     expires_at: str
 
 
+class LinkedOAuthAccountResponse(BaseModel):
+    provider: str
+    provider_account_id: str
+    scope: str | None
+    expires_at: str | None
+
+
 app = FastAPI(title="Belgie OAuth Client Plugin Example", lifespan=lifespan)
 
 settings = BelgieSettings(
@@ -105,13 +112,17 @@ belgie = Belgie(
 )
 
 google_oauth_plugin = belgie.add_plugin(
-    GoogleOAuth(
+    OAuthProvider(
+        provider_id="google",
         client_id="your-google-client-id",
         client_secret=SecretStr("your-google-client-secret"),
+        discovery_url="https://accounts.google.com/.well-known/openid-configuration",
         scopes=["openid", "email", "profile"],
+        access_type="offline",
+        prompt="consent",
     ),
 )
-type GoogleClientDep = Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)]
+type GoogleClientDep = Annotated[OAuthClient, Depends(google_oauth_plugin)]
 type CurrentIndividualDep = Annotated[Individual, Depends(belgie.individual)]
 type CurrentSessionDep = Annotated[Session, Depends(belgie.session)]
 
@@ -138,6 +149,23 @@ async def login_google(
 ) -> RedirectResponse:
     auth_url = await google.signin_url(return_to=return_to)
     return RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/accounts/google")
+async def linked_google_accounts(
+    google: GoogleClientDep,
+    user: CurrentIndividualDep,
+) -> list[LinkedOAuthAccountResponse]:
+    accounts = await google.list_accounts(individual_id=user.id)
+    return [
+        LinkedOAuthAccountResponse(
+            provider=account.provider,
+            provider_account_id=account.provider_account_id,
+            scope=account.scope,
+            expires_at=account.expires_at.isoformat() if account.expires_at else None,
+        )
+        for account in accounts
+    ]
 
 
 @app.get("/dashboard")

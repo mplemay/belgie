@@ -13,6 +13,7 @@ from belgie_proto.core.session import SessionProtocol
 from fastapi import HTTPException, Request, Response, status
 from fastapi.security import SecurityScopes
 
+from belgie_core.core.exceptions import OAuthError
 from belgie_core.core.settings import CookieSettings
 from belgie_core.session.manager import SessionManager
 from belgie_core.utils.scopes import validate_scopes
@@ -207,23 +208,20 @@ class BelgieClient[
         provider_account_id: str,
         **tokens: Any,  # noqa: ANN401
     ) -> OAuthAccountT:
-        if (
-            await self.adapter.get_oauth_account_by_individual_and_provider(
+        if account := await self.adapter.get_oauth_account(self.db, provider, provider_account_id):
+            if account.individual_id != individual_id:
+                msg = "oauth account already linked to another individual"
+                raise OAuthError(msg)
+
+            updated_account = await self.adapter.update_oauth_account_by_id(
                 self.db,
-                individual_id,
-                provider,
+                account.id,
+                **tokens,
             )
-            and (
-                account := await self.adapter.update_oauth_account(
-                    self.db,
-                    individual_id=individual_id,
-                    provider=provider,
-                    **tokens,
-                )
-            )
-            is not None
-        ):
-            return account
+            if updated_account is None:
+                msg = "failed to update existing oauth account"
+                raise OAuthError(msg)
+            return updated_account
 
         return await self.adapter.create_oauth_account(
             self.db,
@@ -232,6 +230,60 @@ class BelgieClient[
             provider_account_id=provider_account_id,
             **tokens,
         )
+
+    async def get_oauth_account(
+        self,
+        *,
+        provider: str,
+        provider_account_id: str,
+    ) -> OAuthAccountT | None:
+        return await self.adapter.get_oauth_account(self.db, provider, provider_account_id)
+
+    async def get_oauth_account_for_individual(
+        self,
+        *,
+        individual_id: UUID,
+        provider: str,
+        provider_account_id: str,
+    ) -> OAuthAccountT | None:
+        return await self.adapter.get_oauth_account_by_individual_provider_account_id(
+            self.db,
+            individual_id,
+            provider,
+            provider_account_id,
+        )
+
+    async def list_oauth_accounts(
+        self,
+        *,
+        individual_id: UUID,
+        provider: str | None = None,
+    ) -> list[OAuthAccountT]:
+        return await self.adapter.list_oauth_accounts(self.db, individual_id, provider=provider)
+
+    async def update_oauth_account_by_id(
+        self,
+        oauth_account_id: UUID,
+        **tokens: Any,  # noqa: ANN401
+    ) -> OAuthAccountT | None:
+        return await self.adapter.update_oauth_account_by_id(self.db, oauth_account_id, **tokens)
+
+    async def unlink_oauth_account(
+        self,
+        *,
+        individual_id: UUID,
+        provider: str,
+        provider_account_id: str,
+    ) -> bool:
+        account = await self.adapter.get_oauth_account_by_individual_provider_account_id(
+            self.db,
+            individual_id,
+            provider,
+            provider_account_id,
+        )
+        if account is None:
+            return False
+        return await self.adapter.delete_oauth_account(self.db, account.id)
 
     async def sign_in_individual(
         self,

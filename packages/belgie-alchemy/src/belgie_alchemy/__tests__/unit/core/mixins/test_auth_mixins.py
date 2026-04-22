@@ -228,7 +228,12 @@ def test_explicit_text_types_on_mixin_text_fields() -> None:
         Session.__table__.c.ip_address,
         Session.__table__.c.user_agent,
         OAuthState.__table__.c.state,
+        OAuthState.__table__.c.provider,
+        OAuthState.__table__.c.nonce,
+        OAuthState.__table__.c.intent,
         OAuthState.__table__.c.redirect_url,
+        OAuthState.__table__.c.error_redirect_url,
+        OAuthState.__table__.c.new_user_redirect_url,
         Organization.__table__.c.logo,
         OrganizationMember.__table__.c.role,
         OrganizationInvitation.__table__.c.status,
@@ -239,6 +244,8 @@ def test_explicit_text_types_on_mixin_text_fields() -> None:
 
 
 def test_account_session_oauthstate_mixin_defaults() -> None:
+    sqlite = sqlite_dialect()
+
     account_fk = next(iter(OAuthAccount.__table__.c.individual_id.foreign_keys))
     assert account_fk.target_fullname == "individual.id"
     assert account_fk.ondelete == "cascade"
@@ -299,6 +306,8 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
     assert oauth_state_fk.ondelete == "set null"
     assert oauth_state_fk.onupdate == "cascade"
     assert OAuthState.__table__.c.state.index
+    payload_type = OAuthState.__table__.c.payload.type.dialect_impl(sqlite)
+    assert isinstance(payload_type, type(Json.dialect_impl(sqlite)))
     oauth_state_index = next(index for index in OAuthState.__table__.indexes if index.name == "ix_oauth_state_state")
     assert isinstance(oauth_state_index, Index)
     assert tuple(oauth_state_index.columns) == (OAuthState.__table__.c.state,)
