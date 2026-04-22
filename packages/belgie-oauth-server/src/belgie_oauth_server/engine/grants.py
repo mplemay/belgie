@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, ClassVar, cast
 
 from authlib.oauth2.rfc6749 import AuthorizationCodeGrant, ClientCredentialsGrant, RefreshTokenGrant
@@ -10,30 +9,20 @@ from authlib.oauth2.rfc6749.errors import (
     InvalidScopeError,
     UnauthorizedClientError,
 )
-from authlib.oauth2.rfc7636.challenge import create_s256_code_challenge
 
 from belgie_oauth_server.engine.bridge import run_async
-from belgie_oauth_server.engine.helpers import (
-    build_access_token_audience,
-    parse_scope_param,
-    pkce_requirement_for_client,
-    resolve_token_resource,
-)
-from belgie_oauth_server.engine.models import AuthlibAuthorizationCode, AuthlibClient, AuthlibRefreshToken
-from belgie_oauth_server.engine.token_response import (
-    apply_custom_token_response_fields,
-    maybe_build_id_token,
+from belgie_oauth_server.engine.errors import InvalidTargetError
+from belgie_oauth_server.engine.helpers import parse_scope_param, resolve_token_resource
+from belgie_oauth_server.engine.models import (
+    AuthlibAuthorizationCode,
+    AuthlibClient,
+    AuthlibRefreshToken,
+    AuthlibUser,
 )
 
 if TYPE_CHECKING:
     from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer
     from belgie_oauth_server.engine.runtime import OAuthEngineRuntime
-    from belgie_oauth_server.provider import (
-        AuthorizationCode as ProviderAuthorizationCode,
-        RefreshToken as ProviderRefreshToken,
-    )
-
-type GrantResponse = tuple[int, dict[str, object], list[tuple[str, str]]]
 
 
 class BelgieGrantMixin:
@@ -50,105 +39,38 @@ class BelgieAuthorizationCodeGrant(BelgieGrantMixin, AuthorizationCodeGrant):
         "client_secret_post",
     )
 
-    def validate_token_request(self) -> None:  # noqa: C901
-        client = cast("AuthlibClient", self.authenticate_token_endpoint_client())
-        if not client.check_grant_type(self.GRANT_TYPE):
-            raise UnauthorizedClientError
-
-        code = self.request.form.get("code")
-        if not code:
-            msg = "missing code"
-            raise InvalidRequestError(msg)
-
-        authorization_code = run_async(self.runtime.provider.load_authorization_code, code)
-        if authorization_code is None:
-            raise InvalidGrantError
-        if authorization_code.expires_at < time.time():
-            msg = "code expired"
-            raise InvalidGrantError(msg)
-        if client.get_client_id() != authorization_code.client_id:
-            msg = "client_id mismatch"
-            raise InvalidGrantError(msg)
-
-        redirect_uri = self.request.payload.redirect_uri
-        if authorization_code.redirect_uri_provided_explicitly and not redirect_uri:
-            msg = "missing redirect_uri"
-            raise InvalidRequestError(msg)
-        if redirect_uri and redirect_uri != str(authorization_code.redirect_uri):
-            msg = "redirect_uri mismatch"
-            raise InvalidGrantError(msg)
-
-        code_verifier = self.request.form.get("code_verifier")
-        pkce_required = pkce_requirement_for_client(client.record, authorization_code.scopes)
-        if authorization_code.code_challenge is not None and not code_verifier:
-            msg = "code_verifier required because PKCE was used in authorization"
-            raise InvalidRequestError(msg)
-        if authorization_code.code_challenge is None and code_verifier:
-            msg = "code_verifier provided but PKCE was not used in authorization"
-            raise InvalidRequestError(msg)
-        if authorization_code.code_challenge is None and pkce_required is not None:
-            raise InvalidRequestError(pkce_required)
-        if authorization_code.code_challenge is not None and code_verifier is not None:
-            expected_challenge = create_s256_code_challenge(code_verifier)
-            if expected_challenge != authorization_code.code_challenge:
-                msg = "invalid code_verifier"
-                raise InvalidGrantError(msg)
-
-        resolved_resource = resolve_token_resource(
-            self.runtime.settings,
-            self.runtime.belgie_base_url,
-            requested_resource=self.request.form.get("resource"),
-            bound_resource=authorization_code.resource,
-            require_bound_match=True,
-        )
-
-        self.request.client = client
-        self.request.authorization_code = AuthlibAuthorizationCode(record=authorization_code, client=client)
-        self.request.belgie_authorization_code = authorization_code
+    def validate_token_request(self) -> None:
+        super().validate_token_request()
+        authorization_code = cast("AuthlibAuthorizationCode", self.request.authorization_code)
+        try:
+            resolved_resource = resolve_token_resource(
+                self.runtime.settings,
+                self.runtime.belgie_base_url,
+                requested_resource=self.request.form.get("resource"),
+                bound_resource=authorization_code.record.resource,
+                require_bound_match=True,
+            )
+        except InvalidTargetError as exc:
+            raise InvalidTargetError from exc
         self.request.belgie_resolved_resource = resolved_resource
 
-    def create_token_response(self) -> GrantResponse:
-        client = cast("AuthlibClient", self.request.client)
-        authorization_code = cast("ProviderAuthorizationCode", self.request.belgie_authorization_code)
-        resolved_resource = cast("str | None", self.request.belgie_resolved_resource)
-        try:
-            token = run_async(
-                self.runtime.provider.exchange_authorization_code,
-                authorization_code,
-                issue_refresh_token="offline_access" in authorization_code.scopes,
-                access_token_resource=build_access_token_audience(
-                    self.runtime.issuer_url,
-                    base_resource=resolved_resource,
-                    scopes=authorization_code.scopes,
-                ),
-            )
-        except ValueError as exc:
-            raise InvalidGrantError(str(exc)) from exc
+    def save_authorization_code(self, code: str, request: object) -> None:  # pragma: no cover
+        msg = "Belgie uses a custom authorization endpoint"
+        raise NotImplementedError(msg)
 
-        id_token = run_async(
-            maybe_build_id_token,
-            self.runtime.belgie_client,
-            self.runtime.provider,
-            self.runtime.settings,
-            self.runtime.issuer_url,
-            client.record,
-            scopes=authorization_code.scopes,
-            individual_id=authorization_code.individual_id,
-            nonce=authorization_code.nonce,
-            session_id=authorization_code.session_id,
-        )
-        response_token = run_async(
-            apply_custom_token_response_fields,
-            self.runtime.settings,
-            {
-                **token.model_dump(),
-                "id_token": id_token,
-            },
-            grant_type=self.GRANT_TYPE,
-            oauth_client=client.record,
-            scopes=authorization_code.scopes,
-        )
-        return 200, response_token.model_dump(mode="json", exclude_none=True), self.TOKEN_RESPONSE_HEADER
+    def query_authorization_code(self, code: str, client: AuthlibClient) -> AuthlibAuthorizationCode | None:
+        authorization_code = run_async(self.runtime.provider.load_authorization_code, code)
+        if authorization_code is None or authorization_code.client_id != client.get_client_id():
+            return None
+        return AuthlibAuthorizationCode(record=authorization_code, client=client)
+
+    def delete_authorization_code(self, authorization_code: AuthlibAuthorizationCode) -> None:
+        run_async(self.runtime.provider.delete_authorization_code, authorization_code.record)
+
+    def authenticate_user(self, authorization_code: AuthlibAuthorizationCode) -> AuthlibUser | None:
+        if authorization_code.record.individual_id is None:
+            return None
+        return AuthlibUser(authorization_code.record.individual_id)
 
 
 class BelgieRefreshTokenGrant(BelgieGrantMixin, RefreshTokenGrant):
@@ -157,8 +79,9 @@ class BelgieRefreshTokenGrant(BelgieGrantMixin, RefreshTokenGrant):
         "client_secret_basic",
         "client_secret_post",
     )
+    INCLUDE_NEW_REFRESH_TOKEN = True
 
-    def validate_token_request(self) -> None:
+    def validate_token_request(self) -> None:  # noqa: C901
         client = cast("AuthlibClient", self.authenticate_token_endpoint_client())
         if not client.check_grant_type(self.GRANT_TYPE):
             raise UnauthorizedClientError
@@ -180,6 +103,10 @@ class BelgieRefreshTokenGrant(BelgieGrantMixin, RefreshTokenGrant):
         if refresh_token.client_id != client.get_client_id():
             msg = "client_id mismatch"
             raise InvalidGrantError(msg)
+        if refresh_token.revoked_at is not None:
+            run_async(self.runtime.provider.purge_refresh_token_family, refresh_token)
+            msg = "Refresh token has been revoked"
+            raise InvalidGrantError(msg)
 
         requested_scopes = parse_scope_param(self.request.form.get("scope"))
         if requested_scopes is not None and not requested_scopes:
@@ -192,68 +119,41 @@ class BelgieRefreshTokenGrant(BelgieGrantMixin, RefreshTokenGrant):
                 msg = f"unable to issue scope {invalid_scopes[0]}"
                 raise InvalidScopeError(msg)
 
-        resolved_resource = resolve_token_resource(
-            self.runtime.settings,
-            self.runtime.belgie_base_url,
-            requested_resource=self.request.form.get("resource"),
-            bound_resource=refresh_token.resource,
-            require_bound_match=True,
-        )
-
         try:
             self.runtime.provider.validate_scopes_for_client(client.record, scopes)
         except ValueError as exc:
             raise InvalidScopeError(str(exc)) from exc
 
+        try:
+            resolved_resource = resolve_token_resource(
+                self.runtime.settings,
+                self.runtime.belgie_base_url,
+                requested_resource=self.request.form.get("resource"),
+                bound_resource=refresh_token.resource,
+                require_bound_match=True,
+            )
+        except InvalidTargetError as exc:
+            raise InvalidTargetError from exc
+
         self.request.client = client
         self.request.refresh_token = AuthlibRefreshToken(record=refresh_token, runtime=self.runtime, client=client)
-        self.request.belgie_refresh_token = refresh_token
-        self.request.belgie_scopes = scopes
+        self.request.scope = " ".join(scopes)
         self.request.belgie_resolved_resource = resolved_resource
 
-    def create_token_response(self) -> GrantResponse:
+    def authenticate_refresh_token(self, refresh_token: str) -> AuthlibRefreshToken | None:  # pragma: no cover
+        token = run_async(self.runtime.provider.load_refresh_token, refresh_token)
+        if token is None:
+            return None
         client = cast("AuthlibClient", self.request.client)
-        refresh_token = cast("ProviderRefreshToken", self.request.belgie_refresh_token)
-        scopes = cast("list[str]", self.request.belgie_scopes)
-        resolved_resource = cast("str | None", self.request.belgie_resolved_resource)
-        try:
-            token = run_async(
-                self.runtime.provider.exchange_refresh_token,
-                refresh_token,
-                scopes,
-                access_token_resource=build_access_token_audience(
-                    self.runtime.issuer_url,
-                    base_resource=resolved_resource,
-                    scopes=scopes,
-                ),
-                refresh_token_resource=resolved_resource,
-            )
-        except ValueError as exc:
-            raise InvalidGrantError(str(exc)) from exc
+        return AuthlibRefreshToken(record=token, runtime=self.runtime, client=client)
 
-        id_token = run_async(
-            maybe_build_id_token,
-            self.runtime.belgie_client,
-            self.runtime.provider,
-            self.runtime.settings,
-            self.runtime.issuer_url,
-            client.record,
-            scopes=scopes,
-            individual_id=refresh_token.individual_id,
-            session_id=refresh_token.session_id,
-        )
-        response_token = run_async(
-            apply_custom_token_response_fields,
-            self.runtime.settings,
-            {
-                **token.model_dump(),
-                "id_token": id_token,
-            },
-            grant_type=self.GRANT_TYPE,
-            oauth_client=client.record,
-            scopes=scopes,
-        )
-        return 200, response_token.model_dump(mode="json", exclude_none=True), self.TOKEN_RESPONSE_HEADER
+    def authenticate_user(self, refresh_token: AuthlibRefreshToken) -> AuthlibUser | None:
+        if refresh_token.record.individual_id is None:
+            return None
+        return AuthlibUser(refresh_token.record.individual_id)
+
+    def revoke_old_credential(self, refresh_token: AuthlibRefreshToken) -> None:
+        run_async(self.runtime.provider.revoke_refresh_token, refresh_token.record)
 
 
 class BelgieClientCredentialsGrant(BelgieGrantMixin, ClientCredentialsGrant):
@@ -281,36 +181,15 @@ class BelgieClientCredentialsGrant(BelgieGrantMixin, ClientCredentialsGrant):
         except ValueError as exc:
             raise InvalidScopeError(str(exc)) from exc
 
-        resolved_resource = resolve_token_resource(
-            self.runtime.settings,
-            self.runtime.belgie_base_url,
-            requested_resource=self.request.form.get("resource"),
-        )
+        try:
+            resolved_resource = resolve_token_resource(
+                self.runtime.settings,
+                self.runtime.belgie_base_url,
+                requested_resource=self.request.form.get("resource"),
+            )
+        except InvalidTargetError as exc:
+            raise InvalidTargetError from exc
 
         self.request.client = client
-        self.request.belgie_scopes = scopes
+        self.request.scope = " ".join(scopes)
         self.request.belgie_resolved_resource = resolved_resource
-
-    def create_token_response(self) -> GrantResponse:
-        client = cast("AuthlibClient", self.request.client)
-        scopes = cast("list[str]", self.request.belgie_scopes)
-        resolved_resource = cast("str | None", self.request.belgie_resolved_resource)
-        token = run_async(
-            self.runtime.provider.issue_client_credentials_token,
-            client.get_client_id(),
-            scopes,
-            resource=build_access_token_audience(
-                self.runtime.issuer_url,
-                base_resource=resolved_resource,
-                scopes=scopes,
-            ),
-        )
-        response_token = run_async(
-            apply_custom_token_response_fields,
-            self.runtime.settings,
-            token.model_dump(),
-            grant_type=self.GRANT_TYPE,
-            oauth_client=client.record,
-            scopes=scopes,
-        )
-        return 200, response_token.model_dump(mode="json", exclude_none=True), self.TOKEN_RESPONSE_HEADER

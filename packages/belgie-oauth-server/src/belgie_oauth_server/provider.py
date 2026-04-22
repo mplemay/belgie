@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import secrets
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -547,6 +547,21 @@ class SimpleOAuthProvider:
                 return None
             return self._authorization_code_from_record(authorization_code, code_record)
 
+    async def delete_authorization_code(
+        self,
+        authorization_code: AuthorizationCode | str,
+        *,
+        db: DBConnection | None = None,
+    ) -> None:
+        code_value = (
+            authorization_code.code if isinstance(authorization_code, AuthorizationCode) else authorization_code
+        )
+        async with self._db_session(db, transactional=True) as session:
+            await self.adapter.delete_authorization_code_by_code_hash(
+                session,
+                code_hash=self._hash_value(code_value),
+            )
+
     async def exchange_authorization_code(
         self,
         authorization_code: AuthorizationCode,
@@ -597,6 +612,93 @@ class SimpleOAuthProvider:
             scope=scope,
             refresh_token=refresh_token.token if refresh_token is not None else None,
         )
+
+    async def persist_token_response(  # noqa: C901, PLR0913
+        self,
+        token: Mapping[str, object],
+        *,
+        client_id: str,
+        scopes: list[str],
+        resource: OAuthServerAudience | None = None,
+        refresh_token_resource: str | None = None,
+        individual_id: str | None = None,
+        session_id: str | None = None,
+        db: DBConnection | None = None,
+    ) -> OAuthServerToken:
+        access_token_value = token.get("access_token")
+        if not isinstance(access_token_value, str) or not access_token_value:
+            msg = "Token response missing access_token"
+            raise ValueError(msg)
+
+        parsed_individual_id = self._parse_uuid(individual_id)
+        parsed_session_id = self._parse_uuid(session_id)
+
+        issued_at = int(time.time())
+        expires_in = token.get("expires_in")
+        expires_at = self._expires_at(
+            self._access_token_expires_in_seconds(scopes) if not isinstance(expires_in, int) else expires_in,
+        )
+
+        signed_access_token = self.verify_signed_access_token(access_token_value, verify_exp=False)
+        if signed_access_token is not None:
+            issued_at = signed_access_token.created_at
+            if signed_access_token.expires_at is not None:
+                expires_at = datetime.fromtimestamp(signed_access_token.expires_at, UTC)
+            if resource is None:
+                resource = signed_access_token.resource
+            if parsed_individual_id is None:
+                parsed_individual_id = self._parse_uuid(signed_access_token.individual_id)
+            if parsed_session_id is None:
+                parsed_session_id = self._parse_uuid(signed_access_token.session_id)
+
+        async with self._db_session(db, transactional=True) as session:
+            persisted_refresh_token: RefreshToken | None = None
+            refresh_token_value = token.get("refresh_token")
+            if isinstance(refresh_token_value, str) and refresh_token_value:
+                decoded_refresh_token = await self._decode_refresh_token(refresh_token_value)
+                if decoded_refresh_token is None:
+                    msg = "Invalid refresh token"
+                    raise ValueError(msg)
+                encoded_session_id, raw_refresh_token = decoded_refresh_token
+                stored_session_id = parsed_session_id or self._parse_uuid(encoded_session_id)
+                refresh_token_record = await self.adapter.create_refresh_token(
+                    session,
+                    token_hash=self._hash_value(raw_refresh_token),
+                    client_id=client_id,
+                    scopes=list(scopes),
+                    resource=refresh_token_resource,
+                    individual_id=parsed_individual_id,
+                    session_id=stored_session_id,
+                    expires_at=self._expires_at(self.settings.refresh_token_ttl_seconds),
+                )
+                persisted_refresh_token = self._refresh_token_from_record(
+                    refresh_token_value,
+                    refresh_token_record,
+                )
+
+            await self.adapter.create_access_token(
+                session,
+                token_hash=self._hash_value(self._strip_access_token_prefix(access_token_value)),
+                client_id=client_id,
+                scopes=list(scopes),
+                resource=resource,
+                refresh_token_id=(persisted_refresh_token.id if persisted_refresh_token is not None else None),
+                individual_id=parsed_individual_id,
+                session_id=parsed_session_id,
+                expires_at=expires_at,
+            )
+
+        persisted_token = {
+            "access_token": access_token_value,
+            "token_type": token.get("token_type", "Bearer"),
+            "expires_in": max(0, int(expires_at.timestamp()) - issued_at),
+            "scope": token.get("scope"),
+        }
+        if persisted_refresh_token is not None:
+            persisted_token["refresh_token"] = persisted_refresh_token.token
+        if "id_token" in token:
+            persisted_token["id_token"] = token["id_token"]
+        return OAuthServerToken.model_validate(persisted_token)
 
     async def load_access_token(
         self,
@@ -766,6 +868,51 @@ class SimpleOAuthProvider:
                 refresh_token_id=stored_refresh_token.id,
             )
             await self.adapter.delete_refresh_token_by_token_hash(session, token_hash=stored_refresh_token.token_hash)
+
+    async def revoke_refresh_token(
+        self,
+        refresh_token: RefreshToken,
+        *,
+        db: DBConnection | None = None,
+    ) -> RefreshToken | None:
+        decoded_refresh_token = await self._decode_refresh_token(refresh_token.token)
+        if decoded_refresh_token is None:
+            return None
+        _decoded_session_id, raw_refresh_token = decoded_refresh_token
+        async with self._db_session(db, transactional=True) as session:
+            stored_refresh_token = await self.adapter.get_refresh_token_by_token_hash(
+                session,
+                token_hash=self._hash_value(raw_refresh_token),
+            )
+            if stored_refresh_token is None:
+                return None
+            revoked_refresh_token = await self.adapter.update_refresh_token_revoked_at(
+                session,
+                refresh_token_id=stored_refresh_token.id,
+                revoked_at=datetime.fromtimestamp(time.time(), UTC),
+            )
+            if revoked_refresh_token is None:
+                return None
+            return self._refresh_token_from_record(refresh_token.token, revoked_refresh_token)
+
+    async def purge_refresh_token_family(
+        self,
+        refresh_token: RefreshToken,
+        *,
+        db: DBConnection | None = None,
+    ) -> None:
+        decoded_refresh_token = await self._decode_refresh_token(refresh_token.token)
+        if decoded_refresh_token is None:
+            return
+        _decoded_session_id, raw_refresh_token = decoded_refresh_token
+        async with self._db_session(db, transactional=True) as session:
+            stored_refresh_token = await self.adapter.get_refresh_token_by_token_hash(
+                session,
+                token_hash=self._hash_value(raw_refresh_token),
+            )
+            if stored_refresh_token is None:
+                return
+            await self._purge_refresh_token_family(session, stored_refresh_token)
 
     def default_scopes_for_client(
         self,

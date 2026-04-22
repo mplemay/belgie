@@ -441,6 +441,69 @@ def test_authorize_uses_request_uri_resolver() -> None:
     assert query["iss"] == ["http://testserver/auth/oauth"]
 
 
+def test_authorize_rejects_invalid_request_uri() -> None:
+    def resolve_request_uri(_request_uri: str, _client_id: str) -> dict[str, str] | None:
+        return None
+
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        request_uri_resolver=resolve_request_uri,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get(
+        "/auth/oauth/authorize",
+        params={"client_id": settings.client_id, "request_uri": "urn:belgie:authorize:expired"},
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_request_uri",
+        "error_description": "request_uri is invalid or expired",
+    }
+
+
+def test_authorize_request_uri_keeps_explicit_client_id() -> None:
+    def resolve_request_uri(request_uri: str, client_id: str) -> dict[str, str] | None:
+        if request_uri != "urn:belgie:authorize:explicit-client":
+            return None
+        assert client_id == "test-client"
+        return {
+            "response_type": "code",
+            "client_id": "other-client",
+            "redirect_uri": "http://client.local/callback",
+            "scope": "user",
+            "state": "resolved-client-state",
+            "code_challenge": create_code_challenge("verifier"),
+            "code_challenge_method": "S256",
+        }
+
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        request_uri_resolver=resolve_request_uri,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get(
+        "/auth/oauth/authorize",
+        params={"client_id": settings.client_id, "request_uri": "urn:belgie:authorize:explicit-client"},
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    query = _query(response.headers["location"])
+    assert "code" in query
+    assert query["state"] == ["resolved-client-state"]
+    assert query["iss"] == ["http://testserver/auth/oauth"]
+
+
 def test_authorize_consent_flow_persists_and_requires_reconsent_for_expanded_scopes() -> None:
     settings = _build_settings(
         base_url="http://testserver",
@@ -579,6 +642,77 @@ def test_select_account_flow_resumes_and_prompt_none_returns_account_selection_r
     prompt_none_query = _query(prompt_none.headers["location"])
     assert prompt_none_query["error"] == ["account_selection_required"]
     assert prompt_none_query["error_description"] == ["End-User account selection is required"]
+    assert prompt_none_query["iss"] == ["http://testserver/auth/oauth"]
+
+
+def test_post_login_flow_resumes_and_prompt_none_returns_interaction_required() -> None:
+    should_prompt_once = {"value": True}
+
+    def resolve_post_login_once(*_args: object) -> bool:
+        if should_prompt_once["value"]:
+            should_prompt_once["value"] = False
+            return True
+        return False
+
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        post_login_url="/post-login",
+        post_login_resolver=resolve_post_login_once,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    post_login_required = client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(settings, state="state-post-login-1"),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert post_login_required.status_code == 302
+    assert post_login_required.headers["location"].startswith("http://testserver/auth/oauth/login?")
+
+    state = _query(post_login_required.headers["location"])["state"][0]
+    post_login_redirect = client.get(post_login_required.headers["location"], follow_redirects=False)
+
+    assert post_login_redirect.status_code == 302
+    assert post_login_redirect.headers["location"].startswith("http://testserver/post-login?")
+    assert _query(post_login_redirect.headers["location"])["return_to"] == [
+        f"http://testserver/auth/oauth/continue?state={state}&post_login=true",
+    ]
+
+    continued = client.get(
+        f"/auth/oauth/continue?state={state}&post_login=true",
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert continued.status_code == 302
+    continued_query = _query(continued.headers["location"])
+    assert "code" in continued_query
+    assert continued_query["iss"] == ["http://testserver/auth/oauth"]
+
+    prompt_none_settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        post_login_url="/post-login",
+        post_login_resolver=lambda *_args: True,
+    )
+    prompt_none_client, _plugin, _belgie_client = _build_fixture(prompt_none_settings)
+
+    prompt_none = prompt_none_client.get(
+        "/auth/oauth/authorize",
+        params=_authorize_params(prompt_none_settings, state="state-post-login-none", prompt="none"),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert prompt_none.status_code == 302
+    prompt_none_query = _query(prompt_none.headers["location"])
+    assert prompt_none_query["error"] == ["interaction_required"]
+    assert prompt_none_query["error_description"] == ["End-User interaction is required"]
     assert prompt_none_query["iss"] == ["http://testserver/auth/oauth"]
 
 

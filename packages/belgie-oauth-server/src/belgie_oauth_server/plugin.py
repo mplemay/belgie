@@ -22,7 +22,12 @@ from starlette.datastructures import FormData
 from belgie_oauth_server.client import OAuthServerClient, OAuthServerLoginIntent
 from belgie_oauth_server.engine import BelgieOAuthServerEngine
 from belgie_oauth_server.engine.errors import InvalidTargetError
-from belgie_oauth_server.engine.helpers import resolve_token_resource as _engine_resolve_token_resource
+from belgie_oauth_server.engine.helpers import (
+    oauth_client_is_public,
+    parse_scope_param,
+    resolve_token_resource,
+    validate_pkce_inputs,
+)
 from belgie_oauth_server.metadata import (
     _ROOT_OAUTH_METADATA_PATH,
     _ROOT_OPENID_METADATA_PATH,
@@ -950,7 +955,7 @@ class OAuthServerPlugin(PluginClient):
             if oauth_client is None:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_client")
 
-            requested_scopes = _parse_scope_param(_get_payload_str(payload, "scope"))
+            requested_scopes = parse_scope_param(_get_payload_str(payload, "scope"))
             original_scopes = state_data.scopes or list(settings.default_scopes)
             consent_scopes = requested_scopes or original_scopes
             if not all(scope in original_scopes for scope in consent_scopes):
@@ -1600,7 +1605,7 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
         )
 
     scope_raw = _get_str(resolved_data, "scope")
-    requested_scopes = _parse_scope_param(scope_raw)
+    requested_scopes = parse_scope_param(scope_raw)
     if requested_scopes is not None and not requested_scopes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing scope")
     if requested_scopes is None:
@@ -1620,7 +1625,7 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
 
     code_challenge = _get_str(resolved_data, "code_challenge")
     code_challenge_method = _get_str(resolved_data, "code_challenge_method")
-    pkce_error = _validate_pkce_inputs(oauth_client, scopes, code_challenge, code_challenge_method)
+    pkce_error = validate_pkce_inputs(oauth_client, scopes, code_challenge, code_challenge_method)
     if pkce_error is not None:
         return _authorize_error(
             "invalid_request",
@@ -1631,8 +1636,12 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
         )
 
     try:
-        resource = _validate_authorize_resource(settings, belgie_base_url, _get_str(resolved_data, "resource"))
-    except HTTPException:
+        resource = resolve_token_resource(
+            settings,
+            belgie_base_url,
+            requested_resource=_get_str(resolved_data, "resource"),
+        )
+    except InvalidTargetError:
         return _authorize_error(
             "invalid_target",
             redirect_uri=redirect_uri_string,
@@ -1661,44 +1670,19 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
     )
 
 
-def _normalize_resource_path(path: str) -> str:
-    if path in {"", "/"}:
-        return "/"
-    if path.endswith("/"):
-        return path.removesuffix("/")
-    return path
-
-
-def _resource_urls_match(left_resource: str, right_resource: str) -> bool:
-    left = urlparse(left_resource)
-    right = urlparse(right_resource)
-    return (
-        left.scheme == right.scheme
-        and left.netloc == right.netloc
-        and _normalize_resource_path(left.path) == _normalize_resource_path(right.path)
-        and left.params == right.params
-        and left.query == right.query
-        and left.fragment == right.fragment
-    )
-
-
 def _validate_authorize_resource(
     settings: OAuthServer,
     belgie_base_url: str,
     resource: str | None,
 ) -> str | None:
-    if resource is None:
-        return None
-
-    configured_resource = settings.resolve_resource(belgie_base_url)
-    if configured_resource is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_target")
-
-    resource_url, _resource_scopes = configured_resource
-    configured_resource_url = str(resource_url)
-    if not _resource_urls_match(configured_resource_url, resource):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_target")
-    return configured_resource_url
+    try:
+        return resolve_token_resource(
+            settings,
+            belgie_base_url,
+            requested_resource=resource,
+        )
+    except InvalidTargetError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_target") from exc
 
 
 async def _authorize_state(
@@ -1844,13 +1828,6 @@ def _derive_initial_intent(prompt_values: frozenset[AuthorizePrompt]) -> OAuthSe
     return "login"
 
 
-def _oauth_client_is_public(oauth_client: OAuthServerClientInformationFull) -> bool:
-    return oauth_client.token_endpoint_auth_method == "none" or oauth_client.type in {  # noqa: S105
-        "native",
-        "user-agent-based",
-    }
-
-
 def _validate_authorize_redirect_uri(
     oauth_client: OAuthServerClientInformationFull,
     redirect_uri: AnyUrl | None,
@@ -1858,7 +1835,7 @@ def _validate_authorize_redirect_uri(
     try:
         return oauth_client.validate_redirect_uri(redirect_uri)
     except InvalidRedirectUriError:
-        if redirect_uri is None or not _oauth_client_is_public(oauth_client) or oauth_client.redirect_uris is None:
+        if redirect_uri is None or not oauth_client_is_public(oauth_client) or oauth_client.redirect_uris is None:
             raise
 
         redirect_uri_str = str(redirect_uri)
@@ -1868,36 +1845,6 @@ def _validate_authorize_redirect_uri(
         ):
             return redirect_uri
         raise
-
-
-def _pkce_requirement_for_client(
-    oauth_client: OAuthServerClientInformationFull,
-    scopes: list[str],
-) -> str | None:
-    if _oauth_client_is_public(oauth_client):
-        return "pkce is required for public clients"
-    if "offline_access" in scopes:
-        return "pkce is required when requesting offline_access scope"
-    if oauth_client.require_pkce is not False:
-        return "pkce is required for this client"
-    return None
-
-
-def _validate_pkce_inputs(
-    oauth_client: OAuthServerClientInformationFull,
-    scopes: list[str],
-    code_challenge: str | None,
-    code_challenge_method: str | None,
-) -> str | None:
-    pkce_requirement = _pkce_requirement_for_client(oauth_client, scopes)
-    if pkce_requirement is not None and not code_challenge:
-        return pkce_requirement
-    if code_challenge or code_challenge_method:
-        if not code_challenge or not code_challenge_method:
-            return "code_challenge and code_challenge_method must both be provided"
-        if code_challenge_method != "S256":
-            return "invalid code_challenge method, only S256 is supported"
-    return None
 
 
 async def _resolve_interaction_error(  # noqa: PLR0911, PLR0913
@@ -2295,17 +2242,6 @@ def _get_payload_bool(payload: Mapping[str, JSONValue], key: str) -> bool | None
     return None
 
 
-def _parse_scope_param(scope: str | None) -> list[str] | None:
-    if scope is None:
-        return None
-    parts = [segment for segment in scope.split(" ") if segment]
-    deduped: list[str] = []
-    for part in parts:
-        if part not in deduped:
-            deduped.append(part)
-    return deduped
-
-
 class _UserClaimsSource(Protocol):
     id: UUID | str
     name: str | None
@@ -2513,7 +2449,7 @@ def _resolve_token_resource(
 ) -> tuple[str | None, JSONResponse | None]:
     try:
         return (
-            _engine_resolve_token_resource(
+            resolve_token_resource(
                 settings,
                 belgie_base_url,
                 requested_resource=requested_resource,

@@ -42,6 +42,23 @@ def pkce_requirement_for_client(
     return None
 
 
+def validate_pkce_inputs(
+    oauth_client: OAuthServerClientInformationFull,
+    scopes: list[str],
+    code_challenge: str | None,
+    code_challenge_method: str | None,
+) -> str | None:
+    pkce_requirement = pkce_requirement_for_client(oauth_client, scopes)
+    if pkce_requirement is not None and not code_challenge:
+        return pkce_requirement
+    if code_challenge or code_challenge_method:
+        if not code_challenge or not code_challenge_method:
+            return "code_challenge and code_challenge_method must both be provided"
+        if code_challenge_method != "S256":
+            return "invalid code_challenge method, only S256 is supported"
+    return None
+
+
 def normalize_resource_path(path: str) -> str:
     if path in {"", "/"}:
         return "/"

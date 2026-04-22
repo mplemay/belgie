@@ -6,6 +6,7 @@ from anyio import to_thread
 
 from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer
 from belgie_oauth_server.engine.endpoints import BelgieIntrospectionEndpoint, BelgieRevocationEndpoint
+from belgie_oauth_server.engine.extensions import BelgieCodeChallenge, BelgieTokenResponseEnhancer
 from belgie_oauth_server.engine.grants import (
     BelgieAuthorizationCodeGrant,
     BelgieClientCredentialsGrant,
@@ -65,9 +66,12 @@ class BelgieOAuthServerEngine:
 
     def _build_server(self, runtime: OAuthEngineRuntime) -> BelgieAuthorizationServer:
         server = BelgieAuthorizationServer(runtime)
-        server.register_grant(BelgieAuthorizationCodeGrant)
-        server.register_grant(BelgieRefreshTokenGrant)
-        server.register_grant(BelgieClientCredentialsGrant)
+        server.register_grant(
+            BelgieAuthorizationCodeGrant,
+            extensions=[BelgieCodeChallenge(), BelgieTokenResponseEnhancer()],
+        )
+        server.register_grant(BelgieRefreshTokenGrant, extensions=[BelgieTokenResponseEnhancer()])
+        server.register_grant(BelgieClientCredentialsGrant, extensions=[BelgieTokenResponseEnhancer()])
         server.register_endpoint(BelgieRevocationEndpoint)
         server.register_endpoint(BelgieIntrospectionEndpoint)
         return server

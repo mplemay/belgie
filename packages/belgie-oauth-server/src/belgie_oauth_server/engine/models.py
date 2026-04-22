@@ -123,7 +123,7 @@ class AuthlibAccessToken(TokenMixin):
         return " ".join(self.record.scopes)
 
     def get_expires_in(self) -> int:
-        return self.record.expires_at
+        return max(0, self.record.expires_at - int(time.time()))
 
     def is_expired(self) -> bool:
         return self.record.expires_at < time.time()
@@ -159,7 +159,7 @@ class AuthlibRefreshToken(TokenMixin):
         return " ".join(self.record.scopes)
 
     def get_expires_in(self) -> int:
-        return self.record.expires_at
+        return max(0, self.record.expires_at - int(time.time()))
 
     def is_expired(self) -> bool:
         return self.record.expires_at < time.time()
