@@ -648,6 +648,31 @@ async def test_exchange_refresh_token_rejects_scope_escalation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_exchange_refresh_token_allows_removing_offline_access() -> None:
+    _settings, provider, _adapter, db = build_oauth_provider(
+        redirect_uris=["https://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+    refresh = await provider._issue_refresh_token(
+        db,
+        client_id="test-client",
+        scopes=["openid", "offline_access"],
+    )
+
+    token = await provider.exchange_refresh_token(refresh, ["openid"])
+
+    assert token.scope == "openid"
+    assert token.refresh_token is not None
+    stored_access = await provider.load_access_token(token.access_token)
+    rotated_refresh = await provider.load_refresh_token(token.refresh_token)
+    assert stored_access is not None
+    assert stored_access.scopes == ["openid"]
+    assert rotated_refresh is not None
+    assert rotated_refresh.scopes == ["openid"]
+
+
+@pytest.mark.asyncio
 async def test_issue_client_credentials_token() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["https://example.com/callback"],
@@ -942,6 +967,26 @@ def test_validate_client_metadata_rejects_pairwise_without_secret() -> None:
         )
 
 
+def test_validate_client_metadata_rejects_pairwise_redirect_uris_on_different_hosts() -> None:
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["https://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+        pairwise_secret="pairwise-secret-for-tests-123456",
+    )
+
+    with pytest.raises(ValueError, match="must share the same host"):
+        provider.validate_client_metadata(
+            OAuthServerClientMetadata(
+                redirect_uris=[
+                    "https://app.local/callback",
+                    "https://other.local/callback",
+                ],
+                subject_type="pairwise",
+            ),
+        )
+
+
 def test_validate_client_metadata_rejects_require_pkce_false() -> None:
     _settings, provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["https://example.com/callback"],
@@ -956,6 +1001,24 @@ def test_validate_client_metadata_rejects_require_pkce_false() -> None:
                 require_pkce=False,
             ),
         )
+
+
+def test_validate_client_metadata_allows_confidential_pkce_opt_out_when_enabled() -> None:
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        redirect_uris=["https://example.com/callback"],
+        base_url="http://example.com",
+        client_id="test-client",
+    )
+
+    provider.validate_client_metadata(
+        OAuthServerClientMetadata(
+            redirect_uris=["https://example.com/callback"],
+            token_endpoint_auth_method="client_secret_post",
+            type="web",
+            require_pkce=False,
+        ),
+        allow_confidential_pkce_opt_out=True,
+    )
 
 
 def test_resolve_subject_identifier_uses_pairwise_secret() -> None:

@@ -250,7 +250,18 @@ class OAuthServer(BaseSettings):
             if len(pairwise_secret_value) < PAIRWISE_SECRET_MIN_LENGTH:
                 msg = "pairwise_secret must be at least 32 characters"
                 raise ValueError(msg)
+        self._validate_advertised_metadata_scopes()
         return self
+
+    def _validate_advertised_metadata_scopes(self) -> None:
+        if self.advertised_metadata is None or self.advertised_metadata.scopes_supported is None:
+            return
+
+        supported_scopes = set(self.supported_scopes())
+        invalid_scopes = [scope for scope in self.advertised_metadata.scopes_supported if scope not in supported_scopes]
+        if invalid_scopes:
+            msg = f"advertised_metadata.scopes_supported {invalid_scopes[0]} not found in supported scopes"
+            raise ValueError(msg)
 
     @field_validator("grant_types")
     @classmethod

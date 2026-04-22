@@ -58,6 +58,11 @@ class BelgieRevocationEndpoint(BelgieEndpointMixin, RevocationEndpoint):
             raise UnsupportedTokenTypeHintError
 
         token = self.query_token(token_value, hint)
+        if token is None and hint in {ACCESS_TOKEN_HINT, REFRESH_TOKEN_HINT}:
+            alternate_hint = REFRESH_TOKEN_HINT if hint == ACCESS_TOKEN_HINT else ACCESS_TOKEN_HINT
+            if self.query_token(token_value, alternate_hint) is not None:
+                msg = "token_type_hint does not match token type"
+                raise InvalidRequestError(msg)
         if token and token.check_client(client):
             self.revoke_token(token, request)
             self.server.send_signal("after_revoke_token", token=token, client=client)
@@ -171,7 +176,7 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
             if token.record.individual_id is not None
             else None
         )
-        return {
+        payload = {
             "active": True,
             "client_id": token.record.client_id,
             "scope": " ".join(token.record.scopes),
@@ -179,6 +184,8 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
             "iat": token.record.created_at,
             "aud": token.record.resource,
             "sub": subject_identifier,
-            "sid": run_async(resolve_active_session_id, self.runtime.belgie_client, token.record.session_id),
             "iss": self.runtime.provider.issuer_url,
         }
+        if sid := run_async(resolve_active_session_id, self.runtime.belgie_client, token.record.session_id):
+            payload["sid"] = sid
+        return payload

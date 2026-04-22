@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
+import pytest
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import OAuthServerPlugin
@@ -18,6 +19,9 @@ from joserfc.jwk import OctKey
 
 if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer
+
+ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
+REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -32,6 +36,19 @@ class FakeUser:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FakeSession:
     id: UUID = field(default_factory=uuid4)
+    created_at: datetime | None = field(default_factory=lambda: datetime.now(UTC))
+
+
+class FakeSessionManager:
+    def __init__(self, client: FakeBelgieClient) -> None:
+        self._client = client
+
+    async def get_session(self, _db: object, session_id: UUID) -> FakeSession | None:
+        if self._client.signed_out_session_id == session_id:
+            return None
+        if session_id == self._client.session.id:
+            return self._client.session
+        return None
 
 
 class FakeAdapter:
@@ -51,6 +68,7 @@ class FakeBelgieClient:
         self.db = InMemoryDBConnection()
         self.adapter = FakeAdapter(self.user)
         self.signed_out_session_id: UUID | None = None
+        self.session_manager = FakeSessionManager(self)
 
     async def get_individual(self, _security_scopes, request):
         if request.headers.get("x-authenticated") != "true":
@@ -59,6 +77,8 @@ class FakeBelgieClient:
 
     async def get_session(self, request):
         if request.headers.get("x-authenticated") != "true":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        if self.signed_out_session_id == self.session.id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
         return self.session
 
@@ -241,6 +261,76 @@ def _exchange_code(
     if resource is not None:
         payload["resource"] = resource
     return client.post("/auth/oauth2/token", data=payload)
+
+
+def _authorize_and_return_code(
+    client: TestClient,
+    settings: OAuthServer,
+    *,
+    state: str,
+    scope: str = "user",
+    verifier: str = "verifier",
+    prompt: str | None = None,
+    with_pkce: bool = True,
+    extra_params: dict[str, str] | None = None,
+) -> str:
+    callback = _authorize_to_next_location(
+        client,
+        settings,
+        state=state,
+        scope=scope,
+        verifier=verifier,
+        prompt=prompt,
+        with_pkce=with_pkce,
+        extra_params=extra_params,
+    )
+    return _query(callback)["code"][0]
+
+
+def _introspect_token(
+    client: TestClient,
+    settings: OAuthServer,
+    token: str,
+    *,
+    token_type_hint: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+) -> TestClient:
+    payload: dict[str, str] = {"token": token}
+    if client_id is not None:
+        payload["client_id"] = client_id
+    elif settings.client_id is not None:
+        payload["client_id"] = settings.client_id
+    if client_secret is not None:
+        payload["client_secret"] = client_secret
+    elif settings.client_secret is not None:
+        payload["client_secret"] = settings.client_secret.get_secret_value()
+    if token_type_hint is not None:
+        payload["token_type_hint"] = token_type_hint
+    return client.post("/auth/oauth2/introspect", data=payload)
+
+
+def _revoke_token(
+    client: TestClient,
+    settings: OAuthServer,
+    token: str,
+    *,
+    token_type_hint: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+) -> TestClient:
+    payload: dict[str, str] = {"token": token}
+    if client_id is not None:
+        payload["client_id"] = client_id
+    elif settings.client_id is not None:
+        payload["client_id"] = settings.client_id
+    if client_secret is not None:
+        payload["client_secret"] = client_secret
+    elif settings.client_secret is not None:
+        payload["client_secret"] = settings.client_secret.get_secret_value()
+    if token_type_hint is not None:
+        payload["token_type_hint"] = token_type_hint
+    return client.post("/auth/oauth2/revoke", data=payload)
 
 
 def _trust_dynamic_callback_client(oauth_client) -> bool:
@@ -1260,3 +1350,927 @@ def test_authorize_rate_limit_ignores_x_forwarded_for() -> None:
         "error_description": "too many requests",
     }
     assert "retry-after" in second.headers
+
+
+def test_authorize_prompt_none_returns_login_required_for_unauthenticated_user() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    response = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(
+            settings,
+            state="state-login-required",
+            scope="openid user",
+            prompt="none",
+        ),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert _query(response.headers["location"]) == {
+        "error": ["login_required"],
+        "error_description": ["authentication required"],
+        "iss": ["http://testserver/auth"],
+        "state": ["state-login-required"],
+    }
+
+
+def test_authorize_prompt_none_returns_account_selection_required_when_select_account_is_needed() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        select_account_url="/switch-account",
+        select_account_resolver=lambda *_args: True,
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    response = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(
+            settings,
+            state="state-account-selection-required",
+            scope="openid user",
+            prompt="none",
+        ),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert _query(response.headers["location"]) == {
+        "error": ["account_selection_required"],
+        "error_description": ["End-User account selection is required"],
+        "iss": ["http://testserver/auth"],
+        "state": ["state-account-selection-required"],
+    }
+
+
+def test_authorize_prompt_none_returns_interaction_required_when_post_login_is_needed() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        post_login_url="/finish-login",
+        post_login_resolver=lambda *_args: True,
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    response = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(
+            settings,
+            state="state-interaction-required",
+            scope="openid user",
+            prompt="none",
+        ),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert _query(response.headers["location"]) == {
+        "error": ["interaction_required"],
+        "error_description": ["End-User interaction is required"],
+        "iss": ["http://testserver/auth"],
+        "state": ["state-interaction-required"],
+    }
+
+
+def test_request_uri_resolution_discards_front_channel_params_not_in_stored_request() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        request_uri_resolver=lambda _request_uri, _client_id: {
+            "response_type": "code",
+            "redirect_uri": "http://client.local/callback",
+            "scope": "openid user",
+            "state": "state-from-par",
+            "code_challenge": create_code_challenge("par-verifier"),
+            "code_challenge_method": "S256",
+        },
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    response = client.get(
+        "/auth/oauth2/authorize",
+        params={
+            "client_id": settings.client_id,
+            "request_uri": "urn:belgie:par:stored",
+            "redirect_uri": "https://attacker.local/callback",
+            "scope": "openid admin",
+            "state": "front-channel-state",
+            "code_challenge": create_code_challenge("front-channel-verifier"),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("http://client.local/callback?")
+    query = _query(response.headers["location"])
+    assert query["state"] == ["state-from-par"]
+    assert query["iss"] == ["http://testserver/auth"]
+
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=query["code"][0],
+        verifier="par-verifier",
+    )
+    assert token_response.status_code == 200
+
+
+def test_public_client_without_pkce_returns_invalid_request() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    response = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(
+            settings,
+            state="state-public-no-pkce",
+            scope="openid user",
+            with_pkce=False,
+        ),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    query = _query(response.headers["location"])
+    assert query["error"] == ["invalid_request"]
+    assert query["error_description"] == ["pkce is required for public clients"]
+
+
+def test_offline_access_requires_pkce_even_for_confidential_opt_out_client() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        static_client_require_pkce=False,
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user offline_access")
+
+    response = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(
+            settings,
+            state="state-offline-no-pkce",
+            scope="openid offline_access",
+            with_pkce=False,
+        ),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    query = _query(response.headers["location"])
+    assert query["error"] == ["invalid_request"]
+    assert query["error_description"] == ["pkce is required when requesting offline_access scope"]
+
+
+@pytest.mark.parametrize(
+    ("authorize_with_pkce", "exchange_verifier", "expected_error"),
+    [
+        (True, "", "code_verifier required because PKCE was used in authorization"),
+        (False, "unexpected-verifier", "code_verifier provided but PKCE was not used in authorization"),
+        (True, "wrong-verifier", "invalid code_verifier"),
+    ],
+)
+def test_token_endpoint_validates_pkce_verifier_consistency(
+    authorize_with_pkce,
+    exchange_verifier: str,
+    expected_error: str,
+) -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        static_client_require_pkce=False,
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-pkce-consistency",
+        scope="openid user",
+        verifier="expected-verifier",
+        with_pkce=authorize_with_pkce,
+    )
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier=exchange_verifier,
+    )
+
+    assert token_response.status_code == 400
+    assert token_response.json()["error_description"] == expected_error
+
+
+def test_userinfo_requires_authorization_header() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    response = client.get("/auth/oauth2/userinfo")
+
+    assert response.status_code == 401
+    assert response.json() == {"error": "invalid_token", "error_description": "authorization header not found"}
+
+
+def test_userinfo_requires_openid_scope() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user profile email")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-userinfo-no-openid",
+        scope="user",
+        verifier="userinfo-no-openid",
+    )
+    token_response = _exchange_code(client, settings, code=code, verifier="userinfo-no-openid")
+    assert token_response.status_code == 200
+
+    userinfo = client.get(
+        "/auth/oauth2/userinfo",
+        headers={"authorization": f"Bearer {token_response.json()['access_token']}"},
+    )
+
+    assert userinfo.status_code == 400
+    assert userinfo.json() == {"error": "invalid_scope", "error_description": "Missing required scope"}
+
+
+@pytest.mark.parametrize(
+    ("resource", "token_segments"),
+    [
+        (None, 0),
+        ("http://testserver/mcp", 2),
+    ],
+)
+def test_userinfo_returns_full_claims_for_opaque_and_jwt_access_tokens(
+    resource: str | None,
+    token_segments: int,
+) -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid profile email")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state=f"state-userinfo-{token_segments}",
+        scope="openid profile email",
+        verifier="userinfo-verifier",
+    )
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="userinfo-verifier",
+        resource=resource,
+    )
+    assert token_response.status_code == 200
+    access_token = token_response.json()["access_token"]
+    assert access_token.count(".") == token_segments
+
+    userinfo = client.get(
+        "/auth/oauth2/userinfo",
+        headers={"authorization": f"Bearer {access_token}"},
+    )
+
+    assert userinfo.status_code == 200
+    assert userinfo.json() == {
+        "sub": str(belgie_client.user.id),
+        "name": "Test User",
+        "picture": "https://example.com/avatar.png",
+        "given_name": "Test",
+        "family_name": "User",
+        "email": "person@example.com",
+        "email_verified": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected_subset", "unexpected_keys"),
+    [
+        ("openid", {}, ["name", "picture", "given_name", "family_name", "email", "email_verified"]),
+        (
+            "openid profile",
+            {
+                "name": "Test User",
+                "picture": "https://example.com/avatar.png",
+                "given_name": "Test",
+                "family_name": "User",
+            },
+            ["email", "email_verified"],
+        ),
+        (
+            "openid email",
+            {
+                "email": "person@example.com",
+                "email_verified": True,
+            },
+            ["name", "picture", "given_name", "family_name"],
+        ),
+    ],
+)
+def test_userinfo_filters_claims_by_scope(
+    scope: str,
+    expected_subset: dict[str, object],
+    unexpected_keys: list[str],
+) -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    client, plugin, belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid profile email")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state=f"state-{scope.replace(' ', '-')}",
+        scope=scope,
+        verifier="userinfo-scope-verifier",
+    )
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="userinfo-scope-verifier",
+    )
+    assert token_response.status_code == 200
+
+    userinfo = client.get(
+        "/auth/oauth2/userinfo",
+        headers={"authorization": f"Bearer {token_response.json()['access_token']}"},
+    )
+
+    assert userinfo.status_code == 200
+    body = userinfo.json()
+    assert body["sub"] == str(belgie_client.user.id)
+    for key, value in expected_subset.items():
+        assert body[key] == value
+    for key in unexpected_keys:
+        assert key not in body
+
+
+def test_introspection_requires_client_auth() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-introspect-auth",
+        scope="openid offline_access",
+        verifier="introspect-auth-verifier",
+    )
+    token_response = _exchange_code(client, settings, code=code, verifier="introspect-auth-verifier")
+    assert token_response.status_code == 200
+
+    introspection = client.post(
+        "/auth/oauth2/introspect",
+        data={"token": token_response.json()["access_token"]},
+    )
+
+    assert introspection.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("resource", "token_field", "token_type_hint", "expected_active"),
+    [
+        (None, ACCESS_TOKEN_HINT, ACCESS_TOKEN_HINT, True),
+        ("http://testserver/mcp", ACCESS_TOKEN_HINT, ACCESS_TOKEN_HINT, True),
+        (None, REFRESH_TOKEN_HINT, ACCESS_TOKEN_HINT, False),
+        (None, REFRESH_TOKEN_HINT, REFRESH_TOKEN_HINT, True),
+        (None, ACCESS_TOKEN_HINT, REFRESH_TOKEN_HINT, False),
+        (None, ACCESS_TOKEN_HINT, None, True),
+        (None, REFRESH_TOKEN_HINT, None, True),
+    ],
+)
+def test_introspection_respects_token_type_hints(
+    resource: str | None,
+    token_field: str,
+    token_type_hint: str | None,
+    expected_active,
+) -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid profile email offline_access")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-introspect-hints",
+        scope="openid profile email offline_access",
+        verifier="introspect-hints-verifier",
+    )
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="introspect-hints-verifier",
+        resource=resource,
+    )
+    assert token_response.status_code == 200
+    tokens = token_response.json()
+
+    introspection = _introspect_token(
+        client,
+        settings,
+        tokens[token_field],
+        token_type_hint=token_type_hint,
+    )
+
+    assert introspection.status_code == 200
+    body = introspection.json()
+    assert body["active"] is expected_active
+    if expected_active:
+        assert body["client_id"] == settings.client_id
+        assert body["scope"] == "openid profile email offline_access"
+        assert body["sub"] == str(belgie_client.user.id)
+        assert body["iss"] == "http://testserver/auth"
+        assert body["sid"] == str(belgie_client.session.id)
+    else:
+        assert body == {"active": False}
+
+
+def test_refresh_preserves_auth_time_in_id_token() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    client, plugin, belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-auth-time",
+        scope="openid offline_access",
+        verifier="auth-time-verifier",
+    )
+    token_response = _exchange_code(client, settings, code=code, verifier="auth-time-verifier")
+    assert token_response.status_code == 200
+    initial_tokens = token_response.json()
+
+    refreshed = client.post(
+        "/auth/oauth2/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": settings.client_id,
+            "client_secret": "static-secret",
+            "refresh_token": initial_tokens["refresh_token"],
+        },
+    )
+    assert refreshed.status_code == 200
+
+    expected_auth_time = int(belgie_client.session.created_at.timestamp())
+    initial_id_token = _decode_id_token(plugin, initial_tokens["id_token"], settings.client_id)
+    refreshed_id_token = _decode_id_token(plugin, refreshed.json()["id_token"], settings.client_id)
+    assert initial_id_token["auth_time"] == expected_auth_time
+    assert refreshed_id_token["auth_time"] == expected_auth_time
+
+
+def test_end_session_rejects_clients_without_end_session_access() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-end-session-disabled",
+        scope="openid offline_access",
+        verifier="end-session-disabled",
+    )
+    token_response = _exchange_code(client, settings, code=code, verifier="end-session-disabled")
+    assert token_response.status_code == 200
+
+    logout = client.get(
+        "/auth/oauth2/end-session",
+        params={"id_token_hint": token_response.json()["id_token"]},
+    )
+
+    assert logout.status_code == 401
+    assert logout.json() == {
+        "error": "invalid_client",
+        "error_description": "client unable to logout",
+    }
+
+
+def test_end_session_clears_session_and_removes_sid_from_introspection() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        enable_end_session=True,
+    )
+    client, plugin, belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid profile email offline_access")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-end-session",
+        scope="openid profile email offline_access",
+        verifier="end-session-verifier",
+    )
+    token_response = _exchange_code(client, settings, code=code, verifier="end-session-verifier")
+    assert token_response.status_code == 200
+    tokens = token_response.json()
+
+    id_token = _decode_id_token(plugin, tokens["id_token"], settings.client_id)
+    assert id_token["sid"] == str(belgie_client.session.id)
+
+    before_logout = _introspect_token(
+        client,
+        settings,
+        tokens["access_token"],
+        token_type_hint="access_token",
+    )
+    assert before_logout.status_code == 200
+    assert before_logout.json()["sid"] == str(belgie_client.session.id)
+
+    logout = client.get(
+        "/auth/oauth2/end-session",
+        params={"id_token_hint": tokens["id_token"]},
+    )
+
+    assert logout.status_code == 200
+    assert logout.json() == {}
+    assert belgie_client.signed_out_session_id == belgie_client.session.id
+
+    access_introspection = _introspect_token(
+        client,
+        settings,
+        tokens["access_token"],
+        token_type_hint="access_token",
+    )
+    refresh_introspection = _introspect_token(
+        client,
+        settings,
+        tokens["refresh_token"],
+        token_type_hint="refresh_token",
+    )
+
+    assert access_introspection.status_code == 200
+    assert access_introspection.json()["active"] is True
+    assert "sid" not in access_introspection.json()
+    assert refresh_introspection.status_code == 200
+    assert refresh_introspection.json()["active"] is True
+    assert "sid" not in refresh_introspection.json()
+
+
+def test_end_session_redirects_to_registered_post_logout_uri() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        enable_end_session=True,
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(
+        plugin,
+        settings.client_id,
+        scope="openid profile email offline_access",
+        post_logout_redirect_uris=["https://client.local/logout"],
+    )
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-end-session-redirect",
+        scope="openid profile email offline_access",
+        verifier="end-session-redirect",
+    )
+    token_response = _exchange_code(client, settings, code=code, verifier="end-session-redirect")
+    assert token_response.status_code == 200
+
+    logout = client.get(
+        "/auth/oauth2/end-session",
+        params={
+            "id_token_hint": token_response.json()["id_token"],
+            "post_logout_redirect_uri": "https://client.local/logout",
+            "state": "logout-state",
+        },
+        follow_redirects=False,
+    )
+
+    assert logout.status_code == 302
+    assert logout.headers["location"] == "https://client.local/logout?state=logout-state"
+
+
+def test_dynamic_registration_rejects_skip_consent() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth2/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "skip_consent": True,
+        },
+        headers=_auth_headers(),
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_client_metadata",
+        "error_description": "skip_consent cannot be set during dynamic client registration",
+    }
+
+
+def test_dynamic_registration_ignores_enable_end_session_but_preserves_logout_redirects() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        allow_dynamic_client_registration=True,
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.post(
+        "/auth/oauth2/register",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "post_logout_redirect_uris": ["https://client.local/logout"],
+            "enable_end_session": True,
+            "type": "web",
+        },
+        headers=_auth_headers(),
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["post_logout_redirect_uris"] == ["https://client.local/logout"]
+    assert "enable_end_session" not in payload
+
+
+def test_revoke_requires_client_auth() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-revoke-auth",
+        scope="openid offline_access",
+        verifier="revoke-auth-verifier",
+    )
+    token_response = _exchange_code(client, settings, code=code, verifier="revoke-auth-verifier")
+    assert token_response.status_code == 200
+
+    revoke = client.post(
+        "/auth/oauth2/revoke",
+        data={"token": token_response.json()["access_token"]},
+    )
+
+    assert revoke.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("resource", "token_field", "token_type_hint", "expected_status", "expected_active"),
+    [
+        ("http://testserver/mcp", ACCESS_TOKEN_HINT, ACCESS_TOKEN_HINT, 200, False),
+        (None, ACCESS_TOKEN_HINT, ACCESS_TOKEN_HINT, 200, False),
+        (None, REFRESH_TOKEN_HINT, ACCESS_TOKEN_HINT, 400, True),
+        (None, REFRESH_TOKEN_HINT, REFRESH_TOKEN_HINT, 200, False),
+        (None, ACCESS_TOKEN_HINT, REFRESH_TOKEN_HINT, 400, True),
+        (None, ACCESS_TOKEN_HINT, None, 200, False),
+        (None, REFRESH_TOKEN_HINT, None, 200, False),
+    ],
+)
+def test_revoke_respects_token_type_hints(
+    resource: str | None,
+    token_field: str,
+    token_type_hint: str | None,
+    expected_status: int,
+    expected_active,
+) -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid offline_access")
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-revoke-hints",
+        scope="openid offline_access",
+        verifier="revoke-hints-verifier",
+    )
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="revoke-hints-verifier",
+        resource=resource,
+    )
+    assert token_response.status_code == 200
+    tokens = token_response.json()
+
+    revoke = _revoke_token(
+        client,
+        settings,
+        tokens[token_field],
+        token_type_hint=token_type_hint,
+    )
+
+    assert revoke.status_code == expected_status
+    if expected_status == 200:
+        assert revoke.json() == {}
+
+    introspection = _introspect_token(
+        client,
+        settings,
+        tokens[token_field],
+        token_type_hint=REFRESH_TOKEN_HINT if token_field == REFRESH_TOKEN_HINT else ACCESS_TOKEN_HINT,
+    )
+
+    assert introspection.status_code == 200
+    if expected_active:
+        assert introspection.json()["active"] is True
+    else:
+        assert introspection.json() == {"active": False}
+
+
+def test_loopback_redirect_uri_allows_port_mismatch_for_public_clients() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://127.0.0.1/callback"],
+        client_id="test-client",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+    redirect_uri = "http://127.0.0.1:43123/callback"
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params={
+            "response_type": "code",
+            "client_id": settings.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "openid user",
+            "state": "state-loopback-port",
+            "code_challenge": create_code_challenge("loopback-port-verifier"),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    assert authorize.headers["location"].startswith(f"{redirect_uri}?")
+    code = _query(authorize.headers["location"])["code"][0]
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        verifier="loopback-port-verifier",
+        redirect_uri=redirect_uri,
+    )
+    assert token_response.status_code == 200
+
+
+def test_non_loopback_redirect_uri_rejects_port_mismatch() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["https://client.local/callback"],
+        client_id="test-client",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params={
+            "response_type": "code",
+            "client_id": settings.client_id,
+            "redirect_uri": "https://client.local:43123/callback",
+            "scope": "openid user",
+            "state": "state-non-loopback-port",
+            "code_challenge": create_code_challenge("non-loopback-verifier"),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 400
+    assert authorize.json() == {
+        "error": "invalid_request",
+        "error_description": "Redirect URI 'https://client.local:43123/callback' not registered for client",
+    }
+
+
+def test_loopback_redirect_uri_rejects_path_mismatch() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://127.0.0.1/callback"],
+        client_id="test-client",
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params={
+            "response_type": "code",
+            "client_id": settings.client_id,
+            "redirect_uri": "http://127.0.0.1:43123/other",
+            "scope": "openid user",
+            "state": "state-loopback-path",
+            "code_challenge": create_code_challenge("loopback-path-verifier"),
+            "code_challenge_method": "S256",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 400
+    assert authorize.json() == {
+        "error": "invalid_request",
+        "error_description": "Redirect URI 'http://127.0.0.1:43123/other' not registered for client",
+    }

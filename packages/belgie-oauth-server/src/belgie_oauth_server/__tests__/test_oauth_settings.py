@@ -95,6 +95,34 @@ def test_oauth_settings_accepts_valid_audiences_and_deduplicates_supported_scope
     assert settings.supported_scopes() == ["user", "profile", "openid", "email", "offline_access"]
 
 
+def test_oauth_settings_accepts_advertised_metadata_subset() -> None:
+    settings = build_oauth_settings(
+        redirect_uris=["http://example.com/callback"],
+        default_scopes=["user", "files:read"],
+        advertised_metadata={
+            "scopes_supported": ["user", "openid"],
+            "claims_supported": ["sub", "tenant"],
+        },
+    )
+
+    assert settings.advertised_metadata is not None
+    assert settings.advertised_metadata.scopes_supported == ["user", "openid"]
+    assert settings.advertised_metadata.claims_supported == ["sub", "tenant"]
+
+
+def test_oauth_settings_rejects_invalid_advertised_scope() -> None:
+    with pytest.raises(ValidationError) as exc:
+        build_oauth_settings(
+            redirect_uris=["http://example.com/callback"],
+            default_scopes=["user"],
+            advertised_metadata={
+                "scopes_supported": ["admin"],
+            },
+        )
+
+    assert "advertised_metadata.scopes_supported admin not found in supported scopes" in str(exc.value)
+
+
 def test_oauth_settings_resolves_valid_audiences_from_fallback_issuer() -> None:
     settings = OAuthServer(
         adapter=build_oauth_settings().adapter,

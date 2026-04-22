@@ -60,6 +60,21 @@ def test_build_oauth_metadata_advertises_public_clients_only_when_unauthenticate
     ]
 
 
+def test_build_oauth_metadata_uses_advertised_scopes_supported() -> None:
+    metadata = build_oauth_metadata(
+        ISSUER_URL,
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            default_scopes=["user", "files:read"],
+            advertised_metadata={
+                "scopes_supported": ["user", "openid"],
+            },
+        ),
+    )
+
+    assert metadata.scopes_supported == ["user", "openid"]
+
+
 def test_build_oauth_metadata_reflects_configured_server_grants() -> None:
     metadata = build_oauth_metadata(
         ISSUER_URL,
@@ -178,6 +193,20 @@ def test_build_openid_metadata_advertises_pairwise_subjects() -> None:
     assert metadata.subject_types_supported == ["public", "pairwise"]
 
 
+def test_build_openid_metadata_uses_advertised_claims_supported() -> None:
+    metadata = build_openid_metadata(
+        ISSUER_URL,
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            advertised_metadata={
+                "claims_supported": ["sub", "tenant"],
+            },
+        ),
+    )
+
+    assert metadata.claims_supported == ["sub", "tenant"]
+
+
 def test_build_openid_metadata_well_known_path_with_path() -> None:
     path = build_openid_metadata_well_known_path(ISSUER_URL)
     assert path == "/auth/.well-known/openid-configuration"
@@ -206,6 +235,27 @@ def test_build_protected_resource_metadata_defaults_authorization_server() -> No
     assert metadata.scopes_supported == ["user"]
 
 
+def test_build_protected_resource_metadata_allows_overriding_authorization_servers() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["https://client.local/callback"],
+        default_scopes=["user"],
+    )
+
+    metadata = build_protected_resource_metadata(
+        "https://mcp.local/mcp",
+        settings=settings,
+        authorization_servers=["https://auth.local/auth", "https://admin.local/auth"],
+        scopes_supported=["user"],
+    )
+
+    assert [str(value) for value in metadata.authorization_servers] == [
+        "https://auth.local/auth",
+        "https://admin.local/auth",
+    ]
+    assert metadata.scopes_supported == ["user"]
+
+
 def test_build_protected_resource_metadata_rejects_openid_scope() -> None:
     settings = build_oauth_settings(
         base_url="https://auth.local",
@@ -219,3 +269,89 @@ def test_build_protected_resource_metadata_rejects_openid_scope() -> None:
             settings=settings,
             scopes_supported=["openid"],
         )
+
+
+def test_build_protected_resource_metadata_warns_for_oidc_style_scopes() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["https://client.local/callback"],
+    )
+
+    with pytest.warns(UserWarning, match="typically restricted"):
+        metadata = build_protected_resource_metadata(
+            "https://mcp.local/mcp",
+            settings=settings,
+            scopes_supported=["profile"],
+        )
+
+    assert metadata.scopes_supported == ["profile"]
+
+
+def test_build_protected_resource_metadata_silences_oidc_scope_warnings() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["https://client.local/callback"],
+    )
+
+    metadata = build_protected_resource_metadata(
+        "https://mcp.local/mcp",
+        settings=settings,
+        scopes_supported=["profile"],
+        silence_oidc_scope_warnings=True,
+    )
+
+    assert metadata.scopes_supported == ["profile"]
+
+
+def test_build_protected_resource_metadata_rejects_unsupported_scope() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["https://client.local/callback"],
+        default_scopes=["user"],
+    )
+
+    with pytest.raises(ValueError, match='Unsupported scope "write:posts"'):
+        build_protected_resource_metadata(
+            "https://mcp.local/mcp",
+            settings=settings,
+            scopes_supported=["write:posts"],
+        )
+
+
+def test_build_protected_resource_metadata_rejects_external_scopes_with_one_authorization_server() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["https://client.local/callback"],
+        default_scopes=["read:posts"],
+    )
+
+    with pytest.raises(ValueError, match="external scopes should not be provided with one authorization server"):
+        build_protected_resource_metadata(
+            "https://mcp.local/mcp",
+            settings=settings,
+            authorization_servers=["https://auth.local/auth"],
+            scopes_supported=["read:posts", "write:posts"],
+            external_scopes=["write:posts"],
+        )
+
+
+def test_build_protected_resource_metadata_allows_external_scopes_with_multiple_authorization_servers() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["https://client.local/callback"],
+        default_scopes=["read:posts"],
+    )
+
+    metadata = build_protected_resource_metadata(
+        "https://mcp.local/mcp",
+        settings=settings,
+        authorization_servers=["https://auth.local/auth", "https://partner.local/auth"],
+        scopes_supported=["read:posts", "write:posts"],
+        external_scopes=["write:posts"],
+    )
+
+    assert [str(value) for value in metadata.authorization_servers] == [
+        "https://auth.local/auth",
+        "https://partner.local/auth",
+    ]
+    assert metadata.scopes_supported == ["read:posts", "write:posts"]
