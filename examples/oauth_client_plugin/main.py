@@ -74,7 +74,8 @@ class LinkedOAuthAccountResponse(BaseModel):
     provider: str
     provider_account_id: str
     scope: str | None
-    expires_at: str | None
+    access_token_expires_at: str | None
+    refresh_token_expires_at: str | None
 
 
 app = FastAPI(title="Belgie OAuth Client Plugin Example", lifespan=lifespan)
@@ -162,7 +163,12 @@ async def linked_google_accounts(
             provider=account.provider,
             provider_account_id=account.provider_account_id,
             scope=account.scope,
-            expires_at=account.expires_at.isoformat() if account.expires_at else None,
+            access_token_expires_at=(
+                account.access_token_expires_at.isoformat() if account.access_token_expires_at else None
+            ),
+            refresh_token_expires_at=(
+                account.refresh_token_expires_at.isoformat() if account.refresh_token_expires_at else None
+            ),
         )
         for account in accounts
     ]

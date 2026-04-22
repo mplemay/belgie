@@ -50,6 +50,17 @@ def test_microsoft_common_tenant_preset_uses_graph_userinfo() -> None:
     assert provider.issuer is None
 
 
+def test_microsoft_public_client_mode_uses_none_auth() -> None:
+    settings = MicrosoftOAuth(
+        client_id="microsoft-client-id",
+        client_secret=None,
+    )
+    provider = settings.to_provider()
+
+    assert provider.client_secret is None
+    assert provider.token_endpoint_auth_method == "none"
+
+
 def test_microsoft_tenant_specific_preset_sets_expected_issuer() -> None:
     settings = MicrosoftOAuth(
         client_id="microsoft-client-id",

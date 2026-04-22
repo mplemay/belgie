@@ -36,8 +36,8 @@ class GoogleOAuth(BaseSettings):
     scopes: list[str] = Field(default_factory=lambda: ["openid", "email", "profile"])
     access_type: str = Field(default="offline")
     prompt: str = Field(default="consent")
-    allow_sign_up: bool = True
-    require_explicit_sign_up: bool = False
+    disable_sign_up: bool = False
+    disable_implicit_sign_up: bool = False
     encrypt_tokens: bool = False
     token_encryption_secret: SecretStr | None = None
     authorization_params: dict[str, str] = Field(default_factory=dict)
@@ -68,8 +68,8 @@ class GoogleOAuth(BaseSettings):
             scopes=self.scopes,
             prompt=self.prompt,
             access_type=self.access_type,
-            allow_sign_up=self.allow_sign_up,
-            require_explicit_sign_up=self.require_explicit_sign_up,
+            disable_sign_up=self.disable_sign_up,
+            disable_implicit_sign_up=self.disable_implicit_sign_up,
             encrypt_tokens=self.encrypt_tokens,
             token_encryption_secret=self.token_encryption_secret,
             authorization_params=self.authorization_params,

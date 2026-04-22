@@ -15,7 +15,8 @@ class OAuthAccountProtocol(Protocol):
     provider_account_id: str
     access_token: str | None
     refresh_token: str | None
-    expires_at: datetime | None
+    access_token_expires_at: datetime | None
+    refresh_token_expires_at: datetime | None
     token_type: str | None
     scope: str | None
     id_token: str | None

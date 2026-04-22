@@ -79,7 +79,8 @@ class ExampleOAuthAccount:
     provider_account_id: str
     access_token: str | None
     refresh_token: str | None
-    expires_at: datetime | None
+    access_token_expires_at: datetime | None
+    refresh_token_expires_at: datetime | None
     token_type: str | None
     scope: str | None
     id_token: str | None
@@ -391,7 +392,8 @@ def test_account_protocol_runtime_check() -> None:
         provider_account_id="12345",
         access_token="token",
         refresh_token="refresh",
-        expires_at=now,
+        access_token_expires_at=now,
+        refresh_token_expires_at=now,
         token_type="Bearer",
         scope="openid email",
         id_token="id_token",

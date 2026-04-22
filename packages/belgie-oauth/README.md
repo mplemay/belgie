@@ -1,20 +1,28 @@
-# belgie-oauth: Generic Authlib-Backed OAuth/OIDC for Belgie
+# belgie-oauth: Better-Auth-Informed OAuth/OIDC for Belgie
 
 > [!WARNING]
-> This package is part of Belgie's beta API surface. Names and integration details may still change before v1.0.
+> This package is still part of Belgie's beta API surface.
 
-`belgie-oauth` is Belgie's generic OAuth 2.0 / OpenID Connect client runtime.
-It is built on Authlib's low-level HTTPX client primitives, persists OAuth state in the Belgie adapter, and exposes a
-single provider-agnostic dependency API for sign-in, account linking, token refresh, and linked-account management.
+`belgie-oauth` is Belgie's Authlib-backed OAuth 2.0 / OpenID Connect client runtime.
+It keeps the public integration centered on:
 
-Google and Microsoft remain available as presets, but the primary public API is now:
+- `OAuthProvider`
+- `OAuthPlugin`
+- `OAuthClient`
+- `OAuthTokenSet`
+- `OAuthLinkedAccount`
+- `OAuthUserInfo`
+- Google and Microsoft preset wrappers
 
-- `OAuthProvider` for generic provider configuration
-- `OAuthPlugin` for Belgie integration
-- `OAuthClient` for dependency-driven OAuth flows and account operations
-- `OAuthLinkedAccount` for linked-account reads
-- `OAuthUserInfo` for mapped provider profile data
-- `ConsumedOAuthState` for the persisted callback state exposed on `request.state`
+Internally, the runtime is split the same way better-auth is:
+
+- transport: discovery, authorization URL generation, code exchange, refresh, ID-token validation, userinfo fetch
+- state: adapter-backed or cookie-backed OAuth state handling
+- flow: sign-in, account linking, callback orchestration, redirects, and persistence updates
+
+It intentionally uses Authlib's low-level `AsyncOAuth2Client` + `AsyncOpenIDMixin`. It does not use
+`authlib.integrations.starlette_client.OAuth`, because Belgie owns state and cookies instead of relying on
+session-middleware state.
 
 ## Installation
 
@@ -24,31 +32,7 @@ uv add belgie-oauth
 
 You also need normal Belgie configuration, including `BELGIE_SECRET` and `BELGIE_BASE_URL`.
 
-## What It Does
-
-- Starts sign-in flows and link-account flows from a single dependency surface.
-- Persists OAuth state in the adapter, including:
-  - provider id
-  - PKCE verifier
-  - nonce
-  - flow intent (`signin` or `link`)
-  - success, error, and new-user redirect targets
-  - arbitrary JSON payload
-  - initiating individual id
-  - explicit sign-up request flag
-- Keeps the callback route shape at `GET|POST /auth/provider/{provider_id}/callback`.
-- Validates callback state and RFC 9207 `iss` parameters before token exchange when an issuer is configured.
-- Exchanges codes and refresh tokens through Authlib's `AsyncOAuth2Client`.
-- Validates ID tokens through Authlib's OIDC helpers when a nonce is available.
-- Falls back to `userinfo` endpoints when needed.
-- Supports multiple linked accounts from the same provider.
-- Supports optional token encryption at rest with compatibility-safe decoding of existing plaintext rows.
-- Exposes the consumed OAuth state on `request.state.oauth_state` and `request.state.oauth_payload` so hooks can read
-  passthrough data during callback handling.
-
 ## Quick Start
-
-This is the smallest useful generic setup using Google through OIDC discovery:
 
 ```python
 from typing import Annotated
@@ -108,9 +92,12 @@ Register this callback URL with the provider:
 http://localhost:8000/auth/provider/google/callback
 ```
 
+`signin_url(...)` and `link_url(...)` now return a Belgie-owned start URL first. That local start route sets the
+required state cookie or marker and then redirects to the provider. The app-owned login route stays the same.
+
 ## Account Operations
 
-`OAuthClient` also provides account and token operations after sign-in:
+`OAuthClient` exposes both flow helpers and post-sign-in account operations:
 
 ```python
 from typing import Annotated
@@ -128,20 +115,28 @@ async def list_google_accounts(
     return await oauth.list_accounts(individual_id=user.id)
 
 
-@app.post("/accounts/google/link")
-async def link_google_account(
+@app.get("/accounts/google/token-set")
+async def google_token_set(
     oauth: Annotated[OAuthClient, Depends(google)],
     user: Annotated[Individual, Depends(auth.individual)],
+    provider_account_id: str,
 ):
-    url = await oauth.link_url(
+    token_set = await oauth.token_set(
         individual_id=user.id,
-        return_to="/settings/connections",
-        payload={"source": "settings"},
+        provider_account_id=provider_account_id,
     )
-    return RedirectResponse(url=url, status_code=302)
+    return {
+        "access_token": token_set.access_token,
+        "access_token_expires_at": (
+            token_set.access_token_expires_at.isoformat() if token_set.access_token_expires_at else None
+        ),
+        "refresh_token_expires_at": (
+            token_set.refresh_token_expires_at.isoformat() if token_set.refresh_token_expires_at else None
+        ),
+    }
 
 
-@app.get("/accounts/google/token")
+@app.get("/accounts/google/access-token")
 async def google_access_token(
     oauth: Annotated[OAuthClient, Depends(google)],
     user: Annotated[Individual, Depends(auth.individual)],
@@ -160,31 +155,78 @@ Available dependency methods:
 - `signin_url(...)`
 - `link_url(...)`
 - `list_accounts(individual_id=...)`
-- `get_access_token(individual_id=..., provider_account_id=...)`
+- `token_set(individual_id=..., provider_account_id=..., auto_refresh=True)`
+- `get_access_token(individual_id=..., provider_account_id=..., auto_refresh=True)`
 - `refresh_account(individual_id=..., provider_account_id=...)`
-- `account_info(individual_id=..., provider_account_id=...)`
+- `account_info(individual_id=..., provider_account_id=..., auto_refresh=True)`
 - `unlink_account(individual_id=..., provider_account_id=...)`
+
+## Persistence Model
+
+OAuth account persistence is a clean break from the older single-expiry layout.
+
+Stored account fields now include:
+
+- `access_token`
+- `refresh_token`
+- `access_token_expires_at`
+- `refresh_token_expires_at`
+- `token_type`
+- `scope`
+- `id_token`
+
+Notes:
+
+- `OAuthTokenSet.raw` is still available at runtime for provider-specific responses.
+- Raw token JSON is not required to be persisted.
+- When refresh responses omit optional fields, the runtime preserves the existing stored values where that is safe
+  to do so.
+- Optional token encryption still works at rest through `encrypt_tokens=True`.
+
+## State Strategies
+
+`OAuthProvider.state_strategy` controls where Belgie stores OAuth state.
+
+- `adapter`
+  - Persists the state row through the Belgie adapter.
+  - Also sets a short-lived signed marker cookie so the callback is still bound to the initiating browser.
+- `cookie`
+  - Stores the full transient state in a short-lived encrypted cookie.
+  - Does not create adapter rows for OAuth state.
+
+Both strategies keep the callback route shape at:
+
+```text
+GET|POST /auth/provider/{provider_id}/callback
+```
+
+`form_post` callbacks are normalized before validation so cookie-backed state remains usable even when the browser does
+not send the cookie on the initial cross-site POST.
 
 ## Provider Configuration
 
 `OAuthProvider` supports:
 
-- OIDC discovery or manual endpoint configuration
-- PKCE and nonce persistence
-- issuer validation for callback `iss` parameters
-- token endpoint auth method selection
-- scope overrides and per-request re-consent
-- prompt, access type, and response mode controls
-- custom authorization and token parameters
-- custom token exchange, refresh, userinfo, and profile-mapping hooks
-- sign-up gating:
-  - `allow_sign_up=False`
-  - `require_explicit_sign_up=True`
-- optional token encryption:
+- OIDC discovery or manual `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` / `jwks_uri`
+- PKCE on or off
+- query-mode or `form_post` callbacks
+- RFC 9207 `iss` validation through `issuer` and `require_issuer_parameter_validation`
+- `state_strategy="adapter"` or `state_strategy="cookie"`
+- sign-up gating
+  - `disable_sign_up=True`
+  - `disable_implicit_sign_up=True`
+- profile refresh for existing linked users
+  - `override_user_info_on_sign_in=True`
+- optional token encryption
   - `encrypt_tokens=True`
   - `token_encryption_secret=...`
+- provider hooks
+  - `get_token`
+  - `refresh_tokens`
+  - `get_userinfo`
+  - `map_profile`
 
-Example with manual endpoints:
+Example with manual endpoints and cookie-backed state:
 
 ```python
 provider = OAuthProvider(
@@ -197,30 +239,40 @@ provider = OAuthProvider(
     issuer="https://idp.example.com",
     scopes=["openid", "email", "profile"],
     use_pkce=True,
-    allow_sign_up=False,
+    state_strategy="cookie",
+    disable_sign_up=True,
+    override_user_info_on_sign_in=True,
 )
 ```
 
-## Google and Microsoft Presets
+Public-client providers are first-class. If `client_secret=None`, Belgie will use `token_endpoint_auth_method="none"`.
 
-The generic runtime is the primary API, but preset wrappers remain available for convenience:
+## Presets
+
+The generic runtime is the primary API, but presets remain available:
 
 ```python
 from belgie_oauth import GoogleOAuth, MicrosoftOAuth
 ```
 
-Preset behavior:
+### Google
 
-- `GoogleOAuth`
-  - uses Google OIDC discovery
-  - defaults to `["openid", "email", "profile"]`
-  - defaults to `access_type="offline"`
-  - defaults to `prompt="consent"`
-- `MicrosoftOAuth`
-  - uses tenant-aware Microsoft endpoints
-  - defaults to `["openid", "profile", "email", "offline_access", "User.Read"]`
-  - uses Microsoft Graph OIDC `userinfo`
-  - treats `email_verified` conservatively and only trusts it when explicitly present
+- OIDC discovery through `https://accounts.google.com/.well-known/openid-configuration`
+- default scopes: `openid email profile`
+- default `prompt="consent"`
+- default `access_type="offline"`
+- `include_granted_scopes` works through `authorization_params`
+- ID-token validation first, userinfo merge/fallback second
+
+### Microsoft
+
+- tenant-aware authorize, token, and JWKS endpoints
+- default scopes: `openid profile email offline_access User.Read`
+- callback issuer validation only for tenant-specific issuers
+- JWKS-backed ID-token verification through Authlib
+- Graph OIDC userinfo support
+- conservative `email_verified` handling
+- public-client mode works with `client_secret=None`
 
 ## Hook Visibility
 
@@ -229,19 +281,21 @@ During successful callback handling, Belgie exposes:
 - `request.state.oauth_state`
 - `request.state.oauth_payload`
 
-This lets `after_authenticate` hooks read the persisted passthrough payload and the consumed OAuth state row without
-depending on cookies or ad-hoc query parameters.
+This keeps payload passthrough and callback metadata available to hooks like `after_authenticate`.
 
-## Notes
+## Better-Auth Parity and Intentional Omissions
 
-- OAuth state is adapter-backed only in this runtime.
-- Multiple accounts from the same provider can be linked to the same individual.
-- Stored plaintext tokens remain readable after enabling encryption; Belgie only writes encrypted values on new or
-  updated token rows.
-- The callback route supports both query-mode and `form_post` responses.
+This refactor intentionally matches better-auth's server-driven OAuth client behavior around provider transport,
+state handling, linked accounts, and token refresh. It does not adopt every better-auth feature.
+
+Not adopted:
+
+- direct client-submitted `idToken` sign-in
+- better-auth's account-cookie storage model as Belgie's primary account persistence
+- Authlib session middleware or a public `authlib.OAuth` / `authlib.Auth` object on `Belgie`
 
 ## Examples
 
-- [`examples/oauth_client_plugin`](../../examples/oauth_client_plugin): generic OAuth client plugin flow with app-owned
-  sign-in routes and linked-account access.
-- [`examples/auth`](../../examples/auth): end-to-end Belgie auth example using the generic provider API.
+- [`examples/oauth_client_plugin`](../../examples/oauth_client_plugin): generic OAuth client plugin flow, linked
+  accounts, and the new token expiry fields
+- [`examples/auth`](../../examples/auth): end-to-end Belgie auth example using the generic provider API

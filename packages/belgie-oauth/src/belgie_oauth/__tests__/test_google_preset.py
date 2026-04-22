@@ -28,8 +28,8 @@ def test_google_settings_defaults() -> None:
     assert settings.scopes == ["openid", "email", "profile"]
     assert settings.access_type == "offline"
     assert settings.prompt == "consent"
-    assert settings.allow_sign_up is True
-    assert settings.require_explicit_sign_up is False
+    assert settings.disable_sign_up is False
+    assert settings.disable_implicit_sign_up is False
 
 
 def test_google_settings_reject_empty_client_secret() -> None:

@@ -36,11 +36,11 @@ class MicrosoftOAuth(BaseSettings):
     )
 
     client_id: str
-    client_secret: SecretStr
+    client_secret: SecretStr | None = None
     tenant: str = Field(default="common")
     scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "offline_access", "User.Read"])
-    allow_sign_up: bool = True
-    require_explicit_sign_up: bool = False
+    disable_sign_up: bool = False
+    disable_implicit_sign_up: bool = False
     encrypt_tokens: bool = False
     token_encryption_secret: SecretStr | None = None
     authorization_params: dict[str, str] = Field(default_factory=dict)
@@ -55,7 +55,9 @@ class MicrosoftOAuth(BaseSettings):
 
     @field_validator("client_secret")
     @classmethod
-    def validate_client_secret(cls, value: SecretStr) -> SecretStr:
+    def validate_client_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
         secret = value.get_secret_value().strip()
         if not secret:
             msg = "client_secret must be a non-empty string"
@@ -78,11 +80,12 @@ class MicrosoftOAuth(BaseSettings):
             issuer=issuer,
             scopes=self.scopes,
             response_mode="query",
-            allow_sign_up=self.allow_sign_up,
-            require_explicit_sign_up=self.require_explicit_sign_up,
+            disable_sign_up=self.disable_sign_up,
+            disable_implicit_sign_up=self.disable_implicit_sign_up,
             encrypt_tokens=self.encrypt_tokens,
             token_encryption_secret=self.token_encryption_secret,
             authorization_params=self.authorization_params,
+            token_endpoint_auth_method="none" if self.client_secret is None else "client_secret_post",
             map_profile=_map_microsoft_profile,
         )
 

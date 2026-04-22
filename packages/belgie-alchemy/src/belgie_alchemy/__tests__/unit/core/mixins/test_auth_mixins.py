@@ -250,7 +250,8 @@ def test_account_session_oauthstate_mixin_defaults() -> None:
     assert account_fk.target_fullname == "individual.id"
     assert account_fk.ondelete == "cascade"
     assert account_fk.onupdate == "cascade"
-    assert isinstance(OAuthAccount.__table__.c.expires_at.type, DateTimeUTC)
+    assert isinstance(OAuthAccount.__table__.c.access_token_expires_at.type, DateTimeUTC)
+    assert isinstance(OAuthAccount.__table__.c.refresh_token_expires_at.type, DateTimeUTC)
 
     unique_constraints = [
         constraint for constraint in OAuthAccount.__table__.constraints if isinstance(constraint, UniqueConstraint)

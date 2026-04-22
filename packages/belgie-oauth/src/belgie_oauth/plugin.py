@@ -1,8 +1,19 @@
-from belgie_oauth.google import GoogleOAuth, GoogleOAuthClient, GoogleOAuthPlugin, GoogleUserInfo
+from belgie_oauth.generic import (
+    ConsumedOAuthState,
+    OAuthClient,
+    OAuthLinkedAccount,
+    OAuthPlugin,
+    OAuthProvider,
+    OAuthTokenSet,
+    OAuthUserInfo,
+)
 
 __all__ = [
-    "GoogleOAuth",
-    "GoogleOAuthClient",
-    "GoogleOAuthPlugin",
-    "GoogleUserInfo",
+    "ConsumedOAuthState",
+    "OAuthClient",
+    "OAuthLinkedAccount",
+    "OAuthPlugin",
+    "OAuthProvider",
+    "OAuthTokenSet",
+    "OAuthUserInfo",
 ]

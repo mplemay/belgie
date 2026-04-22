@@ -1,0 +1,486 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse, urlunparse
+
+from belgie_core.core.exceptions import OAuthError
+from belgie_core.core.plugin import AuthenticatedProfile
+from belgie_core.utils.crypto import generate_state_token
+from fastapi import Request, status
+from fastapi.responses import RedirectResponse
+
+from belgie_oauth._helpers import append_query_params, generate_code_verifier
+from belgie_oauth._models import ConsumedOAuthState, OAuthLinkedAccount, OAuthTokenSet, OAuthUserInfo, PendingOAuthState
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from belgie_core.core.belgie import Belgie
+    from belgie_core.core.client import BelgieClient
+
+    from belgie_oauth._config import OAuthProvider
+    from belgie_oauth._helpers import OAuthTokenCodec
+    from belgie_oauth._state import OAuthStateStore
+    from belgie_oauth._transport import OAuthTransport
+
+
+class OAuthFlowCoordinator:
+    def __init__(
+        self,
+        *,
+        config: OAuthProvider,
+        provider_id: str,
+        transport: OAuthTransport,
+        state_store: OAuthStateStore,
+        token_codec: OAuthTokenCodec,
+    ) -> None:
+        self.config = config
+        self.provider_id = provider_id
+        self.transport = transport
+        self.state_store = state_store
+        self.token_codec = token_codec
+
+    async def start_authorization(  # noqa: PLR0913
+        self,
+        client: BelgieClient,
+        *,
+        intent: str,
+        individual_id: UUID | None = None,
+        redirect_url: str | None = None,
+        error_redirect_url: str | None = None,
+        new_user_redirect_url: str | None = None,
+        payload: Any = None,  # noqa: ANN401
+        scopes: list[str] | None = None,
+        prompt: str | None = None,
+        access_type: str | None = None,
+        response_mode: str | None = None,
+        authorization_params: dict[str, str] | None = None,
+        request_sign_up: bool = False,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        state = generate_state_token()
+        code_verifier = generate_code_verifier() if self.config.use_pkce else None
+        nonce = generate_state_token() if self.transport.should_use_nonce(scopes) else None
+        expires_at = datetime.now(UTC) + timedelta(minutes=10)
+        oauth_state = PendingOAuthState(
+            state=state,
+            provider=self.provider_id,
+            individual_id=individual_id,
+            code_verifier=code_verifier,
+            nonce=nonce,
+            intent=intent,
+            redirect_url=redirect_url,
+            error_redirect_url=error_redirect_url,
+            new_user_redirect_url=new_user_redirect_url,
+            payload=payload,
+            request_sign_up=request_sign_up,
+            expires_at=expires_at,
+        )
+        cookies = await self.state_store.create_authorization_state(client, oauth_state)
+        authorization_url = await self.transport.generate_authorization_url(
+            state,
+            scopes=scopes,
+            prompt=prompt,
+            access_type=access_type,
+            response_mode=response_mode,
+            authorization_params=authorization_params,
+            code_verifier=code_verifier,
+            nonce=nonce,
+        )
+        return authorization_url, [cookie.to_dict() for cookie in cookies]
+
+    async def token_set(
+        self,
+        client: BelgieClient,
+        *,
+        individual_id: UUID,
+        provider_account_id: str,
+        auto_refresh: bool = True,
+    ) -> OAuthTokenSet:
+        account = await self._get_linked_account(
+            client,
+            individual_id=individual_id,
+            provider_account_id=provider_account_id,
+        )
+        if account is None:
+            msg = "oauth account not found"
+            raise OAuthError(msg)
+        if auto_refresh and self._should_refresh(account):
+            account = await self.refresh_account(
+                client,
+                individual_id=individual_id,
+                provider_account_id=provider_account_id,
+            )
+        if account.access_token is None:
+            msg = "oauth account does not have an access token"
+            raise OAuthError(msg)
+        return OAuthTokenSet.from_account(account)
+
+    async def list_accounts(
+        self,
+        client: BelgieClient,
+        *,
+        individual_id: UUID,
+    ) -> list[OAuthLinkedAccount]:
+        accounts = await client.list_oauth_accounts(individual_id=individual_id, provider=self.provider_id)
+        return [self._linked_account_snapshot(account) for account in accounts]
+
+    async def refresh_account(
+        self,
+        client: BelgieClient,
+        *,
+        individual_id: UUID,
+        provider_account_id: str,
+    ) -> OAuthLinkedAccount:
+        record = await client.get_oauth_account_for_individual(
+            individual_id=individual_id,
+            provider=self.provider_id,
+            provider_account_id=provider_account_id,
+        )
+        if record is None:
+            msg = "oauth account not found"
+            raise OAuthError(msg)
+
+        account = self._linked_account_snapshot(record)
+        if account.refresh_token is None:
+            msg = "oauth account does not have a refresh token"
+            raise OAuthError(msg)
+
+        refreshed = await self.transport.refresh_token_set(OAuthTokenSet.from_account(account))
+        updated = await client.update_oauth_account_by_id(record.id, **self._encoded_token_updates(refreshed))
+        if updated is None:
+            msg = "failed to update refreshed oauth account"
+            raise OAuthError(msg)
+        return self._linked_account_snapshot(updated)
+
+    async def account_info(
+        self,
+        client: BelgieClient,
+        *,
+        individual_id: UUID,
+        provider_account_id: str,
+        auto_refresh: bool = True,
+    ) -> OAuthUserInfo | None:
+        try:
+            token_set = await self.token_set(
+                client,
+                individual_id=individual_id,
+                provider_account_id=provider_account_id,
+                auto_refresh=auto_refresh,
+            )
+        except OAuthError:
+            return None
+        return await self.transport.fetch_provider_profile(token_set)
+
+    async def unlink_account(
+        self,
+        client: BelgieClient,
+        *,
+        individual_id: UUID,
+        provider_account_id: str,
+    ) -> bool:
+        return await client.unlink_oauth_account(
+            individual_id=individual_id,
+            provider=self.provider_id,
+            provider_account_id=provider_account_id,
+        )
+
+    async def complete_callback(
+        self,
+        *,
+        belgie: Belgie,
+        client: BelgieClient,
+        request: Request,
+    ) -> RedirectResponse:
+        consumed_state: ConsumedOAuthState | None = None
+        try:
+            normalization = await self.normalize_form_post_callback(request)
+            if normalization is not None:
+                return normalization
+
+            callback_params = await self.extract_callback_params(request)
+            state = callback_params.get("state")
+            if not state:
+                msg = "missing OAuth state"
+                raise OAuthError(msg)
+
+            consumed_state = await self.state_store.consume_callback_state(client, request, state)
+            if consumed_state.provider and consumed_state.provider != self.provider_id:
+                msg = "OAuth state provider mismatch"
+                raise OAuthError(msg)
+
+            metadata = await self.transport.resolve_server_metadata()
+            self.transport.validate_issuer_parameter(callback_params.get("iss"), metadata)
+
+            request.state.oauth_state = consumed_state
+            request.state.oauth_payload = consumed_state.payload
+
+            if callback_params.get("error"):
+                description = callback_params.get("error_description") or callback_params["error"]
+                raise OAuthError(description)
+
+            if not (code := callback_params.get("code")):
+                msg = "missing OAuth authorization code"
+                raise OAuthError(msg)
+
+            token_set = await self.transport.exchange_code_for_tokens(
+                code,
+                code_verifier=consumed_state.code_verifier,
+            )
+            provider_user = await self.transport.fetch_provider_profile(
+                token_set,
+                nonce=consumed_state.nonce,
+            )
+
+            if consumed_state.intent == "link":
+                response = await self._complete_link_flow(
+                    belgie=belgie,
+                    client=client,
+                    oauth_state=consumed_state,
+                    provider_user=provider_user,
+                    token_set=token_set,
+                )
+            else:
+                response = await self._complete_signin_flow(
+                    belgie=belgie,
+                    client=client,
+                    request=request,
+                    oauth_state=consumed_state,
+                    provider_user=provider_user,
+                    token_set=token_set,
+                )
+            self.state_store.clear_cookies(response)
+            return response
+        except OAuthError:
+            if consumed_state and consumed_state.error_redirect_url:
+                response = RedirectResponse(
+                    url=append_query_params(
+                        consumed_state.error_redirect_url,
+                        {"error": "oauth_callback_failed"},
+                    ),
+                    status_code=status.HTTP_302_FOUND,
+                )
+                self.state_store.clear_cookies(response)
+                return response
+            raise
+
+    async def normalize_form_post_callback(self, request: Request) -> RedirectResponse | None:
+        if request.method.upper() != "POST" or self.state_store.has_callback_cookie(request):
+            return None
+        callback_params = await self.extract_callback_params(request)
+        if not callback_params:
+            return None
+        parsed = urlparse(str(request.url))
+        callback_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, "", parsed.fragment))
+        return RedirectResponse(
+            url=append_query_params(callback_url, callback_params),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    async def extract_callback_params(self, request: Request) -> dict[str, str]:
+        params = dict(request.query_params)
+        if request.method.upper() == "POST":
+            form = await request.form()
+            params.update({key: str(value) for key, value in form.items()})
+        return params
+
+    async def _complete_signin_flow(  # noqa: C901, PLR0913
+        self,
+        *,
+        belgie: Belgie,
+        client: BelgieClient,
+        request: Request,
+        oauth_state: ConsumedOAuthState,
+        provider_user: OAuthUserInfo,
+        token_set: OAuthTokenSet,
+    ) -> RedirectResponse:
+        existing_account = await client.get_oauth_account(
+            provider=self.provider_id,
+            provider_account_id=provider_user.provider_account_id,
+        )
+
+        if existing_account is not None:
+            individual = await client.adapter.get_individual_by_id(client.db, existing_account.individual_id)
+            if individual is None:
+                msg = "linked individual not found"
+                raise OAuthError(msg)
+            if self.config.override_user_info_on_sign_in:
+                individual = await self._refresh_individual_profile(client, individual.id, provider_user) or individual
+            session = await client.sign_in_individual(individual, request=request)
+            updated_account = await client.update_oauth_account_by_id(
+                existing_account.id,
+                **self._encoded_token_updates(token_set),
+            )
+            if updated_account is None:
+                msg = "failed to update linked oauth account"
+                raise OAuthError(msg)
+            await belgie.after_authenticate(
+                client=client,
+                request=request,
+                individual=individual,
+                profile=AuthenticatedProfile(
+                    provider=self.provider_id,
+                    provider_account_id=provider_user.provider_account_id,
+                    email=provider_user.email or individual.email,
+                    email_verified=provider_user.email_verified,
+                    name=provider_user.name,
+                    image=provider_user.image,
+                ),
+            )
+            response = RedirectResponse(
+                url=oauth_state.redirect_url or belgie.settings.urls.signin_redirect,
+                status_code=status.HTTP_302_FOUND,
+            )
+            return client.create_session_cookie(session, response)
+
+        if provider_user.email is None:
+            msg = "provider user info missing email"
+            raise OAuthError(msg)
+
+        existing_individual = await client.adapter.get_individual_by_email(client.db, provider_user.email)
+        if existing_individual is None:
+            if self.config.disable_sign_up:
+                msg = "sign up is disabled for this provider"
+                raise OAuthError(msg)
+            if self.config.disable_implicit_sign_up and not oauth_state.request_sign_up:
+                msg = "sign up requires an explicit request"
+                raise OAuthError(msg)
+
+        verified_at = datetime.now(UTC) if provider_user.email_verified else None
+        individual, created = await client.get_or_create_individual(
+            provider_user.email,
+            name=provider_user.name,
+            image=provider_user.image,
+            email_verified_at=verified_at,
+        )
+        if not created and self.config.override_user_info_on_sign_in:
+            individual = await self._refresh_individual_profile(client, individual.id, provider_user) or individual
+        session = await client.sign_in_individual(individual, request=request)
+        if created and client.after_sign_up is not None:
+            await client.after_sign_up(
+                client=client,
+                request=request,
+                individual=individual,
+            )
+
+        await client.upsert_oauth_account(
+            individual_id=individual.id,
+            provider=self.provider_id,
+            provider_account_id=provider_user.provider_account_id,
+            **self._encoded_token_updates(token_set),
+        )
+        await belgie.after_authenticate(
+            client=client,
+            request=request,
+            individual=individual,
+            profile=AuthenticatedProfile(
+                provider=self.provider_id,
+                provider_account_id=provider_user.provider_account_id,
+                email=provider_user.email,
+                email_verified=provider_user.email_verified,
+                name=provider_user.name,
+                image=provider_user.image,
+            ),
+        )
+
+        redirect_url = belgie.settings.urls.signin_redirect
+        if created and oauth_state.new_user_redirect_url:
+            redirect_url = oauth_state.new_user_redirect_url
+        elif oauth_state.redirect_url:
+            redirect_url = oauth_state.redirect_url
+
+        response = RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
+        return client.create_session_cookie(session, response)
+
+    async def _complete_link_flow(
+        self,
+        *,
+        belgie: Belgie,
+        client: BelgieClient,
+        oauth_state: ConsumedOAuthState,
+        provider_user: OAuthUserInfo,
+        token_set: OAuthTokenSet,
+    ) -> RedirectResponse:
+        if oauth_state.individual_id is None:
+            msg = "link flow is missing the initiating individual"
+            raise OAuthError(msg)
+        if await client.adapter.get_individual_by_id(client.db, oauth_state.individual_id) is None:
+            msg = "initiating individual not found"
+            raise OAuthError(msg)
+
+        existing_account = await client.get_oauth_account(
+            provider=self.provider_id,
+            provider_account_id=provider_user.provider_account_id,
+        )
+        if existing_account is not None and existing_account.individual_id != oauth_state.individual_id:
+            msg = "oauth account already linked to another individual"
+            raise OAuthError(msg)
+
+        await client.upsert_oauth_account(
+            individual_id=oauth_state.individual_id,
+            provider=self.provider_id,
+            provider_account_id=provider_user.provider_account_id,
+            **self._encoded_token_updates(token_set),
+        )
+
+        return RedirectResponse(
+            url=oauth_state.redirect_url or belgie.settings.urls.signin_redirect,
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    async def _refresh_individual_profile(
+        self,
+        client: BelgieClient,
+        individual_id: UUID,
+        provider_user: OAuthUserInfo,
+    ):
+        updates: dict[str, Any] = {}
+        if provider_user.name is not None:
+            updates["name"] = provider_user.name
+        if provider_user.image is not None:
+            updates["image"] = provider_user.image
+        if provider_user.email_verified:
+            updates["email_verified_at"] = datetime.now(UTC)
+        if not updates:
+            return None
+        return await client.adapter.update_individual(client.db, individual_id, **updates)
+
+    async def _get_linked_account(
+        self,
+        client: BelgieClient,
+        *,
+        individual_id: UUID,
+        provider_account_id: str,
+    ) -> OAuthLinkedAccount | None:
+        record = await client.get_oauth_account_for_individual(
+            individual_id=individual_id,
+            provider=self.provider_id,
+            provider_account_id=provider_account_id,
+        )
+        if record is None:
+            return None
+        return self._linked_account_snapshot(record)
+
+    def _encoded_token_updates(self, token_set: OAuthTokenSet) -> dict[str, Any]:
+        return {
+            "access_token": self.token_codec.encode(token_set.access_token),
+            "refresh_token": self.token_codec.encode(token_set.refresh_token),
+            "access_token_expires_at": token_set.access_token_expires_at,
+            "refresh_token_expires_at": token_set.refresh_token_expires_at,
+            "scope": token_set.scope,
+            "token_type": token_set.token_type,
+            "id_token": self.token_codec.encode(token_set.id_token),
+        }
+
+    def _linked_account_snapshot(self, account) -> OAuthLinkedAccount:  # noqa: ANN001
+        return OAuthLinkedAccount.from_model(
+            account,
+            access_token=self.token_codec.decode(account.access_token),
+            refresh_token=self.token_codec.decode(account.refresh_token),
+            id_token=self.token_codec.decode(account.id_token),
+        )
+
+    def _should_refresh(self, account: OAuthLinkedAccount) -> bool:
+        if account.access_token_expires_at is None or account.refresh_token is None:
+            return False
+        return account.access_token_expires_at <= datetime.now(UTC) + timedelta(seconds=30)

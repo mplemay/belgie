@@ -134,7 +134,11 @@ class OAuthAccountMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
-    def expires_at(self) -> Mapped[datetime | None]:
+    def access_token_expires_at(self) -> Mapped[datetime | None]:
+        return mapped_column(DateTimeUTC, default=None, kw_only=True)
+
+    @declared_attr
+    def refresh_token_expires_at(self) -> Mapped[datetime | None]:
         return mapped_column(DateTimeUTC, default=None, kw_only=True)
 
     @declared_attr
