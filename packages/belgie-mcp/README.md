@@ -11,6 +11,11 @@ Auth-style protected-resource metadata.
 OAuth protocol behavior still lives in `belgie-oauth-server`. `belgie-mcp`
 only adapts that behavior into MCP-facing types.
 
+There is no separate ASGI `mcp_handler` export: use `MCPServer(..., token_verifier=..., auth=...)` and
+`streamable_http_app(...)` so the MCP Python SDK performs Bearer verification,
+scope checks, and 401/403 responses (the analogue of a Fetch-level `mcpHandler`
+in the Node stack).
+
 ## Installation
 
 ```bash
