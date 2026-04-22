@@ -106,9 +106,9 @@ class OAuthServer(BaseSettings):
     consent_url: str | None = None
     select_account_url: str | None = None
 
-    client_id: str = "belgie_client"
+    client_id: str | None = None
     client_secret: SecretStr | None = None
-    redirect_uris: list[AnyUrl] = Field(min_length=1)
+    redirect_uris: list[AnyUrl] | None = Field(default=None, min_length=1)
     grant_types: list[OAuthServerGrantType] = Field(
         default_factory=lambda: ["authorization_code", "client_credentials", "refresh_token"],
     )
@@ -119,11 +119,13 @@ class OAuthServer(BaseSettings):
 
     authorization_code_ttl_seconds: int = 600
     access_token_ttl_seconds: int = 3600
+    m2m_access_token_ttl_seconds: int = 3600
     refresh_token_ttl_seconds: int = 2592000
     id_token_ttl_seconds: int = 36000
     state_ttl_seconds: int = 600
     code_challenge_method: Literal["S256"] = "S256"
     scope_expirations: ScopeExpirations | None = None
+    disable_jwt_plugin: bool = False
     enable_end_session: bool = False
     allow_dynamic_client_registration: bool = False
     allow_unauthenticated_client_registration: bool = False
@@ -152,6 +154,7 @@ class OAuthServer(BaseSettings):
     refresh_token_encoder: RefreshTokenEncoder | None = None
     refresh_token_decoder: RefreshTokenDecoder | None = None
     token_prefixes: OAuthServerTokenPrefixSettings = Field(default_factory=OAuthServerTokenPrefixSettings)
+    cached_trusted_clients: set[str] = Field(default_factory=set)
     advertised_metadata: OAuthServerAdvertisedMetadata | None = None
     rate_limit: OAuthServerRateLimitSettings = Field(default_factory=OAuthServerRateLimitSettings)
 
@@ -225,6 +228,12 @@ class OAuthServer(BaseSettings):
     def validate_refresh_token_hooks(self) -> Self:
         if self.refresh_token_encoder is not None and self.refresh_token_decoder is None:
             msg = "refresh_token_decoder is required when refresh_token_encoder is configured"
+            raise ValueError(msg)
+        if self.client_secret is not None and not self.client_id:
+            msg = "client_id is required when configuring a built-in compatibility client"
+            raise ValueError(msg)
+        if self.client_id is not None and not self.redirect_uris:
+            msg = "redirect_uris is required when configuring a built-in compatibility client"
             raise ValueError(msg)
         if "refresh_token" in self.grant_types and "authorization_code" not in self.grant_types:
             msg = "refresh_token grant requires authorization_code grant"
@@ -301,6 +310,8 @@ class OAuthServer(BaseSettings):
 
     async def is_trusted_client(self, oauth_client: TrustedClient) -> bool:
         if oauth_client.skip_consent:
+            return True
+        if oauth_client.client_id in self.cached_trusted_clients:
             return True
         if self.trusted_client_resolver is None:
             return False

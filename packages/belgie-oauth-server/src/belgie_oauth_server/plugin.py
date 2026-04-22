@@ -1,4 +1,5 @@
 import inspect
+import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -6,16 +7,16 @@ from typing import Annotated, Literal, Protocol
 from urllib.parse import parse_qsl, urlparse, urlunparse
 from uuid import UUID
 
-import jwt
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
-from belgie_core.core.exceptions import OAuthError
 from belgie_core.core.plugin import PluginClient
 from belgie_core.core.settings import BelgieSettings
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
-from jwt import InvalidTokenError
+from joserfc import jws
+from joserfc.errors import JoseError
+from joserfc.util import to_bytes
 from pydantic import AnyUrl, ValidationError
 from starlette.datastructures import FormData
 
@@ -26,6 +27,7 @@ from belgie_oauth_server.engine.helpers import (
     parse_scope_param,
     validate_pkce_inputs,
 )
+from belgie_oauth_server.engine.token_response import build_access_token_jwt_payload
 from belgie_oauth_server.metadata import (
     build_oauth_metadata,
     build_oauth_metadata_well_known_path,
@@ -55,7 +57,6 @@ from belgie_oauth_server.utils import (
 from belgie_oauth_server.verifier import verify_local_access_token
 
 _OAUTH_ENDPOINT_PREFIX = "/oauth2"
-_ADMIN_OAUTH_ENDPOINT_PREFIX = "/admin/oauth2"
 type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 type FormValue = str | UploadFile
 type FormInput = Mapping[str, FormValue] | FormData
@@ -151,7 +152,7 @@ class OAuthServerPlugin(PluginClient):
 
         router = self._add_metadata_route(router, metadata)
         router = self._add_openid_metadata_route(router, openid_metadata)
-        router = self._add_jwks_route(router, provider)
+        router = self._add_jwks_route(router, provider, self._settings)
         if self._settings.supports_authorization_code():
             router = self._add_authorize_route(
                 router,
@@ -250,9 +251,9 @@ class OAuthServerPlugin(PluginClient):
         return router
 
     @staticmethod
-    def _add_jwks_route(router: APIRouter, provider: SimpleOAuthProvider) -> APIRouter:
+    def _add_jwks_route(router: APIRouter, provider: SimpleOAuthProvider, settings: OAuthServer) -> APIRouter:
         async def jwks_handler(_: Request) -> dict[str, list[dict[str, JSONValue]]]:
-            if provider.signing_state.jwks is None:
+            if settings.disable_jwt_plugin or provider.signing_state.jwks is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="jwks unavailable")
             return provider.signing_state.jwks
 
@@ -632,6 +633,15 @@ class OAuthServerPlugin(PluginClient):
                 if oauth_client is not None
                 else access_token.individual_id
             )
+            jwt_payload = await build_access_token_jwt_payload(
+                client,
+                provider,
+                settings,
+                issuer_url,
+                oauth_client,
+                access_token,
+                user=user,
+            )
             return UserInfoResponse.model_validate(
                 {
                     **_build_user_claims(
@@ -643,11 +653,9 @@ class OAuthServerPlugin(PluginClient):
                         await _resolve_custom_mapping(
                             settings.custom_userinfo_claims,
                             {
-                                "client_id": oauth_client.client_id,
+                                "user": user,
                                 "scopes": list(access_token.scopes),
-                                "subject_identifier": subject_identifier,
-                                "user_id": str(user.id),
-                                "metadata_json": oauth_client.metadata_json or {},
+                                "jwt": jwt_payload,
                             },
                         )
                     ),
@@ -710,15 +718,13 @@ class OAuthServerPlugin(PluginClient):
                 )
             try:
                 # Pass 2: verify signature and standard claims with the server signing config.
-                payload = jwt.decode(
+                payload = provider.signing_state.decode(
                     id_token_hint,
-                    provider.signing_state.verification_key,
-                    algorithms=[provider.signing_state.algorithm],
                     audience=inferred_client_id,
                     issuer=issuer_url,
-                    options={"require": ["iss", "aud", "exp", "iat", "sub"]},
+                    required_claims=["iss", "aud", "exp", "iat", "sub"],
                 )
-            except InvalidTokenError:
+            except JoseError:
                 return _oauth_error("invalid_token", "invalid id token", status_code=status.HTTP_401_UNAUTHORIZED)
 
             sid = payload.get("sid")
@@ -914,7 +920,7 @@ class OAuthServerPlugin(PluginClient):
                     session_id=str(session.id),
                 )
                 await provider.save_consent(
-                    oauth_client.client_id or settings.client_id,
+                    oauth_client.client_id,
                     str(individual.id),
                     consent_scopes,
                     reference_id=await _resolve_consent_reference(
@@ -1108,8 +1114,7 @@ class OAuthServerPlugin(PluginClient):
 
             deduped: dict[str, OAuthServerClientInformationFull] = {}
             for oauth_client in clients:
-                if oauth_client.client_id is not None:
-                    deduped[oauth_client.client_id] = _redact_client_secret(oauth_client)
+                deduped[oauth_client.client_id] = _redact_client_secret(oauth_client)
             return [_serialize_oauth_client(oauth_client, include_secret=False) for oauth_client in deduped.values()]
 
         async def prelogin_client_handler(request: Request) -> dict[str, JSONValue] | Response:
@@ -1249,7 +1254,10 @@ class OAuthServerPlugin(PluginClient):
             ):
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
 
-            await provider.delete_client(client_id, db=client.db)
+            try:
+                await provider.delete_client(client_id, db=client.db)
+            except ValueError as exc:
+                return _oauth_error("invalid_request", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
             return JSONResponse({})
 
         async def rotate_client_secret_handler(
@@ -1304,13 +1312,6 @@ class OAuthServerPlugin(PluginClient):
             response_model=None,
         )
         router.add_api_route(
-            f"{_ADMIN_OAUTH_ENDPOINT_PREFIX}/create-client",
-            create_client_handler,
-            methods=["POST"],
-            status_code=status.HTTP_201_CREATED,
-            response_model=None,
-        )
-        router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/get-clients",
             list_clients_handler,
             methods=["GET"],
@@ -1326,12 +1327,6 @@ class OAuthServerPlugin(PluginClient):
             f"{_OAUTH_ENDPOINT_PREFIX}/update-client",
             update_client_handler,
             methods=["POST"],
-            response_model=None,
-        )
-        router.add_api_route(
-            f"{_ADMIN_OAUTH_ENDPOINT_PREFIX}/update-client",
-            update_client_handler,
-            methods=["PATCH"],
             response_model=None,
         )
         router.add_api_route(
@@ -1906,7 +1901,7 @@ async def _consent_required(
         return False
     reference_id = await _resolve_consent_reference(settings, oauth_client, params)
     return not await provider.has_consent(
-        oauth_client.client_id or settings.client_id,
+        oauth_client.client_id,
         params.individual_id,
         params.scopes or list(settings.default_scopes),
         reference_id=reference_id,
@@ -1924,7 +1919,7 @@ async def _select_account_required(
         return False
 
     should_select = settings.select_account_resolver(
-        oauth_client.client_id or settings.client_id,
+        oauth_client.client_id,
         params.individual_id,
         params.session_id,
         params.scopes or list(settings.default_scopes),
@@ -1945,7 +1940,7 @@ async def _post_login_required(
         return False
 
     should_redirect = settings.post_login_resolver(
-        oauth_client.client_id or settings.client_id,
+        oauth_client.client_id,
         params.individual_id,
         params.session_id,
         params.scopes or list(settings.default_scopes),
@@ -1966,7 +1961,7 @@ async def _resolve_consent_reference(
         return None
 
     resolved_reference = settings.consent_reference_resolver(
-        oauth_client.client_id or settings.client_id,
+        oauth_client.client_id,
         params.individual_id,
         params.session_id,
         params.scopes or list(settings.default_scopes),
@@ -2333,9 +2328,6 @@ def _serialize_oauth_client(
     *,
     include_secret: bool,
 ) -> dict[str, JSONValue]:
-    if client_info.client_id is None:
-        msg = "client_id is required"
-        raise OAuthError(msg)
     metadata = (
         {
             key: value
@@ -2431,7 +2423,6 @@ def _normalize_client_updates(payload: Mapping[str, JSONValue]) -> dict[str, obj
         "logo_uri",
         "tos_uri",
         "policy_uri",
-        "jwks_uri",
         "software_id",
         "software_version",
         "software_statement",
@@ -2440,7 +2431,7 @@ def _normalize_client_updates(payload: Mapping[str, JSONValue]) -> dict[str, obj
         "reference_id",
     }
     bool_fields = {"disabled", "skip_consent", "require_pkce", "enable_end_session"}
-    dict_fields = {"jwks", "metadata", "metadata_json"}
+    dict_fields = {"metadata", "metadata_json"}
 
     normalized: dict[str, object] = {}
     for key, value in payload.items():
@@ -2481,16 +2472,8 @@ def _with_authorization_principal(
 
 def _decode_unverified_jwt(token: str) -> dict[str, JSONValue] | None:
     try:
-        payload = jwt.decode(
-            token,
-            options={
-                "verify_signature": False,
-                "verify_exp": False,
-                "verify_aud": False,
-                "verify_iss": False,
-            },
-        )
-    except InvalidTokenError:
+        payload = json.loads(jws.extract_compact(to_bytes(token)).payload)
+    except (JoseError, TypeError, ValueError):
         return None
 
     if not isinstance(payload, dict):

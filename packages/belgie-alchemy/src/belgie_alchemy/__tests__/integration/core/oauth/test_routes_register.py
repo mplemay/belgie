@@ -235,7 +235,7 @@ async def test_register_rejects_unsupported_auth_method_when_enabled(
 
     assert response.status_code == 400
     payload = response.json()
-    assert payload["error"] == "invalid_request"
+    assert payload["error"] == "invalid_client_metadata"
 
 
 @pytest.mark.asyncio

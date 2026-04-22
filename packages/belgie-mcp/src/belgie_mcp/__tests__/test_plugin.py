@@ -2,8 +2,11 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+import belgie_mcp
 import pytest
 from pydantic import AnyUrl
+
+from belgie import mcp as belgie_mcp_exports
 
 pytest.importorskip("mcp")
 
@@ -125,6 +128,52 @@ def test_mcp_plugin_defaults_base_url_from_belgie_settings() -> None:
     )
 
     assert str(plugin.auth.resource_server_url) == "https://example.com/mcp"
+
+
+def test_mcp_plugin_builds_protected_resource_metadata() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["http://localhost/callback"],
+        default_scopes=["user"],
+    )
+
+    plugin = McpPlugin(
+        _belgie_settings(),
+        Mcp(
+            oauth=settings,
+            server_url="https://mcp.local/mcp",
+        ),
+    )
+
+    metadata = plugin.protected_resource_metadata(scopes_supported=["user"])
+
+    assert str(metadata.resource) == "https://mcp.local/mcp"
+    assert [str(value) for value in metadata.authorization_servers] == ["https://auth.local/auth"]
+    assert metadata.scopes_supported == ["user"]
+
+
+def test_mcp_plugin_protected_resource_metadata_rejects_openid_scope() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["http://localhost/callback"],
+        default_scopes=["user"],
+    )
+
+    plugin = McpPlugin(
+        _belgie_settings(),
+        Mcp(
+            oauth=settings,
+            server_url="https://mcp.local/mcp",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="openid"):
+        plugin.protected_resource_metadata(scopes_supported=["openid"])
+
+
+def test_belgie_mcp_no_longer_reexports_user_lookup_helper() -> None:
+    assert not hasattr(belgie_mcp, "get_user_from_access_token")
+    assert not hasattr(belgie_mcp_exports, "get_user_from_access_token")
 
 
 def test_mcp_plugin_preserves_trailing_slash_in_server_url() -> None:

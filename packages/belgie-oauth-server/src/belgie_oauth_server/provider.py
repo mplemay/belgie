@@ -10,12 +10,12 @@ from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from inspect import isawaitable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 from uuid import UUID
 
 from belgie_proto.core.connection import DBConnection
-from jwt import InvalidTokenError
+from joserfc.errors import JoseError
 from pydantic import AnyUrl
 
 from belgie_oauth_server.models import (
@@ -97,6 +97,7 @@ class AccessToken:
     refresh_token: str | None = None
     individual_id: str | None = None
     session_id: str | None = None
+    claims: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -147,22 +148,24 @@ class SimpleOAuthProvider:
             settings.signing,
             self.fallback_signing_secret,
         )
-        self.static_client = OAuthServerClientInformationFull.model_construct(
-            client_id=settings.client_id,
-            client_secret=client_secret,
-            redirect_uris=settings.redirect_uris,
-            scope=" ".join(settings.default_scopes),
-            token_endpoint_auth_method="none" if client_secret is None else "client_secret_post",
-            grant_types=list(settings.grant_types),
-            response_types=["code"] if settings.supports_authorization_code() else [],
-            require_pkce=settings.static_client_require_pkce,
-            subject_type="public",
-            enable_end_session=settings.enable_end_session,
-            disabled=False,
-            skip_consent=False,
-            reference_id=None,
-            metadata_json=None,
-        )
+        self.static_client: OAuthServerClientInformationFull | None = None
+        if settings.client_id is not None and settings.redirect_uris is not None:
+            self.static_client = OAuthServerClientInformationFull.model_construct(
+                client_id=settings.client_id,
+                client_secret=client_secret,
+                redirect_uris=settings.redirect_uris,
+                scope=" ".join(settings.default_scopes),
+                token_endpoint_auth_method="none" if client_secret is None else "client_secret_post",
+                grant_types=list(settings.grant_types),
+                response_types=["code"] if settings.supports_authorization_code() else [],
+                require_pkce=settings.static_client_require_pkce,
+                subject_type="public",
+                enable_end_session=settings.enable_end_session,
+                disabled=False,
+                skip_consent=False,
+                reference_id=None,
+                metadata_json=None,
+            )
 
     async def _apply_trusted_client_policy(
         self,
@@ -180,7 +183,7 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
-        if client_id == self.static_client.client_id:
+        if self.static_client is not None and client_id == self.static_client.client_id:
             return await self._apply_trusted_client_policy(self.static_client)
 
         async with self._db_session(db) as session:
@@ -212,6 +215,11 @@ class SimpleOAuthProvider:
         updates: dict[str, object],
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
+        if client_id in self.settings.cached_trusted_clients or (
+            self.static_client is not None and client_id == self.static_client.client_id
+        ):
+            msg = "trusted clients must be updated manually"
+            raise ValueError(msg)
         async with self._db_session(db, transactional=True) as session:
             existing_client = await self.adapter.get_client_by_client_id(session, client_id=client_id)
             if existing_client is None:
@@ -236,6 +244,11 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> bool:
+        if client_id in self.settings.cached_trusted_clients or (
+            self.static_client is not None and client_id == self.static_client.client_id
+        ):
+            msg = "trusted clients must be updated manually"
+            raise ValueError(msg)
         async with self._db_session(db, transactional=True) as session:
             return await self.adapter.delete_client(session, client_id=client_id)
 
@@ -245,6 +258,11 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
+        if client_id in self.settings.cached_trusted_clients or (
+            self.static_client is not None and client_id == self.static_client.client_id
+        ):
+            msg = "trusted clients must be updated manually"
+            raise ValueError(msg)
         async with self._db_session(db, transactional=True) as session:
             client = await self.adapter.get_client_by_client_id(session, client_id=client_id)
             if client is None:
@@ -280,7 +298,7 @@ class SimpleOAuthProvider:
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
         normalized_client_secret = self._strip_client_secret_prefix(client_secret)
-        if client_id == self.static_client.client_id:
+        if self.static_client is not None and client_id == self.static_client.client_id:
             static_client = self._authenticate_static_client(
                 normalized_client_secret,
                 require_credentials=require_credentials,
@@ -343,10 +361,9 @@ class SimpleOAuthProvider:
         issued_at = int(time.time())
         async with self._db_session(db, transactional=True) as session:
             client_id = await self._generate_client_id()
-            while (
-                client_id == self.static_client.client_id
-                or (await self.adapter.get_client_by_client_id(session, client_id=client_id)) is not None
-            ):
+            while (self.static_client is not None and client_id == self.static_client.client_id) or (
+                await self.adapter.get_client_by_client_id(session, client_id=client_id)
+            ) is not None:
                 client_id = await self._generate_client_id()
 
             client = await self.adapter.create_client(
@@ -375,8 +392,8 @@ class SimpleOAuthProvider:
                 contacts=list(metadata.contacts) if metadata.contacts is not None else None,
                 tos_uri=str(metadata.tos_uri) if metadata.tos_uri is not None else None,
                 policy_uri=str(metadata.policy_uri) if metadata.policy_uri is not None else None,
-                jwks_uri=str(metadata.jwks_uri) if metadata.jwks_uri is not None else None,
-                jwks=metadata.jwks,
+                jwks_uri=None,
+                jwks=None,
                 software_id=metadata.software_id,
                 software_version=metadata.software_version,
                 software_statement=metadata.software_statement,
@@ -609,6 +626,7 @@ class SimpleOAuthProvider:
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
             expires_in=self._access_token_expires_in_seconds(code_record.scopes),
+            expires_at=access_token.expires_at,
             scope=scope,
             refresh_token=refresh_token.token if refresh_token is not None else None,
         )
@@ -636,7 +654,12 @@ class SimpleOAuthProvider:
         issued_at = int(time.time())
         expires_in = token.get("expires_in")
         expires_at = self._expires_at(
-            self._access_token_expires_in_seconds(scopes) if not isinstance(expires_in, int) else expires_in,
+            self._access_token_expires_in_seconds(
+                scopes,
+                is_machine_token=parsed_individual_id is None,
+            )
+            if not isinstance(expires_in, int)
+            else expires_in,
         )
 
         signed_access_token = self.verify_signed_access_token(access_token_value, verify_exp=False)
@@ -692,6 +715,7 @@ class SimpleOAuthProvider:
             "access_token": access_token_value,
             "token_type": token.get("token_type", "Bearer"),
             "expires_in": max(0, int(expires_at.timestamp()) - issued_at),
+            "expires_at": int(expires_at.timestamp()),
             "scope": token.get("scope"),
         }
         if persisted_refresh_token is not None:
@@ -812,6 +836,7 @@ class SimpleOAuthProvider:
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
             expires_in=self._access_token_expires_in_seconds(scopes),
+            expires_at=access_token.expires_at,
             scope=" ".join(scopes),
             refresh_token=new_refresh_token.token,
         )
@@ -834,7 +859,8 @@ class SimpleOAuthProvider:
         return OAuthServerToken(
             access_token=access_token.token,
             token_type="Bearer",  # noqa: S106
-            expires_in=self._access_token_expires_in_seconds(scopes),
+            expires_in=self._access_token_expires_in_seconds(scopes, is_machine_token=True),
+            expires_at=access_token.expires_at,
             scope=" ".join(scopes),
         )
 
@@ -1145,19 +1171,24 @@ class SimpleOAuthProvider:
         session_id: UUID | None = None,
     ) -> AccessToken:
         now = int(time.time())
-        expires_in = self._access_token_expires_in_seconds(scopes)
+        expires_in = self._access_token_expires_in_seconds(
+            scopes,
+            is_machine_token=individual_id is None,
+        )
         expires_at = self._expires_at(expires_in)
+        should_issue_signed_access_token = resource is not None and not self.settings.disable_jwt_plugin
         token_value = (
             await self._generate_signed_access_token(
                 client_id=client_id,
                 scopes=scopes,
                 resource=resource,
+                resource_value=resource if isinstance(resource, str) else None,
                 individual_id=individual_id,
                 session_id=session_id,
                 issued_at=now,
                 expires_at=int(expires_at.timestamp()),
             )
-            if resource is not None
+            if should_issue_signed_access_token
             else self._prefix_access_token(await self._generate_opaque_access_token())
         )
         access_token = await self.adapter.create_access_token(
@@ -1220,7 +1251,7 @@ class SimpleOAuthProvider:
                 issuer=self.issuer_url,
                 verify_exp=verify_exp,
             )
-        except InvalidTokenError:
+        except JoseError:
             return None
 
         client_id = payload.get("azp")
@@ -1241,6 +1272,7 @@ class SimpleOAuthProvider:
             resource=payload.get("aud") if isinstance(payload.get("aud"), (str, list)) else None,
             individual_id=subject if isinstance(subject, str) else None,
             session_id=session_id if isinstance(session_id, str) else None,
+            claims=dict(payload),
         )
 
     async def _purge_refresh_token_family(
@@ -1286,6 +1318,8 @@ class SimpleOAuthProvider:
         require_credentials: bool,
         require_confidential: bool,
     ) -> OAuthServerClientInformationFull | None:
+        if self.static_client is None:
+            return None
         if self.static_client.token_endpoint_auth_method == "none":  # noqa: S105
             if require_credentials or require_confidential or client_secret:
                 return None
@@ -1422,12 +1456,16 @@ class SimpleOAuthProvider:
         client_id: str,
         scopes: list[str],
         resource: OAuthServerAudience,
+        resource_value: str | None = None,
         individual_id: UUID | None,
         session_id: UUID | None,
         issued_at: int,
         expires_at: int,
+        oauth_client: OAuthServerClientInformationFull | None = None,
+        user: object | None = None,
+        reference_id: str | None = None,
     ) -> str:
-        payload: dict[str, Any] = {
+        payload: dict[str, object] = {
             "iss": self.issuer_url,
             "sub": self._stringify_uuid(individual_id),
             "aud": resource if not isinstance(resource, list) or len(resource) != 1 else resource[0],
@@ -1442,11 +1480,15 @@ class SimpleOAuthProvider:
         custom_claims = await self._resolve_custom_claims(
             self.settings.custom_access_token_claims,
             {
+                "user": user,
+                "reference_id": reference_id,
                 "client_id": client_id,
                 "scopes": list(scopes),
-                "resource": resource,
+                "resource": resource_value if resource_value is not None else resource,
                 "individual_id": self._stringify_uuid(individual_id),
                 "session_id": self._stringify_uuid(session_id),
+                "metadata": {} if oauth_client is None else (oauth_client.metadata_json or {}),
+                "metadata_json": {} if oauth_client is None else (oauth_client.metadata_json or {}),
             },
         )
         payload.update(
@@ -1486,8 +1528,15 @@ class SimpleOAuthProvider:
             return token.removeprefix(prefix)
         return token
 
-    def _access_token_expires_in_seconds(self, scopes: list[str]) -> int:
-        default_exp = self.settings.access_token_ttl_seconds
+    def _access_token_expires_in_seconds(
+        self,
+        scopes: list[str],
+        *,
+        is_machine_token: bool = False,
+    ) -> int:
+        default_exp = (
+            self.settings.m2m_access_token_ttl_seconds if is_machine_token else self.settings.access_token_ttl_seconds
+        )
         if not self.settings.scope_expirations:
             return default_exp
 
@@ -1585,8 +1634,8 @@ class SimpleOAuthProvider:
             contacts=list(client.contacts) if client.contacts is not None else None,
             tos_uri=AnyUrl(client.tos_uri) if client.tos_uri is not None else None,
             policy_uri=AnyUrl(client.policy_uri) if client.policy_uri is not None else None,
-            jwks_uri=AnyUrl(client.jwks_uri) if client.jwks_uri is not None else None,
-            jwks=client.jwks,
+            jwks_uri=None,
+            jwks=None,
             software_id=client.software_id,
             software_version=client.software_version,
             software_statement=client.software_statement,

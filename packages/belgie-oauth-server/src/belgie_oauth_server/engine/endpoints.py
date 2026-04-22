@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, cast
+from uuid import UUID
 
 from authlib.consts import default_json_headers
 from authlib.oauth2.rfc6749.errors import InvalidRequestError
@@ -10,7 +11,7 @@ from authlib.oauth2.rfc7662 import IntrospectionEndpoint
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.errors import UnsupportedTokenTypeHintError
 from belgie_oauth_server.engine.models import AuthlibAccessToken, AuthlibClient, AuthlibRefreshToken
-from belgie_oauth_server.engine.token_response import resolve_active_session_id
+from belgie_oauth_server.engine.token_response import build_access_token_jwt_payload, resolve_active_session_id
 from belgie_oauth_server.verifier import verify_local_access_token
 
 if TYPE_CHECKING:
@@ -131,23 +132,27 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
             oauth_client = token.get_client()
             if oauth_client is None or oauth_client.record.disabled:
                 return {"active": False}
-            subject_identifier = (
-                self.runtime.provider.resolve_subject_identifier(oauth_client.record, token.record.individual_id)
-                if token.record.individual_id is not None
-                else None
+            user = None
+            if token.record.individual_id is not None:
+                try:
+                    user = run_async(
+                        self.runtime.belgie_client.adapter.get_individual_by_id,
+                        self.runtime.belgie_client.db,
+                        UUID(token.record.individual_id),
+                    )
+                except ValueError:
+                    user = None
+            payload = run_async(
+                build_access_token_jwt_payload,
+                self.runtime.belgie_client,
+                self.runtime.provider,
+                self.runtime.settings,
+                self.runtime.issuer_url,
+                oauth_client.record,
+                token.record,
+                user=user,
             )
-            return {
-                "active": True,
-                "client_id": token.record.client_id,
-                "scope": " ".join(token.record.scopes),
-                "exp": token.record.expires_at,
-                "iat": token.record.created_at,
-                "token_type": BEARER_TOKEN_TYPE,
-                "aud": token.record.resource,
-                "sub": subject_identifier,
-                "sid": run_async(resolve_active_session_id, self.runtime.belgie_client, token.record.session_id),
-                "iss": self.runtime.provider.issuer_url,
-            }
+            return {"active": True, **payload}
 
         oauth_client = token.get_client()
         if oauth_client is None or oauth_client.record.disabled:
@@ -163,7 +168,6 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
             "scope": " ".join(token.record.scopes),
             "exp": token.record.expires_at,
             "iat": token.record.created_at,
-            "token_type": REFRESH_TOKEN_HINT,
             "aud": token.record.resource,
             "sub": subject_identifier,
             "sid": run_async(resolve_active_session_id, self.runtime.belgie_client, token.record.session_id),

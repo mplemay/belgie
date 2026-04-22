@@ -4,8 +4,6 @@ import time
 
 import pytest
 
-BEARER = "Bearer"
-
 
 @pytest.mark.asyncio
 async def test_introspect_requires_client_auth(async_client) -> None:
@@ -77,7 +75,7 @@ async def test_introspect_active_access_token(
     assert payload["client_id"] == oauth_settings.client_id
     assert payload["scope"] == "user"
     assert payload["iat"] == created_at
-    assert payload["token_type"] == BEARER
+    assert "token_type" not in payload
     assert payload["aud"] == "http://example.com/resource"
 
 
@@ -171,7 +169,7 @@ async def test_introspect_refresh_token_with_hint(
     assert payload["active"] is True
     assert payload["client_id"] == oauth_settings.client_id
     assert payload["scope"] == "user offline_access"
-    assert payload["token_type"] == "refresh_token"  # noqa: S105
+    assert "token_type" not in payload
     assert payload["iat"] == created_at
     assert payload["aud"] == "http://example.com/resource"
 
@@ -206,7 +204,7 @@ async def test_introspect_refresh_token_without_resource_omits_aud(
     assert payload["active"] is True
     assert payload["client_id"] == oauth_settings.client_id
     assert payload["scope"] == "user offline_access"
-    assert payload["token_type"] == "refresh_token"  # noqa: S105
+    assert "token_type" not in payload
     assert payload["iat"] == created_at
     assert payload["aud"] is None
 

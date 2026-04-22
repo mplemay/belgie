@@ -730,6 +730,176 @@ def test_pairwise_subject_is_stable_across_http_endpoints() -> None:
     assert introspection.json()["iss"] == "http://testserver/auth"
 
 
+def test_disable_jwt_plugin_issues_opaque_access_tokens_and_hs256_id_tokens() -> None:
+    client_secret = "static-secret-for-disable-jwt-tests-123456"  # noqa: S105
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret=client_secret,
+        disable_jwt_plugin=True,
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    callback = _authorize_to_next_location(
+        client,
+        settings,
+        state="state-disable-jwt",
+        scope="openid user",
+    )
+    code = _query(callback)["code"][0]
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        resource="http://testserver/mcp",
+    )
+
+    assert token_response.status_code == 200
+    token_payload = token_response.json()
+    assert token_payload["access_token"].count(".") == 0
+    assert client.get("/auth/jwks").status_code == 404
+
+    id_token = jwt.decode(
+        token_payload["id_token"],
+        client_secret,
+        algorithms=["HS256"],
+        audience=settings.client_id,
+        issuer="http://testserver/auth",
+    )
+    assert id_token["iss"] == "http://testserver/auth"
+    assert id_token["aud"] == settings.client_id
+
+
+def test_disable_jwt_plugin_omits_id_token_for_public_clients() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        disable_jwt_plugin=True,
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    callback = _authorize_to_next_location(
+        client,
+        settings,
+        state="state-disable-jwt-public",
+        scope="openid user",
+    )
+    code = _query(callback)["code"][0]
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        resource="http://testserver/mcp",
+    )
+
+    assert token_response.status_code == 200
+    token_payload = token_response.json()
+    assert token_payload["access_token"].count(".") == 0
+    assert "id_token" not in token_payload
+    assert client.get("/auth/jwks").status_code == 404
+
+
+def test_custom_claim_callbacks_share_opaque_token_payload_shape() -> None:
+    client_secret = "static-secret-for-custom-claims-123456"  # noqa: S105
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret=client_secret,
+        disable_jwt_plugin=True,
+        valid_audiences=["http://testserver/mcp"],
+        custom_access_token_claims=lambda payload: {
+            "tenant": (payload.get("metadata") or {}).get("tenant"),
+            "subject_kind": "user" if payload.get("user") is not None else "machine",
+        },
+        custom_userinfo_claims=lambda payload: {
+            "tenant_from_jwt": payload["jwt"].get("tenant"),
+        },
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user", metadata_json={"tenant": "acme"})
+
+    callback = _authorize_to_next_location(
+        client,
+        settings,
+        state="state-custom-claims",
+        scope="openid user",
+    )
+    code = _query(callback)["code"][0]
+    token_response = _exchange_code(
+        client,
+        settings,
+        code=code,
+        resource="http://testserver/mcp",
+    )
+    token_payload = token_response.json()
+
+    introspection = client.post(
+        "/auth/oauth2/introspect",
+        data={
+            "client_id": settings.client_id,
+            "client_secret": client_secret,
+            "token": token_payload["access_token"],
+        },
+    )
+    assert introspection.status_code == 200
+    assert introspection.json()["tenant"] == "acme"
+    assert introspection.json()["subject_kind"] == "user"
+
+    userinfo = client.get(
+        "/auth/oauth2/userinfo",
+        headers={"authorization": f"Bearer {token_payload['access_token']}"},
+    )
+    assert userinfo.status_code == 200
+    assert userinfo.json()["tenant_from_jwt"] == "acme"
+
+
+def test_custom_callbacks_cannot_override_reserved_token_fields() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        custom_token_response_fields=lambda _payload: {
+            "expires_in": 1,
+            "tenant_id": "acme",
+        },
+        custom_id_token_claims=lambda _payload: {
+            "iss": "https://invalid.example",
+            "nonce": "tampered",
+            "tenant": "acme",
+        },
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(plugin, settings.client_id, scope="openid user")
+
+    callback = _authorize_to_next_location(
+        client,
+        settings,
+        state="state-reserved-claims",
+        scope="openid user",
+        extra_params={"nonce": "expected-nonce"},
+    )
+    code = _query(callback)["code"][0]
+    token_response = _exchange_code(client, settings, code=code)
+
+    assert token_response.status_code == 200
+    token_payload = token_response.json()
+    assert token_payload["tenant_id"] == "acme"
+    assert token_payload["expires_in"] != 1
+
+    id_token = _decode_id_token(plugin, token_payload["id_token"], settings.client_id)
+    assert id_token["iss"] == "http://testserver/auth"
+    assert id_token["nonce"] == "expected-nonce"
+    assert id_token["tenant"] == "acme"
+
+
 def test_revoked_signed_access_token_fails_userinfo_and_introspection() -> None:
     settings = _build_settings(
         base_url="http://testserver",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.helpers import build_access_token_audience, parse_scope_param
@@ -36,23 +37,40 @@ def build_token_payload(  # noqa: PLR0913
 
     issued_at = int(time.time())
     resolved_expires_in = (
-        runtime.provider._access_token_expires_in_seconds(scopes)  # noqa: SLF001
+        runtime.provider._access_token_expires_in_seconds(  # noqa: SLF001
+            scopes,
+            is_machine_token=user is None,
+        )
         if expires_in is None
         else max(int(expires_in), 0)
     )
     session_id = resolve_request_session_id(request)
     individual_id = user.get_user_id() if user is not None else None
+    resolved_user = None
+    if individual_id is not None:
+        try:
+            resolved_user = run_async(
+                runtime.belgie_client.adapter.get_individual_by_id,
+                runtime.belgie_client.db,
+                UUID(individual_id),
+            )
+        except ValueError:
+            resolved_user = None
 
-    if access_token_resource is not None:
+    if access_token_resource is not None and not runtime.settings.disable_jwt_plugin:
         access_token = run_async(
             runtime.provider._generate_signed_access_token,  # noqa: SLF001
             client_id=client.get_client_id(),
             scopes=scopes,
             resource=access_token_resource,
+            resource_value=resolved_resource,
             individual_id=runtime.provider._parse_uuid(individual_id),  # noqa: SLF001
             session_id=runtime.provider._parse_uuid(session_id),  # noqa: SLF001
             issued_at=issued_at,
             expires_at=issued_at + resolved_expires_in,
+            oauth_client=client.record,
+            user=resolved_user,
+            reference_id=client.record.reference_id,
         )
     else:
         access_token = runtime.provider._prefix_access_token(  # noqa: SLF001

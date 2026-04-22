@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
+from uuid import UUID
 
 from authlib.oauth2.rfc6749.errors import InvalidGrantError, InvalidRequestError
 from authlib.oauth2.rfc7636.challenge import create_s256_code_challenge
@@ -89,6 +90,16 @@ class BelgieTokenResponseEnhancer:
 
         scopes = parse_scope_param(payload.get("scope") if isinstance(payload.get("scope"), str) else None) or []
         user = cast("AuthlibUser | None", request.user)
+        resolved_user = None
+        if user is not None:
+            try:
+                resolved_user = run_async(
+                    server.runtime.belgie_client.adapter.get_individual_by_id,
+                    server.runtime.belgie_client.db,
+                    UUID(user.get_user_id()),
+                )
+            except ValueError:
+                resolved_user = None
         if "openid" in scopes and user is not None:
             payload["id_token"] = run_async(
                 maybe_build_id_token,
@@ -103,6 +114,24 @@ class BelgieTokenResponseEnhancer:
                 session_id=resolve_request_session_id(request),
             )
 
+        verification_value = None
+        authorization_code = getattr(request, "authorization_code", None)
+        if authorization_code is not None:
+            verification_value = {
+                "type": "authorization_code",
+                "query": {
+                    "client_id": client.get_client_id(),
+                    "redirect_uri": authorization_code.record.redirect_uri,
+                    "scope": " ".join(authorization_code.record.scopes),
+                    "resource": authorization_code.record.resource,
+                    "nonce": authorization_code.record.nonce,
+                    "code_challenge": authorization_code.record.code_challenge,
+                },
+                "session_id": authorization_code.record.session_id,
+                "user_id": authorization_code.record.individual_id,
+                "reference_id": client.record.reference_id,
+            }
+
         updated_payload = run_async(
             apply_custom_token_response_fields,
             server.runtime.settings,
@@ -110,6 +139,8 @@ class BelgieTokenResponseEnhancer:
             grant_type=grant.GRANT_TYPE,
             oauth_client=client.record,
             scopes=scopes,
+            user=resolved_user,
+            verification_value=verification_value,
         )
         payload.clear()
         payload.update(updated_payload.model_dump(mode="json", exclude_none=True))

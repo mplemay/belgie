@@ -32,7 +32,7 @@ class AuthlibClient(ClientMixin):
     runtime: OAuthEngineRuntime
 
     def get_client_id(self) -> str:
-        return self.record.client_id or ""
+        return self.record.client_id
 
     def get_default_redirect_uri(self) -> str | None:
         if self.record.redirect_uris is None or len(self.record.redirect_uris) != 1:

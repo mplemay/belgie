@@ -1,3 +1,4 @@
+import pytest
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.metadata import (
     _ROOT_OAUTH_METADATA_PATH,
@@ -6,6 +7,7 @@ from belgie_oauth_server.metadata import (
     build_oauth_metadata_well_known_path,
     build_openid_metadata,
     build_openid_metadata_well_known_path,
+    build_protected_resource_metadata,
 )
 from belgie_oauth_server.signing import OAuthServerSigning
 
@@ -98,6 +100,18 @@ def test_build_oauth_metadata_default_hs256_omits_jwks_uri() -> None:
     assert metadata.jwks_uri is None
 
 
+def test_build_oauth_metadata_omits_jwks_uri_when_jwt_plugin_is_disabled() -> None:
+    metadata = build_oauth_metadata(
+        ISSUER_URL,
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            disable_jwt_plugin=True,
+        ),
+    )
+
+    assert metadata.jwks_uri is None
+
+
 def test_build_oauth_metadata_well_known_path_with_path() -> None:
     path = build_oauth_metadata_well_known_path(ISSUER_URL)
     assert path == f"{_ROOT_OAUTH_METADATA_PATH}/auth"
@@ -139,6 +153,19 @@ def test_build_openid_metadata_default_hs256_advertises_hs256() -> None:
     assert metadata.id_token_signing_alg_values_supported == ["HS256"]
 
 
+def test_build_openid_metadata_disable_jwt_plugin_advertises_hs256() -> None:
+    metadata = build_openid_metadata(
+        ISSUER_URL,
+        build_oauth_settings(
+            redirect_uris=["https://client.local/callback"],
+            disable_jwt_plugin=True,
+        ),
+    )
+
+    assert metadata.id_token_signing_alg_values_supported == ["HS256"]
+    assert metadata.jwks_uri is None
+
+
 def test_build_openid_metadata_advertises_pairwise_subjects() -> None:
     metadata = build_openid_metadata(
         ISSUER_URL,
@@ -159,3 +186,36 @@ def test_build_openid_metadata_well_known_path_with_path() -> None:
 def test_build_openid_metadata_well_known_path_root() -> None:
     path = build_openid_metadata_well_known_path("https://auth.local")
     assert path == _ROOT_OPENID_METADATA_PATH
+
+
+def test_build_protected_resource_metadata_defaults_authorization_server() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["https://client.local/callback"],
+        default_scopes=["user"],
+    )
+
+    metadata = build_protected_resource_metadata(
+        "https://mcp.local/mcp",
+        settings=settings,
+        scopes_supported=["user"],
+    )
+
+    assert str(metadata.resource) == "https://mcp.local/mcp"
+    assert [str(value) for value in metadata.authorization_servers] == ["https://auth.local/auth"]
+    assert metadata.scopes_supported == ["user"]
+
+
+def test_build_protected_resource_metadata_rejects_openid_scope() -> None:
+    settings = build_oauth_settings(
+        base_url="https://auth.local",
+        redirect_uris=["https://client.local/callback"],
+        default_scopes=["user"],
+    )
+
+    with pytest.raises(ValueError, match="openid"):
+        build_protected_resource_metadata(
+            "https://mcp.local/mcp",
+            settings=settings,
+            scopes_supported=["openid"],
+        )

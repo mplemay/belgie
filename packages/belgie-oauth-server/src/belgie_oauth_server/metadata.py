@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
 
-from belgie_oauth_server.models import OAuthServerMetadata, OIDCMetadata
+from belgie_oauth_server.models import OAuthServerMetadata, OIDCMetadata, ProtectedResourceMetadata
 from belgie_oauth_server.utils import join_url
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from belgie_oauth_server.settings import OAuthServer
 
 _ROOT_OAUTH_METADATA_PATH = "/.well-known/oauth-authorization-server"
@@ -21,7 +24,11 @@ def build_oauth_metadata(issuer_url: str, settings: OAuthServer) -> OAuthServerM
     else:
         authorization_endpoint = None
     token_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "token"))
-    jwks_uri = AnyHttpUrl(join_url(issuer_url, "jwks")) if settings.signing.algorithm != "HS256" else None
+    jwks_uri = (
+        None
+        if settings.disable_jwt_plugin or settings.signing.algorithm == "HS256"
+        else AnyHttpUrl(join_url(issuer_url, "jwks"))
+    )
     registration_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "register"))
     revocation_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "revoke"))
     introspection_endpoint = AnyHttpUrl(_oauth_endpoint(issuer_url, "introspect"))
@@ -78,7 +85,7 @@ def build_openid_metadata(issuer_url: str, settings: OAuthServer) -> OIDCMetadat
             ]
         ),
         subject_types_supported=["public", "pairwise"] if settings.pairwise_secret is not None else ["public"],
-        id_token_signing_alg_values_supported=[settings.signing.algorithm],
+        id_token_signing_alg_values_supported=["HS256" if settings.disable_jwt_plugin else settings.signing.algorithm],
         end_session_endpoint=AnyHttpUrl(_oauth_endpoint(issuer_url, "end-session")),
         acr_values_supported=["urn:mace:incommon:iap:bronze"],
         prompt_values_supported=prompt_values_supported,
@@ -99,6 +106,54 @@ def build_openid_metadata_well_known_path(issuer_url: str) -> str:
     if path and path != "/":
         return f"{path}/.well-known/openid-configuration"
     return "/.well-known/openid-configuration"
+
+
+def build_protected_resource_metadata(  # noqa: C901, PLR0913
+    resource: str,
+    *,
+    authorization_server: str | None = None,
+    authorization_servers: Sequence[str] | None = None,
+    scopes_supported: Sequence[str] | None = None,
+    settings: OAuthServer | None = None,
+    external_scopes: Sequence[str] | None = None,
+    silence_oidc_scope_warnings: bool = False,
+) -> ProtectedResourceMetadata:
+    resolved_authorization_servers = list(authorization_servers or [])
+    if authorization_server is not None:
+        resolved_authorization_servers.insert(0, authorization_server)
+    if not resolved_authorization_servers and settings is not None and settings.issuer_url is not None:
+        resolved_authorization_servers.append(str(settings.issuer_url))
+
+    if external_scopes and len(resolved_authorization_servers) <= 1:
+        msg = "external scopes should not be provided with one authorization server"
+        raise ValueError(msg)
+
+    supported_scopes = list(scopes_supported) if scopes_supported is not None else None
+    if supported_scopes is not None:
+        valid_scopes = set(settings.supported_scopes()) if settings is not None else set()
+        valid_scopes.update(external_scopes or [])
+        for scope in supported_scopes:
+            if scope == "openid":
+                msg = "Only the authorization server should utilize the openid scope"
+                raise ValueError(msg)
+            if scope in {"profile", "email", "phone", "address"} and not silence_oidc_scope_warnings:
+                warnings.warn(
+                    (
+                        f'"{scope}" is typically restricted for the authorization server; '
+                        "a resource server typically should not advertise this scope"
+                    ),
+                    stacklevel=2,
+                )
+            if valid_scopes and scope not in valid_scopes:
+                msg = f'Unsupported scope "{scope}". If external, add it to external_scopes.'
+                raise ValueError(msg)
+
+    payload: dict[str, object] = {"resource": resource}
+    if resolved_authorization_servers:
+        payload["authorization_servers"] = resolved_authorization_servers
+    if supported_scopes is not None:
+        payload["scopes_supported"] = supported_scopes
+    return ProtectedResourceMetadata.model_validate(payload)
 
 
 def _build_supported_scopes(settings: OAuthServer) -> list[str]:

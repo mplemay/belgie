@@ -8,6 +8,7 @@ from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.testing import InMemoryDBConnection, InMemoryOAuthServerAdapter
 from belgie_oauth_server.utils import create_code_challenge
+from pydantic import ValidationError
 
 
 @pytest.mark.asyncio
@@ -439,19 +440,17 @@ async def test_update_client_rejects_confidential_auth_without_secret() -> None:
 
 @pytest.mark.asyncio
 async def test_register_client_rejects_unsupported_auth_method() -> None:
-    _settings, provider, _adapter, _db = build_oauth_provider(
+    _settings, _provider, _adapter, _db = build_oauth_provider(
         redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
         client_id="test-client",
     )
 
-    metadata = OAuthServerClientMetadata(
-        redirect_uris=["https://example.com/callback"],
-        token_endpoint_auth_method="private_key_jwt",
-    )
-
-    with pytest.raises(ValueError, match="unsupported token_endpoint_auth_method"):
-        await provider.register_client(metadata)
+    with pytest.raises(ValidationError, match="token_endpoint_auth_method"):
+        OAuthServerClientMetadata(
+            redirect_uris=["https://example.com/callback"],
+            token_endpoint_auth_method="private_key_jwt",
+        )
 
 
 @pytest.mark.asyncio

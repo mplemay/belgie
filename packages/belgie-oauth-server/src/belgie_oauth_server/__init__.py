@@ -4,6 +4,7 @@ from belgie_oauth_server.metadata import (
     build_oauth_metadata_well_known_path,
     build_openid_metadata,
     build_openid_metadata_well_known_path,
+    build_protected_resource_metadata,
 )
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.resource_verifier import (
@@ -27,6 +28,7 @@ __all__ = [
     "build_oauth_metadata_well_known_path",
     "build_openid_metadata",
     "build_openid_metadata_well_known_path",
+    "build_protected_resource_metadata",
     "verify_local_access_token",
     "verify_resource_access_token",
 ]

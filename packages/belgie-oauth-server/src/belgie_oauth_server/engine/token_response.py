@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import inspect
 import time
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
+from belgie_oauth_server.engine.helpers import oauth_client_is_public
 from belgie_oauth_server.models import OAuthServerClientInformationFull, OAuthServerToken
+from belgie_oauth_server.signing import encode_jwt
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
 
     from belgie_core.core.client import BelgieClient
 
-    from belgie_oauth_server.provider import SimpleOAuthProvider
+    from belgie_oauth_server.provider import AccessToken, SimpleOAuthProvider
     from belgie_oauth_server.settings import OAuthServer
 
 
@@ -30,24 +32,39 @@ class SessionLike(Protocol):
     created_at: datetime | None
 
 
-async def apply_custom_token_response_fields(
+_RESERVED_ID_TOKEN_CLAIMS = frozenset({"iss", "sub", "aud", "iat", "exp", "acr", "nonce", "auth_time", "sid"})
+_RESERVED_TOKEN_RESPONSE_FIELDS = frozenset(
+    {"access_token", "token_type", "expires_in", "expires_at", "refresh_token", "scope", "id_token"},
+)
+
+
+async def apply_custom_token_response_fields(  # noqa: PLR0913
     settings: OAuthServer,
     payload: dict[str, object],
     *,
     grant_type: str,
     oauth_client: OAuthServerClientInformationFull,
     scopes: list[str],
+    user: UserClaimsSource | None = None,
+    verification_value: dict[str, object] | None = None,
 ) -> OAuthServerToken:
     custom_fields = await resolve_custom_mapping(
         settings.custom_token_response_fields,
         {
             "grant_type": grant_type,
-            "client_id": oauth_client.client_id,
+            "user": user,
             "scopes": list(scopes),
+            "metadata": oauth_client.metadata_json or {},
             "metadata_json": oauth_client.metadata_json or {},
+            "verification_value": verification_value,
         },
     )
-    return OAuthServerToken.model_validate({**payload, **custom_fields})
+    return OAuthServerToken.model_validate(
+        {
+            **payload,
+            **{key: value for key, value in custom_fields.items() if key not in _RESERVED_TOKEN_RESPONSE_FIELDS},
+        },
+    )
 
 
 async def maybe_build_id_token(  # noqa: PLR0913
@@ -63,6 +80,8 @@ async def maybe_build_id_token(  # noqa: PLR0913
     session_id: str | None = None,
 ) -> str | None:
     if "openid" not in scopes or individual_id is None:
+        return None
+    if settings.disable_jwt_plugin and oauth_client_is_public(oauth_client):
         return None
 
     try:
@@ -113,6 +132,66 @@ def build_user_claims(
     return payload
 
 
+async def build_access_token_jwt_payload(  # noqa: PLR0913
+    client: BelgieClient,
+    provider: SimpleOAuthProvider,
+    settings: OAuthServer,
+    issuer_url: str,
+    oauth_client: OAuthServerClientInformationFull,
+    access_token: AccessToken,
+    *,
+    user: UserClaimsSource | None = None,
+) -> dict[str, object]:
+    session_id = await resolve_active_session_id(client, access_token.session_id)
+    if access_token.claims is not None:
+        payload = dict(access_token.claims)
+        payload["client_id"] = access_token.client_id
+        if session_id is None:
+            payload.pop("sid", None)
+        else:
+            payload["sid"] = session_id
+        return payload
+
+    subject_identifier = (
+        provider.resolve_subject_identifier(oauth_client, access_token.individual_id)
+        if access_token.individual_id is not None
+        else None
+    )
+    custom_claims = await resolve_custom_mapping(
+        settings.custom_access_token_claims,
+        {
+            "user": user,
+            "reference_id": oauth_client.reference_id,
+            "scopes": list(access_token.scopes),
+            "resource": access_token.resource if isinstance(access_token.resource, str) else None,
+            "metadata": oauth_client.metadata_json or {},
+            "metadata_json": oauth_client.metadata_json or {},
+            "client_id": access_token.client_id,
+        },
+    )
+    payload: dict[str, object] = {
+        "iss": issuer_url,
+        "client_id": access_token.client_id,
+        "sub": subject_identifier,
+        "sid": session_id,
+        "exp": access_token.expires_at,
+        "iat": access_token.created_at,
+        "scope": " ".join(access_token.scopes),
+    }
+    if access_token.resource is not None:
+        payload["aud"] = access_token.resource
+    if access_token.client_id:
+        payload["azp"] = access_token.client_id
+    payload.update(
+        {
+            key: value
+            for key, value in custom_claims.items()
+            if key not in {"iss", "sub", "aud", "azp", "scope", "iat", "exp", "sid", "client_id"}
+        },
+    )
+    return {key: value for key, value in payload.items() if value is not None}
+
+
 async def resolve_custom_mapping(
     resolver: Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]] | None,
     payload: dict[str, object],
@@ -156,9 +235,6 @@ async def build_id_token(  # noqa: PLR0913
     auth_time: int | None = None,
 ) -> str:
     now = int(time.time())
-    if oauth_client.client_id is None:
-        msg = "registered client is missing client_id"
-        raise ValueError(msg)
     subject_identifier = provider.resolve_subject_identifier(oauth_client, str(user.id))
     payload: dict[str, str | int | bool] = {
         **build_user_claims(user, scopes, subject_identifier=subject_identifier),
@@ -177,17 +253,28 @@ async def build_id_token(  # noqa: PLR0913
         payload["sid"] = session_id
 
     payload.update(
-        await resolve_custom_mapping(
-            settings.custom_id_token_claims,
-            {
-                "client_id": oauth_client.client_id,
-                "scopes": list(scopes),
-                "subject_identifier": subject_identifier,
-                "user_id": str(user.id),
-                "metadata_json": oauth_client.metadata_json or {},
-            },
-        ),
+        {
+            key: value
+            for key, value in (
+                await resolve_custom_mapping(
+                    settings.custom_id_token_claims,
+                    {
+                        "user": user,
+                        "scopes": list(scopes),
+                        "metadata": oauth_client.metadata_json or {},
+                        "metadata_json": oauth_client.metadata_json or {},
+                    },
+                )
+            ).items()
+            if key not in _RESERVED_ID_TOKEN_CLAIMS
+        },
     )
+    if settings.disable_jwt_plugin:
+        client_secret = provider._strip_client_secret_prefix(oauth_client.client_secret)  # noqa: SLF001
+        if client_secret is None:
+            msg = "confidential clients must have a client secret to receive id_token"
+            raise ValueError(msg)
+        return encode_jwt(payload, key=client_secret, algorithm="HS256")
     return provider.signing_state.sign(payload)
 
 
@@ -202,7 +289,10 @@ async def load_session(client: BelgieClient, session_id: str | None) -> SessionL
     session_manager = getattr(client, "session_manager", None)
     if session_manager is not None:
         db = getattr(client, "db", None)
-        return cast("SessionLike | None", await session_manager.get_session(db, parsed_session_id))
+        loaded_session = await session_manager.get_session(db, parsed_session_id)
+        if loaded_session is None or not hasattr(loaded_session, "id"):
+            return None
+        return loaded_session
 
     session = getattr(client, "session", None)
     if session is None:
@@ -212,5 +302,5 @@ async def load_session(client: BelgieClient, session_id: str | None) -> SessionL
     if active_session_id is None:
         return None
     if active_session_id == parsed_session_id or str(active_session_id) == session_id:
-        return cast("SessionLike", session)
+        return session
     return None

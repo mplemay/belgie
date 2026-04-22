@@ -5,14 +5,18 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse
 
 from belgie_core.core.plugin import PluginClient
+from belgie_oauth_server import build_protected_resource_metadata
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from fastapi import APIRouter
 
 from belgie_mcp.verifier import mcp_auth, mcp_token_verifier
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
+    from belgie_oauth_server.models import ProtectedResourceMetadata
     from belgie_oauth_server.provider import SimpleOAuthProvider
     from belgie_oauth_server.settings import OAuthServer
     from mcp.server.auth.provider import TokenVerifier
@@ -78,6 +82,22 @@ class McpPlugin(PluginClient):
 
     def _resolve_oauth_provider(self) -> SimpleOAuthProvider | None:
         return None if self._oauth_plugin is None else self._oauth_plugin.provider
+
+    def protected_resource_metadata(
+        self,
+        *,
+        scopes_supported: Sequence[str] | None = None,
+        external_scopes: Sequence[str] | None = None,
+        silence_oidc_scope_warnings: bool = False,
+    ) -> ProtectedResourceMetadata:
+        return build_protected_resource_metadata(
+            self.server_url,
+            authorization_server=str(self.auth.issuer_url),
+            settings=self._oauth_settings,
+            scopes_supported=scopes_supported,
+            external_scopes=external_scopes,
+            silence_oidc_scope_warnings=silence_oidc_scope_warnings,
+        )
 
 
 def _require_base_url(base_url: str | AnyHttpUrl | None) -> str:
