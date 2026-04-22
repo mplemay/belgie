@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping  # noqa: TC003
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Receive, Scope, Send  # noqa: TC002
 
-from belgie_mcp.verifier import BelgieOAuthTokenVerifier
+from belgie_mcp.verifier import BelgieOAuthTokenVerifier  # noqa: TC001
 from belgie_mcp.www_authenticate import build_mcp_www_authenticate_value
 
 _OAUTH_BEARER_PARTS = 2

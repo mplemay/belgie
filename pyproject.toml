@@ -121,11 +121,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"packages/belgie-mcp/src/belgie_mcp/mcp_handler.py" = [
-    "TC001",  # verifier used at runtime, not only in type hints
-    "TC002",  # Starlette types used in runtime `async def app(...)` signature values
-    "TC003",  # Mapping used in runtime `_parse_bearer` parameter handling
-]
 "__init__.py" = [
     "F401", # imported but unused (common in __init__.py to re-export symbols)
 ]
