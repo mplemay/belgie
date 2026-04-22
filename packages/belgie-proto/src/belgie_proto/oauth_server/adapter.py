@@ -1,3 +1,13 @@
+"""Persistence port for the Belgie OAuth 2.1 / OIDC authorization server.
+
+Implementations (e.g. :class:`belgie_alchemy.oauth_server.OAuthServerAdapter`)
+back :class:`SimpleOAuthProvider` in ``belgie-oauth-server``. Field sets mirror
+the tables described in the Better Auth ``oauth-provider`` plugin schema, with
+deliberate naming differences: RFC 7591 names on clients, ``individual_id`` for
+the resource owner, and no persisted ``auth_time`` on refresh tokens (session
+drives OpenID ``auth_time`` in the token engine).
+"""
+
 from __future__ import annotations
 
 # ruff: noqa: PLR0913, A002

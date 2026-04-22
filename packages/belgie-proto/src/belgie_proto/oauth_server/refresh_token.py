@@ -9,6 +9,11 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class OAuthServerRefreshTokenProtocol(Protocol):
+    """Opaque refresh token row. ``auth_time`` is not a stored field here — OIDC
+    ``auth_time`` for ``id_token`` is taken from the active session in the
+    server layer when tokens are produced.
+    """
+
     id: UUID
     token_hash: str
     client_id: str

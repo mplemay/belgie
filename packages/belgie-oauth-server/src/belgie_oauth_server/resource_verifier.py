@@ -1,3 +1,16 @@
+"""Resource-level access token verification (JWT and introspection).
+
+JWT access tokens for local verification use Authlib's :class:`JWTBearerTokenValidator`
+subclass and RFC 9068 claim validation. The only custom decode path is
+:func:`_decode_belgie_jwt_to_access_token_claims`, which normalizes ``typ: jwt`` to
+``at+jwt`` for joserfc per Belgie's issuer behavior.
+
+Introspection uses ``httpx`` async POST with form ``token=...`` and optional client
+auth — not Authlib's sync :class:`~authlib.oauth2.rfc7662.IntrospectTokenValidator`
+subclass, so we avoid blocking the event loop and keep identical RFC 7662 request
+format and error handling.
+"""
+
 from __future__ import annotations
 
 import time
@@ -7,7 +20,6 @@ from typing import Literal
 
 import httpx
 from authlib.oauth2.rfc6750.errors import InsufficientScopeError, InvalidTokenError
-from authlib.oauth2.rfc7662 import IntrospectTokenValidator
 from authlib.oauth2.rfc9068.claims import JWTAccessTokenClaims
 from authlib.oauth2.rfc9068.token_validator import JWTBearerTokenValidator
 from joserfc import jwt
@@ -43,10 +55,54 @@ class VerifiedResourceAccessToken:
         return self.token.individual_id
 
 
-class _AuthlibIntrospectionPayloadValidator(IntrospectTokenValidator):
-    def introspect_token(self, token_string: str) -> dict[str, object]:  # pragma: no cover
-        msg = f"Direct introspection is not supported for {token_string!r}"
-        raise NotImplementedError(msg)
+def _claims_options_for_belgie_validator(validator: _BelgieJWTBearerTokenValidator) -> dict:
+    options: dict = {
+        "iss": {"essential": True, "validate": validator.validate_iss},
+        "exp": {"essential": True},
+        "iat": {"essential": True},
+        "azp": {"essential": True},
+        "scope": {"essential": False},
+        "groups": {"essential": False},
+        "roles": {"essential": False},
+        "entitlements": {"essential": False},
+    }
+    resource_server = validator.resource_server
+    if resource_server is not None:
+        options["aud"] = {
+            "essential": True,
+            **({"values": resource_server} if isinstance(resource_server, list) else {"value": resource_server}),
+        }
+    return options
+
+
+def _decode_belgie_jwt_to_access_token_claims(
+    validator: _BelgieJWTBearerTokenValidator,
+    token_string: str,
+) -> JWTAccessTokenClaims:
+    """Decode with joserfc, fix ``typ`` for RFC 9068, then build Authlib claims.
+
+    This is the single place that performs the raw JWT decode for resource
+    validation; :meth:`_BelgieJWTBearerTokenValidator.authenticate_token` delegates
+    here. Authlib's own :class:`JWTBearerTokenValidator` (base) uses a similar
+    decode, but we keep Belgie's key import and header normalization in one
+    function.
+    """
+    key = _import_verification_key(validator.provider)
+    try:
+        token = jwt.decode(token_string, key=key)
+    except DecodeError as exc:
+        raise InvalidTokenError(
+            realm=validator.realm,
+            extra_attributes=validator.extra_attributes,
+        ) from exc
+    header = dict(token.header)
+    if header.get("typ", "").lower() == "jwt":
+        header["typ"] = "at+jwt"
+    return JWTAccessTokenClaims(
+        token.claims,
+        header,
+        _claims_options_for_belgie_validator(validator),
+    )
 
 
 class _BelgieJWTBearerTokenValidator(JWTBearerTokenValidator):
@@ -65,38 +121,7 @@ class _BelgieJWTBearerTokenValidator(JWTBearerTokenValidator):
         return self.provider.signing_state.verification_key
 
     def authenticate_token(self, token_string: str) -> JWTAccessTokenClaims:
-        claims_options = {
-            "iss": {"essential": True, "validate": self.validate_iss},
-            "exp": {"essential": True},
-            "iat": {"essential": True},
-            "azp": {"essential": True},
-            "scope": {"essential": False},
-            "groups": {"essential": False},
-            "roles": {"essential": False},
-            "entitlements": {"essential": False},
-        }
-        if self.resource_server is not None:
-            claims_options["aud"] = {
-                "essential": True,
-                **(
-                    {"values": self.resource_server}
-                    if isinstance(self.resource_server, list)
-                    else {"value": self.resource_server}
-                ),
-            }
-
-        key = _import_verification_key(self.provider)
-        try:
-            token = jwt.decode(token_string, key=key)
-            header = dict(token.header)
-            if header.get("typ", "").lower() == "jwt":
-                header["typ"] = "at+jwt"
-            return JWTAccessTokenClaims(token.claims, header, claims_options)
-        except DecodeError as exc:
-            raise InvalidTokenError(
-                realm=self.realm,
-                extra_attributes=self.extra_attributes,
-            ) from exc
+        return _decode_belgie_jwt_to_access_token_claims(self, token_string)
 
 
 async def verify_resource_access_token(  # noqa: PLR0911
@@ -204,12 +229,9 @@ async def _introspect_access_token(
 
 
 def _introspection_payload_is_valid(payload: OAuthServerIntrospectionResponse) -> bool:
-    validator = _AuthlibIntrospectionPayloadValidator()
-    try:
-        validator.validate_token(payload.model_dump(mode="python"), scopes=[], request=None)
-    except (InsufficientScopeError, InvalidTokenError):
-        return False
-    return True
+    # Same ``active`` gate as :meth:`authlib.oauth2.rfc7662.IntrospectTokenValidator.validate_token`
+    # when the token record is a plain introspection response dict.
+    return bool(payload.active)
 
 
 def _local_jwt_is_authlib_valid(
@@ -222,7 +244,7 @@ def _local_jwt_is_authlib_valid(
     try:
         claims = validator.authenticate_token(token)
         validator.validate_token(claims, scopes=[], request=None)
-    except (InvalidTokenError, JoseError):
+    except (InvalidTokenError, InsufficientScopeError, JoseError):
         return False
     return True
 

@@ -1,3 +1,23 @@
+"""SQLAlchemy implementation of :class:`belgie_proto.oauth_server.OAuthServerAdapterProtocol`.
+
+**Identifiers:** Application models should combine these mixins with
+``PrimaryKeyMixin`` (internal UUID row id) and ``TimestampMixin`` as needed. The
+OAuth ``client_id`` is a **separate** string column (per RFC 6749) — unlike some
+stacks that use ``client_id`` as the primary key, Belgie uses an internal
+surrogate key for joins while keeping the public client identifier in
+``client_id`` (this matches the "optimization" note in the Better Auth schema
+for flexible ``client_id`` shapes).
+
+**Refresh tokens and ``auth_time``:** Better Auth's schema can store
+``authTime`` on refresh token rows. Belgie's authorization server still supplies
+a correct OpenID ``auth_time`` claim on ``id_token`` by resolving the
+authenticated session; there is no separate persisted ``auth_time`` column on
+``oauth_refresh_token`` in these mixins.
+
+**Clients:** DCR and metadata follow RFC 7591-style fields; ``jwks`` /
+``jwks_uri`` are intentionally not stored (see :class:`OAuthServerClientMixin`).
+"""
+
 from __future__ import annotations
 
 # ruff: noqa: PLR0913, A002
