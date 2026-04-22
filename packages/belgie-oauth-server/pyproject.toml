@@ -12,6 +12,7 @@ dependencies = [
     "belgie-core==0.1.0",
     "belgie-proto==0.1.0",
     "fastapi>=0.100",
+    "httpx>=0.24",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "pyjwt>=2.10",

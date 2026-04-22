@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import base64
-import binascii
-import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Final, TypeGuard
+from typing import TYPE_CHECKING, TypeGuard
 from uuid import UUID
 
 from belgie_oauth_server.plugin import OAuthServerPlugin
-from belgie_oauth_server.verifier import verify_local_access_token
+from belgie_oauth_server.resource_verifier import VerifiedResourceAccessToken, verify_resource_access_token
 from belgie_proto.core.connection import DBConnection
 from mcp.server.auth.middleware.auth_context import get_access_token
+
+from belgie_mcp.auth_context import get_verified_access_token
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UserLookup:
     claim: str = "sub"
-    MIN_PARTS: ClassVar[Final[int]] = 2
 
     async def get_user_from_access_token(self, belgie: Belgie) -> IndividualProtocol | None:
         if (access_token := get_access_token()) is None:
@@ -32,19 +30,11 @@ class UserLookup:
         if (token_value := self._extract_token_value(access_token)) is None:
             return None
 
-        individual_id = None
-        provider_matched, provider_user_id = await self._resolve_provider_user_id(belgie, token_value)
-        if provider_matched:
-            individual_id = provider_user_id
-        elif (payload := self._decode_jwt_payload(token_value)) is not None and isinstance(
-            claim_value := payload.get(self.claim),
-            str,
-        ):
-            try:
-                individual_id = UUID(claim_value)
-            except ValueError:
-                individual_id = None
+        verified_token = self._resolve_cached_verified_token(token_value)
+        if verified_token is None:
+            verified_token = await self._resolve_provider_token(belgie, token_value)
 
+        individual_id = self._verified_individual_id(verified_token)
         if individual_id is None:
             return None
         return await self._load_user_from_belgie(belgie, individual_id)
@@ -57,56 +47,43 @@ class UserLookup:
         return None
 
     @staticmethod
-    async def _resolve_provider_user_id(belgie: Belgie, token: str) -> tuple[bool, UUID | None]:
+    def _resolve_cached_verified_token(token: str) -> VerifiedResourceAccessToken | None:
+        verified_token = get_verified_access_token()
+        if verified_token is None or verified_token.token.token != token:
+            return None
+        return verified_token
+
+    async def _resolve_provider_token(
+        self,
+        belgie: Belgie,
+        token: str,
+    ) -> VerifiedResourceAccessToken | None:
         for plugin in belgie.plugins:
             if not isinstance(plugin, OAuthServerPlugin):
                 continue
             if plugin.provider is None:
                 continue
-            verified_token = await verify_local_access_token(plugin.provider, token)
+            verified_token = await verify_resource_access_token(token, provider=plugin.provider)
             if verified_token is None:
                 if plugin.provider.verify_signed_access_token(token) is not None:
-                    return True, None
+                    return None
                 continue
-            stored_token = verified_token.token
-            if stored_token.individual_id is None:
-                return True, None
-            try:
-                return True, UUID(stored_token.individual_id)
-            except ValueError:
-                return True, None
-        return False, None
+            return verified_token
+        return None
 
-    @classmethod
-    def _decode_jwt_payload(cls, token: str) -> dict[str, Any] | None:
-        parts = token.split(".")
-        if len(parts) < cls.MIN_PARTS:
+    def _verified_individual_id(self, verified_token: VerifiedResourceAccessToken | None) -> UUID | None:
+        if verified_token is None:
             return None
 
-        payload_segment = parts[1]
-        payload_bytes = cls._base64url_decode(payload_segment)
-        if payload_bytes is None:
+        subject = verified_token.individual_id
+        if subject is None and self.claim == "sub":
+            subject = verified_token.subject
+        if subject is None:
             return None
 
         try:
-            payload = json.loads(payload_bytes.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return None
-
-        if not isinstance(payload, dict):
-            return None
-
-        return payload
-
-    @staticmethod
-    def _base64url_decode(value: str) -> bytes | None:
-        if not value:
-            return None
-
-        padding = "=" * (-len(value) % 4)
-        try:
-            return base64.urlsafe_b64decode(f"{value}{padding}")
-        except (ValueError, binascii.Error):
+            return UUID(subject)
+        except ValueError:
             return None
 
     async def _load_user_from_belgie(self, belgie: Belgie, individual_id: UUID) -> IndividualProtocol | None:

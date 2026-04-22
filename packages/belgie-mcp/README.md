@@ -3,9 +3,11 @@
 > [!WARNING]
 > This package follows the current MCP Python SDK auth APIs. Expect small compatibility updates as the SDK evolves.
 
-`belgie-mcp` connects Belgie's OAuth server to the MCP Python SDK. It builds MCP `AuthSettings`, provides a token
-verifier that understands both local OAuth provider state and HTTP introspection, and includes a helper for resolving
-the current user from the active access token.
+`belgie-mcp` is the MCP SDK adapter for Belgie. It builds MCP `AuthSettings`, exposes a `TokenVerifier` for the
+Python SDK, and includes a helper for resolving the current user from the active access token.
+
+OAuth verification, token introspection, subject resolution, and Authlib integration live in
+`belgie-oauth-server`. `belgie-mcp` delegates that work and only maps the verified result into MCP-friendly types.
 
 ## Installation
 
@@ -112,6 +114,8 @@ mounting and any `streamable_http_app(...)` options.
   `server_path`.
 - If you pass a `server_url` directly, it takes precedence over `base_url` and `server_path`.
 - `oauth_strict=True` enables strict resource validation against the issued token audience.
-- `get_user_from_access_token` resolves the current user from a co-located OAuth provider first, then falls back to
-  decoding a JWT `sub` claim.
+- `get_user_from_access_token` uses the verified token result from the active MCP auth flow when available, then falls
+  back to a co-located OAuth provider. It no longer decodes JWT payloads directly.
+- For remote OAuth deployments, `get_user_from_access_token` can load a user when the verified subject maps to a local
+  Belgie individual ID. Pairwise or non-UUID subjects will need custom lookup logic.
 - The package is designed to work with the example in [`examples/mcp`](../../examples/mcp).

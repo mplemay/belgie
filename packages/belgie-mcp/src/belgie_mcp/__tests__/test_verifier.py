@@ -10,6 +10,7 @@ from pydantic import AnyUrl
 pytest.importorskip("mcp")
 pytest.importorskip("belgie_oauth_server")
 
+from belgie_mcp.auth_context import get_verified_access_token, set_verified_access_token
 from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.models import OAuthServerClientMetadata
@@ -78,6 +79,42 @@ async def test_verify_token_active_returns_access_token() -> None:
     assert token.scopes == ["user", "read"]
     assert token.expires_at == 123
     assert token.resource == "https://mcp.local"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_token_stores_verified_subject_for_request_context() -> None:
+    endpoint = "https://issuer.local/introspect"
+    subject = str(uuid4())
+    respx.post(endpoint).mock(
+        return_value=Response(
+            200,
+            json={
+                "active": True,
+                "client_id": "client",
+                "scope": "user",
+                "exp": 123,
+                "aud": "https://mcp.local",
+                "sub": subject,
+                "iss": "https://issuer.local/auth/oauth",
+            },
+        ),
+    )
+
+    verifier = BelgieOAuthTokenVerifier(
+        introspection_endpoint=endpoint,
+        server_url="https://mcp.local/mcp",
+    )
+
+    token_value = str(uuid4())
+    token = await verifier.verify_token(token_value)
+    verified_token = get_verified_access_token()
+
+    assert token is not None
+    assert verified_token is not None
+    assert verified_token.subject == subject
+    assert verified_token.token.token == token_value
+    set_verified_access_token(None)
 
 
 @respx.mock
