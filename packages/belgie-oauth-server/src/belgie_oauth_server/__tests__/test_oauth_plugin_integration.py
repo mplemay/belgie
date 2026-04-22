@@ -449,6 +449,7 @@ def test_register_coerces_anonymous_clients_to_public_and_supports_prelogin_look
     public_client = client.get(
         "/auth/oauth2/public-client",
         params={"client_id": payload["client_id"]},
+        headers=_auth_headers(),
     )
     assert public_client.status_code == 200
     assert public_client.json()["client_id"] == payload["client_id"]
@@ -531,7 +532,7 @@ def test_trusted_dynamic_client_skips_consent_without_persisting_skip_consent() 
     assert authorize.headers["location"].startswith("https://trusted.local/callback?")
 
 
-def test_create_client_allows_confidential_pkce_opt_out() -> None:
+def test_admin_create_client_allows_confidential_pkce_opt_out() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         redirect_uris=["http://client.local/callback"],
@@ -540,7 +541,7 @@ def test_create_client_allows_confidential_pkce_opt_out() -> None:
     client, plugin, belgie_client = _build_fixture(settings)
 
     created = client.post(
-        "/auth/oauth2/create-client",
+        "/auth/admin/oauth2/create-client",
         json={
             "redirect_uris": ["https://client.local/callback"],
             "token_endpoint_auth_method": "client_secret_post",
@@ -988,6 +989,7 @@ def test_client_management_rpc_routes_match_better_auth_shape() -> None:
     public_client = client.get(
         "/auth/oauth2/public-client",
         params={"client_id": client_id},
+        headers=_auth_headers(),
     )
     assert public_client.status_code == 200
     assert public_client.json()["client_id"] == client_id
@@ -1039,6 +1041,139 @@ def test_client_management_rpc_routes_match_better_auth_shape() -> None:
     )
     assert refetched.status_code == 404
     assert refetched.json()["error"] == "not_found"
+
+
+def test_public_client_routes_ignore_admin_only_fields() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        pairwise_secret="pairwise-secret-for-tests-123456",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    created = client.post(
+        "/auth/oauth2/create-client",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+            "scope": "openid user",
+            "skip_consent": True,
+            "enable_end_session": True,
+            "require_pkce": False,
+            "subject_type": "pairwise",
+            "client_secret_expires_at": 123,
+            "metadata": {"tenant": "acme"},
+        },
+        headers=_auth_headers(),
+    )
+    assert created.status_code == 201
+    created_payload = created.json()
+    client_id = created_payload["client_id"]
+    assert created_payload["skip_consent"] is False
+    assert "enable_end_session" not in created_payload
+    assert created_payload["require_pkce"] is True
+    assert "subject_type" not in created_payload
+    assert created_payload["client_secret_expires_at"] == 0
+    assert "tenant" not in created_payload
+
+    updated = client.post(
+        "/auth/oauth2/update-client",
+        json={
+            "client_id": client_id,
+            "update": {
+                "skip_consent": True,
+                "enable_end_session": True,
+                "require_pkce": False,
+                "subject_type": "pairwise",
+                "client_secret_expires_at": 456,
+                "metadata": {"tenant": "globex"},
+            },
+        },
+        headers=_auth_headers(),
+    )
+    assert updated.status_code == 200
+    updated_payload = updated.json()
+    assert updated_payload["skip_consent"] is False
+    assert "enable_end_session" not in updated_payload
+    assert updated_payload["require_pkce"] is True
+    assert "subject_type" not in updated_payload
+    assert updated_payload["client_secret_expires_at"] == 0
+    assert "tenant" not in updated_payload
+
+    fetched = client.get(
+        "/auth/oauth2/get-client",
+        params={"client_id": client_id},
+        headers=_auth_headers(),
+    )
+    assert fetched.status_code == 200
+    fetched_payload = fetched.json()
+    assert fetched_payload["skip_consent"] is False
+    assert "enable_end_session" not in fetched_payload
+    assert fetched_payload["require_pkce"] is True
+    assert "subject_type" not in fetched_payload
+    assert fetched_payload["client_secret_expires_at"] == 0
+    assert "tenant" not in fetched_payload
+
+
+def test_admin_client_routes_support_restricted_fields() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        pairwise_secret="pairwise-secret-for-tests-123456",
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    created = client.post(
+        "/auth/admin/oauth2/create-client",
+        json={
+            "redirect_uris": ["https://client.local/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+            "type": "web",
+            "scope": "openid user",
+            "skip_consent": True,
+            "enable_end_session": True,
+            "require_pkce": False,
+            "subject_type": "pairwise",
+            "client_secret_expires_at": 123,
+            "metadata": {"tenant": "acme"},
+        },
+        headers=_auth_headers(),
+    )
+    assert created.status_code == 201
+    created_payload = created.json()
+    assert created_payload["skip_consent"] is True
+    assert created_payload["enable_end_session"] is True
+    assert created_payload["require_pkce"] is False
+    assert created_payload["subject_type"] == "pairwise"
+    assert created_payload["client_secret_expires_at"] == 123
+    assert created_payload["tenant"] == "acme"
+
+    updated = client.patch(
+        "/auth/admin/oauth2/update-client",
+        json={
+            "client_id": created_payload["client_id"],
+            "update": {
+                "skip_consent": False,
+                "enable_end_session": False,
+                "client_secret_expires_at": 456,
+                "metadata": {"tenant": "globex"},
+                "require_pkce": True,
+                "subject_type": "public",
+            },
+        },
+        headers=_auth_headers(),
+    )
+    assert updated.status_code == 200
+    updated_payload = updated.json()
+    assert updated_payload["skip_consent"] is False
+    assert updated_payload["enable_end_session"] is False
+    assert updated_payload["client_secret_expires_at"] == 456
+    assert updated_payload["tenant"] == "globex"
+    assert updated_payload["require_pkce"] is False
+    assert updated_payload["subject_type"] == "pairwise"
 
 
 def test_consent_management_rpc_routes_match_better_auth_shape() -> None:

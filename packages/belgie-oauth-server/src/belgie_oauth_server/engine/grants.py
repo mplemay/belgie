@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar
 
 from authlib.oauth2.rfc6749 import AuthorizationCodeGrant, ClientCredentialsGrant, RefreshTokenGrant
 from authlib.oauth2.rfc6749.errors import (
@@ -21,15 +21,32 @@ from belgie_oauth_server.engine.models import (
 )
 
 if TYPE_CHECKING:
-    from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer
     from belgie_oauth_server.engine.runtime import OAuthEngineRuntime
 
 
 class BelgieGrantMixin:
     @property
     def runtime(self) -> OAuthEngineRuntime:
-        server = cast("BelgieAuthorizationServer", self.server)
-        return server.runtime
+        server = getattr(self, "server", None)
+        runtime = getattr(server, "runtime", None)
+        if runtime is None:
+            msg = "missing belgie authorization server runtime"
+            raise RuntimeError(msg)
+        return runtime
+
+    def authenticate_belgie_client(self) -> AuthlibClient:
+        client = self.authenticate_token_endpoint_client()
+        if not isinstance(client, AuthlibClient):
+            msg = "unexpected client type"
+            raise TypeError(msg)
+        return client
+
+    def require_request_client(self) -> AuthlibClient:
+        client = getattr(self.request, "client", None)
+        if not isinstance(client, AuthlibClient):
+            msg = "missing authlib client on request"
+            raise TypeError(msg)
+        return client
 
 
 class BelgieAuthorizationCodeGrant(BelgieGrantMixin, AuthorizationCodeGrant):
@@ -79,7 +96,7 @@ class BelgieRefreshTokenGrant(BelgieGrantMixin, RefreshTokenGrant):
     INCLUDE_NEW_REFRESH_TOKEN = True
 
     def validate_token_request(self) -> None:  # noqa: C901
-        client = cast("AuthlibClient", self.authenticate_token_endpoint_client())
+        client = self.authenticate_belgie_client()
         if not client.check_grant_type(self.GRANT_TYPE):
             raise UnauthorizedClientError
 
@@ -139,7 +156,7 @@ class BelgieRefreshTokenGrant(BelgieGrantMixin, RefreshTokenGrant):
         token = run_async(self.runtime.provider.load_refresh_token, refresh_token)
         if token is None:
             return None
-        client = cast("AuthlibClient", self.request.client)
+        client = self.require_request_client()
         return AuthlibRefreshToken(record=token, runtime=self.runtime, client=client)
 
     def authenticate_user(self, refresh_token: AuthlibRefreshToken) -> AuthlibUser | None:
@@ -155,7 +172,7 @@ class BelgieClientCredentialsGrant(BelgieGrantMixin, ClientCredentialsGrant):
     TOKEN_ENDPOINT_AUTH_METHODS: ClassVar[tuple[str, str]] = ("client_secret_basic", "client_secret_post")
 
     def validate_token_request(self) -> None:
-        client = cast("AuthlibClient", self.authenticate_token_endpoint_client())
+        client = self.authenticate_belgie_client()
         if not client.check_grant_type(self.GRANT_TYPE):
             raise UnauthorizedClientError
 

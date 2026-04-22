@@ -171,6 +171,11 @@ class OAuthServerClientInformationFull(OAuthServerClientMetadata):
     individual_id: str | None = None
 
 
+class OAuthServerAdminClientMetadata(OAuthServerClientMetadata):
+    client_secret_expires_at: int | str | None = 0
+    enable_end_session: bool | None = None
+
+
 class OAuthServerPublicClient(BaseModel):
     client_id: str
     client_name: str | None = None

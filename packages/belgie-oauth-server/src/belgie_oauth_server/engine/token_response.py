@@ -5,6 +5,8 @@ import time
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
+from authlib.oidc.core.claims import UserInfo
+
 from belgie_oauth_server.engine.helpers import oauth_client_is_public
 from belgie_oauth_server.models import OAuthServerClientInformationFull, OAuthServerToken
 from belgie_oauth_server.signing import encode_jwt
@@ -113,23 +115,32 @@ def build_user_claims(
     *,
     subject_identifier: str | None = None,
 ) -> dict[str, str | bool]:
+    userinfo = _build_userinfo(user, subject_identifier=subject_identifier)
+    filtered = userinfo.filter(" ".join(scopes))
+    filtered["sub"] = userinfo["sub"]
+    return dict(filtered)
+
+
+def _build_userinfo(
+    user: UserClaimsSource,
+    *,
+    subject_identifier: str | None = None,
+) -> UserInfo:
     name_parts = [value for value in (user.name or "").split(" ") if value]
     payload: dict[str, str | bool] = {"sub": subject_identifier or str(user.id)}
 
-    if "profile" in scopes:
-        if user.name is not None:
-            payload["name"] = user.name
-        if user.image is not None:
-            payload["picture"] = user.image
-        if len(name_parts) > 1:
-            payload["given_name"] = " ".join(name_parts[:-1])
-            payload["family_name"] = name_parts[-1]
-
-    if "email" in scopes:
+    if user.name is not None:
+        payload["name"] = user.name
+    if user.image is not None:
+        payload["picture"] = user.image
+    if len(name_parts) > 1:
+        payload["given_name"] = " ".join(name_parts[:-1])
+        payload["family_name"] = name_parts[-1]
+    if user.email:
         payload["email"] = user.email
         payload["email_verified"] = user.email_verified_at is not None
 
-    return payload
+    return UserInfo(payload)
 
 
 async def build_access_token_jwt_payload(  # noqa: PLR0913

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -13,6 +13,7 @@ from pydantic import BaseModel, SecretStr
 from belgie_oauth_server.utils import urlsafe_b64encode
 
 type SigningAlgorithm = Literal["RS256", "HS256"]
+type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 
 
 class OAuthServerSigning(BaseModel):
@@ -33,9 +34,9 @@ class OAuthServerSigningState:
     key_id: str
     signing_key: str | bytes
     verification_key: str | bytes
-    jwk: dict[str, Any] | None = None
+    jwk: dict[str, JSONValue] | None = None
 
-    def sign(self, payload: dict[str, Any]) -> str:
+    def sign(self, payload: dict[str, JSONValue]) -> str:
         return encode_jwt(payload, key=self.signing_key, algorithm=self.algorithm, key_id=self.key_id)
 
     def decode(
@@ -46,7 +47,7 @@ class OAuthServerSigningState:
         issuer: str | None = None,
         verify_exp: bool = True,
         required_claims: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JSONValue]:
         claims_options = _build_claims_options(
             audience=audience,
             issuer=issuer,
@@ -62,14 +63,14 @@ class OAuthServerSigningState:
         return dict(decoded_token.claims)
 
     @property
-    def jwks(self) -> dict[str, list[dict[str, Any]]] | None:
+    def jwks(self) -> dict[str, list[dict[str, JSONValue]]] | None:
         if self.jwk is None:
             return None
         return {"keys": [self.jwk]}
 
 
 def encode_jwt(
-    payload: dict[str, Any],
+    payload: dict[str, JSONValue],
     *,
     key: str | bytes,
     algorithm: SigningAlgorithm,
@@ -160,7 +161,7 @@ def _import_key(key: str | bytes, algorithm: SigningAlgorithm) -> OctKey | RSAKe
     return RSAKey.import_key(key)
 
 
-def _rsa_public_jwk(public_key: rsa.RSAPublicKey, key_id: str) -> dict[str, Any]:
+def _rsa_public_jwk(public_key: rsa.RSAPublicKey, key_id: str) -> dict[str, str]:
     public_numbers = public_key.public_numbers()
     e = public_numbers.e.to_bytes((public_numbers.e.bit_length() + 7) // 8, "big")
     n = public_numbers.n.to_bytes((public_numbers.n.bit_length() + 7) // 8, "big")

@@ -27,7 +27,7 @@ from belgie_oauth_server.engine.helpers import (
     parse_scope_param,
     validate_pkce_inputs,
 )
-from belgie_oauth_server.engine.token_response import build_access_token_jwt_payload
+from belgie_oauth_server.engine.token_response import build_access_token_jwt_payload, build_user_claims
 from belgie_oauth_server.metadata import (
     build_oauth_metadata,
     build_oauth_metadata_well_known_path,
@@ -36,6 +36,7 @@ from belgie_oauth_server.metadata import (
 )
 from belgie_oauth_server.models import (
     InvalidRedirectUriError,
+    OAuthServerAdminClientMetadata,
     OAuthServerClientInformationFull,
     OAuthServerClientMetadata,
     OAuthServerErrorResponse,
@@ -61,6 +62,87 @@ type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str,
 type FormValue = str | UploadFile
 type FormInput = Mapping[str, FormValue] | FormData
 type AuthorizePrompt = Literal["none", "consent", "login", "create", "select_account"]
+
+_PUBLIC_CLIENT_CREATE_FIELDS = frozenset(
+    {
+        "redirect_uris",
+        "scope",
+        "client_name",
+        "client_uri",
+        "logo_uri",
+        "contacts",
+        "tos_uri",
+        "policy_uri",
+        "software_id",
+        "software_version",
+        "software_statement",
+        "post_logout_redirect_uris",
+        "token_endpoint_auth_method",
+        "grant_types",
+        "response_types",
+        "type",
+    },
+)
+_PUBLIC_CLIENT_UPDATE_FIELDS = frozenset(
+    {
+        "redirect_uris",
+        "scope",
+        "client_name",
+        "client_uri",
+        "logo_uri",
+        "contacts",
+        "tos_uri",
+        "policy_uri",
+        "software_id",
+        "software_version",
+        "software_statement",
+        "post_logout_redirect_uris",
+        "grant_types",
+        "response_types",
+        "type",
+    },
+)
+_ADMIN_CLIENT_CREATE_FIELDS = frozenset(
+    {
+        *_PUBLIC_CLIENT_CREATE_FIELDS,
+        "client_secret_expires_at",
+        "skip_consent",
+        "enable_end_session",
+        "require_pkce",
+        "subject_type",
+        "metadata",
+    },
+)
+_ADMIN_CLIENT_UPDATE_FIELDS = frozenset(
+    {
+        *_PUBLIC_CLIENT_UPDATE_FIELDS,
+        "client_secret_expires_at",
+        "skip_consent",
+        "enable_end_session",
+        "metadata",
+    },
+)
+_REGISTER_CLIENT_FIELDS = frozenset(
+    {
+        "redirect_uris",
+        "scope",
+        "client_name",
+        "client_uri",
+        "logo_uri",
+        "contacts",
+        "tos_uri",
+        "policy_uri",
+        "software_id",
+        "software_version",
+        "software_statement",
+        "post_logout_redirect_uris",
+        "token_endpoint_auth_method",
+        "grant_types",
+        "response_types",
+        "type",
+        "subject_type",
+    },
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -480,8 +562,19 @@ class OAuthServerPlugin(PluginClient):
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
 
+            if not isinstance(payload, dict):
+                return _oauth_error(
+                    "invalid_request",
+                    "invalid JSON body",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            if "skip_consent" in payload:
+                return _registration_metadata_error("skip_consent cannot be set during dynamic client registration")
+
             try:
-                metadata = OAuthServerClientMetadata.model_validate(payload)
+                metadata = OAuthServerClientMetadata.model_validate(
+                    _filter_client_payload_fields(payload, _REGISTER_CLIENT_FIELDS),
+                )
             except ValidationError as exc:
                 return _registration_validation_error(exc)
 
@@ -506,12 +599,6 @@ class OAuthServerPlugin(PluginClient):
                 if "client_credentials" in metadata.grant_types:
                     return _registration_metadata_error(
                         "client_credentials grant requires authenticated registration",
-                    )
-                if metadata.require_pkce is False:
-                    return _registration_metadata_error("pkce is required for registered clients")
-                if metadata.skip_consent is not None:
-                    return _registration_metadata_error(
-                        "skip_consent cannot be set during dynamic client registration",
                     )
                 metadata = _coerce_unauthenticated_registration(metadata)
 
@@ -644,7 +731,7 @@ class OAuthServerPlugin(PluginClient):
             )
             return UserInfoResponse.model_validate(
                 {
-                    **_build_user_claims(
+                    **build_user_claims(
                         user,
                         access_token.scopes,
                         subject_identifier=subject_identifier,
@@ -1042,7 +1129,12 @@ class OAuthServerPlugin(PluginClient):
 
             try:
                 payload = await request.json()
-                metadata = OAuthServerClientMetadata.model_validate(payload)
+                if not isinstance(payload, dict):
+                    model_name = "OAuthServerClientMetadata"
+                    raise ValidationError.from_exception_data(model_name, [])
+                metadata = OAuthServerClientMetadata.model_validate(
+                    _filter_client_payload_fields(payload, _PUBLIC_CLIENT_CREATE_FIELDS),
+                )
             except ValidationError as exc:
                 return _oauth_error(
                     "invalid_request",
@@ -1135,7 +1227,17 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
             return _public_client_information(oauth_client)
 
-        async def public_client_handler(request: Request) -> dict[str, JSONValue] | Response:
+        async def public_client_handler(
+            request: Request,
+            client: BelgieClientDep,
+        ) -> dict[str, JSONValue] | Response:
+            try:
+                await client.get_individual(SecurityScopes(), request)
+                await client.get_session(request)
+            except HTTPException as exc:
+                if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                    return _oauth_error("invalid_token", status_code=status.HTTP_401_UNAUTHORIZED)
+                raise
             client_id = request.query_params.get("client_id")
             if not client_id:
                 return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
@@ -1203,7 +1305,7 @@ class OAuthServerPlugin(PluginClient):
                     "invalid update payload",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-            updates = _normalize_client_updates(payload)
+            updates = _normalize_client_updates(payload, allowed_fields=_PUBLIC_CLIENT_UPDATE_FIELDS)
             try:
                 merged_metadata = _merge_client_metadata(oauth_client, updates)
                 provider.validate_client_metadata(
@@ -1222,6 +1324,124 @@ class OAuthServerPlugin(PluginClient):
                     and not await _has_client_privilege(settings, "update", individual_id, session_id, new_reference_id)
                 ):
                     return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
+
+            try:
+                updated_client = await provider.update_client(client_id, updates=updates, db=client.db)
+            except ValueError as exc:
+                return _oauth_error("invalid_request", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+            if updated_client is None:
+                return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
+            return _serialize_oauth_client(_redact_client_secret(updated_client), include_secret=False)
+
+        async def admin_create_client_handler(
+            request: Request,
+            response: Response,
+            client: BelgieClientDep,
+        ) -> dict[str, JSONValue] | Response:
+            try:
+                individual = await client.get_individual(SecurityScopes(), request)
+                session = await client.get_session(request)
+            except HTTPException as exc:
+                if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                    return _oauth_error("invalid_token", status_code=status.HTTP_401_UNAUTHORIZED)
+                raise
+
+            try:
+                payload = await request.json()
+                if not isinstance(payload, dict):
+                    model_name = "OAuthServerAdminClientMetadata"
+                    raise ValidationError.from_exception_data(model_name, [])
+                metadata = OAuthServerAdminClientMetadata.model_validate(
+                    _filter_client_payload_fields(payload, _ADMIN_CLIENT_CREATE_FIELDS),
+                )
+            except ValidationError as exc:
+                return _oauth_error(
+                    "invalid_request",
+                    _format_validation_error(exc),
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+            resolved_reference = await _resolve_client_reference_id(settings, str(individual.id), str(session.id))
+            reference_id = metadata.reference_id or resolved_reference
+            if (
+                reference_id is not None
+                and reference_id != resolved_reference
+                and not await _has_client_privilege(
+                    settings,
+                    "create",
+                    str(individual.id),
+                    str(session.id),
+                    reference_id,
+                )
+            ):
+                return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
+
+            try:
+                provider.validate_client_metadata(
+                    metadata,
+                    allow_confidential_pkce_opt_out=True,
+                    allow_privileged_fields=True,
+                )
+                client_info = await provider.register_client(
+                    metadata,
+                    individual_id=str(individual.id),
+                    reference_id=reference_id,
+                    allow_confidential_pkce_opt_out=True,
+                    db=client.db,
+                )
+            except ValueError as exc:
+                return _oauth_error("invalid_request", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+            else:
+                _set_no_store_headers(response)
+                return _serialize_oauth_client(client_info, include_secret=True)
+
+        async def admin_update_client_handler(  # noqa: PLR0911
+            request: Request,
+            client: BelgieClientDep,
+        ) -> dict[str, JSONValue] | Response:
+            raw_payload = await request.json()
+            client_id = raw_payload.get("client_id") if isinstance(raw_payload, dict) else None
+            if not isinstance(client_id, str) or not client_id:
+                return _oauth_error("invalid_request", "missing client_id", status_code=status.HTTP_400_BAD_REQUEST)
+            oauth_client = await provider.get_client(client_id, db=client.db)
+            if oauth_client is None:
+                return _oauth_error("not_found", "client not found", status_code=status.HTTP_404_NOT_FOUND)
+
+            individual = await client.get_individual(SecurityScopes(), request)
+            session = await client.get_session(request)
+            individual_id = str(individual.id)
+            session_id = str(session.id)
+            if not await _can_manage_client(
+                settings,
+                oauth_client,
+                action="update",
+                individual_id=individual_id,
+                session_id=session_id,
+            ):
+                return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
+
+            payload = (
+                raw_payload.get("update")
+                if isinstance(raw_payload, dict) and isinstance(raw_payload.get("update"), dict)
+                else raw_payload
+            )
+            if not isinstance(payload, dict):
+                return _oauth_error(
+                    "invalid_request",
+                    "invalid update payload",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            updates = _normalize_client_updates(payload, allowed_fields=_ADMIN_CLIENT_UPDATE_FIELDS)
+            try:
+                merged_metadata = _merge_client_metadata(oauth_client, updates)
+                provider.validate_client_metadata(
+                    merged_metadata.model_copy(update={"skip_consent": None}),
+                    allow_confidential_pkce_opt_out=True,
+                    allow_privileged_fields=True,
+                )
+            except (ValidationError, ValueError) as exc:
+                description = _format_validation_error(exc) if isinstance(exc, ValidationError) else str(exc)
+                return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
 
             try:
                 updated_client = await provider.update_client(client_id, updates=updates, db=client.db)
@@ -1305,6 +1525,14 @@ class OAuthServerPlugin(PluginClient):
             response_model=None,
         )
         router.add_api_route(
+            f"/admin{_OAUTH_ENDPOINT_PREFIX}/create-client",
+            admin_create_client_handler,
+            methods=["POST"],
+            status_code=status.HTTP_201_CREATED,
+            response_model=None,
+            include_in_schema=False,
+        )
+        router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/create-client",
             create_client_handler,
             methods=["POST"],
@@ -1322,6 +1550,13 @@ class OAuthServerPlugin(PluginClient):
             get_client_handler,
             methods=["GET"],
             response_model=None,
+        )
+        router.add_api_route(
+            f"/admin{_OAUTH_ENDPOINT_PREFIX}/update-client",
+            admin_update_client_handler,
+            methods=["PATCH"],
+            response_model=None,
+            include_in_schema=False,
         )
         router.add_api_route(
             f"{_OAUTH_ENDPOINT_PREFIX}/update-client",
@@ -2218,6 +2453,13 @@ def _client_id_from_oauth_query(oauth_query: str | None) -> str | None:
     return client_id if isinstance(client_id, str) and client_id else None
 
 
+def _filter_client_payload_fields(
+    payload: Mapping[str, JSONValue],
+    allowed_fields: frozenset[str],
+) -> dict[str, JSONValue]:
+    return {key: value for key, value in payload.items() if key in allowed_fields}
+
+
 def _json_value_or_none(value: object) -> JSONValue:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -2228,39 +2470,6 @@ def _json_value_or_none(value: object) -> JSONValue:
             str(key): converted for key, item in value.items() if (converted := _json_value_or_none(item)) is not None
         }
     return None
-
-
-class _UserClaimsSource(Protocol):
-    id: UUID | str
-    name: str | None
-    image: str | None
-    email: str
-    email_verified_at: datetime | None
-
-
-def _build_user_claims(
-    user: _UserClaimsSource,
-    scopes: list[str],
-    *,
-    subject_identifier: str | None = None,
-) -> dict[str, str | bool]:
-    name_parts = [value for value in (user.name or "").split(" ") if value]
-    payload: dict[str, str | bool] = {"sub": subject_identifier or str(user.id)}
-
-    if "profile" in scopes:
-        if user.name is not None:
-            payload["name"] = user.name
-        if user.image is not None:
-            payload["picture"] = user.image
-        if len(name_parts) > 1:
-            payload["given_name"] = " ".join(name_parts[:-1])
-            payload["family_name"] = name_parts[-1]
-
-    if "email" in scopes:
-        payload["email"] = user.email
-        payload["email_verified"] = user.email_verified_at is not None
-
-    return payload
 
 
 async def _resolve_custom_mapping(
@@ -2413,7 +2622,11 @@ async def _can_manage_consent(
     return reference_id == await _resolve_client_reference_id(settings, individual_id, session_id)
 
 
-def _normalize_client_updates(payload: Mapping[str, JSONValue]) -> dict[str, object]:
+def _normalize_client_updates(
+    payload: Mapping[str, JSONValue],
+    *,
+    allowed_fields: frozenset[str],
+) -> dict[str, object]:
     list_fields = {"redirect_uris", "post_logout_redirect_uris", "contacts", "grant_types", "response_types"}
     string_fields = {
         "token_endpoint_auth_method",
@@ -2429,16 +2642,20 @@ def _normalize_client_updates(payload: Mapping[str, JSONValue]) -> dict[str, obj
         "type",
         "subject_type",
         "reference_id",
+        "client_secret_expires_at",
     }
     bool_fields = {"disabled", "skip_consent", "require_pkce", "enable_end_session"}
     dict_fields = {"metadata", "metadata_json"}
 
     normalized: dict[str, object] = {}
     for key, value in payload.items():
+        if key not in allowed_fields:
+            continue
         if key in list_fields and isinstance(value, list):
             normalized[key] = [str(item) for item in value if isinstance(item, str)]
         elif (
             (key in string_fields and (value is None or isinstance(value, str)))
+            or (key == "client_secret_expires_at" and (value is None or isinstance(value, (str, int))))
             or (key in bool_fields and (value is None or isinstance(value, bool)))
             or (key in dict_fields and (value is None or isinstance(value, dict)))
         ):

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from authlib.oauth2.rfc6749.errors import InvalidGrantError, InvalidRequestError
@@ -8,16 +7,13 @@ from authlib.oauth2.rfc7636.challenge import create_s256_code_challenge
 
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.helpers import parse_scope_param, pkce_requirement_for_client
+from belgie_oauth_server.engine.models import AuthlibAuthorizationCode, AuthlibClient, AuthlibUser
 from belgie_oauth_server.engine.token_generator import resolve_request_session_id
 from belgie_oauth_server.engine.token_response import (
     apply_custom_token_response_fields,
     maybe_build_id_token,
 )
-
-if TYPE_CHECKING:
-    from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer
-    from belgie_oauth_server.engine.models import AuthlibAuthorizationCode, AuthlibClient, AuthlibUser
-    from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request
+from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request
 
 _MIN_TOKEN_RESPONSE_ITEMS = 2
 
@@ -28,8 +24,11 @@ class BelgieCodeChallenge:
         grant.register_hook("after_validate_token_request", self.validate_code_verifier)
 
     def validate_code_challenge(self, grant: object, _redirect_uri: str) -> None:
-        request = cast("StarletteOAuth2Request", grant.request)
-        client = cast("AuthlibClient", request.client)
+        request = _require_oauth_request(grant)
+        client = request.client
+        if not isinstance(client, AuthlibClient):
+            msg = "missing authlib client on request"
+            raise TypeError(msg)
         scopes = parse_scope_param(request.scope) or []
 
         challenge = request.payload.data.get("code_challenge")
@@ -48,9 +47,15 @@ class BelgieCodeChallenge:
             raise InvalidRequestError(msg)
 
     def validate_code_verifier(self, grant: object, _result: object) -> None:
-        request = cast("StarletteOAuth2Request", grant.request)
-        client = cast("AuthlibClient", request.client)
-        authorization_code = cast("AuthlibAuthorizationCode", request.authorization_code)
+        request = _require_oauth_request(grant)
+        client = request.client
+        if not isinstance(client, AuthlibClient):
+            msg = "missing authlib client on request"
+            raise TypeError(msg)
+        authorization_code = request.authorization_code
+        if not isinstance(authorization_code, AuthlibAuthorizationCode):
+            msg = "missing authlib authorization code on request"
+            raise TypeError(msg)
         verifier = request.form.get("code_verifier")
         challenge = authorization_code.record.code_challenge
         pkce_requirement = pkce_requirement_for_client(client.record, authorization_code.record.scopes)
@@ -82,20 +87,27 @@ class BelgieTokenResponseEnhancer:
         if not isinstance(payload, dict):
             return
 
-        server = cast("BelgieAuthorizationServer", grant.server)
-        request = cast("StarletteOAuth2Request", grant.request)
-        client = cast("AuthlibClient | None", request.client)
+        server = getattr(grant, "server", None)
+        runtime = getattr(server, "runtime", None)
+        if runtime is None:
+            msg = "missing belgie authorization server runtime"
+            raise RuntimeError(msg)
+        request = _require_oauth_request(grant)
+        client = request.client
         if client is None:
             return
+        if not isinstance(client, AuthlibClient):
+            msg = "missing authlib client on request"
+            raise TypeError(msg)
 
         scopes = parse_scope_param(payload.get("scope") if isinstance(payload.get("scope"), str) else None) or []
-        user = cast("AuthlibUser | None", request.user)
+        user = request.user if isinstance(request.user, AuthlibUser) else None
         resolved_user = None
         if user is not None:
             try:
                 resolved_user = run_async(
-                    server.runtime.belgie_client.adapter.get_individual_by_id,
-                    server.runtime.belgie_client.db,
+                    runtime.belgie_client.adapter.get_individual_by_id,
+                    runtime.belgie_client.db,
                     UUID(user.get_user_id()),
                 )
             except ValueError:
@@ -103,10 +115,10 @@ class BelgieTokenResponseEnhancer:
         if "openid" in scopes and user is not None:
             payload["id_token"] = run_async(
                 maybe_build_id_token,
-                server.runtime.belgie_client,
-                server.runtime.provider,
-                server.runtime.settings,
-                server.runtime.issuer_url,
+                runtime.belgie_client,
+                runtime.provider,
+                runtime.settings,
+                runtime.issuer_url,
                 client.record,
                 scopes=scopes,
                 individual_id=user.get_user_id(),
@@ -116,7 +128,7 @@ class BelgieTokenResponseEnhancer:
 
         verification_value = None
         authorization_code = getattr(request, "authorization_code", None)
-        if authorization_code is not None:
+        if isinstance(authorization_code, AuthlibAuthorizationCode):
             verification_value = {
                 "type": "authorization_code",
                 "query": {
@@ -134,7 +146,7 @@ class BelgieTokenResponseEnhancer:
 
         updated_payload = run_async(
             apply_custom_token_response_fields,
-            server.runtime.settings,
+            runtime.settings,
             dict(payload),
             grant_type=grant.GRANT_TYPE,
             oauth_client=client.record,
@@ -146,8 +158,16 @@ class BelgieTokenResponseEnhancer:
         payload.update(updated_payload.model_dump(mode="json", exclude_none=True))
 
 
+def _require_oauth_request(grant: object) -> StarletteOAuth2Request:
+    request = getattr(grant, "request", None)
+    if not isinstance(request, StarletteOAuth2Request):
+        msg = "missing oauth request on grant"
+        raise TypeError(msg)
+    return request
+
+
 def _resolve_request_nonce(request: StarletteOAuth2Request) -> str | None:
     authorization_code = getattr(request, "authorization_code", None)
-    if authorization_code is None:
+    if not isinstance(authorization_code, AuthlibAuthorizationCode):
         return None
     return authorization_code.record.nonce

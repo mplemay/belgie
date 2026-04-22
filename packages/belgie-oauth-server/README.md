@@ -24,7 +24,8 @@ uv add belgie-oauth-server
   `/.well-known/oauth-authorization-server` and
   `/.well-known/openid-configuration`.
 - Client CRUD and consent CRUD RPC routes that mirror Better Auth's management
-  endpoints.
+  endpoints, including server-only `/admin/oauth2/create-client` and
+  `/admin/oauth2/update-client` routes for restricted client fields.
 - PKCE enforcement, pairwise subject identifiers, refresh-token rotation,
   prompt-aware login and consent flows, and dynamic client registration.
 - Custom access-token claims, id-token claims, userinfo claims, and token
@@ -36,6 +37,7 @@ The OAuth server no longer needs a baked-in static client. Configure the server
 first, then create clients through:
 
 - authenticated client RPC routes such as `/auth/oauth2/create-client`
+- server-only admin routes such as `/auth/admin/oauth2/create-client`
 - `POST /auth/oauth2/register` when dynamic registration is enabled
 - server-side calls to `provider.register_client(...)`
 
@@ -129,12 +131,20 @@ or `/auth/oauth2/register`.
 
 - `login_url` and `consent_url` are required whenever the
   `authorization_code` grant is enabled.
+- `/auth/oauth2/create-client` and `/auth/oauth2/update-client` only honor the
+  Better Auth public client fields. Restricted fields such as
+  `skip_consent`, `enable_end_session`, `require_pkce`, `subject_type`,
+  `metadata`, and `client_secret_expires_at` belong on the server-only
+  `/auth/admin/oauth2/*` routes.
 - `resource` values are validated against `valid_audiences`. Invalid resources
   return `invalid_target`.
 - Public clients and `offline_access` requests always require PKCE.
 - `cached_trusted_clients` and `trusted_client_resolver` can mark clients as
   trusted without allowing dynamic registration payloads to persist
   `skip_consent`.
+- `/auth/oauth2/public-client` requires an authenticated session. Use
+  `/auth/oauth2/public-client-prelogin` only when
+  `allow_public_client_prelogin=True`.
 - Trusted clients are immutable through the RPC routes. Update them in config or
   directly in persistence instead.
 - `private_key_jwt`, `jwks`, and `jwks_uri` are not part of the persisted client
@@ -206,6 +216,10 @@ resource metadata helper from this package.
 ## Compatibility Notes
 
 - OAuth server protocol routes are fixed to `/oauth2/*`.
-- The old `/admin/oauth2/*` client-management aliases are not exposed.
+- Restricted client fields are available through server-only
+  `/admin/oauth2/create-client` and `/admin/oauth2/update-client`.
+- Config-backed `client_id` / `client_secret` / `redirect_uris` support remains
+  as a Belgie compatibility shortcut, not as part of Better Auth's public
+  surface.
 - The old auth-server-owned protected-resource metadata model is gone. Resource
   servers publish that metadata themselves.

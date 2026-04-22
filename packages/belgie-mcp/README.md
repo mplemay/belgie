@@ -95,6 +95,8 @@ same OAuth settings that power the verifier.
   `server_path`.
 - `oauth_strict=True` enables strict audience checks during verification.
 - `required_scopes` applies MCP-side scope checks after token verification.
+- `mcp_token_verifier(...)` defaults remote introspection to the OAuth server's
+  advertised Better Auth-compatible path: `{issuer}/oauth2/introspect`.
 - If you need remote introspection, set `introspection_endpoint`,
   `introspection_client_id`, and `introspection_client_secret`.
 
@@ -118,3 +120,5 @@ resolution, build that lookup from the verified token payload in your own app.
   back here.
 - Protected-resource metadata is resource-server-owned. `belgie-mcp` does not
   add auth-server-owned fallback metadata routes.
+- The bundled verifier follows the OAuth server metadata contract, so its
+  default introspection URL matches `belgie-oauth-server` discovery output.

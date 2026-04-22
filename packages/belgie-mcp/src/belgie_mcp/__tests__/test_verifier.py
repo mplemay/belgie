@@ -326,7 +326,7 @@ def test_mcp_token_verifier_defaults() -> None:
 
     verifier = mcp_token_verifier(settings, server_url="https://mcp.local/mcp")
 
-    assert verifier.introspection_endpoint == join_url("https://issuer.local/auth", "introspect")
+    assert verifier.introspection_endpoint == join_url("https://issuer.local/auth", "oauth2/introspect")
 
 
 def test_mcp_token_verifier_overrides() -> None:

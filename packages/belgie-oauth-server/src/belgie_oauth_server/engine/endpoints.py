@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
 from authlib.consts import default_json_headers
@@ -15,7 +15,6 @@ from belgie_oauth_server.engine.token_response import build_access_token_jwt_pay
 from belgie_oauth_server.verifier import verify_local_access_token
 
 if TYPE_CHECKING:
-    from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer
     from belgie_oauth_server.engine.runtime import OAuthEngineRuntime
     from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request
 
@@ -31,15 +30,22 @@ REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
 class BelgieEndpointMixin:
     @property
     def runtime(self) -> OAuthEngineRuntime:
-        server = cast("BelgieAuthorizationServer", self.server)
-        return server.runtime
+        server = getattr(self, "server", None)
+        runtime = getattr(server, "runtime", None)
+        if runtime is None:
+            msg = "missing belgie authorization server runtime"
+            raise RuntimeError(msg)
+        return runtime
 
 
 class BelgieRevocationEndpoint(BelgieEndpointMixin, RevocationEndpoint):
     CLIENT_AUTH_METHODS: ClassVar[tuple[str, str]] = ("client_secret_basic", "client_secret_post")
 
     def create_endpoint_response(self, request: StarletteOAuth2Request) -> EndpointResponse:
-        client = cast("AuthlibClient", self.authenticate_endpoint_client(request))
+        client = self.authenticate_endpoint_client(request)
+        if not isinstance(client, AuthlibClient):
+            msg = "unexpected client type"
+            raise TypeError(msg)
         token_value = request.form.get("token")
         if not token_value:
             msg = "missing token"
@@ -84,7 +90,10 @@ class BelgieIntrospectionEndpoint(BelgieEndpointMixin, IntrospectionEndpoint):
     CLIENT_AUTH_METHODS: ClassVar[tuple[str, str]] = ("client_secret_basic", "client_secret_post")
 
     def create_endpoint_response(self, request: StarletteOAuth2Request) -> EndpointResponse:
-        client = cast("AuthlibClient", self.authenticate_endpoint_client(request))
+        client = self.authenticate_endpoint_client(request)
+        if not isinstance(client, AuthlibClient):
+            msg = "unexpected client type"
+            raise TypeError(msg)
         token_value = request.form.get("token")
         if not token_value:
             return 400, {"active": False}, default_json_headers

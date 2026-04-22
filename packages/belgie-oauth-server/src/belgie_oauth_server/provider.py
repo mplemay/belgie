@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import re
 import secrets
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
@@ -14,11 +15,16 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 from uuid import UUID
 
+from authlib.oauth2.rfc7591.claims import ClientMetadataClaims as OAuth2ClientMetadataClaims
+from authlib.oidc.registration.claims import ClientMetadataClaims as OIDCClientMetadataClaims
+from authlib.oidc.rpinitiated.registration import ClientMetadataClaims as RPInitiatedClientMetadataClaims
 from belgie_proto.core.connection import DBConnection
-from joserfc.errors import JoseError
+from joserfc.errors import InvalidClaimError, JoseError
 from pydantic import AnyUrl
 
+from belgie_oauth_server.metadata import build_oauth_metadata, build_openid_metadata
 from belgie_oauth_server.models import (
+    OAuthServerAdminClientMetadata,
     OAuthServerClientInformationFull,
     OAuthServerClientMetadata,
     OAuthServerToken,
@@ -40,6 +46,63 @@ if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer
 
 _RESERVED_ACCESS_TOKEN_CLAIMS = frozenset({"iss", "sub", "aud", "azp", "scope", "iat", "exp", "sid"})
+_UNSET = object()
+_TIME_SPAN_UNITS = {
+    "sec": 1,
+    "secs": 1,
+    "second": 1,
+    "seconds": 1,
+    "s": 1,
+    "minute": 60,
+    "minutes": 60,
+    "min": 60,
+    "mins": 60,
+    "m": 60,
+    "hour": 3600,
+    "hours": 3600,
+    "hr": 3600,
+    "hrs": 3600,
+    "h": 3600,
+    "day": 86400,
+    "days": 86400,
+    "d": 86400,
+    "week": 604800,
+    "weeks": 604800,
+    "w": 604800,
+    "year": 31557600,
+    "years": 31557600,
+    "yr": 31557600,
+    "yrs": 31557600,
+    "y": 31557600,
+}
+_TIME_SPAN_PATTERN = re.compile(r"^(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>[a-z]+)$")
+
+
+def _resolve_time_span_to_timestamp(value: str) -> int:
+    normalized = value.strip().lower()
+    direction = 1
+    if normalized.endswith("from now"):
+        normalized = normalized.removesuffix("from now").strip()
+    elif normalized.endswith("ago"):
+        normalized = normalized.removesuffix("ago").strip()
+        direction = -1
+    if normalized.startswith("-"):
+        normalized = normalized[1:].strip()
+        direction = -1
+
+    match = _TIME_SPAN_PATTERN.fullmatch(normalized)
+    if match is None:
+        msg = "invalid client_secret_expires_at"
+        raise ValueError(msg)
+
+    unit = match.group("unit")
+    seconds_per_unit = _TIME_SPAN_UNITS.get(unit)
+    if seconds_per_unit is None:
+        msg = "invalid client_secret_expires_at"
+        raise ValueError(msg)
+
+    amount = float(match.group("value"))
+    return int(time.time() + (direction * amount * seconds_per_unit))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -225,7 +288,16 @@ class SimpleOAuthProvider:
             if existing_client is None:
                 return None
 
-            updated_auth_method = updates.get("token_endpoint_auth_method", existing_client.token_endpoint_auth_method)
+            normalized_updates = dict(updates)
+            if "client_secret_expires_at" in normalized_updates:
+                normalized_updates["client_secret_expires_at"] = self._resolve_client_secret_expiration(
+                    normalized_updates["client_secret_expires_at"],
+                )
+
+            updated_auth_method = normalized_updates.get(
+                "token_endpoint_auth_method",
+                existing_client.token_endpoint_auth_method,
+            )
             if (
                 updated_auth_method in {"client_secret_post", "client_secret_basic"}
                 and existing_client.client_secret_hash is None
@@ -233,7 +305,7 @@ class SimpleOAuthProvider:
                 msg = "confidential clients require a stored client secret"
                 raise ValueError(msg)
 
-            client = await self.adapter.update_client(session, client_id=client_id, updates=updates)
+            client = await self.adapter.update_client(session, client_id=client_id, updates=normalized_updates)
             if client is None:
                 return None
             return await self._apply_trusted_client_policy(self._client_information_from_record(client))
@@ -330,7 +402,7 @@ class SimpleOAuthProvider:
 
     async def register_client(
         self,
-        metadata: OAuthServerClientMetadata,
+        metadata: OAuthServerClientMetadata | OAuthServerAdminClientMetadata,
         *,
         individual_id: str | None = None,
         reference_id: str | None = None,
@@ -352,7 +424,10 @@ class SimpleOAuthProvider:
         raw_client_secret = None
         client_secret = None
         client_secret_hash = None
-        client_secret_expires_at = self._resolve_client_secret_expiration()
+        client_secret_expires_at = self._resolve_client_secret_expiration(
+            getattr(metadata, "client_secret_expires_at", _UNSET),
+        )
+        enable_end_session = getattr(metadata, "enable_end_session", None)
         skip_consent = bool(metadata.skip_consent)
         if token_endpoint_auth_method != "none":  # noqa: S105
             raw_client_secret = await self._generate_client_secret()
@@ -400,7 +475,7 @@ class SimpleOAuthProvider:
                 type=metadata.type,
                 subject_type=metadata.subject_type,
                 require_pkce=require_pkce,
-                enable_end_session=None,
+                enable_end_session=enable_end_session,
                 reference_id=reference_id or metadata.reference_id,
                 metadata_json=metadata.metadata_json,
                 client_id_issued_at=issued_at,
@@ -1107,6 +1182,7 @@ class SimpleOAuthProvider:
         metadata: OAuthServerClientMetadata,
         *,
         allow_confidential_pkce_opt_out: bool = False,
+        allow_privileged_fields: bool = False,
     ) -> None:
         token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_basic"
         is_public = token_endpoint_auth_method == "none"  # noqa: S105
@@ -1142,12 +1218,16 @@ class SimpleOAuthProvider:
                 raise ValueError(msg)
             redirect_hosts = {urlparse(str(redirect_uri)).netloc for redirect_uri in metadata.redirect_uris or []}
             if len(redirect_hosts) > 1:
-                msg = "pairwise clients with multiple redirect_uri hosts are not supported"
+                msg = (
+                    "pairwise clients with redirect_uris on different hosts require a "
+                    "sector_identifier_uri, which is not yet supported. All redirect_uris "
+                    "must share the same host."
+                )
                 raise ValueError(msg)
         if metadata.require_pkce is False and (is_public or not allow_confidential_pkce_opt_out):
             msg = "pkce is required for registered clients"
             raise ValueError(msg)
-        if metadata.skip_consent:
+        if metadata.skip_consent and not allow_privileged_fields:
             msg = "skip_consent cannot be set during dynamic client registration"
             raise ValueError(msg)
         if metadata.scope is not None:
@@ -1157,6 +1237,45 @@ class SimpleOAuthProvider:
             if invalid_scopes:
                 msg = f"cannot request scope {invalid_scopes[0]}"
                 raise ValueError(msg)
+        self._validate_with_authlib_claims(metadata)
+
+    def _validate_with_authlib_claims(self, metadata: OAuthServerClientMetadata) -> None:
+        payload = metadata.model_dump(mode="json", by_alias=True, exclude_none=True)
+        server_metadata = self._authlib_server_metadata()
+
+        for claims_class in (
+            OAuth2ClientMetadataClaims,
+            OIDCClientMetadataClaims,
+            RPInitiatedClientMetadataClaims,
+        ):
+            options = (
+                claims_class.get_claims_options(server_metadata)
+                if hasattr(claims_class, "get_claims_options")
+                else None
+            )
+            try:
+                claims = claims_class(payload, {}, options, server_metadata)
+                claims.validate()
+            except (InvalidClaimError, ValueError) as exc:
+                raise ValueError(str(exc)) from exc
+
+    def _authlib_server_metadata(self) -> dict[str, object]:
+        if "openid" in self.settings.supported_scopes():
+            metadata = build_openid_metadata(self.issuer_url, self.settings).model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+        else:
+            metadata = build_oauth_metadata(self.issuer_url, self.settings).model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+
+        auth_methods = list(metadata.get("token_endpoint_auth_methods_supported", []))
+        if "none" not in auth_methods:
+            auth_methods.insert(0, "none")
+        metadata["token_endpoint_auth_methods_supported"] = auth_methods
+        return metadata
 
     async def _issue_access_token(  # noqa: PLR0913
         self,
@@ -1413,12 +1532,21 @@ class SimpleOAuthProvider:
             return client_secret, self._hash_value(client_secret)
         return None, self._hash_value(client_secret)
 
-    def _resolve_client_secret_expiration(self) -> int | None:
-        configured = self.settings.client_registration_client_secret_expires_at
+    def _resolve_client_secret_expiration(
+        self,
+        configured: int | str | datetime | None | object = _UNSET,
+    ) -> int | None:
+        if configured is _UNSET:
+            configured = self.settings.client_registration_client_secret_expires_at
         if configured is None:
             return None
         if isinstance(configured, datetime):
             return int(configured.timestamp())
+        if isinstance(configured, str):
+            stripped = configured.strip().lower()
+            if stripped.lstrip("-").isdigit():
+                return int(stripped)
+            return _resolve_time_span_to_timestamp(stripped)
         return configured
 
     def _prefix_client_secret(self, client_secret: str) -> str:

@@ -4,7 +4,6 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any
 
 from authlib.oauth2.rfc6749 import JsonPayload, JsonRequest, OAuth2Payload, OAuth2Request
 from fastapi import Request, Response
@@ -12,6 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 _REDIRECT_STATUS_MIN = 300
 _REDIRECT_STATUS_MAX = 400
+type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -21,13 +21,13 @@ class TransportRequestData:
     headers: tuple[tuple[str, str], ...]
     query_items: tuple[tuple[str, str], ...]
     form_items: tuple[tuple[str, str], ...]
-    json_data: dict[str, Any] | None = None
+    json_data: dict[str, JSONValue] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TransportResponse:
     status_code: int
-    body: dict[str, Any] | str
+    body: dict[str, JSONValue] | str
     headers: tuple[tuple[str, str], ...]
 
 
@@ -96,7 +96,7 @@ class StarletteJsonPayload(JsonPayload):
         self._request = request
 
     @property
-    def data(self) -> dict[str, Any]:
+    def data(self) -> dict[str, JSONValue]:
         return self._request.json_data or {}
 
 
@@ -109,7 +109,7 @@ class StarletteJsonRequest(JsonRequest):
 async def load_transport_request(request: Request) -> TransportRequestData:
     query_items = tuple((str(key), str(value)) for key, value in request.query_params.multi_items())
     form_items: tuple[tuple[str, str], ...] = ()
-    json_data: dict[str, Any] | None = None
+    json_data: dict[str, JSONValue] | None = None
 
     if request.method != "GET":
         content_type = request.headers.get("content-type", "")

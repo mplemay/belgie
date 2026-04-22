@@ -102,7 +102,7 @@ def mcp_token_verifier(  # noqa: PLR0913
     provider_resolver: Callable[[], SimpleOAuthProvider | None] | None = None,
 ) -> TokenVerifier:
     issuer_url = _require_issuer_url(settings)
-    endpoint = join_url(issuer_url, "introspect") if introspection_endpoint is None else introspection_endpoint
+    endpoint = join_url(issuer_url, "oauth2/introspect") if introspection_endpoint is None else introspection_endpoint
     return BelgieOAuthTokenVerifier(
         introspection_endpoint=endpoint,
         server_url=str(server_url),

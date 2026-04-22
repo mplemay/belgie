@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from authlib.oauth2.rfc6749 import AuthorizationServer
 from authlib.oauth2.rfc6749.errors import InvalidClientError
@@ -16,6 +16,7 @@ from belgie_oauth_server.engine.token_generator import (
     resolve_request_session_id,
 )
 from belgie_oauth_server.engine.transport_starlette import (
+    JSONValue,
     StarletteJsonRequest,
     StarletteOAuth2Request,
     TransportRequestData,
@@ -39,7 +40,7 @@ class BelgieAuthorizationServer(AuthorizationServer):
             return None
         return AuthlibClient(record=record, runtime=self.runtime)
 
-    def save_token(self, token: dict[str, Any], request: StarletteOAuth2Request) -> None:
+    def save_token(self, token: dict[str, object], request: StarletteOAuth2Request) -> None:
         client = request.client
         if client is None:
             msg = "missing client on token request"
@@ -142,7 +143,7 @@ class BelgieAuthorizationServer(AuthorizationServer):
     def handle_response(
         self,
         status: int,
-        body: dict[str, Any] | str,
+        body: dict[str, JSONValue] | str,
         headers: list[tuple[str, str]],
     ) -> TransportResponse:
         return TransportResponse(status_code=status, body=body, headers=tuple(headers))
