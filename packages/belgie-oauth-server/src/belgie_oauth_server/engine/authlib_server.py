@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import base64
-import binascii
 from typing import TYPE_CHECKING
 
 from authlib.oauth2.rfc6749 import AuthorizationServer
-from authlib.oauth2.rfc6749.errors import InvalidClientError
+from authlib.oauth2.rfc6749.authenticate_client import ClientAuthentication
 
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.helpers import build_access_token_audience, parse_scope_param
@@ -32,6 +30,7 @@ class BelgieAuthorizationServer(AuthorizationServer):
         super().__init__(scopes_supported=runtime.settings.supported_scopes())
         self.runtime = runtime
         self._current_request: StarletteOAuth2Request | None = None
+        self._client_auth = ClientAuthentication(self.query_client)
         self.register_token_generator("default", self.generate_belgie_token)
 
     def query_client(self, client_id: str) -> AuthlibClient | None:
@@ -90,45 +89,6 @@ class BelgieAuthorizationServer(AuthorizationServer):
             include_refresh_token=include_refresh_token,
         )
 
-    def authenticate_client(
-        self,
-        request: StarletteOAuth2Request,
-        methods: list[str],
-        _endpoint: str = "token",
-    ) -> AuthlibClient:
-        client_id = request.form.get("client_id") or request.payload.client_id
-        client_secret = request.form.get("client_secret")
-        auth_method = "none"
-
-        authorization = request.headers.get("Authorization")
-        if authorization and authorization.startswith("Basic "):
-            try:
-                client_id, client_secret = parse_basic_authorization(authorization)
-            except ValueError as exc:
-                raise InvalidClientError(status_code=401) from exc
-            auth_method = "client_secret_basic"
-        elif client_secret is not None:
-            auth_method = "client_secret_post"
-
-        if auth_method not in methods:
-            raise InvalidClientError(status_code=401)
-        if not client_id:
-            raise InvalidClientError(status_code=401)
-
-        record = run_async(
-            self.runtime.provider.authenticate_client,
-            client_id,
-            client_secret,
-            require_credentials="none" not in methods,
-            require_confidential="none" not in methods,
-        )
-        if record is None:
-            raise InvalidClientError(status_code=401)
-
-        request.auth_method = auth_method
-        request.client = AuthlibClient(record=record, runtime=self.runtime)
-        return request.client
-
     def send_signal(self, _name: str, *_args: object, **_kwargs: object) -> None:
         return None
 
@@ -147,24 +107,3 @@ class BelgieAuthorizationServer(AuthorizationServer):
         headers: list[tuple[str, str]],
     ) -> TransportResponse:
         return TransportResponse(status_code=status, body=body, headers=tuple(headers))
-
-
-def parse_basic_authorization(value: str) -> tuple[str, str]:
-    encoded = value.removeprefix("Basic ").strip()
-    if not encoded:
-        msg = "invalid basic auth"
-        raise ValueError(msg)
-    try:
-        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError) as exc:
-        msg = "invalid basic auth"
-        raise ValueError(msg) from exc
-
-    if ":" not in decoded:
-        msg = "invalid basic auth"
-        raise ValueError(msg)
-    client_id, client_secret = decoded.split(":", 1)
-    if not client_id:
-        msg = "invalid basic auth"
-        raise ValueError(msg)
-    return client_id, client_secret

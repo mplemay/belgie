@@ -8,6 +8,11 @@ from typing import Literal
 import httpx
 from authlib.oauth2.rfc6750.errors import InsufficientScopeError, InvalidTokenError
 from authlib.oauth2.rfc7662 import IntrospectTokenValidator
+from authlib.oauth2.rfc9068.claims import JWTAccessTokenClaims
+from authlib.oauth2.rfc9068.token_validator import JWTBearerTokenValidator
+from joserfc import jwt
+from joserfc.errors import DecodeError, JoseError
+from joserfc.jwk import OctKey, RSAKey
 from pydantic import ValidationError
 
 from belgie_oauth_server.models import OAuthServerIntrospectionResponse
@@ -44,7 +49,57 @@ class _AuthlibIntrospectionPayloadValidator(IntrospectTokenValidator):
         raise NotImplementedError(msg)
 
 
-async def verify_resource_access_token(
+class _BelgieJWTBearerTokenValidator(JWTBearerTokenValidator):
+    def __init__(
+        self,
+        provider: SimpleOAuthProvider,
+        *,
+        resource_server: list[str] | str | None = None,
+    ) -> None:
+        super().__init__(issuer=provider.issuer_url, resource_server=resource_server)
+        self.provider = provider
+
+    def get_jwks(self) -> str | bytes:
+        # Keep Belgie's signing configuration as the source of truth while
+        # delegating JWT claim validation to Authlib's RFC 9068 machinery.
+        return self.provider.signing_state.verification_key
+
+    def authenticate_token(self, token_string: str) -> JWTAccessTokenClaims:
+        claims_options = {
+            "iss": {"essential": True, "validate": self.validate_iss},
+            "exp": {"essential": True},
+            "iat": {"essential": True},
+            "azp": {"essential": True},
+            "scope": {"essential": False},
+            "groups": {"essential": False},
+            "roles": {"essential": False},
+            "entitlements": {"essential": False},
+        }
+        if self.resource_server is not None:
+            claims_options["aud"] = {
+                "essential": True,
+                **(
+                    {"values": self.resource_server}
+                    if isinstance(self.resource_server, list)
+                    else {"value": self.resource_server}
+                ),
+            }
+
+        key = _import_verification_key(self.provider)
+        try:
+            token = jwt.decode(token_string, key=key)
+            header = dict(token.header)
+            if header.get("typ", "").lower() == "jwt":
+                header["typ"] = "at+jwt"
+            return JWTAccessTokenClaims(token.claims, header, claims_options)
+        except DecodeError as exc:
+            raise InvalidTokenError(
+                realm=self.realm,
+                extra_attributes=self.extra_attributes,
+            ) from exc
+
+
+async def verify_resource_access_token(  # noqa: PLR0911
     token: str,
     *,
     provider: SimpleOAuthProvider | None = None,
@@ -59,6 +114,16 @@ async def verify_resource_access_token(
             verify_exp=verify_exp,
         )
         if local_token is not None:
+            if (
+                local_token.source == "jwt"
+                and verify_exp
+                and not _local_jwt_is_authlib_valid(
+                    provider,
+                    token,
+                    resource=local_token.token.resource,
+                )
+            ):
+                return None
             verified_token = await _build_local_verified_token(provider, local_token.source, local_token.token)
             if not _resource_allowed(verified_token.token.resource, resource_validator):
                 return None
@@ -146,6 +211,28 @@ def _introspection_payload_is_valid(payload: OAuthServerIntrospectionResponse) -
     except (InsufficientScopeError, InvalidTokenError):
         return False
     return True
+
+
+def _local_jwt_is_authlib_valid(
+    provider: SimpleOAuthProvider,
+    token: str,
+    *,
+    resource: list[str] | str | None,
+) -> bool:
+    validator = _BelgieJWTBearerTokenValidator(provider, resource_server=resource)
+    try:
+        claims = validator.authenticate_token(token)
+        validator.validate_token(claims, scopes=[], request=None)
+    except (InvalidTokenError, JoseError):
+        return False
+    return True
+
+
+def _import_verification_key(provider: SimpleOAuthProvider) -> OctKey | RSAKey:
+    key = provider.signing_state.verification_key
+    if provider.signing_state.algorithm == "HS256":
+        return OctKey.import_key(key)
+    return RSAKey.import_key(key)
 
 
 def _resource_allowed(

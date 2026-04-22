@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-15T05:31:27.922972Z"
+exclude-newer = "2026-04-15T14:09:04.827304Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -285,6 +285,7 @@ name = "belgie-oauth-server"
 version = "0.1.0"
 source = { editable = "packages/belgie-oauth-server" }
 dependencies = [
+    { name = "asyncer" },
     { name = "authlib" },
     { name = "belgie-core" },
     { name = "belgie-proto" },
@@ -298,6 +299,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asyncer", specifier = ">=0.0.17" },
     { name = "authlib", specifier = ">=1.7.0" },
     { name = "belgie-core", editable = "packages/belgie-core" },
     { name = "belgie-proto", editable = "packages/belgie-proto" },
@@ -340,6 +342,7 @@ name = "belgie-sso"
 version = "0.1.0"
 source = { editable = "packages/belgie-sso" }
 dependencies = [
+    { name = "asyncer" },
     { name = "belgie-core" },
     { name = "belgie-organization" },
     { name = "belgie-proto" },
@@ -352,6 +355,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asyncer", specifier = ">=0.0.17" },
     { name = "belgie-core", editable = "packages/belgie-core" },
     { name = "belgie-organization", editable = "packages/belgie-organization" },
     { name = "belgie-proto", editable = "packages/belgie-proto" },

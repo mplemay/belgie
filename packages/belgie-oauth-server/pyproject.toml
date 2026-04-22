@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12,<3.15"
 dependencies = [
+    "asyncer>=0.0.17",
     "authlib>=1.7.0",
     "belgie-core==0.1.0",
     "belgie-proto==0.1.0",

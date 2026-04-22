@@ -40,7 +40,7 @@ async def test_revoke_invalid_client_id(async_client) -> None:
         },
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 400
     assert response.json()["error"] == "invalid_client"
 
 

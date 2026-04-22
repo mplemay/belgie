@@ -130,7 +130,7 @@ async def test_token_authorization_code_invalid_client(async_client) -> None:
             "code_verifier": "verifier",
         },
     )
-    assert response.status_code == 401
+    assert response.status_code == 400
     assert response.json()["error"] == "invalid_client"
 
 

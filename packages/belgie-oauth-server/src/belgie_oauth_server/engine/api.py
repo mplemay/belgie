@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from anyio import to_thread
+from asyncer import asyncify
 
 from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer
 from belgie_oauth_server.engine.endpoints import BelgieIntrospectionEndpoint, BelgieRevocationEndpoint
@@ -44,20 +44,19 @@ class BelgieOAuthServerEngine:
 
     async def create_token_response(self, request: Request, client: BelgieClient) -> Response:
         transport_request = await load_transport_request(request)
-        transport_response = await to_thread.run_sync(self._create_token_response_sync, transport_request, client)
+        transport_response = await asyncify(self._create_token_response_sync)(transport_request, client)
         normalized = self._normalize_oauth_response(transport_response)
         return to_fastapi_response(normalized)
 
     async def create_revocation_response(self, request: Request, client: BelgieClient) -> Response:
         transport_request = await load_transport_request(request)
-        transport_response = await to_thread.run_sync(self._create_revocation_response_sync, transport_request, client)
+        transport_response = await asyncify(self._create_revocation_response_sync)(transport_request, client)
         normalized = self._normalize_oauth_response(transport_response)
         return to_fastapi_response(normalized)
 
     async def create_introspection_response(self, request: Request, client: BelgieClient) -> Response:
         transport_request = await load_transport_request(request)
-        transport_response = await to_thread.run_sync(
-            self._create_introspection_response_sync,
+        transport_response = await asyncify(self._create_introspection_response_sync)(
             transport_request,
             client,
         )

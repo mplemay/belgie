@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer
 
 ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
+BEARER_TOKEN_TYPE = "Bearer"  # noqa: S105
 REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
 
 
@@ -1589,6 +1591,47 @@ def test_token_endpoint_validates_pkce_verifier_consistency(
 
     assert token_response.status_code == 400
     assert token_response.json()["error_description"] == expected_error
+
+
+def test_token_endpoint_accepts_client_secret_basic() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        redirect_uris=["http://client.local/callback"],
+        client_id="test-client",
+        client_secret="static-secret",
+        static_client_require_pkce=False,
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_static_client(
+        plugin,
+        settings.client_id,
+        scope="openid user",
+        token_endpoint_auth_method="client_secret_basic",
+    )
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-basic-token",
+        scope="openid user",
+        verifier="basic-verifier",
+    )
+    basic_credentials = base64.b64encode(
+        f"{settings.client_id}:{settings.client_secret.get_secret_value()}".encode(),
+    ).decode("ascii")
+    token_response = client.post(
+        "/auth/oauth2/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": str(settings.redirect_uris[0]),
+            "code_verifier": "basic-verifier",
+        },
+        headers={"Authorization": f"Basic {basic_credentials}"},
+    )
+
+    assert token_response.status_code == 200
+    assert token_response.json()["token_type"] == BEARER_TOKEN_TYPE
 
 
 def test_userinfo_requires_authorization_header() -> None:
