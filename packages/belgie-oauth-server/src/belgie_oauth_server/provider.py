@@ -316,6 +316,7 @@ class SimpleOAuthProvider:
         *,
         individual_id: str | None = None,
         reference_id: str | None = None,
+        allow_confidential_pkce_opt_out: bool = False,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull:
         token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_basic"
@@ -324,7 +325,9 @@ class SimpleOAuthProvider:
             raise ValueError(msg)
 
         require_pkce = True if metadata.require_pkce is None else metadata.require_pkce
-        if require_pkce is not True:
+        if token_endpoint_auth_method == "none":  # noqa: S105
+            require_pkce = True
+        elif require_pkce is not True and not allow_confidential_pkce_opt_out:
             msg = "pkce is required for registered clients"
             raise ValueError(msg)
 
@@ -926,7 +929,12 @@ class SimpleOAuthProvider:
         ).digest()
         return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("utf-8")
 
-    def validate_client_metadata(self, metadata: OAuthServerClientMetadata) -> None:  # noqa: C901, PLR0912
+    def validate_client_metadata(  # noqa: C901, PLR0912
+        self,
+        metadata: OAuthServerClientMetadata,
+        *,
+        allow_confidential_pkce_opt_out: bool = False,
+    ) -> None:
         token_endpoint_auth_method = metadata.token_endpoint_auth_method or "client_secret_basic"
         is_public = token_endpoint_auth_method == "none"  # noqa: S105
         grant_types = metadata.grant_types or ["authorization_code"]
@@ -963,7 +971,7 @@ class SimpleOAuthProvider:
             if len(redirect_hosts) > 1:
                 msg = "pairwise clients with multiple redirect_uri hosts are not supported"
                 raise ValueError(msg)
-        if metadata.require_pkce is False:
+        if metadata.require_pkce is False and (is_public or not allow_confidential_pkce_opt_out):
             msg = "pkce is required for registered clients"
             raise ValueError(msg)
         if metadata.skip_consent:

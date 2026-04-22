@@ -1,12 +1,8 @@
-import base64
-import binascii
 import inspect
-import secrets
-import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Annotated, Literal, Protocol, cast
+from typing import Annotated, Literal, Protocol
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
@@ -24,6 +20,9 @@ from pydantic import AnyUrl, ValidationError
 from starlette.datastructures import FormData
 
 from belgie_oauth_server.client import OAuthServerClient, OAuthServerLoginIntent
+from belgie_oauth_server.engine import BelgieOAuthServerEngine
+from belgie_oauth_server.engine.errors import InvalidTargetError
+from belgie_oauth_server.engine.helpers import resolve_token_resource as _engine_resolve_token_resource
 from belgie_oauth_server.metadata import (
     _ROOT_OAUTH_METADATA_PATH,
     _ROOT_OPENID_METADATA_PATH,
@@ -53,7 +52,6 @@ from belgie_oauth_server.rate_limit import OAuthServerRateLimiter
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.utils import (
     construct_redirect_uri,
-    create_code_challenge,
     is_fetch_request,
     join_url,
     redirect_uris_match,
@@ -61,26 +59,10 @@ from belgie_oauth_server.utils import (
 from belgie_oauth_server.verifier import verify_local_access_token
 
 _ROOT_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
-ACCESS_TOKEN_HINT = "access_token"  # noqa: S105
-REFRESH_TOKEN_HINT = "refresh_token"  # noqa: S105
-BEARER_TOKEN_TYPE = "Bearer"  # noqa: S105
-REFRESH_TOKEN_TYPE = "refresh_token"  # noqa: S105
 type JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSONValue"]
 type FormValue = str | UploadFile
 type FormInput = Mapping[str, FormValue] | FormData
 type AuthorizePrompt = Literal["none", "consent", "login", "create", "select_account"]
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _TokenHandlerContext:
-    client: BelgieClient
-    form: FormInput
-    provider: SimpleOAuthProvider
-    settings: OAuthServer
-    belgie_base_url: str
-    issuer_url: str
-    client_id: str | None
-    client_secret: str | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -97,11 +79,6 @@ class _InteractionError:
     description: str
 
 
-class _SessionLike(Protocol):
-    id: UUID
-    created_at: datetime
-
-
 class _ConsentLike(Protocol):
     id: UUID
     client_id: str
@@ -115,6 +92,7 @@ class OAuthServerPlugin(PluginClient):
     def __init__(self, _belgie_settings: BelgieSettings, settings: OAuthServer) -> None:
         self._settings = settings
         self._provider: SimpleOAuthProvider | None = None
+        self._engine: BelgieOAuthServerEngine | None = None
         self._metadata_router: APIRouter | None = None
         self._resolve_client: Callable[..., OAuthServerClient] | None = None
         self._rate_limiter = OAuthServerRateLimiter()
@@ -160,6 +138,12 @@ class OAuthServerPlugin(PluginClient):
                 fallback_signing_secret=belgie.settings.secret,
             )
         provider = self._provider
+        self._engine = BelgieOAuthServerEngine(
+            provider=provider,
+            settings=self._settings,
+            belgie_base_url=belgie.settings.base_url,
+            issuer_url=issuer_url,
+        )
         self._ensure_dependency_resolver(belgie, provider, issuer_url)
 
         self._metadata_router = self.metadata_router(belgie)
@@ -183,14 +167,12 @@ class OAuthServerPlugin(PluginClient):
         router = self._add_token_route(
             router,
             belgie,
-            provider,
+            self._engine,
             self._settings,
-            belgie.settings.base_url,
-            issuer_url,
             self._rate_limiter,
         )
         router = self._add_register_route(router, belgie, provider, self._settings, self._rate_limiter)
-        router = self._add_revoke_route(router, provider, self._settings, self._rate_limiter)
+        router = self._add_revoke_route(router, belgie, self._engine, self._settings, self._rate_limiter)
         router = self._add_userinfo_route(router, belgie, provider, self._settings, self._rate_limiter)
         router = self._add_end_session_route(router, belgie, provider, issuer_url)
         if self._settings.supports_authorization_code():
@@ -200,7 +182,7 @@ class OAuthServerPlugin(PluginClient):
             router = self._add_login_callback_route(router, belgie, provider, self._settings, issuer_url)
         router = self._add_client_management_routes(router, belgie, provider, self._settings)
         router = self._add_consent_management_routes(router, belgie, provider, self._settings)
-        return self._add_introspect_route(router, belgie, provider, self._settings, self._rate_limiter)
+        return self._add_introspect_route(router, belgie, self._engine, self._settings, self._rate_limiter)
 
     def metadata_router(self, belgie: Belgie) -> APIRouter:
         issuer_url = (
@@ -473,13 +455,11 @@ class OAuthServerPlugin(PluginClient):
         return router
 
     @staticmethod
-    def _add_token_route(  # noqa: PLR0913
+    def _add_token_route(
         router: APIRouter,
         belgie: Belgie,
-        provider: SimpleOAuthProvider,
+        engine: BelgieOAuthServerEngine,
         settings: OAuthServer,
-        belgie_base_url: str,
-        issuer_url: str,
         rate_limiter: OAuthServerRateLimiter,
     ) -> APIRouter:
         async def token_handler(
@@ -497,20 +477,6 @@ class OAuthServerPlugin(PluginClient):
                 return rate_limited
             form = await request.form()
             grant_type = _get_str(form, "grant_type")
-            client_id, client_secret, auth_error = _extract_client_credentials(request, form)
-            if auth_error is not None:
-                return auth_error
-
-            token_context = _TokenHandlerContext(
-                client=client,
-                form=form,
-                provider=provider,
-                settings=settings,
-                belgie_base_url=belgie_base_url,
-                issuer_url=issuer_url,
-                client_id=client_id,
-                client_secret=client_secret,
-            )
 
             if grant_type is not None and not settings.supports_grant_type(grant_type):
                 response: OAuthServerToken | Response = _oauth_error(
@@ -518,12 +484,8 @@ class OAuthServerPlugin(PluginClient):
                     f"unsupported grant_type {grant_type}",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-            elif grant_type == "authorization_code":
-                response = await _handle_authorization_code_grant(token_context)
-            elif grant_type == "refresh_token":
-                response = await _handle_refresh_token_grant(token_context)
-            elif grant_type == "client_credentials":
-                response = await _handle_client_credentials_grant(token_context)
+            elif grant_type in {"authorization_code", "refresh_token", "client_credentials"}:
+                response = await engine.create_token_response(request, client)
             else:
                 response = _oauth_error("unsupported_grant_type", status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -629,13 +591,17 @@ class OAuthServerPlugin(PluginClient):
         return router
 
     @staticmethod
-    def _add_revoke_route(  # noqa: C901
+    def _add_revoke_route(
         router: APIRouter,
-        provider: SimpleOAuthProvider,
+        belgie: Belgie,
+        engine: BelgieOAuthServerEngine,
         settings: OAuthServer,
         rate_limiter: OAuthServerRateLimiter,
     ) -> APIRouter:
-        async def revoke_handler(request: Request) -> Response:  # noqa: C901, PLR0911
+        async def revoke_handler(
+            request: Request,
+            client: Annotated[BelgieClient, Depends(belgie)],
+        ) -> Response:
             if (
                 rate_limited := _enforce_rate_limit(
                     request,
@@ -645,45 +611,7 @@ class OAuthServerPlugin(PluginClient):
                 )
             ) is not None:
                 return rate_limited
-            form = await request.form()
-            client_id, client_secret, auth_error = _extract_client_credentials(request, form)
-            if auth_error is not None:
-                return auth_error
-
-            oauth_client, error = await _authenticate_client(
-                provider,
-                client_id,
-                client_secret,
-                require_credentials=True,
-                require_confidential=True,
-            )
-            if error is not None:
-                return error
-            if oauth_client is None:
-                return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-
-            token: str | None = _get_str(form, "token")
-            if not token:
-                return _oauth_error("invalid_request", "missing token", status_code=status.HTTP_400_BAD_REQUEST)
-            if token.startswith("Bearer "):
-                token = token.removeprefix("Bearer ")
-
-            token_type_hint, hint_error = _parse_token_type_hint(form)
-            if hint_error is not None:
-                return hint_error
-
-            if token_type_hint in {None, ACCESS_TOKEN_HINT}:
-                access_token = await provider.load_access_token(token)
-                if access_token is not None and access_token.client_id == oauth_client.client_id:
-                    await provider.revoke_token(access_token)
-                if token_type_hint == ACCESS_TOKEN_HINT:
-                    return JSONResponse({})
-
-            if token_type_hint in {None, REFRESH_TOKEN_HINT}:
-                refresh_token = await provider.load_refresh_token(token)
-                if refresh_token is not None and refresh_token.client_id == oauth_client.client_id:
-                    await provider.revoke_token(refresh_token)
-            return JSONResponse({})
+            return await engine.create_revocation_response(request, client)
 
         router.add_api_route("/revoke", revoke_handler, methods=["POST"])
         return router
@@ -1181,11 +1109,12 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
 
             try:
-                provider.validate_client_metadata(metadata)
+                provider.validate_client_metadata(metadata, allow_confidential_pkce_opt_out=True)
                 client_info = await provider.register_client(
                     metadata,
                     individual_id=str(individual.id),
                     reference_id=reference_id,
+                    allow_confidential_pkce_opt_out=True,
                     db=client.db,
                 )
             except ValueError as exc:
@@ -1311,7 +1240,10 @@ class OAuthServerPlugin(PluginClient):
             updates = _normalize_client_updates(payload)
             try:
                 merged_metadata = _merge_client_metadata(oauth_client, updates)
-                provider.validate_client_metadata(merged_metadata.model_copy(update={"skip_consent": None}))
+                provider.validate_client_metadata(
+                    merged_metadata.model_copy(update={"skip_consent": None}),
+                    allow_confidential_pkce_opt_out=True,
+                )
             except (ValidationError, ValueError) as exc:
                 description = _format_validation_error(exc) if isinstance(exc, ValidationError) else str(exc)
                 return _oauth_error("invalid_request", description, status_code=status.HTTP_400_BAD_REQUEST)
@@ -1568,16 +1500,15 @@ class OAuthServerPlugin(PluginClient):
         return router
 
     @staticmethod
-    def _add_introspect_route(  # noqa: C901
+    def _add_introspect_route(
         router: APIRouter,
         belgie: Belgie,
-        provider: SimpleOAuthProvider,
+        engine: BelgieOAuthServerEngine,
         settings: OAuthServer,
         rate_limiter: OAuthServerRateLimiter,
     ) -> APIRouter:
-        async def introspect_handler(  # noqa: C901, PLR0911, PLR0912
+        async def introspect_handler(
             request: Request,
-            response: Response,
             client: Annotated[BelgieClient, Depends(belgie)],
         ) -> OAuthServerIntrospectionResponse | Response:
             if (
@@ -1589,91 +1520,7 @@ class OAuthServerPlugin(PluginClient):
                 )
             ) is not None:
                 return rate_limited
-            form = await request.form()
-            client_id, client_secret, auth_error = _extract_client_credentials(request, form)
-            if auth_error is not None:
-                return auth_error
-
-            oauth_client, error = await _authenticate_client(
-                provider,
-                client_id,
-                client_secret,
-                require_credentials=True,
-                require_confidential=True,
-            )
-            if error is not None:
-                return error
-            if oauth_client is None:
-                return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-
-            token = _get_str(form, "token")
-            if not token:
-                response.status_code = status.HTTP_400_BAD_REQUEST
-                return OAuthServerIntrospectionResponse(active=False)
-            if token.startswith("Bearer "):
-                token = token.removeprefix("Bearer ")
-
-            token_type_hint, hint_error = _parse_token_type_hint(form)
-            if hint_error is not None:
-                return hint_error
-
-            if token_type_hint in {None, ACCESS_TOKEN_HINT}:
-                verified_access_token = await verify_local_access_token(provider, token)
-                if (
-                    verified_access_token is not None
-                    and verified_access_token.token.client_id == oauth_client.client_id
-                ):
-                    access_token = verified_access_token.token
-                    access_token_client = await provider.get_client(access_token.client_id)
-                    if access_token_client is None or access_token_client.disabled:
-                        return OAuthServerIntrospectionResponse(active=False)
-                    active_session_id = await _resolve_active_session_id(client, access_token.session_id)
-                    subject_identifier = (
-                        provider.resolve_subject_identifier(access_token_client, access_token.individual_id)
-                        if access_token_client is not None and access_token.individual_id is not None
-                        else access_token.individual_id
-                    )
-                    return OAuthServerIntrospectionResponse(
-                        active=True,
-                        client_id=access_token.client_id,
-                        scope=" ".join(access_token.scopes),
-                        exp=access_token.expires_at,
-                        iat=access_token.created_at,
-                        token_type=BEARER_TOKEN_TYPE,
-                        aud=access_token.resource,
-                        sub=subject_identifier,
-                        sid=active_session_id,
-                        iss=provider.issuer_url,
-                    )
-                if token_type_hint == ACCESS_TOKEN_HINT:
-                    return OAuthServerIntrospectionResponse(active=False)
-
-            if token_type_hint in {None, REFRESH_TOKEN_HINT}:
-                refresh_token = await provider.load_refresh_token(token)
-                if refresh_token and refresh_token.client_id == oauth_client.client_id:
-                    refresh_token_client = await provider.get_client(refresh_token.client_id)
-                    if refresh_token_client is None or refresh_token_client.disabled:
-                        return OAuthServerIntrospectionResponse(active=False)
-                    active_session_id = await _resolve_active_session_id(client, refresh_token.session_id)
-                    subject_identifier = (
-                        provider.resolve_subject_identifier(refresh_token_client, refresh_token.individual_id)
-                        if refresh_token_client is not None and refresh_token.individual_id is not None
-                        else refresh_token.individual_id
-                    )
-                    return OAuthServerIntrospectionResponse(
-                        active=True,
-                        client_id=refresh_token.client_id,
-                        scope=" ".join(refresh_token.scopes),
-                        exp=refresh_token.expires_at,
-                        iat=refresh_token.created_at,
-                        token_type=REFRESH_TOKEN_TYPE,
-                        aud=refresh_token.resource,
-                        sub=subject_identifier,
-                        sid=active_session_id,
-                        iss=provider.issuer_url,
-                    )
-
-            return OAuthServerIntrospectionResponse(active=False)
+            return await engine.create_introspection_response(request, client)
 
         router.add_api_route(
             "/introspect",
@@ -1725,6 +1572,14 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
         return _oauth_error("invalid_request", exc.message, status_code=status.HTTP_400_BAD_REQUEST)
 
     redirect_uri_string = str(validated_redirect_uri)
+    state = _get_str(resolved_data, "state")
+    if not state:
+        return _authorize_error(
+            "invalid_request",
+            "missing state",
+            redirect_uri=redirect_uri_string,
+            issuer_url=issuer_url,
+        )
 
     prompt_values, prompt_error = _parse_prompt_values(_get_str(resolved_data, "prompt"))
     if prompt_error is not None:
@@ -1785,7 +1640,6 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
             issuer_url=issuer_url,
         )
 
-    state = _get_str(resolved_data, "state") or secrets.token_hex(16)
     prompt = _normalize_prompt_values(prompt_values)
 
     params = AuthorizationParams(
@@ -2441,303 +2295,6 @@ def _get_payload_bool(payload: Mapping[str, JSONValue], key: str) -> bool | None
     return None
 
 
-def _extract_client_credentials(
-    request: Request,
-    form: FormInput,
-) -> tuple[str | None, str | None, JSONResponse | None]:
-    client_id = _get_str(form, "client_id")
-    client_secret = _get_str(form, "client_secret")
-    authorization = request.headers.get("authorization")
-    if authorization and authorization.startswith("Basic "):
-        try:
-            basic_client_id, basic_client_secret = _parse_basic_authorization(authorization)
-        except ValueError:
-            return None, None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-        client_id = basic_client_id
-        client_secret = basic_client_secret
-    return client_id, client_secret, None
-
-
-def _parse_basic_authorization(value: str) -> tuple[str, str]:
-    encoded = value.removeprefix("Basic ").strip()
-    if not encoded:
-        msg = "invalid basic auth"
-        raise ValueError(msg)
-    try:
-        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError) as exc:
-        msg = "invalid basic auth"
-        raise ValueError(msg) from exc
-
-    if ":" not in decoded:
-        msg = "invalid basic auth"
-        raise ValueError(msg)
-    client_id, client_secret = decoded.split(":", 1)
-    if not client_id:
-        msg = "invalid basic auth"
-        raise ValueError(msg)
-    return client_id, client_secret
-
-
-async def _authenticate_client(
-    provider: SimpleOAuthProvider,
-    client_id: str | None,
-    client_secret: str | None,
-    *,
-    require_credentials: bool = False,
-    require_confidential: bool = False,
-) -> tuple[OAuthServerClientInformationFull | None, JSONResponse | None]:
-    if not client_id:
-        return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-
-    oauth_client = await provider.authenticate_client(
-        client_id,
-        client_secret,
-        require_credentials=require_credentials,
-        require_confidential=require_confidential,
-    )
-    if not oauth_client:
-        return None, _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-    return oauth_client, None
-
-
-async def _handle_authorization_code_grant(  # noqa: C901, PLR0911, PLR0912
-    ctx: _TokenHandlerContext,
-) -> OAuthServerToken | Response:
-    oauth_client, error = await _authenticate_client(
-        ctx.provider,
-        ctx.client_id,
-        ctx.client_secret,
-    )
-    if error is not None:
-        return error
-    if oauth_client is None:
-        return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-
-    code = _get_str(ctx.form, "code")
-    if not code:
-        return _oauth_error("invalid_request", "missing code", status_code=status.HTTP_400_BAD_REQUEST)
-
-    authorization_code = await ctx.provider.load_authorization_code(code)
-    if not authorization_code:
-        return _oauth_error("invalid_grant", status_code=status.HTTP_400_BAD_REQUEST)
-
-    if authorization_code.expires_at < time.time():
-        return _oauth_error("invalid_grant", "code expired", status_code=status.HTTP_400_BAD_REQUEST)
-
-    if oauth_client.client_id != authorization_code.client_id:
-        return _oauth_error("invalid_grant", "client_id mismatch", status_code=status.HTTP_400_BAD_REQUEST)
-
-    redirect_uri_raw = _get_str(ctx.form, "redirect_uri")
-    if authorization_code.redirect_uri_provided_explicitly and not redirect_uri_raw:
-        return _oauth_error("invalid_request", "missing redirect_uri", status_code=status.HTTP_400_BAD_REQUEST)
-    if redirect_uri_raw and redirect_uri_raw != str(authorization_code.redirect_uri):
-        return _oauth_error("invalid_grant", "redirect_uri mismatch", status_code=status.HTTP_400_BAD_REQUEST)
-
-    code_verifier = _get_str(ctx.form, "code_verifier")
-    pkce_required = _pkce_requirement_for_client(oauth_client, authorization_code.scopes)
-    if authorization_code.code_challenge is not None and not code_verifier:
-        return _oauth_error(
-            "invalid_request",
-            "code_verifier required because PKCE was used in authorization",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-    if authorization_code.code_challenge is None and code_verifier:
-        return _oauth_error(
-            "invalid_request",
-            "code_verifier provided but PKCE was not used in authorization",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-    if authorization_code.code_challenge is None and pkce_required is not None:
-        return _oauth_error("invalid_request", pkce_required, status_code=status.HTTP_400_BAD_REQUEST)
-    if authorization_code.code_challenge is not None and code_verifier is not None:
-        expected_challenge = create_code_challenge(code_verifier)
-        if expected_challenge != authorization_code.code_challenge:
-            return _oauth_error("invalid_grant", "invalid code_verifier", status_code=status.HTTP_400_BAD_REQUEST)
-
-    requested_resource = _get_str(ctx.form, "resource")
-    resolved_resource, resource_error = _resolve_token_resource(
-        ctx.settings,
-        ctx.belgie_base_url,
-        requested_resource=requested_resource,
-        bound_resource=authorization_code.resource,
-        require_bound_match=True,
-    )
-    if resource_error is not None:
-        return resource_error
-
-    token = await ctx.provider.exchange_authorization_code(
-        authorization_code,
-        issue_refresh_token="offline_access" in authorization_code.scopes,
-        access_token_resource=_build_access_token_audience(
-            ctx.issuer_url,
-            base_resource=resolved_resource,
-            scopes=authorization_code.scopes,
-        ),
-    )
-    return await _apply_custom_token_response_fields(
-        ctx.settings,
-        {
-            **token.model_dump(),
-            "id_token": await _maybe_build_id_token(
-                ctx.client,
-                ctx.provider,
-                ctx.settings,
-                ctx.issuer_url,
-                oauth_client,
-                scopes=authorization_code.scopes,
-                individual_id=authorization_code.individual_id,
-                nonce=authorization_code.nonce,
-                session_id=authorization_code.session_id,
-            ),
-        },
-        grant_type="authorization_code",
-        oauth_client=oauth_client,
-        scopes=authorization_code.scopes,
-    )
-
-
-async def _handle_refresh_token_grant(ctx: _TokenHandlerContext) -> OAuthServerToken | Response:  # noqa: C901, PLR0911
-    oauth_client, error = await _authenticate_client(
-        ctx.provider,
-        ctx.client_id,
-        ctx.client_secret,
-    )
-    if error is not None:
-        return error
-    if oauth_client is None:
-        return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-
-    refresh_token_value = _get_str(ctx.form, "refresh_token")
-    if not refresh_token_value:
-        return _oauth_error("invalid_request", "missing refresh_token", status_code=status.HTTP_400_BAD_REQUEST)
-
-    refresh_token = await ctx.provider.load_refresh_token(refresh_token_value)
-    if not refresh_token:
-        refresh_token = await ctx.provider.load_refresh_token(refresh_token_value, include_revoked=True)
-    if not refresh_token:
-        return _oauth_error("invalid_grant", status_code=status.HTTP_400_BAD_REQUEST)
-
-    if refresh_token.client_id != oauth_client.client_id:
-        return _oauth_error("invalid_grant", "client_id mismatch", status_code=status.HTTP_400_BAD_REQUEST)
-
-    requested_scopes = _parse_scope_param(_get_str(ctx.form, "scope"))
-    if requested_scopes is not None and not requested_scopes:
-        return _oauth_error("invalid_scope", "missing scope", status_code=status.HTTP_400_BAD_REQUEST)
-    scopes = requested_scopes or refresh_token.scopes
-    if requested_scopes is not None:
-        invalid_scopes = [scope for scope in requested_scopes if scope not in refresh_token.scopes]
-        if invalid_scopes:
-            return _oauth_error(
-                "invalid_scope",
-                f"unable to issue scope {invalid_scopes[0]}",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
-    requested_resource = _get_str(ctx.form, "resource")
-    resolved_resource, resource_error = _resolve_token_resource(
-        ctx.settings,
-        ctx.belgie_base_url,
-        requested_resource=requested_resource,
-        bound_resource=refresh_token.resource,
-        require_bound_match=True,
-    )
-    if resource_error is not None:
-        return resource_error
-
-    try:
-        ctx.provider.validate_scopes_for_client(oauth_client, scopes)
-    except ValueError as exc:
-        return _oauth_error("invalid_scope", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        token = await ctx.provider.exchange_refresh_token(
-            refresh_token,
-            scopes,
-            access_token_resource=_build_access_token_audience(
-                ctx.issuer_url,
-                base_resource=resolved_resource,
-                scopes=scopes,
-            ),
-            refresh_token_resource=resolved_resource,
-        )
-    except ValueError as exc:
-        return _oauth_error("invalid_grant", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
-
-    return await _apply_custom_token_response_fields(
-        ctx.settings,
-        {
-            **token.model_dump(),
-            "id_token": await _maybe_build_id_token(
-                ctx.client,
-                ctx.provider,
-                ctx.settings,
-                ctx.issuer_url,
-                oauth_client,
-                scopes=scopes,
-                individual_id=refresh_token.individual_id,
-                session_id=refresh_token.session_id,
-            ),
-        },
-        grant_type="refresh_token",
-        oauth_client=oauth_client,
-        scopes=scopes,
-    )
-
-
-async def _handle_client_credentials_grant(ctx: _TokenHandlerContext) -> OAuthServerToken | Response:  # noqa: PLR0911
-    oauth_client, error = await _authenticate_client(
-        ctx.provider,
-        ctx.client_id,
-        ctx.client_secret,
-        require_confidential=True,
-    )
-    if error is not None:
-        return error
-    if oauth_client is None:
-        return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-    if oauth_client.client_id is None:
-        return _oauth_error("invalid_client", status_code=status.HTTP_401_UNAUTHORIZED)
-
-    requested_scopes = _parse_scope_param(_get_str(ctx.form, "scope"))
-    if requested_scopes is not None and not requested_scopes:
-        return _oauth_error("invalid_scope", "missing scope", status_code=status.HTTP_400_BAD_REQUEST)
-    scopes = requested_scopes or ctx.provider.default_scopes_for_client(
-        oauth_client,
-        grant_type="client_credentials",
-    )
-    try:
-        ctx.provider.validate_scopes_for_client(oauth_client, scopes, grant_type="client_credentials")
-    except ValueError as exc:
-        return _oauth_error("invalid_scope", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
-
-    requested_resource = _get_str(ctx.form, "resource")
-    resolved_resource, resource_error = _resolve_token_resource(
-        ctx.settings,
-        ctx.belgie_base_url,
-        requested_resource=requested_resource,
-    )
-    if resource_error is not None:
-        return resource_error
-
-    token = await ctx.provider.issue_client_credentials_token(
-        oauth_client.client_id,
-        scopes,
-        resource=_build_access_token_audience(
-            ctx.issuer_url,
-            base_resource=resolved_resource,
-            scopes=scopes,
-        ),
-    )
-    return await _apply_custom_token_response_fields(
-        ctx.settings,
-        token.model_dump(),
-        grant_type="client_credentials",
-        oauth_client=oauth_client,
-        scopes=scopes,
-    )
-
-
 def _parse_scope_param(scope: str | None) -> list[str] | None:
     if scope is None:
         return None
@@ -2747,19 +2304,6 @@ def _parse_scope_param(scope: str | None) -> list[str] | None:
         if part not in deduped:
             deduped.append(part)
     return deduped
-
-
-def _parse_token_type_hint(form: FormInput) -> tuple[str | None, JSONResponse | None]:
-    token_type_hint = _get_str(form, "token_type_hint")
-    if token_type_hint is None:
-        return None, None
-    if token_type_hint not in {ACCESS_TOKEN_HINT, REFRESH_TOKEN_HINT}:
-        return None, _oauth_error(
-            "invalid_request",
-            "unsupported token_type_hint",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-    return token_type_hint, None
 
 
 class _UserClaimsSource(Protocol):
@@ -2804,72 +2348,6 @@ async def _resolve_custom_mapping(
     resolved = resolver(payload)
     custom_payload = await resolved if inspect.isawaitable(resolved) else resolved
     return dict(custom_payload or {})
-
-
-async def _apply_custom_token_response_fields(
-    settings: OAuthServer,
-    payload: dict[str, object],
-    *,
-    grant_type: str,
-    oauth_client: OAuthServerClientInformationFull,
-    scopes: list[str],
-) -> OAuthServerToken:
-    custom_fields = await _resolve_custom_mapping(
-        settings.custom_token_response_fields,
-        {
-            "grant_type": grant_type,
-            "client_id": oauth_client.client_id,
-            "scopes": list(scopes),
-            "metadata_json": oauth_client.metadata_json or {},
-        },
-    )
-    return OAuthServerToken.model_validate({**payload, **custom_fields})
-
-
-async def _resolve_session_auth_time(client: BelgieClient, session_id: str | None) -> int | None:
-    session = await _load_session(client, session_id)
-    if session is None:
-        return None
-
-    created_at = getattr(session, "created_at", None)
-    if created_at is None:
-        return None
-    return int(created_at.timestamp())
-
-
-async def _resolve_active_session_id(client: BelgieClient, session_id: str | None) -> str | None:
-    if session_id is None:
-        return None
-
-    session = await _load_session(client, session_id)
-    if session is None:
-        return None
-    return str(session.id)
-
-
-async def _load_session(client: BelgieClient, session_id: str | None) -> _SessionLike | None:  # noqa: PLR0911
-    if session_id is None:
-        return None
-    try:
-        parsed_session_id = UUID(session_id)
-    except ValueError:
-        return None
-
-    session_manager = getattr(client, "session_manager", None)
-    if session_manager is not None:
-        db = getattr(client, "db", None)
-        return await session_manager.get_session(db, parsed_session_id)
-
-    session = getattr(client, "session", None)
-    if session is None:
-        return None
-
-    active_session_id = getattr(session, "id", None)
-    if active_session_id is None:
-        return None
-    if active_session_id == parsed_session_id or str(active_session_id) == session_id:
-        return cast("_SessionLike", session)
-    return None
 
 
 async def _resolve_client_reference_id(
@@ -3012,95 +2490,6 @@ def _merge_client_metadata(
     return OAuthServerClientMetadata.model_validate(merged_payload)
 
 
-async def _maybe_build_id_token(  # noqa: PLR0913
-    client: BelgieClient,
-    provider: SimpleOAuthProvider,
-    settings: OAuthServer,
-    issuer_url: str,
-    oauth_client: OAuthServerClientInformationFull,
-    *,
-    scopes: list[str],
-    individual_id: str | None,
-    nonce: str | None = None,
-    session_id: str | None = None,
-) -> str | None:
-    if "openid" not in scopes:
-        return None
-    if individual_id is None:
-        return None
-
-    try:
-        parsed_individual_id = UUID(individual_id)
-    except ValueError:
-        return None
-
-    individual = await client.adapter.get_individual_by_id(client.db, parsed_individual_id)
-    if individual is None:
-        return None
-
-    auth_time = await _resolve_session_auth_time(client, session_id)
-
-    return await _build_id_token(
-        provider,
-        settings,
-        issuer_url,
-        oauth_client,
-        user=individual,
-        scopes=scopes,
-        nonce=nonce,
-        session_id=session_id,
-        auth_time=auth_time,
-    )
-
-
-async def _build_id_token(  # noqa: PLR0913
-    provider: SimpleOAuthProvider,
-    settings: OAuthServer,
-    issuer_url: str,
-    oauth_client: OAuthServerClientInformationFull,
-    *,
-    user: _UserClaimsSource,
-    scopes: list[str],
-    nonce: str | None,
-    session_id: str | None,
-    auth_time: int | None = None,
-) -> str:
-    now = int(time.time())
-    if oauth_client.client_id is None:
-        msg = "registered client is missing client_id"
-        raise OAuthError(msg)
-    subject_identifier = provider.resolve_subject_identifier(oauth_client, str(user.id))
-    payload: dict[str, str | int | bool] = {
-        **_build_user_claims(user, scopes, subject_identifier=subject_identifier),
-        "iss": issuer_url,
-        "sub": subject_identifier,
-        "aud": oauth_client.client_id,
-        "iat": now,
-        "exp": now + settings.id_token_ttl_seconds,
-        "acr": "urn:mace:incommon:iap:bronze",
-    }
-    if nonce:
-        payload["nonce"] = nonce
-    if auth_time is not None:
-        payload["auth_time"] = auth_time
-    if oauth_client.enable_end_session and session_id:
-        payload["sid"] = session_id
-
-    payload.update(
-        await _resolve_custom_mapping(
-            settings.custom_id_token_claims,
-            {
-                "client_id": oauth_client.client_id,
-                "scopes": list(scopes),
-                "subject_identifier": subject_identifier,
-                "user_id": str(user.id),
-                "metadata_json": oauth_client.metadata_json or {},
-            },
-        ),
-    )
-    return provider.signing_state.sign(payload)
-
-
 def _with_authorization_principal(
     params: AuthorizationParams,
     *,
@@ -3122,49 +2511,19 @@ def _resolve_token_resource(
     bound_resource: str | None = None,
     require_bound_match: bool = False,
 ) -> tuple[str | None, JSONResponse | None]:
-    configured_resource = settings.resolve_resource(belgie_base_url)
-    configured_resource_url = str(configured_resource[0]) if configured_resource is not None else None
-    canonical_bound_resource = bound_resource
-    if (
-        configured_resource_url is not None
-        and bound_resource is not None
-        and _resource_urls_match(configured_resource_url, bound_resource)
-    ):
-        canonical_bound_resource = configured_resource_url
-
-    if requested_resource is not None:
-        if configured_resource_url is None:
-            return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
-        if not _resource_urls_match(configured_resource_url, requested_resource):
-            return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
-        requested_resource = configured_resource_url
-
-    if require_bound_match and requested_resource is not None and bound_resource is None:
+    try:
+        return (
+            _engine_resolve_token_resource(
+                settings,
+                belgie_base_url,
+                requested_resource=requested_resource,
+                bound_resource=bound_resource,
+                require_bound_match=require_bound_match,
+            ),
+            None,
+        )
+    except InvalidTargetError:
         return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
-    if (
-        canonical_bound_resource is not None
-        and requested_resource is not None
-        and not _resource_urls_match(requested_resource, canonical_bound_resource)
-    ):
-        return None, _oauth_error("invalid_target", status_code=status.HTTP_400_BAD_REQUEST)
-
-    if canonical_bound_resource is not None:
-        return canonical_bound_resource, None
-    return requested_resource, None
-
-
-def _build_access_token_audience(
-    issuer_url: str,
-    *,
-    base_resource: str | None,
-    scopes: list[str],
-) -> str | list[str] | None:
-    if base_resource is None:
-        return None
-    if "openid" not in scopes:
-        return base_resource
-    userinfo_audience = join_url(issuer_url, "userinfo")
-    return [base_resource, userinfo_audience]
 
 
 def _decode_unverified_jwt(token: str) -> dict[str, JSONValue] | None:
