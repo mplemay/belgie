@@ -207,6 +207,20 @@ def _grant_consent(
     )
 
 
+def _configure_mcp_style_public_client(plugin: OAuthServerPlugin) -> None:
+    _update_seeded_client(
+        plugin,
+        TEST_CLIENT_ID,
+        scope="openid user offline_access",
+        skip_consent=False,
+        token_endpoint_auth_method="none",
+        client_secret=None,
+        client_secret_hash=None,
+        require_pkce=True,
+        grant_types=["authorization_code", "refresh_token"],
+    )
+
+
 def _authorize_to_next_location(
     client: TestClient,
     settings: OAuthServer,
@@ -473,6 +487,181 @@ def test_authorize_and_consent_interactions_use_oauth2_paths() -> None:
     prompt_none_query = _query(prompt_none.headers["location"])
     assert prompt_none_query["error"] == ["consent_required"]
     assert prompt_none_query["iss"] == ["http://testserver/auth"]
+
+
+def test_resource_public_pkce_client_skips_consent_without_saved_record() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret=None,
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _configure_mcp_style_public_client(plugin)
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params={
+            **_authorize_params(
+                settings,
+                state="state-mcp-default",
+                scope="openid user offline_access",
+                verifier="mcp-default-verifier",
+            ),
+            "resource": "http://testserver/mcp",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    assert not authorize.headers["location"].startswith("http://testserver/consent")
+    query = _query(authorize.headers["location"])
+    assert "code" in query
+    assert query["state"] == ["state-mcp-default"]
+    assert query["iss"] == ["http://testserver/auth"]
+
+
+def test_resource_public_pkce_client_still_honors_prompt_consent() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret=None,
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _configure_mcp_style_public_client(plugin)
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params={
+            **_authorize_params(
+                settings,
+                state="state-mcp-consent",
+                scope="openid user offline_access",
+                verifier="mcp-consent-verifier",
+                prompt="consent",
+            ),
+            "resource": "http://testserver/mcp",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    consent_url = authorize.headers["location"]
+    assert consent_url.startswith("http://testserver/consent?")
+    state = _query(consent_url)["state"][0]
+
+    approved = client.post(
+        "/auth/oauth2/consent",
+        data={"state": state, "accept": "true", "scope": "openid user offline_access"},
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert approved.status_code == 302
+    approved_query = _query(approved.headers["location"])
+    assert "code" in approved_query
+    assert approved_query["state"] == ["state-mcp-consent"]
+    assert approved_query["iss"] == ["http://testserver/auth"]
+
+
+def test_resource_public_pkce_client_prompt_none_skips_consent_error() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret=None,
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _configure_mcp_style_public_client(plugin)
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params={
+            **_authorize_params(
+                settings,
+                state="state-mcp-prompt-none",
+                scope="openid user offline_access",
+                verifier="mcp-prompt-none-verifier",
+                prompt="none",
+            ),
+            "resource": "http://testserver/mcp",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    assert not authorize.headers["location"].startswith("http://testserver/consent")
+    query = _query(authorize.headers["location"])
+    assert "code" in query
+    assert query["state"] == ["state-mcp-prompt-none"]
+    assert query["iss"] == ["http://testserver/auth"]
+
+
+def test_non_resource_public_client_still_requires_consent_without_saved_record() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret=None,
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _configure_mcp_style_public_client(plugin)
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(
+            settings,
+            state="state-public-non-resource-consent",
+            scope="openid user offline_access",
+            verifier="public-non-resource-verifier",
+        ),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    assert authorize.headers["location"].startswith("http://testserver/consent?")
+
+
+def test_confidential_resource_client_still_requires_consent_without_saved_record() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        test_redirect_uris=["https://client.local/callback"],
+        test_client_secret="static-secret",
+        valid_audiences=["http://testserver/mcp"],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _update_seeded_client(
+        plugin,
+        TEST_CLIENT_ID,
+        scope="openid user offline_access",
+        skip_consent=False,
+        token_endpoint_auth_method="client_secret_post",
+        client_secret="static-secret",
+        require_pkce=False,
+        grant_types=["authorization_code", "refresh_token"],
+    )
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params={
+            **_authorize_params(
+                settings,
+                state="state-confidential-resource-consent",
+                scope="openid user offline_access",
+                verifier="confidential-resource-verifier",
+            ),
+            "resource": "http://testserver/mcp",
+        },
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+
+    assert authorize.status_code == 302
+    assert authorize.headers["location"].startswith("http://testserver/consent?")
 
 
 def test_request_uri_resolution_uses_stored_params() -> None:

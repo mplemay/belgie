@@ -2372,6 +2372,21 @@ async def _resolve_next_interaction(  # noqa: C901, PLR0911, PLR0913
     return None
 
 
+def _is_mcp_style_public_client(
+    oauth_client: OAuthServerClientInformationFull,
+    params: AuthorizationParams,
+) -> bool:
+    if params.resource is None:
+        return False
+    if oauth_client.token_endpoint_auth_method != "none":  # noqa: S105
+        return False
+    if oauth_client.require_pkce is False:
+        return False
+
+    grant_types = set(oauth_client.grant_types or ["authorization_code"])
+    return "authorization_code" in grant_types and grant_types.issubset({"authorization_code", "refresh_token"})
+
+
 async def _consent_required(
     provider: SimpleOAuthProvider,
     settings: OAuthServer,
@@ -2381,6 +2396,8 @@ async def _consent_required(
     if params.individual_id is None:
         return False
     if await settings.is_trusted_client(oauth_client):
+        return False
+    if _is_mcp_style_public_client(oauth_client, params):
         return False
     reference_id = await _resolve_consent_reference(settings, oauth_client, params)
     return not await provider.has_consent(
