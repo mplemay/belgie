@@ -131,12 +131,16 @@ or `/auth/oauth2/register`.
   `skip_consent`, `enable_end_session`, `require_pkce`, `subject_type`,
   `metadata`, and `client_secret_expires_at` belong on the server-only
   `/auth/admin/oauth2/*` routes.
-- `resource` values are validated against `valid_audiences`. Invalid resources
-  return `invalid_target`.
+- `/auth/oauth2/authorize` ignores `resource`. Send `resource` to
+  `/auth/oauth2/token` when requesting a resource-bound access token.
+- `resource` values sent to `/auth/oauth2/token` are validated against
+  `valid_audiences`. Invalid resources return `invalid_target`.
 - Public clients and `offline_access` requests always require PKCE.
 - `cached_trusted_clients` and `trusted_client_resolver` can mark clients as
   trusted without allowing dynamic registration payloads to persist
   `skip_consent`.
+- Consent is required for every non-trusted client until a matching consent
+  record exists. Public PKCE clients are not implicitly trusted.
 - `/auth/oauth2/public-client` requires an authenticated session. Use
   `/auth/oauth2/public-client-prelogin` only when
   `allow_public_client_prelogin=True`.
@@ -147,8 +151,8 @@ or `/auth/oauth2/register`.
 
 ## JWT And OIDC Behavior
 
-- By default, access tokens are JWTs when a valid `resource` is requested and
-  opaque otherwise.
+- By default, access tokens are JWTs when a valid `resource` is requested at
+  `/auth/oauth2/token` and opaque otherwise.
 - `disable_jwt_plugin=True` switches to non-JWT access tokens:
   - access tokens are always opaque
   - confidential clients still receive an `id_token`

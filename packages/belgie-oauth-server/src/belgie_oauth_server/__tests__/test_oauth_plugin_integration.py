@@ -207,7 +207,7 @@ def _grant_consent(
     )
 
 
-def _configure_mcp_style_public_client(plugin: OAuthServerPlugin) -> None:
+def _configure_public_pkce_client(plugin: OAuthServerPlugin) -> None:
     _update_seeded_client(
         plugin,
         TEST_CLIENT_ID,
@@ -489,7 +489,7 @@ def test_authorize_and_consent_interactions_use_oauth2_paths() -> None:
     assert prompt_none_query["iss"] == ["http://testserver/auth"]
 
 
-def test_resource_public_pkce_client_skips_consent_without_saved_record() -> None:
+def test_public_pkce_client_with_authorize_resource_still_requires_consent_without_saved_record() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         test_redirect_uris=["https://client.local/callback"],
@@ -497,7 +497,7 @@ def test_resource_public_pkce_client_skips_consent_without_saved_record() -> Non
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _configure_mcp_style_public_client(plugin)
+    _configure_public_pkce_client(plugin)
 
     authorize = client.get(
         "/auth/oauth2/authorize",
@@ -515,14 +515,15 @@ def test_resource_public_pkce_client_skips_consent_without_saved_record() -> Non
     )
 
     assert authorize.status_code == 302
-    assert not authorize.headers["location"].startswith("http://testserver/consent")
-    query = _query(authorize.headers["location"])
-    assert "code" in query
-    assert query["state"] == ["state-mcp-default"]
-    assert query["iss"] == ["http://testserver/auth"]
+    consent_url = authorize.headers["location"]
+    assert consent_url.startswith("http://testserver/consent?")
+    assert "resource=" not in consent_url
+    state = _query(consent_url)["state"][0]
+    assert plugin.provider is not None
+    assert plugin.provider.adapter.authorization_states[state].resource is None
 
 
-def test_resource_public_pkce_client_still_honors_prompt_consent() -> None:
+def test_public_pkce_client_prompt_consent_ignores_authorize_resource_when_issuing_code() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         test_redirect_uris=["https://client.local/callback"],
@@ -530,7 +531,7 @@ def test_resource_public_pkce_client_still_honors_prompt_consent() -> None:
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _configure_mcp_style_public_client(plugin)
+    _configure_public_pkce_client(plugin)
 
     authorize = client.get(
         "/auth/oauth2/authorize",
@@ -551,7 +552,10 @@ def test_resource_public_pkce_client_still_honors_prompt_consent() -> None:
     assert authorize.status_code == 302
     consent_url = authorize.headers["location"]
     assert consent_url.startswith("http://testserver/consent?")
+    assert "resource=" not in consent_url
     state = _query(consent_url)["state"][0]
+    assert plugin.provider is not None
+    assert plugin.provider.adapter.authorization_states[state].resource is None
 
     approved = client.post(
         "/auth/oauth2/consent",
@@ -565,9 +569,11 @@ def test_resource_public_pkce_client_still_honors_prompt_consent() -> None:
     assert "code" in approved_query
     assert approved_query["state"] == ["state-mcp-consent"]
     assert approved_query["iss"] == ["http://testserver/auth"]
+    code_record = next(iter(plugin.provider.adapter.authorization_codes.values()))
+    assert code_record.resource is None
 
 
-def test_resource_public_pkce_client_prompt_none_skips_consent_error() -> None:
+def test_public_pkce_client_prompt_none_returns_consent_required_even_with_authorize_resource() -> None:
     settings = _build_settings(
         base_url="http://testserver",
         test_redirect_uris=["https://client.local/callback"],
@@ -575,7 +581,7 @@ def test_resource_public_pkce_client_prompt_none_skips_consent_error() -> None:
         valid_audiences=["http://testserver/mcp"],
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _configure_mcp_style_public_client(plugin)
+    _configure_public_pkce_client(plugin)
 
     authorize = client.get(
         "/auth/oauth2/authorize",
@@ -594,9 +600,9 @@ def test_resource_public_pkce_client_prompt_none_skips_consent_error() -> None:
     )
 
     assert authorize.status_code == 302
-    assert not authorize.headers["location"].startswith("http://testserver/consent")
     query = _query(authorize.headers["location"])
-    assert "code" in query
+    assert query["error"] == ["consent_required"]
+    assert "code" not in query
     assert query["state"] == ["state-mcp-prompt-none"]
     assert query["iss"] == ["http://testserver/auth"]
 
@@ -608,7 +614,7 @@ def test_non_resource_public_client_still_requires_consent_without_saved_record(
         test_client_secret=None,
     )
     client, plugin, _belgie_client = _build_fixture(settings)
-    _configure_mcp_style_public_client(plugin)
+    _configure_public_pkce_client(plugin)
 
     authorize = client.get(
         "/auth/oauth2/authorize",
