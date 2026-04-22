@@ -12,6 +12,7 @@ import respx
 from belgie_core.core.exceptions import InvalidStateError, OAuthError
 from belgie_core.core.settings import BelgieSettings, CookieSettings
 from belgie_oauth import OAuthLinkedAccount, OAuthPlugin, OAuthProvider, OAuthTokenSet, OAuthUserInfo
+from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signing_key, issue_id_token
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
@@ -193,6 +194,17 @@ def test_provider_requires_discovery_or_manual_endpoints() -> None:
         )
 
 
+def test_provider_rejects_empty_client_id_list() -> None:
+    with pytest.raises(ValidationError):
+        OAuthProvider(
+            provider_id="acme",
+            client_id=[],
+            client_secret=SecretStr("client-secret"),
+            authorization_endpoint="https://idp.example.com/oauth2/authorize",
+            token_endpoint="https://idp.example.com/oauth2/token",
+        )
+
+
 def test_dependency_requires_router_initialization() -> None:
     plugin = _build_plugin()
 
@@ -243,6 +255,22 @@ async def test_signin_url_uses_start_route_and_persists_adapter_state() -> None:
     assert query["nonce"][0]
     assert query["code_challenge"][0]
     assert query["code_challenge_method"][0] == "S256"
+
+
+@pytest.mark.asyncio
+async def test_signin_url_uses_primary_client_id_from_list() -> None:
+    plugin = _build_plugin(client_id=["primary-client-id", "secondary-client-id"])
+    client_dependency = SimpleNamespace(db=object(), adapter=_build_state_adapter())
+    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    app = _build_app(plugin, client_dependency)
+
+    start_url = await oauth_client.signin_url()
+
+    with TestClient(app) as test_client:
+        provider_url, _ = _start_provider_flow(test_client, start_url)
+        query = parse_qs(urlparse(provider_url).query)
+
+    assert query["client_id"][0] == "primary-client-id"
 
 
 @pytest.mark.asyncio
@@ -378,6 +406,51 @@ async def test_exchange_code_for_tokens_uses_manual_token_endpoint() -> None:
     assert token_set.id_token == "test-id-token"  # noqa: S105
     assert token_set.access_token_expires_at is not None
     assert token_set.refresh_token_expires_at is not None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_provider_profile_accepts_secondary_client_id_audience() -> None:
+    plugin = _build_plugin(
+        client_id=["primary-client-id", "secondary-client-id"],
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    signing_key = build_rsa_signing_key(kid="multi-client-key")
+    nonce = "multi-client-nonce"
+    id_token = issue_id_token(
+        signing_key=signing_key,
+        issuer="https://idp.example.com",
+        audience="secondary-client-id",
+        subject="provider-account-1",
+        nonce=nonce,
+        claims={
+            "email": "person@example.com",
+            "email_verified": True,
+            "name": "Test Person",
+        },
+    )
+
+    respx.get("https://idp.example.com/jwks").mock(
+        return_value=httpx.Response(200, json=build_jwks_document(signing_key)),
+    )
+
+    profile = await plugin._transport.fetch_provider_profile(
+        OAuthTokenSet.from_response(
+            {
+                "access_token": "access-token",
+                "token_type": "Bearer",
+                "id_token": id_token,
+                "expires_in": 3600,
+            },
+        ),
+        nonce=nonce,
+    )
+
+    assert profile.provider_account_id == "provider-account-1"
+    assert profile.email == "person@example.com"
+    assert profile.email_verified is True
 
 
 @pytest.mark.asyncio

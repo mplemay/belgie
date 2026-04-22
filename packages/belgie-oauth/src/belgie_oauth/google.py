@@ -3,15 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from belgie_core.core.exceptions import OAuthError
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic_settings import SettingsConfigDict
 
+from belgie_oauth._strategy import GoogleOAuthStrategy, OAuthPresetSettings
 from belgie_oauth.generic import OAuthClient, OAuthPlugin, OAuthProvider, OAuthTokenSet, OAuthUserInfo
 
 if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
-
-    from belgie_oauth._transport import AuthlibOIDCClient
 
 
 class GoogleUserInfo(BaseModel):
@@ -39,7 +38,7 @@ class GoogleUserInfo(BaseModel):
         return self.verified_email is True
 
 
-class GoogleOAuth(BaseSettings):
+class GoogleOAuth(OAuthPresetSettings):
     DISCOVERY_URL: ClassVar[str] = "https://accounts.google.com/.well-known/openid-configuration"
 
     model_config = SettingsConfigDict(
@@ -48,40 +47,12 @@ class GoogleOAuth(BaseSettings):
         extra="ignore",
     )
 
-    client_id: str
     client_secret: SecretStr
     scopes: list[str] = Field(default_factory=lambda: ["openid", "email", "profile"])
     access_type: str = Field(default="offline")
     prompt: str = Field(default="consent")
     include_granted_scopes: bool = True
     hosted_domain: str | None = None
-    disable_sign_up: bool = False
-    disable_implicit_sign_up: bool = False
-    override_user_info_on_sign_in: bool = False
-    update_account_on_sign_in: bool = True
-    allow_implicit_account_linking: bool = True
-    allow_different_link_emails: bool = False
-    trusted_for_account_linking: bool = False
-    encrypt_tokens: bool = False
-    token_encryption_secret: SecretStr | None = None
-    authorization_params: dict[str, str] = Field(default_factory=dict)
-
-    @field_validator("client_id")
-    @classmethod
-    def validate_client_id(cls, value: str, info) -> str:  # noqa: ANN001
-        if not value or not value.strip():
-            msg = f"{info.field_name} must be a non-empty string"
-            raise ValueError(msg)
-        return value.strip()
-
-    @field_validator("client_secret")
-    @classmethod
-    def validate_client_secret(cls, value: SecretStr) -> SecretStr:
-        secret = value.get_secret_value().strip()
-        if not secret:
-            msg = "client_secret must be a non-empty string"
-            raise ValueError(msg)
-        return SecretStr(secret)
 
     def to_provider(self) -> OAuthProvider:
         authorization_params = dict(self.authorization_params)
@@ -96,8 +67,13 @@ class GoogleOAuth(BaseSettings):
             client_secret=self.client_secret,
             discovery_url=self.DISCOVERY_URL,
             scopes=self.scopes,
+            response_mode=self.response_mode,
             prompt=self.prompt,
             access_type=self.access_type,
+            state_strategy=self.state_strategy,
+            use_pkce=self.use_pkce,
+            code_challenge_method=self.code_challenge_method,
+            use_nonce=self.use_nonce,
             disable_sign_up=self.disable_sign_up,
             disable_implicit_sign_up=self.disable_implicit_sign_up,
             override_user_info_on_sign_in=self.override_user_info_on_sign_in,
@@ -108,7 +84,9 @@ class GoogleOAuth(BaseSettings):
             encrypt_tokens=self.encrypt_tokens,
             token_encryption_secret=self.token_encryption_secret,
             authorization_params=authorization_params,
-            get_userinfo=_get_google_userinfo,
+            token_params=self.token_params,
+            discovery_headers=self.discovery_headers,
+            strategy=GoogleOAuthStrategy(),
             map_profile=_map_google_profile,
         )
 
@@ -122,27 +100,12 @@ class GoogleOAuthClient(OAuthClient):
 
 class GoogleOAuthPlugin(OAuthPlugin):
     DISCOVERY_URL = GoogleOAuth.DISCOVERY_URL
-    TOKEN_URL = "https://oauth2.googleapis.com/token"
+    TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
     USER_INFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
     def __init__(self, belgie_settings: BelgieSettings, settings: GoogleOAuth) -> None:
         self.settings = settings
         super().__init__(belgie_settings, settings.to_provider(), client_type=GoogleOAuthClient)
-
-
-async def _get_google_userinfo(
-    oauth_client: AuthlibOIDCClient,
-    token_set: OAuthTokenSet,  # noqa: ARG001
-    metadata: dict[str, object],
-) -> dict[str, object] | None:
-    userinfo_endpoint = metadata.get("userinfo_endpoint") or GoogleOAuthPlugin.USER_INFO_URL
-    try:
-        response = await oauth_client.get(str(userinfo_endpoint))
-        response.raise_for_status()
-        profile = response.json()
-    except Exception:
-        return None
-    return profile if isinstance(profile, dict) else None
 
 
 def _map_google_profile(raw_profile: dict[str, object], token_set: OAuthTokenSet) -> OAuthUserInfo:  # noqa: ARG001

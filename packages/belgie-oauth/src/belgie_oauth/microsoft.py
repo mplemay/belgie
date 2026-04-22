@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import base64
 from typing import TYPE_CHECKING, ClassVar
 from urllib.parse import urlparse, urlunparse
 
-from belgie_core.core.exceptions import OAuthError
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic_settings import SettingsConfigDict
 
-from belgie_oauth._helpers import serialize_scopes
+from belgie_oauth._strategy import MicrosoftOAuthStrategy, OAuthPresetSettings, microsoft_profile_photo_url
 from belgie_oauth.generic import OAuthClient, OAuthPlugin, OAuthProvider, OAuthTokenSet, OAuthUserInfo
 
 if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
-
-    from belgie_oauth._transport import AuthlibOIDCClient
 
 
 class MicrosoftUserInfo(BaseModel):
@@ -58,7 +54,7 @@ class MicrosoftUserInfo(BaseModel):
         return values is not None and any(value.casefold() == self.resolved_email.casefold() for value in values)
 
 
-class MicrosoftOAuth(BaseSettings):
+class MicrosoftOAuth(OAuthPresetSettings):
     DEFAULT_TENANT: ClassVar[str] = "common"
     DEFAULT_AUTHORITY: ClassVar[str] = "https://login.microsoftonline.com"
     USER_INFO_URL: ClassVar[str] = "https://graph.microsoft.com/oidc/userinfo"
@@ -70,25 +66,13 @@ class MicrosoftOAuth(BaseSettings):
         extra="ignore",
     )
 
-    client_id: str
-    client_secret: SecretStr | None = None
     tenant: str = Field(default=DEFAULT_TENANT)
     authority: str = Field(default=DEFAULT_AUTHORITY)
     scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "offline_access", "User.Read"])
     disable_profile_photo: bool = False
     profile_photo_size: int = 48
-    disable_sign_up: bool = False
-    disable_implicit_sign_up: bool = False
-    override_user_info_on_sign_in: bool = False
-    update_account_on_sign_in: bool = True
-    allow_implicit_account_linking: bool = True
-    allow_different_link_emails: bool = False
-    trusted_for_account_linking: bool = False
-    encrypt_tokens: bool = False
-    token_encryption_secret: SecretStr | None = None
-    authorization_params: dict[str, str] = Field(default_factory=dict)
 
-    @field_validator("client_id", "tenant", "authority")
+    @field_validator("tenant", "authority")
     @classmethod
     def validate_non_empty(cls, value: str, info: ValidationInfo) -> str:
         if not value or not value.strip():
@@ -98,17 +82,6 @@ class MicrosoftOAuth(BaseSettings):
         if info.field_name == "authority":
             return normalized.rstrip("/")
         return normalized
-
-    @field_validator("client_secret")
-    @classmethod
-    def validate_client_secret(cls, value: SecretStr | None) -> SecretStr | None:
-        if value is None:
-            return None
-        secret = value.get_secret_value().strip()
-        if not secret:
-            msg = "client_secret must be a non-empty string"
-            raise ValueError(msg)
-        return SecretStr(secret)
 
     @field_validator("profile_photo_size")
     @classmethod
@@ -142,7 +115,11 @@ class MicrosoftOAuth(BaseSettings):
             ),
             issuer=issuer,
             scopes=self.scopes,
-            response_mode="query",
+            response_mode=self.response_mode or "query",
+            state_strategy=self.state_strategy,
+            use_pkce=self.use_pkce,
+            code_challenge_method=self.code_challenge_method,
+            use_nonce=self.use_nonce,
             disable_sign_up=self.disable_sign_up,
             disable_implicit_sign_up=self.disable_implicit_sign_up,
             override_user_info_on_sign_in=self.override_user_info_on_sign_in,
@@ -153,12 +130,14 @@ class MicrosoftOAuth(BaseSettings):
             encrypt_tokens=self.encrypt_tokens,
             token_encryption_secret=self.token_encryption_secret,
             authorization_params=self.authorization_params,
+            token_params=self.token_params,
+            discovery_headers=self.discovery_headers,
             token_endpoint_auth_method="none" if self.client_secret is None else "client_secret_post",
-            get_userinfo=_build_microsoft_userinfo_fetcher(
+            strategy=MicrosoftOAuthStrategy(
+                scopes=self.scopes,
                 disable_profile_photo=self.disable_profile_photo,
                 profile_photo_size=self.profile_photo_size,
             ),
-            refresh_tokens=_build_microsoft_refresh_handler(self.scopes),
             map_profile=_map_microsoft_profile,
         )
 
@@ -180,7 +159,7 @@ class MicrosoftOAuthPlugin(OAuthPlugin):
 
     @staticmethod
     def profile_photo_url(size: int) -> str:
-        return f"https://graph.microsoft.com/v1.0/me/photos/{size}x{size}/$value"
+        return microsoft_profile_photo_url(size)
 
 
 def _authority_url(authority: str, *, path: str) -> str:
@@ -195,67 +174,6 @@ def _authority_url(authority: str, *, path: str) -> str:
             "",
         ),
     )
-
-
-def _build_microsoft_userinfo_fetcher(*, disable_profile_photo: bool, profile_photo_size: int):
-    async def get_userinfo(
-        oauth_client: AuthlibOIDCClient,
-        token_set: OAuthTokenSet,  # noqa: ARG001
-        metadata: dict[str, object],
-    ) -> dict[str, object] | None:
-        userinfo_endpoint = metadata.get("userinfo_endpoint") or MicrosoftOAuthPlugin.USER_INFO_URL
-        response = await oauth_client.get(str(userinfo_endpoint))
-        response.raise_for_status()
-        profile = response.json()
-        if not isinstance(profile, dict):
-            msg = "provider user info missing profile data"
-            raise OAuthError(msg)
-
-        if not disable_profile_photo:
-            try:
-                photo_response = await oauth_client.get(
-                    MicrosoftOAuthPlugin.profile_photo_url(profile_photo_size),
-                )
-            except Exception:
-                photo_response = None
-            if photo_response is not None and photo_response.is_success:
-                content_type = photo_response.headers.get("content-type", "image/jpeg")
-                encoded = base64.b64encode(photo_response.content).decode("ascii")
-                profile["picture"] = f"data:{content_type};base64,{encoded}"
-
-        return profile
-
-    return get_userinfo
-
-
-def _build_microsoft_refresh_handler(scopes: list[str]):
-    async def refresh_tokens(
-        oauth_client: AuthlibOIDCClient,
-        token_set: OAuthTokenSet,
-        token_params: dict[str, str],
-    ) -> dict[str, object]:
-        if token_set.refresh_token is None:
-            msg = "oauth account does not have a refresh token"
-            raise OAuthError(msg)
-
-        metadata = await oauth_client.load_server_metadata()
-        token_endpoint = metadata.get("token_endpoint")
-        if not token_endpoint:
-            msg = "missing required provider metadata: token_endpoint"
-            raise OAuthError(msg)
-
-        refresh_params = dict(token_params)
-        if "scope" not in refresh_params:
-            refresh_params["scope"] = token_set.scope or serialize_scopes(scopes)
-
-        raw_token = await oauth_client.refresh_token(
-            str(token_endpoint),
-            refresh_token=token_set.refresh_token,
-            **refresh_params,
-        )
-        return dict(raw_token)
-
-    return refresh_tokens
 
 
 def _map_microsoft_profile(raw_profile: dict[str, object], token_set: OAuthTokenSet) -> OAuthUserInfo:  # noqa: ARG001

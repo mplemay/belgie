@@ -7,16 +7,24 @@ from typing import TYPE_CHECKING, Any
 
 from authlib.integrations.base_client.async_openid import AsyncOpenIDMixin
 from authlib.integrations.httpx_client import AsyncOAuth2Client
-from belgie_core.core.exceptions import ConfigurationError, OAuthError
+from authlib.oidc.core import CodeIDToken, ImplicitIDToken, UserInfo
+from belgie_core.core.exceptions import ConfigurationError
+from joserfc import jwt
+from joserfc.errors import InvalidClaimError, InvalidKeyIdError
+from joserfc.jwk import KeySet
 
 from belgie_oauth._errors import OAuthCallbackError
 from belgie_oauth._helpers import coerce_optional_str, serialize_scopes
-from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo, RawProfile
+from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
+from belgie_oauth._strategy import DefaultOAuthProviderStrategy, OAuthProviderStrategy
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from belgie_oauth._config import OAuthProvider
+
+
+type IDTokenClaimsClass = type[CodeIDToken | ImplicitIDToken]
 
 
 class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
@@ -26,11 +34,13 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
         server_metadata_url: str | None = None,
         server_metadata: dict[str, Any] | None = None,
         discovery_headers: dict[str, str] | None = None,
+        accepted_client_ids: tuple[str, ...] | None = None,
         **kwargs: object,
     ) -> None:
         self._server_metadata_url = server_metadata_url
         self.server_metadata = dict(server_metadata or {})
         self._discovery_headers = dict(discovery_headers or {})
+        self._accepted_client_ids = accepted_client_ids
         super().__init__(**kwargs)
 
     @asynccontextmanager
@@ -51,11 +61,99 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
             self.server_metadata.update(metadata)
         return self.server_metadata
 
+    async def parse_id_token(
+        self,
+        token: dict[str, Any],
+        nonce: str,
+        claims_options: dict[str, Any] | None = None,
+        claims_cls: IDTokenClaimsClass | None = None,
+        leeway: int = 120,
+    ) -> UserInfo:
+        if "id_token" not in token:
+            msg = 'Missing "id_token" in token payload'
+            error_code = "oauth_code_verification_failed"
+            raise OAuthCallbackError(error_code, msg)
+
+        accepted_client_ids = self._accepted_client_ids or (self.client_id,)
+        claims_params: dict[str, Any] = {
+            "nonce": nonce,
+            "client_id": accepted_client_ids[0],
+            "accepted_client_ids": accepted_client_ids,
+        }
+        if "access_token" in token:
+            claims_params["access_token"] = token["access_token"]
+            if claims_cls is None:
+                claims_cls = BelgieCodeIDToken
+        elif claims_cls is None:
+            claims_cls = BelgieImplicitIDToken
+
+        metadata = await self.load_server_metadata()
+        resolved_claims_options = dict(claims_options or {})
+        if "iss" not in resolved_claims_options and "issuer" in metadata:
+            resolved_claims_options["iss"] = {"values": [metadata["issuer"]]}
+        if "aud" not in resolved_claims_options:
+            resolved_claims_options["aud"] = {"values": list(accepted_client_ids)}
+
+        alg_values = metadata.get("id_token_signing_alg_values_supported")
+        if not alg_values:
+            alg_values = ["RS256"]
+
+        jwks = await self.fetch_jwk_set()
+        key_set = KeySet.import_key_set(jwks)
+        try:
+            decoded = jwt.decode(
+                token["id_token"],
+                key=key_set,
+                algorithms=alg_values,
+            )
+        except InvalidKeyIdError:
+            jwks = await self.fetch_jwk_set(force=True)
+            key_set = KeySet.import_key_set(jwks)
+            decoded = jwt.decode(
+                token["id_token"],
+                key=key_set,
+                algorithms=alg_values,
+            )
+
+        claims = claims_cls(
+            decoded.claims,
+            decoded.header,
+            resolved_claims_options,
+            claims_params,
+        )
+        if claims.get("nonce_supported") is False:
+            claims.params["nonce"] = None
+        claims.validate(leeway=leeway)
+        return UserInfo(claims)
+
+
+class BelgieIDTokenMixin:
+    def validate_azp(self) -> None:
+        accepted_client_ids = tuple(self.params.get("accepted_client_ids") or ())
+        if not accepted_client_ids:
+            super().validate_azp()
+            return
+
+        azp = self.get("azp")
+        if azp is not None and azp not in accepted_client_ids:
+            claim_name = "azp"
+            raise InvalidClaimError(claim_name)
+        return
+
+
+class BelgieCodeIDToken(BelgieIDTokenMixin, CodeIDToken):
+    pass
+
+
+class BelgieImplicitIDToken(BelgieIDTokenMixin, ImplicitIDToken):
+    pass
+
 
 class OAuthTransport:
     def __init__(self, config: OAuthProvider, *, redirect_uri: str) -> None:
         self.config = config
         self.redirect_uri = redirect_uri
+        self._strategy: OAuthProviderStrategy = config.strategy or DefaultOAuthProviderStrategy()
         self._metadata_cache: dict[str, Any] | None = None
         self._metadata_lock = asyncio.Lock()
 
@@ -89,26 +187,15 @@ class OAuthTransport:
         metadata = await self.resolve_server_metadata()
         authorization_endpoint = self.require_metadata_value(metadata, "authorization_endpoint")
         scope_text = serialize_scopes(scopes or self.config.scopes)
-        params = dict(self.config.authorization_params)
-        if authorization_params:
-            params.update(authorization_params)
-        if prompt is not None:
-            params["prompt"] = prompt
-        elif self.config.prompt is not None:
-            params["prompt"] = self.config.prompt
-        if access_type is not None:
-            params["access_type"] = access_type
-        elif self.config.access_type is not None:
-            params["access_type"] = self.config.access_type
-        if response_mode is not None:
-            params["response_mode"] = response_mode
-        elif self.config.response_mode is not None:
-            params["response_mode"] = self.config.response_mode
-        if nonce is not None:
-            params["nonce"] = nonce
-        if code_verifier is not None and self.config.code_challenge_method == "plain":
-            params["code_challenge"] = code_verifier
-            params["code_challenge_method"] = "plain"
+        params = self._strategy.build_authorization_params(
+            config=self.config,
+            prompt=prompt,
+            access_type=access_type,
+            response_mode=response_mode,
+            authorization_params=authorization_params,
+            code_verifier=code_verifier,
+            nonce=nonce,
+        )
 
         async with self._oauth_client(server_metadata=metadata, scope=scope_text) as oauth_client:
             authorization_url, _ = oauth_client.create_authorization_url(
@@ -130,40 +217,26 @@ class OAuthTransport:
         metadata = await self.resolve_server_metadata()
         token_endpoint = self.require_metadata_value(metadata, "token_endpoint")
         async with self._oauth_client(server_metadata=metadata) as oauth_client:
-            if self.config.get_token is not None:
-                token = await self.config.get_token(
-                    oauth_client,
-                    code,
-                    dict(self.config.token_params),
-                    code_verifier,
-                )
-            else:
-                token = await oauth_client.fetch_token(
-                    token_endpoint,
-                    code=code,
-                    grant_type="authorization_code",
-                    redirect_uri=self.redirect_uri,
-                    code_verifier=code_verifier,
-                    **self.config.token_params,
-                )
+            token = await self._strategy.exchange_code_for_tokens(
+                oauth_client=oauth_client,
+                config=self.config,
+                code=code,
+                redirect_uri=self.redirect_uri,
+                code_verifier=code_verifier,
+                token_endpoint=token_endpoint,
+            )
         return OAuthTokenSet.from_response(dict(token))
 
     async def refresh_token_set(self, token_set: OAuthTokenSet) -> OAuthTokenSet:
         metadata = await self.resolve_server_metadata()
         token_endpoint = self.require_metadata_value(metadata, "token_endpoint")
-        token_params = dict(self.config.token_params)
         async with self._oauth_client(server_metadata=metadata, token=token_set.raw) as oauth_client:
-            if self.config.refresh_tokens is not None:
-                raw_token = await self.config.refresh_tokens(oauth_client, token_set, token_params)
-            else:
-                if token_set.refresh_token is None:
-                    msg = "oauth account does not have a refresh token"
-                    raise OAuthError(msg)
-                raw_token = await oauth_client.refresh_token(
-                    token_endpoint,
-                    refresh_token=token_set.refresh_token,
-                    **token_params,
-                )
+            raw_token = await self._strategy.refresh_token_response(
+                oauth_client=oauth_client,
+                config=self.config,
+                token_set=token_set,
+                token_endpoint=token_endpoint,
+            )
         return OAuthTokenSet.from_response(dict(raw_token), existing=token_set)
 
     async def fetch_provider_profile(
@@ -173,62 +246,26 @@ class OAuthTransport:
         nonce: str | None = None,
     ) -> OAuthUserInfo:
         metadata = await self.resolve_server_metadata()
-        raw_profile: dict[str, Any] = {}
+        id_token_claims: dict[str, Any] = {}
         async with self._oauth_client(server_metadata=metadata, token=token_set.raw) as oauth_client:
             if token_set.id_token is not None and nonce is not None:
                 try:
-                    id_token_claims = await oauth_client.parse_id_token(token_set.raw, nonce=nonce)
-                    raw_profile.update(dict(id_token_claims))
+                    parsed_id_token = await oauth_client.parse_id_token(token_set.raw, nonce=nonce)
+                    id_token_claims = dict(parsed_id_token)
                 except Exception as exc:
+                    error_code = "oauth_code_verification_failed"
+                    description = "failed to validate provider id token"
                     raise OAuthCallbackError(
-                        "oauth_code_verification_failed",
-                        "failed to validate provider id token",
+                        error_code,
+                        description,
                     ) from exc
-
-            fetched_profile = await self._fetch_userinfo(oauth_client, token_set)
-            if isinstance(fetched_profile, OAuthUserInfo):
-                if raw_profile:
-                    merged_raw = dict(raw_profile)
-                    merged_raw.update(fetched_profile.raw)
-                    return OAuthUserInfo(
-                        provider_account_id=fetched_profile.provider_account_id,
-                        email=fetched_profile.email,
-                        email_verified=fetched_profile.email_verified,
-                        name=fetched_profile.name,
-                        image=fetched_profile.image,
-                        raw=merged_raw,
-                    )
-                return fetched_profile
-            if fetched_profile is not None:
-                raw_profile.update(fetched_profile)
-
-        if not raw_profile:
-            raise OAuthCallbackError("user_info_missing", "provider did not return a usable profile")
-        return self.map_profile(raw_profile, token_set)
-
-    def map_profile(self, raw_profile: RawProfile, token_set: OAuthTokenSet) -> OAuthUserInfo:
-        if self.config.map_profile is not None:
-            return self.config.map_profile(raw_profile, token_set)
-
-        provider_account_id = coerce_optional_str(raw_profile.get("sub")) or coerce_optional_str(raw_profile.get("id"))
-        if provider_account_id is None:
-            msg = "provider user info missing subject identifier"
-            raise OAuthError(msg)
-
-        email_verified = False
-        if isinstance(raw_profile.get("email_verified"), bool):
-            email_verified = raw_profile["email_verified"]
-        elif isinstance(raw_profile.get("verified_email"), bool):
-            email_verified = raw_profile["verified_email"]
-
-        return OAuthUserInfo(
-            provider_account_id=provider_account_id,
-            email=coerce_optional_str(raw_profile.get("email")),
-            email_verified=email_verified,
-            name=coerce_optional_str(raw_profile.get("name")),
-            image=coerce_optional_str(raw_profile.get("picture")) or coerce_optional_str(raw_profile.get("avatar_url")),
-            raw=dict(raw_profile),
-        )
+            return await self._strategy.resolve_profile(
+                oauth_client=oauth_client,
+                config=self.config,
+                token_set=token_set,
+                metadata=metadata,
+                id_token_claims=id_token_claims,
+            )
 
     def validate_issuer_parameter(self, issuer: str | None, metadata: dict[str, Any]) -> None:
         expected_issuer = self.config.issuer or coerce_optional_str(metadata.get("issuer"))
@@ -236,10 +273,14 @@ class OAuthTransport:
             return
         if issuer is None:
             if self.config.require_issuer_parameter_validation:
-                raise OAuthCallbackError("issuer_missing", "missing OAuth issuer parameter")
+                error_code = "issuer_missing"
+                description = "missing OAuth issuer parameter"
+                raise OAuthCallbackError(error_code, description)
             return
         if issuer != expected_issuer:
-            raise OAuthCallbackError("issuer_mismatch", "OAuth issuer mismatch")
+            error_code = "issuer_mismatch"
+            description = "OAuth issuer mismatch"
+            raise OAuthCallbackError(error_code, description)
 
     def token_payload(self, token_set: OAuthTokenSet) -> dict[str, Any]:
         payload = dict(token_set.raw)
@@ -269,22 +310,6 @@ class OAuthTransport:
             raise ConfigurationError(msg)
         return str(value)
 
-    async def _fetch_userinfo(
-        self,
-        oauth_client: AuthlibOIDCClient,
-        token_set: OAuthTokenSet,
-    ) -> RawProfile | OAuthUserInfo | None:
-        metadata = await oauth_client.load_server_metadata()
-        if self.config.get_userinfo is not None:
-            return await self.config.get_userinfo(oauth_client, token_set, metadata)
-        if metadata.get("userinfo_endpoint") is None:
-            return None
-        try:
-            profile = await oauth_client.userinfo()
-        except Exception as exc:
-            raise OAuthCallbackError("user_info_missing", "failed to fetch provider user info") from exc
-        return dict(profile)
-
     def _manual_metadata(self) -> dict[str, Any]:
         return {
             "authorization_endpoint": self.config.authorization_endpoint,
@@ -302,7 +327,7 @@ class OAuthTransport:
         token: dict[str, Any] | None = None,
     ) -> AuthlibOIDCClient:
         return AuthlibOIDCClient(
-            client_id=self.config.client_id,
+            client_id=self.config.primary_client_id,
             client_secret=self.config.client_secret.get_secret_value() if self.config.client_secret else None,
             token_endpoint_auth_method=self.config.token_endpoint_auth_method,
             scope=scope,
@@ -311,5 +336,6 @@ class OAuthTransport:
             server_metadata_url=self.config.discovery_url,
             server_metadata=server_metadata,
             discovery_headers=self.config.discovery_headers,
+            accepted_client_ids=self.config.accepted_client_ids,
             code_challenge_method=self.config.code_challenge_method,
         )

@@ -36,8 +36,11 @@ class OAuthAccountProtocol(Protocol):
     provider_account_id: str
     access_token: str | None
     refresh_token: str | None
-    expires_at: datetime | None
+    access_token_expires_at: datetime | None
+    refresh_token_expires_at: datetime | None
+    token_type: str | None
     scope: str | None
+    id_token: str | None
 
 class SessionProtocol(Protocol):
     id: UUID
@@ -47,7 +50,17 @@ class SessionProtocol(Protocol):
 class OAuthStateProtocol(Protocol):
     id: UUID
     state: str
+    provider: str | None
+    user_id: UUID | None
     expires_at: datetime
+    code_verifier: str | None
+    nonce: str | None
+    intent: str
+    redirect_url: str | None
+    error_redirect_url: str | None
+    new_user_redirect_url: str | None
+    payload: dict[str, object] | list[object] | str | int | float | bool | None
+    request_sign_up: bool
 ```
 
 ## SQLAlchemy Implementation
@@ -103,11 +116,13 @@ class OAuthAccount(Base):
     provider_account_id: Mapped[str] = mapped_column(Text)
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    access_token_expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    refresh_token_expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
     scope: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Optional fields
     token_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    id_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC),
@@ -143,7 +158,20 @@ class OAuthState(Base):
     # Required by OAuthStateProtocol
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     state: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     expires_at: Mapped[datetime] = mapped_column()
+    code_verifier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nonce: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intent: Mapped[str] = mapped_column(Text, default="signin")
+    redirect_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_redirect_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_user_redirect_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload: Mapped[dict[str, object] | list[object] | str | int | float | bool | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+    request_sign_up: Mapped[bool] = mapped_column(default=False)
 
     # Optional fields
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))

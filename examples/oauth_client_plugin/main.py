@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from belgie import Belgie, BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie.alchemy import BelgieAdapter
-from belgie.oauth.provider import OAuthClient, OAuthProvider
+from belgie.oauth.google import GoogleOAuth, GoogleOAuthClient
 from examples.alchemy.auth_models import Account, Individual, OAuthAccount, OAuthState, Session
 
 DB_PATH = "./belgie_oauth_client_example.db"
@@ -113,17 +113,13 @@ belgie = Belgie(
 )
 
 google_oauth_plugin = belgie.add_plugin(
-    OAuthProvider(
-        provider_id="google",
+    GoogleOAuth(
         client_id="your-google-client-id",
         client_secret=SecretStr("your-google-client-secret"),
-        discovery_url="https://accounts.google.com/.well-known/openid-configuration",
         scopes=["openid", "email", "profile"],
-        access_type="offline",
-        prompt="consent",
     ),
 )
-type GoogleClientDep = Annotated[OAuthClient, Depends(google_oauth_plugin)]
+type GoogleClientDep = Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)]
 type CurrentIndividualDep = Annotated[Individual, Depends(belgie.individual)]
 type CurrentSessionDep = Annotated[Session, Depends(belgie.session)]
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+# ruff: noqa: TC001
 import re
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
+from belgie_oauth._helpers import accepted_client_ids, normalize_client_id, primary_client_id
 from belgie_oauth._models import (
     OAuthResponseMode,
     OAuthStateStrategy,
@@ -14,6 +16,7 @@ from belgie_oauth._models import (
     TokenRefreshOverride,
     UserInfoFetcher,
 )
+from belgie_oauth._strategy import OAuthProviderStrategy
 
 if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
@@ -25,7 +28,7 @@ class OAuthProvider(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     provider_id: str
-    client_id: str
+    client_id: str | list[str]
     client_secret: SecretStr | None = None
     discovery_url: str | None = None
     issuer: str | None = None
@@ -56,22 +59,28 @@ class OAuthProvider(BaseModel):
     trusted_for_account_linking: bool = False
     encrypt_tokens: bool = False
     token_encryption_secret: SecretStr | None = None
+    strategy: OAuthProviderStrategy | None = None
     get_token: TokenExchangeOverride | None = None
     get_userinfo: UserInfoFetcher | None = None
     refresh_tokens: TokenRefreshOverride | None = None
     map_profile: ProfileMapper | None = None
 
-    @field_validator("provider_id", "client_id")
+    @field_validator("provider_id")
     @classmethod
-    def validate_non_empty(cls, value: str, info) -> str:  # noqa: ANN001
+    def validate_provider_id(cls, value: str, info: ValidationInfo) -> str:
         if not value or not value.strip():
             msg = f"{info.field_name} must be a non-empty string"
             raise ValueError(msg)
         normalized = value.strip()
-        if info.field_name == "provider_id" and re.fullmatch(r"[A-Za-z0-9_-]+", normalized) is None:
+        if re.fullmatch(r"[A-Za-z0-9_-]+", normalized) is None:
             msg = "provider_id may only contain letters, numbers, underscores, and hyphens"
             raise ValueError(msg)
         return normalized
+
+    @field_validator("client_id")
+    @classmethod
+    def validate_client_id(cls, value: str | list[str]) -> str | list[str]:
+        return normalize_client_id(value)
 
     @field_validator("client_secret")
     @classmethod
@@ -89,11 +98,20 @@ class OAuthProvider(BaseModel):
         if self.discovery_url is None and (not self.authorization_endpoint or not self.token_endpoint):
             msg = "OAuthProvider requires discovery_url or both authorization_endpoint and token_endpoint"
             raise ValueError(msg)
-        if self.client_secret is None and self.token_endpoint_auth_method != "none":
-            self.token_endpoint_auth_method = "none"
+        none_auth_method = "none"
+        if self.client_secret is None and self.token_endpoint_auth_method != none_auth_method:
+            self.token_endpoint_auth_method = none_auth_method
         return self
 
+    @property
+    def primary_client_id(self) -> str:
+        return primary_client_id(self.client_id)
+
+    @property
+    def accepted_client_ids(self) -> tuple[str, ...]:
+        return accepted_client_ids(self.client_id)
+
     def __call__(self, belgie_settings: BelgieSettings) -> OAuthPlugin:
-        from belgie_oauth.generic import OAuthPlugin
+        from belgie_oauth.generic import OAuthPlugin  # noqa: PLC0415
 
         return OAuthPlugin(belgie_settings, self)

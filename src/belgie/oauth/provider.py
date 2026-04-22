@@ -1,4 +1,4 @@
-"""Generic OAuth client re-exports for belgie consumers."""
+"""Advanced/custom OAuth client re-exports for belgie consumers."""
 
 _OAUTH_CLIENT_IMPORT_ERROR = (
     "belgie.oauth.provider requires the 'oauth-client' extra. Install with: uv add belgie[oauth-client]"

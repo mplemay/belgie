@@ -6,17 +6,21 @@
 `belgie-oauth` is Belgie's Authlib-backed OAuth 2.0 / OpenID Connect client runtime.
 It keeps the public integration centered on:
 
+- `GoogleOAuth` / `GoogleOAuthClient`
+- `MicrosoftOAuth` / `MicrosoftOAuthClient`
 - `OAuthProvider`
 - `OAuthPlugin`
 - `OAuthClient`
 - `OAuthTokenSet`
 - `OAuthLinkedAccount`
 - `OAuthUserInfo`
-- Google and Microsoft preset wrappers
+
+Provider presets are the primary API. `OAuthProvider` remains public as the advanced custom-provider escape hatch.
 
 Internally, the runtime is split the same way better-auth is:
 
-- transport: discovery, authorization URL generation, code exchange, refresh, ID-token validation, userinfo fetch
+- transport: discovery, authorization URL generation, code exchange, refresh, and Authlib-backed ID-token validation
+- provider strategy: provider-owned auth request defaults, userinfo/profile resolution, and refresh specialization
 - state: adapter-backed or cookie-backed OAuth state handling
 - flow: sign-in, account linking, callback orchestration, redirects, and persistence updates
 
@@ -42,7 +46,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import SecretStr
 
 from belgie import Belgie, BelgieSettings
-from belgie_oauth import OAuthClient, OAuthProvider
+from belgie_oauth import GoogleOAuth, GoogleOAuthClient
 
 settings = BelgieSettings(
     secret="your-secret-key",
@@ -56,14 +60,10 @@ auth = Belgie(
 )
 
 google = auth.add_plugin(
-    OAuthProvider(
-        provider_id="google",
+    GoogleOAuth(
         client_id="your-google-client-id",
         client_secret=SecretStr("your-google-client-secret"),
-        discovery_url="https://accounts.google.com/.well-known/openid-configuration",
         scopes=["openid", "email", "profile"],
-        access_type="offline",
-        prompt="consent",
     )
 )
 
@@ -73,7 +73,7 @@ app.include_router(auth.router)
 
 @app.get("/login/google")
 async def login_google(
-    oauth: Annotated[OAuthClient, Depends(google)],
+    oauth: Annotated[GoogleOAuthClient, Depends(google)],
     return_to: str | None = None,
 ):
     url = await oauth.signin_url(
@@ -97,19 +97,19 @@ required state cookie or marker and then redirects to the provider. The app-owne
 
 ## Account Operations
 
-`OAuthClient` exposes both flow helpers and post-sign-in account operations:
+Provider clients expose both flow helpers and post-sign-in account operations:
 
 ```python
 from typing import Annotated
 
 from fastapi import Depends
 
-from belgie_oauth import OAuthClient
+from belgie_oauth import GoogleOAuthClient
 
 
 @app.get("/accounts/google")
 async def list_google_accounts(
-    oauth: Annotated[OAuthClient, Depends(google)],
+    oauth: Annotated[GoogleOAuthClient, Depends(google)],
     user: Annotated[Individual, Depends(auth.individual)],
 ):
     return await oauth.list_accounts(individual_id=user.id)
@@ -117,7 +117,7 @@ async def list_google_accounts(
 
 @app.get("/accounts/google/token-set")
 async def google_token_set(
-    oauth: Annotated[OAuthClient, Depends(google)],
+    oauth: Annotated[GoogleOAuthClient, Depends(google)],
     user: Annotated[Individual, Depends(auth.individual)],
     provider_account_id: str,
 ):
@@ -138,7 +138,7 @@ async def google_token_set(
 
 @app.get("/accounts/google/access-token")
 async def google_access_token(
-    oauth: Annotated[OAuthClient, Depends(google)],
+    oauth: Annotated[GoogleOAuthClient, Depends(google)],
     user: Annotated[Individual, Depends(auth.individual)],
     provider_account_id: str,
 ):
@@ -203,11 +203,16 @@ GET|POST /auth/provider/{provider_id}/callback
 `form_post` callbacks are normalized before validation so cookie-backed state remains usable even when the browser does
 not send the cookie on the initial cross-site POST.
 
-## Provider Configuration
+## Custom Providers
+
+Provider presets are the primary API. Use `OAuthProvider` when you need a custom or non-built-in provider.
 
 `OAuthProvider` supports:
 
 - OIDC discovery or manual `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` / `jwks_uri`
+- `client_id` as either a single string or an ordered list of accepted client IDs
+  - Belgie uses the first entry for authorization requests and token exchange
+  - Belgie accepts any configured entry when validating OIDC ID-token audiences
 - PKCE on or off
 - query-mode or `form_post` callbacks
 - RFC 9207 `iss` validation through `issuer` and `require_issuer_parameter_validation`
@@ -246,10 +251,12 @@ provider = OAuthProvider(
 ```
 
 Public-client providers are first-class. If `client_secret=None`, Belgie will use `token_endpoint_auth_method="none"`.
+Cross-platform OIDC apps can also provide `client_id=["web-client-id", "ios-client-id"]` when the provider issues
+ID tokens for multiple accepted audiences.
 
 ## Presets
 
-The generic runtime is the primary API, but presets remain available:
+Google and Microsoft presets are the intended default entrypoints:
 
 ```python
 from belgie_oauth import GoogleOAuth, MicrosoftOAuth
@@ -261,8 +268,9 @@ from belgie_oauth import GoogleOAuth, MicrosoftOAuth
 - default scopes: `openid email profile`
 - default `prompt="consent"`
 - default `access_type="offline"`
-- `include_granted_scopes` works through `authorization_params`
-- ID-token validation first, userinfo merge/fallback second
+- `include_granted_scopes=true` and optional hosted-domain routing
+- shared options from the generic runtime, including `state_strategy`, PKCE, nonce, `response_mode`, and token params
+- ID-token validation first, userinfo fallback only when needed
 
 ### Microsoft
 
@@ -271,8 +279,10 @@ from belgie_oauth import GoogleOAuth, MicrosoftOAuth
 - callback issuer validation only for tenant-specific issuers
 - JWKS-backed ID-token verification through Authlib
 - Graph OIDC userinfo support
+- optional Graph photo enrichment
 - conservative `email_verified` handling
 - public-client mode works with `client_secret=None`
+- shared options from the generic runtime, including `state_strategy`, PKCE, nonce, `response_mode`, and token params
 
 ## Hook Visibility
 
@@ -296,6 +306,6 @@ Not adopted:
 
 ## Examples
 
-- [`examples/oauth_client_plugin`](../../examples/oauth_client_plugin): generic OAuth client plugin flow, linked
-  accounts, and the new token expiry fields
-- [`examples/auth`](../../examples/auth): end-to-end Belgie auth example using the generic provider API
+- [`examples/oauth_client_plugin`](../../examples/oauth_client_plugin): Google client plugin flow, linked accounts,
+  and the token expiry fields
+- [`examples/auth`](../../examples/auth): end-to-end Belgie auth example using `GoogleOAuth(...)`

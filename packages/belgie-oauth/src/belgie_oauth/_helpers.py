@@ -67,6 +67,39 @@ def generate_code_verifier() -> str:
     return secrets.token_urlsafe(64)
 
 
+def normalize_client_id(value: str | list[str], *, field_name: str = "client_id") -> str | list[str]:
+    if isinstance(value, str):
+        if not value or not value.strip():
+            msg = f"{field_name} must be a non-empty string"
+            raise ValueError(msg)
+        return value.strip()
+
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            msg = f"{field_name} entries must be non-empty strings"
+            raise ValueError(msg)
+        normalized.append(item.strip())
+
+    if not normalized:
+        msg = f"{field_name} must contain at least one non-empty string"
+        raise ValueError(msg)
+
+    return normalized
+
+
+def primary_client_id(value: str | list[str]) -> str:
+    if isinstance(value, str):
+        return value
+    return value[0]
+
+
+def accepted_client_ids(value: str | list[str]) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)
+
+
 def coerce_optional_str(value: object) -> str | None:
     if value is None:
         return None

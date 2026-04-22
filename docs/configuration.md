@@ -124,6 +124,9 @@ google = GoogleOAuth(
 )
 ```
 
+`client_id` can also be an ordered list such as `["web-client-id", "ios-client-id"]` for providers that may issue
+ID tokens to multiple accepted audiences. Belgie uses the first entry for authorization requests.
+
 ### Getting Credentials
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
@@ -165,6 +168,8 @@ microsoft = MicrosoftOAuth(
     tenant="common",
 )
 ```
+
+`client_id` can also be an ordered list when you need to accept ID tokens issued for multiple Microsoft app clients.
 
 ### Getting Credentials
 
