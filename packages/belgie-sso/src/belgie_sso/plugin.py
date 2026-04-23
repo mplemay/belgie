@@ -28,7 +28,7 @@ from fastapi.security import SecurityScopes
 from pydantic import SecretStr
 
 from belgie_sso.client import SSOClient
-from belgie_sso.discovery import ValidatingOAuthTransport, needs_runtime_discovery
+from belgie_sso.discovery import DiscoveryError, ValidatingOAuthTransport, needs_runtime_discovery
 from belgie_sso.models import SSOProvisioningContext
 from belgie_sso.org_assignment import (
     assign_individual_by_domain,
@@ -388,10 +388,32 @@ class SSOPlugin[
     ) -> RedirectResponse:
         await self._ensure_provider_verified_or_http(client=client, provider=provider)
         transport = self._build_oidc_transport(provider)
+        normalized_redirect = self._normalize_redirect_target(redirect_to)
+        normalized_error_redirect = self._normalize_redirect_target(error_redirect_url)
+        normalized_new_user_redirect = self._normalize_redirect_target(new_user_redirect_url)
         state = generate_state_token()
         code_verifier = generate_code_verifier() if transport.config.use_pkce else None
         nonce = generate_state_token() if transport.should_use_nonce(scopes) else None
         expires_at = datetime.now(UTC) + timedelta(seconds=self._settings.state_ttl_seconds)
+        try:
+            authorization_url = await transport.generate_authorization_url(
+                state,
+                scopes=scopes,
+                authorization_params={"login_hint": login_hint.strip()}
+                if login_hint
+                else {"login_hint": email.lower()}
+                if email
+                else None,
+                code_verifier=code_verifier,
+                nonce=nonce,
+            )
+        except DiscoveryError as exc:
+            if target := normalized_error_redirect or normalized_redirect:
+                return self._error_redirect_response(
+                    exc=OAuthCallbackError("discovery_failed", str(exc)),
+                    target=target,
+                )
+            self._raise_discovery_http_exception(exc)
         cookies = await self._state_store.create_authorization_state(
             client,
             PendingOAuthState(
@@ -401,9 +423,9 @@ class SSOPlugin[
                 code_verifier=code_verifier,
                 nonce=nonce,
                 intent="signin",
-                redirect_url=self._normalize_redirect_target(redirect_to),
-                error_redirect_url=self._normalize_redirect_target(error_redirect_url),
-                new_user_redirect_url=self._normalize_redirect_target(new_user_redirect_url),
+                redirect_url=normalized_redirect,
+                error_redirect_url=normalized_error_redirect,
+                new_user_redirect_url=normalized_new_user_redirect,
                 payload={
                     "provider_id": provider.provider_id,
                     "flow": "oidc",
@@ -412,22 +434,11 @@ class SSOPlugin[
                 expires_at=expires_at,
             ),
         )
-        authorization_url = await transport.generate_authorization_url(
-            state,
-            scopes=scopes,
-            authorization_params={"login_hint": login_hint.strip()}
-            if login_hint
-            else {"login_hint": email.lower()}
-            if email
-            else None,
-            code_verifier=code_verifier,
-            nonce=nonce,
-        )
         response = RedirectResponse(url=authorization_url, status_code=status.HTTP_302_FOUND)
         self._apply_response_cookies(response, cookies)
         return response
 
-    async def _complete_oidc_callback(
+    async def _complete_oidc_callback(  # noqa: PLR0912
         self,
         *,
         belgie: Belgie,
@@ -455,8 +466,14 @@ class SSOPlugin[
             await self._ensure_provider_verified_or_oauth_error(client=client, provider=provider)
 
             transport = self._build_oidc_transport(provider)
-            metadata = await transport.resolve_server_metadata()
-            transport.validate_issuer_parameter(callback_params.get("iss"), metadata)
+            try:
+                metadata = await transport.resolve_server_metadata()
+            except DiscoveryError as exc:
+                raise OAuthCallbackError("discovery_failed", str(exc)) from exc
+            try:
+                transport.validate_issuer_parameter(callback_params.get("iss"), metadata)
+            except ValueError as exc:
+                raise OAuthCallbackError("issuer_mismatch", str(exc)) from exc
 
             request.state.oauth_state = consumed_state
             request.state.oauth_payload = consumed_state.payload
@@ -476,6 +493,8 @@ class SSOPlugin[
                     token_set,
                     nonce=consumed_state.nonce,
                 )
+            except DiscoveryError as exc:
+                raise OAuthCallbackError("discovery_failed", str(exc)) from exc
             except OAuthError as exc:
                 if isinstance(exc, OAuthCallbackError):
                     raise
@@ -1483,6 +1502,7 @@ class SSOPlugin[
                 target,
                 {
                     "error": exc.code if isinstance(exc, OAuthCallbackError) else "oauth_callback_failed",
+                    "error_description": str(exc),
                 },
             ),
             status_code=status.HTTP_302_FOUND,
@@ -1501,6 +1521,18 @@ class SSOPlugin[
             base_url=self._belgie_settings.base_url,
             trusted_origins=self._settings.trusted_origins,
         )
+
+    @staticmethod
+    def _raise_discovery_http_exception(exc: DiscoveryError) -> None:
+        if exc.code in {"discovery_timeout", "discovery_unexpected_error"}:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"OIDC discovery failed: {exc}",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OIDC discovery failed: {exc}",
+        ) from exc
 
     def _provider_oidc_config(self, provider: ProviderT) -> OIDCProviderConfig:
         if provider.oidc_config is None:

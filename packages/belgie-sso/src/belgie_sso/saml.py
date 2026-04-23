@@ -21,6 +21,8 @@ from signxml.verifier import SignatureConfiguration
 from belgie_sso.utils import parse_bool_claim
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+
     from belgie_proto.core.json import JSONValue
     from belgie_proto.sso import SAMLProviderConfig, SSOProviderProtocol
     from fastapi import Request
@@ -285,7 +287,8 @@ class BuiltinSAMLEngine:
             msg = "expected a SAML Response document"
             raise RuntimeError(msg)
         _reject_encrypted_assertions(root)
-        _validate_destination(root, expected_destination=current_url)
+        callback_urls = _equivalent_callback_urls(current_url)
+        _validate_destination(root, expected_destinations=callback_urls)
         _validate_response_issuer(root, expected_issuer=provider.issuer)
         _validate_algorithms(root, settings=self._settings)
         _verify_saml_message(
@@ -300,7 +303,7 @@ class BuiltinSAMLEngine:
         _validate_response_status(root)
         assertion = _require_single_assertion(root)
         _validate_time_window(root, settings=self._settings)
-        _validate_subject_confirmation(assertion, settings=self._settings, expected_recipient=current_url)
+        _validate_subject_confirmation(assertion, settings=self._settings, expected_recipients=callback_urls)
         _validate_audience(assertion, expected_audience=config.audience or config.entity_id)
         in_response_to = _response_in_response_to(root, assertion)
         if self._settings.validate_in_response_to:
@@ -416,7 +419,7 @@ class BuiltinSAMLEngine:
             if _local_name(root.tag) != "LogoutRequest":
                 msg = "expected a SAML LogoutRequest document"
                 raise RuntimeError(msg)
-            _validate_destination(root, expected_destination=current_url)
+            _validate_destination(root, expected_destinations=(current_url,))
             _validate_response_issuer(root, expected_issuer=provider.issuer)
             _validate_algorithms(root, settings=self._settings)
             _verify_saml_message(
@@ -447,7 +450,7 @@ class BuiltinSAMLEngine:
             if _local_name(root.tag) != "LogoutResponse":
                 msg = "expected a SAML LogoutResponse document"
                 raise RuntimeError(msg)
-            _validate_destination(root, expected_destination=current_url)
+            _validate_destination(root, expected_destinations=(current_url,))
             _validate_response_issuer(root, expected_issuer=provider.issuer)
             _validate_algorithms(root, settings=self._settings)
             _verify_saml_message(
@@ -572,6 +575,23 @@ def _derive_slo_url(acs_url: str) -> str:
     return urlunparse(parsed._replace(path=path, query="", fragment=""))
 
 
+def _equivalent_callback_urls(current_url: str) -> tuple[str, ...]:
+    parsed = urlparse(current_url)
+    if "/callback/" in parsed.path:
+        alternate_path = parsed.path.replace("/callback/", "/acs/", 1)
+    elif "/acs/" in parsed.path:
+        alternate_path = parsed.path.replace("/acs/", "/callback/", 1)
+    elif parsed.path.endswith("/callback"):
+        alternate_path = parsed.path[: -len("/callback")] + "/acs"
+    elif parsed.path.endswith("/acs"):
+        alternate_path = parsed.path[: -len("/acs")] + "/callback"
+    else:
+        return (current_url,)
+
+    alternate_url = urlunparse(parsed._replace(path=alternate_path, query="", fragment=""))
+    return (current_url,) if alternate_url == current_url else (current_url, alternate_url)
+
+
 def _build_saml_result(  # noqa: PLR0913
     *,
     destination: str,
@@ -694,9 +714,9 @@ def _local_name(tag: str) -> str:
     return tag.rsplit("}", maxsplit=1)[-1]
 
 
-def _validate_destination(root: ET._Element, *, expected_destination: str) -> None:
+def _validate_destination(root: ET._Element, *, expected_destinations: Collection[str]) -> None:
     destination = root.attrib.get("Destination")
-    if destination is not None and destination != expected_destination:
+    if destination is not None and destination not in expected_destinations:
         msg = "SAML destination mismatch"
         raise RuntimeError(msg)
 
@@ -901,7 +921,7 @@ def _validate_subject_confirmation(
     assertion: ET._Element,
     *,
     settings: SAMLSecuritySettings,
-    expected_recipient: str,
+    expected_recipients: Collection[str],
 ) -> None:
     confirmations = [element for element in assertion.iter() if _local_name(element.tag) == "SubjectConfirmationData"]
     if not confirmations:
@@ -911,7 +931,7 @@ def _validate_subject_confirmation(
     now = datetime.now(UTC)
     for element in confirmations:
         recipient = element.attrib.get("Recipient")
-        if recipient is not None and recipient != expected_recipient:
+        if recipient is not None and recipient not in expected_recipients:
             msg = "SAML subject recipient mismatch"
             raise RuntimeError(msg)
         not_before = _parse_saml_datetime(element.attrib.get("NotBefore"))

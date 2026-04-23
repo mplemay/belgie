@@ -15,6 +15,7 @@ from belgie_core.core.plugin import AuthenticatedProfile
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_proto.sso import OIDCProviderConfig
+from belgie_sso.discovery import DiscoveryError
 from belgie_sso.plugin import SSOPlugin
 from belgie_sso.saml import SAMLResponseProfile, SAMLStartResult
 from belgie_sso.settings import DefaultSSOProviderConfig, DomainVerificationSettings, EnterpriseSSO
@@ -480,6 +481,35 @@ class FakeOIDCTransport:
         )
 
 
+class FailingDiscoveryOIDCTransport(FakeOIDCTransport):
+    def __init__(
+        self,
+        *,
+        fail_on_generate: bool = False,
+        fail_on_metadata: bool = False,
+        fail_on_exchange: bool = False,
+    ) -> None:
+        super().__init__()
+        self._fail_on_generate = fail_on_generate
+        self._fail_on_metadata = fail_on_metadata
+        self._fail_on_exchange = fail_on_exchange
+
+    async def generate_authorization_url(self, state: str, **kwargs: object) -> str:
+        if self._fail_on_generate:
+            raise DiscoveryError("discovery_timeout", "Discovery request timed out")
+        return await super().generate_authorization_url(state, **kwargs)
+
+    async def resolve_server_metadata(self) -> dict[str, str]:
+        if self._fail_on_metadata:
+            raise DiscoveryError("discovery_invalid_json", "Discovery endpoint returned invalid JSON")
+        return await super().resolve_server_metadata()
+
+    async def exchange_code_for_tokens(self, code: str, *, code_verifier: str | None = None) -> OAuthTokenSet:
+        if self._fail_on_exchange:
+            raise DiscoveryError("discovery_not_found", "Discovery endpoint not found")
+        return await super().exchange_code_for_tokens(code, code_verifier=code_verifier)
+
+
 class FakeSAMLEngine:
     async def metadata_xml(self, *, provider, config, acs_url):
         return f'<EntityDescriptor entityID="{config.entity_id}"><AssertionConsumerService Location="{acs_url}"/></EntityDescriptor>'
@@ -511,6 +541,10 @@ def build_plugin(
     include_second_org_provider: bool = False,
     trusted_providers: tuple[str, ...] = (),
     redirect_uri: str | None = None,
+    disable_sign_up: bool = False,
+    disable_implicit_sign_up: bool = False,
+    provision_user: object | None = None,
+    provision_user_on_every_login: bool = False,
     saml_engine: object | None = None,
     use_builtin_saml_engine: bool = False,
 ) -> tuple[SSOPlugin, FakeBelgieClient, FakeOrganizationAdapter]:
@@ -634,6 +668,10 @@ def build_plugin(
         default_providers=default_providers,
         redirect_uri=redirect_uri,
         trusted_providers=trusted_providers,
+        disable_sign_up=disable_sign_up,
+        disable_implicit_sign_up=disable_implicit_sign_up,
+        provision_user=provision_user,
+        provision_user_on_every_login=provision_user_on_every_login,
         domain_verification=DomainVerificationSettings(enabled=domain_verification_enabled),
         trust_email_verified=use_builtin_saml_engine,
     )
@@ -981,6 +1019,84 @@ def test_callback_falls_back_to_redirect_target_when_error_redirect_is_missing(m
     assert response.headers["location"].startswith("/after?error=signup_disabled")
 
 
+def test_signin_redirects_to_error_target_when_oidc_discovery_fails(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(
+        plugin,
+        "_build_oidc_transport",
+        lambda provider: FailingDiscoveryOIDCTransport(fail_on_generate=True),
+    )
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    response = client.get(
+        "/auth/provider/sso/signin?provider_id=acme&error_redirect_url=%2Ferror",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("/error?error=discovery_failed")
+    assert "error_description=Discovery+request+timed+out" in response.headers["location"]
+    assert client_dependency.adapter.oauth_states == {}
+
+
+def test_signin_returns_http_error_when_oidc_discovery_fails_without_redirect_target(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(
+        plugin,
+        "_build_oidc_transport",
+        lambda provider: FailingDiscoveryOIDCTransport(fail_on_generate=True),
+    )
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    response = client.get("/auth/provider/sso/signin?provider_id=acme", follow_redirects=False)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "OIDC discovery failed: Discovery request timed out"
+
+
+def test_callback_redirects_to_error_target_when_oidc_runtime_discovery_fails(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(
+        plugin,
+        "_build_oidc_transport",
+        lambda provider: FailingDiscoveryOIDCTransport(fail_on_metadata=True),
+    )
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get(
+        "/auth/provider/sso/signin?provider_id=acme&error_redirect_url=%2Ferror",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlparse(signin.headers["location"]).query)["state"][0]
+
+    response = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("/error?error=discovery_failed")
+    assert "error_description=Discovery+endpoint+returned+invalid+JSON" in response.headers["location"]
+
+
 def test_callback_trusts_provider_in_trusted_providers(monkeypatch) -> None:
     plugin, client_dependency, _ = build_plugin(trusted_providers=("acme",))
     belgie = DummyBelgie(client_dependency)
@@ -1019,6 +1135,71 @@ def test_callback_trusts_provider_in_trusted_providers(monkeypatch) -> None:
     assert response.status_code == 302
     assert response.headers["location"] == "/dashboard"
     assert response.cookies.get("session") is not None
+
+
+def test_callback_request_sign_up_allows_new_user_when_disable_implicit_sign_up_is_enabled(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(disable_implicit_sign_up=True)
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(plugin, "_build_oidc_transport", lambda provider: FakeOIDCTransport())
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get(
+        "/auth/provider/sso/signin?provider_id=acme&request_sign_up=true&redirect_to=%2Fafter",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlparse(signin.headers["location"]).query)["state"][0]
+
+    response = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/after"
+    assert len(client_dependency.created_oauth_accounts) == 1
+
+
+def test_provision_user_runs_on_every_login_when_enabled(monkeypatch) -> None:
+    calls: list[bool] = []
+
+    def provision_user(individual: object, context: object) -> None:
+        calls.append(bool(context.created))
+
+    plugin, client_dependency, _ = build_plugin(
+        provision_user=provision_user,
+        provision_user_on_every_login=True,
+    )
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(plugin, "_build_oidc_transport", lambda provider: FakeOIDCTransport())
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin_one = client.get("/auth/provider/sso/signin?provider_id=acme", follow_redirects=False)
+    state_one = parse_qs(urlparse(signin_one.headers["location"]).query)["state"][0]
+    callback_one = client.get(
+        f"/auth/provider/sso/callback?code=test-code-1&state={state_one}",
+        follow_redirects=False,
+    )
+
+    signin_two = client.get("/auth/provider/sso/signin?provider_id=acme", follow_redirects=False)
+    state_two = parse_qs(urlparse(signin_two.headers["location"]).query)["state"][0]
+    callback_two = client.get(
+        f"/auth/provider/sso/callback?code=test-code-2&state={state_two}",
+        follow_redirects=False,
+    )
+
+    assert callback_one.status_code == 302
+    assert callback_two.status_code == 302
+    assert calls == [True, False]
 
 
 @pytest.mark.asyncio
@@ -1209,6 +1390,41 @@ def test_builtin_saml_callback_rejects_replay(monkeypatch) -> None:
     assert second.headers["location"].startswith("/dashboard?error=saml_replay_detected")
 
 
+def test_builtin_saml_callback_rejects_replay_across_callback_and_acs_routes(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(include_saml=True, use_builtin_saml_engine=True)
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme-saml", follow_redirects=False)
+    relay_state = parse_qs(urlparse(signin.headers["location"]).query)["RelayState"][0]
+    request_id = client_dependency.adapter.oauth_states[relay_state].payload["request_id"]
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=request_id,
+        assertion_id="assertion-cross-endpoint",
+    )
+
+    first = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
+        follow_redirects=False,
+    )
+    second = client.post(
+        "/auth/provider/sso/acs/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
+        follow_redirects=False,
+    )
+
+    assert first.status_code == 302
+    assert second.status_code == 302
+    assert second.headers["location"].startswith("/dashboard?error=saml_replay_detected")
+
+
 def test_builtin_saml_rejects_tampered_response(monkeypatch) -> None:
     plugin, client_dependency, _ = build_plugin(include_saml=True, use_builtin_saml_engine=True)
     belgie = DummyBelgie(client_dependency)
@@ -1265,6 +1481,58 @@ def test_builtin_saml_allows_idp_initiated_callback(monkeypatch) -> None:
 
     assert response.status_code == 302
     assert response.headers["location"] == "/welcome"
+
+
+def test_builtin_saml_idp_initiated_callback_rejects_protocol_relative_relay_state(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(include_saml=True, use_builtin_saml_engine=True)
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=None,
+        assertion_id="idp-initiated-protocol-relative",
+    )
+
+    response = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": "//evil.example.com/steal"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
+
+
+def test_builtin_saml_idp_initiated_callback_rejects_callback_loop_relay_state(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(include_saml=True, use_builtin_saml_engine=True)
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=None,
+        assertion_id="idp-initiated-loop",
+    )
+
+    response = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": "/auth/provider/sso/callback/acme-saml"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
 
 
 def test_builtin_saml_rejects_multiple_assertions(monkeypatch) -> None:

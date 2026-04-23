@@ -20,7 +20,7 @@ from belgie_proto.sso import (
 )
 from fastapi import HTTPException, status
 
-from belgie_sso.discovery import discover_oidc_configuration
+from belgie_sso.discovery import DiscoveryError, discover_oidc_configuration
 from belgie_sso.dns import lookup_txt_records
 from belgie_sso.models import SSODomainChallenge, SSOProviderDetail, SSOProviderSummary
 from belgie_sso.utils import (
@@ -152,6 +152,7 @@ class SSOClient[
         self._assert_provider_type(provider, expected_type="oidc")
         await self._require_provider_access(provider)
         existing_config = self._provider_oidc_config(provider)
+        refresh_discovered_endpoints = not skip_discovery and (issuer is not None or discovery_endpoint is not None)
 
         config = await self._resolve_oidc_config(
             issuer=issuer or provider.issuer,
@@ -160,11 +161,37 @@ class SSOClient[
             scopes=scopes or list(existing_config.scopes),
             token_endpoint_auth_method=token_endpoint_auth_method or existing_config.token_endpoint_auth_method,
             claim_mapping=claim_mapping or existing_config.claim_mapping,
-            authorization_endpoint=authorization_endpoint or existing_config.authorization_endpoint,
-            token_endpoint=token_endpoint or existing_config.token_endpoint,
-            userinfo_endpoint=userinfo_endpoint or existing_config.userinfo_endpoint,
-            jwks_uri=jwks_uri or existing_config.jwks_uri,
-            discovery_endpoint=discovery_endpoint or existing_config.discovery_endpoint,
+            authorization_endpoint=(
+                authorization_endpoint
+                if authorization_endpoint is not None
+                else None
+                if refresh_discovered_endpoints
+                else existing_config.authorization_endpoint
+            ),
+            token_endpoint=(
+                token_endpoint
+                if token_endpoint is not None
+                else None
+                if refresh_discovered_endpoints
+                else existing_config.token_endpoint
+            ),
+            userinfo_endpoint=(
+                userinfo_endpoint
+                if userinfo_endpoint is not None
+                else None
+                if refresh_discovered_endpoints
+                else existing_config.userinfo_endpoint
+            ),
+            jwks_uri=(
+                jwks_uri if jwks_uri is not None else None if refresh_discovered_endpoints else existing_config.jwks_uri
+            ),
+            discovery_endpoint=(
+                discovery_endpoint
+                if discovery_endpoint is not None
+                else None
+                if refresh_discovered_endpoints
+                else existing_config.discovery_endpoint
+            ),
             use_pkce=existing_config.use_pkce if use_pkce is None else use_pkce,
             override_user_info_on_sign_in=(
                 existing_config.override_user_info_on_sign_in
@@ -637,19 +664,22 @@ class SSOClient[
         normalized_discovery_endpoint = discovery_endpoint.strip() if discovery_endpoint else None
 
         if not skip_discovery:
-            discovery = await discover_oidc_configuration(
-                issuer=normalized_issuer,
-                client_id=normalized_client_id,
-                client_secret=normalized_client_secret,
-                scopes=resolved_scopes,
-                token_endpoint_auth_method=token_endpoint_auth_method,
-                claim_mapping=resolved_claim_mapping,
-                timeout_seconds=self.settings.discovery_timeout_seconds,
-                discovery_endpoint=normalized_discovery_endpoint,
-                trusted_origins=self.settings.trusted_idp_origins,
-                use_pkce=use_pkce,
-                override_user_info_on_sign_in=override_user_info_on_sign_in,
-            )
+            try:
+                discovery = await discover_oidc_configuration(
+                    issuer=normalized_issuer,
+                    client_id=normalized_client_id,
+                    client_secret=normalized_client_secret,
+                    scopes=resolved_scopes,
+                    token_endpoint_auth_method=token_endpoint_auth_method,
+                    claim_mapping=resolved_claim_mapping,
+                    timeout_seconds=self.settings.discovery_timeout_seconds,
+                    discovery_endpoint=normalized_discovery_endpoint,
+                    trusted_origins=self.settings.trusted_idp_origins,
+                    use_pkce=use_pkce,
+                    override_user_info_on_sign_in=override_user_info_on_sign_in,
+                )
+            except DiscoveryError as exc:
+                self._raise_discovery_http_exception(exc)
             return OIDCProviderConfig(
                 issuer=discovery.issuer,
                 client_id=discovery.config.client_id,
@@ -853,6 +883,58 @@ class SSOClient[
 
     def _generate_verification_token(self) -> str:
         return secrets.token_urlsafe(24)
+
+    @staticmethod
+    def _raise_discovery_http_exception(exc: DiscoveryError) -> None:
+        if exc.code == "discovery_timeout":
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"OIDC discovery timed out: {exc}",
+            ) from exc
+        if exc.code == "discovery_unexpected_error":
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"OIDC discovery failed: {exc}",
+            ) from exc
+        if exc.code == "discovery_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"OIDC discovery endpoint not found: {exc}",
+            ) from exc
+        if exc.code == "discovery_invalid_url":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid OIDC discovery URL: {exc}",
+            ) from exc
+        if exc.code == "discovery_untrusted_origin":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"untrusted OIDC discovery URL: {exc}",
+            ) from exc
+        if exc.code == "discovery_invalid_json":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"OIDC discovery returned invalid data: {exc}",
+            ) from exc
+        if exc.code == "discovery_incomplete":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"OIDC discovery document is missing required fields: {exc}",
+            ) from exc
+        if exc.code == "issuer_mismatch":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"OIDC issuer mismatch: {exc}",
+            ) from exc
+        if exc.code == "unsupported_token_auth_method":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"incompatible OIDC provider: {exc}",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"OIDC discovery failed: {exc}",
+        ) from exc
 
     async def _provider_domains(self, provider: ProviderT) -> tuple[tuple[str, ...], tuple[str, ...]]:
         domains = await self.settings.adapter.list_domains_for_provider(self.client.db, sso_provider_id=provider.id)
