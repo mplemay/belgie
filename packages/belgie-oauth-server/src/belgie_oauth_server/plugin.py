@@ -195,8 +195,6 @@ def _authorization_query_parts(
         parts["nonce"] = params.nonce
     if params.prompt:
         parts["prompt"] = params.prompt
-    if params.resource:
-        parts["resource"] = params.resource
     for key in (
         "request_uri",
         "display",
@@ -230,8 +228,6 @@ def _authorization_query_parts_for_state(
         parts["nonce"] = data.nonce
     if data.prompt:
         parts["prompt"] = data.prompt
-    if data.resource:
-        parts["resource"] = data.resource
     return parts
 
 
@@ -2113,7 +2109,6 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
 
     prompt = _normalize_prompt_values(prompt_values)
 
-    resource_raw = _get_str(resolved_data, "resource")
     params = AuthorizationParams(
         state=state,
         scopes=scopes,
@@ -2121,7 +2116,7 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
         code_challenge_method=code_challenge_method_value,
         redirect_uri=validated_redirect_uri,
         redirect_uri_provided_explicitly=redirect_uri_raw is not None,
-        resource=resource_raw,
+        resource=None,
         nonce=_get_str(resolved_data, "nonce"),
         prompt=prompt,
         intent=_derive_initial_intent(prompt_values),
