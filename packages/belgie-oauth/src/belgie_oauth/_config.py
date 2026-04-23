@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator, model_validator
 
 from belgie_oauth._helpers import accepted_client_ids, normalize_client_id, primary_client_id
-from belgie_oauth._models import (
+from belgie_oauth._strategy import OAuthProviderStrategy
+from belgie_oauth._types import (
     OAuthResponseMode,
     OAuthStateStrategy,
     ProfileMapper,
@@ -16,7 +17,6 @@ from belgie_oauth._models import (
     TokenRefreshOverride,
     UserInfoFetcher,
 )
-from belgie_oauth._strategy import OAuthProviderStrategy
 
 if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings

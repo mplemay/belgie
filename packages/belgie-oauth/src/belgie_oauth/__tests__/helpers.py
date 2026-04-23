@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from authlib.jose import JsonWebKey, jwt
+
+if TYPE_CHECKING:
+    from belgie_proto.core.json import JSONValue
 
 
 def build_rsa_signing_key(*, kid: str = "test-key"):
@@ -20,17 +24,22 @@ def issue_id_token(
     audience: str | list[str],
     subject: str,
     nonce: str,
-    claims: dict[str, object],
+    claims: dict[str, JSONValue],
 ) -> str:
     now = datetime.now(UTC)
-    payload = {
-        "iss": issuer,
-        "aud": audience,
-        "sub": subject,
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=5)).timestamp()),
-        "nonce": nonce,
-    }
+    if isinstance(audience, str):
+        audience_value: JSONValue = audience
+    else:
+        audience_list: list[JSONValue] = list(audience)
+        audience_value = audience_list
+
+    payload: dict[str, JSONValue] = {}
+    payload["iss"] = issuer
+    payload["aud"] = audience_value
+    payload["sub"] = subject
+    payload["iat"] = int(now.timestamp())
+    payload["exp"] = int((now + timedelta(minutes=5)).timestamp())
+    payload["nonce"] = nonce
     payload.update(claims)
     token = jwt.encode(
         {"alg": "RS256", "kid": signing_key.as_dict(is_private=False)["kid"]},

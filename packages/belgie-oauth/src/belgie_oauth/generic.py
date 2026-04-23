@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urlparse, urlunparse
 
-from belgie_core.core.client import BelgieClient
+from belgie_core.core.client import BelgieClient  # noqa: TC002
 from belgie_core.core.exceptions import OAuthError
 from belgie_core.core.plugin import PluginClient
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import RedirectResponse
 
 from belgie_oauth._config import OAuthProvider
@@ -22,9 +22,7 @@ from belgie_oauth._helpers import (
 )
 from belgie_oauth._models import (
     ConsumedOAuthState,
-    JSONValue,
     OAuthLinkedAccount,
-    OAuthResponseMode,
     OAuthTokenSet,
     OAuthUserInfo,
     ResponseCookie,
@@ -33,10 +31,19 @@ from belgie_oauth._state import build_state_store
 from belgie_oauth._transport import OAuthTransport
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from uuid import UUID
 
-    from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
+
+    from belgie_oauth._types import (
+        JSONValue,
+        OAuthBelgieRuntime,
+        OAuthFlowIntent,
+        OAuthResponseMode,
+        OAuthStartPayload,
+        ProviderMetadata,
+    )
 
 
 @dataclass(slots=True, kw_only=True)
@@ -188,7 +195,7 @@ class OAuthPlugin(PluginClient):
             belgie_settings.base_url,
             provider_id=self.provider_id,
         )
-        self._resolve_client: Any = None
+        self._resolve_client: Callable[..., OAuthClient] | None = None
         self._base_url = belgie_settings.base_url
         parsed_base_url = urlparse(belgie_settings.base_url)
         self._base_url_origin = (parsed_base_url.scheme.lower(), parsed_base_url.netloc.lower())
@@ -227,13 +234,11 @@ class OAuthPlugin(PluginClient):
             raise RuntimeError(msg)
         return self._resolve_client(*args, **kwargs)
 
-    def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
+    def _ensure_dependency_resolver(self, belgie: OAuthBelgieRuntime) -> None:
         if self._resolve_client is not None:
             return
 
-        type BelgieClientDep = BelgieClient
-
-        def resolve_client(client: BelgieClientDep = Depends(belgie)) -> OAuthClient:  # noqa: B008
+        def resolve_client(client: BelgieClient = Depends(belgie)) -> OAuthClient:  # noqa: B008
             return self._client_type(plugin=self, client=client)
 
         self._resolve_client = resolve_client
@@ -251,7 +256,7 @@ class OAuthPlugin(PluginClient):
             return None
         return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, parsed.query, ""))
 
-    async def resolve_server_metadata(self) -> dict[str, Any]:
+    async def resolve_server_metadata(self) -> ProviderMetadata:
         return await self._transport.resolve_server_metadata()
 
     async def generate_authorization_url(  # noqa: PLR0913
@@ -289,7 +294,7 @@ class OAuthPlugin(PluginClient):
         self,
         client: BelgieClient,
         *,
-        intent: str,
+        intent: OAuthFlowIntent,
         individual_id: UUID | None = None,
         redirect_url: str | None = None,
         error_redirect_url: str | None = None,
@@ -320,11 +325,12 @@ class OAuthPlugin(PluginClient):
             authorization_params=authorization_params,
             request_sign_up=request_sign_up,
         )
+        start_payload: OAuthStartPayload = {
+            "authorization_url": authorization_url,
+            "cookies": [cookie.to_dict() for cookie in cookies],
+        }
         start_token = self._start_box.encode(
-            {
-                "authorization_url": authorization_url,
-                "cookies": cookies,
-            },
+            start_payload,
         )
         return build_provider_start_url(self._base_url, provider_id=self.provider_id, token=start_token)
 
@@ -392,36 +398,36 @@ class OAuthPlugin(PluginClient):
             provider_account_id=provider_account_id,
         )
 
-    def router(self, belgie: Belgie) -> APIRouter:
+    def router(self, belgie: OAuthBelgieRuntime) -> APIRouter:
         self._ensure_dependency_resolver(belgie)
         router = APIRouter(prefix=f"/provider/{self.provider_id}", tags=["auth", "oauth"])
 
         @router.get("/start")
-        async def start(token: str) -> RedirectResponse:
+        def start(token: Annotated[str, Query()]) -> RedirectResponse:
             payload = self._start_box.decode(token, error_message="invalid OAuth start token")
             authorization_url = coerce_optional_str(payload.get("authorization_url"))
             if authorization_url is None:
                 msg = "missing OAuth authorization URL"
                 raise OAuthError(msg)
             response = RedirectResponse(url=authorization_url, status_code=status.HTTP_302_FOUND)
-            for cookie_payload in payload.get("cookies", []):
-                if not isinstance(cookie_payload, dict):
-                    continue
-                cookie = ResponseCookie.from_dict(cookie_payload)
-                response.set_cookie(
-                    key=cookie.name,
-                    value=cookie.value,
-                    max_age=cookie.max_age,
-                    path=cookie.path,
-                    httponly=cookie.httponly,
-                    secure=cookie.secure,
-                    samesite=cookie.samesite,
-                    domain=cookie.domain,
-                )
+            if isinstance(cookie_payloads := payload.get("cookies"), list):
+                for cookie_payload in cookie_payloads:
+                    if not isinstance(cookie_payload, dict):
+                        continue
+                    cookie = ResponseCookie.from_dict(cookie_payload)
+                    response.set_cookie(
+                        key=cookie.name,
+                        value=cookie.value,
+                        max_age=cookie.max_age,
+                        path=cookie.path,
+                        httponly=cookie.httponly,
+                        secure=cookie.secure,
+                        samesite=cookie.samesite,
+                        domain=cookie.domain,
+                    )
             return response
 
-        @router.api_route("/callback", methods=["GET", "POST"])
-        async def callback(
+        async def complete_callback(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
         ) -> RedirectResponse:
@@ -431,9 +437,23 @@ class OAuthPlugin(PluginClient):
                 request=request,
             )
 
+        @router.get("/callback")
+        async def callback_get(
+            request: Request,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> RedirectResponse:
+            return await complete_callback(request, client)
+
+        @router.post("/callback")
+        async def callback_post(
+            request: Request,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> RedirectResponse:
+            return await complete_callback(request, client)
+
         return router
 
-    def public(self, belgie: Belgie) -> APIRouter:  # noqa: ARG002
+    def public(self, belgie: OAuthBelgieRuntime) -> APIRouter:  # noqa: ARG002
         return APIRouter()
 
 

@@ -12,6 +12,8 @@ from belgie_oauth.generic import OAuthClient, OAuthPlugin, OAuthProvider, OAuthT
 if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
 
+    from belgie_oauth._types import RawProfile
+
 
 class GoogleUserInfo(BaseModel):
     model_config = ConfigDict(strict=True, extra="ignore")
@@ -108,8 +110,8 @@ class GoogleOAuthPlugin(OAuthPlugin):
         super().__init__(belgie_settings, settings.to_provider(), client_type=GoogleOAuthClient)
 
 
-def _map_google_profile(raw_profile: dict[str, object], token_set: OAuthTokenSet) -> OAuthUserInfo:  # noqa: ARG001
-    profile = GoogleUserInfo(**raw_profile)
+def _map_google_profile(raw_profile: RawProfile, token_set: OAuthTokenSet) -> OAuthUserInfo:  # noqa: ARG001
+    profile = GoogleUserInfo.model_validate(raw_profile)
     if profile.resolved_subject is None:
         msg = "provider user info missing subject identifier"
         raise OAuthError(msg)

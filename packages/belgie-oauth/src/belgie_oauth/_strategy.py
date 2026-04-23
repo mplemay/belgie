@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# ruff: noqa: PLR0913, TC001
 import base64
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -11,18 +12,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from belgie_oauth._errors import OAuthCallbackError
 from belgie_oauth._helpers import coerce_optional_str, normalize_client_id, serialize_scopes
-from belgie_oauth._models import (
-    JSONValue,
-    OAuthResponseMode,
-    OAuthStateStrategy,
-    OAuthTokenSet,
-    OAuthUserInfo,
-    RawProfile,
-)
+from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
+from belgie_oauth._types import OAuthResponseMode, OAuthStateStrategy
 
 if TYPE_CHECKING:
     from belgie_oauth._config import OAuthProvider
     from belgie_oauth._transport import AuthlibOIDCClient
+    from belgie_oauth._types import (
+        ProviderMetadata,
+        RawProfile,
+        TokenResponsePayload,
+    )
 
 
 class OAuthPresetSettings(BaseSettings):
@@ -52,7 +52,7 @@ class OAuthPresetSettings(BaseSettings):
     @field_validator("client_id")
     @classmethod
     def validate_client_id(cls, value: str | list[str], info: ValidationInfo) -> str | list[str]:
-        return normalize_client_id(value, field_name=info.field_name)
+        return normalize_client_id(value, field_name=info.field_name or "client_id")
 
     @field_validator("client_secret")
     @classmethod
@@ -71,13 +71,13 @@ def microsoft_profile_photo_url(size: int) -> str:
 
 
 class OAuthProviderStrategy(ABC):
-    def build_authorization_params(  # noqa: PLR0913
+    def build_authorization_params(
         self,
         *,
         config: OAuthProvider,
         prompt: str | None,
         access_type: str | None,
-        response_mode: str | None,
+        response_mode: OAuthResponseMode | None,
         authorization_params: dict[str, str] | None,
         code_verifier: str | None,
         nonce: str | None,
@@ -105,7 +105,7 @@ class OAuthProviderStrategy(ABC):
         return params
 
     @abstractmethod
-    async def exchange_code_for_tokens(  # noqa: PLR0913
+    async def exchange_code_for_tokens(
         self,
         *,
         oauth_client: AuthlibOIDCClient,
@@ -114,7 +114,7 @@ class OAuthProviderStrategy(ABC):
         redirect_uri: str,
         code_verifier: str | None,
         token_endpoint: str,
-    ) -> dict[str, JSONValue]: ...
+    ) -> TokenResponsePayload: ...
 
     @abstractmethod
     async def refresh_token_response(
@@ -124,7 +124,7 @@ class OAuthProviderStrategy(ABC):
         config: OAuthProvider,
         token_set: OAuthTokenSet,
         token_endpoint: str,
-    ) -> dict[str, JSONValue]: ...
+    ) -> TokenResponsePayload: ...
 
     @abstractmethod
     async def resolve_profile(
@@ -133,13 +133,13 @@ class OAuthProviderStrategy(ABC):
         oauth_client: AuthlibOIDCClient,
         config: OAuthProvider,
         token_set: OAuthTokenSet,
-        metadata: dict[str, JSONValue],
+        metadata: ProviderMetadata,
         id_token_claims: RawProfile,
     ) -> OAuthUserInfo: ...
 
 
 class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
-    async def exchange_code_for_tokens(  # noqa: PLR0913
+    async def exchange_code_for_tokens(
         self,
         *,
         oauth_client: AuthlibOIDCClient,
@@ -148,7 +148,7 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
         redirect_uri: str,
         code_verifier: str | None,
         token_endpoint: str,
-    ) -> dict[str, JSONValue]:
+    ) -> TokenResponsePayload:
         if config.get_token is not None:
             token = await config.get_token(
                 oauth_client,
@@ -175,7 +175,7 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
         config: OAuthProvider,
         token_set: OAuthTokenSet,
         token_endpoint: str,
-    ) -> dict[str, JSONValue]:
+    ) -> TokenResponsePayload:
         token_params = dict(config.token_params)
         if config.refresh_tokens is not None:
             raw_token = await config.refresh_tokens(oauth_client, token_set, token_params)
@@ -198,7 +198,7 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
         oauth_client: AuthlibOIDCClient,
         config: OAuthProvider,
         token_set: OAuthTokenSet,
-        metadata: dict[str, JSONValue],
+        metadata: ProviderMetadata,
         id_token_claims: RawProfile,
     ) -> OAuthUserInfo:
         raw_profile = dict(id_token_claims)
@@ -235,7 +235,7 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
         oauth_client: AuthlibOIDCClient,
         config: OAuthProvider,
         token_set: OAuthTokenSet,
-        metadata: dict[str, JSONValue],
+        metadata: ProviderMetadata,
     ) -> RawProfile | OAuthUserInfo | None:
         if config.get_userinfo is not None:
             return await config.get_userinfo(oauth_client, token_set, metadata)
@@ -264,10 +264,10 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
             raise OAuthError(msg)
 
         email_verified = False
-        if isinstance(raw_profile.get("email_verified"), bool):
-            email_verified = raw_profile["email_verified"]
-        elif isinstance(raw_profile.get("verified_email"), bool):
-            email_verified = raw_profile["verified_email"]
+        if isinstance(email_verified_value := raw_profile.get("email_verified"), bool):
+            email_verified = email_verified_value
+        elif isinstance(verified_email_value := raw_profile.get("verified_email"), bool):
+            email_verified = verified_email_value
 
         return OAuthUserInfo(
             provider_account_id=provider_account_id,
@@ -286,7 +286,7 @@ class GoogleOAuthStrategy(DefaultOAuthProviderStrategy):
         oauth_client: AuthlibOIDCClient,
         config: OAuthProvider,
         token_set: OAuthTokenSet,
-        metadata: dict[str, JSONValue],
+        metadata: ProviderMetadata,
         id_token_claims: RawProfile,
     ) -> OAuthUserInfo:
         if config.get_userinfo is not None:
@@ -331,7 +331,7 @@ class MicrosoftOAuthStrategy(DefaultOAuthProviderStrategy):
         config: OAuthProvider,
         token_set: OAuthTokenSet,
         token_endpoint: str,
-    ) -> dict[str, JSONValue]:
+    ) -> TokenResponsePayload:
         if token_set.refresh_token is None:
             msg = "oauth account does not have a refresh token"
             raise OAuthError(msg)
@@ -357,7 +357,7 @@ class MicrosoftOAuthStrategy(DefaultOAuthProviderStrategy):
         oauth_client: AuthlibOIDCClient,
         config: OAuthProvider,
         token_set: OAuthTokenSet,
-        metadata: dict[str, JSONValue],
+        metadata: ProviderMetadata,
         id_token_claims: RawProfile,
     ) -> OAuthUserInfo:
         if config.get_userinfo is not None:
@@ -391,7 +391,7 @@ class MicrosoftOAuthStrategy(DefaultOAuthProviderStrategy):
         self,
         *,
         oauth_client: AuthlibOIDCClient,
-        metadata: dict[str, JSONValue],
+        metadata: ProviderMetadata,
     ) -> RawProfile:
         userinfo_endpoint = coerce_optional_str(metadata.get("userinfo_endpoint"))
         if userinfo_endpoint is None:

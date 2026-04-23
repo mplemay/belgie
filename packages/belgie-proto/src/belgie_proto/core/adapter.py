@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_proto.core.connection import DBConnection
+    from belgie_proto.core.json import JSONValue
 
 
 @runtime_checkable
@@ -150,7 +151,7 @@ class AdapterProtocol[
         redirect_url: str | None = None,
         error_redirect_url: str | None = None,
         new_user_redirect_url: str | None = None,
-        payload: Any | None = None,  # noqa: ANN401
+        payload: JSONValue = None,
         request_sign_up: bool = False,  # noqa: FBT001, FBT002
         individual_id: UUID | None = None,
     ) -> OAuthStateT: ...

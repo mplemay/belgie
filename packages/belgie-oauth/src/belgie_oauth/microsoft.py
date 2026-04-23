@@ -12,6 +12,8 @@ from belgie_oauth.generic import OAuthClient, OAuthPlugin, OAuthProvider, OAuthT
 if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
 
+    from belgie_oauth._types import RawProfile
+
 
 class MicrosoftUserInfo(BaseModel):
     model_config = ConfigDict(strict=True, extra="ignore")
@@ -51,7 +53,9 @@ class MicrosoftUserInfo(BaseModel):
         return self._email_in(self.verified_primary_email) or self._email_in(self.verified_secondary_email)
 
     def _email_in(self, values: list[str] | None) -> bool:
-        return values is not None and any(value.casefold() == self.resolved_email.casefold() for value in values)
+        if values is None or (resolved_email := self.resolved_email) is None:
+            return False
+        return any(value.casefold() == resolved_email.casefold() for value in values)
 
 
 class MicrosoftOAuth(OAuthPresetSettings):
@@ -176,8 +180,8 @@ def _authority_url(authority: str, *, path: str) -> str:
     )
 
 
-def _map_microsoft_profile(raw_profile: dict[str, object], token_set: OAuthTokenSet) -> OAuthUserInfo:  # noqa: ARG001
-    profile = MicrosoftUserInfo(**raw_profile)
+def _map_microsoft_profile(raw_profile: RawProfile, token_set: OAuthTokenSet) -> OAuthUserInfo:  # noqa: ARG001
+    profile = MicrosoftUserInfo.model_validate(raw_profile)
     return OAuthUserInfo(
         provider_account_id=profile.sub,
         email=profile.resolved_email,

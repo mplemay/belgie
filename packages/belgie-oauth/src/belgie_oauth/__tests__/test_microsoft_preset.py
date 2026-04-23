@@ -9,22 +9,34 @@ from belgie_core.core.settings import BelgieSettings
 from belgie_oauth import MicrosoftOAuth, MicrosoftOAuthPlugin, MicrosoftUserInfo, OAuthTokenSet
 from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signing_key, issue_id_token
 from belgie_oauth.microsoft import _map_microsoft_profile
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
+
+MICROSOFT_CLIENT_SECRET = SecretStr("microsoft-client-secret")
 
 
 def _build_plugin(settings: MicrosoftOAuth | None = None) -> MicrosoftOAuthPlugin:
     provider_settings = settings or MicrosoftOAuth(
         client_id="microsoft-client-id",
-        client_secret="microsoft-client-secret",
+        client_secret=MICROSOFT_CLIENT_SECRET,
     )
     belgie_settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000")
     return MicrosoftOAuthPlugin(belgie_settings, provider_settings)
 
 
+def _token_set() -> OAuthTokenSet:
+    return OAuthTokenSet.from_response(
+        {
+            "access_token": "microsoft-access-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        },
+    )
+
+
 def test_microsoft_settings_defaults() -> None:
     settings = MicrosoftOAuth(
         client_id="microsoft-client-id",
-        client_secret="microsoft-client-secret",
+        client_secret=MICROSOFT_CLIENT_SECRET,
     )
 
     assert settings.tenant == "common"
@@ -37,7 +49,7 @@ def test_microsoft_settings_reject_empty_tenant() -> None:
     with pytest.raises(ValidationError):
         MicrosoftOAuth(
             client_id="microsoft-client-id",
-            client_secret="microsoft-client-secret",
+            client_secret=MICROSOFT_CLIENT_SECRET,
             tenant="",
         )
 
@@ -46,14 +58,14 @@ def test_microsoft_settings_reject_empty_client_id_list() -> None:
     with pytest.raises(ValidationError):
         MicrosoftOAuth(
             client_id=[],
-            client_secret="microsoft-client-secret",
+            client_secret=MICROSOFT_CLIENT_SECRET,
         )
 
 
 def test_microsoft_common_tenant_preset_uses_graph_userinfo() -> None:
     settings = MicrosoftOAuth(
         client_id="microsoft-client-id",
-        client_secret="microsoft-client-secret",
+        client_secret=MICROSOFT_CLIENT_SECRET,
     )
     provider = settings.to_provider()
 
@@ -77,7 +89,7 @@ def test_microsoft_public_client_mode_uses_none_auth() -> None:
 def test_microsoft_tenant_specific_preset_sets_expected_issuer() -> None:
     settings = MicrosoftOAuth(
         client_id="microsoft-client-id",
-        client_secret="microsoft-client-secret",
+        client_secret=MICROSOFT_CLIENT_SECRET,
         tenant="tenant-123",
     )
     provider = settings.to_provider()
@@ -89,7 +101,7 @@ def test_microsoft_tenant_specific_preset_sets_expected_issuer() -> None:
 def test_microsoft_preset_exposes_common_oauth_options() -> None:
     settings = MicrosoftOAuth(
         client_id="microsoft-client-id",
-        client_secret="microsoft-client-secret",
+        client_secret=MICROSOFT_CLIENT_SECRET,
         response_mode="form_post",
         state_strategy="cookie",
         use_pkce=False,
@@ -112,7 +124,7 @@ def test_microsoft_settings_reject_invalid_profile_photo_size() -> None:
     with pytest.raises(ValidationError):
         MicrosoftOAuth(
             client_id="microsoft-client-id",
-            client_secret="microsoft-client-secret",
+            client_secret=MICROSOFT_CLIENT_SECRET,
             profile_photo_size=72,
         )
 
@@ -133,7 +145,7 @@ async def test_microsoft_authorization_url_uses_primary_client_id_from_list() ->
     plugin = _build_plugin(
         MicrosoftOAuth(
             client_id=["microsoft-web-client-id", "microsoft-native-client-id"],
-            client_secret="microsoft-client-secret",
+            client_secret=MICROSOFT_CLIENT_SECRET,
         ),
     )
 
@@ -180,7 +192,7 @@ def test_microsoft_profile_mapper_falls_back_to_preferred_username() -> None:
             "preferred_username": "person@example.com",
             "name": "Microsoft Person",
         },
-        token_set=None,  # type: ignore[arg-type]
+        token_set=_token_set(),
     )
 
     assert mapped.provider_account_id == "microsoft-user-1"
@@ -213,7 +225,7 @@ async def test_microsoft_profile_uses_graph_userinfo_and_photo_enrichment() -> N
     plugin = _build_plugin(
         MicrosoftOAuth(
             client_id="microsoft-client-id",
-            client_secret="microsoft-client-secret",
+            client_secret=MICROSOFT_CLIENT_SECRET,
             tenant="tenant-123",
             profile_photo_size=96,
         ),
@@ -277,7 +289,7 @@ async def test_microsoft_profile_accepts_secondary_client_id_audience() -> None:
     plugin = _build_plugin(
         MicrosoftOAuth(
             client_id=["microsoft-web-client-id", "microsoft-native-client-id"],
-            client_secret="microsoft-client-secret",
+            client_secret=MICROSOFT_CLIENT_SECRET,
             tenant="tenant-123",
             disable_profile_photo=True,
         ),

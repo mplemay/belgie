@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from authlib.integrations.base_client.async_openid import AsyncOpenIDMixin
 from authlib.integrations.httpx_client import AsyncOAuth2Client
@@ -19,9 +19,10 @@ from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_oauth._strategy import DefaultOAuthProviderStrategy, OAuthProviderStrategy
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
     from belgie_oauth._config import OAuthProvider
+    from belgie_oauth._types import OAuthResponseMode, ProviderMetadata, RawProfile, TokenResponsePayload
 
 
 type IDTokenClaimsClass = type[CodeIDToken | ImplicitIDToken]
@@ -32,7 +33,7 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
         self,
         *,
         server_metadata_url: str | None = None,
-        server_metadata: dict[str, Any] | None = None,
+        server_metadata: ProviderMetadata | None = None,
         discovery_headers: dict[str, str] | None = None,
         accepted_client_ids: tuple[str, ...] | None = None,
         **kwargs: object,
@@ -47,7 +48,7 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
     async def _get_session(self) -> AsyncIterator[AuthlibOIDCClient]:
         yield self
 
-    async def load_server_metadata(self) -> dict[str, Any]:
+    async def load_server_metadata(self) -> ProviderMetadata:
         if self._server_metadata_url and "_loaded_at" not in self.server_metadata:
             response = await self.request(
                 "GET",
@@ -56,32 +57,39 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
                 headers=self._discovery_headers or None,
             )
             response.raise_for_status()
-            metadata = response.json()
+            metadata = dict(response.json())
             metadata["_loaded_at"] = time.time()
             self.server_metadata.update(metadata)
         return self.server_metadata
 
-    async def parse_id_token(
+    async def parse_id_token(  # noqa: C901, PLR0912
         self,
-        token: dict[str, Any],
+        token: TokenResponsePayload,
         nonce: str,
-        claims_options: dict[str, Any] | None = None,
+        claims_options: ProviderMetadata | None = None,
         claims_cls: IDTokenClaimsClass | None = None,
         leeway: int = 120,
     ) -> UserInfo:
-        if "id_token" not in token:
+        if (id_token := coerce_optional_str(token.get("id_token"))) is None:
             msg = 'Missing "id_token" in token payload'
             error_code = "oauth_code_verification_failed"
             raise OAuthCallbackError(error_code, msg)
 
-        accepted_client_ids = self._accepted_client_ids or (self.client_id,)
-        claims_params: dict[str, Any] = {
+        if self._accepted_client_ids is not None:
+            accepted_client_ids = self._accepted_client_ids
+        elif self.client_id is not None:
+            accepted_client_ids = (self.client_id,)
+        else:
+            msg = "OAuth client is missing a client_id"
+            error_code = "oauth_code_verification_failed"
+            raise OAuthCallbackError(error_code, msg)
+        claims_params: dict[str, str | tuple[str, ...] | None] = {
             "nonce": nonce,
             "client_id": accepted_client_ids[0],
             "accepted_client_ids": accepted_client_ids,
         }
-        if "access_token" in token:
-            claims_params["access_token"] = token["access_token"]
+        if (access_token := coerce_optional_str(token.get("access_token"))) is not None:
+            claims_params["access_token"] = access_token
             if claims_cls is None:
                 claims_cls = BelgieCodeIDToken
         elif claims_cls is None:
@@ -89,20 +97,24 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
 
         metadata = await self.load_server_metadata()
         resolved_claims_options = dict(claims_options or {})
-        if "iss" not in resolved_claims_options and "issuer" in metadata:
-            resolved_claims_options["iss"] = {"values": [metadata["issuer"]]}
+        if "iss" not in resolved_claims_options and (issuer := coerce_optional_str(metadata.get("issuer"))) is not None:
+            resolved_claims_options["iss"] = {"values": [issuer]}
         if "aud" not in resolved_claims_options:
             resolved_claims_options["aud"] = {"values": list(accepted_client_ids)}
 
-        alg_values = metadata.get("id_token_signing_alg_values_supported")
-        if not alg_values:
-            alg_values = ["RS256"]
+        alg_values = ["RS256"]
+        if isinstance(supported_alg_values := metadata.get("id_token_signing_alg_values_supported"), list):
+            resolved_alg_values = [
+                algorithm for value in supported_alg_values if (algorithm := coerce_optional_str(value)) is not None
+            ]
+            if resolved_alg_values:
+                alg_values = resolved_alg_values
 
         jwks = await self.fetch_jwk_set()
         key_set = KeySet.import_key_set(jwks)
         try:
             decoded = jwt.decode(
-                token["id_token"],
+                id_token,
                 key=key_set,
                 algorithms=alg_values,
             )
@@ -110,7 +122,7 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
             jwks = await self.fetch_jwk_set(force=True)
             key_set = KeySet.import_key_set(jwks)
             decoded = jwt.decode(
-                token["id_token"],
+                id_token,
                 key=key_set,
                 algorithms=alg_values,
             )
@@ -127,26 +139,30 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
         return UserInfo(claims)
 
 
-class BelgieIDTokenMixin:
-    def validate_azp(self) -> None:
-        accepted_client_ids = tuple(self.params.get("accepted_client_ids") or ())
-        if not accepted_client_ids:
-            super().validate_azp()
-            return
-
-        azp = self.get("azp")
-        if azp is not None and azp not in accepted_client_ids:
-            claim_name = "azp"
-            raise InvalidClaimError(claim_name)
+def _validate_accepted_azp(
+    token: CodeIDToken | ImplicitIDToken,
+    *,
+    default_validator: Callable[[], None],
+) -> None:
+    accepted_client_ids = tuple(token.params.get("accepted_client_ids") or ())
+    if not accepted_client_ids:
+        default_validator()
         return
 
+    azp = token.get("azp")
+    if azp is not None and azp not in accepted_client_ids:
+        claim_name = "azp"
+        raise InvalidClaimError(claim_name)
 
-class BelgieCodeIDToken(BelgieIDTokenMixin, CodeIDToken):
-    pass
+
+class BelgieCodeIDToken(CodeIDToken):
+    def validate_azp(self) -> None:
+        _validate_accepted_azp(self, default_validator=super().validate_azp)
 
 
-class BelgieImplicitIDToken(BelgieIDTokenMixin, ImplicitIDToken):
-    pass
+class BelgieImplicitIDToken(ImplicitIDToken):
+    def validate_azp(self) -> None:
+        _validate_accepted_azp(self, default_validator=super().validate_azp)
 
 
 class OAuthTransport:
@@ -154,10 +170,10 @@ class OAuthTransport:
         self.config = config
         self.redirect_uri = redirect_uri
         self._strategy: OAuthProviderStrategy = config.strategy or DefaultOAuthProviderStrategy()
-        self._metadata_cache: dict[str, Any] | None = None
+        self._metadata_cache: ProviderMetadata | None = None
         self._metadata_lock = asyncio.Lock()
 
-    async def resolve_server_metadata(self) -> dict[str, Any]:
+    async def resolve_server_metadata(self) -> ProviderMetadata:
         if self._metadata_cache is not None:
             return dict(self._metadata_cache)
 
@@ -179,7 +195,7 @@ class OAuthTransport:
         scopes: list[str] | None = None,
         prompt: str | None = None,
         access_type: str | None = None,
-        response_mode: str | None = None,
+        response_mode: OAuthResponseMode | None = None,
         authorization_params: dict[str, str] | None = None,
         code_verifier: str | None = None,
         nonce: str | None = None,
@@ -246,7 +262,7 @@ class OAuthTransport:
         nonce: str | None = None,
     ) -> OAuthUserInfo:
         metadata = await self.resolve_server_metadata()
-        id_token_claims: dict[str, Any] = {}
+        id_token_claims: RawProfile = {}
         async with self._oauth_client(server_metadata=metadata, token=token_set.raw) as oauth_client:
             if token_set.id_token is not None and nonce is not None:
                 try:
@@ -267,7 +283,7 @@ class OAuthTransport:
                 id_token_claims=id_token_claims,
             )
 
-    def validate_issuer_parameter(self, issuer: str | None, metadata: dict[str, Any]) -> None:
+    def validate_issuer_parameter(self, issuer: str | None, metadata: ProviderMetadata) -> None:
         expected_issuer = self.config.issuer or coerce_optional_str(metadata.get("issuer"))
         if expected_issuer is None:
             return
@@ -282,7 +298,7 @@ class OAuthTransport:
             description = "OAuth issuer mismatch"
             raise OAuthCallbackError(error_code, description)
 
-    def token_payload(self, token_set: OAuthTokenSet) -> dict[str, Any]:
+    def token_payload(self, token_set: OAuthTokenSet) -> TokenResponsePayload:
         payload = dict(token_set.raw)
         payload["access_token"] = token_set.access_token
         if token_set.refresh_token is not None:
@@ -303,14 +319,13 @@ class OAuthTransport:
         effective_scopes = scopes or self.config.scopes
         return self.config.use_nonce and "openid" in effective_scopes
 
-    def require_metadata_value(self, metadata: dict[str, Any], key: str) -> str:
-        value = metadata.get(key)
-        if not value:
+    def require_metadata_value(self, metadata: ProviderMetadata, key: str) -> str:
+        if not (value := coerce_optional_str(metadata.get(key))):
             msg = f"missing required provider metadata: {key}"
             raise ConfigurationError(msg)
-        return str(value)
+        return value
 
-    def _manual_metadata(self) -> dict[str, Any]:
+    def _manual_metadata(self) -> ProviderMetadata:
         return {
             "authorization_endpoint": self.config.authorization_endpoint,
             "token_endpoint": self.config.token_endpoint,
@@ -322,9 +337,9 @@ class OAuthTransport:
     def _oauth_client(
         self,
         *,
-        server_metadata: dict[str, Any],
+        server_metadata: ProviderMetadata,
         scope: str | None = None,
-        token: dict[str, Any] | None = None,
+        token: TokenResponsePayload | None = None,
     ) -> AuthlibOIDCClient:
         return AuthlibOIDCClient(
             client_id=self.config.primary_client_id,

@@ -6,14 +6,16 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from belgie_core.core.exceptions import InvalidStateError
-from belgie_core.core.settings import CookieSettings
-from fastapi import Request, Response
 
 from belgie_oauth._helpers import SecretBox, coerce_optional_str, normalize_datetime
-from belgie_oauth._models import ConsumedOAuthState, PendingOAuthState, ResponseCookie
+from belgie_oauth._models import ConsumedOAuthState, PendingOAuthState, ResponseCookie, parse_oauth_flow_intent
 
 if TYPE_CHECKING:
     from belgie_core.core.client import BelgieClient
+    from belgie_core.core.settings import CookieSettings
+    from fastapi import Request, Response
+
+    from belgie_oauth._types import CookieStoredOAuthStatePayload, OAuthStateMarkerPayload, OAuthStateStrategy
 
 
 def _cookie_name(*, provider_id: str, suffix: str) -> str:
@@ -107,13 +109,12 @@ class AdapterOAuthStateStore(OAuthStateStore):
             request_sign_up=oauth_state.request_sign_up,
             individual_id=oauth_state.individual_id,
         )
-        marker = self._box.encode(
-            {
-                "state": oauth_state.state,
-                "provider": oauth_state.provider,
-                "expires_at": oauth_state.expires_at.isoformat(),
-            },
-        )
+        marker_payload: OAuthStateMarkerPayload = {
+            "state": oauth_state.state,
+            "provider": oauth_state.provider,
+            "expires_at": oauth_state.expires_at.isoformat(),
+        }
+        marker = self._box.encode(marker_payload)
         return [
             self._response_cookie(
                 name=self._marker_cookie_name,
@@ -143,7 +144,10 @@ class AdapterOAuthStateStore(OAuthStateStore):
             msg = "OAuth state marker mismatch"
             raise InvalidStateError(msg)
 
-        marker_expires_at = normalize_datetime(datetime.fromisoformat(str(payload["expires_at"])))
+        if (expires_at_value := coerce_optional_str(payload.get("expires_at"))) is None:
+            msg = "missing OAuth state marker expiration"
+            raise InvalidStateError(msg)
+        marker_expires_at = normalize_datetime(datetime.fromisoformat(expires_at_value))
         if marker_expires_at is None or marker_expires_at <= datetime.now(UTC):
             msg = "OAuth state expired"
             raise InvalidStateError(msg)
@@ -174,22 +178,21 @@ class CookieOAuthStateStore(OAuthStateStore):
         client: BelgieClient,  # noqa: ARG002
         oauth_state: PendingOAuthState,
     ) -> list[ResponseCookie]:
-        payload = self._box.encode(
-            {
-                "state": oauth_state.state,
-                "provider": oauth_state.provider,
-                "individual_id": str(oauth_state.individual_id) if oauth_state.individual_id else None,
-                "code_verifier": oauth_state.code_verifier,
-                "nonce": oauth_state.nonce,
-                "intent": oauth_state.intent,
-                "redirect_url": oauth_state.redirect_url,
-                "error_redirect_url": oauth_state.error_redirect_url,
-                "new_user_redirect_url": oauth_state.new_user_redirect_url,
-                "payload": oauth_state.payload,
-                "request_sign_up": oauth_state.request_sign_up,
-                "expires_at": oauth_state.expires_at.isoformat(),
-            },
-        )
+        cookie_payload: CookieStoredOAuthStatePayload = {
+            "state": oauth_state.state,
+            "provider": oauth_state.provider,
+            "individual_id": str(oauth_state.individual_id) if oauth_state.individual_id else None,
+            "code_verifier": oauth_state.code_verifier,
+            "nonce": oauth_state.nonce,
+            "intent": oauth_state.intent,
+            "redirect_url": oauth_state.redirect_url,
+            "error_redirect_url": oauth_state.error_redirect_url,
+            "new_user_redirect_url": oauth_state.new_user_redirect_url,
+            "payload": oauth_state.payload,
+            "request_sign_up": oauth_state.request_sign_up,
+            "expires_at": oauth_state.expires_at.isoformat(),
+        }
+        payload = self._box.encode(cookie_payload)
         return [
             self._response_cookie(
                 name=self._state_cookie_name,
@@ -214,7 +217,10 @@ class CookieOAuthStateStore(OAuthStateStore):
             msg = "OAuth state mismatch"
             raise InvalidStateError(msg)
 
-        expires_at = normalize_datetime(datetime.fromisoformat(str(payload["expires_at"])))
+        if (expires_at_value := coerce_optional_str(payload.get("expires_at"))) is None:
+            msg = "missing OAuth state expiration"
+            raise InvalidStateError(msg)
+        expires_at = normalize_datetime(datetime.fromisoformat(expires_at_value))
         if expires_at is None or expires_at <= datetime.now(UTC):
             msg = "OAuth state expired"
             raise InvalidStateError(msg)
@@ -225,7 +231,7 @@ class CookieOAuthStateStore(OAuthStateStore):
             individual_id=_uuid_from_string(coerce_optional_str(payload.get("individual_id"))),
             code_verifier=coerce_optional_str(payload.get("code_verifier")),
             nonce=coerce_optional_str(payload.get("nonce")),
-            intent=str(payload.get("intent", "signin")),  # type: ignore[arg-type]
+            intent=parse_oauth_flow_intent(payload.get("intent")),
             redirect_url=coerce_optional_str(payload.get("redirect_url")),
             error_redirect_url=coerce_optional_str(payload.get("error_redirect_url")),
             new_user_redirect_url=coerce_optional_str(payload.get("new_user_redirect_url")),
@@ -244,7 +250,7 @@ class CookieOAuthStateStore(OAuthStateStore):
 def build_state_store(
     *,
     provider_id: str,
-    strategy: str,
+    strategy: OAuthStateStrategy,
     cookie_settings: CookieSettings,
     secret: str,
 ) -> OAuthStateStore:

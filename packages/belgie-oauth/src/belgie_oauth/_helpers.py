@@ -4,13 +4,15 @@ import base64
 import hashlib
 import json
 import secrets
-from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from belgie_core.core.exceptions import ConfigurationError, OAuthError
 from cryptography.fernet import Fernet, InvalidToken
+
+if TYPE_CHECKING:
+    from belgie_oauth._types import JSONValue, SecretBoxPayload
 
 
 def build_provider_callback_url(base_url: str, *, provider_id: str) -> str:
@@ -100,7 +102,7 @@ def accepted_client_ids(value: str | list[str]) -> tuple[str, ...]:
     return tuple(value)
 
 
-def coerce_optional_str(value: object) -> str | None:
+def coerce_optional_str(value: JSONValue) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
@@ -116,17 +118,6 @@ def normalize_datetime(value: datetime | None) -> datetime | None:
     return value.astimezone(UTC)
 
 
-def json_default(value: object) -> object:
-    if isinstance(value, datetime):
-        return normalize_datetime(value).isoformat() if normalize_datetime(value) is not None else None
-    if is_dataclass(value):
-        return asdict(value)
-    if hasattr(value, "model_dump"):
-        return value.model_dump()
-    msg = f"Object of type {type(value).__name__} is not JSON serializable"
-    raise TypeError(msg)
-
-
 class SecretBox:
     def __init__(self, *, secret: str, label: str) -> None:
         if not secret:
@@ -135,11 +126,11 @@ class SecretBox:
         key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
         self._fernet = Fernet(key)
 
-    def encode(self, payload: dict[str, Any]) -> str:
-        serialized = json.dumps(payload, default=json_default, separators=(",", ":"))
+    def encode(self, payload: SecretBoxPayload) -> str:
+        serialized = json.dumps(payload, separators=(",", ":"))
         return self._fernet.encrypt(serialized.encode("utf-8")).decode("utf-8")
 
-    def decode(self, token: str, *, error_message: str) -> dict[str, Any]:
+    def decode(self, token: str, *, error_message: str) -> dict[str, JSONValue]:
         try:
             data = self._fernet.decrypt(token.encode("utf-8")).decode("utf-8")
         except InvalidToken as exc:
@@ -168,7 +159,8 @@ class OAuthTokenCodec:
         if self._box is None:
             msg = "token encryption is not configured"
             raise ConfigurationError(msg)
-        encrypted = self._box.encode({"value": value})
+        payload: dict[str, JSONValue] = {"value": value}
+        encrypted = self._box.encode(payload)
         return f"{self._PREFIX}{encrypted}"
 
     def decode(self, value: str | None) -> str | None:

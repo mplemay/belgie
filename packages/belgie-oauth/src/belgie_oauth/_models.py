@@ -1,33 +1,30 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 from belgie_core.core.exceptions import OAuthError
 
 from belgie_oauth._helpers import coerce_optional_str, normalize_datetime
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from belgie_proto.core.oauth_account import OAuthAccountProtocol
     from belgie_proto.core.oauth_state import OAuthStateProtocol
 
-
-type OAuthFlowIntent = Literal["signin", "link"]
-type OAuthResponseMode = Literal["query", "form_post"]
-type OAuthStateStrategy = Literal["adapter", "cookie"]
-type TokenEndpointAuthMethod = Literal["client_secret_basic", "client_secret_post", "none"]
-type JSONValue = dict[str, object] | list[object] | str | int | float | bool | None
-type RawProfile = dict[str, Any]
-type UserInfoFetcher = Callable[..., Awaitable[Any]]
-type TokenExchangeOverride = Callable[..., Awaitable[dict[str, Any]]]
-type TokenRefreshOverride = Callable[..., Awaitable[dict[str, Any]]]
-type ProfileMapper = Callable[..., Any]
+    from belgie_oauth._types import (
+        JSONValue,
+        OAuthFlowIntent,
+        OAuthSameSite,
+        RawProfile,
+        ResponseCookiePayload,
+        TokenResponsePayload,
+    )
 
 
-def _coerce_expiration(value: object) -> datetime | None:
+def _coerce_expiration(value: JSONValue | datetime) -> datetime | None:
     if isinstance(value, datetime):
         return normalize_datetime(value)
     if isinstance(value, (int, float)):
@@ -36,7 +33,7 @@ def _coerce_expiration(value: object) -> datetime | None:
 
 
 def _resolve_expiration(
-    token: dict[str, Any],
+    token: TokenResponsePayload,
     *,
     absolute_keys: tuple[str, ...],
     relative_keys: tuple[str, ...],
@@ -45,9 +42,35 @@ def _resolve_expiration(
         if resolved := _coerce_expiration(token.get(key)):
             return resolved
     for key in relative_keys:
-        if isinstance(token.get(key), (int, float)):
-            return datetime.now(UTC) + timedelta(seconds=int(token[key]))
+        if isinstance(seconds_until_expiry := token.get(key), (int, float)):
+            return datetime.now(UTC) + timedelta(seconds=int(seconds_until_expiry))
     return None
+
+
+def parse_oauth_flow_intent(
+    value: JSONValue,
+    *,
+    default: OAuthFlowIntent = "signin",
+) -> OAuthFlowIntent:
+    if value == "signin":
+        return "signin"
+    if value == "link":
+        return "link"
+    return default
+
+
+def parse_oauth_samesite(
+    value: JSONValue,
+    *,
+    default: OAuthSameSite = "lax",
+) -> OAuthSameSite:
+    if value == "lax":
+        return "lax"
+    if value == "strict":
+        return "strict"
+    if value == "none":
+        return "none"
+    return default
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -59,12 +82,12 @@ class OAuthTokenSet:
     id_token: str | None
     access_token_expires_at: datetime | None
     refresh_token_expires_at: datetime | None
-    raw: dict[str, Any] = field(default_factory=dict)
+    raw: TokenResponsePayload = field(default_factory=dict)
 
     @classmethod
     def from_response(
         cls,
-        token: dict[str, Any],
+        token: TokenResponsePayload,
         *,
         existing: OAuthTokenSet | OAuthLinkedAccount | None = None,
     ) -> OAuthTokenSet:
@@ -105,7 +128,7 @@ class OAuthTokenSet:
 
     @classmethod
     def from_account(cls, account: OAuthLinkedAccount) -> OAuthTokenSet:
-        raw: dict[str, Any] = {
+        raw: TokenResponsePayload = {
             "access_token": account.access_token,
         }
         if account.refresh_token is not None:
@@ -139,7 +162,7 @@ class OAuthUserInfo:
     email_verified: bool
     name: str | None = None
     image: str | None = None
-    raw: dict[str, Any] = field(default_factory=dict)
+    raw: RawProfile = field(default_factory=dict)
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -219,16 +242,16 @@ class ConsumedOAuthState:
     def from_model(cls, oauth_state: OAuthStateProtocol) -> ConsumedOAuthState:
         return cls(
             state=oauth_state.state,
-            provider=getattr(oauth_state, "provider", None),
+            provider=oauth_state.provider,
             individual_id=oauth_state.individual_id,
             code_verifier=oauth_state.code_verifier,
-            nonce=getattr(oauth_state, "nonce", None),
-            intent=getattr(oauth_state, "intent", "signin"),
+            nonce=oauth_state.nonce,
+            intent=oauth_state.intent,
             redirect_url=oauth_state.redirect_url,
-            error_redirect_url=getattr(oauth_state, "error_redirect_url", None),
-            new_user_redirect_url=getattr(oauth_state, "new_user_redirect_url", None),
-            payload=getattr(oauth_state, "payload", None),
-            request_sign_up=getattr(oauth_state, "request_sign_up", False),
+            error_redirect_url=oauth_state.error_redirect_url,
+            new_user_redirect_url=oauth_state.new_user_redirect_url,
+            payload=oauth_state.payload,
+            request_sign_up=oauth_state.request_sign_up,
             expires_at=normalize_datetime(oauth_state.expires_at) or datetime.now(UTC),
         )
 
@@ -258,10 +281,10 @@ class ResponseCookie:
     path: str = "/"
     httponly: bool = True
     secure: bool = True
-    samesite: Literal["lax", "strict", "none"] = "lax"
+    samesite: OAuthSameSite = "lax"
     domain: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> ResponseCookiePayload:
         return {
             "name": self.name,
             "value": self.value,
@@ -274,14 +297,18 @@ class ResponseCookie:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> ResponseCookie:
+    def from_dict(cls, payload: dict[str, JSONValue]) -> ResponseCookie:
+        max_age_value = payload["max_age"]
+        if isinstance(max_age_value, bool) or not isinstance(max_age_value, (int, float, str)):
+            msg = "invalid OAuth cookie payload: max_age"
+            raise OAuthError(msg)
         return cls(
             name=str(payload["name"]),
             value=str(payload["value"]),
-            max_age=int(payload["max_age"]),
-            path=str(payload.get("path", "/")),
+            max_age=int(max_age_value),
+            path=coerce_optional_str(payload.get("path")) or "/",
             httponly=bool(payload.get("httponly", True)),
             secure=bool(payload.get("secure", True)),
-            samesite=str(payload.get("samesite", "lax")),  # type: ignore[arg-type]
+            samesite=parse_oauth_samesite(payload.get("samesite")),
             domain=coerce_optional_str(payload.get("domain")),
         )

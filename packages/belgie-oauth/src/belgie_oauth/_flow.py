@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+# ruff: noqa: EM101
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 from urllib.parse import urlparse, urlunparse
 
 from belgie_core.core.exceptions import OAuthError
@@ -12,18 +13,39 @@ from fastapi.responses import RedirectResponse
 
 from belgie_oauth._errors import OAuthCallbackError
 from belgie_oauth._helpers import append_query_params, generate_code_verifier
-from belgie_oauth._models import ConsumedOAuthState, OAuthLinkedAccount, OAuthTokenSet, OAuthUserInfo, PendingOAuthState
+from belgie_oauth._models import (
+    ConsumedOAuthState,
+    OAuthLinkedAccount,
+    OAuthTokenSet,
+    OAuthUserInfo,
+    PendingOAuthState,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from belgie_core.core.belgie import Belgie
     from belgie_core.core.client import BelgieClient
+    from belgie_proto.core.individual import IndividualProtocol
+    from belgie_proto.core.oauth_account import OAuthAccountProtocol
 
     from belgie_oauth._config import OAuthProvider
     from belgie_oauth._helpers import OAuthTokenCodec
+    from belgie_oauth._models import ResponseCookie
     from belgie_oauth._state import OAuthStateStore
     from belgie_oauth._transport import OAuthTransport
+    from belgie_oauth._types import (
+        JSONValue,
+        OAuthAccountTokenUpdates,
+        OAuthBelgieRuntime,
+        OAuthFlowIntent,
+        OAuthResponseMode,
+    )
+
+
+class IndividualProfileUpdates(TypedDict, total=False):
+    name: str
+    image: str
+    email_verified_at: datetime
 
 
 class OAuthFlowCoordinator:
@@ -46,19 +68,19 @@ class OAuthFlowCoordinator:
         self,
         client: BelgieClient,
         *,
-        intent: str,
+        intent: OAuthFlowIntent,
         individual_id: UUID | None = None,
         redirect_url: str | None = None,
         error_redirect_url: str | None = None,
         new_user_redirect_url: str | None = None,
-        payload: Any = None,  # noqa: ANN401
+        payload: JSONValue = None,
         scopes: list[str] | None = None,
         prompt: str | None = None,
         access_type: str | None = None,
-        response_mode: str | None = None,
+        response_mode: OAuthResponseMode | None = None,
         authorization_params: dict[str, str] | None = None,
         request_sign_up: bool = False,
-    ) -> tuple[str, list[dict[str, Any]]]:
+    ) -> tuple[str, list[ResponseCookie]]:
         state = generate_state_token()
         code_verifier = generate_code_verifier() if self.config.use_pkce else None
         nonce = generate_state_token() if self.transport.should_use_nonce(scopes) else None
@@ -88,7 +110,7 @@ class OAuthFlowCoordinator:
             code_verifier=code_verifier,
             nonce=nonce,
         )
-        return authorization_url, [cookie.to_dict() for cookie in cookies]
+        return authorization_url, cookies
 
     async def token_set(
         self,
@@ -186,10 +208,10 @@ class OAuthFlowCoordinator:
             provider_account_id=provider_account_id,
         )
 
-    async def complete_callback(
+    async def complete_callback(  # noqa: C901, PLR0912
         self,
         *,
-        belgie: Belgie,
+        belgie: OAuthBelgieRuntime,
         client: BelgieClient,
         request: Request,
     ) -> RedirectResponse:
@@ -257,7 +279,7 @@ class OAuthFlowCoordinator:
                     token_set=token_set,
                 )
             self.state_store.clear_cookies(response)
-            return response
+            return response  # noqa: TRY300
         except OAuthError as exc:
             if consumed_state and consumed_state.error_redirect_url:
                 response = RedirectResponse(
@@ -293,10 +315,10 @@ class OAuthFlowCoordinator:
             params.update({key: str(value) for key, value in form.items()})
         return params
 
-    async def _complete_signin_flow(  # noqa: C901, PLR0913
+    async def _complete_signin_flow(  # noqa: C901, PLR0912, PLR0913
         self,
         *,
-        belgie: Belgie,
+        belgie: OAuthBelgieRuntime,
         client: BelgieClient,
         request: Request,
         oauth_state: ConsumedOAuthState,
@@ -418,7 +440,7 @@ class OAuthFlowCoordinator:
     async def _complete_link_flow(
         self,
         *,
-        belgie: Belgie,
+        belgie: OAuthBelgieRuntime,
         client: BelgieClient,
         oauth_state: ConsumedOAuthState,
         provider_user: OAuthUserInfo,
@@ -434,7 +456,7 @@ class OAuthFlowCoordinator:
         if not self.config.allow_different_link_emails:
             if provider_user.email is None:
                 raise OAuthCallbackError("email_missing", "provider user info missing email")
-            if not self._emails_match(getattr(individual, "email", None), provider_user.email):
+            if not self._emails_match(individual.email, provider_user.email):
                 raise OAuthCallbackError(
                     "email_does_not_match",
                     "provider email does not match the initiating individual",
@@ -464,7 +486,7 @@ class OAuthFlowCoordinator:
         await self._refresh_verified_email(
             client,
             individual_id=oauth_state.individual_id,
-            individual_email=getattr(individual, "email", None),
+            individual_email=individual.email,
             provider_user=provider_user,
         )
 
@@ -476,15 +498,15 @@ class OAuthFlowCoordinator:
     async def _refresh_individual_profile(
         self,
         client: BelgieClient,
-        individual,
+        individual: IndividualProtocol[str],
         provider_user: OAuthUserInfo,
-    ):
-        updates: dict[str, Any] = {}
+    ) -> IndividualProtocol[str] | None:
+        updates: IndividualProfileUpdates = {}
         if self.config.override_user_info_on_sign_in and provider_user.name is not None:
             updates["name"] = provider_user.name
         if self.config.override_user_info_on_sign_in and provider_user.image is not None:
             updates["image"] = provider_user.image
-        if self._emails_match(getattr(individual, "email", None), provider_user.email) and provider_user.email_verified:
+        if self._emails_match(individual.email, provider_user.email) and provider_user.email_verified:
             updates["email_verified_at"] = datetime.now(UTC)
         if not updates:
             return None
@@ -522,7 +544,7 @@ class OAuthFlowCoordinator:
             return None
         return self._linked_account_snapshot(record)
 
-    def _encoded_token_updates(self, token_set: OAuthTokenSet) -> dict[str, Any]:
+    def _encoded_token_updates(self, token_set: OAuthTokenSet) -> OAuthAccountTokenUpdates:
         return {
             "access_token": self.token_codec.encode(token_set.access_token),
             "refresh_token": self.token_codec.encode(token_set.refresh_token),
@@ -533,7 +555,7 @@ class OAuthFlowCoordinator:
             "id_token": self.token_codec.encode(token_set.id_token),
         }
 
-    def _linked_account_snapshot(self, account) -> OAuthLinkedAccount:  # noqa: ANN001
+    def _linked_account_snapshot(self, account: OAuthAccountProtocol) -> OAuthLinkedAccount:
         return OAuthLinkedAccount.from_model(
             account,
             access_token=self.token_codec.decode(account.access_token),

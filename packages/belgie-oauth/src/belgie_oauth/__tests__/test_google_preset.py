@@ -12,20 +12,32 @@ from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signin
 from belgie_oauth.google import _map_google_profile
 from pydantic import SecretStr, ValidationError
 
+GOOGLE_CLIENT_SECRET = SecretStr("google-client-secret")
+
 
 def _build_plugin(settings: GoogleOAuth | None = None) -> GoogleOAuthPlugin:
     provider_settings = settings or GoogleOAuth(
         client_id="google-client-id",
-        client_secret="google-client-secret",
+        client_secret=GOOGLE_CLIENT_SECRET,
     )
     belgie_settings = BelgieSettings(secret="test-secret", base_url="http://localhost:8000/app")
     return GoogleOAuthPlugin(belgie_settings, provider_settings)
 
 
+def _token_set() -> OAuthTokenSet:
+    return OAuthTokenSet.from_response(
+        {
+            "access_token": "google-access-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        },
+    )
+
+
 def test_google_settings_defaults() -> None:
     settings = GoogleOAuth(
         client_id="google-client-id",
-        client_secret="google-client-secret",
+        client_secret=GOOGLE_CLIENT_SECRET,
     )
 
     assert settings.scopes == ["openid", "email", "profile"]
@@ -40,7 +52,7 @@ def test_google_settings_reject_empty_client_secret() -> None:
     with pytest.raises(ValidationError):
         GoogleOAuth(
             client_id="google-client-id",
-            client_secret="",
+            client_secret=SecretStr(""),
         )
 
 
@@ -48,7 +60,7 @@ def test_google_settings_reject_empty_client_id_list() -> None:
     with pytest.raises(ValidationError):
         GoogleOAuth(
             client_id=[],
-            client_secret="google-client-secret",
+            client_secret=GOOGLE_CLIENT_SECRET,
         )
 
 
@@ -61,7 +73,7 @@ def test_google_plugin_redirect_uri_includes_base_path() -> None:
 def test_google_preset_uses_discovery_and_offline_defaults() -> None:
     settings = GoogleOAuth(
         client_id="google-client-id",
-        client_secret="google-client-secret",
+        client_secret=GOOGLE_CLIENT_SECRET,
         token_encryption_secret=SecretStr("token-secret"),
         encrypt_tokens=True,
     )
@@ -78,7 +90,7 @@ def test_google_preset_uses_discovery_and_offline_defaults() -> None:
 def test_google_preset_exposes_common_oauth_options() -> None:
     settings = GoogleOAuth(
         client_id="google-client-id",
-        client_secret="google-client-secret",
+        client_secret=GOOGLE_CLIENT_SECRET,
         response_mode="form_post",
         state_strategy="cookie",
         use_pkce=False,
@@ -98,10 +110,12 @@ def test_google_preset_exposes_common_oauth_options() -> None:
 
 
 @pytest.mark.asyncio
-async def test_google_authorization_url_includes_prompt_and_access_type() -> None:
+async def test_google_authorization_url_includes_prompt_and_access_type(monkeypatch) -> None:
     plugin = _build_plugin()
-    plugin.resolve_server_metadata = AsyncMock(  # type: ignore[attr-defined]
-        return_value={"authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth"},
+    monkeypatch.setattr(
+        plugin,
+        "resolve_server_metadata",
+        AsyncMock(return_value={"authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth"}),
     )
 
     url = await plugin.generate_authorization_url("test-state", code_verifier="verifier", nonce="nonce")
@@ -114,15 +128,17 @@ async def test_google_authorization_url_includes_prompt_and_access_type() -> Non
 
 
 @pytest.mark.asyncio
-async def test_google_authorization_url_uses_primary_client_id_from_list() -> None:
+async def test_google_authorization_url_uses_primary_client_id_from_list(monkeypatch) -> None:
     plugin = _build_plugin(
         GoogleOAuth(
             client_id=["google-web-client-id", "google-ios-client-id"],
-            client_secret="google-client-secret",
+            client_secret=GOOGLE_CLIENT_SECRET,
         ),
     )
-    plugin.resolve_server_metadata = AsyncMock(  # type: ignore[attr-defined]
-        return_value={"authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth"},
+    monkeypatch.setattr(
+        plugin,
+        "resolve_server_metadata",
+        AsyncMock(return_value={"authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth"}),
     )
 
     url = await plugin.generate_authorization_url("test-state", code_verifier="verifier", nonce="nonce")
@@ -134,7 +150,7 @@ async def test_google_authorization_url_uses_primary_client_id_from_list() -> No
 def test_google_hosted_domain_becomes_authorization_param() -> None:
     settings = GoogleOAuth(
         client_id="google-client-id",
-        client_secret="google-client-secret",
+        client_secret=GOOGLE_CLIENT_SECRET,
         hosted_domain="example.com",
     )
 
@@ -158,7 +174,7 @@ def test_google_profile_mapper_uses_oidc_fields() -> None:
             "name": "Test Person",
             "picture": "https://example.com/photo.jpg",
         },
-        token_set=None,  # type: ignore[arg-type]
+        token_set=_token_set(),
     )
 
     assert mapped.provider_account_id == "google-user-1"
@@ -264,7 +280,7 @@ async def test_google_profile_accepts_secondary_client_id_audience() -> None:
     plugin = _build_plugin(
         GoogleOAuth(
             client_id=["google-web-client-id", "google-ios-client-id"],
-            client_secret="google-client-secret",
+            client_secret=GOOGLE_CLIENT_SECRET,
         ),
     )
     signing_key = build_rsa_signing_key(kid="google-key")
