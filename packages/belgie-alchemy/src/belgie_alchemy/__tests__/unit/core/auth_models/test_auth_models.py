@@ -79,8 +79,15 @@ async def test_session_relationship(alchemy_session: AsyncSession) -> None:
 async def test_oauth_state_optional_individual(alchemy_session: AsyncSession) -> None:
     state = OAuthState(
         state="abc",
+        provider="google",
         code_verifier=None,
+        nonce="nonce",
+        intent="signin",
         redirect_url=None,
+        error_redirect_url="/error",
+        new_user_redirect_url="/welcome",
+        payload={"source": "test"},
+        request_sign_up=True,
         expires_at=datetime.now(UTC) + timedelta(minutes=5),
         individual_id=None,
     )
@@ -90,3 +97,10 @@ async def test_oauth_state_optional_individual(alchemy_session: AsyncSession) ->
     rows = await alchemy_session.execute(select(OAuthState))
     stored = rows.scalar_one()
     assert stored.individual is None
+    assert stored.provider == "google"
+    assert stored.nonce == "nonce"
+    assert stored.intent == "signin"
+    assert stored.error_redirect_url == "/error"
+    assert stored.new_user_redirect_url == "/welcome"
+    assert stored.payload == {"source": "test"}
+    assert stored.request_sign_up is True

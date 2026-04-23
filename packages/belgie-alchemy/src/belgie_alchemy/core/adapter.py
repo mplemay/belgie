@@ -141,7 +141,8 @@ class BelgieAdapter[
             provider_account_id=provider_account_id,
             access_token=tokens.get("access_token"),
             refresh_token=tokens.get("refresh_token"),
-            expires_at=tokens.get("expires_at"),
+            access_token_expires_at=tokens.get("access_token_expires_at"),
+            refresh_token_expires_at=tokens.get("refresh_token_expires_at"),
             token_type=tokens.get("token_type"),
             scope=tokens.get("scope"),
             id_token=tokens.get("id_token"),
@@ -168,18 +169,61 @@ class BelgieAdapter[
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_oauth_account_by_id(
+        self,
+        session: AsyncSession,
+        oauth_account_id: UUID,
+    ) -> OAuthAccountT | None:
+        stmt = select(self.oauth_account_model).where(self.oauth_account_model.id == oauth_account_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_oauth_account_by_individual_and_provider(
         self,
         session: AsyncSession,
         individual_id: UUID,
         provider: str,
     ) -> OAuthAccountT | None:
-        stmt = select(self.oauth_account_model).where(
-            self.oauth_account_model.individual_id == individual_id,
-            self.oauth_account_model.provider == provider,
+        stmt = (
+            select(self.oauth_account_model)
+            .where(
+                self.oauth_account_model.individual_id == individual_id,
+                self.oauth_account_model.provider == provider,
+            )
+            .order_by(self.oauth_account_model.updated_at.desc())
+            .limit(1)
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_oauth_account_by_individual_provider_account_id(
+        self,
+        session: AsyncSession,
+        individual_id: UUID,
+        provider: str,
+        provider_account_id: str,
+    ) -> OAuthAccountT | None:
+        stmt = select(self.oauth_account_model).where(
+            self.oauth_account_model.individual_id == individual_id,
+            self.oauth_account_model.provider == provider,
+            self.oauth_account_model.provider_account_id == provider_account_id,
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_oauth_accounts(
+        self,
+        session: AsyncSession,
+        individual_id: UUID,
+        *,
+        provider: str | None = None,
+    ) -> list[OAuthAccountT]:
+        stmt = select(self.oauth_account_model).where(self.oauth_account_model.individual_id == individual_id)
+        if provider is not None:
+            stmt = stmt.where(self.oauth_account_model.provider == provider)
+        stmt = stmt.order_by(self.oauth_account_model.created_at.asc())
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
     async def update_oauth_account(
         self,
@@ -204,6 +248,43 @@ class BelgieAdapter[
             await session.rollback()
             raise
         return oauth_account
+
+    async def update_oauth_account_by_id(
+        self,
+        session: AsyncSession,
+        oauth_account_id: UUID,
+        **tokens: Any,  # noqa: ANN401
+    ) -> OAuthAccountT | None:
+        oauth_account = await self.get_oauth_account_by_id(session, oauth_account_id)
+        if oauth_account is None:
+            return None
+
+        for key, value in tokens.items():
+            if hasattr(oauth_account, key) and value is not None:
+                setattr(oauth_account, key, value)
+
+        oauth_account.updated_at = datetime.now(UTC)
+        try:
+            await session.commit()
+            await session.refresh(oauth_account)
+        except Exception:
+            await session.rollback()
+            raise
+        return oauth_account
+
+    async def delete_oauth_account(
+        self,
+        session: AsyncSession,
+        oauth_account_id: UUID,
+    ) -> bool:
+        stmt = delete(self.oauth_account_model).where(self.oauth_account_model.id == oauth_account_id)
+        result = await session.execute(stmt)
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def create_session(
         self,
@@ -286,15 +367,29 @@ class BelgieAdapter[
         session: AsyncSession,
         state: str,
         expires_at: datetime,
+        provider: str | None = None,
         code_verifier: str | None = None,
+        nonce: str | None = None,
+        intent: str = "signin",
         redirect_url: str | None = None,
+        error_redirect_url: str | None = None,
+        new_user_redirect_url: str | None = None,
+        payload: Any | None = None,  # noqa: ANN401
+        request_sign_up: bool = False,  # noqa: FBT001, FBT002
         individual_id: UUID | None = None,
     ) -> OAuthStateT:
         oauth_state = self.oauth_state_model(
             state=state,
+            provider=provider,
             individual_id=individual_id,
             code_verifier=code_verifier,
+            nonce=nonce,
+            intent=intent,
             redirect_url=redirect_url,
+            error_redirect_url=error_redirect_url,
+            new_user_redirect_url=new_user_redirect_url,
+            payload=payload,
+            request_sign_up=request_sign_up,
             expires_at=expires_at,
         )
         session.add(oauth_state)

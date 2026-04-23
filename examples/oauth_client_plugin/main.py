@@ -70,6 +70,14 @@ class SessionInfoResponse(BaseModel):
     expires_at: str
 
 
+class LinkedOAuthAccountResponse(BaseModel):
+    provider: str
+    provider_account_id: str
+    scope: str | None
+    access_token_expires_at: str | None
+    refresh_token_expires_at: str | None
+
+
 app = FastAPI(title="Belgie OAuth Client Plugin Example", lifespan=lifespan)
 
 settings = BelgieSettings(
@@ -138,6 +146,28 @@ async def login_google(
 ) -> RedirectResponse:
     auth_url = await google.signin_url(return_to=return_to)
     return RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/accounts/google")
+async def linked_google_accounts(
+    google: GoogleClientDep,
+    user: CurrentIndividualDep,
+) -> list[LinkedOAuthAccountResponse]:
+    accounts = await google.list_accounts(individual_id=user.id)
+    return [
+        LinkedOAuthAccountResponse(
+            provider=account.provider,
+            provider_account_id=account.provider_account_id,
+            scope=account.scope,
+            access_token_expires_at=(
+                account.access_token_expires_at.isoformat() if account.access_token_expires_at else None
+            ),
+            refresh_token_expires_at=(
+                account.refresh_token_expires_at.isoformat() if account.refresh_token_expires_at else None
+            ),
+        )
+        for account in accounts
+    ]
 
 
 @app.get("/dashboard")

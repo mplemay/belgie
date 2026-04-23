@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator, Callable
-from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -93,14 +93,45 @@ def client(app: FastAPI) -> TestClient:
     return TestClient(app)
 
 
+def _mock_google_discovery() -> None:
+    respx.get(GoogleOAuthPlugin.DISCOVERY_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+                "token_endpoint": GoogleOAuthPlugin.TOKEN_URL,
+                "userinfo_endpoint": GoogleOAuthPlugin.USER_INFO_URL,
+                "issuer": "https://accounts.google.com",
+                "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
+            },
+        ),
+    )
+
+
+def _path_and_query(url: str) -> str:
+    parsed = urlparse(url)
+    return f"{parsed.path}?{parsed.query}" if parsed.query else parsed.path
+
+
+def _start_google_signin(client: TestClient, path: str = "/login/google") -> tuple[httpx.Response, str, str]:
+    signin_response = client.get(path, follow_redirects=False)
+    provider_response = client.get(_path_and_query(signin_response.headers["location"]), follow_redirects=False)
+    provider_url = provider_response.headers["location"]
+    state = parse_qs(urlparse(provider_url).query)["state"][0]
+    return signin_response, provider_url, state
+
+
+@respx.mock
 def test_signin_google_endpoint_redirects(client: TestClient) -> None:
-    response = client.get("/login/google", follow_redirects=False)
+    _mock_google_discovery()
+    response, provider_url, _ = _start_google_signin(client)
 
     assert response.status_code == 302
     assert "location" in response.headers
-    assert response.headers["location"].startswith("https://accounts.google.com/o/oauth2/v2/auth")
-    assert "client_id=test-client-id" in response.headers["location"]
-    assert "state=" in response.headers["location"]
+    assert response.headers["location"].startswith("http://localhost:8000/auth/provider/google/start?token=")
+    assert provider_url.startswith("https://accounts.google.com/o/oauth2/v2/auth")
+    assert "client_id=test-client-id" in provider_url
+    assert "state=" in provider_url
 
 
 def test_plugin_signin_route_removed(client: TestClient) -> None:
@@ -108,11 +139,10 @@ def test_plugin_signin_route_removed(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+@respx.mock
 def test_signin_google_creates_oauth_state(client: TestClient, auth: Belgie, db_session: AsyncSession) -> None:
-    response = client.get("/login/google", follow_redirects=False)
-
-    location = response.headers["location"]
-    state_param = [param.split("=")[1] for param in location.split("?")[1].split("&") if param.startswith("state=")][0]  # noqa: RUF015
+    _mock_google_discovery()
+    _, _, state_param = _start_google_signin(client)
 
     import asyncio  # noqa: PLC0415
 
@@ -126,12 +156,8 @@ def test_signin_google_creates_oauth_state(client: TestClient, auth: Belgie, db_
 
 @respx.mock
 def test_callback_redirects_to_relative_return_to(client: TestClient) -> None:
-    signin_response = client.get("/login/google?return_to=%2Fafter", follow_redirects=False)
-    state_param = [  # noqa: RUF015
-        param.split("=")[1]
-        for param in signin_response.headers["location"].split("?")[1].split("&")
-        if param.startswith("state=")
-    ][0]
+    _mock_google_discovery()
+    _, _, state_param = _start_google_signin(client, "/login/google?return_to=%2Fafter")
 
     mock_token_response = {
         "access_token": "test-access-token",
@@ -159,15 +185,11 @@ def test_callback_redirects_to_relative_return_to(client: TestClient) -> None:
 
 @respx.mock
 def test_callback_redirects_to_same_origin_absolute_return_to(client: TestClient) -> None:
-    signin_response = client.get(
+    _mock_google_discovery()
+    _, _, state_param = _start_google_signin(
+        client,
         "/login/google?return_to=http%3A%2F%2Flocalhost%3A8000%2Fafter%3Ftab%3Dsecurity",
-        follow_redirects=False,
     )
-    state_param = [  # noqa: RUF015
-        param.split("=")[1]
-        for param in signin_response.headers["location"].split("?")[1].split("&")
-        if param.startswith("state=")
-    ][0]
 
     mock_token_response = {
         "access_token": "test-access-token",
@@ -195,12 +217,8 @@ def test_callback_redirects_to_same_origin_absolute_return_to(client: TestClient
 
 @respx.mock
 def test_callback_rejects_cross_origin_return_to(client: TestClient) -> None:
-    signin_response = client.get("/login/google?return_to=https%3A%2F%2Fexample.com%2Fpwn", follow_redirects=False)
-    state_param = [  # noqa: RUF015
-        param.split("=")[1]
-        for param in signin_response.headers["location"].split("?")[1].split("&")
-        if param.startswith("state=")
-    ][0]
+    _mock_google_discovery()
+    _, _, state_param = _start_google_signin(client, "/login/google?return_to=https%3A%2F%2Fexample.com%2Fpwn")
 
     mock_token_response = {
         "access_token": "test-access-token",
@@ -228,18 +246,10 @@ def test_callback_rejects_cross_origin_return_to(client: TestClient) -> None:
 
 @respx.mock
 def test_callback_google_endpoint_success(client: TestClient, auth: Belgie, db_session: AsyncSession) -> None:
-    import asyncio  # noqa: PLC0415
-
-    async def setup_state() -> str:
-        state_token = "test-state-callback"  # noqa: S105
-        await auth.adapter.create_oauth_state(
-            db_session,
-            state=state_token,
-            expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
-        )
-        return state_token
-
-    state_token = asyncio.run(setup_state())
+    _ = auth
+    _ = db_session
+    _mock_google_discovery()
+    _, _, state_token = _start_google_signin(client)
 
     mock_token_response = {
         "access_token": "test-access-token",
@@ -277,18 +287,10 @@ def test_callback_google_sets_cookie_with_correct_attributes(
     auth: Belgie,
     db_session: AsyncSession,
 ) -> None:
-    import asyncio  # noqa: PLC0415
-
-    async def setup_state() -> str:
-        state_token = "test-state-cookie"  # noqa: S105
-        await auth.adapter.create_oauth_state(
-            db_session,
-            state=state_token,
-            expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
-        )
-        return state_token
-
-    state_token = asyncio.run(setup_state())
+    _ = auth
+    _ = db_session
+    _mock_google_discovery()
+    _, _, state_token = _start_google_signin(client)
 
     mock_token_response = {
         "access_token": "test-access-token",

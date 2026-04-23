@@ -1,22 +1,32 @@
-# belgie-oauth: Google and Microsoft OAuth Plugins for Belgie
+# belgie-oauth: Better-Auth-Informed OAuth/OIDC for Belgie
 
 > [!WARNING]
-> This package is part of Belgie's beta API surface. Names and integration details may still change before v1.0.
+> This package is still part of Belgie's beta API surface.
 
-`belgie-oauth` provides the Google and Microsoft OAuth client plugins used by Belgie apps. It handles OAuth state
-storage, authorization URL generation, token exchange, user info lookup, and the callback route that creates the
-Belgie session.
+`belgie-oauth` is Belgie's Authlib-backed OAuth 2.0 / OpenID Connect client runtime.
+It keeps the public integration centered on:
 
-The package exposes:
+- `GoogleOAuth` / `GoogleOAuthClient`
+- `MicrosoftOAuth` / `MicrosoftOAuthClient`
+- `OAuthProvider`
+- `OAuthPlugin`
+- `OAuthClient`
+- `OAuthTokenSet`
+- `OAuthLinkedAccount`
+- `OAuthUserInfo`
 
-- `GoogleOAuth` for configuration
-- `GoogleOAuthPlugin` for Belgie integration
-- `GoogleOAuthClient` for building sign-in URLs from route dependencies
-- `GoogleUserInfo` for the Google user profile payload
-- `MicrosoftOAuth` for configuration
-- `MicrosoftOAuthPlugin` for Belgie integration
-- `MicrosoftOAuthClient` for building sign-in URLs from route dependencies
-- `MicrosoftUserInfo` for the Microsoft user profile payload
+Provider presets are the primary API. `OAuthProvider` remains public as the advanced custom-provider escape hatch.
+
+Internally, the runtime is split the same way better-auth is:
+
+- transport: discovery, authorization URL generation, code exchange, refresh, and Authlib-backed ID-token validation
+- provider strategy: provider-owned auth request defaults, userinfo/profile resolution, and refresh specialization
+- state: adapter-backed or cookie-backed OAuth state handling
+- flow: sign-in, account linking, callback orchestration, redirects, and persistence updates
+
+It intentionally uses Authlib's low-level `AsyncOAuth2Client` + `AsyncOpenIDMixin`. It does not use
+`authlib.integrations.starlette_client.OAuth`, because Belgie owns state and cookies instead of relying on
+session-middleware state.
 
 ## Installation
 
@@ -24,31 +34,18 @@ The package exposes:
 uv add belgie-oauth
 ```
 
-> [!NOTE]
-> Configure `BELGIE_SECRET`, `BELGIE_BASE_URL`, and either the Google or Microsoft OAuth environment variables in
-> your environment, or pass the same values in Python code.
-
-## What It Does
-
-- Builds Google sign-in URLs with a short-lived OAuth state token.
-- Preserves safe `return_to` redirects for same-origin URLs and relative paths.
-- Exchanges the authorization code for tokens.
-- Fetches Google user info and creates or updates the Belgie account.
-- Exposes the callback route at `GET /auth/provider/google/callback`.
-- Microsoft follows the same flow with the Microsoft Graph OIDC userinfo endpoint and
-  `GET /auth/provider/microsoft/callback`.
+You also need normal Belgie configuration, including `BELGIE_SECRET` and `BELGIE_BASE_URL`.
 
 ## Quick Start
-
-Here is the smallest useful setup:
 
 ```python
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
+from pydantic import SecretStr
 
-from belgie_core import Belgie, BelgieSettings
+from belgie import Belgie, BelgieSettings
 from belgie_oauth import GoogleOAuth, GoogleOAuthClient
 
 settings = BelgieSettings(
@@ -62,11 +59,12 @@ auth = Belgie(
     database=get_db,
 )
 
-google_oauth_plugin = auth.add_plugin(
+google = auth.add_plugin(
     GoogleOAuth(
         client_id="your-google-client-id",
-        client_secret="your-google-client-secret",
-    ),
+        client_secret=SecretStr("your-google-client-secret"),
+        scopes=["openid", "email", "profile"],
+    )
 )
 
 app = FastAPI()
@@ -75,87 +73,239 @@ app.include_router(auth.router)
 
 @app.get("/login/google")
 async def login_google(
-    google: Annotated[GoogleOAuthClient, Depends(google_oauth_plugin)],
+    oauth: Annotated[GoogleOAuthClient, Depends(google)],
     return_to: str | None = None,
 ):
-    auth_url = await google.signin_url(return_to=return_to)
-    return RedirectResponse(url=auth_url, status_code=302)
+    url = await oauth.signin_url(
+        return_to=return_to,
+        error_redirect_url="/auth/error",
+        new_user_redirect_url="/welcome",
+        payload={"source": "marketing-site"},
+        request_sign_up=True,
+    )
+    return RedirectResponse(url=url, status_code=302)
 ```
 
-The callback URI you must register in Google Cloud is:
+Register this callback URL with the provider:
 
 ```text
 http://localhost:8000/auth/provider/google/callback
 ```
 
-## Microsoft OAuth
+`signin_url(...)` and `link_url(...)` now return a Belgie-owned start URL first. That local start route sets the
+required state cookie or marker and then redirects to the provider. The app-owned login route stays the same.
 
-Microsoft uses the same plugin pattern.
+## Account Operations
+
+Provider clients expose both flow helpers and post-sign-in account operations:
 
 ```python
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi import Depends
 
-from belgie_core import Belgie, BelgieSettings
-from belgie_oauth import MicrosoftOAuth, MicrosoftOAuthClient
-
-settings = BelgieSettings(
-    secret="your-secret-key",
-    base_url="http://localhost:8000",
-)
-
-auth = Belgie(
-    settings=settings,
-    adapter=adapter,
-    database=get_db,
-)
-
-microsoft_oauth_plugin = auth.add_plugin(
-    MicrosoftOAuth(
-        client_id="your-microsoft-client-id",
-        client_secret="your-microsoft-client-secret",
-        tenant="common",
-    ),
-)
-
-app = FastAPI()
-app.include_router(auth.router)
+from belgie_oauth import GoogleOAuthClient
 
 
-@app.get("/login/microsoft")
-async def login_microsoft(
-    microsoft: Annotated[MicrosoftOAuthClient, Depends(microsoft_oauth_plugin)],
-    return_to: str | None = None,
+@app.get("/accounts/google")
+async def list_google_accounts(
+    oauth: Annotated[GoogleOAuthClient, Depends(google)],
+    user: Annotated[Individual, Depends(auth.individual)],
 ):
-    auth_url = await microsoft.signin_url(return_to=return_to)
-    return RedirectResponse(url=auth_url, status_code=302)
+    return await oauth.list_accounts(individual_id=user.id)
+
+
+@app.get("/accounts/google/token-set")
+async def google_token_set(
+    oauth: Annotated[GoogleOAuthClient, Depends(google)],
+    user: Annotated[Individual, Depends(auth.individual)],
+    provider_account_id: str,
+):
+    token_set = await oauth.token_set(
+        individual_id=user.id,
+        provider_account_id=provider_account_id,
+    )
+    return {
+        "access_token": token_set.access_token,
+        "access_token_expires_at": (
+            token_set.access_token_expires_at.isoformat() if token_set.access_token_expires_at else None
+        ),
+        "refresh_token_expires_at": (
+            token_set.refresh_token_expires_at.isoformat() if token_set.refresh_token_expires_at else None
+        ),
+    }
+
+
+@app.get("/accounts/google/access-token")
+async def google_access_token(
+    oauth: Annotated[GoogleOAuthClient, Depends(google)],
+    user: Annotated[Individual, Depends(auth.individual)],
+    provider_account_id: str,
+):
+    return {
+        "access_token": await oauth.get_access_token(
+            individual_id=user.id,
+            provider_account_id=provider_account_id,
+        )
+    }
 ```
 
-The callback URI you must register in Microsoft Entra ID is:
+Available dependency methods:
+
+- `signin_url(...)`
+- `link_url(...)`
+- `list_accounts(individual_id=...)`
+- `token_set(individual_id=..., provider_account_id=..., auto_refresh=True)`
+- `get_access_token(individual_id=..., provider_account_id=..., auto_refresh=True)`
+- `refresh_account(individual_id=..., provider_account_id=...)`
+- `account_info(individual_id=..., provider_account_id=..., auto_refresh=True)`
+- `unlink_account(individual_id=..., provider_account_id=...)`
+
+## Persistence Model
+
+OAuth account persistence is a clean break from the older single-expiry layout.
+
+Stored account fields now include:
+
+- `access_token`
+- `refresh_token`
+- `access_token_expires_at`
+- `refresh_token_expires_at`
+- `token_type`
+- `scope`
+- `id_token`
+
+Notes:
+
+- `OAuthTokenSet.raw` is still available at runtime for provider-specific responses.
+- Raw token JSON is not required to be persisted.
+- When refresh responses omit optional fields, the runtime preserves the existing stored values where that is safe
+  to do so.
+- Optional token encryption still works at rest through `encrypt_tokens=True`.
+
+## State Strategies
+
+`OAuthProvider.state_strategy` controls where Belgie stores OAuth state.
+
+- `adapter`
+  - Persists the state row through the Belgie adapter.
+  - Also sets a short-lived signed marker cookie so the callback is still bound to the initiating browser.
+- `cookie`
+  - Stores the full transient state in a short-lived encrypted cookie.
+  - Does not create adapter rows for OAuth state.
+
+Both strategies keep the callback route shape at:
 
 ```text
-http://localhost:8000/auth/provider/microsoft/callback
+GET|POST /auth/provider/{provider_id}/callback
 ```
+
+`form_post` callbacks are normalized before validation so cookie-backed state remains usable even when the browser does
+not send the cookie on the initial cross-site POST.
+
+## Custom Providers
+
+Provider presets are the primary API. Use `OAuthProvider` when you need a custom or non-built-in provider.
+
+`OAuthProvider` supports:
+
+- OIDC discovery or manual `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` / `jwks_uri`
+- `client_id` as either a single string or an ordered list of accepted client IDs
+  - Belgie uses the first entry for authorization requests and token exchange
+  - Belgie accepts any configured entry when validating OIDC ID-token audiences
+- PKCE on or off
+- query-mode or `form_post` callbacks
+- RFC 9207 `iss` validation through `issuer` and `require_issuer_parameter_validation`
+- `state_strategy="adapter"` or `state_strategy="cookie"`
+- sign-up gating
+  - `disable_sign_up=True`
+  - `disable_implicit_sign_up=True`
+- profile refresh for existing linked users
+  - `override_user_info_on_sign_in=True`
+- optional token encryption
+  - `encrypt_tokens=True`
+  - `token_encryption_secret=...`
+- provider hooks
+  - `get_token`
+  - `refresh_tokens`
+  - `get_userinfo`
+  - `map_profile`
+
+Example with manual endpoints and cookie-backed state:
+
+```python
+provider = OAuthProvider(
+    provider_id="acme",
+    client_id="acme-client-id",
+    client_secret=SecretStr("acme-client-secret"),
+    authorization_endpoint="https://idp.example.com/oauth2/authorize",
+    token_endpoint="https://idp.example.com/oauth2/token",
+    userinfo_endpoint="https://idp.example.com/userinfo",
+    issuer="https://idp.example.com",
+    scopes=["openid", "email", "profile"],
+    use_pkce=True,
+    state_strategy="cookie",
+    disable_sign_up=True,
+    override_user_info_on_sign_in=True,
+)
+```
+
+Public-client providers are first-class. If `client_secret=None`, Belgie will use `token_endpoint_auth_method="none"`.
+Cross-platform OIDC apps can also provide `client_id=["web-client-id", "ios-client-id"]` when the provider issues
+ID tokens for multiple accepted audiences.
+
+## Presets
+
+Google and Microsoft presets are the intended default entrypoints:
+
+```python
+from belgie_oauth import GoogleOAuth, MicrosoftOAuth
+```
+
+### Google
+
+- OIDC discovery through `https://accounts.google.com/.well-known/openid-configuration`
+- default scopes: `openid email profile`
+- default `prompt="consent"`
+- default `access_type="offline"`
+- `include_granted_scopes=true` and optional hosted-domain routing
+- shared options from the generic runtime, including `state_strategy`, PKCE, nonce, `response_mode`, and token params
+- ID-token validation first, userinfo fallback only when needed
+
+### Microsoft
+
+- tenant-aware authorize, token, and JWKS endpoints
+- default scopes: `openid profile email offline_access User.Read`
+- callback issuer validation only for tenant-specific issuers
+- JWKS-backed ID-token verification through Authlib
+- Graph OIDC userinfo support
+- optional Graph photo enrichment
+- conservative `email_verified` handling
+- public-client mode works with `client_secret=None`
+- shared options from the generic runtime, including `state_strategy`, PKCE, nonce, `response_mode`, and token params
+
+## Hook Visibility
+
+During successful callback handling, Belgie exposes:
+
+- `request.state.oauth_state`
+- `request.state.oauth_payload`
+
+This keeps payload passthrough and callback metadata available to hooks like `after_authenticate`.
+
+## Better-Auth Parity and Intentional Omissions
+
+This refactor intentionally matches better-auth's server-driven OAuth client behavior around provider transport,
+state handling, linked accounts, and token refresh. It does not adopt every better-auth feature.
+
+Not adopted:
+
+- direct client-submitted `idToken` sign-in
+- better-auth's account-cookie storage model as Belgie's primary account persistence
+- Authlib session middleware or a public `authlib.OAuth` / `authlib.Auth` object on `Belgie`
 
 ## Examples
 
-- [`examples/oauth_client_plugin`](../../examples/oauth_client_plugin): OAuth client plugin flow with app-owned
-  sign-in routes.
-- [`examples/auth`](../../examples/auth): end-to-end Belgie auth example using Google OAuth.
-- [`docs/configuration.md`](../../docs/configuration.md): full configuration reference for Google OAuth settings and
-  environment variables.
-
-## Details
-
-- `GoogleOAuth.scopes` defaults to `["openid", "email", "profile"]`.
-- `GoogleOAuth.access_type` defaults to `offline`.
-- `GoogleOAuth.prompt` defaults to `consent`.
-- `GoogleOAuthPlugin.redirect_uri` is derived from `BELGIE_BASE_URL`.
-- `GoogleOAuthClient.signin_url()` stores OAuth state before returning the Google authorization URL.
-- The callback route redirects to the stored `return_to` value or Belgie's default sign-in redirect.
-- `MicrosoftOAuth.tenant` defaults to `common`.
-- `MicrosoftOAuth.scopes` defaults to `["openid", "profile", "email", "offline_access", "User.Read"]`.
-- `MicrosoftOAuthPlugin.redirect_uri` is derived from `BELGIE_BASE_URL`.
-- `MicrosoftOAuthClient.signin_url()` stores OAuth state before returning the Microsoft authorization URL.
+- [`examples/oauth_client_plugin`](../../examples/oauth_client_plugin): Google client plugin flow, linked accounts,
+  and the token expiry fields
+- [`examples/auth`](../../examples/auth): end-to-end Belgie auth example using `GoogleOAuth(...)`

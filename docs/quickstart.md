@@ -54,9 +54,11 @@ class Account(Base):
     provider_account_id: Mapped[str] = mapped_column(Text)
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    access_token_expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    refresh_token_expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
     token_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     scope: Mapped[str | None] = mapped_column(Text, nullable=True)
+    id_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -76,7 +78,17 @@ class OAuthState(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     state: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     expires_at: Mapped[datetime] = mapped_column()
+    code_verifier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nonce: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intent: Mapped[str] = mapped_column(Text, default="signin")
+    redirect_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_redirect_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_user_redirect_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    request_sign_up: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 ```
 

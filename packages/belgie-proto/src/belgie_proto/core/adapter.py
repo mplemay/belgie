@@ -10,9 +10,11 @@ from belgie_proto.core.session import SessionProtocol
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from typing import Any, Literal
     from uuid import UUID
 
     from belgie_proto.core.connection import DBConnection
+    from belgie_proto.core.json import JSONValue
 
 
 @runtime_checkable
@@ -61,12 +63,34 @@ class AdapterProtocol[
         provider_account_id: str,
     ) -> OAuthAccountT | None: ...
 
+    async def get_oauth_account_by_id(
+        self,
+        session: DBConnection,
+        oauth_account_id: UUID,
+    ) -> OAuthAccountT | None: ...
+
     async def get_oauth_account_by_individual_and_provider(
         self,
         session: DBConnection,
         individual_id: UUID,
         provider: str,
     ) -> OAuthAccountT | None: ...
+
+    async def get_oauth_account_by_individual_provider_account_id(
+        self,
+        session: DBConnection,
+        individual_id: UUID,
+        provider: str,
+        provider_account_id: str,
+    ) -> OAuthAccountT | None: ...
+
+    async def list_oauth_accounts(
+        self,
+        session: DBConnection,
+        individual_id: UUID,
+        *,
+        provider: str | None = None,
+    ) -> list[OAuthAccountT]: ...
 
     async def update_oauth_account(
         self,
@@ -75,6 +99,19 @@ class AdapterProtocol[
         provider: str,
         **tokens: Any,  # noqa: ANN401
     ) -> OAuthAccountT | None: ...
+
+    async def update_oauth_account_by_id(
+        self,
+        session: DBConnection,
+        oauth_account_id: UUID,
+        **tokens: Any,  # noqa: ANN401
+    ) -> OAuthAccountT | None: ...
+
+    async def delete_oauth_account(
+        self,
+        session: DBConnection,
+        oauth_account_id: UUID,
+    ) -> bool: ...
 
     async def create_session(
         self,
@@ -107,8 +144,15 @@ class AdapterProtocol[
         session: DBConnection,
         state: str,
         expires_at: datetime,
+        provider: str | None = None,
         code_verifier: str | None = None,
+        nonce: str | None = None,
+        intent: Literal["signin", "link"] = "signin",
         redirect_url: str | None = None,
+        error_redirect_url: str | None = None,
+        new_user_redirect_url: str | None = None,
+        payload: JSONValue = None,
+        request_sign_up: bool = False,  # noqa: FBT001, FBT002
         individual_id: UUID | None = None,
     ) -> OAuthStateT: ...
 
