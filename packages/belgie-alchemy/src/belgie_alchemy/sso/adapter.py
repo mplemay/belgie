@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from belgie_proto.sso import SSOAdapterProtocol
-from belgie_proto.sso.provider import OIDCConfigValue, SSOProviderProtocol
+from belgie_proto.sso.provider import OIDCConfigValue, SAMLConfigValue, SSOProviderProtocol
 from sqlalchemy import delete, select
 
 if TYPE_CHECKING:
@@ -27,20 +27,26 @@ class SSOAdapter[
         self.sso_provider_model = sso_provider
         self.sso_domain_model = sso_domain
 
-    async def create_provider(
+    async def create_provider(  # noqa: PLR0913
         self,
         session: DBConnection,
         *,
-        organization_id: UUID,
+        organization_id: UUID | None,
+        created_by_individual_id: UUID | None,
+        provider_type: str,
         provider_id: str,
         issuer: str,
-        oidc_config: dict[str, OIDCConfigValue],
+        oidc_config: dict[str, OIDCConfigValue] | None,
+        saml_config: dict[str, SAMLConfigValue] | None,
     ) -> ProviderT:
         provider = self.sso_provider_model(
             organization_id=organization_id,
+            created_by_individual_id=created_by_individual_id,
+            provider_type=provider_type,
             provider_id=provider_id,
             issuer=issuer,
             oidc_config=oidc_config,
+            saml_config=saml_config,
         )
         session.add(provider)
         try:
@@ -81,22 +87,45 @@ class SSOAdapter[
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def update_provider(
+    async def list_providers_for_individual(
+        self,
+        session: DBConnection,
+        *,
+        individual_id: UUID,
+    ) -> list[ProviderT]:
+        stmt = select(self.sso_provider_model).where(self.sso_provider_model.created_by_individual_id == individual_id)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_provider(  # noqa: PLR0913
         self,
         session: DBConnection,
         *,
         sso_provider_id: UUID,
+        organization_id: UUID | None = None,
+        created_by_individual_id: UUID | None = None,
+        provider_type: str | None = None,
         issuer: str | None = None,
         oidc_config: dict[str, OIDCConfigValue] | None = None,
+        saml_config: dict[str, SAMLConfigValue] | None = None,
     ) -> ProviderT | None:
         provider = await self.get_provider_by_id(session, sso_provider_id=sso_provider_id)
         if provider is None:
             return None
 
+        if organization_id is not None or (
+            created_by_individual_id is not None and getattr(provider, "created_by_individual_id", None) is None
+        ):
+            provider.organization_id = organization_id
+            provider.created_by_individual_id = created_by_individual_id
+        if provider_type is not None:
+            provider.provider_type = provider_type
         if issuer is not None:
             provider.issuer = issuer
         if oidc_config is not None:
             provider.oidc_config = oidc_config
+        if saml_config is not None:
+            provider.saml_config = saml_config
         provider.updated_at = datetime.now(UTC)
 
         try:
@@ -176,6 +205,16 @@ class SSOAdapter[
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def list_verified_domains_matching(
+        self,
+        session: DBConnection,
+        *,
+        domain: str,
+    ) -> list[DomainT]:
+        stmt = select(self.sso_domain_model).where(self.sso_domain_model.verified_at.is_not(None))
+        result = await session.execute(stmt)
+        return [item for item in result.scalars().all() if item.domain == domain or domain.endswith(f".{item.domain}")]
 
     async def list_domains_for_provider(
         self,

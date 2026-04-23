@@ -15,7 +15,7 @@ class DiscoveryDocument(BaseModel):
     issuer: str
     authorization_endpoint: str
     token_endpoint: str
-    userinfo_endpoint: str
+    userinfo_endpoint: str | None = None
     jwks_uri: str | None = None
     token_endpoint_auth_methods_supported: list[str] | None = None
 
@@ -35,9 +35,12 @@ async def discover_oidc_configuration(  # noqa: PLR0913
     token_endpoint_auth_method: str,
     claim_mapping: OIDCClaimMapping,
     timeout_seconds: float,
+    discovery_endpoint: str | None = None,
+    use_pkce: bool = True,
+    override_user_info_on_sign_in: bool = False,
 ) -> OIDCDiscoveryResult:
     normalized_issuer = normalize_issuer(issuer)
-    discovery_url = f"{normalized_issuer}/.well-known/openid-configuration"
+    discovery_url = discovery_endpoint or f"{normalized_issuer}/.well-known/openid-configuration"
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as http_client:
         response = await http_client.get(discovery_url)
@@ -56,14 +59,18 @@ async def discover_oidc_configuration(  # noqa: PLR0913
     return OIDCDiscoveryResult(
         issuer=normalized_issuer,
         config=OIDCProviderConfig(
+            issuer=normalized_issuer,
             client_id=client_id,
             client_secret=client_secret,
             authorization_endpoint=document.authorization_endpoint,
             token_endpoint=document.token_endpoint,
             userinfo_endpoint=document.userinfo_endpoint,
+            discovery_endpoint=discovery_url,
             jwks_uri=document.jwks_uri,
             scopes=tuple(scopes),
             token_endpoint_auth_method=token_endpoint_auth_method,
+            use_pkce=use_pkce,
+            override_user_info_on_sign_in=override_user_info_on_sign_in,
             claim_mapping=claim_mapping,
         ),
     )

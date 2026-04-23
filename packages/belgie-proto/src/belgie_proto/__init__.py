@@ -16,6 +16,8 @@ from belgie_proto.oauth_server import (
 from belgie_proto.sso import (
     OIDCClaimMapping,
     OIDCProviderConfig,
+    SAMLClaimMapping,
+    SAMLProviderConfig,
     SSOAdapterProtocol,
     SSODomainProtocol,
     SSOProviderProtocol,
@@ -45,6 +47,8 @@ __all__ = [
     "OAuthServerSubjectType",
     "OIDCClaimMapping",
     "OIDCProviderConfig",
+    "SAMLClaimMapping",
+    "SAMLProviderConfig",
     "SSOAdapterProtocol",
     "SSODomainProtocol",
     "SSOProviderProtocol",

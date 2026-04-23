@@ -7,15 +7,20 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
-type OIDCConfigValue = str | list[str] | dict[str, str]
+type SSOProviderType = str
+type OIDCConfigValue = str | bool | list[str] | dict[str, str]
+type SAMLConfigValue = str | bool | list[str] | dict[str, str]
 
 
 @runtime_checkable
 class SSOProviderProtocol(Protocol):
     id: UUID
-    organization_id: UUID
+    organization_id: UUID | None
+    created_by_individual_id: UUID | None
+    provider_type: SSOProviderType
     provider_id: str
     issuer: str
-    oidc_config: dict[str, OIDCConfigValue]
+    oidc_config: dict[str, OIDCConfigValue] | None
+    saml_config: dict[str, SAMLConfigValue] | None
     created_at: datetime
     updated_at: datetime

@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-15T21:55:00.821192Z"
+exclude-newer = "2026-04-16T01:22:38.878415Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -348,6 +348,7 @@ source = { editable = "packages/belgie-sso" }
 dependencies = [
     { name = "asyncer" },
     { name = "belgie-core" },
+    { name = "belgie-oauth" },
     { name = "belgie-organization" },
     { name = "belgie-proto" },
     { name = "dnspython" },
@@ -361,6 +362,7 @@ dependencies = [
 requires-dist = [
     { name = "asyncer", specifier = ">=0.0.17" },
     { name = "belgie-core", editable = "packages/belgie-core" },
+    { name = "belgie-oauth", editable = "packages/belgie-oauth" },
     { name = "belgie-organization", editable = "packages/belgie-organization" },
     { name = "belgie-proto", editable = "packages/belgie-proto" },
     { name = "dnspython", specifier = ">=2.7.0" },

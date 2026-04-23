@@ -23,10 +23,13 @@ class FakeIndividual:
 @dataclass
 class FakeProvider:
     id: UUID
-    organization_id: UUID
+    organization_id: UUID | None
+    created_by_individual_id: UUID | None
+    provider_type: str
     provider_id: str
     issuer: str
-    oidc_config: dict[str, str | list[str] | dict[str, str]]
+    oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None
+    saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     created_at: datetime
     updated_at: datetime
 
@@ -43,22 +46,19 @@ class FakeDomain:
 
 
 class FakeSSOAdapter:
-    def __init__(self, provider: FakeProvider, domains: list[FakeDomain]) -> None:
-        self.provider = provider
-        self.domains = domains
+    def __init__(self, providers: list[FakeProvider], domains: list[FakeDomain]) -> None:
+        self.providers = {provider.id: provider for provider in providers}
+        self.domains = list(domains)
 
-    async def list_domains_for_provider(self, _db: object, *, sso_provider_id: UUID) -> list[FakeDomain]:
-        if sso_provider_id == self.provider.id:
-            return list(self.domains)
-        return []
-
-    async def get_verified_domain(self, _db: object, *, domain: str) -> FakeDomain | None:
-        return next((item for item in self.domains if item.domain == domain and item.verified_at is not None), None)
+    async def list_verified_domains_matching(self, _db: object, *, domain: str) -> list[FakeDomain]:
+        return [
+            item
+            for item in self.domains
+            if item.verified_at is not None and (item.domain == domain or domain.endswith(f".{item.domain}"))
+        ]
 
     async def get_provider_by_id(self, _db: object, *, sso_provider_id: UUID) -> FakeProvider | None:
-        if sso_provider_id == self.provider.id:
-            return self.provider
-        return None
+        return self.providers.get(sso_provider_id)
 
 
 class FakeOrganizationAdapter:
@@ -75,8 +75,8 @@ class FakeOrganizationAdapter:
         return next(
             (
                 object()
-                for existing_organization_id, existing_user_id, _role in self.members
-                if existing_organization_id == organization_id and existing_user_id == individual_id
+                for existing_organization_id, existing_individual_id, _role in self.members
+                if existing_organization_id == organization_id and existing_individual_id == individual_id
             ),
             None,
         )
@@ -86,19 +86,26 @@ class FakeOrganizationAdapter:
         return object()
 
 
-@pytest.mark.asyncio
-async def test_provider_matches_verified_domain_requires_exact_verified_domain() -> None:
-    provider = FakeProvider(
+def _provider(*, organization_id: UUID | None = None) -> FakeProvider:
+    return FakeProvider(
         id=uuid4(),
-        organization_id=uuid4(),
+        organization_id=organization_id,
+        created_by_individual_id=None,
+        provider_type="oidc",
         provider_id="acme",
         issuer="https://idp.example.com",
         oidc_config={},
+        saml_config=None,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
+
+
+@pytest.mark.asyncio
+async def test_provider_matches_verified_domain_uses_longest_verified_suffix() -> None:
+    provider = _provider(organization_id=uuid4())
     adapter = FakeSSOAdapter(
-        provider,
+        [provider],
         [
             FakeDomain(
                 id=uuid4(),
@@ -116,42 +123,32 @@ async def test_provider_matches_verified_domain_requires_exact_verified_domain()
         db=object(),
         adapter=adapter,
         provider=provider,
-        email="a@example.com",
-    )
-    assert not await provider_matches_verified_domain(
-        db=object(),
-        adapter=adapter,
-        provider=provider,
         email="a@dept.example.com",
     )
 
 
 @pytest.mark.asyncio
-async def test_assign_individual_by_verified_domain_is_idempotent() -> None:
+async def test_assign_individual_by_verified_domain_is_idempotent_for_suffix_matches() -> None:
     organization_id = uuid4()
-    provider = FakeProvider(
-        id=uuid4(),
-        organization_id=organization_id,
-        provider_id="acme",
-        issuer="https://idp.example.com",
-        oidc_config={},
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+    provider = _provider(organization_id=organization_id)
+    adapter = FakeSSOAdapter(
+        [provider],
+        [
+            FakeDomain(
+                id=uuid4(),
+                sso_provider_id=provider.id,
+                domain="example.com",
+                verification_token="token",
+                verified_at=datetime.now(UTC),
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            ),
+        ],
     )
-    domain = FakeDomain(
-        id=uuid4(),
-        sso_provider_id=provider.id,
-        domain="example.com",
-        verification_token="token",
-        verified_at=datetime.now(UTC),
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-    )
-    adapter = FakeSSOAdapter(provider, [domain])
     organization_adapter = FakeOrganizationAdapter(organization_id)
     individual = FakeIndividual(
         id=uuid4(),
-        email="person@example.com",
+        email="person@dept.example.com",
         email_verified_at=datetime.now(UTC),
         name="Person",
         image=None,
@@ -178,28 +175,22 @@ async def test_assign_individual_by_verified_domain_is_idempotent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_assign_individual_by_verified_domain_skips_deleted_provider() -> None:
-    organization_id = uuid4()
-    provider = FakeProvider(
-        id=uuid4(),
-        organization_id=organization_id,
-        provider_id="acme",
-        issuer="https://idp.example.com",
-        oidc_config={},
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+async def test_assign_individual_by_verified_domain_skips_user_owned_provider() -> None:
+    provider = _provider(organization_id=None)
+    adapter = FakeSSOAdapter(
+        [provider],
+        [
+            FakeDomain(
+                id=uuid4(),
+                sso_provider_id=provider.id,
+                domain="example.com",
+                verification_token="token",
+                verified_at=datetime.now(UTC),
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            ),
+        ],
     )
-    domain = FakeDomain(
-        id=uuid4(),
-        sso_provider_id=provider.id,
-        domain="example.com",
-        verification_token="token",
-        verified_at=datetime.now(UTC),
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-    )
-    adapter = FakeSSOAdapter(provider, [domain])
-    organization_adapter = FakeOrganizationAdapter(organization_id)
     individual = FakeIndividual(
         id=uuid4(),
         email="person@example.com",
@@ -211,21 +202,10 @@ async def test_assign_individual_by_verified_domain_skips_deleted_provider() -> 
         scopes=[],
     )
 
-    adapter.provider = FakeProvider(
-        id=uuid4(),
-        organization_id=organization_id,
-        provider_id="other",
-        issuer="https://idp.example.com",
-        oidc_config={},
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
-    )
-
     assert not await assign_individual_by_verified_domain(
         db=object(),
         adapter=adapter,
-        organization_adapter=organization_adapter,
+        organization_adapter=None,
         individual=individual,
         email=individual.email,
     )
-    assert organization_adapter.members == []

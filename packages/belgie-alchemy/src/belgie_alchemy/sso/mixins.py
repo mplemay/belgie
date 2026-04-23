@@ -12,12 +12,27 @@ class SSOProviderMixin(MappedAsDataclass):
     __tablename__ = "sso_provider"
 
     @declared_attr
-    def organization_id(self) -> Mapped[UUID]:
+    def organization_id(self) -> Mapped[UUID | None]:
         return mapped_column(
             ForeignKey("organization.id", ondelete="cascade", onupdate="cascade"),
-            nullable=False,
+            nullable=True,
+            default=None,
             kw_only=True,
         )
+
+    @declared_attr
+    def created_by_individual_id(self) -> Mapped[UUID | None]:
+        return mapped_column(
+            ForeignKey("individual.id", ondelete="cascade", onupdate="cascade"),
+            nullable=True,
+            default=None,
+            kw_only=True,
+        )
+
+    @declared_attr
+    def provider_type(self) -> Mapped[str]:
+        provider_type = Text().with_variant(CITEXT(), "postgresql")
+        return mapped_column(provider_type, default="oidc", nullable=False, kw_only=True)
 
     @declared_attr
     def provider_id(self) -> Mapped[str]:
@@ -30,8 +45,12 @@ class SSOProviderMixin(MappedAsDataclass):
         return mapped_column(issuer_type, index=True, kw_only=True)
 
     @declared_attr
-    def oidc_config(self) -> Mapped[dict[str, str | list[str] | dict[str, str]]]:
-        return mapped_column(Json, kw_only=True)
+    def oidc_config(self) -> Mapped[dict[str, str | bool | list[str] | dict[str, str]] | None]:
+        return mapped_column(Json, default=None, nullable=True, kw_only=True)
+
+    @declared_attr
+    def saml_config(self) -> Mapped[dict[str, str | bool | list[str] | dict[str, str]] | None]:
+        return mapped_column(Json, default=None, nullable=True, kw_only=True)
 
     @declared_attr
     def domains(self) -> Mapped[list[object]]:
@@ -43,11 +62,15 @@ class SSOProviderMixin(MappedAsDataclass):
         )
 
     @declared_attr.directive
-    def __table_args__(self) -> tuple[Index]:
+    def __table_args__(self) -> tuple[Index, ...]:
         return (
             Index(
                 "ix_sso_provider_organization_id",
                 self.organization_id,
+            ),
+            Index(
+                "ix_sso_provider_created_by_individual_id",
+                self.created_by_individual_id,
             ),
         )
 

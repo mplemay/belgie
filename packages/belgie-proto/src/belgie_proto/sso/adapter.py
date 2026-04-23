@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from belgie_proto.sso.domain import SSODomainProtocol
-from belgie_proto.sso.provider import OIDCConfigValue, SSOProviderProtocol
+from belgie_proto.sso.provider import OIDCConfigValue, SAMLConfigValue, SSOProviderProtocol
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -17,14 +17,17 @@ class SSOAdapterProtocol[
     ProviderT: SSOProviderProtocol,
     DomainT: SSODomainProtocol,
 ](Protocol):
-    async def create_provider(
+    async def create_provider(  # noqa: PLR0913
         self,
         session: DBConnection,
         *,
-        organization_id: UUID,
+        organization_id: UUID | None,
+        created_by_individual_id: UUID | None,
+        provider_type: str,
         provider_id: str,
         issuer: str,
-        oidc_config: dict[str, OIDCConfigValue],
+        oidc_config: dict[str, OIDCConfigValue] | None,
+        saml_config: dict[str, SAMLConfigValue] | None,
     ) -> ProviderT: ...
 
     async def get_provider_by_id(
@@ -48,13 +51,24 @@ class SSOAdapterProtocol[
         organization_id: UUID,
     ) -> list[ProviderT]: ...
 
-    async def update_provider(
+    async def list_providers_for_individual(
+        self,
+        session: DBConnection,
+        *,
+        individual_id: UUID,
+    ) -> list[ProviderT]: ...
+
+    async def update_provider(  # noqa: PLR0913
         self,
         session: DBConnection,
         *,
         sso_provider_id: UUID,
+        organization_id: UUID | None = None,
+        created_by_individual_id: UUID | None = None,
+        provider_type: str | None = None,
         issuer: str | None = None,
         oidc_config: dict[str, OIDCConfigValue] | None = None,
+        saml_config: dict[str, SAMLConfigValue] | None = None,
     ) -> ProviderT | None: ...
 
     async def delete_provider(
@@ -93,6 +107,13 @@ class SSOAdapterProtocol[
         *,
         domain: str,
     ) -> DomainT | None: ...
+
+    async def list_verified_domains_matching(
+        self,
+        session: DBConnection,
+        *,
+        domain: str,
+    ) -> list[DomainT]: ...
 
     async def list_domains_for_provider(
         self,

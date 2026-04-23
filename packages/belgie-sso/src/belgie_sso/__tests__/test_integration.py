@@ -1,7 +1,9 @@
+# ruff: noqa: ARG002, ARG005
+
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
@@ -18,12 +20,12 @@ from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
 from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin
 from belgie_core import Belgie, BelgieClient, BelgieSettings
+from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_organization import Organization
 from belgie_proto.sso import OIDCProviderConfig
 from belgie_sso import EnterpriseSSO
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import OIDCDiscoveryResult
-from belgie_sso.plugin import TokenResponse
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from fastapi import FastAPI
@@ -31,9 +33,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
 
 
 class SSOProvider(DataclassBase, PrimaryKeyMixin, TimestampMixin, SSOProviderMixin):
@@ -44,8 +43,51 @@ class SSODomain(DataclassBase, PrimaryKeyMixin, TimestampMixin, SSODomainMixin):
     pass
 
 
+class FakeOIDCTransport:
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(use_pkce=True)
+
+    def should_use_nonce(self, scopes):
+        return True
+
+    async def generate_authorization_url(self, state: str, **kwargs: object) -> str:
+        return f"https://idp.example.com/authorize?state={state}"
+
+    async def resolve_server_metadata(self) -> dict[str, str]:
+        return {"issuer": "https://idp.example.com"}
+
+    def validate_issuer_parameter(self, issuer: str | None, metadata: dict[str, str]) -> None:
+        return None
+
+    async def exchange_code_for_tokens(self, code: str, *, code_verifier: str | None = None) -> OAuthTokenSet:
+        return OAuthTokenSet(
+            access_token=f"access-{code}",
+            refresh_token="refresh-token",
+            token_type="Bearer",
+            scope="openid email profile",
+            id_token="id-token",
+            access_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            refresh_token_expires_at=None,
+            raw={"access_token": f"access-{code}", "refresh_token": "refresh-token"},
+        )
+
+    async def fetch_provider_profile(self, token_set: OAuthTokenSet, *, nonce: str | None = None) -> OAuthUserInfo:
+        return OAuthUserInfo(
+            provider_account_id="oidc-user-1",
+            email="person@dept.example.com",
+            email_verified=True,
+            name="Person Example",
+            raw={
+                "sub": "oidc-user-1",
+                "email": "person@dept.example.com",
+                "email_verified": True,
+                "name": "Person Example",
+            },
+        )
+
+
 @pytest_asyncio.fixture
-async def session_factory(tmp_path) -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+async def session_factory(tmp_path):
     database_path = tmp_path / "belgie-sso.sqlite3"
     engine = create_async_engine(
         URL.create("sqlite+aiosqlite", database=str(database_path)),
@@ -86,7 +128,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
 
     settings = BelgieSettings(secret="secret", base_url="http://localhost:8000")
 
-    async def database() -> AsyncGenerator[AsyncSession, None]:
+    async def database():
         async with session_factory() as session:
             yield session
 
@@ -95,11 +137,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
         adapter=core_adapter,
         database=database,
     )
-    belgie.add_plugin(
-        Organization(
-            adapter=organization_adapter,
-        ),
-    )
+    belgie.add_plugin(Organization(adapter=organization_adapter))
     sso_settings = EnterpriseSSO(adapter=sso_adapter)
     sso_plugin = belgie.add_plugin(sso_settings)
 
@@ -140,6 +178,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
                 return_value=OIDCDiscoveryResult(
                     issuer="https://idp.example.com",
                     config=OIDCProviderConfig(
+                        issuer="https://idp.example.com",
                         client_id="client-id",
                         client_secret="client-secret",
                         authorization_endpoint="https://idp.example.com/authorize",
@@ -159,52 +198,24 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
             domains=["example.com"],
         )
         domain = (await sso_adapter.list_domains_for_provider(session, sso_provider_id=provider.id))[0]
-        monkeypatch.setattr(
-            "belgie_sso.client.lookup_txt_records",
-            AsyncMock(return_value=[domain.verification_token]),
-        )
-        await management_client.verify_domain(provider_id="acme", domain="example.com")
+        await sso_adapter.update_domain(session, domain_id=domain.id, verified_at=datetime.now(UTC))
 
-    monkeypatch.setattr(
-        sso_plugin,
-        "_exchange_code_for_tokens",
-        AsyncMock(
-            return_value=TokenResponse(
-                access_token="access-token",
-                token_type="Bearer",
-                refresh_token="refresh-token",
-                scope="openid email profile",
-                id_token="id-token",
-                expires_at=None,
-            ),
-        ),
-    )
-    monkeypatch.setattr(
-        sso_plugin,
-        "get_user_info",
-        AsyncMock(
-            return_value={
-                "sub": "oidc-user-1",
-                "email": "person@example.com",
-                "email_verified": True,
-                "name": "Person Example",
-            },
-        ),
-    )
+    monkeypatch.setattr(sso_plugin, "_build_oidc_transport", lambda provider: FakeOIDCTransport())
 
     app = FastAPI()
     app.include_router(belgie.router)
+    client = TestClient(app, base_url="https://testserver.local")
 
-    signin_response = TestClient(app).get(
-        "/auth/provider/sso/signin?email=person@example.com",
+    signin_response = client.get(
+        "/auth/provider/sso/signin?email=person@dept.example.com",
         follow_redirects=False,
     )
 
     assert signin_response.status_code == 302
     state = parse_qs(urlparse(signin_response.headers["location"]).query)["state"][0]
 
-    callback_response = TestClient(app).get(
-        f"/auth/provider/sso/callback/acme?code=test-code&state={state}",
+    callback_response = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
         follow_redirects=False,
     )
 
@@ -212,7 +223,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
     assert callback_response.headers["location"] == "/dashboard"
 
     async with session_factory() as session:
-        created_user = await core_adapter.get_individual_by_email(session, "person@example.com")
+        created_user = await core_adapter.get_individual_by_email(session, "person@dept.example.com")
         assert created_user is not None
         member = await organization_adapter.get_member(
             session,

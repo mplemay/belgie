@@ -219,10 +219,13 @@ class ExampleStripeSubscription:
 @dataclass
 class ExampleSSOProvider:
     id: UUID
-    organization_id: UUID
+    organization_id: UUID | None
+    created_by_individual_id: UUID | None
+    provider_type: str
     provider_id: str
     issuer: str
-    oidc_config: dict[str, str | list[str] | dict[str, str]]
+    oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None
+    saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     created_at: datetime
     updated_at: datetime
 
@@ -488,9 +491,12 @@ def test_sso_protocol_runtime_checks() -> None:
     provider = ExampleSSOProvider(
         id=uuid4(),
         organization_id=uuid4(),
+        created_by_individual_id=None,
+        provider_type="oidc",
         provider_id="acme",
         issuer="https://idp.example.com",
         oidc_config={
+            "issuer": "https://idp.example.com",
             "client_id": "client-id",
             "client_secret": "client-secret",
             "authorization_endpoint": "https://idp.example.com/authorize",
@@ -499,6 +505,7 @@ def test_sso_protocol_runtime_checks() -> None:
             "claim_mapping": {"subject": "sub", "email": "email"},
             "scopes": ["openid", "email", "profile"],
         },
+        saml_config=None,
         created_at=now,
         updated_at=now,
     )
@@ -641,12 +648,14 @@ def test_sso_adapter_satisfies_protocol() -> None:
     assert callable(adapter.get_provider_by_id)
     assert callable(adapter.get_provider_by_provider_id)
     assert callable(adapter.list_providers_for_organization)
+    assert callable(adapter.list_providers_for_individual)
     assert callable(adapter.update_provider)
     assert callable(adapter.delete_provider)
     assert callable(adapter.create_domain)
     assert callable(adapter.get_domain)
     assert callable(adapter.get_domain_by_name)
     assert callable(adapter.get_verified_domain)
+    assert callable(adapter.list_verified_domains_matching)
     assert callable(adapter.list_domains_for_provider)
     assert callable(adapter.update_domain)
     assert callable(adapter.delete_domain)
