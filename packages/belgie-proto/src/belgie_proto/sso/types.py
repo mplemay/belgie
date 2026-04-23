@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 type OIDCExtraClaimMapping = dict[str, str]
-type OIDCConfigValue = str | bool | list[str] | dict[str, str]
-type SAMLConfigValue = str | bool | list[str] | dict[str, str]
+type SAMLExtraClaimMapping = dict[str, str]
+type OIDCClaimMappingValue = str | OIDCExtraClaimMapping
+type SAMLClaimMappingValue = str | SAMLExtraClaimMapping
+type OIDCConfigValue = str | bool | list[str] | dict[str, OIDCClaimMappingValue]
+type SAMLConfigValue = str | bool | list[str] | dict[str, SAMLClaimMappingValue]
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
@@ -40,7 +43,10 @@ class SAMLClaimMapping:
     email: str = "email"
     email_verified: str = "email_verified"
     name: str = "name"
+    first_name: str = "first_name"
+    last_name: str = "last_name"
     groups: str = "groups"
+    extra_fields: SAMLExtraClaimMapping = field(default_factory=dict)
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
@@ -49,6 +55,8 @@ class SAMLProviderConfig:
     sso_url: str
     x509_certificate: str
     slo_url: str | None = None
+    audience: str | None = None
+    idp_metadata_xml: str | None = None
     name_id_format: str | None = None
     binding: str = "redirect"
     allow_idp_initiated: bool = False
@@ -56,4 +64,9 @@ class SAMLProviderConfig:
     sign_authn_request: bool = True
     signature_algorithm: str = "rsa-sha256"
     digest_algorithm: str = "sha256"
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
+    signing_certificate: str | None = None
+    decryption_private_key: str | None = None
+    decryption_private_key_passphrase: str | None = None
     claim_mapping: SAMLClaimMapping = field(default_factory=SAMLClaimMapping)

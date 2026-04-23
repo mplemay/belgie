@@ -158,11 +158,13 @@ class SSOAdapter[
         sso_provider_id: UUID,
         domain: str,
         verification_token: str,
+        verification_token_expires_at: datetime | None = None,
     ) -> DomainT:
         sso_domain = self.sso_domain_model(
             sso_provider_id=sso_provider_id,
             domain=domain,
             verification_token=verification_token,
+            verification_token_expires_at=verification_token_expires_at,
         )
         session.add(sso_domain)
         try:
@@ -216,6 +218,16 @@ class SSOAdapter[
         result = await session.execute(stmt)
         return [item for item in result.scalars().all() if item.domain == domain or domain.endswith(f".{item.domain}")]
 
+    async def list_domains_matching(
+        self,
+        session: DBConnection,
+        *,
+        domain: str,
+    ) -> list[DomainT]:
+        stmt = select(self.sso_domain_model)
+        result = await session.execute(stmt)
+        return [item for item in result.scalars().all() if item.domain == domain or domain.endswith(f".{item.domain}")]
+
     async def list_domains_for_provider(
         self,
         session: DBConnection,
@@ -232,6 +244,7 @@ class SSOAdapter[
         *,
         domain_id: UUID,
         verification_token: str | None = None,
+        verification_token_expires_at: datetime | None = None,
         verified_at: datetime | None = None,
     ) -> DomainT | None:
         sso_domain = await self.get_domain(session, domain_id=domain_id)
@@ -240,6 +253,8 @@ class SSOAdapter[
 
         if verification_token is not None:
             sso_domain.verification_token = verification_token
+        if verification_token_expires_at is not None:
+            sso_domain.verification_token_expires_at = verification_token_expires_at
         sso_domain.verified_at = verified_at
         sso_domain.updated_at = datetime.now(UTC)
 

@@ -13,6 +13,7 @@ class SSODomainProtocol(Protocol):
     sso_provider_id: UUID
     domain: str
     verification_token: str
+    verification_token_expires_at: datetime | None
     verified_at: datetime | None
     created_at: datetime
     updated_at: datetime

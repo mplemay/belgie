@@ -2,7 +2,38 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from belgie_sso.utils import choose_best_verified_domain_match, extract_email_domain
+from belgie_sso.utils import choose_best_domain_match, choose_best_verified_domain_match, extract_email_domain
+
+
+async def provider_matches_domain[
+    ProviderT: SSOProviderProtocol,
+    DomainT: SSODomainProtocol,
+](
+    *,
+    db: DBConnection,
+    adapter: SSOAdapterProtocol[ProviderT, DomainT],
+    provider: ProviderT,
+    email: str,
+    verified_only: bool,
+) -> bool:
+    if not (domain := extract_email_domain(email)):
+        return False
+
+    domains = (
+        await adapter.list_verified_domains_matching(db, domain=domain)
+        if verified_only
+        else await adapter.list_domains_matching(db, domain=domain)
+    )
+    try:
+        matched_domain = (
+            choose_best_verified_domain_match(domain=domain, domains=domains)
+            if verified_only
+            else choose_best_domain_match(domain=domain, domains=domains)
+        )
+    except ValueError:
+        return False
+    return matched_domain is not None and matched_domain.sso_provider_id == provider.id
+
 
 if TYPE_CHECKING:
     from belgie_proto.core.connection import DBConnection
@@ -24,15 +55,13 @@ async def provider_matches_verified_domain[
     provider: ProviderT,
     email: str,
 ) -> bool:
-    if not (domain := extract_email_domain(email)):
-        return False
-
-    domains = await adapter.list_verified_domains_matching(db, domain=domain)
-    try:
-        matched_domain = choose_best_verified_domain_match(domain=domain, domains=domains)
-    except ValueError:
-        return False
-    return matched_domain is not None and matched_domain.sso_provider_id == provider.id
+    return await provider_matches_domain(
+        db=db,
+        adapter=adapter,
+        provider=provider,
+        email=email,
+        verified_only=True,
+    )
 
 
 async def assign_individual_to_provider_organization[
@@ -70,7 +99,7 @@ async def assign_individual_to_provider_organization[
     return True
 
 
-async def assign_individual_by_verified_domain[  # noqa: PLR0913
+async def assign_individual_by_domain[  # noqa: PLR0913
     ProviderT: SSOProviderProtocol,
     DomainT: SSODomainProtocol,
     OrganizationT: OrganizationProtocol,
@@ -83,15 +112,23 @@ async def assign_individual_by_verified_domain[  # noqa: PLR0913
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT] | None,
     individual: IndividualProtocol[str],
     email: str,
+    verified_only: bool,
     role: str = "member",
 ) -> bool:
     if not (domain := extract_email_domain(email)):
         return False
 
     try:
-        sso_domain = choose_best_verified_domain_match(
-            domain=domain,
-            domains=await adapter.list_verified_domains_matching(db, domain=domain),
+        sso_domain = (
+            choose_best_verified_domain_match(
+                domain=domain,
+                domains=await adapter.list_verified_domains_matching(db, domain=domain),
+            )
+            if verified_only
+            else choose_best_domain_match(
+                domain=domain,
+                domains=await adapter.list_domains_matching(db, domain=domain),
+            )
         )
     except ValueError:
         return False
@@ -107,5 +144,31 @@ async def assign_individual_by_verified_domain[  # noqa: PLR0913
         organization_adapter=organization_adapter,
         provider=provider,
         individual=individual,
+        role=role,
+    )
+
+
+async def assign_individual_by_verified_domain[  # noqa: PLR0913
+    ProviderT: SSOProviderProtocol,
+    DomainT: SSODomainProtocol,
+    OrganizationT: OrganizationProtocol,
+    MemberT: MemberProtocol,
+    InvitationT: InvitationProtocol,
+](
+    *,
+    db: DBConnection,
+    adapter: SSOAdapterProtocol[ProviderT, DomainT],
+    organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT] | None,
+    individual: IndividualProtocol[str],
+    email: str,
+    role: str = "member",
+) -> bool:
+    return await assign_individual_by_domain(
+        db=db,
+        adapter=adapter,
+        organization_adapter=organization_adapter,
+        individual=individual,
+        email=email,
+        verified_only=True,
         role=role,
     )

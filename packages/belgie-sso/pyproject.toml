@@ -18,6 +18,7 @@ dependencies = [
     "httpx>=0.24",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
+    "signxml>=4.4.0",
 ]
 
 [build-system]

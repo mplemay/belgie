@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import secrets
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from belgie_organization.roles import has_any_role
@@ -12,6 +13,7 @@ from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.sso import (
     OIDCClaimMapping,
     OIDCProviderConfig,
+    SAMLClaimMapping,
     SAMLProviderConfig,
     SSODomainProtocol,
     SSOProviderProtocol,
@@ -20,11 +22,12 @@ from fastapi import HTTPException, status
 
 from belgie_sso.discovery import discover_oidc_configuration
 from belgie_sso.dns import lookup_txt_records
-from belgie_sso.models import SSODomainChallenge, SSOProviderSummary
+from belgie_sso.models import SSODomainChallenge, SSOProviderDetail, SSOProviderSummary
 from belgie_sso.utils import (
     build_domain_verification_record_name,
     build_domain_verification_record_value,
     deserialize_oidc_config,
+    fingerprint_certificate,
     mask_client_id,
     normalize_domain,
     normalize_issuer,
@@ -202,13 +205,21 @@ class SSOClient[
         domains: list[str] | None = None,
         organization_id: UUID | None = None,
         slo_url: str | None = None,
+        audience: str | None = None,
+        idp_metadata_xml: str | None = None,
         name_id_format: str | None = None,
         binding: str = "redirect",
-        allow_idp_initiated: bool = False,
+        allow_idp_initiated: bool = True,
         want_assertions_signed: bool = True,
         sign_authn_request: bool = True,
         signature_algorithm: str = "rsa-sha256",
         digest_algorithm: str = "sha256",
+        private_key: str | None = None,
+        private_key_passphrase: str | None = None,
+        signing_certificate: str | None = None,
+        decryption_private_key: str | None = None,
+        decryption_private_key_passphrase: str | None = None,
+        claim_mapping: SAMLClaimMapping | None = None,
     ) -> ProviderT:
         normalized_provider_id = self._normalize_provider_id_or_400(provider_id)
         if await self.settings.adapter.get_provider_by_provider_id(self.client.db, provider_id=normalized_provider_id):
@@ -236,6 +247,8 @@ class SSOClient[
                     sso_url=sso_url.strip(),
                     x509_certificate=x509_certificate.strip(),
                     slo_url=slo_url.strip() if slo_url else None,
+                    audience=audience.strip() if audience else None,
+                    idp_metadata_xml=idp_metadata_xml.strip() if idp_metadata_xml else None,
                     name_id_format=name_id_format.strip() if name_id_format else None,
                     binding=binding.strip(),
                     allow_idp_initiated=allow_idp_initiated,
@@ -243,6 +256,14 @@ class SSOClient[
                     sign_authn_request=sign_authn_request,
                     signature_algorithm=signature_algorithm.strip(),
                     digest_algorithm=digest_algorithm.strip(),
+                    private_key=private_key.strip() if private_key else None,
+                    private_key_passphrase=private_key_passphrase.strip() if private_key_passphrase else None,
+                    signing_certificate=signing_certificate.strip() if signing_certificate else None,
+                    decryption_private_key=decryption_private_key.strip() if decryption_private_key else None,
+                    decryption_private_key_passphrase=(
+                        decryption_private_key_passphrase.strip() if decryption_private_key_passphrase else None
+                    ),
+                    claim_mapping=claim_mapping or SAMLClaimMapping(),
                 ),
             ),
         )
@@ -263,6 +284,8 @@ class SSOClient[
         x509_certificate: str | None = None,
         domains: list[str] | None = None,
         slo_url: str | None = None,
+        audience: str | None = None,
+        idp_metadata_xml: str | None = None,
         name_id_format: str | None = None,
         binding: str | None = None,
         allow_idp_initiated: bool | None = None,
@@ -270,6 +293,12 @@ class SSOClient[
         sign_authn_request: bool | None = None,
         signature_algorithm: str | None = None,
         digest_algorithm: str | None = None,
+        private_key: str | None = None,
+        private_key_passphrase: str | None = None,
+        signing_certificate: str | None = None,
+        decryption_private_key: str | None = None,
+        decryption_private_key_passphrase: str | None = None,
+        claim_mapping: SAMLClaimMapping | None = None,
     ) -> ProviderT:
         provider = await self._get_provider_or_404(provider_id)
         self._assert_provider_type(provider, expected_type="saml")
@@ -289,6 +318,12 @@ class SSOClient[
                     slo_url=(slo_url or existing_config.slo_url).strip()
                     if (slo_url or existing_config.slo_url)
                     else None,
+                    audience=(audience or existing_config.audience).strip()
+                    if (audience or existing_config.audience)
+                    else None,
+                    idp_metadata_xml=(idp_metadata_xml or existing_config.idp_metadata_xml).strip()
+                    if (idp_metadata_xml or existing_config.idp_metadata_xml)
+                    else None,
                     name_id_format=(name_id_format or existing_config.name_id_format).strip()
                     if (name_id_format or existing_config.name_id_format)
                     else None,
@@ -306,7 +341,24 @@ class SSOClient[
                     ),
                     signature_algorithm=(signature_algorithm or existing_config.signature_algorithm).strip(),
                     digest_algorithm=(digest_algorithm or existing_config.digest_algorithm).strip(),
-                    claim_mapping=existing_config.claim_mapping,
+                    private_key=(private_key or existing_config.private_key).strip()
+                    if (private_key or existing_config.private_key)
+                    else None,
+                    private_key_passphrase=(private_key_passphrase or existing_config.private_key_passphrase).strip()
+                    if (private_key_passphrase or existing_config.private_key_passphrase)
+                    else None,
+                    signing_certificate=(signing_certificate or existing_config.signing_certificate).strip()
+                    if (signing_certificate or existing_config.signing_certificate)
+                    else None,
+                    decryption_private_key=(decryption_private_key or existing_config.decryption_private_key).strip()
+                    if (decryption_private_key or existing_config.decryption_private_key)
+                    else None,
+                    decryption_private_key_passphrase=(
+                        (decryption_private_key_passphrase or existing_config.decryption_private_key_passphrase).strip()
+                        if (decryption_private_key_passphrase or existing_config.decryption_private_key_passphrase)
+                        else None
+                    ),
+                    claim_mapping=claim_mapping or existing_config.claim_mapping,
                 ),
             ),
         )
@@ -337,6 +389,10 @@ class SSOClient[
         provider = await self.get_provider(provider_id=provider_id)
         return await self._build_provider_summary(provider)
 
+    async def get_provider_detail(self, *, provider_id: str) -> SSOProviderDetail:
+        provider = await self.get_provider(provider_id=provider_id)
+        return await self._build_provider_detail(provider)
+
     async def list_providers(self, *, organization_id: UUID | None = None) -> list[ProviderT]:
         if organization_id is not None:
             await self._require_org_admin(organization_id=organization_id)
@@ -355,6 +411,10 @@ class SSOClient[
         providers = await self.list_providers(organization_id=organization_id)
         return [await self._build_provider_summary(provider) for provider in providers]
 
+    async def list_provider_details(self, *, organization_id: UUID | None = None) -> list[SSOProviderDetail]:
+        providers = await self.list_providers(organization_id=organization_id)
+        return [await self._build_provider_detail(provider) for provider in providers]
+
     async def create_domain_challenge(self, *, provider_id: str, domain: str) -> SSODomainChallenge:
         provider = await self._get_provider_or_404(provider_id)
         await self._require_provider_access(provider)
@@ -362,12 +422,14 @@ class SSOClient[
         normalized_domain = normalize_domain(domain)
         existing = await self.settings.adapter.get_domain_by_name(self.client.db, domain=normalized_domain)
         verification_token = self._generate_verification_token()
+        expires_at = self._next_domain_challenge_expiration()
         if existing is None:
             sso_domain = await self.settings.adapter.create_domain(
                 self.client.db,
                 sso_provider_id=provider.id,
                 domain=normalized_domain,
                 verification_token=verification_token,
+                verification_token_expires_at=expires_at,
             )
         else:
             if existing.sso_provider_id != provider.id:
@@ -375,18 +437,22 @@ class SSOClient[
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="domain is already registered to another provider",
                 )
-            updated = await self.settings.adapter.update_domain(
-                self.client.db,
-                domain_id=existing.id,
-                verification_token=verification_token,
-                verified_at=None,
-            )
-            if updated is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="domain not found",
+            if self._domain_challenge_is_active(existing):
+                sso_domain = existing
+            else:
+                updated = await self.settings.adapter.update_domain(
+                    self.client.db,
+                    domain_id=existing.id,
+                    verification_token=verification_token,
+                    verification_token_expires_at=expires_at,
+                    verified_at=existing.verified_at,
                 )
-            sso_domain = updated
+                if updated is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="domain not found",
+                    )
+                sso_domain = updated
 
         return self._build_domain_challenge(provider=provider, sso_domain=sso_domain)
 
@@ -400,6 +466,14 @@ class SSOClient[
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="domain not found for provider",
+            )
+        if (
+            sso_domain.verification_token_expires_at is not None
+            and sso_domain.verification_token_expires_at <= datetime.now(UTC)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="verification token has expired",
             )
 
         challenge = self._build_domain_challenge(provider=provider, sso_domain=sso_domain)
@@ -445,8 +519,7 @@ class SSOClient[
         return provider
 
     async def _build_provider_summary(self, provider: ProviderT) -> SSOProviderSummary:
-        domains = await self.settings.adapter.list_domains_for_provider(self.client.db, sso_provider_id=provider.id)
-        verified_domains = tuple(sorted(domain.domain for domain in domains if domain.verified_at is not None))
+        domains, verified_domains = await self._provider_domains(provider)
         client_id: str | None = None
         if provider.provider_type == "oidc":
             client_id = mask_client_id(self._provider_oidc_config(provider).client_id)
@@ -459,8 +532,81 @@ class SSOClient[
             created_by_individual_id=provider.created_by_individual_id,
             client_id=client_id,
             domain_verified=bool(verified_domains),
-            domains=tuple(sorted(domain.domain for domain in domains)),
+            domains=domains,
             verified_domains=verified_domains,
+            created_at=provider.created_at,
+            updated_at=provider.updated_at,
+        )
+
+    async def _build_provider_detail(self, provider: ProviderT) -> SSOProviderDetail:
+        domains, verified_domains = await self._provider_domains(provider)
+        if provider.provider_type == "oidc":
+            config = self._provider_oidc_config(provider)
+            detail_config: dict[str, object] = {
+                "client_id": mask_client_id(config.client_id),
+                "authorization_endpoint": config.authorization_endpoint,
+                "token_endpoint": config.token_endpoint,
+                "userinfo_endpoint": config.userinfo_endpoint,
+                "discovery_endpoint": config.discovery_endpoint,
+                "jwks_uri": config.jwks_uri,
+                "scopes": list(config.scopes),
+                "token_endpoint_auth_method": config.token_endpoint_auth_method,
+                "use_pkce": config.use_pkce,
+                "override_user_info_on_sign_in": config.override_user_info_on_sign_in,
+                "claim_mapping": {
+                    "subject": config.claim_mapping.subject,
+                    "email": config.claim_mapping.email,
+                    "email_verified": config.claim_mapping.email_verified,
+                    "name": config.claim_mapping.name,
+                    "image": config.claim_mapping.image,
+                    "extra_fields": dict(config.claim_mapping.extra_fields),
+                },
+            }
+        else:
+            config = self._provider_saml_config(provider)
+            detail_config = {
+                "entity_id": config.entity_id,
+                "sso_url": config.sso_url,
+                "slo_url": config.slo_url,
+                "audience": config.audience,
+                "idp_metadata_xml_present": bool(config.idp_metadata_xml),
+                "name_id_format": config.name_id_format,
+                "binding": config.binding,
+                "allow_idp_initiated": config.allow_idp_initiated,
+                "want_assertions_signed": config.want_assertions_signed,
+                "sign_authn_request": config.sign_authn_request,
+                "signature_algorithm": config.signature_algorithm,
+                "digest_algorithm": config.digest_algorithm,
+                "x509_certificate_present": bool(config.x509_certificate),
+                "x509_certificate_fingerprint": fingerprint_certificate(config.x509_certificate),
+                "private_key_present": bool(config.private_key),
+                "private_key_passphrase_present": bool(config.private_key_passphrase),
+                "signing_certificate_present": bool(config.signing_certificate),
+                "signing_certificate_fingerprint": fingerprint_certificate(config.signing_certificate),
+                "decryption_private_key_present": bool(config.decryption_private_key),
+                "decryption_private_key_passphrase_present": bool(config.decryption_private_key_passphrase),
+                "claim_mapping": {
+                    "subject": config.claim_mapping.subject,
+                    "email": config.claim_mapping.email,
+                    "email_verified": config.claim_mapping.email_verified,
+                    "name": config.claim_mapping.name,
+                    "first_name": config.claim_mapping.first_name,
+                    "last_name": config.claim_mapping.last_name,
+                    "groups": config.claim_mapping.groups,
+                    "extra_fields": dict(config.claim_mapping.extra_fields),
+                },
+            }
+        return SSOProviderDetail(
+            id=provider.id,
+            provider_id=provider.provider_id,
+            provider_type=provider.provider_type,
+            issuer=provider.issuer,
+            organization_id=provider.organization_id,
+            created_by_individual_id=provider.created_by_individual_id,
+            domain_verified=bool(verified_domains),
+            domains=domains,
+            verified_domains=verified_domains,
+            config=detail_config,
             created_at=provider.created_at,
             updated_at=provider.updated_at,
         )
@@ -500,6 +646,7 @@ class SSOClient[
                 claim_mapping=resolved_claim_mapping,
                 timeout_seconds=self.settings.discovery_timeout_seconds,
                 discovery_endpoint=normalized_discovery_endpoint,
+                trusted_origins=self.settings.trusted_idp_origins,
                 use_pkce=use_pkce,
                 override_user_info_on_sign_in=override_user_info_on_sign_in,
             )
@@ -553,6 +700,7 @@ class SSOClient[
                 sso_provider_id=provider.id,
                 domain=domain,
                 verification_token=self._generate_verification_token(),
+                verification_token_expires_at=self._next_domain_challenge_expiration(),
             )
 
     def _assert_provider_type(self, provider: ProviderT, *, expected_type: str) -> None:
@@ -582,6 +730,7 @@ class SSOClient[
                 verification_token=sso_domain.verification_token,
             ),
             verification_token=sso_domain.verification_token,
+            expires_at=sso_domain.verification_token_expires_at,
             verified_at=sso_domain.verified_at,
         )
 
@@ -651,11 +800,17 @@ class SSOClient[
             )
 
     async def _ensure_provider_capacity(self, *, organization_id: UUID | None) -> None:
-        if self.settings.providers_limit is None:
+        limit = self.settings.providers_limit
+        if limit is None:
+            return
+        if inspect.isroutine(limit):
+            resolved_limit = limit(organization_id)
+            limit = await resolved_limit if inspect.isawaitable(resolved_limit) else resolved_limit
+        if limit is None:
             return
 
         existing_providers = await self.list_providers(organization_id=organization_id)
-        if len(existing_providers) >= self.settings.providers_limit:
+        if len(existing_providers) >= limit:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="provider limit reached",
@@ -698,3 +853,17 @@ class SSOClient[
 
     def _generate_verification_token(self) -> str:
         return secrets.token_urlsafe(24)
+
+    async def _provider_domains(self, provider: ProviderT) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        domains = await self.settings.adapter.list_domains_for_provider(self.client.db, sso_provider_id=provider.id)
+        sorted_domains = tuple(sorted(domain.domain for domain in domains))
+        verified_domains = tuple(sorted(domain.domain for domain in domains if domain.verified_at is not None))
+        return sorted_domains, verified_domains
+
+    def _next_domain_challenge_expiration(self) -> datetime:
+        return datetime.now(UTC) + timedelta(seconds=self.settings.domain_verification.challenge_ttl_seconds)
+
+    def _domain_challenge_is_active(self, domain: DomainT) -> bool:
+        return domain.verification_token_expires_at is not None and domain.verification_token_expires_at > datetime.now(
+            UTC,
+        )

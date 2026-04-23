@@ -85,6 +85,7 @@ class SSOAdapterProtocol[
         sso_provider_id: UUID,
         domain: str,
         verification_token: str,
+        verification_token_expires_at: datetime | None = None,
     ) -> DomainT: ...
 
     async def get_domain(
@@ -115,6 +116,13 @@ class SSOAdapterProtocol[
         domain: str,
     ) -> list[DomainT]: ...
 
+    async def list_domains_matching(
+        self,
+        session: DBConnection,
+        *,
+        domain: str,
+    ) -> list[DomainT]: ...
+
     async def list_domains_for_provider(
         self,
         session: DBConnection,
@@ -128,6 +136,7 @@ class SSOAdapterProtocol[
         *,
         domain_id: UUID,
         verification_token: str | None = None,
+        verification_token_expires_at: datetime | None = None,
         verified_at: datetime | None = None,
     ) -> DomainT | None: ...
 

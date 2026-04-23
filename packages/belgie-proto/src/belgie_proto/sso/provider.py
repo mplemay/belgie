@@ -8,8 +8,9 @@ if TYPE_CHECKING:
 
 
 type SSOProviderType = str
-type OIDCConfigValue = str | bool | list[str] | dict[str, str]
-type SAMLConfigValue = str | bool | list[str] | dict[str, str]
+type ClaimMappingValue = str | dict[str, str]
+type OIDCConfigValue = str | bool | list[str] | dict[str, ClaimMappingValue]
+type SAMLConfigValue = str | bool | list[str] | dict[str, ClaimMappingValue]
 
 
 @runtime_checkable

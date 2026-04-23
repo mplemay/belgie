@@ -236,6 +236,7 @@ class ExampleSSODomain:
     sso_provider_id: UUID
     domain: str
     verification_token: str
+    verification_token_expires_at: datetime | None
     verified_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -514,6 +515,7 @@ def test_sso_protocol_runtime_checks() -> None:
         sso_provider_id=provider.id,
         domain="example.com",
         verification_token="token",
+        verification_token_expires_at=None,
         verified_at=now,
         created_at=now,
         updated_at=now,

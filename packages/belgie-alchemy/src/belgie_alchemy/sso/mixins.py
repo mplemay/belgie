@@ -97,6 +97,10 @@ class SSODomainMixin(MappedAsDataclass):
         return mapped_column(Text, kw_only=True)
 
     @declared_attr
+    def verification_token_expires_at(self) -> Mapped[datetime | None]:
+        return mapped_column(DateTimeUTC, default=None, kw_only=True)
+
+    @declared_attr
     def verified_at(self) -> Mapped[datetime | None]:
         return mapped_column(DateTimeUTC, default=None, kw_only=True)
 
