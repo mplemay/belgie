@@ -836,7 +836,7 @@ class SSOClient[
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="organization not found",
                 )
-            await self._require_org_admin(organization_id=organization_id)
+            await self._require_org_membership(organization_id=organization_id)
             return
 
         self._current_individual_or_403()
@@ -855,27 +855,9 @@ class SSOClient[
         await self._require_provider_owner(provider)
         if provider.organization_id is None or self.organization_adapter is None:
             return
-        member = await self.organization_adapter.get_member(
-            self.client.db,
-            organization_id=provider.organization_id,
-            individual_id=self._current_individual_or_403().id,
-        )
-        if member is not None:
-            return
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="organization membership is required",
-        )
+        await self._require_org_membership(organization_id=provider.organization_id)
 
-    async def _require_provider_owner(self, provider: ProviderT) -> None:
-        current_individual = self._current_individual_or_403()
-        if provider.created_by_individual_id != current_individual.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="provider owner access is required",
-            )
-
-    async def _require_org_admin(self, *, organization_id: UUID) -> None:
+    async def _require_org_membership(self, *, organization_id: UUID) -> MemberT:
         if self.organization_adapter is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -887,7 +869,26 @@ class SSOClient[
             organization_id=organization_id,
             individual_id=self._current_individual_or_403().id,
         )
-        if member is None or not has_any_role(member.role, ["owner", "admin"]):
+        if member is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="organization membership is required",
+            )
+        return member
+
+    async def _require_provider_owner(self, provider: ProviderT) -> None:
+        current_individual = self._current_individual_or_403()
+        if provider.created_by_individual_id != current_individual.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="provider owner access is required",
+            )
+
+    async def _require_org_admin(self, *, organization_id: UUID) -> None:
+        if not has_any_role(
+            (await self._require_org_membership(organization_id=organization_id)).role,
+            ["owner", "admin"],
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="organization admin access is required",
@@ -908,7 +909,16 @@ class SSOClient[
                 detail="provider registration is disabled",
             )
 
-        existing_providers = await self.list_providers(organization_id=organization_id)
+        if organization_id is not None:
+            existing_providers = await self.settings.adapter.list_providers_for_organization(
+                self.client.db,
+                organization_id=organization_id,
+            )
+        else:
+            existing_providers = await self.settings.adapter.list_providers_for_individual(
+                self.client.db,
+                individual_id=self._current_individual_or_403().id,
+            )
         if len(existing_providers) >= limit:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

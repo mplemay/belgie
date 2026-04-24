@@ -3,6 +3,7 @@ from __future__ import annotations
 import warnings
 
 import pytest
+
 from belgie_sso.saml_algorithms import (
     DATA_ENCRYPTION_ALGORITHM_URIS,
     DIGEST_ALGORITHM_URIS,

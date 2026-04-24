@@ -4,6 +4,7 @@ import base64
 import textwrap
 
 import pytest
+
 from belgie_sso.saml import _parse_saml_message, _require_single_assertion
 
 _MAX_BYTES = 65_536

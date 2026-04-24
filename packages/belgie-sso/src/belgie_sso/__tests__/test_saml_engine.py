@@ -9,8 +9,6 @@ from urllib.parse import urlencode, urlparse
 import pytest
 import xmlsec
 from belgie_proto.sso import SAMLProviderConfig
-from belgie_sso.saml import BuiltinSAMLEngine
-from belgie_sso.settings import SAMLSecuritySettings
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -19,6 +17,9 @@ from lxml import etree as ET  # noqa: N812
 from signxml import XMLSigner, methods
 from signxml.algorithms import CanonicalizationMethod, DigestAlgorithm, SignatureMethod
 from starlette.requests import Request
+
+from belgie_sso.saml import BuiltinSAMLEngine
+from belgie_sso.settings import SAMLSecuritySettings
 
 
 @dataclass(frozen=True, slots=True)

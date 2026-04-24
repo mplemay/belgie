@@ -6,6 +6,7 @@ import httpx
 import pytest
 import respx
 from belgie_proto.sso import OIDCClaimMapping, OIDCProviderConfig
+
 from belgie_sso.discovery import (
     DiscoveryError,
     OIDCDiscoveryResult,

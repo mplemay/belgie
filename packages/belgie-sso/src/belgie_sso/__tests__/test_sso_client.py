@@ -8,12 +8,13 @@ from uuid import UUID, uuid4
 
 import pytest
 from belgie_proto.sso import DomainVerificationState, OIDCClaimMapping, OIDCProviderConfig
+from fastapi import HTTPException
+
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import DiscoveryError, OIDCDiscoveryResult
 from belgie_sso.dns import DNSTxtLookupError
 from belgie_sso.settings import EnterpriseSSO
 from belgie_sso.utils import deserialize_saml_config, split_provider_domains
-from fastapi import HTTPException
 
 
 @dataclass
@@ -439,12 +440,104 @@ async def test_register_oidc_provider_supports_user_owned_providers(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_register_oidc_provider_requires_org_admin_for_org_provider(monkeypatch) -> None:
+async def test_register_oidc_provider_allows_org_member_for_org_provider(monkeypatch) -> None:
     sso_client, _, organization, _ = build_client()
     sso_client.organization_adapter.member.role = "member"
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(
+            return_value=OIDCDiscoveryResult(
+                issuer="https://idp.example.com",
+                config=OIDCProviderConfig(
+                    issuer="https://idp.example.com",
+                    client_id="client-id",
+                    client_secret="client-secret",
+                    authorization_endpoint="https://idp.example.com/authorize",
+                    token_endpoint="https://idp.example.com/token",
+                    userinfo_endpoint="https://idp.example.com/userinfo",
+                ),
+            ),
+        ),
+    )
+
+    provider = await sso_client.register_oidc_provider(
+        organization_id=organization.id,
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+    )
+
+    assert provider.organization_id == organization.id
+
+
+@pytest.mark.asyncio
+async def test_register_oidc_provider_requires_org_membership_for_org_provider(monkeypatch) -> None:
+    sso_client, _, organization, _ = build_client()
+    outsider = FakeIndividual(
+        id=uuid4(),
+        email="outsider@example.com",
+        email_verified_at=datetime.now(UTC),
+        name="Outsider",
+        image=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        scopes=[],
+    )
+    member = FakeMember(
+        id=uuid4(),
+        organization_id=organization.id,
+        individual_id=uuid4(),
+        role="member",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    sso_client.organization_adapter.member = member
     monkeypatch.setattr("belgie_sso.client.discover_oidc_configuration", AsyncMock())
 
-    with pytest.raises(HTTPException, match="organization admin access is required"):
+    with pytest.raises(HTTPException, match="organization membership is required"):
+        await replace(sso_client, current_individual=outsider).register_oidc_provider(
+            organization_id=organization.id,
+            provider_id="acme",
+            issuer="https://idp.example.com",
+            client_id="client-id",
+            client_secret="client-secret",
+        )
+
+
+@pytest.mark.asyncio
+async def test_org_provider_limit_counts_existing_org_providers_without_org_admin_listing(monkeypatch) -> None:
+    sso_client, adapter, organization, _ = build_client()
+    sso_client.organization_adapter.member.role = "member"
+    sso_client.settings.providers_limit = 1
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(
+            return_value=OIDCDiscoveryResult(
+                issuer="https://idp.example.com",
+                config=OIDCProviderConfig(
+                    issuer="https://idp.example.com",
+                    client_id="client-id",
+                    client_secret="client-secret",
+                    authorization_endpoint="https://idp.example.com/authorize",
+                    token_endpoint="https://idp.example.com/token",
+                    userinfo_endpoint="https://idp.example.com/userinfo",
+                ),
+            ),
+        ),
+    )
+    await adapter.create_provider(
+        sso_client.client.db,
+        organization_id=organization.id,
+        created_by_individual_id=sso_client.current_individual.id,
+        provider_type="oidc",
+        provider_id="existing",
+        issuer="https://idp.example.com",
+        oidc_config=None,
+        saml_config=None,
+    )
+
+    with pytest.raises(HTTPException, match="provider limit reached"):
         await sso_client.register_oidc_provider(
             organization_id=organization.id,
             provider_id="acme",

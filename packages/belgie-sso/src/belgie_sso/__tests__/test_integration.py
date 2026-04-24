@@ -28,10 +28,6 @@ from belgie_core import Belgie, BelgieClient, BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_organization import Organization
 from belgie_proto.sso import DomainVerificationState, OIDCProviderConfig
-from belgie_sso import EnterpriseSSO
-from belgie_sso.client import SSOClient
-from belgie_sso.discovery import OIDCDiscoveryResult
-from belgie_sso.settings import SAMLSecuritySettings
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from cryptography import x509
@@ -46,6 +42,11 @@ from signxml.algorithms import CanonicalizationMethod, DigestAlgorithm, Signatur
 from sqlalchemy import event
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from belgie_sso import EnterpriseSSO
+from belgie_sso.client import SSOClient
+from belgie_sso.discovery import OIDCDiscoveryResult
+from belgie_sso.settings import SAMLSecuritySettings
 
 
 class SSOProvider(DataclassBase, PrimaryKeyMixin, TimestampMixin, SSOProviderMixin):

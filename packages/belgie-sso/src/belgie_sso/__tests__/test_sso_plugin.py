@@ -16,6 +16,16 @@ from belgie_core.core.plugin import AuthenticatedProfile
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_proto.sso import DomainVerificationState, OIDCProviderConfig
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.x509.oid import NameOID
+from fastapi import APIRouter, FastAPI
+from fastapi.testclient import TestClient
+from lxml import etree as ET  # noqa: N812
+from signxml import XMLSigner, methods
+from signxml.algorithms import CanonicalizationMethod, DigestAlgorithm, SignatureMethod
+
 from belgie_sso.discovery import DiscoveryError
 from belgie_sso.models import SSODomainChallenge, SSOProviderDetail
 from belgie_sso.plugin import SSOPlugin
@@ -27,15 +37,6 @@ from belgie_sso.settings import (
     SAMLSecuritySettings,
 )
 from belgie_sso.utils import split_provider_domains
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from cryptography.x509.oid import NameOID
-from fastapi import APIRouter, FastAPI
-from fastapi.testclient import TestClient
-from lxml import etree as ET  # noqa: N812
-from signxml import XMLSigner, methods
-from signxml.algorithms import CanonicalizationMethod, DigestAlgorithm, SignatureMethod
 
 
 @dataclass(frozen=True, slots=True)
