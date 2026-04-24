@@ -334,7 +334,15 @@ def select_token_endpoint_auth_method(
         return _DEFAULT_TOKEN_ENDPOINT_AUTH_METHOD
     if "client_secret_post" in normalized_supported_methods:
         return "client_secret_post"
-    return _DEFAULT_TOKEN_ENDPOINT_AUTH_METHOD
+    msg = "OIDC provider does not support client_secret_basic or client_secret_post for the token endpoint"
+    raise DiscoveryError(
+        _UNSUPPORTED_TOKEN_AUTH_METHOD,
+        msg,
+        details={
+            "requested_method": requested_method,
+            "supported_methods": normalized_supported_methods,
+        },
+    )
 
 
 async def discover_oidc_configuration(  # noqa: PLR0913

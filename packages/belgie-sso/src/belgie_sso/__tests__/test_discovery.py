@@ -16,6 +16,7 @@ from belgie_sso.discovery import (
     fetch_discovery_document,
     needs_runtime_discovery,
     normalize_oidc_metadata,
+    select_token_endpoint_auth_method,
     validate_discovery_document,
     validate_discovery_url,
 )
@@ -245,6 +246,59 @@ async def test_discover_oidc_configuration_selects_supported_token_auth_method()
         )
 
     assert discovery.config.token_endpoint_auth_method == "client_secret_post"  # noqa: S105
+
+
+def test_select_token_endpoint_auth_method_rejects_unsupported_discovered_methods() -> None:
+    with pytest.raises(DiscoveryError) as exc_info:
+        select_token_endpoint_auth_method(
+            requested_method="client_secret_basic",
+            supported_methods=[" private_key_jwt ", "", 1],
+        )
+
+    assert exc_info.value.code == "unsupported_token_auth_method"
+    assert str(exc_info.value) == (
+        "OIDC provider does not support client_secret_basic or client_secret_post for the token endpoint"
+    )
+    assert exc_info.value.details == {
+        "requested_method": "client_secret_basic",
+        "supported_methods": ["private_key_jwt"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_discover_oidc_configuration_rejects_unsupported_token_auth_methods_from_discovery() -> None:
+    issuer = "https://idp.example.com"
+    discovery_url = compute_discovery_url(issuer)
+    with respx.mock(assert_all_called=True) as router:
+        router.get(discovery_url).mock(
+            return_value=httpx.Response(
+                200,
+                json=_discovery_document(
+                    issuer=issuer,
+                    token_endpoint_auth_methods_supported=["private_key_jwt"],
+                ),
+            ),
+        )
+
+        with pytest.raises(DiscoveryError) as exc_info:
+            await discover_oidc_configuration(
+                issuer=issuer,
+                client_id="client-id",
+                client_secret="client-secret",
+                scopes=["openid", "email", "profile"],
+                token_endpoint_auth_method="client_secret_basic",
+                claim_mapping=OIDCClaimMapping(),
+                timeout_seconds=5,
+            )
+
+    assert exc_info.value.code == "unsupported_token_auth_method"
+    assert str(exc_info.value) == (
+        "OIDC provider does not support client_secret_basic or client_secret_post for the token endpoint"
+    )
+    assert exc_info.value.details == {
+        "requested_method": "client_secret_basic",
+        "supported_methods": ["private_key_jwt"],
+    }
 
 
 def test_validate_discovery_document_requires_required_fields() -> None:
