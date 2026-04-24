@@ -11,6 +11,7 @@ from belgie_sso.org_assignment import (
     provider_matches_domain,
     provider_matches_verified_domain,
 )
+from belgie_sso.utils import split_provider_domains
 
 
 @dataclass
@@ -33,6 +34,10 @@ class FakeProvider:
     provider_type: str
     provider_id: str
     issuer: str
+    domain: str
+    domain_verified: bool
+    domain_verification_token: str | None
+    domain_verification_token_expires_at: datetime | None
     oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     created_at: datetime
@@ -55,6 +60,14 @@ class FakeSSOAdapter:
     def __init__(self, providers: list[FakeProvider], domains: list[FakeDomain]) -> None:
         self.providers = {provider.id: provider for provider in providers}
         self.domains = list(domains)
+        for domain in self.domains:
+            if (provider := self.providers.get(domain.sso_provider_id)) is None:
+                continue
+            provider_domains = [*split_provider_domains(provider.domain), domain.domain]
+            provider.domain = ",".join(dict.fromkeys(provider_domains))
+            provider.domain_verified = provider.domain_verified or domain.verified_at is not None
+            provider.domain_verification_token = domain.verification_token
+            provider.domain_verification_token_expires_at = domain.verification_token_expires_at
 
     async def list_verified_domains_matching(self, _db: object, *, domain: str) -> list[FakeDomain]:
         return [
@@ -68,6 +81,20 @@ class FakeSSOAdapter:
 
     async def get_provider_by_id(self, _db: object, *, sso_provider_id: UUID) -> FakeProvider | None:
         return self.providers.get(sso_provider_id)
+
+    async def list_providers_matching_domain(
+        self,
+        _db: object,
+        *,
+        domain: str,
+        verified_only: bool,
+    ) -> list[FakeProvider]:
+        return [
+            provider
+            for provider in self.providers.values()
+            if (not verified_only or provider.domain_verified)
+            and any(item == domain or domain.endswith(f".{item}") for item in split_provider_domains(provider.domain))
+        ]
 
 
 class FakeOrganizationAdapter:
@@ -103,6 +130,10 @@ def _provider(*, organization_id: UUID | None = None) -> FakeProvider:
         provider_type="oidc",
         provider_id="acme",
         issuer="https://idp.example.com",
+        domain="",
+        domain_verified=False,
+        domain_verification_token=None,
+        domain_verification_token_expires_at=None,
         oidc_config={},
         saml_config=None,
         created_at=datetime.now(UTC),

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from belgie_sso.utils import split_provider_domains
+
 if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
@@ -29,11 +31,19 @@ class SSOProviderSummary:
     organization_id: UUID | None
     created_by_individual_id: UUID | None
     client_id: str | None
+    domain: str
     domain_verified: bool
-    domains: tuple[str, ...]
-    verified_domains: tuple[str, ...]
+    callback_url: str
     created_at: datetime
     updated_at: datetime
+
+    @property
+    def domains(self) -> tuple[str, ...]:
+        return split_provider_domains(self.domain)
+
+    @property
+    def verified_domains(self) -> tuple[str, ...]:
+        return self.domains if self.domain_verified else ()
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
@@ -44,12 +54,21 @@ class SSOProviderDetail:
     issuer: str
     organization_id: UUID | None
     created_by_individual_id: UUID | None
+    domain: str
     domain_verified: bool
-    domains: tuple[str, ...]
-    verified_domains: tuple[str, ...]
+    callback_url: str
+    domain_challenge: SSODomainChallenge | None
     config: dict[str, JSONValue]
     created_at: datetime
     updated_at: datetime
+
+    @property
+    def domains(self) -> tuple[str, ...]:
+        return split_provider_domains(self.domain)
+
+    @property
+    def verified_domains(self) -> tuple[str, ...]:
+        return self.domains if self.domain_verified else ()
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)

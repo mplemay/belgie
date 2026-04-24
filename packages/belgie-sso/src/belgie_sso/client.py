@@ -11,11 +11,11 @@ from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
 from belgie_proto.organization.organization import OrganizationProtocol
 from belgie_proto.sso import (
+    DomainVerificationState,
     OIDCClaimMapping,
     OIDCProviderConfig,
     SAMLClaimMapping,
     SAMLProviderConfig,
-    SSODomainProtocol,
     SSOProviderProtocol,
 )
 from fastapi import HTTPException, status
@@ -23,18 +23,22 @@ from fastapi import HTTPException, status
 from belgie_sso.discovery import DiscoveryError, discover_oidc_configuration, select_token_endpoint_auth_method
 from belgie_sso.dns import DNSTxtLookupError, lookup_txt_records
 from belgie_sso.models import SSODomainChallenge, SSOProviderDetail, SSOProviderSummary
+from belgie_sso.saml_algorithms import validate_config_digest_algorithm, validate_config_signature_algorithm
 from belgie_sso.utils import (
     build_domain_verification_record_name,
     build_domain_verification_record_value,
+    build_provider_callback_url,
+    build_shared_callback_url,
     deserialize_oidc_config,
     fingerprint_certificate,
     mask_client_id,
-    normalize_domain,
     normalize_http_url,
     normalize_issuer,
+    normalize_provider_domain_value,
     normalize_provider_id,
     serialize_oidc_config,
     serialize_saml_config,
+    split_provider_domains,
 )
 
 if TYPE_CHECKING:
@@ -52,13 +56,13 @@ _DNS_LABEL_MAX_LENGTH = 63
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SSOClient[
     ProviderT: SSOProviderProtocol,
-    DomainT: SSODomainProtocol,
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
     InvitationT: InvitationProtocol,
 ]:
     client: BelgieClient
-    settings: EnterpriseSSO[ProviderT, DomainT]
+    base_url: str
+    settings: EnterpriseSSO[ProviderT]
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT] | None = None
     current_individual: IndividualProtocol[str] | None = None
 
@@ -69,6 +73,7 @@ class SSOClient[
         issuer: str,
         client_id: str,
         client_secret: str,
+        domain: str | None = None,
         domains: list[str] | None = None,
         organization_id: UUID | None = None,
         scopes: list[str] | None = None,
@@ -80,10 +85,12 @@ class SSOClient[
         jwks_uri: str | None = None,
         discovery_endpoint: str | None = None,
         use_pkce: bool = True,
-        override_user_info_on_sign_in: bool = False,
+        override_user_info_on_sign_in: bool | None = None,
         skip_discovery: bool = False,
     ) -> ProviderT:
         normalized_provider_id = self._normalize_provider_id_or_400(provider_id)
+        if domain is None and domains is not None:
+            domain = ",".join(domains)
         if await self.settings.adapter.get_provider_by_provider_id(self.client.db, provider_id=normalized_provider_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -92,8 +99,8 @@ class SSOClient[
 
         await self._require_registration_access(organization_id=organization_id)
         await self._ensure_provider_capacity(organization_id=organization_id)
-        normalized_domains = self._normalize_domains(domains)
-        await self._ensure_domains_are_available(normalized_domains)
+        normalized_domain = self._normalize_provider_domain_or_400(domain)
+        await self._ensure_domain_is_available(normalized_domain)
 
         config = await self._resolve_oidc_config(
             issuer=issuer,
@@ -112,22 +119,18 @@ class SSOClient[
             skip_discovery=skip_discovery,
         )
 
-        provider = await self.settings.adapter.create_provider(
+        return await self.settings.adapter.create_provider(
             self.client.db,
             organization_id=organization_id,
-            created_by_individual_id=None if organization_id else self._current_individual_or_403().id,
+            created_by_individual_id=self._current_individual_or_403().id,
             provider_type="oidc",
             provider_id=normalized_provider_id,
             issuer=config.issuer,
+            domain=normalized_domain,
+            domain_verification=self._new_domain_verification_state(normalized_domain),
             oidc_config=serialize_oidc_config(config),
             saml_config=None,
         )
-        try:
-            await self._sync_provider_domains(provider=provider, domains=normalized_domains)
-        except Exception:
-            await self.settings.adapter.delete_provider(self.client.db, sso_provider_id=provider.id)
-            raise
-        return provider
 
     async def update_oidc_provider(  # noqa: PLR0913
         self,
@@ -136,6 +139,7 @@ class SSOClient[
         issuer: str | None = None,
         client_id: str | None = None,
         client_secret: str | None = None,
+        domain: str | None = None,
         domains: list[str] | None = None,
         scopes: list[str] | None = None,
         token_endpoint_auth_method: str | None = None,
@@ -153,7 +157,7 @@ class SSOClient[
             issuer=issuer,
             client_id=client_id,
             client_secret=client_secret,
-            domains=domains,
+            domain=domain if domain is not None else ",".join(domains) if domains is not None else None,
             scopes=scopes,
             token_endpoint_auth_method=token_endpoint_auth_method,
             claim_mapping=claim_mapping,
@@ -170,6 +174,11 @@ class SSOClient[
         await self._require_provider_access(provider)
         existing_config = self._provider_oidc_config(provider)
         refresh_discovered_endpoints = not skip_discovery and (issuer is not None or discovery_endpoint is not None)
+        if domain is None and domains is not None:
+            domain = ",".join(domains)
+        normalized_domain = self._normalize_provider_domain_or_400(domain) if domain is not None else None
+        if normalized_domain is not None:
+            await self._ensure_domain_is_available(normalized_domain, sso_provider_id=provider.id)
 
         config = await self._resolve_oidc_config(
             issuer=issuer or provider.issuer,
@@ -222,6 +231,12 @@ class SSOClient[
             self.client.db,
             sso_provider_id=provider.id,
             issuer=config.issuer,
+            domain=normalized_domain,
+            domain_verification=(
+                self._updated_domain_verification_state(provider=provider, domain=normalized_domain)
+                if normalized_domain is not None
+                else None
+            ),
             oidc_config=serialize_oidc_config(config),
             saml_config=None,
         )
@@ -230,12 +245,6 @@ class SSOClient[
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="provider not found",
             )
-
-        if domains is not None:
-            normalized_domains = self._normalize_domains(domains)
-            await self._ensure_domains_are_available(normalized_domains, sso_provider_id=provider.id)
-            await self._sync_provider_domains(provider=provider, domains=normalized_domains)
-
         return updated_provider
 
     async def register_saml_provider(  # noqa: PLR0913
@@ -244,8 +253,9 @@ class SSOClient[
         provider_id: str,
         issuer: str,
         entity_id: str,
-        sso_url: str,
-        x509_certificate: str,
+        sso_url: str | None = None,
+        x509_certificate: str | None = None,
+        domain: str | None = None,
         domains: list[str] | None = None,
         organization_id: UUID | None = None,
         slo_url: str | None = None,
@@ -267,6 +277,8 @@ class SSOClient[
         claim_mapping: SAMLClaimMapping | None = None,
     ) -> ProviderT:
         normalized_provider_id = self._normalize_provider_id_or_400(provider_id)
+        if domain is None and domains is not None:
+            domain = ",".join(domains)
         if await self.settings.adapter.get_provider_by_provider_id(self.client.db, provider_id=normalized_provider_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -275,8 +287,8 @@ class SSOClient[
 
         await self._require_registration_access(organization_id=organization_id)
         await self._ensure_provider_capacity(organization_id=organization_id)
-        normalized_domains = self._normalize_domains(domains)
-        await self._ensure_domains_are_available(normalized_domains)
+        normalized_domain = self._normalize_provider_domain_or_400(domain)
+        await self._ensure_domain_is_available(normalized_domain)
         config = self._build_saml_config(
             entity_id=entity_id,
             sso_url=sso_url,
@@ -300,22 +312,18 @@ class SSOClient[
             claim_mapping=claim_mapping or SAMLClaimMapping(),
         )
 
-        provider = await self.settings.adapter.create_provider(
+        return await self.settings.adapter.create_provider(
             self.client.db,
             organization_id=organization_id,
-            created_by_individual_id=None if organization_id else self._current_individual_or_403().id,
+            created_by_individual_id=self._current_individual_or_403().id,
             provider_type="saml",
             provider_id=normalized_provider_id,
             issuer=normalize_issuer(issuer),
+            domain=normalized_domain,
+            domain_verification=self._new_domain_verification_state(normalized_domain),
             oidc_config=None,
             saml_config=serialize_saml_config(config),
         )
-        try:
-            await self._sync_provider_domains(provider=provider, domains=normalized_domains)
-        except Exception:
-            await self.settings.adapter.delete_provider(self.client.db, sso_provider_id=provider.id)
-            raise
-        return provider
 
     async def update_saml_provider(  # noqa: PLR0913
         self,
@@ -325,6 +333,7 @@ class SSOClient[
         entity_id: str | None = None,
         sso_url: str | None = None,
         x509_certificate: str | None = None,
+        domain: str | None = None,
         domains: list[str] | None = None,
         slo_url: str | None = None,
         audience: str | None = None,
@@ -349,7 +358,7 @@ class SSOClient[
             entity_id=entity_id,
             sso_url=sso_url,
             x509_certificate=x509_certificate,
-            domains=domains,
+            domain=domain if domain is not None else ",".join(domains) if domains is not None else None,
             slo_url=slo_url,
             audience=audience,
             idp_metadata_xml=idp_metadata_xml,
@@ -372,6 +381,11 @@ class SSOClient[
         self._assert_provider_type(provider, expected_type="saml")
         await self._require_provider_access(provider)
         existing_config = self._provider_saml_config(provider)
+        if domain is None and domains is not None:
+            domain = ",".join(domains)
+        normalized_domain = self._normalize_provider_domain_or_400(domain) if domain is not None else None
+        if normalized_domain is not None:
+            await self._ensure_domain_is_available(normalized_domain, sso_provider_id=provider.id)
         config = self._build_saml_config(
             entity_id=existing_config.entity_id if entity_id is None else entity_id,
             sso_url=existing_config.sso_url if sso_url is None else sso_url,
@@ -417,6 +431,12 @@ class SSOClient[
             self.client.db,
             sso_provider_id=provider.id,
             issuer=normalize_issuer(issuer or provider.issuer),
+            domain=normalized_domain,
+            domain_verification=(
+                self._updated_domain_verification_state(provider=provider, domain=normalized_domain)
+                if normalized_domain is not None
+                else None
+            ),
             oidc_config=None,
             saml_config=serialize_saml_config(config),
         )
@@ -425,12 +445,6 @@ class SSOClient[
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="provider not found",
             )
-
-        if domains is not None:
-            normalized_domains = self._normalize_domains(domains)
-            await self._ensure_domains_are_available(normalized_domains, sso_provider_id=provider.id)
-            await self._sync_provider_domains(provider=provider, domains=normalized_domains)
-
         return updated_provider
 
     async def delete_provider(self, *, provider_id: str) -> bool:
@@ -473,77 +487,62 @@ class SSOClient[
         providers = await self.list_providers(organization_id=organization_id)
         return [await self._build_provider_detail(provider) for provider in providers]
 
-    async def create_domain_challenge(self, *, provider_id: str, domain: str) -> SSODomainChallenge:
+    async def create_domain_challenge(self, *, provider_id: str, domain: str | None = None) -> SSODomainChallenge:
         provider = await self._get_provider_or_404(provider_id)
-        await self._require_provider_access(provider)
+        await self._require_provider_domain_access(provider)
 
-        normalized_domain = normalize_domain(domain)
-        existing = await self.settings.adapter.get_domain_by_name(self.client.db, domain=normalized_domain)
-        verification_token = self._generate_verification_token()
-        expires_at = self._next_domain_challenge_expiration()
-        if existing is None:
-            sso_domain = await self.settings.adapter.create_domain(
-                self.client.db,
-                sso_provider_id=provider.id,
-                domain=normalized_domain,
-                verification_token=verification_token,
-                verification_token_expires_at=expires_at,
-            )
-        else:
-            if existing.sso_provider_id != provider.id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="domain is already registered to another provider",
-                )
-            if existing.verified_at is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="domain is already verified",
-                )
-            if self._domain_challenge_is_active(existing):
-                sso_domain = existing
-            else:
-                updated = await self.settings.adapter.update_domain(
-                    self.client.db,
-                    domain_id=existing.id,
-                    verification_token=verification_token,
-                    verification_token_expires_at=expires_at,
-                    verified_at=existing.verified_at,
-                )
-                if updated is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="domain not found",
-                    )
-                sso_domain = updated
-
-        return self._build_domain_challenge(provider=provider, sso_domain=sso_domain)
-
-    async def verify_domain(self, *, provider_id: str, domain: str) -> DomainT:
-        provider = await self._get_provider_or_404(provider_id)
-        await self._require_provider_access(provider)
-
-        normalized_domain = normalize_domain(domain)
-        sso_domain = await self.settings.adapter.get_domain_by_name(self.client.db, domain=normalized_domain)
-        if sso_domain is None or sso_domain.sso_provider_id != provider.id:
+        normalized_domain = self._require_single_domain_or_400(provider)
+        if domain is not None and self._normalize_provider_domain_or_400(domain) != normalized_domain:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="domain not found for provider",
             )
-        if sso_domain.verified_at is not None:
+        if provider.domain_verified:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="domain is already verified",
             )
-        if sso_domain.verification_token_expires_at is None or sso_domain.verification_token_expires_at <= datetime.now(
-            UTC,
+        if self._domain_challenge_is_active(provider):
+            challenge_provider = provider
+        else:
+            updated = await self.settings.adapter.update_provider(
+                self.client.db,
+                sso_provider_id=provider.id,
+                domain_verification=self._new_domain_verification_state(normalized_domain, force=True),
+            )
+            if updated is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="provider not found",
+                )
+            challenge_provider = updated
+        return self._build_domain_challenge(provider=challenge_provider)
+
+    async def verify_domain(self, *, provider_id: str, domain: str | None = None) -> ProviderT:
+        provider = await self._get_provider_or_404(provider_id)
+        await self._require_provider_domain_access(provider)
+
+        normalized_domain = self._require_single_domain_or_400(provider)
+        if domain is not None and self._normalize_provider_domain_or_400(domain) != normalized_domain:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="domain not found for provider",
+            )
+        if provider.domain_verified:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="domain is already verified",
+            )
+        if (
+            provider.domain_verification_token_expires_at is None
+            or provider.domain_verification_token_expires_at <= datetime.now(UTC)
         ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="pending domain verification challenge not found",
             )
 
-        challenge = self._build_domain_challenge(provider=provider, sso_domain=sso_domain)
+        challenge = self._build_domain_challenge(provider=provider)
         try:
             records = await lookup_txt_records(challenge.record_name)
         except DNSTxtLookupError as exc:
@@ -557,17 +556,21 @@ class SSOClient[
                 detail="verification token not found in DNS TXT records",
             )
 
-        verified_domain = await self.settings.adapter.update_domain(
+        verified_provider = await self.settings.adapter.update_provider(
             self.client.db,
-            domain_id=sso_domain.id,
-            verified_at=datetime.now(UTC),
+            sso_provider_id=provider.id,
+            domain_verification=DomainVerificationState(
+                verified=True,
+                token=None,
+                token_expires_at=None,
+            ),
         )
-        if verified_domain is None:
+        if verified_provider is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="domain not found",
+                detail="provider not found",
             )
-        return verified_domain
+        return verified_provider
 
     def _normalize_provider_id_or_400(self, provider_id: str) -> str:
         try:
@@ -592,7 +595,6 @@ class SSOClient[
         return provider
 
     async def _build_provider_summary(self, provider: ProviderT) -> SSOProviderSummary:
-        domains, verified_domains = await self._provider_domains(provider)
         client_id: str | None = None
         if provider.provider_type == "oidc":
             client_id = mask_client_id(self._provider_oidc_config(provider).client_id)
@@ -604,15 +606,14 @@ class SSOClient[
             organization_id=provider.organization_id,
             created_by_individual_id=provider.created_by_individual_id,
             client_id=client_id,
-            domain_verified=bool(verified_domains),
-            domains=domains,
-            verified_domains=verified_domains,
+            domain=provider.domain,
+            domain_verified=provider.domain_verified,
+            callback_url=self._provider_callback_url(provider),
             created_at=provider.created_at,
             updated_at=provider.updated_at,
         )
 
     async def _build_provider_detail(self, provider: ProviderT) -> SSOProviderDetail:
-        domains, verified_domains = await self._provider_domains(provider)
         if provider.provider_type == "oidc":
             config = self._provider_oidc_config(provider)
             detail_config: dict[str, object] = {
@@ -677,9 +678,10 @@ class SSOClient[
             issuer=provider.issuer,
             organization_id=provider.organization_id,
             created_by_individual_id=provider.created_by_individual_id,
-            domain_verified=bool(verified_domains),
-            domains=domains,
-            verified_domains=verified_domains,
+            domain=provider.domain,
+            domain_verified=provider.domain_verified,
+            callback_url=self._provider_callback_url(provider),
+            domain_challenge=self._domain_challenge_or_none(provider),
             config=detail_config,
             created_at=provider.created_at,
             updated_at=provider.updated_at,
@@ -700,7 +702,7 @@ class SSOClient[
         jwks_uri: str | None,
         discovery_endpoint: str | None,
         use_pkce: bool,
-        override_user_info_on_sign_in: bool,
+        override_user_info_on_sign_in: bool | None,
         skip_discovery: bool,
     ) -> OIDCProviderConfig:
         normalized_token_endpoint_auth_method = token_endpoint_auth_method.strip()
@@ -711,6 +713,11 @@ class SSOClient[
         resolved_scopes = scopes or self.settings.default_scopes
         resolved_claim_mapping = claim_mapping or OIDCClaimMapping()
         normalized_discovery_endpoint = discovery_endpoint.strip() if discovery_endpoint else None
+        resolved_override_user_info_on_sign_in = (
+            self.settings.default_override_user_info_on_sign_in
+            if override_user_info_on_sign_in is None
+            else override_user_info_on_sign_in
+        )
 
         if not skip_discovery:
             try:
@@ -725,7 +732,7 @@ class SSOClient[
                     discovery_endpoint=normalized_discovery_endpoint,
                     trusted_origins=self.settings.trusted_idp_origins,
                     use_pkce=use_pkce,
-                    override_user_info_on_sign_in=override_user_info_on_sign_in,
+                    override_user_info_on_sign_in=resolved_override_user_info_on_sign_in,
                 )
             except DiscoveryError as exc:
                 self._raise_discovery_http_exception(exc)
@@ -757,30 +764,9 @@ class SSOClient[
             scopes=tuple(resolved_scopes),
             token_endpoint_auth_method=normalized_token_endpoint_auth_method,
             use_pkce=use_pkce,
-            override_user_info_on_sign_in=override_user_info_on_sign_in,
+            override_user_info_on_sign_in=resolved_override_user_info_on_sign_in,
             claim_mapping=resolved_claim_mapping,
         )
-
-    async def _sync_provider_domains(self, *, provider: ProviderT, domains: list[str]) -> None:
-        existing_domains = await self.settings.adapter.list_domains_for_provider(
-            self.client.db,
-            sso_provider_id=provider.id,
-        )
-        existing_by_name = {domain.domain: domain for domain in existing_domains}
-        desired_domains = set(domains)
-        for sso_domain in existing_domains:
-            if sso_domain.domain not in desired_domains:
-                await self.settings.adapter.delete_domain(self.client.db, domain_id=sso_domain.id)
-        for domain in domains:
-            if domain in existing_by_name:
-                continue
-            await self.settings.adapter.create_domain(
-                self.client.db,
-                sso_provider_id=provider.id,
-                domain=domain,
-                verification_token=self._generate_verification_token(),
-                verification_token_expires_at=self._next_domain_challenge_expiration(),
-            )
 
     def _assert_provider_type(self, provider: ProviderT, *, expected_type: str) -> None:
         if provider.provider_type != expected_type:
@@ -789,9 +775,16 @@ class SSOClient[
                 detail=f"provider '{provider.provider_id}' is not a {expected_type} provider",
             )
 
-    def _build_domain_challenge(self, *, provider: ProviderT, sso_domain: DomainT) -> SSODomainChallenge:
+    def _build_domain_challenge(self, *, provider: ProviderT) -> SSODomainChallenge:
+        domain = self._require_single_domain_or_400(provider)
+        verification_token = provider.domain_verification_token
+        if verification_token is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="pending domain verification challenge not found",
+            )
         record_name = build_domain_verification_record_name(
-            domain=sso_domain.domain,
+            domain=domain,
             provider_id=provider.provider_id,
             token_prefix=self.settings.domain_txt_prefix,
         )
@@ -801,16 +794,16 @@ class SSOClient[
                 detail="domain verification record label exceeds DNS limits",
             )
         return SSODomainChallenge(
-            domain=sso_domain.domain,
+            domain=domain,
             record_name=record_name,
             record_value=build_domain_verification_record_value(
                 provider_id=provider.provider_id,
                 token_prefix=self.settings.domain_txt_prefix,
-                verification_token=sso_domain.verification_token,
+                verification_token=verification_token,
             ),
-            verification_token=sso_domain.verification_token,
-            expires_at=sso_domain.verification_token_expires_at,
-            verified_at=sso_domain.verified_at,
+            verification_token=verification_token,
+            expires_at=provider.domain_verification_token_expires_at,
+            verified_at=provider.updated_at if provider.domain_verified else None,
         )
 
     def _provider_oidc_config(self, provider: ProviderT) -> OIDCProviderConfig:
@@ -850,9 +843,36 @@ class SSOClient[
 
     async def _require_provider_access(self, provider: ProviderT) -> None:
         if provider.organization_id is not None:
+            if self.organization_adapter is None:
+                await self._require_provider_owner(provider)
+                return
             await self._require_org_admin(organization_id=provider.organization_id)
             return
 
+        await self._require_provider_owner(provider)
+
+    async def _require_provider_domain_access(self, provider: ProviderT) -> None:
+        if provider.organization_id is None:
+            await self._require_provider_owner(provider)
+            return
+        if self.organization_adapter is None:
+            await self._require_provider_owner(provider)
+            return
+        if provider.created_by_individual_id == self._current_individual_or_403().id:
+            return
+        member = await self.organization_adapter.get_member(
+            self.client.db,
+            organization_id=provider.organization_id,
+            individual_id=self._current_individual_or_403().id,
+        )
+        if member is not None:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="organization membership is required",
+        )
+
+    async def _require_provider_owner(self, provider: ProviderT) -> None:
         current_individual = self._current_individual_or_403()
         if provider.created_by_individual_id != current_individual.id:
             raise HTTPException(
@@ -887,6 +907,11 @@ class SSOClient[
             limit = await resolved_limit if inspect.isawaitable(resolved_limit) else resolved_limit
         if limit is None:
             return
+        if limit == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="provider registration is disabled",
+            )
 
         existing_providers = await self.list_providers(organization_id=organization_id)
         if len(existing_providers) >= limit:
@@ -895,31 +920,34 @@ class SSOClient[
                 detail="provider limit reached",
             )
 
-    async def _ensure_domains_are_available(
+    async def _ensure_domain_is_available(
         self,
-        domains: list[str],
+        domain_value: str,
         *,
         sso_provider_id: UUID | None = None,
     ) -> None:
-        for domain in domains:
-            if existing := await self.settings.adapter.get_domain_by_name(self.client.db, domain=domain):
-                if sso_provider_id is not None and existing.sso_provider_id == sso_provider_id:
+        for domain in split_provider_domains(domain_value):
+            if existing := await self.settings.adapter.get_provider_by_domain(self.client.db, domain=domain):
+                if sso_provider_id is not None and existing.id == sso_provider_id:
                     continue
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"domain '{domain}' is already registered",
                 )
 
-    def _normalize_domains(self, domains: list[str] | None) -> list[str]:
-        if not domains:
-            return []
-
-        normalized: list[str] = []
-        for domain in domains:
-            value = normalize_domain(domain)
-            if value in normalized:
-                continue
-            normalized.append(value)
+    def _normalize_provider_domain_or_400(self, domain_value: str | None) -> str:
+        try:
+            normalized = normalize_provider_domain_value(domain_value)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        if self.settings.domain_verification.enabled and len(split_provider_domains(normalized)) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="domain verification requires exactly one domain per provider",
+            )
         return normalized
 
     def _validate_oidc_token_endpoint_auth_method_or_400(self, token_endpoint_auth_method: str) -> None:
@@ -941,7 +969,7 @@ class SSOClient[
         issuer: str | None,
         client_id: str | None,
         client_secret: str | None,
-        domains: list[str] | None,
+        domain: str | None,
         scopes: list[str] | None,
         token_endpoint_auth_method: str | None,
         claim_mapping: OIDCClaimMapping | None,
@@ -959,7 +987,7 @@ class SSOClient[
                 issuer,
                 client_id,
                 client_secret,
-                domains,
+                domain,
                 scopes,
                 token_endpoint_auth_method,
                 claim_mapping,
@@ -985,7 +1013,7 @@ class SSOClient[
         entity_id: str | None,
         sso_url: str | None,
         x509_certificate: str | None,
-        domains: list[str] | None,
+        domain: str | None,
         slo_url: str | None,
         audience: str | None,
         idp_metadata_xml: str | None,
@@ -1011,7 +1039,7 @@ class SSOClient[
                 entity_id,
                 sso_url,
                 x509_certificate,
-                domains,
+                domain,
                 slo_url,
                 audience,
                 idp_metadata_xml,
@@ -1041,8 +1069,8 @@ class SSOClient[
         self,
         *,
         entity_id: str,
-        sso_url: str,
-        x509_certificate: str,
+        sso_url: str | None,
+        x509_certificate: str | None,
         slo_url: str | None,
         audience: str | None,
         idp_metadata_xml: str | None,
@@ -1068,21 +1096,22 @@ class SSOClient[
                 detail="binding must be one of: post, redirect",
             )
 
-        normalized_signature_algorithm = signature_algorithm.strip().lower()
-        if normalized_signature_algorithm not in self.settings.saml.allowed_signature_algorithms:
+        try:
+            normalized_signature_algorithm = validate_config_signature_algorithm(
+                signature_algorithm,
+                on_deprecated=self.settings.saml.on_deprecated,
+                allowed_signature_algorithms=self.settings.saml.allowed_signature_algorithms,
+            )
+            normalized_digest_algorithm = validate_config_digest_algorithm(
+                digest_algorithm,
+                on_deprecated=self.settings.saml.on_deprecated,
+                allowed_digest_algorithms=self.settings.saml.allowed_digest_algorithms,
+            )
+        except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"signature_algorithm must be one of: {', '.join(self.settings.saml.allowed_signature_algorithms)}"
-                ),
-            )
-
-        normalized_digest_algorithm = digest_algorithm.strip().lower()
-        if normalized_digest_algorithm not in self.settings.saml.allowed_digest_algorithms:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"digest_algorithm must be one of: {', '.join(self.settings.saml.allowed_digest_algorithms)}",
-            )
+                detail=str(exc),
+            ) from exc
 
         normalized_entity_id = entity_id.strip()
         if not normalized_entity_id:
@@ -1091,21 +1120,28 @@ class SSOClient[
                 detail="entity_id must be a non-empty string",
             )
 
-        normalized_x509_certificate = x509_certificate.strip()
-        if not normalized_x509_certificate:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="x509_certificate must be a non-empty string",
-            )
-
         try:
-            normalized_sso_url = normalize_http_url(sso_url, field_name="sso_url")
+            normalized_sso_url = normalize_http_url(sso_url, field_name="sso_url") if sso_url else None
             normalized_slo_url = normalize_http_url(slo_url, field_name="slo_url") if slo_url else None
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
+        normalized_x509_certificate = (
+            x509_certificate.strip() if x509_certificate and x509_certificate.strip() else None
+        )
+        normalized_idp_metadata_xml = idp_metadata_xml.strip() if idp_metadata_xml else None
+        if normalized_sso_url is None and normalized_idp_metadata_xml is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="sso_url or idp_metadata_xml is required",
+            )
+        if normalized_x509_certificate is None and normalized_idp_metadata_xml is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="x509_certificate or idp_metadata_xml is required",
+            )
 
         return SAMLProviderConfig(
             entity_id=normalized_entity_id,
@@ -1113,7 +1149,7 @@ class SSOClient[
             x509_certificate=normalized_x509_certificate,
             slo_url=normalized_slo_url,
             audience=audience.strip() if audience else None,
-            idp_metadata_xml=idp_metadata_xml.strip() if idp_metadata_xml else None,
+            idp_metadata_xml=normalized_idp_metadata_xml,
             sp_metadata_xml=sp_metadata_xml.strip() if sp_metadata_xml else None,
             name_id_format=name_id_format.strip() if name_id_format else None,
             binding=normalized_binding,
@@ -1195,16 +1231,62 @@ class SSOClient[
             detail=f"OIDC discovery failed: {exc}",
         ) from exc
 
-    async def _provider_domains(self, provider: ProviderT) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        domains = await self.settings.adapter.list_domains_for_provider(self.client.db, sso_provider_id=provider.id)
-        sorted_domains = tuple(sorted(domain.domain for domain in domains))
-        verified_domains = tuple(sorted(domain.domain for domain in domains if domain.verified_at is not None))
-        return sorted_domains, verified_domains
-
     def _next_domain_challenge_expiration(self) -> datetime:
         return datetime.now(UTC) + timedelta(seconds=self.settings.domain_verification.challenge_ttl_seconds)
 
-    def _domain_challenge_is_active(self, domain: DomainT) -> bool:
-        return domain.verification_token_expires_at is not None and domain.verification_token_expires_at > datetime.now(
-            UTC,
+    def _domain_challenge_is_active(self, provider: ProviderT) -> bool:
+        return (
+            provider.domain_verification_token_expires_at is not None
+            and provider.domain_verification_token_expires_at > datetime.now(UTC)
+        )
+
+    def _require_single_domain_or_400(self, provider: ProviderT) -> str:
+        domains = split_provider_domains(provider.domain)
+        if len(domains) != 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="provider must have exactly one domain",
+            )
+        return domains[0]
+
+    def _domain_challenge_or_none(self, provider: ProviderT) -> SSODomainChallenge | None:
+        if provider.domain_verified or not provider.domain or provider.domain_verification_token is None:
+            return None
+        return self._build_domain_challenge(provider=provider)
+
+    def _provider_callback_url(self, provider: ProviderT) -> str:
+        if provider.provider_type == "oidc":
+            return build_shared_callback_url(
+                self.base_url,
+                redirect_uri=self.settings.redirect_uri,
+            )
+        return build_provider_callback_url(self.base_url, provider_id=provider.provider_id)
+
+    def _new_domain_verification_state(self, domain: str, *, force: bool = False) -> DomainVerificationState | None:
+        if not domain:
+            return DomainVerificationState(verified=False, token=None, token_expires_at=None)
+        if not self.settings.domain_verification.enabled and not force:
+            return DomainVerificationState(verified=False, token=None, token_expires_at=None)
+        return DomainVerificationState(
+            verified=False,
+            token=self._generate_verification_token(),
+            token_expires_at=self._next_domain_challenge_expiration(),
+        )
+
+    def _updated_domain_verification_state(
+        self,
+        *,
+        provider: ProviderT,
+        domain: str,
+    ) -> DomainVerificationState:
+        if domain == provider.domain:
+            return DomainVerificationState(
+                verified=provider.domain_verified,
+                token=provider.domain_verification_token,
+                token_expires_at=provider.domain_verification_token_expires_at,
+            )
+        return self._new_domain_verification_state(domain) or DomainVerificationState(
+            verified=False,
+            token=None,
+            token_expires_at=None,
         )

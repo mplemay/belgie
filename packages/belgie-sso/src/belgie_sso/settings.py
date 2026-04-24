@@ -10,13 +10,19 @@ from belgie_proto.sso import (
     OIDCProviderConfig,
     SAMLProviderConfig,
     SSOAdapterProtocol,
-    SSODomainProtocol,
     SSOProviderProtocol,
 )
-from pydantic import Field, field_validator
+from pydantic import Field, SkipValidation, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from belgie_sso.saml import SAMLEngine  # noqa: TC001
+from belgie_sso.saml_algorithms import (
+    DeprecatedAlgorithmBehavior,
+    normalize_data_encryption_allowlist,
+    normalize_digest_allowlist,
+    normalize_key_encryption_allowlist,
+    normalize_signature_allowlist,
+)
 from belgie_sso.utils import normalize_domain, normalize_issuer, normalize_provider_id
 
 if TYPE_CHECKING:
@@ -46,10 +52,14 @@ class SAMLSecuritySettings:
     replay_ttl_seconds: int = 60 * 15
     require_timestamps: bool = False
     validate_in_response_to: bool = True
+    enable_single_logout: bool = False
+    on_deprecated: DeprecatedAlgorithmBehavior = "warn"
     require_signed_logout_requests: bool = False
     require_signed_logout_responses: bool = False
-    allowed_signature_algorithms: tuple[str, ...] = ("rsa-sha256", "rsa-sha384", "rsa-sha512")
-    allowed_digest_algorithms: tuple[str, ...] = ("sha256", "sha384", "sha512")
+    allowed_signature_algorithms: tuple[str, ...] | None = None
+    allowed_digest_algorithms: tuple[str, ...] | None = None
+    allowed_key_encryption_algorithms: tuple[str, ...] | None = None
+    allowed_data_encryption_algorithms: tuple[str, ...] | None = None
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
@@ -61,10 +71,7 @@ class DefaultSSOProviderConfig:
     saml_config: SAMLProviderConfig | None = None
 
 
-class EnterpriseSSO[
-    ProviderT: SSOProviderProtocol,
-    DomainT: SSODomainProtocol,
-](BaseSettings):
+class EnterpriseSSO[ProviderT: SSOProviderProtocol](BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BELGIE_SSO_",
         env_file=".env",
@@ -72,7 +79,7 @@ class EnterpriseSSO[
         arbitrary_types_allowed=True,
     )
 
-    adapter: SSOAdapterProtocol[ProviderT, DomainT] = Field(exclude=True)
+    adapter: SkipValidation[SSOAdapterProtocol[ProviderT]] = Field(exclude=True)
     default_scopes: list[str] = Field(default_factory=lambda: ["openid", "email", "profile", "offline_access"])
     discovery_timeout_seconds: float = 10.0
     state_ttl_seconds: int = 60 * 10
@@ -86,6 +93,7 @@ class EnterpriseSSO[
     disable_sign_up: bool = False
     disable_implicit_sign_up: bool = False
     trust_email_verified: bool = False
+    default_override_user_info_on_sign_in: bool = False
     provision_user: ProvisionUserCallback | None = Field(default=None, exclude=True)
     provision_user_on_every_login: bool = False
     organization_default_role: str = "member"
@@ -100,11 +108,8 @@ class EnterpriseSSO[
     @classmethod
     def validate_adapter(
         cls,
-        value: SSOAdapterProtocol[ProviderT, DomainT],
-    ) -> SSOAdapterProtocol[ProviderT, DomainT]:
-        if not isinstance(value, SSOAdapterProtocol):
-            msg = "adapter must implement SSOAdapterProtocol"
-            raise TypeError(msg)
+        value: SSOAdapterProtocol[ProviderT],
+    ) -> SSOAdapterProtocol[ProviderT]:
         return value
 
     @field_validator("organization_default_role")
@@ -210,9 +215,33 @@ class EnterpriseSSO[
         if value.replay_ttl_seconds < 1:
             msg = "saml.replay_ttl_seconds must be greater than zero"
             raise ValueError(msg)
-        return value
+        if value.on_deprecated not in {"warn", "allow", "reject"}:
+            msg = "saml.on_deprecated must be one of: warn, allow, reject"
+            raise ValueError(msg)
+        return SAMLSecuritySettings(
+            response_max_bytes=value.response_max_bytes,
+            metadata_max_bytes=value.metadata_max_bytes,
+            clock_skew_seconds=value.clock_skew_seconds,
+            request_ttl_seconds=value.request_ttl_seconds,
+            logout_request_ttl_seconds=value.logout_request_ttl_seconds,
+            replay_ttl_seconds=value.replay_ttl_seconds,
+            require_timestamps=value.require_timestamps,
+            validate_in_response_to=value.validate_in_response_to,
+            enable_single_logout=value.enable_single_logout,
+            on_deprecated=value.on_deprecated,
+            require_signed_logout_requests=value.require_signed_logout_requests,
+            require_signed_logout_responses=value.require_signed_logout_responses,
+            allowed_signature_algorithms=normalize_signature_allowlist(value.allowed_signature_algorithms),
+            allowed_digest_algorithms=normalize_digest_allowlist(value.allowed_digest_algorithms),
+            allowed_key_encryption_algorithms=normalize_key_encryption_allowlist(
+                value.allowed_key_encryption_algorithms,
+            ),
+            allowed_data_encryption_algorithms=normalize_data_encryption_allowlist(
+                value.allowed_data_encryption_algorithms,
+            ),
+        )
 
-    def __call__(self, belgie_settings: BelgieSettings) -> SSOPlugin[ProviderT, DomainT]:
+    def __call__(self, belgie_settings: BelgieSettings) -> SSOPlugin[ProviderT]:
         from belgie_sso.plugin import SSOPlugin  # noqa: PLC0415
 
         return SSOPlugin(belgie_settings, self)

@@ -27,7 +27,6 @@ from belgie_proto.sso import (
     OIDCProviderConfig,
     SAMLClaimMapping,
     SAMLProviderConfig,
-    SSODomainProtocol,
     SSOProviderProtocol,
 )
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
@@ -92,11 +91,14 @@ class _DefaultProvider:
     provider_type: str
     provider_id: str
     issuer: str
+    domain: str
+    domain_verified: bool
+    domain_verification_token: str | None
+    domain_verification_token_expires_at: datetime | None
     oidc_config: dict[str, OIDCConfigValue] | None
     saml_config: dict[str, SAMLConfigValue] | None
     created_at: datetime
     updated_at: datetime
-    domain: str
 
 
 class _OIDCClaimMappingBody(BaseModel):
@@ -146,7 +148,7 @@ class _OIDCProviderCreateBody(BaseModel):
     issuer: str
     client_id: str
     client_secret: str
-    domains: list[str] | None = None
+    domain: str | None = None
     organization_id: UUID | None = None
     scopes: list[str] | None = None
     token_endpoint_auth_method: str = "client_secret_basic"  # noqa: S105
@@ -157,7 +159,7 @@ class _OIDCProviderCreateBody(BaseModel):
     jwks_uri: str | None = None
     discovery_endpoint: str | None = None
     use_pkce: bool = True
-    override_user_info_on_sign_in: bool = False
+    override_user_info_on_sign_in: bool | None = None
     skip_discovery: bool = False
 
 
@@ -165,7 +167,7 @@ class _OIDCProviderUpdateBody(BaseModel):
     issuer: str | None = None
     client_id: str | None = None
     client_secret: str | None = None
-    domains: list[str] | None = None
+    domain: str | None = None
     scopes: list[str] | None = None
     token_endpoint_auth_method: str | None = None
     claim_mapping: _OIDCClaimMappingBody | None = None
@@ -183,9 +185,9 @@ class _SAMLProviderCreateBody(BaseModel):
     provider_id: str
     issuer: str
     entity_id: str
-    sso_url: str
-    x509_certificate: str
-    domains: list[str] | None = None
+    sso_url: str | None = None
+    x509_certificate: str | None = None
+    domain: str | None = None
     organization_id: UUID | None = None
     slo_url: str | None = None
     audience: str | None = None
@@ -211,7 +213,7 @@ class _SAMLProviderUpdateBody(BaseModel):
     entity_id: str | None = None
     sso_url: str | None = None
     x509_certificate: str | None = None
-    domains: list[str] | None = None
+    domain: str | None = None
     slo_url: str | None = None
     audience: str | None = None
     idp_metadata_xml: str | None = None
@@ -240,9 +242,10 @@ class _SSOProviderDetailBody(BaseModel):
     issuer: str
     organization_id: UUID | None
     created_by_individual_id: UUID | None
+    domain: str
     domain_verified: bool
-    domains: tuple[str, ...]
-    verified_domains: tuple[str, ...]
+    callback_url: str
+    domain_challenge: _SSODomainChallengeBody | None
     config: dict[str, JSONValue]
     created_at: datetime
     updated_at: datetime
@@ -259,30 +262,15 @@ class _SSODomainChallengeBody(BaseModel):
     verified_at: datetime | None
 
 
-class _SSODomainBody(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    sso_provider_id: UUID
-    domain: str
-    verification_token_expires_at: datetime | None
-    verified_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
-
-
 class _DeleteProviderBody(BaseModel):
     success: bool
 
 
-class SSOPlugin[
-    ProviderT: SSOProviderProtocol,
-    DomainT: SSODomainProtocol,
-](PluginClient, AfterAuthenticateHook):
+class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateHook):
     def __init__(
         self,
         belgie_settings: BelgieSettings,
-        settings: EnterpriseSSO[ProviderT, DomainT],
+        settings: EnterpriseSSO[ProviderT],
     ) -> None:
         self._belgie_settings = belgie_settings
         self._settings = settings
@@ -297,7 +285,7 @@ class SSOPlugin[
         self._organization_plugin_resolved = False
 
     @property
-    def settings(self) -> EnterpriseSSO[ProviderT, DomainT]:
+    def settings(self) -> EnterpriseSSO[ProviderT]:
         return self._settings
 
     def _resolve_organization_plugin(self, belgie: Belgie) -> OrganizationPlugin | None:
@@ -331,6 +319,7 @@ class SSOPlugin[
             current_individual = await client.get_individual(SecurityScopes(), request)
             return SSOClient(
                 client=client,
+                base_url=belgie.settings.base_url,
                 settings=self._settings,
                 organization_adapter=self._organization_adapter(belgie),
                 current_individual=current_individual,
@@ -460,7 +449,7 @@ class SSOPlugin[
                 issuer=body.issuer,
                 client_id=body.client_id,
                 client_secret=body.client_secret,
-                domains=body.domains,
+                domain=body.domain,
                 organization_id=body.organization_id,
                 scopes=body.scopes,
                 token_endpoint_auth_method=body.token_endpoint_auth_method,
@@ -487,7 +476,7 @@ class SSOPlugin[
                 issuer=body.issuer,
                 client_id=body.client_id,
                 client_secret=body.client_secret,
-                domains=body.domains,
+                domain=body.domain,
                 scopes=body.scopes,
                 token_endpoint_auth_method=body.token_endpoint_auth_method,
                 claim_mapping=body.claim_mapping.to_config() if body.claim_mapping is not None else None,
@@ -517,7 +506,7 @@ class SSOPlugin[
                 entity_id=body.entity_id,
                 sso_url=body.sso_url,
                 x509_certificate=body.x509_certificate,
-                domains=body.domains,
+                domain=body.domain,
                 organization_id=body.organization_id,
                 slo_url=body.slo_url,
                 audience=body.audience,
@@ -551,7 +540,7 @@ class SSOPlugin[
                 entity_id=body.entity_id,
                 sso_url=body.sso_url,
                 x509_certificate=body.x509_certificate,
-                domains=body.domains,
+                domain=body.domain,
                 slo_url=body.slo_url,
                 audience=body.audience,
                 idp_metadata_xml=body.idp_metadata_xml,
@@ -594,25 +583,23 @@ class SSOPlugin[
             return _DeleteProviderBody(success=await sso_client.delete_provider(provider_id=provider_id))
 
         @router.post(
-            "/providers/{provider_id}/domains/{domain}/challenge",
+            "/providers/{provider_id}/domain/challenge",
             response_model=_SSODomainChallengeBody,
             status_code=status.HTTP_201_CREATED,
         )
         async def create_domain_challenge(
             provider_id: Annotated[str, Path(min_length=1)],
-            domain: Annotated[str, Path(min_length=1)],
             sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
         ) -> SSODomainChallenge:
-            return await sso_client.create_domain_challenge(provider_id=provider_id, domain=domain)
+            return await sso_client.create_domain_challenge(provider_id=provider_id)
 
-        @router.post("/providers/{provider_id}/domains/{domain}/verify", response_model=_SSODomainBody)
+        @router.post("/providers/{provider_id}/domain/verify", response_model=_SSOProviderDetailBody)
         async def verify_domain(
             provider_id: Annotated[str, Path(min_length=1)],
-            domain: Annotated[str, Path(min_length=1)],
             sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
-        ) -> _SSODomainBody:
-            verified_domain = await sso_client.verify_domain(provider_id=provider_id, domain=domain)
-            return _SSODomainBody.model_validate(verified_domain)
+        ) -> SSOProviderDetail:
+            provider = await sso_client.verify_domain(provider_id=provider_id)
+            return await sso_client.get_provider_detail(provider_id=provider.provider_id)
 
         async def complete_callback(
             request: Request,
@@ -854,7 +841,7 @@ class SSOPlugin[
             provider = await self._get_provider_by_provider_id(client=client, provider_id=resolved_provider_id)
             if provider.provider_type != "oidc":
                 raise OAuthCallbackError("state_mismatch", "OAuth state provider mismatch")
-            await self._ensure_provider_verified_or_oauth_error(client=client, provider=provider)
+            await self._ensure_provider_verified_or_oauth_error(provider=provider)
 
             transport = self._build_oidc_transport(provider)
             try:
@@ -951,6 +938,17 @@ class SSOPlugin[
             payload=payload,
             request_sign_up=request_sign_up,
         )
+        if start_result.request_id is not None:
+            await self._replace_oauth_state(
+                client=client,
+                state=self._saml_request_state_key(start_result.request_id),
+                expires_at=datetime.now(UTC) + timedelta(seconds=self._settings.saml.request_ttl_seconds),
+                payload={
+                    "kind": "saml_request",
+                    "provider_id": provider.provider_id,
+                    "relay_state": state,
+                },
+            )
 
         if start_result.redirect_url is not None:
             return RedirectResponse(url=start_result.redirect_url, status_code=status.HTTP_302_FOUND)
@@ -1004,6 +1002,9 @@ class SSOPlugin[
                 relay_state
                 and (oauth_state := await client.adapter.get_oauth_state(client.db, relay_state)) is not None
             ):
+                if self._oauth_state_is_expired(oauth_state):
+                    await client.adapter.delete_oauth_state(client.db, relay_state)
+                    raise OAuthCallbackError("state_mismatch", "SAML RelayState has expired")
                 await client.adapter.delete_oauth_state(client.db, relay_state)
                 consumed_state = ConsumedOAuthState.from_model(oauth_state)
                 resolved_provider_id = self._payload_provider_id(consumed_state)
@@ -1035,7 +1036,7 @@ class SSOPlugin[
 
             if provider.provider_type != "saml":
                 raise OAuthCallbackError("state_mismatch", "SAML state provider mismatch")
-            await self._ensure_provider_verified_or_oauth_error(client=client, provider=provider)
+            await self._ensure_provider_verified_or_oauth_error(provider=provider)
 
             request.state.oauth_state = consumed_state
             request.state.oauth_payload = consumed_state.payload
@@ -1050,6 +1051,11 @@ class SSOPlugin[
                 )
             except RuntimeError as exc:
                 raise OAuthError(str(exc)) from exc
+            await self._consume_saml_request_state(
+                client=client,
+                provider=provider,
+                request_id=self._payload_request_id(consumed_state),
+            )
             await self._record_saml_assertion(client=client, provider=provider, saml_profile=saml_profile)
 
             return await self._complete_signin_flow(
@@ -1092,6 +1098,7 @@ class SSOPlugin[
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="single logout is only available for saml providers",
             )
+        self._ensure_saml_single_logout_enabled()
         if not isinstance(self._saml_engine, SAMLLogoutEngine):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1162,6 +1169,7 @@ class SSOPlugin[
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="single logout is only available for saml providers",
             )
+        self._ensure_saml_single_logout_enabled()
         if not isinstance(self._saml_engine, SAMLLogoutEngine):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1474,20 +1482,22 @@ class SSOPlugin[
             return default_provider
 
         try:
-            matched_domain = (
+            provider = (
                 choose_best_verified_domain_match(
                     domain=resolved_domain,
-                    domains=await self._settings.adapter.list_verified_domains_matching(
+                    domains=await self._settings.adapter.list_providers_matching_domain(
                         client.db,
                         domain=resolved_domain,
+                        verified_only=True,
                     ),
                 )
                 if self._settings.domain_verification.enabled
                 else choose_best_domain_match(
                     domain=resolved_domain,
-                    domains=await self._settings.adapter.list_domains_matching(
+                    domains=await self._settings.adapter.list_providers_matching_domain(
                         client.db,
                         domain=resolved_domain,
+                        verified_only=False,
                     ),
                 )
             )
@@ -1496,7 +1506,7 @@ class SSOPlugin[
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
-        if matched_domain is None:
+        if provider is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=(
@@ -1504,16 +1514,6 @@ class SSOPlugin[
                     if self._settings.domain_verification.enabled
                     else "no provider found for domain"
                 ),
-            )
-
-        provider = await self._settings.adapter.get_provider_by_id(
-            client.db,
-            sso_provider_id=matched_domain.sso_provider_id,
-        )
-        if provider is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="provider not found",
             )
         return provider
 
@@ -1687,10 +1687,10 @@ class SSOPlugin[
         if not (domain := extract_email_domain(email)):
             return None
 
-        domains = (
-            await self._settings.adapter.list_verified_domains_matching(client.db, domain=domain)
-            if self._settings.domain_verification.enabled
-            else await self._settings.adapter.list_domains_matching(client.db, domain=domain)
+        domains = await self._settings.adapter.list_providers_matching_domain(
+            client.db,
+            domain=domain,
+            verified_only=self._settings.domain_verification.enabled,
         )
         try:
             matched_domain = (
@@ -1700,12 +1700,7 @@ class SSOPlugin[
             )
         except ValueError:
             return None
-        if matched_domain is None:
-            return None
-        return await self._settings.adapter.get_provider_by_id(
-            client.db,
-            sso_provider_id=matched_domain.sso_provider_id,
-        )
+        return matched_domain
 
     async def _is_trusted_email(
         self,
@@ -1817,7 +1812,7 @@ class SSOPlugin[
         session: object,
         provider_user: OAuthUserInfo,
     ) -> None:
-        if provider.provider_type != "saml":
+        if provider.provider_type != "saml" or not self._settings.saml.enable_single_logout:
             return
         session_id = getattr(session, "id", None)
         if session_id is None:
@@ -1854,6 +1849,24 @@ class SSOPlugin[
                 expires_at=expires_at,
                 payload={"kind": "saml_session_index", "session_id": str(session_id)},
             )
+
+    async def _consume_saml_request_state(
+        self,
+        *,
+        client: BelgieClient,
+        provider: ProviderT,
+        request_id: str | None,
+    ) -> None:
+        if request_id is None:
+            return
+        state_key = self._saml_request_state_key(request_id)
+        oauth_state = await client.adapter.get_oauth_state(client.db, state_key)
+        if oauth_state is None or self._oauth_state_is_expired(oauth_state):
+            raise OAuthCallbackError("state_mismatch", "SAML request state has expired")
+        payload = getattr(oauth_state, "payload", None)
+        if not isinstance(payload, dict) or payload.get("provider_id") != provider.provider_id:
+            raise OAuthCallbackError("state_mismatch", "SAML state provider mismatch")
+        await client.adapter.delete_oauth_state(client.db, state_key)
 
     async def _record_saml_assertion(
         self,
@@ -1966,6 +1979,14 @@ class SSOPlugin[
         response.delete_cookie(
             key=self._belgie_settings.cookie.name,
             domain=self._belgie_settings.cookie.domain,
+        )
+
+    def _ensure_saml_single_logout_enabled(self) -> None:
+        if self._settings.saml.enable_single_logout:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SAML single logout is not enabled",
         )
 
     def _error_redirect_response(self, *, exc: OAuthError, target: str) -> RedirectResponse:
@@ -2097,18 +2118,17 @@ class SSOPlugin[
             detail="provider must have a verified domain before sign-in",
         )
 
-    async def _ensure_provider_verified_or_oauth_error(self, *, client: BelgieClient, provider: ProviderT) -> None:
+    async def _ensure_provider_verified_or_oauth_error(self, *, provider: ProviderT) -> None:
         if not self._settings.domain_verification.enabled:
             return
-        if await self._provider_has_verified_domain(client=client, provider=provider):
+        if await self._provider_has_verified_domain(provider=provider):
             return
         raise OAuthCallbackError("provider_not_verified", "provider must have a verified domain before sign-in")
 
-    async def _provider_has_verified_domain(self, *, client: BelgieClient, provider: ProviderT) -> bool:
+    async def _provider_has_verified_domain(self, *, provider: ProviderT) -> bool:
         if self._is_default_provider(provider):
             return True
-        domains = await self._settings.adapter.list_domains_for_provider(client.db, sso_provider_id=provider.id)
-        return any(domain.verified_at is not None for domain in domains)
+        return provider.domain_verified
 
     def _default_provider(self, providers: list[ProviderT]) -> ProviderT | None:
         if self._settings.default_sso is None:
@@ -2142,11 +2162,14 @@ class SSOPlugin[
             provider_type=provider_type,
             provider_id=provider.provider_id,
             issuer=provider.issuer,
+            domain=provider.domain,
+            domain_verified=True,
+            domain_verification_token=None,
+            domain_verification_token_expires_at=None,
             oidc_config=serialize_oidc_config(oidc_config) if oidc_config is not None else None,
             saml_config=serialize_saml_config(saml_config) if saml_config is not None else None,
             created_at=datetime.fromtimestamp(0, UTC),
             updated_at=datetime.fromtimestamp(0, UTC),
-            domain=provider.domain,
         )
 
     @staticmethod
@@ -2177,5 +2200,17 @@ class SSOPlugin[
         return f"saml-assertion:{provider_id}:{assertion_id}"
 
     @staticmethod
+    def _saml_request_state_key(request_id: str) -> str:
+        return f"saml-request:{request_id}"
+
+    @staticmethod
     def _saml_logout_request_state_key(request_id: str) -> str:
         return f"saml-logout:{request_id}"
+
+    @staticmethod
+    def _oauth_state_is_expired(oauth_state: object) -> bool:
+        expires_at = getattr(oauth_state, "expires_at", None)
+        if not isinstance(expires_at, datetime):
+            return True
+        normalized_expires_at = expires_at.replace(tzinfo=UTC) if expires_at.tzinfo is None else expires_at
+        return normalized_expires_at <= datetime.now(UTC)

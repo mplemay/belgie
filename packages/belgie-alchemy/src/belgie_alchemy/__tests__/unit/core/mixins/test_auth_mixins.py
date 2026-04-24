@@ -31,7 +31,7 @@ from belgie_alchemy.organization.mixins import (
     OrganizationMemberMixin,
     OrganizationMixin,
 )
-from belgie_alchemy.sso import SSODomainMixin, SSOProviderMixin
+from belgie_alchemy.sso import SSOProviderMixin
 from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 
 ASYNC_PG_AVAILABLE = find_spec("asyncpg") is not None
@@ -155,7 +155,7 @@ def test_organization_mixin_defaults() -> None:
     assert invitation_email_column.index
 
 
-def test_sso_domain_mixin_defaults() -> None:
+def test_sso_provider_mixin_defaults() -> None:
     class SSOBase(MappedAsDataclass, DeclarativeBase):
         __abstract__ = True
         metadata = MetaData(naming_convention=NAMING_CONVENTION)
@@ -164,32 +164,39 @@ def test_sso_domain_mixin_defaults() -> None:
     class SSOProvider(SSOBase, PrimaryKeyMixin, TimestampMixin, SSOProviderMixin):
         pass
 
-    class SSODomain(SSOBase, PrimaryKeyMixin, TimestampMixin, SSODomainMixin):
-        pass
-
     try:
-        domain_column = SSODomain.__table__.c.domain
-        assert domain_column.unique
-        assert domain_column.index
+        provider_id_column = SSOProvider.__table__.c.provider_id
+        assert provider_id_column.unique
+        assert provider_id_column.index
 
-        domain_unique_constraints = [
-            constraint
-            for constraint in SSODomain.__table__.constraints
-            if isinstance(constraint, UniqueConstraint) and tuple(constraint.columns) == (domain_column,)
-        ]
-        assert domain_unique_constraints == []
+        domain_column = SSOProvider.__table__.c.domain
+        assert not domain_column.nullable
+        assert domain_column.default is not None
 
-        domain_index = next(index for index in SSODomain.__table__.indexes if index.name == "ix_sso_domain_domain")
-        assert isinstance(domain_index, Index)
-        assert tuple(domain_index.columns) == (domain_column,)
-        assert domain_index.unique
+        domain_verified_column = SSOProvider.__table__.c.domain_verified
+        assert not domain_verified_column.nullable
+        assert domain_verified_column.default is not None
 
-        provider_index = next(
-            index for index in SSODomain.__table__.indexes if index.name == "ix_sso_domain_sso_provider_id"
+        verification_token_column = SSOProvider.__table__.c.domain_verification_token
+        assert verification_token_column.nullable
+
+        verification_expires_at_column = SSOProvider.__table__.c.domain_verification_token_expires_at
+        assert isinstance(verification_expires_at_column.type, DateTimeUTC)
+        assert verification_expires_at_column.nullable
+
+        organization_index = next(
+            index for index in SSOProvider.__table__.indexes if index.name == "ix_sso_provider_organization_id"
         )
-        assert isinstance(provider_index, Index)
-        assert tuple(provider_index.columns) == (SSODomain.__table__.c.sso_provider_id,)
-        assert not provider_index.unique
+        assert isinstance(organization_index, Index)
+        assert tuple(organization_index.columns) == (SSOProvider.__table__.c.organization_id,)
+        assert not organization_index.unique
+
+        individual_index = next(
+            index for index in SSOProvider.__table__.indexes if index.name == "ix_sso_provider_created_by_individual_id"
+        )
+        assert isinstance(individual_index, Index)
+        assert tuple(individual_index.columns) == (SSOProvider.__table__.c.created_by_individual_id,)
+        assert not individual_index.unique
     finally:
         SSOBase.registry.dispose()
 

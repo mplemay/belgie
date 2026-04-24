@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from dataclasses import asdict
 from hashlib import sha256
@@ -12,7 +14,7 @@ _HTTP_SCHEMES = {"http", "https"}
 _MASKED_CLIENT_ID_VISIBLE_CHARS = 4
 
 if TYPE_CHECKING:
-    from belgie_proto.sso import SSODomainProtocol
+    from belgie_proto.sso import SSOProviderProtocol
 
 
 def normalize_issuer(issuer: str) -> str:
@@ -63,6 +65,22 @@ def normalize_domain(domain: str) -> str:
         msg = "domain must be a valid hostname"
         raise ValueError(msg)
     return value
+
+
+def split_provider_domains(domain_value: str) -> tuple[str, ...]:
+    return tuple(part for part in (item.strip() for item in domain_value.split(",")) if part)
+
+
+def normalize_provider_domain_value(domain_value: str | None) -> str:
+    if not domain_value:
+        return ""
+
+    normalized: list[str] = []
+    for domain in domain_value.split(","):
+        if (value := normalize_domain(domain)) in normalized:
+            continue
+        normalized.append(value)
+    return ",".join(normalized)
 
 
 def extract_email_domain(email: str) -> str | None:
@@ -297,35 +315,37 @@ def build_domain_verification_record_value(
     return f"_{normalized_prefix}-{normalized_provider_id}={verification_token}"
 
 
-def choose_best_domain_match[DomainT: SSODomainProtocol](
+def provider_has_exact_domain(provider: SSOProviderProtocol, *, domain: str) -> bool:
+    return domain in split_provider_domains(provider.domain)
+
+
+def choose_best_domain_match[ProviderT: SSOProviderProtocol](
     *,
     domain: str,
-    domains: list[DomainT],
-) -> DomainT | None:
-    exact_matches = [item for item in domains if item.domain == domain]
-    if len(exact_matches) > 1:
-        msg = f"multiple providers match domain '{domain}'"
-        raise ValueError(msg)
-    if exact_matches:
-        return exact_matches[0]
+    domains: list[ProviderT],
+) -> ProviderT | None:
+    best_match: ProviderT | None = None
+    best_length = -1
 
-    suffix_matches = [item for item in domains if domain.endswith(f".{item.domain}")]
-    if not suffix_matches:
-        return None
-
-    max_length = max(len(item.domain) for item in suffix_matches)
-    best_matches = [item for item in suffix_matches if len(item.domain) == max_length]
-    if len(best_matches) > 1:
-        msg = f"multiple providers match domain '{domain}'"
-        raise ValueError(msg)
-    return best_matches[0]
+    for provider in domains:
+        for candidate in split_provider_domains(provider.domain):
+            if candidate != domain and not domain.endswith(f".{candidate}"):
+                continue
+            if len(candidate) > best_length:
+                best_match = provider
+                best_length = len(candidate)
+                continue
+            if len(candidate) == best_length and best_match is not None and provider.id != best_match.id:
+                msg = f"multiple providers match domain '{domain}'"
+                raise ValueError(msg)
+    return best_match
 
 
-def choose_best_verified_domain_match[DomainT: SSODomainProtocol](
+def choose_best_verified_domain_match[ProviderT: SSOProviderProtocol](
     *,
     domain: str,
-    domains: list[DomainT],
-) -> DomainT | None:
+    domains: list[ProviderT],
+) -> ProviderT | None:
     try:
         return choose_best_domain_match(domain=domain, domains=domains)
     except ValueError as exc:

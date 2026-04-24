@@ -5,13 +5,10 @@ from typing import TYPE_CHECKING
 from belgie_sso.utils import choose_best_domain_match, choose_best_verified_domain_match, extract_email_domain
 
 
-async def provider_matches_domain[
-    ProviderT: SSOProviderProtocol,
-    DomainT: SSODomainProtocol,
-](
+async def provider_matches_domain[ProviderT: SSOProviderProtocol](
     *,
     db: DBConnection,
-    adapter: SSOAdapterProtocol[ProviderT, DomainT],
+    adapter: SSOAdapterProtocol[ProviderT],
     provider: ProviderT,
     email: str,
     verified_only: bool,
@@ -19,11 +16,7 @@ async def provider_matches_domain[
     if not (domain := extract_email_domain(email)):
         return False
 
-    domains = (
-        await adapter.list_verified_domains_matching(db, domain=domain)
-        if verified_only
-        else await adapter.list_domains_matching(db, domain=domain)
-    )
+    domains = await adapter.list_providers_matching_domain(db, domain=domain, verified_only=verified_only)
     try:
         matched_domain = (
             choose_best_verified_domain_match(domain=domain, domains=domains)
@@ -32,7 +25,7 @@ async def provider_matches_domain[
         )
     except ValueError:
         return False
-    return matched_domain is not None and matched_domain.sso_provider_id == provider.id
+    return matched_domain is not None and matched_domain.id == provider.id
 
 
 if TYPE_CHECKING:
@@ -42,16 +35,13 @@ if TYPE_CHECKING:
     from belgie_proto.organization.invitation import InvitationProtocol
     from belgie_proto.organization.member import MemberProtocol
     from belgie_proto.organization.organization import OrganizationProtocol
-    from belgie_proto.sso import SSOAdapterProtocol, SSODomainProtocol, SSOProviderProtocol
+    from belgie_proto.sso import SSOAdapterProtocol, SSOProviderProtocol
 
 
-async def provider_matches_verified_domain[
-    ProviderT: SSOProviderProtocol,
-    DomainT: SSODomainProtocol,
-](
+async def provider_matches_verified_domain[ProviderT: SSOProviderProtocol](
     *,
     db: DBConnection,
-    adapter: SSOAdapterProtocol[ProviderT, DomainT],
+    adapter: SSOAdapterProtocol[ProviderT],
     provider: ProviderT,
     email: str,
 ) -> bool:
@@ -101,14 +91,13 @@ async def assign_individual_to_provider_organization[
 
 async def assign_individual_by_domain[  # noqa: PLR0913
     ProviderT: SSOProviderProtocol,
-    DomainT: SSODomainProtocol,
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
     InvitationT: InvitationProtocol,
 ](
     *,
     db: DBConnection,
-    adapter: SSOAdapterProtocol[ProviderT, DomainT],
+    adapter: SSOAdapterProtocol[ProviderT],
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT] | None,
     individual: IndividualProtocol[str],
     email: str,
@@ -119,23 +108,19 @@ async def assign_individual_by_domain[  # noqa: PLR0913
         return False
 
     try:
-        sso_domain = (
+        provider = (
             choose_best_verified_domain_match(
                 domain=domain,
-                domains=await adapter.list_verified_domains_matching(db, domain=domain),
+                domains=await adapter.list_providers_matching_domain(db, domain=domain, verified_only=True),
             )
             if verified_only
             else choose_best_domain_match(
                 domain=domain,
-                domains=await adapter.list_domains_matching(db, domain=domain),
+                domains=await adapter.list_providers_matching_domain(db, domain=domain, verified_only=False),
             )
         )
     except ValueError:
         return False
-    if sso_domain is None:
-        return False
-
-    provider = await adapter.get_provider_by_id(db, sso_provider_id=sso_domain.sso_provider_id)
     if provider is None:
         return False
 
@@ -150,14 +135,13 @@ async def assign_individual_by_domain[  # noqa: PLR0913
 
 async def assign_individual_by_verified_domain[  # noqa: PLR0913
     ProviderT: SSOProviderProtocol,
-    DomainT: SSODomainProtocol,
     OrganizationT: OrganizationProtocol,
     MemberT: MemberProtocol,
     InvitationT: InvitationProtocol,
 ](
     *,
     db: DBConnection,
-    adapter: SSOAdapterProtocol[ProviderT, DomainT],
+    adapter: SSOAdapterProtocol[ProviderT],
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT] | None,
     individual: IndividualProtocol[str],
     email: str,

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 type OIDCExtraClaimMapping = dict[str, str]
 type SAMLExtraClaimMapping = dict[str, str]
@@ -8,6 +12,13 @@ type OIDCClaimMappingValue = str | OIDCExtraClaimMapping
 type SAMLClaimMappingValue = str | SAMLExtraClaimMapping
 type OIDCConfigValue = str | bool | list[str] | dict[str, OIDCClaimMappingValue]
 type SAMLConfigValue = str | bool | list[str] | dict[str, SAMLClaimMappingValue]
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class DomainVerificationState:
+    verified: bool = False
+    token: str | None = None
+    token_expires_at: datetime | None = None
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
@@ -52,8 +63,8 @@ class SAMLClaimMapping:
 @dataclass(slots=True, kw_only=True, frozen=True)
 class SAMLProviderConfig:
     entity_id: str
-    sso_url: str
-    x509_certificate: str
+    sso_url: str | None = None
+    x509_certificate: str | None = None
     slo_url: str | None = None
     audience: str | None = None
     idp_metadata_xml: str | None = None

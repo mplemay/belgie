@@ -21,6 +21,10 @@ class SSOProviderProtocol(Protocol):
     provider_type: SSOProviderType
     provider_id: str
     issuer: str
+    domain: str
+    domain_verified: bool
+    domain_verification_token: str | None
+    domain_verification_token_expires_at: datetime | None
     oidc_config: dict[str, OIDCConfigValue] | None
     saml_config: dict[str, SAMLConfigValue] | None
     created_at: datetime

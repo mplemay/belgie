@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from urllib.parse import parse_qs, unquote, urlparse
@@ -15,7 +15,7 @@ import xmlsec
 from belgie_core.core.plugin import AuthenticatedProfile
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
-from belgie_proto.sso import OIDCProviderConfig
+from belgie_proto.sso import DomainVerificationState, OIDCProviderConfig
 from belgie_sso.discovery import DiscoveryError
 from belgie_sso.models import SSODomainChallenge, SSOProviderDetail
 from belgie_sso.plugin import SSOPlugin
@@ -26,6 +26,7 @@ from belgie_sso.settings import (
     EnterpriseSSO,
     SAMLSecuritySettings,
 )
+from belgie_sso.utils import split_provider_domains
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -168,6 +169,10 @@ class FakeProvider:
     provider_type: str
     provider_id: str
     issuer: str
+    domain: str
+    domain_verified: bool
+    domain_verification_token: str | None
+    domain_verification_token_expires_at: datetime | None
     oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     created_at: datetime
@@ -230,6 +235,14 @@ class FakeSSOAdapter:
         self.providers = {provider.provider_id: provider for provider in providers}
         self.providers_by_id = {provider.id: provider for provider in providers}
         self.domains = list(domains)
+        for domain in self.domains:
+            if (provider := self.providers_by_id.get(domain.sso_provider_id)) is None:
+                continue
+            provider_domains = [*split_provider_domains(provider.domain), domain.domain]
+            provider.domain = ",".join(dict.fromkeys(provider_domains))
+            provider.domain_verified = provider.domain_verified or domain.verified_at is not None
+            provider.domain_verification_token = domain.verification_token
+            provider.domain_verification_token_expires_at = domain.verification_token_expires_at
 
     async def create_provider(
         self,
@@ -240,6 +253,8 @@ class FakeSSOAdapter:
         provider_type: str,
         provider_id: str,
         issuer: str,
+        domain: str = "",
+        domain_verification: DomainVerificationState | None = None,
         oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None,
         saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None,
     ) -> FakeProvider:
@@ -251,6 +266,12 @@ class FakeSSOAdapter:
             provider_type=provider_type,
             provider_id=provider_id,
             issuer=issuer,
+            domain=domain,
+            domain_verified=domain_verification.verified if domain_verification is not None else False,
+            domain_verification_token=domain_verification.token if domain_verification is not None else None,
+            domain_verification_token_expires_at=(
+                domain_verification.token_expires_at if domain_verification is not None else None
+            ),
             oidc_config=oidc_config,
             saml_config=saml_config,
             created_at=now,
@@ -258,6 +279,7 @@ class FakeSSOAdapter:
         )
         self.providers[provider.provider_id] = provider
         self.providers_by_id[provider.id] = provider
+        self._sync_domains_for_provider(provider)
         return provider
 
     async def get_provider_by_provider_id(self, _db: object, *, provider_id: str) -> FakeProvider | None:
@@ -265,6 +287,12 @@ class FakeSSOAdapter:
 
     async def get_provider_by_id(self, _db: object, *, sso_provider_id: UUID) -> FakeProvider | None:
         return self.providers_by_id.get(sso_provider_id)
+
+    async def get_provider_by_domain(self, _db: object, *, domain: str) -> FakeProvider | None:
+        return next(
+            (provider for provider in self.providers.values() if domain in split_provider_domains(provider.domain)),
+            None,
+        )
 
     async def list_domains_for_provider(self, _db: object, *, sso_provider_id: UUID) -> list[FakeDomain]:
         return [domain for domain in self.domains if domain.sso_provider_id == sso_provider_id]
@@ -289,7 +317,25 @@ class FakeSSOAdapter:
         return [provider for provider in self.providers.values() if provider.organization_id == organization_id]
 
     async def list_providers_for_individual(self, _db: object, *, individual_id: UUID) -> list[FakeProvider]:
-        return [provider for provider in self.providers.values() if provider.created_by_individual_id == individual_id]
+        return [
+            provider
+            for provider in self.providers.values()
+            if provider.created_by_individual_id == individual_id and provider.organization_id is None
+        ]
+
+    async def list_providers_matching_domain(
+        self,
+        _db: object,
+        *,
+        domain: str,
+        verified_only: bool,
+    ) -> list[FakeProvider]:
+        return [
+            provider
+            for provider in self.providers.values()
+            if (not verified_only or provider.domain_verified)
+            and any(item == domain or domain.endswith(f".{item}") for item in split_provider_domains(provider.domain))
+        ]
 
     async def update_provider(
         self,
@@ -300,6 +346,8 @@ class FakeSSOAdapter:
         created_by_individual_id: UUID | None = None,
         provider_type: str | None = None,
         issuer: str | None = None,
+        domain: str | None = None,
+        domain_verification: DomainVerificationState | None = None,
         oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None = None,
         saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None = None,
     ) -> FakeProvider | None:
@@ -314,11 +362,18 @@ class FakeSSOAdapter:
             provider.provider_type = provider_type
         if issuer is not None:
             provider.issuer = issuer
+        if domain is not None:
+            provider.domain = domain
+        if domain_verification is not None:
+            provider.domain_verified = domain_verification.verified
+            provider.domain_verification_token = domain_verification.token
+            provider.domain_verification_token_expires_at = domain_verification.token_expires_at
         if oidc_config is not None:
             provider.oidc_config = oidc_config
         if saml_config is not None:
             provider.saml_config = saml_config
         provider.updated_at = datetime.now(UTC)
+        self._sync_domains_for_provider(provider)
         return provider
 
     async def delete_provider(self, _db: object, *, sso_provider_id: UUID) -> bool:
@@ -350,6 +405,14 @@ class FakeSSOAdapter:
             updated_at=now,
         )
         self.domains.append(sso_domain)
+        if (provider := self.providers_by_id.get(sso_provider_id)) is not None:
+            provider_domains = [*split_provider_domains(provider.domain)]
+            if domain not in provider_domains:
+                provider.domain = ",".join([*provider_domains, domain])
+            provider.domain_verified = False
+            provider.domain_verification_token = verification_token
+            provider.domain_verification_token_expires_at = verification_token_expires_at
+            provider.updated_at = now
         return sso_domain
 
     async def get_domain(self, _db: object, *, domain_id: UUID) -> FakeDomain | None:
@@ -376,17 +439,69 @@ class FakeSSOAdapter:
             sso_domain.verification_token_expires_at = verification_token_expires_at
         sso_domain.verified_at = verified_at
         sso_domain.updated_at = datetime.now(UTC)
+        if (provider := self.providers_by_id.get(sso_domain.sso_provider_id)) is not None:
+            provider.domain_verification_token = sso_domain.verification_token
+            provider.domain_verification_token_expires_at = sso_domain.verification_token_expires_at
+            provider.domain_verified = sso_domain.verified_at is not None
+            provider.updated_at = sso_domain.updated_at
         return sso_domain
 
     async def delete_domain(self, _db: object, *, domain_id: UUID) -> bool:
         original_count = len(self.domains)
+        deleted_domain = next((domain for domain in self.domains if domain.id == domain_id), None)
         self.domains = [domain for domain in self.domains if domain.id != domain_id]
+        if (
+            deleted_domain is not None
+            and (provider := self.providers_by_id.get(deleted_domain.sso_provider_id)) is not None
+        ):
+            provider.domain = ",".join(
+                item for item in split_provider_domains(provider.domain) if item != deleted_domain.domain
+            )
+            provider.domain_verified = False
+            provider.domain_verification_token = None
+            provider.domain_verification_token_expires_at = None
+            provider.updated_at = datetime.now(UTC)
         return len(self.domains) != original_count
 
     async def delete_domains_for_provider(self, _db: object, *, sso_provider_id: UUID) -> int:
         original_count = len(self.domains)
         self.domains = [domain for domain in self.domains if domain.sso_provider_id != sso_provider_id]
+        if (provider := self.providers_by_id.get(sso_provider_id)) is not None:
+            provider.domain = ""
+            provider.domain_verified = False
+            provider.domain_verification_token = None
+            provider.domain_verification_token_expires_at = None
+            provider.updated_at = datetime.now(UTC)
         return original_count - len(self.domains)
+
+    def _sync_domains_for_provider(self, provider: FakeProvider) -> None:
+        existing_domains = {domain.domain: domain for domain in self.domains if domain.sso_provider_id == provider.id}
+        active_domains = set(split_provider_domains(provider.domain))
+        self.domains = [
+            domain
+            for domain in self.domains
+            if domain.sso_provider_id != provider.id or domain.domain in active_domains
+        ]
+        for domain in active_domains:
+            if domain in existing_domains:
+                existing = existing_domains[domain]
+                existing.verification_token = provider.domain_verification_token or existing.verification_token
+                existing.verification_token_expires_at = provider.domain_verification_token_expires_at
+                existing.verified_at = provider.updated_at if provider.domain_verified else None
+                existing.updated_at = provider.updated_at
+                continue
+            self.domains.append(
+                FakeDomain(
+                    id=uuid4(),
+                    sso_provider_id=provider.id,
+                    domain=domain,
+                    verification_token=provider.domain_verification_token or "",
+                    verification_token_expires_at=provider.domain_verification_token_expires_at,
+                    verified_at=provider.updated_at if provider.domain_verified else None,
+                    created_at=provider.created_at,
+                    updated_at=provider.updated_at,
+                ),
+            )
 
 
 class FakeOrganizationAdapter:
@@ -663,8 +778,8 @@ class StubManagementSSOClient:
     def __init__(self) -> None:
         self.oidc_payload: dict[str, object] | None = None
         self.deleted_provider_id: str | None = None
-        self.last_challenge: tuple[str, str] | None = None
-        self.last_verify: tuple[str, str] | None = None
+        self.last_challenge: str | None = None
+        self.last_verify: str | None = None
         self.detail = SSOProviderDetail(
             id=uuid4(),
             provider_id="acme",
@@ -672,9 +787,10 @@ class StubManagementSSOClient:
             issuer="https://idp.example.com",
             organization_id=None,
             created_by_individual_id=uuid4(),
+            domain="example.com",
             domain_verified=False,
-            domains=("example.com",),
-            verified_domains=(),
+            callback_url="http://localhost:8000/auth/provider/sso/callback",
+            domain_challenge=None,
             config={
                 "client_id": "****1234",
                 "authorization_endpoint": "https://idp.example.com/authorize",
@@ -699,6 +815,12 @@ class StubManagementSSOClient:
 
     async def register_oidc_provider(self, **payload: object) -> FakeProvider:
         self.oidc_payload = payload
+        self.detail = replace(
+            self.detail,
+            provider_id=str(payload["provider_id"]),
+            issuer=str(payload["issuer"]),
+            domain=str(payload.get("domain") or ""),
+        )
         return FakeProvider(
             id=self.detail.id,
             organization_id=None,
@@ -706,6 +828,10 @@ class StubManagementSSOClient:
             provider_type="oidc",
             provider_id=str(payload["provider_id"]),
             issuer=str(payload["issuer"]),
+            domain=str(payload.get("domain") or ""),
+            domain_verified=False,
+            domain_verification_token=None,
+            domain_verification_token_expires_at=None,
             oidc_config=None,
             saml_config=None,
             created_at=self.detail.created_at,
@@ -722,8 +848,8 @@ class StubManagementSSOClient:
         self.deleted_provider_id = provider_id
         return True
 
-    async def create_domain_challenge(self, *, provider_id: str, domain: str) -> SSODomainChallenge:
-        self.last_challenge = (provider_id, domain)
+    async def create_domain_challenge(self, *, provider_id: str) -> SSODomainChallenge:
+        self.last_challenge = provider_id
         return SSODomainChallenge(
             domain="example.com",
             record_name="_belgie-sso-acme.example.com",
@@ -733,17 +859,24 @@ class StubManagementSSOClient:
             verified_at=None,
         )
 
-    async def verify_domain(self, *, provider_id: str, domain: str) -> FakeDomain:
-        self.last_verify = (provider_id, domain)
-        return FakeDomain(
-            id=uuid4(),
-            sso_provider_id=self.detail.id,
-            domain="example.com",
-            verification_token="token",
-            verification_token_expires_at=datetime.now(UTC) + timedelta(days=7),
-            verified_at=datetime.now(UTC),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
+    async def verify_domain(self, *, provider_id: str) -> FakeProvider:
+        self.last_verify = provider_id
+        self.detail = replace(self.detail, domain_verified=True, domain_challenge=None)
+        return FakeProvider(
+            id=self.detail.id,
+            organization_id=None,
+            created_by_individual_id=self.detail.created_by_individual_id,
+            provider_type="oidc",
+            provider_id=provider_id,
+            issuer=self.detail.issuer,
+            domain=self.detail.domain,
+            domain_verified=True,
+            domain_verification_token=None,
+            domain_verification_token_expires_at=None,
+            oidc_config=None,
+            saml_config=None,
+            created_at=self.detail.created_at,
+            updated_at=self.detail.updated_at,
         )
 
 
@@ -776,6 +909,10 @@ def build_plugin(
             provider_type="oidc",
             provider_id="acme",
             issuer="https://idp.example.com",
+            domain="",
+            domain_verified=False,
+            domain_verification_token=None,
+            domain_verification_token_expires_at=None,
             oidc_config={
                 "issuer": "https://idp.example.com",
                 "client_id": "client-id",
@@ -809,6 +946,10 @@ def build_plugin(
                 provider_type="oidc",
                 provider_id="backup",
                 issuer="https://backup.example.com",
+                domain="",
+                domain_verified=False,
+                domain_verification_token=None,
+                domain_verification_token_expires_at=None,
                 oidc_config={
                     "issuer": "https://backup.example.com",
                     "client_id": "backup-client-id",
@@ -865,6 +1006,10 @@ def build_plugin(
                 provider_type="saml",
                 provider_id="acme-saml",
                 issuer="https://idp.example.com",
+                domain="",
+                domain_verified=False,
+                domain_verification_token=None,
+                domain_verification_token_expires_at=None,
                 oidc_config=None,
                 saml_config=saml_config,
                 created_at=datetime.now(UTC),
@@ -1966,7 +2111,7 @@ def test_management_routes_register_oidc_provider_return_redacted_detail() -> No
             "issuer": "https://idp.example.com",
             "client_id": "client-id-1234",
             "client_secret": "client-secret",
-            "domains": ["example.com"],
+            "domain": "example.com",
             "scopes": ["openid", "email", "profile", "offline_access"],
             "claim_mapping": {"subject": "user_id"},
         },
@@ -1979,7 +2124,7 @@ def test_management_routes_register_oidc_provider_return_redacted_detail() -> No
     assert "client_secret" not in body["config"]
     assert management_client.oidc_payload is not None
     assert management_client.oidc_payload["provider_id"] == "acme"
-    assert management_client.oidc_payload["domains"] == ["example.com"]
+    assert management_client.oidc_payload["domain"] == "example.com"
     assert management_client.oidc_payload["claim_mapping"].subject == "user_id"
 
 
@@ -2001,8 +2146,8 @@ def test_management_routes_expose_provider_and_domain_operations() -> None:
 
     providers = client.get("/auth/provider/sso/providers")
     provider = client.get("/auth/provider/sso/providers/acme")
-    challenge = client.post("/auth/provider/sso/providers/acme/domains/example.com/challenge")
-    verified = client.post("/auth/provider/sso/providers/acme/domains/example.com/verify")
+    challenge = client.post("/auth/provider/sso/providers/acme/domain/challenge")
+    verified = client.post("/auth/provider/sso/providers/acme/domain/verify")
     deleted = client.delete("/auth/provider/sso/providers/acme")
 
     assert providers.status_code == 200
@@ -2013,10 +2158,11 @@ def test_management_routes_expose_provider_and_domain_operations() -> None:
     assert challenge.json()["record_name"] == "_belgie-sso-acme.example.com"
     assert verified.status_code == 200
     assert verified.json()["domain"] == "example.com"
+    assert verified.json()["domain_verified"] is True
     assert deleted.status_code == 200
     assert deleted.json() == {"success": True}
-    assert management_client.last_challenge == ("acme", "example.com")
-    assert management_client.last_verify == ("acme", "example.com")
+    assert management_client.last_challenge == "acme"
+    assert management_client.last_verify == "acme"
     assert management_client.deleted_provider_id == "acme"
 
 
@@ -2104,7 +2250,7 @@ def test_deleting_sso_provider_does_not_delete_linked_oauth_accounts(monkeypatch
             "issuer": "https://idp.example.com",
             "client_id": "client-id",
             "client_secret": "client-secret",
-            "domains": ["route.example.com"],
+            "domain": "route.example.com",
             "authorization_endpoint": "https://idp.example.com/authorize",
             "token_endpoint": "https://idp.example.com/token",
             "userinfo_endpoint": "https://idp.example.com/userinfo",
@@ -2538,8 +2684,12 @@ def test_builtin_saml_rejects_expired_assertion(monkeypatch) -> None:
     assert response.headers["location"].startswith("/dashboard?error=oauth_callback_failed")
 
 
-def test_builtin_saml_rejects_disallowed_signature_algorithm(monkeypatch) -> None:
-    plugin, client_dependency, _ = build_plugin(include_saml=True, use_builtin_saml_engine=True)
+def test_builtin_saml_rejects_deprecated_signature_algorithm_when_configured(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_settings=replace(SAMLSecuritySettings(), on_deprecated="reject"),
+    )
     belgie = DummyBelgie(client_dependency)
 
     app = FastAPI()
@@ -2570,7 +2720,11 @@ def test_builtin_saml_rejects_disallowed_signature_algorithm(monkeypatch) -> Non
 
 
 def test_builtin_saml_logout_response_clears_session(monkeypatch) -> None:
-    plugin, client_dependency, _ = build_plugin(include_saml=True, use_builtin_saml_engine=True)
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_settings=SAMLSecuritySettings(enable_single_logout=True),
+    )
     belgie = DummyBelgie(client_dependency)
 
     app = FastAPI()
@@ -2614,7 +2768,11 @@ def test_builtin_saml_logout_response_clears_session(monkeypatch) -> None:
 
 
 def test_builtin_saml_logout_request_clears_session(monkeypatch) -> None:
-    plugin, client_dependency, _ = build_plugin(include_saml=True, use_builtin_saml_engine=True)
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_settings=SAMLSecuritySettings(enable_single_logout=True),
+    )
     belgie = DummyBelgie(client_dependency)
 
     app = FastAPI()
@@ -2660,6 +2818,7 @@ def test_builtin_saml_signout_requires_idp_slo_url(monkeypatch) -> None:
         include_saml=True,
         use_builtin_saml_engine=True,
         saml_config_overrides={"slo_url": None, "idp_metadata_xml": None},
+        saml_settings=SAMLSecuritySettings(enable_single_logout=True),
     )
     belgie = DummyBelgie(client_dependency)
 
@@ -2694,7 +2853,7 @@ def test_builtin_saml_logout_request_honors_logout_signature_settings(monkeypatc
         include_saml=True,
         use_builtin_saml_engine=True,
         saml_config_overrides={"sign_authn_request": False},
-        saml_settings=SAMLSecuritySettings(require_signed_logout_requests=True),
+        saml_settings=SAMLSecuritySettings(enable_single_logout=True, require_signed_logout_requests=True),
     )
     belgie = DummyBelgie(client_dependency)
 
@@ -2741,7 +2900,7 @@ def test_builtin_saml_logout_response_honors_logout_signature_settings(monkeypat
         include_saml=True,
         use_builtin_saml_engine=True,
         saml_config_overrides={"sign_authn_request": False},
-        saml_settings=SAMLSecuritySettings(require_signed_logout_responses=True),
+        saml_settings=SAMLSecuritySettings(enable_single_logout=True, require_signed_logout_responses=True),
     )
     belgie = DummyBelgie(client_dependency)
 

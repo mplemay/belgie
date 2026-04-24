@@ -22,7 +22,7 @@ from belgie_proto.organization import (
     OrganizationProtocol,
     OrganizationTeamAdapterProtocol,
 )
-from belgie_proto.sso import SSOAdapterProtocol, SSODomainProtocol, SSOProviderProtocol
+from belgie_proto.sso import SSOAdapterProtocol, SSOProviderProtocol
 from belgie_proto.stripe import (
     StripeAccountProtocol,
     StripeAdapterProtocol,
@@ -224,20 +224,12 @@ class ExampleSSOProvider:
     provider_type: str
     provider_id: str
     issuer: str
+    domain: str
+    domain_verified: bool
+    domain_verification_token: str | None
+    domain_verification_token_expires_at: datetime | None
     oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None
-    created_at: datetime
-    updated_at: datetime
-
-
-@dataclass
-class ExampleSSODomain:
-    id: UUID
-    sso_provider_id: UUID
-    domain: str
-    verification_token: str
-    verification_token_expires_at: datetime | None
-    verified_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -496,6 +488,10 @@ def test_sso_protocol_runtime_checks() -> None:
         provider_type="oidc",
         provider_id="acme",
         issuer="https://idp.example.com",
+        domain="example.com",
+        domain_verified=True,
+        domain_verification_token=None,
+        domain_verification_token_expires_at=None,
         oidc_config={
             "issuer": "https://idp.example.com",
             "client_id": "client-id",
@@ -510,19 +506,8 @@ def test_sso_protocol_runtime_checks() -> None:
         created_at=now,
         updated_at=now,
     )
-    domain = ExampleSSODomain(
-        id=uuid4(),
-        sso_provider_id=provider.id,
-        domain="example.com",
-        verification_token="token",
-        verification_token_expires_at=None,
-        verified_at=now,
-        created_at=now,
-        updated_at=now,
-    )
 
     assert isinstance(provider, SSOProviderProtocol)
-    assert isinstance(domain, SSODomainProtocol)
 
 
 def test_stripe_protocol_runtime_checks() -> None:
@@ -642,26 +627,18 @@ def test_team_adapter_satisfies_team_protocol_only() -> None:
 def test_sso_adapter_satisfies_protocol() -> None:
     adapter = SSOAdapter(
         sso_provider=ExampleSSOProvider,
-        sso_domain=ExampleSSODomain,
     )
 
     assert isinstance(adapter, SSOAdapterProtocol)
     assert callable(adapter.create_provider)
     assert callable(adapter.get_provider_by_id)
     assert callable(adapter.get_provider_by_provider_id)
+    assert callable(adapter.get_provider_by_domain)
     assert callable(adapter.list_providers_for_organization)
     assert callable(adapter.list_providers_for_individual)
+    assert callable(adapter.list_providers_matching_domain)
     assert callable(adapter.update_provider)
     assert callable(adapter.delete_provider)
-    assert callable(adapter.create_domain)
-    assert callable(adapter.get_domain)
-    assert callable(adapter.get_domain_by_name)
-    assert callable(adapter.get_verified_domain)
-    assert callable(adapter.list_verified_domains_matching)
-    assert callable(adapter.list_domains_for_provider)
-    assert callable(adapter.update_domain)
-    assert callable(adapter.delete_domain)
-    assert callable(adapter.delete_domains_for_provider)
 
 
 def test_stripe_adapter_satisfies_protocol() -> None:

@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
-from belgie_proto.sso import OIDCClaimMapping, OIDCProviderConfig
+from belgie_proto.sso import DomainVerificationState, OIDCClaimMapping, OIDCProviderConfig
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import DiscoveryError, OIDCDiscoveryResult
 from belgie_sso.dns import DNSTxtLookupError
 from belgie_sso.settings import EnterpriseSSO
-from belgie_sso.utils import deserialize_saml_config
+from belgie_sso.utils import deserialize_saml_config, split_provider_domains
 from fastapi import HTTPException
 
 
@@ -56,6 +56,10 @@ class FakeProvider:
     provider_type: str
     provider_id: str
     issuer: str
+    domain: str
+    domain_verified: bool
+    domain_verification_token: str | None
+    domain_verification_token_expires_at: datetime | None
     oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None
     created_at: datetime
@@ -88,6 +92,8 @@ class MemorySSOAdapter:
         provider_type: str,
         provider_id: str,
         issuer: str,
+        domain: str = "",
+        domain_verification: DomainVerificationState | None = None,
         oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None,
         saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None,
     ) -> FakeProvider:
@@ -99,12 +105,19 @@ class MemorySSOAdapter:
             provider_type=provider_type,
             provider_id=provider_id,
             issuer=issuer,
+            domain=domain,
+            domain_verified=domain_verification.verified if domain_verification is not None else False,
+            domain_verification_token=domain_verification.token if domain_verification is not None else None,
+            domain_verification_token_expires_at=domain_verification.token_expires_at
+            if domain_verification is not None
+            else None,
             oidc_config=oidc_config,
             saml_config=saml_config,
             created_at=now,
             updated_at=now,
         )
         self.providers[provider.id] = provider
+        self._sync_domains_for_provider(provider)
         return provider
 
     async def get_provider_by_id(self, _session: object, *, sso_provider_id: UUID) -> FakeProvider | None:
@@ -113,11 +126,21 @@ class MemorySSOAdapter:
     async def get_provider_by_provider_id(self, _session: object, *, provider_id: str) -> FakeProvider | None:
         return next((provider for provider in self.providers.values() if provider.provider_id == provider_id), None)
 
+    async def get_provider_by_domain(self, _session: object, *, domain: str) -> FakeProvider | None:
+        return next(
+            (provider for provider in self.providers.values() if domain in split_provider_domains(provider.domain)),
+            None,
+        )
+
     async def list_providers_for_organization(self, _session: object, *, organization_id: UUID) -> list[FakeProvider]:
         return [provider for provider in self.providers.values() if provider.organization_id == organization_id]
 
     async def list_providers_for_individual(self, _session: object, *, individual_id: UUID) -> list[FakeProvider]:
-        return [provider for provider in self.providers.values() if provider.created_by_individual_id == individual_id]
+        return [
+            provider
+            for provider in self.providers.values()
+            if provider.created_by_individual_id == individual_id and provider.organization_id is None
+        ]
 
     async def update_provider(
         self,
@@ -128,6 +151,8 @@ class MemorySSOAdapter:
         created_by_individual_id: UUID | None = None,
         provider_type: str | None = None,
         issuer: str | None = None,
+        domain: str | None = None,
+        domain_verification: DomainVerificationState | None = None,
         oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None = None,
         saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None = None,
     ) -> FakeProvider | None:
@@ -142,11 +167,18 @@ class MemorySSOAdapter:
             provider.provider_type = provider_type
         if issuer is not None:
             provider.issuer = issuer
+        if domain is not None:
+            provider.domain = domain
+        if domain_verification is not None:
+            provider.domain_verified = domain_verification.verified
+            provider.domain_verification_token = domain_verification.token
+            provider.domain_verification_token_expires_at = domain_verification.token_expires_at
         if oidc_config is not None:
             provider.oidc_config = oidc_config
         if saml_config is not None:
             provider.saml_config = saml_config
         provider.updated_at = datetime.now(UTC)
+        self._sync_domains_for_provider(provider)
         return provider
 
     async def delete_provider(self, _session: object, *, sso_provider_id: UUID) -> bool:
@@ -156,6 +188,20 @@ class MemorySSOAdapter:
         for domain_id in [domain.id for domain in self.domains.values() if domain.sso_provider_id == sso_provider_id]:
             self.domains.pop(domain_id)
         return True
+
+    async def list_providers_matching_domain(
+        self,
+        _session: object,
+        *,
+        domain: str,
+        verified_only: bool,
+    ) -> list[FakeProvider]:
+        return [
+            provider
+            for provider in self.providers.values()
+            if (not verified_only or provider.domain_verified)
+            and any(item == domain or domain.endswith(f".{item}") for item in split_provider_domains(provider.domain))
+        ]
 
     async def create_domain(
         self,
@@ -178,6 +224,15 @@ class MemorySSOAdapter:
             updated_at=now,
         )
         self.domains[sso_domain.id] = sso_domain
+        if (provider := self.providers.get(sso_provider_id)) is not None:
+            domains = list(split_provider_domains(provider.domain))
+            if domain not in domains:
+                domains.append(domain)
+                provider.domain = ",".join(domains)
+            provider.domain_verification_token = verification_token
+            provider.domain_verification_token_expires_at = verification_token_expires_at
+            provider.domain_verified = False
+            provider.updated_at = now
         return sso_domain
 
     async def get_domain(self, _session: object, *, domain_id: UUID) -> FakeDomain | None:
@@ -223,19 +278,65 @@ class MemorySSOAdapter:
             sso_domain.verification_token_expires_at = verification_token_expires_at
         sso_domain.verified_at = verified_at
         sso_domain.updated_at = datetime.now(UTC)
+        if (provider := self.providers.get(sso_domain.sso_provider_id)) is not None:
+            provider.domain_verification_token = sso_domain.verification_token
+            provider.domain_verification_token_expires_at = sso_domain.verification_token_expires_at
+            provider.domain_verified = sso_domain.verified_at is not None
+            provider.updated_at = sso_domain.updated_at
         return sso_domain
 
     async def delete_domain(self, _session: object, *, domain_id: UUID) -> bool:
         if domain_id not in self.domains:
             return False
-        self.domains.pop(domain_id)
+        domain = self.domains.pop(domain_id)
+        if (provider := self.providers.get(domain.sso_provider_id)) is not None:
+            provider.domain = ",".join(
+                item for item in split_provider_domains(provider.domain) if item != domain.domain
+            )
+            provider.domain_verified = False
+            provider.domain_verification_token = None
+            provider.domain_verification_token_expires_at = None
+            provider.updated_at = datetime.now(UTC)
         return True
 
     async def delete_domains_for_provider(self, _session: object, *, sso_provider_id: UUID) -> int:
         domain_ids = [item.id for item in self.domains.values() if item.sso_provider_id == sso_provider_id]
         for domain_id in domain_ids:
             self.domains.pop(domain_id)
+        if (provider := self.providers.get(sso_provider_id)) is not None:
+            provider.domain = ""
+            provider.domain_verified = False
+            provider.domain_verification_token = None
+            provider.domain_verification_token_expires_at = None
         return len(domain_ids)
+
+    def _sync_domains_for_provider(self, provider: FakeProvider) -> None:
+        existing_domains = {
+            domain.domain: domain for domain in self.domains.values() if domain.sso_provider_id == provider.id
+        }
+        active_domains = set(split_provider_domains(provider.domain))
+        for domain_id, domain in list(self.domains.items()):
+            if domain.sso_provider_id == provider.id and domain.domain not in active_domains:
+                self.domains.pop(domain_id)
+        for domain in active_domains:
+            if domain in existing_domains:
+                existing = existing_domains[domain]
+                existing.verification_token = provider.domain_verification_token or existing.verification_token
+                existing.verification_token_expires_at = provider.domain_verification_token_expires_at
+                existing.verified_at = provider.updated_at if provider.domain_verified else None
+                existing.updated_at = provider.updated_at
+                continue
+            domain_id = uuid4()
+            self.domains[domain_id] = FakeDomain(
+                id=domain_id,
+                sso_provider_id=provider.id,
+                domain=domain,
+                verification_token=provider.domain_verification_token or "",
+                verification_token_expires_at=provider.domain_verification_token_expires_at,
+                verified_at=provider.updated_at if provider.domain_verified else None,
+                created_at=provider.created_at,
+                updated_at=provider.updated_at,
+            )
 
 
 class MemoryOrganizationAdapter:
@@ -286,6 +387,7 @@ def build_client() -> tuple[SSOClient, MemorySSOAdapter, FakeOrganization, FakeI
     settings = EnterpriseSSO(adapter=sso_adapter, providers_limit=2)
     client = SSOClient(
         client=SimpleNamespace(db=object()),
+        base_url="https://app.example.com",
         settings=settings,
         organization_adapter=organization_adapter,
         current_individual=admin_individual,
@@ -419,7 +521,8 @@ async def test_verify_domain_uses_provider_scoped_dns_value(monkeypatch) -> None
 
     verified = await sso_client.verify_domain(provider_id=provider.provider_id, domain="example.com")
 
-    assert verified.verified_at is not None
+    assert verified.domain_verified is True
+    assert verified.domain_verification_token is None
 
 
 @pytest.mark.asyncio
@@ -607,7 +710,7 @@ async def test_create_domain_challenge_uses_custom_domain_txt_prefix(monkeypatch
 
 @pytest.mark.asyncio
 async def test_create_domain_challenge_rotates_expired_token(monkeypatch) -> None:
-    sso_client, adapter, _, _ = build_client()
+    sso_client, _, _, _ = build_client()
     monkeypatch.setattr(
         "belgie_sso.client.discover_oidc_configuration",
         AsyncMock(
@@ -632,8 +735,7 @@ async def test_create_domain_challenge_rotates_expired_token(monkeypatch) -> Non
         domains=["example.com"],
     )
     first = await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
-    domain = (await adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
-    domain.verification_token_expires_at = datetime.now(UTC)
+    provider.domain_verification_token_expires_at = datetime.now(UTC)
 
     second = await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
 
@@ -644,7 +746,7 @@ async def test_create_domain_challenge_rotates_expired_token(monkeypatch) -> Non
 
 @pytest.mark.asyncio
 async def test_create_domain_challenge_rejects_verified_domain(monkeypatch) -> None:
-    sso_client, adapter, _, _ = build_client()
+    sso_client, _, _, _ = build_client()
     monkeypatch.setattr(
         "belgie_sso.client.discover_oidc_configuration",
         AsyncMock(
@@ -669,8 +771,7 @@ async def test_create_domain_challenge_rejects_verified_domain(monkeypatch) -> N
         domains=["example.com"],
     )
     await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
-    domain = (await adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
-    domain.verified_at = datetime.now(UTC)
+    provider.domain_verified = True
 
     with pytest.raises(HTTPException) as exc_info:
         await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
@@ -681,7 +782,7 @@ async def test_create_domain_challenge_rejects_verified_domain(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_verify_domain_rejects_expired_challenge(monkeypatch) -> None:
-    sso_client, adapter, _, _ = build_client()
+    sso_client, _, _, _ = build_client()
     monkeypatch.setattr(
         "belgie_sso.client.discover_oidc_configuration",
         AsyncMock(
@@ -706,8 +807,7 @@ async def test_verify_domain_rejects_expired_challenge(monkeypatch) -> None:
         domains=["example.com"],
     )
     await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
-    domain = (await adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
-    domain.verification_token_expires_at = datetime.now(UTC)
+    provider.domain_verification_token_expires_at = datetime.now(UTC)
 
     with pytest.raises(HTTPException) as exc_info:
         await sso_client.verify_domain(provider_id=provider.provider_id, domain="example.com")
@@ -718,7 +818,7 @@ async def test_verify_domain_rejects_expired_challenge(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_verify_domain_rejects_verified_domain(monkeypatch) -> None:
-    sso_client, adapter, _, _ = build_client()
+    sso_client, _, _, _ = build_client()
     monkeypatch.setattr(
         "belgie_sso.client.discover_oidc_configuration",
         AsyncMock(
@@ -743,8 +843,7 @@ async def test_verify_domain_rejects_verified_domain(monkeypatch) -> None:
         domains=["example.com"],
     )
     await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
-    domain = (await adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
-    domain.verified_at = datetime.now(UTC)
+    provider.domain_verified = True
 
     with pytest.raises(HTTPException) as exc_info:
         await sso_client.verify_domain(provider_id=provider.provider_id, domain="example.com")
@@ -853,7 +952,7 @@ async def test_provider_limit_zero_disables_registration(monkeypatch) -> None:
         ),
     )
 
-    with pytest.raises(HTTPException, match="provider limit reached"):
+    with pytest.raises(HTTPException, match="provider registration is disabled"):
         await sso_client.register_oidc_provider(
             provider_id="acme",
             issuer="https://idp.example.com",
@@ -1215,12 +1314,13 @@ async def test_register_saml_provider_rejects_blank_sso_url() -> None:
 
 
 @pytest.mark.asyncio
-async def test_register_saml_provider_rejects_disallowed_signature_algorithm() -> None:
+async def test_register_saml_provider_rejects_deprecated_signature_algorithm_when_configured() -> None:
     sso_client, _, _, _ = build_client()
+    sso_client.settings.saml = replace(sso_client.settings.saml, on_deprecated="reject")
 
     with pytest.raises(
         HTTPException,
-        match="signature_algorithm must be one of: rsa-sha256, rsa-sha384, rsa-sha512",
+        match="SAML config uses deprecated signature algorithm: rsa-sha1",
     ) as exc_info:
         await sso_client.register_saml_provider(
             provider_id="acme-saml",
@@ -1316,7 +1416,7 @@ async def test_list_providers_for_organization_requires_org_admin(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_create_domain_challenge_rejects_domain_registered_to_another_provider(monkeypatch) -> None:
+async def test_update_oidc_provider_rejects_domain_registered_to_another_provider(monkeypatch) -> None:
     sso_client, _, _, _ = build_client()
     monkeypatch.setattr(
         "belgie_sso.client.discover_oidc_configuration",
@@ -1348,8 +1448,8 @@ async def test_create_domain_challenge_rejects_domain_registered_to_another_prov
         client_secret="client-secret",
     )
 
-    with pytest.raises(HTTPException, match="domain is already registered to another provider"):
-        await sso_client.create_domain_challenge(provider_id=provider_two.provider_id, domain="example.com")
+    with pytest.raises(HTTPException, match=r"domain 'example\.com' is already registered"):
+        await sso_client.update_oidc_provider(provider_id=provider_two.provider_id, domain="example.com")
 
 
 @pytest.mark.asyncio

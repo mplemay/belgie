@@ -25,7 +25,7 @@ try:
         OrganizationMemberMixin,
         OrganizationMixin,
     )
-    from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin
+    from belgie_alchemy.sso import SSOAdapter, SSOProviderMixin
     from belgie_alchemy.stripe import StripeAccountMixin, StripeAdapter, StripeSubscriptionMixin
     from belgie_alchemy.team.mixins import TeamMemberMixin, TeamMixin
 except ModuleNotFoundError as exc:
@@ -48,7 +48,6 @@ __all__ = [
     "OrganizationMemberMixin",
     "OrganizationMixin",
     "SSOAdapter",
-    "SSODomainMixin",
     "SSOProviderMixin",
     "SessionMixin",
     "StripeAccountMixin",

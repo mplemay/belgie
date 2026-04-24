@@ -23,14 +23,15 @@ from belgie_alchemy.__tests__.fixtures.organization.models import (
 from belgie_alchemy.__tests__.fixtures.team.models import Team, TeamMember  # noqa: F401
 from belgie_alchemy.core import BelgieAdapter
 from belgie_alchemy.organization import OrganizationAdapter
-from belgie_alchemy.sso import SSOAdapter, SSODomainMixin, SSOProviderMixin
+from belgie_alchemy.sso import SSOAdapter, SSOProviderMixin
 from belgie_core import Belgie, BelgieClient, BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_organization import Organization
-from belgie_proto.sso import OIDCProviderConfig
+from belgie_proto.sso import DomainVerificationState, OIDCProviderConfig
 from belgie_sso import EnterpriseSSO
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import OIDCDiscoveryResult
+from belgie_sso.settings import SAMLSecuritySettings
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from cryptography import x509
@@ -48,10 +49,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 
 class SSOProvider(DataclassBase, PrimaryKeyMixin, TimestampMixin, SSOProviderMixin):
-    pass
-
-
-class SSODomain(DataclassBase, PrimaryKeyMixin, TimestampMixin, SSODomainMixin):
     pass
 
 
@@ -307,7 +304,6 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
     )
     sso_adapter = SSOAdapter(
         sso_provider=SSOProvider,
-        sso_domain=SSODomain,
     )
 
     settings = BelgieSettings(secret="secret", base_url="http://localhost:8000")
@@ -351,6 +347,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
                 session_manager=belgie.session_manager,
                 cookie_settings=belgie.settings.cookie,
             ),
+            base_url=belgie.settings.base_url,
             settings=sso_settings,
             organization_adapter=organization_adapter,
             current_individual=owner,
@@ -379,10 +376,17 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
             issuer="https://idp.example.com",
             client_id="client-id",
             client_secret="client-secret",
-            domains=["example.com"],
+            domain="example.com",
         )
-        domain = (await sso_adapter.list_domains_for_provider(session, sso_provider_id=provider.id))[0]
-        await sso_adapter.update_domain(session, domain_id=domain.id, verified_at=datetime.now(UTC))
+        await sso_adapter.update_provider(
+            session,
+            sso_provider_id=provider.id,
+            domain_verification=DomainVerificationState(
+                verified=True,
+                token=None,
+                token_expires_at=None,
+            ),
+        )
 
     monkeypatch.setattr(sso_plugin, "_build_oidc_transport", lambda provider: FakeOIDCTransport())
 
@@ -429,7 +433,6 @@ async def test_encrypted_saml_signin_and_sp_initiated_logout_flow(session_factor
     )
     sso_adapter = SSOAdapter(
         sso_provider=SSOProvider,
-        sso_domain=SSODomain,
     )
 
     settings = BelgieSettings(secret="secret", base_url="http://localhost:8000")
@@ -443,7 +446,11 @@ async def test_encrypted_saml_signin_and_sp_initiated_logout_flow(session_factor
         adapter=core_adapter,
         database=database,
     )
-    sso_settings = EnterpriseSSO(adapter=sso_adapter, trust_email_verified=True)
+    sso_settings = EnterpriseSSO(
+        adapter=sso_adapter,
+        trust_email_verified=True,
+        saml=SAMLSecuritySettings(enable_single_logout=True),
+    )
     belgie.add_plugin(sso_settings)
 
     async with session_factory() as session:
@@ -460,6 +467,7 @@ async def test_encrypted_saml_signin_and_sp_initiated_logout_flow(session_factor
                 session_manager=belgie.session_manager,
                 cookie_settings=belgie.settings.cookie,
             ),
+            base_url=belgie.settings.base_url,
             settings=sso_settings,
             current_individual=owner,
         )

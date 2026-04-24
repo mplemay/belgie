@@ -19,6 +19,16 @@ from signxml import XMLSigner, XMLVerifier, methods
 from signxml.algorithms import CanonicalizationMethod, DigestAlgorithm, SignatureMethod
 from signxml.verifier import SignatureConfiguration
 
+from belgie_sso.saml_algorithms import (
+    DEPRECATED_DIGEST_ALGORITHMS,
+    DEPRECATED_SIGNATURE_ALGORITHMS,
+    SECURE_DIGEST_ALGORITHMS,
+    SECURE_SIGNATURE_ALGORITHMS,
+    validate_runtime_data_encryption_algorithm,
+    validate_runtime_digest_algorithm,
+    validate_runtime_key_encryption_algorithm,
+    validate_runtime_signature_algorithm,
+)
 from belgie_sso.utils import parse_bool_claim
 
 if TYPE_CHECKING:
@@ -38,11 +48,16 @@ _POST_BINDING = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
 _REDIRECT_BINDING = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
 _SUCCESS_STATUS = "urn:oasis:names:tc:SAML:2.0:status:Success"
 _SIGNATURE_ALGORITHM_URIS = {
+    "rsa-sha1": "http://www.w3.org/2000/09/xmldsig#rsa-sha1",
     "rsa-sha256": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
     "rsa-sha384": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384",
     "rsa-sha512": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+    "ecdsa-sha256": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256",
+    "ecdsa-sha384": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384",
+    "ecdsa-sha512": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512",
 }
 _DIGEST_ALGORITHM_URIS = {
+    "sha1": "http://www.w3.org/2000/09/xmldsig#sha1",
     "sha256": "http://www.w3.org/2001/04/xmlenc#sha256",
     "sha384": "http://www.w3.org/2001/04/xmldsig-more#sha384",
     "sha512": "http://www.w3.org/2001/04/xmlenc#sha512",
@@ -50,11 +65,16 @@ _DIGEST_ALGORITHM_URIS = {
 _SIGNATURE_ALGORITHM_BY_URI = {value: key for key, value in _SIGNATURE_ALGORITHM_URIS.items()}
 _DIGEST_ALGORITHM_BY_URI = {value: key for key, value in _DIGEST_ALGORITHM_URIS.items()}
 _SIGNXML_SIGNATURE_METHODS = {
+    "rsa-sha1": SignatureMethod.RSA_SHA1,
     "rsa-sha256": SignatureMethod.RSA_SHA256,
     "rsa-sha384": SignatureMethod.RSA_SHA384,
     "rsa-sha512": SignatureMethod.RSA_SHA512,
+    "ecdsa-sha256": SignatureMethod.ECDSA_SHA256,
+    "ecdsa-sha384": SignatureMethod.ECDSA_SHA384,
+    "ecdsa-sha512": SignatureMethod.ECDSA_SHA512,
 }
 _SIGNXML_DIGEST_ALGORITHMS = {
+    "sha1": DigestAlgorithm.SHA1,
     "sha256": DigestAlgorithm.SHA256,
     "sha384": DigestAlgorithm.SHA384,
     "sha512": DigestAlgorithm.SHA512,
@@ -211,12 +231,13 @@ class BuiltinSAMLEngine:
             index="0",
             isDefault="true",
         )
-        ET.SubElement(
-            sp_descriptor,
-            _tag(_METADATA_NS, "SingleLogoutService"),
-            Binding=_POST_BINDING if config.binding == "post" else _REDIRECT_BINDING,
-            Location=_derive_slo_url(acs_url),
-        )
+        if self._settings.enable_single_logout:
+            ET.SubElement(
+                sp_descriptor,
+                _tag(_METADATA_NS, "SingleLogoutService"),
+                Binding=_POST_BINDING if config.binding == "post" else _REDIRECT_BINDING,
+                Location=_derive_slo_url(acs_url),
+            )
         if config.signing_certificate:
             key_descriptor = ET.SubElement(sp_descriptor, _tag(_METADATA_NS, "KeyDescriptor"), use="signing")
             key_info = ET.SubElement(key_descriptor, _tag(_DS_NS, "KeyInfo"))
@@ -744,20 +765,67 @@ def _validate_response_issuer(root: ET._Element, *, expected_issuer: str) -> Non
 
 def _validate_algorithms(root: ET._Element, *, settings: SAMLSecuritySettings) -> None:
     for element in root.iter():
-        if _local_name(element.tag) == "SignatureMethod":
-            if (algorithm := element.attrib.get("Algorithm")) is None:
-                continue
-            normalized = _SIGNATURE_ALGORITHM_BY_URI.get(algorithm)
-            if normalized is None or normalized not in settings.allowed_signature_algorithms:
-                msg = "SAML signature algorithm is not allowed"
-                raise RuntimeError(msg)
-        if _local_name(element.tag) == "DigestMethod":
-            if (algorithm := element.attrib.get("Algorithm")) is None:
-                continue
-            normalized = _DIGEST_ALGORITHM_BY_URI.get(algorithm)
-            if normalized is None or normalized not in settings.allowed_digest_algorithms:
-                msg = "SAML digest algorithm is not allowed"
-                raise RuntimeError(msg)
+        _validate_algorithm_element(element, settings=settings)
+
+
+def _validate_algorithm_element(element: ET._Element, *, settings: SAMLSecuritySettings) -> None:
+    local_name = _local_name(element.tag)
+    if local_name == "SignatureMethod":
+        _validate_signature_method(element, settings=settings)
+        return
+    if local_name == "DigestMethod":
+        _validate_digest_method(element, settings=settings)
+        return
+    if local_name == "EncryptionMethod":
+        _validate_encryption_method(element, settings=settings)
+
+
+def _validate_signature_method(element: ET._Element, *, settings: SAMLSecuritySettings) -> None:
+    if (algorithm := element.attrib.get("Algorithm")) is None:
+        return
+    try:
+        validate_runtime_signature_algorithm(
+            _SIGNATURE_ALGORITHM_BY_URI.get(algorithm, algorithm),
+            on_deprecated=settings.on_deprecated,
+            allowed_signature_algorithms=settings.allowed_signature_algorithms,
+        )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def _validate_digest_method(element: ET._Element, *, settings: SAMLSecuritySettings) -> None:
+    if (algorithm := element.attrib.get("Algorithm")) is None:
+        return
+    try:
+        validate_runtime_digest_algorithm(
+            _DIGEST_ALGORITHM_BY_URI.get(algorithm, algorithm),
+            on_deprecated=settings.on_deprecated,
+            allowed_digest_algorithms=settings.allowed_digest_algorithms,
+        )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def _validate_encryption_method(element: ET._Element, *, settings: SAMLSecuritySettings) -> None:
+    if (algorithm := element.attrib.get("Algorithm")) is None:
+        return
+    parent = element.getparent()
+    parent_tag = _local_name(parent.tag) if parent is not None else None
+    try:
+        if parent_tag == "EncryptedKey":
+            validate_runtime_key_encryption_algorithm(
+                algorithm,
+                on_deprecated=settings.on_deprecated,
+                allowed_key_encryption_algorithms=settings.allowed_key_encryption_algorithms,
+            )
+        elif parent_tag == "EncryptedData":
+            validate_runtime_data_encryption_algorithm(
+                algorithm,
+                on_deprecated=settings.on_deprecated,
+                allowed_data_encryption_algorithms=settings.allowed_data_encryption_algorithms,
+            )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def _verify_saml_message(  # noqa: PLR0913
@@ -807,12 +875,12 @@ def _verify_xml_signatures(
         expect_references=1,
         signature_methods=frozenset(
             _SIGNXML_SIGNATURE_METHODS[algorithm]
-            for algorithm in settings.allowed_signature_algorithms
+            for algorithm in _signature_algorithms_for_settings(settings)
             if algorithm in _SIGNXML_SIGNATURE_METHODS
         ),
         digest_algorithms=frozenset(
             _SIGNXML_DIGEST_ALGORITHMS[algorithm]
-            for algorithm in settings.allowed_digest_algorithms
+            for algorithm in _digest_algorithms_for_settings(settings)
             if algorithm in _SIGNXML_DIGEST_ALGORITHMS
         ),
         default_reference_c14n_method=CanonicalizationMethod.EXCLUSIVE_XML_CANONICALIZATION_1_0,
@@ -853,10 +921,16 @@ def _verify_redirect_signature(
         msg = "SAML redirect payload is missing"
         raise RuntimeError(msg)
 
-    signature_algorithm = _SIGNATURE_ALGORITHM_BY_URI.get(unquote(raw_sig_alg))
-    if signature_algorithm is None or signature_algorithm not in settings.allowed_signature_algorithms:
-        msg = "SAML signature algorithm is not allowed"
-        raise RuntimeError(msg)
+    raw_signature_algorithm = unquote(raw_sig_alg)
+    signature_algorithm = _SIGNATURE_ALGORITHM_BY_URI.get(raw_signature_algorithm, raw_signature_algorithm)
+    try:
+        validate_runtime_signature_algorithm(
+            signature_algorithm,
+            on_deprecated=settings.on_deprecated,
+            allowed_signature_algorithms=settings.allowed_signature_algorithms,
+        )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
     signed_parts = [f"{payload_key}={raw_payload}"]
     if (raw_relay_state := _raw_query_value(request, "RelayState")) is not None:
@@ -1292,7 +1366,21 @@ def _certificate_body(certificate: str) -> str:
     return "\n".join(textwrap.wrap(normalized, 64))
 
 
+def _signature_algorithms_for_settings(settings: SAMLSecuritySettings) -> tuple[str, ...]:
+    if settings.allowed_signature_algorithms is not None:
+        return settings.allowed_signature_algorithms
+    return tuple(sorted(SECURE_SIGNATURE_ALGORITHMS | DEPRECATED_SIGNATURE_ALGORITHMS))
+
+
+def _digest_algorithms_for_settings(settings: SAMLSecuritySettings) -> tuple[str, ...]:
+    if settings.allowed_digest_algorithms is not None:
+        return settings.allowed_digest_algorithms
+    return tuple(sorted(SECURE_DIGEST_ALGORITHMS | DEPRECATED_DIGEST_ALGORITHMS))
+
+
 def _hash_algorithm(signature_algorithm: str) -> hashes.HashAlgorithm:
+    if signature_algorithm == "rsa-sha1":
+        return hashes.SHA1()  # noqa: S303 - legacy SAML redirect signatures are supported for interoperability
     if signature_algorithm == "rsa-sha256":
         return hashes.SHA256()
     if signature_algorithm == "rsa-sha384":

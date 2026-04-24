@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from urllib.parse import urlencode, urlparse
@@ -407,7 +407,7 @@ async def test_metadata_xml_returns_custom_sp_metadata_verbatim() -> None:
 
 @pytest.mark.asyncio
 async def test_metadata_xml_uses_sp_slo_url_instead_of_idp_slo_url() -> None:
-    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings())
+    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings(enable_single_logout=True))
     acs_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
 
     metadata = await engine.metadata_xml(
@@ -495,11 +495,11 @@ async def test_finish_signin_decrypts_encrypted_assertions() -> None:
 
 
 @pytest.mark.asyncio
-async def test_finish_signin_rejects_disallowed_signature_and_digest_algorithms() -> None:
-    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings())
+async def test_finish_signin_rejects_deprecated_signature_algorithm_when_configured() -> None:
+    engine = BuiltinSAMLEngine(settings=replace(SAMLSecuritySettings(), on_deprecated="reject"))
     request_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
 
-    with pytest.raises(RuntimeError, match="SAML signature algorithm is not allowed"):
+    with pytest.raises(RuntimeError, match="SAML response uses deprecated signature algorithm: rsa-sha1"):
         await engine.finish_signin(
             provider=_build_provider(),
             config=_build_config(),
