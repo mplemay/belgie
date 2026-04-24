@@ -3,18 +3,19 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from authlib.jose import JsonWebKey, jwt
+from joserfc import jwt
+from joserfc.jwk import RSAKey
 
 if TYPE_CHECKING:
     from belgie_proto.core.json import JSONValue
 
 
 def build_rsa_signing_key(*, kid: str = "test-key"):
-    return JsonWebKey.generate_key("RSA", 2048, is_private=True, options={"kid": kid})
+    return RSAKey.generate_key(key_size=2048, parameters={"kid": kid}, private=True, auto_kid=False)
 
 
 def build_jwks_document(signing_key) -> dict[str, list[dict[str, str]]]:
-    return {"keys": [signing_key.as_dict(is_private=False)]}
+    return {"keys": [signing_key.as_dict(private=False)]}
 
 
 def issue_id_token(
@@ -41,9 +42,8 @@ def issue_id_token(
     payload["exp"] = int((now + timedelta(minutes=5)).timestamp())
     payload["nonce"] = nonce
     payload.update(claims)
-    token = jwt.encode(
-        {"alg": "RS256", "kid": signing_key.as_dict(is_private=False)["kid"]},
+    return jwt.encode(
+        {"alg": "RS256", "kid": signing_key.as_dict(private=False)["kid"]},
         payload,
         signing_key,
     )
-    return token.decode("ascii")

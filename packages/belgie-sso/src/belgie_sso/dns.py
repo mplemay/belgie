@@ -3,6 +3,10 @@ import dns.resolver
 from asyncer import asyncify
 
 
+class DNSTxtLookupError(RuntimeError):
+    pass
+
+
 async def lookup_txt_records(record_name: str) -> list[str]:
     def _lookup() -> list[str]:
         answers = dns.resolver.resolve(record_name, "TXT")
@@ -14,5 +18,6 @@ async def lookup_txt_records(record_name: str) -> list[str]:
 
     try:
         return await asyncify(_lookup)()
-    except (dns.exception.DNSException, OSError):
-        return []
+    except (dns.exception.DNSException, OSError) as exc:
+        msg = "failed to resolve DNS TXT records"
+        raise DNSTxtLookupError(msg) from exc

@@ -14,10 +14,12 @@ from belgie_proto.oauth_server import (
     TokenEndpointAuthMethod,
 )
 from belgie_proto.sso import (
+    DomainVerificationState,
     OIDCClaimMapping,
     OIDCProviderConfig,
+    SAMLClaimMapping,
+    SAMLProviderConfig,
     SSOAdapterProtocol,
-    SSODomainProtocol,
     SSOProviderProtocol,
 )
 from belgie_proto.stripe import (
@@ -32,6 +34,7 @@ __all__ = [
     "AccountProtocol",
     "AccountType",
     "AuthorizationIntent",
+    "DomainVerificationState",
     "IndividualProtocol",
     "OAuthServerAccessTokenProtocol",
     "OAuthServerAdapterProtocol",
@@ -45,8 +48,9 @@ __all__ = [
     "OAuthServerSubjectType",
     "OIDCClaimMapping",
     "OIDCProviderConfig",
+    "SAMLClaimMapping",
+    "SAMLProviderConfig",
     "SSOAdapterProtocol",
-    "SSODomainProtocol",
     "SSOProviderProtocol",
     "StripeAccountProtocol",
     "StripeAdapterProtocol",
