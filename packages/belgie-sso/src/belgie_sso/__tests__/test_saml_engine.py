@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import base64
+import zlib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, unquote, urlencode, urlparse, urlunparse
 
 import pytest
 import xmlsec
 from belgie_proto.sso import SAMLProviderConfig
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.x509.oid import NameOID
 from lxml import etree as ET  # noqa: N812
 from signxml import XMLSigner, methods
@@ -28,8 +29,13 @@ class _KeyMaterial:
     certificate: str
 
 
-def _build_key_material(common_name: str) -> _KeyMaterial:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+def _build_key_material(common_name: str, *, key_type: str = "rsa") -> _KeyMaterial:
+    if key_type == "rsa":
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    elif key_type == "ec":
+        private_key = ec.generate_private_key(ec.SECP256R1())
+    else:
+        raise ValueError(key_type)
     subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     certificate = (
         x509.CertificateBuilder()
@@ -52,16 +58,29 @@ def _build_key_material(common_name: str) -> _KeyMaterial:
 
 
 _IDP_KEYS = _build_key_material("idp.example.com")
+_IDP_EC_KEYS = _build_key_material("idp-ecdsa.example.com", key_type="ec")
 _SP_KEYS = _build_key_material("sp.example.com")
+_SP_EC_KEYS = _build_key_material("sp-ecdsa.example.com", key_type="ec")
 _SIGNATURE_METHODS = {
     "rsa-sha256": SignatureMethod.RSA_SHA256,
     "rsa-sha384": SignatureMethod.RSA_SHA384,
     "rsa-sha512": SignatureMethod.RSA_SHA512,
+    "ecdsa-sha256": SignatureMethod.ECDSA_SHA256,
+    "ecdsa-sha384": SignatureMethod.ECDSA_SHA384,
+    "ecdsa-sha512": SignatureMethod.ECDSA_SHA512,
 }
 _DIGEST_METHODS = {
     "sha256": DigestAlgorithm.SHA256,
     "sha384": DigestAlgorithm.SHA384,
     "sha512": DigestAlgorithm.SHA512,
+}
+_SIGNATURE_URIS = {
+    "rsa-sha256": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+    "rsa-sha384": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384",
+    "rsa-sha512": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+    "ecdsa-sha256": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256",
+    "ecdsa-sha384": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384",
+    "ecdsa-sha512": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512",
 }
 
 
@@ -149,6 +168,140 @@ def _build_post_request(url: str, *, form_fields: dict[str, str]) -> Request:
         "server": (parsed.hostname or "testserver.local", parsed.port or 443),
     }
     return Request(scope, receive)
+
+
+def _build_get_request(url: str) -> Request:
+    parsed = urlparse(url)
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": parsed.scheme,
+        "path": parsed.path,
+        "raw_path": parsed.path.encode("utf-8"),
+        "root_path": "",
+        "query_string": parsed.query.encode("utf-8"),
+        "headers": [(b"host", parsed.netloc.encode("utf-8"))],
+        "client": ("testclient", 50000),
+        "server": (parsed.hostname or "testserver.local", parsed.port or 443),
+    }
+    return Request(scope, receive)
+
+
+def _raw_query_value(url: str, key: str) -> str | None:
+    query = urlparse(url).query
+    for item in query.split("&"):
+        if item == key:
+            return ""
+        if item.startswith(f"{key}="):
+            return item.partition("=")[2]
+    return None
+
+
+def _decode_redirect_xml(url: str, *, payload_key: str) -> ET._Element:
+    payload = _raw_query_value(url, payload_key)
+    assert payload is not None
+    compressed = base64.b64decode(unquote(payload))
+    xml_bytes = zlib.decompress(compressed, wbits=-15)
+    return ET.fromstring(xml_bytes)
+
+
+def _hash_algorithm(signature_algorithm: str) -> hashes.HashAlgorithm:
+    if signature_algorithm in {"rsa-sha256", "ecdsa-sha256"}:
+        return hashes.SHA256()
+    if signature_algorithm in {"rsa-sha384", "ecdsa-sha384"}:
+        return hashes.SHA384()
+    if signature_algorithm in {"rsa-sha512", "ecdsa-sha512"}:
+        return hashes.SHA512()
+    raise ValueError(signature_algorithm)
+
+
+def _sign_redirect_query(
+    *,
+    signed_query: str,
+    key_material: _KeyMaterial,
+    signature_algorithm: str,
+) -> str:
+    key = serialization.load_pem_private_key(key_material.private_key.encode("utf-8"), password=None)
+    if signature_algorithm.startswith("rsa-"):
+        signature = key.sign(
+            signed_query.encode("utf-8"),
+            padding.PKCS1v15(),
+            _hash_algorithm(signature_algorithm),
+        )
+    elif signature_algorithm.startswith("ecdsa-"):
+        signature = key.sign(
+            signed_query.encode("utf-8"),
+            ec.ECDSA(_hash_algorithm(signature_algorithm)),
+        )
+    else:
+        raise ValueError(signature_algorithm)
+    return base64.b64encode(signature).decode("ascii")
+
+
+def _build_redirect_url(
+    *,
+    destination: str,
+    payload_key: str,
+    xml: ET._Element,
+    relay_state: str | None,
+    signature_algorithm: str,
+    key_material: _KeyMaterial,
+) -> str:
+    compressor = zlib.compressobj(wbits=-15)
+    compressed = compressor.compress(ET.tostring(xml, encoding="utf-8", xml_declaration=False)) + compressor.flush()
+    payload = quote(base64.b64encode(compressed).decode("ascii"), safe="")
+    query_parts = [f"{payload_key}={payload}"]
+    if relay_state is not None:
+        query_parts.append(f"RelayState={quote(relay_state, safe='')}")
+    signature_uri = _SIGNATURE_URIS[signature_algorithm]
+    query_parts.append(f"SigAlg={quote(signature_uri, safe='')}")
+    signed_query = "&".join(query_parts)
+    signature = quote(
+        _sign_redirect_query(
+            signed_query=signed_query,
+            key_material=key_material,
+            signature_algorithm=signature_algorithm,
+        ),
+        safe="",
+    )
+    query_parts.append(
+        f"Signature={signature}",
+    )
+    return urlunparse(urlparse(destination)._replace(query="&".join(query_parts)))
+
+
+def _assert_redirect_signature(url: str, *, payload_key: str, key_material: _KeyMaterial) -> None:
+    payload = _raw_query_value(url, payload_key)
+    sig_alg = _raw_query_value(url, "SigAlg")
+    signature = _raw_query_value(url, "Signature")
+    assert payload is not None
+    assert sig_alg is not None
+    assert signature is not None
+    signed_parts = [f"{payload_key}={payload}"]
+    if relay_state := _raw_query_value(url, "RelayState"):
+        signed_parts.append(f"RelayState={relay_state}")
+    signed_parts.append(f"SigAlg={sig_alg}")
+    certificate = x509.load_pem_x509_certificate(key_material.certificate.encode("utf-8"))
+    signature_algorithm = next(name for name, uri in _SIGNATURE_URIS.items() if uri == unquote(sig_alg))
+    decoded_signature = base64.b64decode(unquote(signature))
+    if signature_algorithm.startswith("rsa-"):
+        certificate.public_key().verify(
+            decoded_signature,
+            "&".join(signed_parts).encode("utf-8"),
+            padding.PKCS1v15(),
+            _hash_algorithm(signature_algorithm),
+        )
+    else:
+        certificate.public_key().verify(
+            decoded_signature,
+            "&".join(signed_parts).encode("utf-8"),
+            ec.ECDSA(_hash_algorithm(signature_algorithm)),
+        )
 
 
 def _build_assertion(
@@ -420,6 +573,65 @@ async def test_metadata_xml_uses_sp_slo_url_instead_of_idp_slo_url() -> None:
     root = ET.fromstring(metadata.encode("utf-8"))
     single_logout = next(element for element in root.iter() if element.tag.endswith("SingleLogoutService"))
     assert single_logout.attrib["Location"] == "https://testserver.local/auth/provider/sso/slo/acme-saml"
+
+
+@pytest.mark.asyncio
+async def test_start_signin_generates_ecdsa_signed_redirect_request() -> None:
+    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings())
+    acs_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
+
+    start = await engine.start_signin(
+        provider=_build_provider(),
+        config=_build_config(
+            binding="redirect",
+            signature_algorithm="ecdsa-sha256",
+            private_key=_SP_EC_KEYS.private_key,
+            signing_certificate=_SP_EC_KEYS.certificate,
+        ),
+        acs_url=acs_url,
+        relay_state="state",
+    )
+
+    assert start.redirect_url is not None
+    _assert_redirect_signature(start.redirect_url, payload_key="SAMLRequest", key_material=_SP_EC_KEYS)
+    request_xml = _decode_redirect_xml(start.redirect_url, payload_key="SAMLRequest")
+    assert request_xml.attrib["AssertionConsumerServiceURL"] == acs_url
+
+
+@pytest.mark.asyncio
+async def test_finish_signin_accepts_ecdsa_signed_redirect_response() -> None:
+    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings())
+    request_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
+    response_root = ET.fromstring(
+        base64.b64decode(
+            _build_saml_response_payload(
+                recipient=request_url,
+                sign_assertion=False,
+                sign_response=False,
+            ),
+        ),
+    )
+
+    profile = await engine.finish_signin(
+        provider=_build_provider(),
+        config=_build_config(binding="redirect", x509_certificate=_IDP_EC_KEYS.certificate),
+        request=_build_get_request(
+            _build_redirect_url(
+                destination=request_url,
+                payload_key="SAMLResponse",
+                xml=response_root,
+                relay_state="state",
+                signature_algorithm="ecdsa-sha256",
+                key_material=_IDP_EC_KEYS,
+            ),
+        ),
+        relay_state="state",
+        request_id="request-1",
+    )
+
+    assert profile.provider_account_id == "saml-user-1"
+    assert profile.email == "person@example.com"
+    assert profile.assertion_id == "assertion-1"
 
 
 @pytest.mark.asyncio

@@ -78,3 +78,18 @@ def test_deserialize_saml_config_defaults_to_idp_initiated_signin_for_legacy_rec
     )
 
     assert config.allow_idp_initiated is True
+
+
+def test_deserialize_saml_config_preserves_optional_null_fields_for_metadata_only_records() -> None:
+    config = deserialize_saml_config(
+        {
+            "entity_id": "urn:acme:sp",
+            "sso_url": None,
+            "x509_certificate": None,
+            "idp_metadata_xml": "  <EntityDescriptor/>  ",
+        },
+    )
+
+    assert config.sso_url is None
+    assert config.x509_certificate is None
+    assert config.idp_metadata_xml == "<EntityDescriptor/>"

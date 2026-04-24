@@ -13,7 +13,7 @@ from urllib.parse import quote, unquote, urlparse, urlunparse
 import xmlsec
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, types
+from cryptography.hazmat.primitives.asymmetric import ec, padding, types
 from lxml import etree as ET  # noqa: N812
 from signxml import XMLSigner, XMLVerifier, methods
 from signxml.algorithms import CanonicalizationMethod, DigestAlgorithm, SignatureMethod
@@ -944,11 +944,11 @@ def _verify_redirect_signature(
         raise RuntimeError(msg) from exc
     try:
         certificate_object = x509.load_pem_x509_certificate(_certificate_to_pem(certificate).encode("utf-8"))
-        certificate_object.public_key().verify(
-            signature,
-            "&".join(signed_parts).encode("utf-8"),
-            padding.PKCS1v15(),
-            _hash_algorithm(signature_algorithm),
+        _verify_redirect_bytes(
+            public_key=certificate_object.public_key(),
+            signature=signature,
+            data="&".join(signed_parts).encode("utf-8"),
+            signature_algorithm=signature_algorithm,
         )
     except Exception as exc:
         msg = "SAML redirect signature verification failed"
@@ -1198,10 +1198,10 @@ def _sign_redirect_query(
 ) -> str:
     _require_signing_material(private_key, "certificate")
     key = _load_private_key(private_key, passphrase=private_key_passphrase)
-    signature = key.sign(
-        signed_query.encode("utf-8"),
-        padding.PKCS1v15(),
-        _hash_algorithm(signature_algorithm),
+    signature = _sign_redirect_bytes(
+        key=key,
+        data=signed_query.encode("utf-8"),
+        signature_algorithm=signature_algorithm,
     )
     return base64.b64encode(signature).decode("ascii")
 
@@ -1381,12 +1381,45 @@ def _digest_algorithms_for_settings(settings: SAMLSecuritySettings) -> tuple[str
 def _hash_algorithm(signature_algorithm: str) -> hashes.HashAlgorithm:
     if signature_algorithm == "rsa-sha1":
         return hashes.SHA1()  # noqa: S303 - legacy SAML redirect signatures are supported for interoperability
-    if signature_algorithm == "rsa-sha256":
+    if signature_algorithm in {"rsa-sha256", "ecdsa-sha256"}:
         return hashes.SHA256()
-    if signature_algorithm == "rsa-sha384":
+    if signature_algorithm in {"rsa-sha384", "ecdsa-sha384"}:
         return hashes.SHA384()
-    if signature_algorithm == "rsa-sha512":
+    if signature_algorithm in {"rsa-sha512", "ecdsa-sha512"}:
         return hashes.SHA512()
+    msg = f"unsupported SAML signature algorithm: {signature_algorithm}"
+    raise RuntimeError(msg)
+
+
+def _sign_redirect_bytes(
+    *,
+    key: types.PrivateKeyTypes,
+    data: bytes,
+    signature_algorithm: str,
+) -> bytes:
+    hash_algorithm = _hash_algorithm(signature_algorithm)
+    if signature_algorithm.startswith("rsa-"):
+        return key.sign(data, padding.PKCS1v15(), hash_algorithm)
+    if signature_algorithm.startswith("ecdsa-"):
+        return key.sign(data, ec.ECDSA(hash_algorithm))
+    msg = f"unsupported SAML signature algorithm: {signature_algorithm}"
+    raise RuntimeError(msg)
+
+
+def _verify_redirect_bytes(
+    *,
+    public_key: object,
+    signature: bytes,
+    data: bytes,
+    signature_algorithm: str,
+) -> None:
+    hash_algorithm = _hash_algorithm(signature_algorithm)
+    if signature_algorithm.startswith("rsa-"):
+        public_key.verify(signature, data, padding.PKCS1v15(), hash_algorithm)
+        return
+    if signature_algorithm.startswith("ecdsa-"):
+        public_key.verify(signature, data, ec.ECDSA(hash_algorithm))
+        return
     msg = f"unsupported SAML signature algorithm: {signature_algorithm}"
     raise RuntimeError(msg)
 

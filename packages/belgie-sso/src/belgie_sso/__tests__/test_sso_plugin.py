@@ -18,7 +18,7 @@ from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_proto.sso import OIDCProviderConfig
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
@@ -54,8 +54,13 @@ class _KeyMaterial:
     certificate: str
 
 
-def _build_key_material(common_name: str) -> _KeyMaterial:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+def _build_key_material(common_name: str, *, key_type: str = "rsa") -> _KeyMaterial:
+    if key_type == "rsa":
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    elif key_type == "ec":
+        private_key = ec.generate_private_key(ec.SECP256R1())
+    else:
+        raise ValueError(key_type)
     subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     certificate = (
         x509.CertificateBuilder()
@@ -83,6 +88,9 @@ _SIGNATURE_METHODS = {
     "rsa-sha256": SignatureMethod.RSA_SHA256,
     "rsa-sha384": SignatureMethod.RSA_SHA384,
     "rsa-sha512": SignatureMethod.RSA_SHA512,
+    "ecdsa-sha256": SignatureMethod.ECDSA_SHA256,
+    "ecdsa-sha384": SignatureMethod.ECDSA_SHA384,
+    "ecdsa-sha512": SignatureMethod.ECDSA_SHA512,
 }
 _DIGEST_METHODS = {
     "sha256": DigestAlgorithm.SHA256,
@@ -93,6 +101,9 @@ _SIGNATURE_URIS = {
     "rsa-sha256": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
     "rsa-sha384": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384",
     "rsa-sha512": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+    "ecdsa-sha256": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256",
+    "ecdsa-sha384": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384",
+    "ecdsa-sha512": "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512",
 }
 _DIGEST_URIS = {
     "sha256": "http://www.w3.org/2001/04/xmlenc#sha256",
@@ -123,12 +134,12 @@ def _sign_element(
     )
 
 
-def _hash_algorithm(signature_algorithm: str):
-    if signature_algorithm == "rsa-sha256":
+def _hash_algorithm(signature_algorithm: str) -> hashes.HashAlgorithm:
+    if signature_algorithm in {"rsa-sha256", "ecdsa-sha256"}:
         return hashes.SHA256()
-    if signature_algorithm == "rsa-sha384":
+    if signature_algorithm in {"rsa-sha384", "ecdsa-sha384"}:
         return hashes.SHA384()
-    if signature_algorithm == "rsa-sha512":
+    if signature_algorithm in {"rsa-sha512", "ecdsa-sha512"}:
         return hashes.SHA512()
     raise ValueError(signature_algorithm)
 
@@ -163,12 +174,21 @@ def _assert_redirect_signature(url: str, *, payload_key: str, key_material: _Key
         signed_parts.append(f"RelayState={relay_state}")
     signed_parts.append(f"SigAlg={sig_alg}")
     certificate = x509.load_pem_x509_certificate(key_material.certificate.encode("utf-8"))
-    certificate.public_key().verify(
-        base64.b64decode(unquote(signature)),
-        "&".join(signed_parts).encode("utf-8"),
-        padding.PKCS1v15(),
-        _hash_algorithm(next(name for name, uri in _SIGNATURE_URIS.items() if uri == unquote(sig_alg))),
-    )
+    signature_algorithm = next(name for name, uri in _SIGNATURE_URIS.items() if uri == unquote(sig_alg))
+    decoded_signature = base64.b64decode(unquote(signature))
+    if signature_algorithm.startswith("rsa-"):
+        certificate.public_key().verify(
+            decoded_signature,
+            "&".join(signed_parts).encode("utf-8"),
+            padding.PKCS1v15(),
+            _hash_algorithm(signature_algorithm),
+        )
+    else:
+        certificate.public_key().verify(
+            decoded_signature,
+            "&".join(signed_parts).encode("utf-8"),
+            ec.ECDSA(_hash_algorithm(signature_algorithm)),
+        )
 
 
 class DummyBelgie:
@@ -667,6 +687,14 @@ def _encode_xml(element: ET._Element) -> str:
     return base64.b64encode(ET.tostring(element, encoding="utf-8", xml_declaration=False)).decode("ascii")
 
 
+def _certificate_body(certificate: str) -> str:
+    return "".join(
+        line.strip()
+        for line in certificate.strip().splitlines()
+        if "BEGIN CERTIFICATE" not in line and "END CERTIFICATE" not in line
+    )
+
+
 def _encrypt_assertion(response: ET._Element) -> None:
     assertion = next(child for child in response if child.tag == "Assertion")
     encrypted_data = xmlsec.template.encrypted_data_create(
@@ -852,6 +880,43 @@ def test_signin_uses_default_sso_when_no_identifier_provided(monkeypatch) -> Non
 
     assert response.status_code == 302
     assert response.headers["location"].startswith("https://idp.example.com/authorize")
+
+
+def test_signin_uses_static_default_sso_when_no_identifier_provided(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(
+        default_sso="static-default",
+        default_providers=(
+            DefaultSSOProviderConfig(
+                domain="static.example.com",
+                provider_id="static-default",
+                issuer="https://static.example.com",
+                oidc_config=OIDCProviderConfig(
+                    issuer="https://static.example.com",
+                    client_id="static-client-id",
+                    client_secret="static-client-secret",
+                    authorization_endpoint="https://static.example.com/authorize",
+                    token_endpoint="https://static.example.com/token",
+                    userinfo_endpoint="https://static.example.com/userinfo",
+                    jwks_uri="https://static.example.com/jwks",
+                ),
+            ),
+        ),
+    )
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(plugin, "_build_oidc_transport", lambda provider: FakeOIDCTransport())
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    response = client.get("/auth/provider/sso/signin", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("https://idp.example.com/authorize")
+    state = parse_qs(urlparse(response.headers["location"]).query)["state"][0]
+    assert client_dependency.adapter.oauth_states[state].payload["provider_id"] == "static-default"
 
 
 def test_signin_prefers_default_sso_for_multi_provider_org(monkeypatch) -> None:
@@ -1941,6 +2006,56 @@ def test_builtin_saml_signin_generates_signed_redirect_request(monkeypatch) -> N
         request_xml.attrib["AssertionConsumerServiceURL"]
         == "http://localhost:8000/auth/provider/sso/callback/acme-saml"
     )
+
+
+def test_builtin_saml_metadata_only_provider_uses_idp_metadata_for_signin_and_callback(monkeypatch) -> None:
+    metadata_xml = (
+        "<EntityDescriptor>"
+        "<IDPSSODescriptor>"
+        "<KeyDescriptor><KeyInfo><X509Data>"
+        f"<X509Certificate>{_certificate_body(_IDP_KEYS.certificate)}</X509Certificate>"
+        "</X509Data></KeyInfo></KeyDescriptor>"
+        '<SingleSignOnService Location="https://idp-metadata.example.com/saml"/>'
+        "</IDPSSODescriptor>"
+        "</EntityDescriptor>"
+    )
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_config_overrides={
+            "sso_url": None,
+            "x509_certificate": None,
+            "idp_metadata_xml": metadata_xml,
+        },
+    )
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme-saml", follow_redirects=False)
+
+    assert signin.status_code == 302
+    assert signin.headers["location"].startswith("https://idp-metadata.example.com/saml?")
+    relay_state = parse_qs(urlparse(signin.headers["location"]).query)["RelayState"][0]
+    request_id = client_dependency.adapter.oauth_states[relay_state].payload["request_id"]
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=request_id,
+    )
+
+    callback = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/dashboard"
+    assert callback.cookies.get("session") is not None
 
 
 def test_builtin_saml_callback_creates_session(monkeypatch) -> None:

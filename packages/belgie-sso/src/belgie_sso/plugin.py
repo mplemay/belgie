@@ -1465,7 +1465,7 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
             resolved_domain = extract_email_domain(email)
         if resolved_domain is None:
             if self._settings.default_sso is not None:
-                return await self._get_db_provider_by_provider_id(client=client, provider_id=self._settings.default_sso)
+                return await self._get_provider_by_provider_id(client=client, provider_id=self._settings.default_sso)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="provider_id, email, domain, or organization_slug is required",

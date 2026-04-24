@@ -234,6 +234,12 @@ def serialize_saml_config(config: SAMLProviderConfig) -> dict[str, str | bool | 
     return asdict(config)
 
 
+def _optional_string(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return normalized if (normalized := value.strip()) else None
+
+
 def deserialize_saml_config(
     payload: dict[str, str | bool | list[str] | dict[str, str | dict[str, str]]],
 ) -> SAMLProviderConfig:
@@ -258,30 +264,24 @@ def deserialize_saml_config(
     )
     return SAMLProviderConfig(
         entity_id=str(payload["entity_id"]),
-        sso_url=str(payload["sso_url"]),
-        x509_certificate=str(payload["x509_certificate"]),
-        slo_url=str(payload["slo_url"]) if payload.get("slo_url") else None,
-        audience=str(payload["audience"]) if payload.get("audience") else None,
-        idp_metadata_xml=str(payload["idp_metadata_xml"]) if payload.get("idp_metadata_xml") else None,
-        sp_metadata_xml=str(payload["sp_metadata_xml"]) if payload.get("sp_metadata_xml") else None,
-        name_id_format=str(payload["name_id_format"]) if payload.get("name_id_format") else None,
+        sso_url=_optional_string(payload.get("sso_url")),
+        x509_certificate=_optional_string(payload.get("x509_certificate")),
+        slo_url=_optional_string(payload.get("slo_url")),
+        audience=_optional_string(payload.get("audience")),
+        idp_metadata_xml=_optional_string(payload.get("idp_metadata_xml")),
+        sp_metadata_xml=_optional_string(payload.get("sp_metadata_xml")),
+        name_id_format=_optional_string(payload.get("name_id_format")),
         binding=str(payload.get("binding", "redirect")),
         allow_idp_initiated=bool(payload.get("allow_idp_initiated", True)),
         want_assertions_signed=bool(payload.get("want_assertions_signed", True)),
         sign_authn_request=bool(payload.get("sign_authn_request", True)),
         signature_algorithm=str(payload.get("signature_algorithm", "rsa-sha256")),
         digest_algorithm=str(payload.get("digest_algorithm", "sha256")),
-        private_key=str(payload["private_key"]) if payload.get("private_key") else None,
-        private_key_passphrase=(
-            str(payload["private_key_passphrase"]) if payload.get("private_key_passphrase") else None
-        ),
-        signing_certificate=str(payload["signing_certificate"]) if payload.get("signing_certificate") else None,
-        decryption_private_key=str(payload["decryption_private_key"])
-        if payload.get("decryption_private_key")
-        else None,
-        decryption_private_key_passphrase=str(payload["decryption_private_key_passphrase"])
-        if payload.get("decryption_private_key_passphrase")
-        else None,
+        private_key=_optional_string(payload.get("private_key")),
+        private_key_passphrase=_optional_string(payload.get("private_key_passphrase")),
+        signing_certificate=_optional_string(payload.get("signing_certificate")),
+        decryption_private_key=_optional_string(payload.get("decryption_private_key")),
+        decryption_private_key_passphrase=_optional_string(payload.get("decryption_private_key_passphrase")),
         claim_mapping=claim_mapping,
     )
 
