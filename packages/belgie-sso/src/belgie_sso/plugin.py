@@ -764,7 +764,7 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
         request_sign_up: bool,
         scopes: list[str] | None,
     ) -> RedirectResponse:
-        await self._ensure_provider_verified_or_http(client=client, provider=provider)
+        await self._ensure_provider_verified_or_http(provider=provider)
         transport = self._build_oidc_transport(provider)
         normalized_redirect = self._normalize_redirect_target(redirect_to)
         normalized_error_redirect = self._normalize_redirect_target(error_redirect_url)
@@ -906,7 +906,7 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
         new_user_redirect_url: str | None,
         request_sign_up: bool,
     ) -> Response:
-        await self._ensure_provider_verified_or_http(client=client, provider=provider)
+        await self._ensure_provider_verified_or_http(provider=provider)
         state = generate_state_token()
         try:
             start_result = await self._saml_engine.start_signin(
@@ -2108,10 +2108,10 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
             return None
         return str(value)
 
-    async def _ensure_provider_verified_or_http(self, *, client: BelgieClient, provider: ProviderT) -> None:
+    async def _ensure_provider_verified_or_http(self, *, provider: ProviderT) -> None:
         if not self._settings.domain_verification.enabled:
             return
-        if await self._provider_has_verified_domain(client=client, provider=provider):
+        if await self._provider_has_verified_domain(provider=provider):
             return
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -721,7 +721,7 @@ def _parse_saml_message(
     compressed: bool,
 ) -> ET._Element:
     try:
-        xml_bytes = base64.b64decode(payload, validate=True)
+        xml_bytes = base64.b64decode("".join(payload.split()), validate=True)
     except Exception as exc:
         msg = f"invalid {payload_name} encoding"
         raise RuntimeError(msg) from exc

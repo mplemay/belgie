@@ -455,6 +455,71 @@ async def test_register_oidc_provider_requires_org_admin_for_org_provider(monkey
 
 
 @pytest.mark.asyncio
+async def test_create_domain_challenge_requires_org_provider_owner_even_for_org_members() -> None:
+    sso_client, sso_adapter, organization, _ = build_client()
+    provider = await sso_adapter.create_provider(
+        sso_client.client.db,
+        organization_id=organization.id,
+        created_by_individual_id=sso_client.current_individual.id,
+        provider_type="oidc",
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        domain="example.com",
+        oidc_config=None,
+        saml_config=None,
+    )
+    org_member = FakeIndividual(
+        id=uuid4(),
+        email="member@example.com",
+        email_verified_at=datetime.now(UTC),
+        name="Member",
+        image=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        scopes=[],
+    )
+    sso_client.organization_adapter.member = FakeMember(
+        id=uuid4(),
+        organization_id=organization.id,
+        individual_id=org_member.id,
+        role="member",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    member_client = replace(sso_client, current_individual=org_member)
+
+    with pytest.raises(HTTPException, match="provider owner access is required"):
+        await member_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
+
+
+@pytest.mark.asyncio
+async def test_create_domain_challenge_requires_org_membership_for_provider_owner() -> None:
+    sso_client, sso_adapter, organization, _ = build_client()
+    provider = await sso_adapter.create_provider(
+        sso_client.client.db,
+        organization_id=organization.id,
+        created_by_individual_id=sso_client.current_individual.id,
+        provider_type="oidc",
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        domain="example.com",
+        oidc_config=None,
+        saml_config=None,
+    )
+    sso_client.organization_adapter.member = FakeMember(
+        id=uuid4(),
+        organization_id=organization.id,
+        individual_id=uuid4(),
+        role="member",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    with pytest.raises(HTTPException, match="organization membership is required"):
+        await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
+
+
+@pytest.mark.asyncio
 async def test_create_domain_challenge_returns_provider_scoped_dns_record(monkeypatch) -> None:
     sso_client, _, _, _ = build_client()
     monkeypatch.setattr(
@@ -485,6 +550,49 @@ async def test_create_domain_challenge_returns_provider_scoped_dns_record(monkey
 
     assert challenge.record_name == "_belgie-sso-acme.example.com"
     assert challenge.record_value.startswith("_belgie-sso-acme=")
+
+
+@pytest.mark.asyncio
+async def test_verify_domain_requires_org_provider_owner_even_for_org_members(monkeypatch) -> None:
+    sso_client, sso_adapter, organization, _ = build_client()
+    provider = await sso_adapter.create_provider(
+        sso_client.client.db,
+        organization_id=organization.id,
+        created_by_individual_id=sso_client.current_individual.id,
+        provider_type="oidc",
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        domain="example.com",
+        oidc_config=None,
+        saml_config=None,
+    )
+    challenge = await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
+    monkeypatch.setattr(
+        "belgie_sso.client.lookup_txt_records",
+        AsyncMock(return_value=[challenge.record_value]),
+    )
+    org_member = FakeIndividual(
+        id=uuid4(),
+        email="member@example.com",
+        email_verified_at=datetime.now(UTC),
+        name="Member",
+        image=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        scopes=[],
+    )
+    sso_client.organization_adapter.member = FakeMember(
+        id=uuid4(),
+        organization_id=organization.id,
+        individual_id=org_member.id,
+        role="member",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    member_client = replace(sso_client, current_individual=org_member)
+
+    with pytest.raises(HTTPException, match="provider owner access is required"):
+        await member_client.verify_domain(provider_id=provider.provider_id, domain="example.com")
 
 
 @pytest.mark.asyncio

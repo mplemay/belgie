@@ -1,27 +1,41 @@
 # SSO Parity Ledger
 
-Source checklist: `../better-auth/packages/sso/src`
+Source baseline: `../better-auth/packages/sso/src`
 
-Total Better Auth scenarios accounted for: `344`
+This ledger tracks behavioral parity against Better Auth’s SSO package. The previous version overstated full parity.
+The statuses below are intentionally narrower:
+
+- `direct`: Better Auth scenario groups now have dedicated Belgie parity tests.
+- `broad`: behavior is covered by Belgie tests, but not every Better Auth `it(...)` case is ported one-to-one.
+- `n/a`: Better Auth behavior is handled earlier or differently in Belgie and is not worth mirroring literally.
 
 | Better Auth file | Scenarios | Belgie coverage | Status | Notes |
 | --- | ---: | --- | --- | --- |
-| `oidc.test.ts` | 22 | `test_sso_client.py`, `test_sso_plugin.py`, `test_integration.py` | merged | Provider registration, shared callback flow, domain/email/provider-id/org-slug lookup, sign-up gating, provisioning, default SSO, lowercased email, shared redirect URI, and runtime discovery hydration. |
-| `oidc/discovery.test.ts` | 71 | `test_discovery.py`, `test_sso_client.py`, `test_sso_plugin.py` | merged | Absolute/relative endpoint normalization, issuer mismatch, incomplete documents, auth-method selection, trusted-origin enforcement, and discovery hydration are covered in Belgie’s discovery helpers plus client/plugin integration tests. |
-| `providers.test.ts` | 40 | `test_sso_client.py`, `test_sso_plugin.py`, `test_integration.py`, `belgie-alchemy` adapter/mixin tests | merged | Provider CRUD, owner vs org-admin access, masked config output, callback URL exposure, partial updates, delete semantics, and linked-account preservation. |
-| `domain-verification.test.ts` | 19 | `test_sso_client.py`, `test_sso_plugin.py` | merged | Provider-scoped DNS challenges, token reuse/rotation, verification success/failure, membership/ownership checks, DNS label limits, and custom TXT prefixes. |
-| `linking/org-assignment.test.ts` | 8 | `test_org_assignment.py`, `test_sso_plugin.py`, `test_integration.py` | ported | Verified/unverified suffix matching, duplicate domain claims, already-a-member idempotency, and user-owned-provider exclusion. |
-| `saml.test.ts` | 108 | `test_sso_plugin.py`, `test_saml_engine.py`, `test_integration.py` | merged | Registration, metadata, SP-initiated and IdP-initiated flows, RelayState validation, request TTL handling, timestamp boundaries, replay protection, single-assertion/XSW hardening, trusted providers, sign-up gating, and SLO enable/disable behavior. |
-| `saml/algorithms.test.ts` | 38 | `test_saml_engine.py`, `test_sso_plugin.py` | ported | Deprecated algorithm warn/reject handling, short-form normalization, allow-lists, and runtime/config validation for signature, digest, key-encryption, and data-encryption algorithms. |
-| `saml/assertions.test.ts` | 17 | `test_saml_engine.py`, `test_sso_plugin.py` | ported | Single assertion enforcement, encrypted assertion support, whitespace-tolerant base64 parsing, multiple-assertion rejection, nested/injected assertion rejection, and malformed payload handling. |
-| `utils.test.ts` | 21 | `test_sso_client.py`, `test_org_assignment.py`, `test_sso_plugin.py` | merged | Email/domain matching, suffix handling, comma-separated domains, whitespace normalization, and hostname extraction are covered through client/plugin/org-assignment behavior tests rather than a Belgie-only utility test file. |
+| `oidc.test.ts` | 22 | `test_sso_client.py`, `test_sso_plugin.py`, `test_integration.py` | broad | Shared callback resolution, provider lookup, sign-up gating, provisioning, and default-provider behavior are covered through Belgie’s plugin and client flows. |
+| `oidc/discovery.test.ts` | 71 | `test_discovery.py`, `test_sso_client.py`, `test_sso_plugin.py` | broad | Discovery normalization, issuer mismatch, incomplete documents, auth-method selection, and hydration behavior are covered, but not yet as a one-to-one port of every Better Auth scenario. |
+| `providers.test.ts` | 40 | `test_sso_client.py`, `test_sso_plugin.py`, `test_integration.py` | broad | CRUD, masking/redaction, callback URL exposure, partial updates, delete semantics, and ownership checks are covered in Belgie’s provider management tests. |
+| `domain-verification.test.ts` | 19 | `test_sso_client.py`, `test_sso_plugin.py` | broad | Provider-scoped DNS challenges, token reuse/rotation, verification success/failure, DNS label limits, custom TXT prefixes, and stricter org-provider owner checks are covered. |
+| `linking/org-assignment.test.ts` | 8 | `test_org_assignment.py`, `test_sso_plugin.py`, `test_integration.py` | broad | Verified-domain assignment, suffix matching, duplicate domain collisions, already-a-member idempotency, and user-owned-provider exclusion are covered. |
+| `saml.test.ts` | 108 | `test_sso_plugin.py`, `test_saml_engine.py`, `test_integration.py` | broad | Registration, metadata, SP-initiated and IdP-initiated flows, RelayState validation, request TTL handling, timestamp boundaries, replay protection, and SLO behavior are covered. |
+| `saml/algorithms.test.ts` | 38 | `test_saml_algorithms.py`, `test_saml_engine.py`, `test_sso_client.py` | direct | Dedicated parity tests now cover short-form normalization, deprecated warn/allow/reject behavior, allow-lists, encryption algorithm validation, and exported URI constants. |
+| `saml/assertions.test.ts` | 17 | `test_saml_assertions.py`, `test_saml_engine.py` | direct | Dedicated parity tests now cover whitespace-tolerant base64 decoding, invalid base64/XML handling, single-assertion enforcement, namespace variants, and nested or injected assertion rejection. |
+| `utils.test.ts` | 21 | `test_utils.py`, `test_org_assignment.py`, `test_sso_plugin.py` | direct | Dedicated parity tests now cover exact and subdomain email matching, comma-separated domain handling, suffix lookalike rejection, and legacy config default hydration. |
 
 ## Not Applicable
 
-- Better Auth’s exact route names and response payload keys are intentionally not mirrored. Belgie’s management surface
-  is provider-centric: `domain`, `domain_verified`, `POST /providers/{provider_id}/domain/challenge`, and
-  `POST /providers/{provider_id}/domain/verify`.
-- Better Auth’s JS-specific JSON string parsing scenarios are not applicable because Belgie stores provider config as
-  structured JSON rather than stringified payload blobs.
-- Better Auth scenarios tied to its verification-table naming are merged into Belgie’s dedicated OAuth/SAML state
-  storage tests, not reproduced with identical table semantics.
+- Better Auth accepts raw URL-like provider `domain` values and then extracts a hostname later. Belgie normalizes and
+  stores hostnames at registration time, so equivalent validation happens earlier instead of through a separate
+  hostname utility.
+- Better Auth route names, response payload keys, and verification-table storage details are not mirrored. Belgie uses
+  provider-centric routes and structured config objects instead of JS-specific storage conventions.
+- OIDC JOSE, JWKS, and ID token verification continue to live in `belgie-oauth`, which already relies on `authlib`
+  plus `joserfc`; `belgie-sso` should not duplicate that logic.
+
+## Current Baseline
+
+- `uv run pytest packages/belgie-sso/src/belgie_sso/__tests__` passes with `160` passing tests.
+- The highest-signal direct parity additions in this pass are:
+  - `test_saml_algorithms.py`
+  - `test_saml_assertions.py`
+  - `test_utils.py`
+  - org-provider domain verification ownership checks in `test_sso_client.py`

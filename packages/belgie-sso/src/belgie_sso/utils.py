@@ -77,7 +77,9 @@ def normalize_provider_domain_value(domain_value: str | None) -> str:
 
     normalized: list[str] = []
     for domain in domain_value.split(","):
-        if (value := normalize_domain(domain)) in normalized:
+        if not (candidate := domain.strip()):
+            continue
+        if (value := normalize_domain(candidate)) in normalized:
             continue
         normalized.append(value)
     return ",".join(normalized)
@@ -203,8 +205,10 @@ def deserialize_oidc_config(
         if isinstance(raw_extra_fields, dict)
         else {},
     )
-    raw_scopes_value = payload.get("scopes", ["openid", "email", "profile"])
-    raw_scopes = raw_scopes_value if isinstance(raw_scopes_value, list) else ["openid", "email", "profile"]
+    raw_scopes_value = payload.get("scopes", ["openid", "email", "profile", "offline_access"])
+    raw_scopes = (
+        raw_scopes_value if isinstance(raw_scopes_value, list) else ["openid", "email", "profile", "offline_access"]
+    )
     scopes = tuple(scope for scope in raw_scopes if isinstance(scope, str))
 
     return OIDCProviderConfig(
@@ -262,7 +266,7 @@ def deserialize_saml_config(
         sp_metadata_xml=str(payload["sp_metadata_xml"]) if payload.get("sp_metadata_xml") else None,
         name_id_format=str(payload["name_id_format"]) if payload.get("name_id_format") else None,
         binding=str(payload.get("binding", "redirect")),
-        allow_idp_initiated=bool(payload.get("allow_idp_initiated", False)),
+        allow_idp_initiated=bool(payload.get("allow_idp_initiated", True)),
         want_assertions_signed=bool(payload.get("want_assertions_signed", True)),
         sign_authn_request=bool(payload.get("sign_authn_request", True)),
         signature_algorithm=str(payload.get("signature_algorithm", "rsa-sha256")),

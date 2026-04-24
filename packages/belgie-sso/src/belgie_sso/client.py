@@ -852,13 +852,8 @@ class SSOClient[
         await self._require_provider_owner(provider)
 
     async def _require_provider_domain_access(self, provider: ProviderT) -> None:
-        if provider.organization_id is None:
-            await self._require_provider_owner(provider)
-            return
-        if self.organization_adapter is None:
-            await self._require_provider_owner(provider)
-            return
-        if provider.created_by_individual_id == self._current_individual_or_403().id:
+        await self._require_provider_owner(provider)
+        if provider.organization_id is None or self.organization_adapter is None:
             return
         member = await self.organization_adapter.get_member(
             self.client.db,
