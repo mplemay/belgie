@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from uuid import UUID, uuid4
 
 import pytest
+import xmlsec
 from belgie_core.core.plugin import AuthenticatedProfile
 from belgie_core.core.settings import BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
@@ -18,7 +19,12 @@ from belgie_proto.sso import OIDCProviderConfig
 from belgie_sso.discovery import DiscoveryError
 from belgie_sso.plugin import SSOPlugin
 from belgie_sso.saml import SAMLResponseProfile, SAMLStartResult
-from belgie_sso.settings import DefaultSSOProviderConfig, DomainVerificationSettings, EnterpriseSSO
+from belgie_sso.settings import (
+    DefaultSSOProviderConfig,
+    DomainVerificationSettings,
+    EnterpriseSSO,
+    SAMLSecuritySettings,
+)
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -545,8 +551,11 @@ def build_plugin(
     disable_implicit_sign_up: bool = False,
     provision_user: object | None = None,
     provision_user_on_every_login: bool = False,
+    organization_role_resolver: object | None = None,
     saml_engine: object | None = None,
     use_builtin_saml_engine: bool = False,
+    saml_config_overrides: dict[str, object] | None = None,
+    saml_settings: SAMLSecuritySettings | None = None,
 ) -> tuple[SSOPlugin, FakeBelgieClient, FakeOrganizationAdapter]:
     organization_id = uuid4()
     providers = [
@@ -615,6 +624,29 @@ def build_plugin(
             ),
         )
     if include_saml:
+        saml_config = {
+            "entity_id": "urn:acme:sp",
+            "sso_url": "https://idp.example.com/saml",
+            "x509_certificate": _IDP_KEYS.certificate,
+            "slo_url": "https://idp.example.com/slo",
+            "binding": "redirect",
+            "allow_idp_initiated": True,
+            "want_assertions_signed": True,
+            "sign_authn_request": True,
+            "signature_algorithm": "rsa-sha256",
+            "digest_algorithm": "sha256",
+            "private_key": _SP_KEYS.private_key,
+            "signing_certificate": _SP_KEYS.certificate,
+            "claim_mapping": {
+                "subject": "name_id",
+                "email": "email",
+                "email_verified": "email_verified",
+                "name": "name",
+                "groups": "groups",
+            },
+        }
+        if saml_config_overrides is not None:
+            saml_config.update(saml_config_overrides)
         providers.append(
             FakeProvider(
                 id=uuid4(),
@@ -624,27 +656,7 @@ def build_plugin(
                 provider_id="acme-saml",
                 issuer="https://idp.example.com",
                 oidc_config=None,
-                saml_config={
-                    "entity_id": "urn:acme:sp",
-                    "sso_url": "https://idp.example.com/saml",
-                    "x509_certificate": _IDP_KEYS.certificate,
-                    "slo_url": "https://idp.example.com/slo",
-                    "binding": "redirect",
-                    "allow_idp_initiated": True,
-                    "want_assertions_signed": True,
-                    "sign_authn_request": True,
-                    "signature_algorithm": "rsa-sha256",
-                    "digest_algorithm": "sha256",
-                    "private_key": _SP_KEYS.private_key,
-                    "signing_certificate": _SP_KEYS.certificate,
-                    "claim_mapping": {
-                        "subject": "name_id",
-                        "email": "email",
-                        "email_verified": "email_verified",
-                        "name": "name",
-                        "groups": "groups",
-                    },
-                },
+                saml_config=saml_config,
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
             ),
@@ -672,8 +684,10 @@ def build_plugin(
         disable_implicit_sign_up=disable_implicit_sign_up,
         provision_user=provision_user,
         provision_user_on_every_login=provision_user_on_every_login,
+        organization_role_resolver=organization_role_resolver,
         domain_verification=DomainVerificationSettings(enabled=domain_verification_enabled),
         trust_email_verified=use_builtin_saml_engine,
+        saml=saml_settings or SAMLSecuritySettings(),
     )
     plugin = SSOPlugin(BelgieSettings(secret="secret", base_url="http://localhost:8000"), settings)
     organization_adapter = FakeOrganizationAdapter(organization_id)
@@ -685,6 +699,28 @@ def build_plugin(
 
 def _encode_xml(element: ET._Element) -> str:
     return base64.b64encode(ET.tostring(element, encoding="utf-8", xml_declaration=False)).decode("ascii")
+
+
+def _encrypt_assertion(response: ET._Element) -> None:
+    assertion = next(child for child in response if child.tag == "Assertion")
+    encrypted_data = xmlsec.template.encrypted_data_create(
+        response,
+        xmlsec.constants.TransformAes128Cbc,
+        type=xmlsec.constants.TypeEncElement,
+        ns="xenc",
+    )
+    xmlsec.template.encrypted_data_ensure_cipher_value(encrypted_data)
+    key_info = xmlsec.template.encrypted_data_ensure_key_info(encrypted_data, ns="ds")
+    encrypted_key = xmlsec.template.add_encrypted_key(key_info, xmlsec.constants.TransformRsaOaep)
+    xmlsec.template.encrypted_data_ensure_cipher_value(encrypted_key)
+    manager = xmlsec.KeysManager()
+    manager.add_key(xmlsec.Key.from_memory(_SP_KEYS.certificate, xmlsec.constants.KeyDataFormatCertPem, None))
+    context = xmlsec.EncryptionContext(manager)
+    context.key = xmlsec.Key.generate(xmlsec.constants.KeyDataAes, 128, xmlsec.constants.KeyDataTypeSession)
+    encrypted_data = context.encrypt_xml(encrypted_data, assertion)
+    encrypted_assertion = ET.Element("EncryptedAssertion")
+    encrypted_assertion.append(encrypted_data)
+    response.append(encrypted_assertion)
 
 
 def _build_saml_response_payload(  # noqa: C901
@@ -699,6 +735,7 @@ def _build_saml_response_payload(  # noqa: C901
     name: str = "Saml Person",
     session_index: str = "session-index-1",
     duplicate_assertion: bool = False,
+    encrypt_assertion: bool = False,
     not_before: str = "2000-01-01T00:00:00Z",
     not_on_or_after: str = "2099-01-01T00:00:00Z",
     sign_assertion: bool = True,
@@ -754,6 +791,8 @@ def _build_saml_response_payload(  # noqa: C901
         if sign_assertion:
             assertion = _sign_element(assertion, key_material=_IDP_KEYS)
         response.append(assertion)
+    if encrypt_assertion:
+        _encrypt_assertion(response)
     if sign_response:
         response = _sign_element(response, key_material=_IDP_KEYS)
     if signature_algorithm is not None:
@@ -1164,6 +1203,43 @@ def test_callback_request_sign_up_allows_new_user_when_disable_implicit_sign_up_
     assert len(client_dependency.created_oauth_accounts) == 1
 
 
+def test_provision_user_runs_only_on_first_login_by_default(monkeypatch) -> None:
+    calls: list[bool] = []
+
+    def provision_user(individual: object, context: object) -> None:
+        calls.append(bool(context.created))
+
+    plugin, client_dependency, _ = build_plugin(
+        provision_user=provision_user,
+    )
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(plugin, "_build_oidc_transport", lambda provider: FakeOIDCTransport())
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin_one = client.get("/auth/provider/sso/signin?provider_id=acme", follow_redirects=False)
+    state_one = parse_qs(urlparse(signin_one.headers["location"]).query)["state"][0]
+    callback_one = client.get(
+        f"/auth/provider/sso/callback?code=test-code-1&state={state_one}",
+        follow_redirects=False,
+    )
+
+    signin_two = client.get("/auth/provider/sso/signin?provider_id=acme", follow_redirects=False)
+    state_two = parse_qs(urlparse(signin_two.headers["location"]).query)["state"][0]
+    callback_two = client.get(
+        f"/auth/provider/sso/callback?code=test-code-2&state={state_two}",
+        follow_redirects=False,
+    )
+
+    assert callback_one.status_code == 302
+    assert callback_two.status_code == 302
+    assert calls == [True]
+
+
 def test_provision_user_runs_on_every_login_when_enabled(monkeypatch) -> None:
     calls: list[bool] = []
 
@@ -1235,6 +1311,44 @@ async def test_after_authenticate_assigns_verified_external_individual_with_suff
     ]
 
 
+@pytest.mark.asyncio
+async def test_after_authenticate_uses_organization_role_resolver_for_domain_assignment() -> None:
+    def organization_role_resolver(context: object) -> str:
+        return "admin" if context.provider_id == "acme" else "member"
+
+    plugin, client_dependency, organization_adapter = build_plugin(
+        organization_role_resolver=organization_role_resolver,
+    )
+    belgie = DummyBelgie(client_dependency)
+    individual = FakeIndividual(
+        id=uuid4(),
+        email="person@dept.example.com",
+        email_verified_at=datetime.now(UTC),
+        name="Person",
+        image=None,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        scopes=[],
+    )
+
+    await plugin.after_authenticate(
+        belgie=belgie,
+        client=client_dependency,
+        request=SimpleNamespace(),
+        individual=individual,
+        profile=AuthenticatedProfile(
+            provider="github",
+            provider_account_id="github-user-1",
+            email=individual.email,
+            email_verified=True,
+        ),
+    )
+
+    assert organization_adapter.created_members == [
+        (plugin.settings.adapter.providers["acme"].organization_id, individual.id, "admin"),
+    ]
+
+
 def test_signin_blocks_unverified_provider_when_domain_verification_is_enabled(monkeypatch) -> None:
     plugin, client_dependency, _ = build_plugin(domain_verification_enabled=True, verified_domain=False)
     belgie = DummyBelgie(client_dependency)
@@ -1286,6 +1400,26 @@ def test_saml_metadata_and_signin_routes_use_engine() -> None:
     assert "EntityDescriptor" in metadata.text
     assert signin.status_code == 200
     assert "SAMLRequest" in signin.text
+
+
+def test_builtin_saml_metadata_route_returns_custom_sp_metadata_xml() -> None:
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_config_overrides={"sp_metadata_xml": "<EntityDescriptor entityID='urn:custom:sp'/>"},
+    )
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    metadata = client.get("/auth/provider/sso/metadata/acme-saml")
+
+    assert metadata.status_code == 200
+    assert metadata.text == "<EntityDescriptor entityID='urn:custom:sp'/>"
 
 
 def test_render_saml_form_escapes_action_and_values() -> None:
@@ -1353,6 +1487,40 @@ def test_builtin_saml_callback_creates_session(monkeypatch) -> None:
     assert response.headers["location"] == "/dashboard"
     assert response.cookies.get("session") is not None
     assert len(client_dependency.created_oauth_accounts) == 1
+
+
+def test_builtin_saml_callback_accepts_encrypted_assertions(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_config_overrides={"decryption_private_key": _SP_KEYS.private_key},
+    )
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme-saml", follow_redirects=False)
+    relay_state = parse_qs(urlparse(signin.headers["location"]).query)["RelayState"][0]
+    request_id = client_dependency.adapter.oauth_states[relay_state].payload["request_id"]
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=request_id,
+        encrypt_assertion=True,
+    )
+
+    response = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
+    assert response.cookies.get("session") is not None
 
 
 def test_builtin_saml_callback_rejects_replay(monkeypatch) -> None:
@@ -1709,3 +1877,135 @@ def test_builtin_saml_logout_request_clears_session(monkeypatch) -> None:
     assert response.status_code == 302
     assert response.headers["location"].startswith("https://idp.example.com/slo?")
     assert client_dependency.sessions == {}
+
+
+def test_builtin_saml_signout_requires_idp_slo_url(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_config_overrides={"slo_url": None, "idp_metadata_xml": None},
+    )
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme-saml", follow_redirects=False)
+    relay_state = parse_qs(urlparse(signin.headers["location"]).query)["RelayState"][0]
+    request_id = client_dependency.adapter.oauth_states[relay_state].payload["request_id"]
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=request_id,
+    )
+    callback = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 302
+
+    signout = client.get("/auth/provider/sso/signout?provider_id=acme-saml", follow_redirects=False)
+
+    assert signout.status_code == 400
+    assert signout.json()["detail"] == "SAML provider is missing IdP slo_url"
+
+
+def test_builtin_saml_logout_request_honors_logout_signature_settings(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_config_overrides={"sign_authn_request": False},
+        saml_settings=SAMLSecuritySettings(require_signed_logout_requests=True),
+    )
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme-saml", follow_redirects=False)
+    relay_state = parse_qs(urlparse(signin.headers["location"]).query)["RelayState"][0]
+    request_id = client_dependency.adapter.oauth_states[relay_state].payload["request_id"]
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=request_id,
+    )
+    callback = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 302
+
+    saml_session_state = next(key for key in client_dependency.adapter.oauth_states if key.startswith("saml-session:"))
+    session_payload = client_dependency.adapter.oauth_states[saml_session_state].payload
+    logout_request = _build_logout_request_payload(
+        provider_account_id=session_payload["provider_account_id"],
+        session_index=session_payload["session_index"],
+        sign_message=False,
+    )
+
+    response = client.post(
+        "/auth/provider/sso/slo/acme-saml",
+        data={"SAMLRequest": logout_request, "RelayState": "/bye"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "SAML message is missing a valid XML signature"
+
+
+def test_builtin_saml_logout_response_honors_logout_signature_settings(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(
+        include_saml=True,
+        use_builtin_saml_engine=True,
+        saml_config_overrides={"sign_authn_request": False},
+        saml_settings=SAMLSecuritySettings(require_signed_logout_responses=True),
+    )
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme-saml", follow_redirects=False)
+    relay_state = parse_qs(urlparse(signin.headers["location"]).query)["RelayState"][0]
+    request_id = client_dependency.adapter.oauth_states[relay_state].payload["request_id"]
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=request_id,
+    )
+    callback = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 302
+
+    signout = client.get(
+        "/auth/provider/sso/signout?provider_id=acme-saml&redirect_to=%2Fbye",
+        follow_redirects=False,
+    )
+    assert signout.status_code == 302
+    logout_request_state = next(key for key in client_dependency.adapter.oauth_states if key.startswith("saml-logout:"))
+    logout_request_id = logout_request_state.split(":", maxsplit=1)[1]
+    logout_response = _build_logout_response_payload(
+        in_response_to=logout_request_id,
+        sign_message=False,
+    )
+
+    response = client.post(
+        "/auth/provider/sso/slo/acme-saml",
+        data={"SAMLResponse": logout_response, "RelayState": "/bye"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "SAML message is missing a valid XML signature"

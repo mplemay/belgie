@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 from urllib.parse import quote, unquote, urlparse, urlunparse
 
+import xmlsec
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, types
@@ -180,6 +181,13 @@ class BuiltinSAMLEngine:
         config: SAMLProviderConfig,
         acs_url: str,
     ) -> str:
+        if config.sp_metadata_xml is not None:
+            metadata_bytes = config.sp_metadata_xml.encode("utf-8")
+            if len(metadata_bytes) > self._settings.metadata_max_bytes:
+                msg = "SAML metadata exceeds maximum size"
+                raise RuntimeError(msg)
+            return config.sp_metadata_xml
+
         descriptor = ET.Element(
             _tag(_METADATA_NS, "EntityDescriptor"),
             nsmap={"md": _METADATA_NS, "ds": _DS_NS},
@@ -207,7 +215,7 @@ class BuiltinSAMLEngine:
             sp_descriptor,
             _tag(_METADATA_NS, "SingleLogoutService"),
             Binding=_POST_BINDING if config.binding == "post" else _REDIRECT_BINDING,
-            Location=_resolved_slo_url(config, _derive_slo_url(acs_url)),
+            Location=_derive_slo_url(acs_url),
         )
         if config.signing_certificate:
             key_descriptor = ET.SubElement(sp_descriptor, _tag(_METADATA_NS, "KeyDescriptor"), use="signing")
@@ -286,7 +294,7 @@ class BuiltinSAMLEngine:
         if _local_name(root.tag) != "Response":
             msg = "expected a SAML Response document"
             raise RuntimeError(msg)
-        _reject_encrypted_assertions(root)
+        _decrypt_encrypted_assertions(root, config=config)
         callback_urls = _equivalent_callback_urls(current_url)
         _validate_destination(root, expected_destinations=callback_urls)
         _validate_response_issuer(root, expected_issuer=provider.issuer)
@@ -359,7 +367,8 @@ class BuiltinSAMLEngine:
         provider_account_id: str,
         session_index: str | None,
     ) -> SAMLLogoutResult:
-        destination = _resolved_slo_url(config, slo_url)
+        _ = slo_url
+        destination = _resolved_idp_slo_url(config)
         request_id = _build_request_id()
         root = ET.Element(
             _tag(_PROTOCOL_NS, "LogoutRequest"),
@@ -428,7 +437,7 @@ class BuiltinSAMLEngine:
                 payload_key="SAMLRequest",
                 certificate=_verification_certificate(config),
                 settings=self._settings,
-                require_signed=config.sign_authn_request,
+                require_signed=self._settings.require_signed_logout_requests,
                 binding=binding,
             )
             _validate_time_window(root, settings=self._settings)
@@ -459,7 +468,7 @@ class BuiltinSAMLEngine:
                 payload_key="SAMLResponse",
                 certificate=_verification_certificate(config),
                 settings=self._settings,
-                require_signed=config.sign_authn_request,
+                require_signed=self._settings.require_signed_logout_responses,
                 binding=binding,
             )
             _validate_response_status(root)
@@ -483,7 +492,8 @@ class BuiltinSAMLEngine:
         relay_state: str | None,
         in_response_to: str | None,
     ) -> SAMLLogoutResult:
-        destination = _resolved_slo_url(config, slo_url)
+        _ = slo_url
+        destination = _resolved_idp_slo_url(config)
         root = ET.Element(
             _tag(_PROTOCOL_NS, "LogoutResponse"),
             nsmap={"samlp": _PROTOCOL_NS, "saml": _ASSERTION_NS, "ds": _DS_NS},
@@ -883,18 +893,47 @@ def _validate_response_status(root: ET._Element) -> None:
     raise RuntimeError(msg)
 
 
-def _reject_encrypted_assertions(root: ET._Element) -> None:
-    if any(_local_name(element.tag) == "EncryptedAssertion" for element in root.iter()):
-        msg = "encrypted SAML assertions are not supported"
-        raise RuntimeError(msg)
+def _decrypt_encrypted_assertions(root: ET._Element, *, config: SAMLProviderConfig) -> None:
+    encrypted_assertions = [element for element in root.iter() if _local_name(element.tag) == "EncryptedAssertion"]
+    if not encrypted_assertions:
+        return
+
+    manager = _decryption_key_manager(config)
+    for encrypted_assertion in encrypted_assertions:
+        encrypted_data = next(
+            (element for element in encrypted_assertion.iter() if _local_name(element.tag) == "EncryptedData"),
+            None,
+        )
+        if encrypted_data is None:
+            msg = "encrypted SAML assertion is missing EncryptedData"
+            raise RuntimeError(msg)
+        try:
+            decrypted = xmlsec.EncryptionContext(manager).decrypt(encrypted_data)
+        except Exception as exc:
+            msg = "failed to decrypt SAML assertion"
+            raise RuntimeError(msg) from exc
+        if not isinstance(decrypted, ET._Element) or _local_name(decrypted.tag) != "Assertion":
+            msg = "encrypted SAML assertion did not decrypt to an Assertion"
+            raise RuntimeError(msg)
+        if (parent := encrypted_assertion.getparent()) is None:
+            msg = "encrypted SAML assertion is missing a parent"
+            raise RuntimeError(msg)
+        if decrypted.getparent() is encrypted_assertion:
+            encrypted_assertion.remove(decrypted)
+        elif (decrypted_parent := decrypted.getparent()) is not None:
+            decrypted_parent.remove(decrypted)
+        index = parent.index(encrypted_assertion)
+        parent.remove(encrypted_assertion)
+        parent.insert(index, decrypted)
 
 
 def _require_single_assertion(root: ET._Element) -> ET._Element:
     assertions = [element for element in root.iter() if _local_name(element.tag) == "Assertion"]
-    if len(assertions) != 1:
+    direct_assertions = [element for element in root if _local_name(element.tag) == "Assertion"]
+    if len(assertions) != 1 or len(direct_assertions) != 1 or assertions[0] is not direct_assertions[0]:
         msg = "SAML response must contain exactly one assertion"
         raise RuntimeError(msg)
-    return assertions[0]
+    return direct_assertions[0]
 
 
 def _validate_time_window(root: ET._Element, *, settings: SAMLSecuritySettings) -> None:
@@ -1160,11 +1199,32 @@ def _resolved_sso_url(config: SAMLProviderConfig) -> str:
     raise RuntimeError(msg)
 
 
-def _resolved_slo_url(config: SAMLProviderConfig, fallback: str) -> str:
+def _resolved_idp_slo_url(config: SAMLProviderConfig) -> str:
     if config.slo_url:
         return config.slo_url
     metadata = _metadata_values(config.idp_metadata_xml)
-    return metadata.slo_url or fallback
+    if metadata.slo_url is not None:
+        return metadata.slo_url
+    msg = "SAML provider is missing IdP slo_url"
+    raise RuntimeError(msg)
+
+
+def _decryption_key_manager(config: SAMLProviderConfig) -> xmlsec.KeysManager:
+    if config.decryption_private_key is None:
+        msg = "encrypted SAML assertions require decryption_private_key"
+        raise RuntimeError(msg)
+    try:
+        key = xmlsec.Key.from_memory(
+            config.decryption_private_key,
+            xmlsec.constants.KeyDataFormatPem,
+            config.decryption_private_key_passphrase,
+        )
+    except Exception as exc:
+        msg = "failed to load SAML decryption private key"
+        raise RuntimeError(msg) from exc
+    manager = xmlsec.KeysManager()
+    manager.add_key(key)
+    return manager
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)

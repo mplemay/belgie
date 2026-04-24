@@ -31,7 +31,6 @@ from belgie_sso.client import SSOClient
 from belgie_sso.discovery import DiscoveryError, ValidatingOAuthTransport, needs_runtime_discovery
 from belgie_sso.models import SSOProvisioningContext
 from belgie_sso.org_assignment import (
-    assign_individual_by_domain,
     assign_individual_to_provider_organization,
     provider_matches_domain,
 )
@@ -178,14 +177,35 @@ class SSOPlugin[
         if not profile.email_verified or not profile.email:
             return
 
-        await assign_individual_by_domain(
+        if not (provider := await self._matched_domain_provider(client=client, email=profile.email)):
+            return
+
+        role = await self._resolve_organization_role(
+            provider=provider,
+            provider_user=OAuthUserInfo(
+                provider_account_id=profile.provider_account_id,
+                email=profile.email,
+                email_verified=profile.email_verified,
+                name=profile.name,
+                image=profile.image,
+                raw={
+                    "provider": profile.provider,
+                    "provider_account_id": profile.provider_account_id,
+                    "email": profile.email,
+                    "email_verified": profile.email_verified,
+                    "name": profile.name,
+                    "image": profile.image,
+                },
+            ),
+            token_set=None,
+            created=False,
+        )
+        await assign_individual_to_provider_organization(
             db=client.db,
-            adapter=self._settings.adapter,
             organization_adapter=self._organization_adapter(belgie),
+            provider=provider,
             individual=individual,
-            email=profile.email,
-            verified_only=self._settings.domain_verification.enabled,
-            role=self._settings.organization_default_role,
+            role=role,
         )
 
     def router(self, belgie: Belgie) -> APIRouter:
@@ -770,13 +790,19 @@ class SSOPlugin[
             if session_id is not None:
                 await belgie.sign_out(client.db, session_id)
                 await self._delete_saml_session_state(client=client, session_id=session_id)
-            logout_result = await self._saml_engine.build_logout_response(
-                provider=provider,
-                config=self._provider_saml_config(provider),
-                slo_url=self._saml_slo_url(provider.provider_id),
-                relay_state=logout_profile.relay_state,
-                in_response_to=logout_profile.request_id,
-            )
+            try:
+                logout_result = await self._saml_engine.build_logout_response(
+                    provider=provider,
+                    config=self._provider_saml_config(provider),
+                    slo_url=self._saml_slo_url(provider.provider_id),
+                    relay_state=logout_profile.relay_state,
+                    in_response_to=logout_profile.request_id,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
             response = self._response_from_saml_result(logout_result)
             if session_id is not None:
                 self._clear_session_cookie(response)
@@ -1212,27 +1238,71 @@ class SSOPlugin[
         created: bool,
         db: object,
     ) -> None:
-        role = self._settings.organization_default_role
-        if self._settings.organization_role_resolver is not None:
-            context = SSOProvisioningContext(
-                provider_id=provider.provider_id,
-                provider_type=provider.provider_type,
-                profile=dict(provider_user.raw),
-                token_payload=None if token_set is None else token_set.raw,
-                created=created,
-            )
-            resolved_role = self._settings.organization_role_resolver(context)
-            if inspect.isawaitable(resolved_role):
-                resolved_role = await resolved_role
-            if resolved_role:
-                role = resolved_role
-
+        role = await self._resolve_organization_role(
+            provider=provider,
+            provider_user=provider_user,
+            token_set=token_set,
+            created=created,
+        )
         await assign_individual_to_provider_organization(
             db=db,
             organization_adapter=self._organization_adapter(belgie),
             provider=provider,
             individual=individual,
             role=role,
+        )
+
+    async def _resolve_organization_role(
+        self,
+        *,
+        provider: ProviderT,
+        provider_user: OAuthUserInfo,
+        token_set: OAuthTokenSet | None,
+        created: bool,
+    ) -> str:
+        role = self._settings.organization_default_role
+        if self._settings.organization_role_resolver is None:
+            return role
+
+        context = SSOProvisioningContext(
+            provider_id=provider.provider_id,
+            provider_type=provider.provider_type,
+            profile=dict(provider_user.raw),
+            token_payload=None if token_set is None else token_set.raw,
+            created=created,
+        )
+        resolved_role = self._settings.organization_role_resolver(context)
+        if inspect.isawaitable(resolved_role):
+            resolved_role = await resolved_role
+        return resolved_role or role
+
+    async def _matched_domain_provider(
+        self,
+        *,
+        client: BelgieClient,
+        email: str,
+    ) -> ProviderT | None:
+        if not (domain := extract_email_domain(email)):
+            return None
+
+        domains = (
+            await self._settings.adapter.list_verified_domains_matching(client.db, domain=domain)
+            if self._settings.domain_verification.enabled
+            else await self._settings.adapter.list_domains_matching(client.db, domain=domain)
+        )
+        try:
+            matched_domain = (
+                choose_best_verified_domain_match(domain=domain, domains=domains)
+                if self._settings.domain_verification.enabled
+                else choose_best_domain_match(domain=domain, domains=domains)
+            )
+        except ValueError:
+            return None
+        if matched_domain is None:
+            return None
+        return await self._settings.adapter.get_provider_by_id(
+            client.db,
+            sso_provider_id=matched_domain.sso_provider_id,
         )
 
     async def _is_trusted_email(

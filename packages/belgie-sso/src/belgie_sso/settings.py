@@ -46,6 +46,8 @@ class SAMLSecuritySettings:
     replay_ttl_seconds: int = 60 * 15
     require_timestamps: bool = False
     validate_in_response_to: bool = True
+    require_signed_logout_requests: bool = False
+    require_signed_logout_responses: bool = False
     allowed_signature_algorithms: tuple[str, ...] = ("rsa-sha256", "rsa-sha384", "rsa-sha512")
     allowed_digest_algorithms: tuple[str, ...] = ("sha256", "sha384", "sha512")
 
@@ -125,8 +127,8 @@ class EnterpriseSSO[
         if not isinstance(value, int):
             msg = "providers_limit must be an integer or callable"
             raise TypeError(msg)
-        if value < 1:
-            msg = "providers_limit must be greater than zero"
+        if value < 0:
+            msg = "providers_limit must be greater than or equal to zero"
             raise ValueError(msg)
         return value
 

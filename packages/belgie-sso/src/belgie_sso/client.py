@@ -21,7 +21,7 @@ from belgie_proto.sso import (
 from fastapi import HTTPException, status
 
 from belgie_sso.discovery import DiscoveryError, discover_oidc_configuration
-from belgie_sso.dns import lookup_txt_records
+from belgie_sso.dns import DNSTxtLookupError, lookup_txt_records
 from belgie_sso.models import SSODomainChallenge, SSOProviderDetail, SSOProviderSummary
 from belgie_sso.utils import (
     build_domain_verification_record_name,
@@ -234,6 +234,7 @@ class SSOClient[
         slo_url: str | None = None,
         audience: str | None = None,
         idp_metadata_xml: str | None = None,
+        sp_metadata_xml: str | None = None,
         name_id_format: str | None = None,
         binding: str = "redirect",
         allow_idp_initiated: bool = True,
@@ -276,6 +277,7 @@ class SSOClient[
                     slo_url=slo_url.strip() if slo_url else None,
                     audience=audience.strip() if audience else None,
                     idp_metadata_xml=idp_metadata_xml.strip() if idp_metadata_xml else None,
+                    sp_metadata_xml=sp_metadata_xml.strip() if sp_metadata_xml else None,
                     name_id_format=name_id_format.strip() if name_id_format else None,
                     binding=binding.strip(),
                     allow_idp_initiated=allow_idp_initiated,
@@ -313,6 +315,7 @@ class SSOClient[
         slo_url: str | None = None,
         audience: str | None = None,
         idp_metadata_xml: str | None = None,
+        sp_metadata_xml: str | None = None,
         name_id_format: str | None = None,
         binding: str | None = None,
         allow_idp_initiated: bool | None = None,
@@ -350,6 +353,9 @@ class SSOClient[
                     else None,
                     idp_metadata_xml=(idp_metadata_xml or existing_config.idp_metadata_xml).strip()
                     if (idp_metadata_xml or existing_config.idp_metadata_xml)
+                    else None,
+                    sp_metadata_xml=(sp_metadata_xml or existing_config.sp_metadata_xml).strip()
+                    if (sp_metadata_xml or existing_config.sp_metadata_xml)
                     else None,
                     name_id_format=(name_id_format or existing_config.name_id_format).strip()
                     if (name_id_format or existing_config.name_id_format)
@@ -504,7 +510,13 @@ class SSOClient[
             )
 
         challenge = self._build_domain_challenge(provider=provider, sso_domain=sso_domain)
-        records = await lookup_txt_records(challenge.record_name)
+        try:
+            records = await lookup_txt_records(challenge.record_name)
+        except DNSTxtLookupError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            ) from exc
         if challenge.record_value not in records:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -597,6 +609,7 @@ class SSOClient[
                 "slo_url": config.slo_url,
                 "audience": config.audience,
                 "idp_metadata_xml_present": bool(config.idp_metadata_xml),
+                "sp_metadata_xml_present": bool(config.sp_metadata_xml),
                 "name_id_format": config.name_id_format,
                 "binding": config.binding,
                 "allow_idp_initiated": config.allow_idp_initiated,

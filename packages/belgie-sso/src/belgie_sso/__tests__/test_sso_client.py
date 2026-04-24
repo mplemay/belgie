@@ -10,6 +10,7 @@ import pytest
 from belgie_proto.sso import OIDCClaimMapping, OIDCProviderConfig
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import DiscoveryError, OIDCDiscoveryResult
+from belgie_sso.dns import DNSTxtLookupError
 from belgie_sso.settings import EnterpriseSSO
 from belgie_sso.utils import deserialize_saml_config
 from fastapi import HTTPException
@@ -416,6 +417,44 @@ async def test_verify_domain_uses_provider_scoped_dns_value(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_verify_domain_surfaces_dns_resolution_failures(monkeypatch) -> None:
+    sso_client, _, _, _ = build_client()
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(
+            return_value=OIDCDiscoveryResult(
+                issuer="https://idp.example.com",
+                config=OIDCProviderConfig(
+                    issuer="https://idp.example.com",
+                    client_id="client-id",
+                    client_secret="client-secret",
+                    authorization_endpoint="https://idp.example.com/authorize",
+                    token_endpoint="https://idp.example.com/token",
+                    userinfo_endpoint="https://idp.example.com/userinfo",
+                ),
+            ),
+        ),
+    )
+    provider = await sso_client.register_oidc_provider(
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        domains=["example.com"],
+    )
+    await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
+    monkeypatch.setattr(
+        "belgie_sso.client.lookup_txt_records",
+        AsyncMock(side_effect=DNSTxtLookupError("failed to resolve DNS TXT records")),
+    )
+
+    with pytest.raises(HTTPException, match="failed to resolve DNS TXT records") as exc_info:
+        await sso_client.verify_domain(provider_id=provider.provider_id, domain="example.com")
+
+    assert exc_info.value.status_code == 502
+
+
+@pytest.mark.asyncio
 async def test_list_provider_summaries_masks_client_id_and_derives_domain_verified(monkeypatch) -> None:
     sso_client, _, _, _ = build_client()
     monkeypatch.setattr(
@@ -524,6 +563,40 @@ async def test_create_domain_challenge_reuses_active_token(monkeypatch) -> None:
 
     assert second.verification_token == first.verification_token
     assert second.expires_at == first.expires_at
+
+
+@pytest.mark.asyncio
+async def test_create_domain_challenge_uses_custom_domain_txt_prefix(monkeypatch) -> None:
+    sso_client, _, _, _ = build_client()
+    sso_client.settings.domain_txt_prefix = "corp-sso"
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(
+            return_value=OIDCDiscoveryResult(
+                issuer="https://idp.example.com",
+                config=OIDCProviderConfig(
+                    issuer="https://idp.example.com",
+                    client_id="client-id",
+                    client_secret="client-secret",
+                    authorization_endpoint="https://idp.example.com/authorize",
+                    token_endpoint="https://idp.example.com/token",
+                    userinfo_endpoint="https://idp.example.com/userinfo",
+                ),
+            ),
+        ),
+    )
+    provider = await sso_client.register_oidc_provider(
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        domains=["example.com"],
+    )
+
+    challenge = await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
+
+    assert challenge.record_name == "_corp-sso-acme.example.com"
+    assert challenge.record_value.startswith("_corp-sso-acme=")
 
 
 @pytest.mark.asyncio
@@ -677,6 +750,36 @@ async def test_provider_limit_applies_per_owner(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_limit_zero_disables_registration(monkeypatch) -> None:
+    sso_client, _, _, _ = build_client()
+    sso_client.settings.providers_limit = 0
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(
+            return_value=OIDCDiscoveryResult(
+                issuer="https://idp.example.com",
+                config=OIDCProviderConfig(
+                    issuer="https://idp.example.com",
+                    client_id="client-id",
+                    client_secret="client-secret",
+                    authorization_endpoint="https://idp.example.com/authorize",
+                    token_endpoint="https://idp.example.com/token",
+                    userinfo_endpoint="https://idp.example.com/userinfo",
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(HTTPException, match="provider limit reached"):
+        await sso_client.register_oidc_provider(
+            provider_id="acme",
+            issuer="https://idp.example.com",
+            client_id="client-id",
+            client_secret="client-secret",
+        )
+
+
+@pytest.mark.asyncio
 async def test_register_saml_provider_creates_saml_provider_snapshot() -> None:
     sso_client, _, _, _ = build_client()
 
@@ -715,6 +818,27 @@ async def test_get_saml_provider_detail_redacts_secret_material() -> None:
     assert detail.config["x509_certificate_present"] is True
     assert "private_key" not in detail.config
     assert "signing_certificate" not in detail.config
+
+
+@pytest.mark.asyncio
+async def test_get_saml_provider_detail_only_exposes_metadata_presence_flags() -> None:
+    sso_client, _, _, _ = build_client()
+    await sso_client.register_saml_provider(
+        provider_id="acme-saml",
+        issuer="https://idp.example.com",
+        entity_id="urn:acme:sp",
+        sso_url="https://idp.example.com/sso",
+        x509_certificate="-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----",
+        idp_metadata_xml="<EntityDescriptor/>",
+        sp_metadata_xml="<EntityDescriptor entityID='urn:custom:sp'/>",
+    )
+
+    detail = await sso_client.get_provider_detail(provider_id="acme-saml")
+
+    assert detail.config["idp_metadata_xml_present"] is True
+    assert detail.config["sp_metadata_xml_present"] is True
+    assert "idp_metadata_xml" not in detail.config
+    assert "sp_metadata_xml" not in detail.config
 
 
 @pytest.mark.asyncio

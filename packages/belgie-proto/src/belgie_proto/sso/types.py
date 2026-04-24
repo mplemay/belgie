@@ -57,6 +57,7 @@ class SAMLProviderConfig:
     slo_url: str | None = None
     audience: str | None = None
     idp_metadata_xml: str | None = None
+    sp_metadata_xml: str | None = None
     name_id_format: str | None = None
     binding: str = "redirect"
     allow_idp_initiated: bool = False

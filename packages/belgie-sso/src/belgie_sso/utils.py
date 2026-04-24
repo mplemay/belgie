@@ -241,6 +241,7 @@ def deserialize_saml_config(
         slo_url=str(payload["slo_url"]) if payload.get("slo_url") else None,
         audience=str(payload["audience"]) if payload.get("audience") else None,
         idp_metadata_xml=str(payload["idp_metadata_xml"]) if payload.get("idp_metadata_xml") else None,
+        sp_metadata_xml=str(payload["sp_metadata_xml"]) if payload.get("sp_metadata_xml") else None,
         name_id_format=str(payload["name_id_format"]) if payload.get("name_id_format") else None,
         binding=str(payload.get("binding", "redirect")),
         allow_idp_initiated=bool(payload.get("allow_idp_initiated", False)),
