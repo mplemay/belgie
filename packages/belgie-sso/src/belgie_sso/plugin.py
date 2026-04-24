@@ -1587,6 +1587,10 @@ class SSOPlugin[
                 raise OAuthError("provider user info missing subject identifier")
 
             email = self._raw_claim_as_string(raw_profile, mapping.email)
+            mapped_profile = dict(raw_profile)
+            for target_key, claim_name in mapping.extra_fields.items():
+                if claim_name in raw_profile:
+                    mapped_profile[target_key] = raw_profile[claim_name]
             return OAuthUserInfo(
                 provider_account_id=provider_account_id,
                 email=email.lower() if email else None,
@@ -1595,7 +1599,7 @@ class SSOPlugin[
                 ),
                 name=self._raw_claim_as_string(raw_profile, mapping.name),
                 image=self._raw_claim_as_string(raw_profile, mapping.image),
-                raw=dict(raw_profile),
+                raw=mapped_profile,
             )
 
         return map_profile

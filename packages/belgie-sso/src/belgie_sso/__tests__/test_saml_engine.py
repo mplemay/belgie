@@ -164,20 +164,25 @@ def _build_assertion(
     not_before: str,
     not_on_or_after: str,
     sign_assertion: bool,
+    include_condition_timestamps: bool,
+    include_subject_confirmation_timestamps: bool,
 ) -> ET._Element:
     assertion = ET.Element("Assertion", ID=assertion_id)
     ET.SubElement(assertion, "Issuer").text = issuer
     subject = ET.SubElement(assertion, "Subject")
     ET.SubElement(subject, "NameID").text = provider_account_id
     subject_confirmation = ET.SubElement(subject, "SubjectConfirmation")
-    confirmation_attributes = {
-        "Recipient": recipient,
-        "NotOnOrAfter": not_on_or_after,
-    }
+    confirmation_attributes = {"Recipient": recipient}
     if in_response_to is not None:
         confirmation_attributes["InResponseTo"] = in_response_to
+    if include_subject_confirmation_timestamps:
+        confirmation_attributes["NotOnOrAfter"] = not_on_or_after
     ET.SubElement(subject_confirmation, "SubjectConfirmationData", confirmation_attributes)
-    ET.SubElement(assertion, "Conditions", {"NotBefore": not_before, "NotOnOrAfter": not_on_or_after})
+    conditions_attributes: dict[str, str] = {}
+    if include_condition_timestamps:
+        conditions_attributes["NotBefore"] = not_before
+        conditions_attributes["NotOnOrAfter"] = not_on_or_after
+    ET.SubElement(assertion, "Conditions", conditions_attributes)
     attribute_statement = ET.SubElement(assertion, "AttributeStatement")
     for attribute_name, attribute_value in {
         "email": email,
@@ -212,34 +217,27 @@ def _encrypt_assertion(response: ET._Element, *, certificate: str) -> None:
     response.append(encrypted_assertion)
 
 
-def _build_saml_response_payload(  # noqa: C901
+def _append_response_assertions(
     *,
+    response: ET._Element,
     recipient: str,
-    issuer: str = "https://idp.example.com",
-    in_response_to: str | None = "request-1",
-    assertion_id: str = "assertion-1",
-    provider_account_id: str = "saml-user-1",
-    email: str = "Person@Example.com",
-    email_verified: str = "true",
-    name: str = "Saml Person",
-    session_index: str = "session-1",
-    not_before: str = "2000-01-01T00:00:00Z",
-    not_on_or_after: str = "2099-01-01T00:00:00Z",
-    sign_assertion: bool = True,
-    sign_response: bool = False,
-    nested_assertion: bool = False,
-    duplicate_assertion: bool = False,
-    encrypt_assertion: bool = False,
-    signature_algorithm: str | None = None,
-    digest_algorithm: str | None = None,
-) -> str:
-    response = ET.Element("Response", ID="response-1", Version="2.0", Destination=recipient)
-    if in_response_to is not None:
-        response.attrib["InResponseTo"] = in_response_to
-    ET.SubElement(response, "Issuer").text = issuer
-    status = ET.SubElement(response, "Status")
-    ET.SubElement(status, "StatusCode", Value="urn:oasis:names:tc:SAML:2.0:status:Success")
-
+    issuer: str,
+    in_response_to: str | None,
+    assertion_id: str,
+    provider_account_id: str,
+    email: str,
+    email_verified: str,
+    name: str,
+    session_index: str,
+    not_before: str,
+    not_on_or_after: str,
+    sign_assertion: bool,
+    nested_assertion: bool,
+    duplicate_assertion: bool,
+    encrypt_assertion: bool,
+    include_condition_timestamps: bool,
+    include_subject_confirmation_timestamps: bool,
+) -> None:
     assertion = _build_assertion(
         recipient=recipient,
         issuer=issuer,
@@ -253,6 +251,8 @@ def _build_saml_response_payload(  # noqa: C901
         not_before=not_before,
         not_on_or_after=not_on_or_after,
         sign_assertion=sign_assertion,
+        include_condition_timestamps=include_condition_timestamps,
+        include_subject_confirmation_timestamps=include_subject_confirmation_timestamps,
     )
     if nested_assertion:
         wrapper = ET.SubElement(response, "Wrapper")
@@ -275,15 +275,21 @@ def _build_saml_response_payload(  # noqa: C901
                 not_before=not_before,
                 not_on_or_after=not_on_or_after,
                 sign_assertion=sign_assertion,
+                include_condition_timestamps=include_condition_timestamps,
+                include_subject_confirmation_timestamps=include_subject_confirmation_timestamps,
             ),
         )
 
     if encrypt_assertion:
         _encrypt_assertion(response, certificate=_SP_KEYS.certificate)
 
-    if sign_response:
-        response = _sign_element(response, key_material=_IDP_KEYS)
 
+def _apply_algorithm_overrides(
+    response: ET._Element,
+    *,
+    signature_algorithm: str | None,
+    digest_algorithm: str | None,
+) -> None:
     if signature_algorithm is not None:
         for element in response.iter():
             if element.tag.endswith("SignatureMethod"):
@@ -292,6 +298,69 @@ def _build_saml_response_payload(  # noqa: C901
         for element in response.iter():
             if element.tag.endswith("DigestMethod"):
                 element.attrib["Algorithm"] = digest_algorithm
+
+
+def _build_saml_response_payload(
+    *,
+    recipient: str,
+    issuer: str = "https://idp.example.com",
+    in_response_to: str | None = "request-1",
+    assertion_id: str = "assertion-1",
+    provider_account_id: str = "saml-user-1",
+    email: str = "Person@Example.com",
+    email_verified: str = "true",
+    name: str = "Saml Person",
+    session_index: str = "session-1",
+    not_before: str = "2000-01-01T00:00:00Z",
+    not_on_or_after: str = "2099-01-01T00:00:00Z",
+    sign_assertion: bool = True,
+    sign_response: bool = False,
+    nested_assertion: bool = False,
+    duplicate_assertion: bool = False,
+    encrypt_assertion: bool = False,
+    signature_algorithm: str | None = None,
+    digest_algorithm: str | None = None,
+    include_assertion: bool = True,
+    include_condition_timestamps: bool = True,
+    include_subject_confirmation_timestamps: bool = True,
+) -> str:
+    response = ET.Element("Response", ID="response-1", Version="2.0", Destination=recipient)
+    if in_response_to is not None:
+        response.attrib["InResponseTo"] = in_response_to
+    ET.SubElement(response, "Issuer").text = issuer
+    status = ET.SubElement(response, "Status")
+    ET.SubElement(status, "StatusCode", Value="urn:oasis:names:tc:SAML:2.0:status:Success")
+
+    if include_assertion:
+        _append_response_assertions(
+            response=response,
+            recipient=recipient,
+            issuer=issuer,
+            in_response_to=in_response_to,
+            assertion_id=assertion_id,
+            provider_account_id=provider_account_id,
+            email=email,
+            email_verified=email_verified,
+            name=name,
+            session_index=session_index,
+            not_before=not_before,
+            not_on_or_after=not_on_or_after,
+            sign_assertion=sign_assertion,
+            nested_assertion=nested_assertion,
+            duplicate_assertion=duplicate_assertion,
+            encrypt_assertion=encrypt_assertion,
+            include_condition_timestamps=include_condition_timestamps,
+            include_subject_confirmation_timestamps=include_subject_confirmation_timestamps,
+        )
+
+    if sign_response:
+        response = _sign_element(response, key_material=_IDP_KEYS)
+
+    _apply_algorithm_overrides(
+        response,
+        signature_algorithm=signature_algorithm,
+        digest_algorithm=digest_algorithm,
+    )
     return _encode_xml(response)
 
 
@@ -376,6 +445,30 @@ async def test_finish_signin_rejects_nested_assertions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_finish_signin_rejects_response_without_assertion() -> None:
+    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings())
+    request_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
+
+    with pytest.raises(RuntimeError, match="SAML response must contain exactly one assertion"):
+        await engine.finish_signin(
+            provider=_build_provider(),
+            config=_build_config(),
+            request=_build_post_request(
+                request_url,
+                form_fields={
+                    "SAMLResponse": _build_saml_response_payload(
+                        recipient=request_url,
+                        include_assertion=False,
+                        sign_response=True,
+                    ),
+                },
+            ),
+            relay_state="state",
+            request_id="request-1",
+        )
+
+
+@pytest.mark.asyncio
 async def test_finish_signin_decrypts_encrypted_assertions() -> None:
     engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings())
     request_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
@@ -417,6 +510,30 @@ async def test_finish_signin_rejects_disallowed_signature_and_digest_algorithms(
                         recipient=request_url,
                         signature_algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1",
                         digest_algorithm="http://www.w3.org/2000/09/xmldsig#sha1",
+                    ),
+                },
+            ),
+            relay_state="state",
+            request_id="request-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_finish_signin_rejects_unsigned_response_when_assertions_must_be_signed() -> None:
+    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings())
+    request_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
+
+    with pytest.raises(RuntimeError, match="SAML message is missing a valid XML signature"):
+        await engine.finish_signin(
+            provider=_build_provider(),
+            config=_build_config(),
+            request=_build_post_request(
+                request_url,
+                form_fields={
+                    "SAMLResponse": _build_saml_response_payload(
+                        recipient=request_url,
+                        sign_assertion=False,
+                        sign_response=False,
                     ),
                 },
             ),
@@ -475,6 +592,52 @@ async def test_finish_signin_enforces_timestamp_boundaries(monkeypatch) -> None:
     )
 
     assert profile.assertion_id == "assertion-boundary"
+
+
+@pytest.mark.asyncio
+async def test_finish_signin_rejects_malformed_timestamps() -> None:
+    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings())
+    request_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
+
+    with pytest.raises(RuntimeError, match="invalid SAML timestamp"):
+        await engine.finish_signin(
+            provider=_build_provider(),
+            config=_build_config(),
+            request=_build_post_request(
+                request_url,
+                form_fields={
+                    "SAMLResponse": _build_saml_response_payload(
+                        recipient=request_url,
+                        not_before="not-a-timestamp",
+                    ),
+                },
+            ),
+            relay_state="state",
+            request_id="request-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_finish_signin_requires_subject_confirmation_timestamps_when_enabled() -> None:
+    engine = BuiltinSAMLEngine(settings=SAMLSecuritySettings(require_timestamps=True))
+    request_url = "https://testserver.local/auth/provider/sso/callback/acme-saml"
+
+    with pytest.raises(RuntimeError, match="SAML subject confirmation is missing required timestamps"):
+        await engine.finish_signin(
+            provider=_build_provider(),
+            config=_build_config(),
+            request=_build_post_request(
+                request_url,
+                form_fields={
+                    "SAMLResponse": _build_saml_response_payload(
+                        recipient=request_url,
+                        include_subject_confirmation_timestamps=False,
+                    ),
+                },
+            ),
+            relay_state="state",
+            request_id="request-1",
+        )
 
 
 @pytest.mark.asyncio

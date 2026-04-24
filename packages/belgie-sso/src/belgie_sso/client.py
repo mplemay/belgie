@@ -20,7 +20,7 @@ from belgie_proto.sso import (
 )
 from fastapi import HTTPException, status
 
-from belgie_sso.discovery import DiscoveryError, discover_oidc_configuration
+from belgie_sso.discovery import DiscoveryError, discover_oidc_configuration, select_token_endpoint_auth_method
 from belgie_sso.dns import DNSTxtLookupError, lookup_txt_records
 from belgie_sso.models import SSODomainChallenge, SSOProviderDetail, SSOProviderSummary
 from belgie_sso.utils import (
@@ -30,6 +30,7 @@ from belgie_sso.utils import (
     fingerprint_certificate,
     mask_client_id,
     normalize_domain,
+    normalize_http_url,
     normalize_issuer,
     normalize_provider_id,
     serialize_oidc_config,
@@ -148,6 +149,22 @@ class SSOClient[
         override_user_info_on_sign_in: bool | None = None,
         skip_discovery: bool = False,
     ) -> ProviderT:
+        self._require_any_oidc_update_field(
+            issuer=issuer,
+            client_id=client_id,
+            client_secret=client_secret,
+            domains=domains,
+            scopes=scopes,
+            token_endpoint_auth_method=token_endpoint_auth_method,
+            claim_mapping=claim_mapping,
+            authorization_endpoint=authorization_endpoint,
+            token_endpoint=token_endpoint,
+            userinfo_endpoint=userinfo_endpoint,
+            jwks_uri=jwks_uri,
+            discovery_endpoint=discovery_endpoint,
+            use_pkce=use_pkce,
+            override_user_info_on_sign_in=override_user_info_on_sign_in,
+        )
         provider = await self._get_provider_or_404(provider_id)
         self._assert_provider_type(provider, expected_type="oidc")
         await self._require_provider_access(provider)
@@ -260,6 +277,28 @@ class SSOClient[
         await self._ensure_provider_capacity(organization_id=organization_id)
         normalized_domains = self._normalize_domains(domains)
         await self._ensure_domains_are_available(normalized_domains)
+        config = self._build_saml_config(
+            entity_id=entity_id,
+            sso_url=sso_url,
+            x509_certificate=x509_certificate,
+            slo_url=slo_url,
+            audience=audience,
+            idp_metadata_xml=idp_metadata_xml,
+            sp_metadata_xml=sp_metadata_xml,
+            name_id_format=name_id_format,
+            binding=binding,
+            allow_idp_initiated=allow_idp_initiated,
+            want_assertions_signed=want_assertions_signed,
+            sign_authn_request=sign_authn_request,
+            signature_algorithm=signature_algorithm,
+            digest_algorithm=digest_algorithm,
+            private_key=private_key,
+            private_key_passphrase=private_key_passphrase,
+            signing_certificate=signing_certificate,
+            decryption_private_key=decryption_private_key,
+            decryption_private_key_passphrase=decryption_private_key_passphrase,
+            claim_mapping=claim_mapping or SAMLClaimMapping(),
+        )
 
         provider = await self.settings.adapter.create_provider(
             self.client.db,
@@ -269,32 +308,7 @@ class SSOClient[
             provider_id=normalized_provider_id,
             issuer=normalize_issuer(issuer),
             oidc_config=None,
-            saml_config=serialize_saml_config(
-                SAMLProviderConfig(
-                    entity_id=entity_id.strip(),
-                    sso_url=sso_url.strip(),
-                    x509_certificate=x509_certificate.strip(),
-                    slo_url=slo_url.strip() if slo_url else None,
-                    audience=audience.strip() if audience else None,
-                    idp_metadata_xml=idp_metadata_xml.strip() if idp_metadata_xml else None,
-                    sp_metadata_xml=sp_metadata_xml.strip() if sp_metadata_xml else None,
-                    name_id_format=name_id_format.strip() if name_id_format else None,
-                    binding=binding.strip(),
-                    allow_idp_initiated=allow_idp_initiated,
-                    want_assertions_signed=want_assertions_signed,
-                    sign_authn_request=sign_authn_request,
-                    signature_algorithm=signature_algorithm.strip(),
-                    digest_algorithm=digest_algorithm.strip(),
-                    private_key=private_key.strip() if private_key else None,
-                    private_key_passphrase=private_key_passphrase.strip() if private_key_passphrase else None,
-                    signing_certificate=signing_certificate.strip() if signing_certificate else None,
-                    decryption_private_key=decryption_private_key.strip() if decryption_private_key else None,
-                    decryption_private_key_passphrase=(
-                        decryption_private_key_passphrase.strip() if decryption_private_key_passphrase else None
-                    ),
-                    claim_mapping=claim_mapping or SAMLClaimMapping(),
-                ),
-            ),
+            saml_config=serialize_saml_config(config),
         )
         try:
             await self._sync_provider_domains(provider=provider, domains=normalized_domains)
@@ -330,70 +344,81 @@ class SSOClient[
         decryption_private_key_passphrase: str | None = None,
         claim_mapping: SAMLClaimMapping | None = None,
     ) -> ProviderT:
+        self._require_any_saml_update_field(
+            issuer=issuer,
+            entity_id=entity_id,
+            sso_url=sso_url,
+            x509_certificate=x509_certificate,
+            domains=domains,
+            slo_url=slo_url,
+            audience=audience,
+            idp_metadata_xml=idp_metadata_xml,
+            sp_metadata_xml=sp_metadata_xml,
+            name_id_format=name_id_format,
+            binding=binding,
+            allow_idp_initiated=allow_idp_initiated,
+            want_assertions_signed=want_assertions_signed,
+            sign_authn_request=sign_authn_request,
+            signature_algorithm=signature_algorithm,
+            digest_algorithm=digest_algorithm,
+            private_key=private_key,
+            private_key_passphrase=private_key_passphrase,
+            signing_certificate=signing_certificate,
+            decryption_private_key=decryption_private_key,
+            decryption_private_key_passphrase=decryption_private_key_passphrase,
+            claim_mapping=claim_mapping,
+        )
         provider = await self._get_provider_or_404(provider_id)
         self._assert_provider_type(provider, expected_type="saml")
         await self._require_provider_access(provider)
         existing_config = self._provider_saml_config(provider)
+        config = self._build_saml_config(
+            entity_id=existing_config.entity_id if entity_id is None else entity_id,
+            sso_url=existing_config.sso_url if sso_url is None else sso_url,
+            x509_certificate=existing_config.x509_certificate if x509_certificate is None else x509_certificate,
+            slo_url=existing_config.slo_url if slo_url is None else slo_url,
+            audience=existing_config.audience if audience is None else audience,
+            idp_metadata_xml=existing_config.idp_metadata_xml if idp_metadata_xml is None else idp_metadata_xml,
+            sp_metadata_xml=existing_config.sp_metadata_xml if sp_metadata_xml is None else sp_metadata_xml,
+            name_id_format=existing_config.name_id_format if name_id_format is None else name_id_format,
+            binding=existing_config.binding if binding is None else binding,
+            allow_idp_initiated=(
+                existing_config.allow_idp_initiated if allow_idp_initiated is None else allow_idp_initiated
+            ),
+            want_assertions_signed=(
+                existing_config.want_assertions_signed if want_assertions_signed is None else want_assertions_signed
+            ),
+            sign_authn_request=(
+                existing_config.sign_authn_request if sign_authn_request is None else sign_authn_request
+            ),
+            signature_algorithm=(
+                existing_config.signature_algorithm if signature_algorithm is None else signature_algorithm
+            ),
+            digest_algorithm=existing_config.digest_algorithm if digest_algorithm is None else digest_algorithm,
+            private_key=existing_config.private_key if private_key is None else private_key,
+            private_key_passphrase=(
+                existing_config.private_key_passphrase if private_key_passphrase is None else private_key_passphrase
+            ),
+            signing_certificate=existing_config.signing_certificate
+            if signing_certificate is None
+            else signing_certificate,
+            decryption_private_key=(
+                existing_config.decryption_private_key if decryption_private_key is None else decryption_private_key
+            ),
+            decryption_private_key_passphrase=(
+                existing_config.decryption_private_key_passphrase
+                if decryption_private_key_passphrase is None
+                else decryption_private_key_passphrase
+            ),
+            claim_mapping=claim_mapping or existing_config.claim_mapping,
+        )
 
         updated_provider = await self.settings.adapter.update_provider(
             self.client.db,
             sso_provider_id=provider.id,
             issuer=normalize_issuer(issuer or provider.issuer),
             oidc_config=None,
-            saml_config=serialize_saml_config(
-                SAMLProviderConfig(
-                    entity_id=(entity_id or existing_config.entity_id).strip(),
-                    sso_url=(sso_url or existing_config.sso_url).strip(),
-                    x509_certificate=(x509_certificate or existing_config.x509_certificate).strip(),
-                    slo_url=(slo_url or existing_config.slo_url).strip()
-                    if (slo_url or existing_config.slo_url)
-                    else None,
-                    audience=(audience or existing_config.audience).strip()
-                    if (audience or existing_config.audience)
-                    else None,
-                    idp_metadata_xml=(idp_metadata_xml or existing_config.idp_metadata_xml).strip()
-                    if (idp_metadata_xml or existing_config.idp_metadata_xml)
-                    else None,
-                    sp_metadata_xml=(sp_metadata_xml or existing_config.sp_metadata_xml).strip()
-                    if (sp_metadata_xml or existing_config.sp_metadata_xml)
-                    else None,
-                    name_id_format=(name_id_format or existing_config.name_id_format).strip()
-                    if (name_id_format or existing_config.name_id_format)
-                    else None,
-                    binding=(binding or existing_config.binding).strip(),
-                    allow_idp_initiated=(
-                        existing_config.allow_idp_initiated if allow_idp_initiated is None else allow_idp_initiated
-                    ),
-                    want_assertions_signed=(
-                        existing_config.want_assertions_signed
-                        if want_assertions_signed is None
-                        else want_assertions_signed
-                    ),
-                    sign_authn_request=(
-                        existing_config.sign_authn_request if sign_authn_request is None else sign_authn_request
-                    ),
-                    signature_algorithm=(signature_algorithm or existing_config.signature_algorithm).strip(),
-                    digest_algorithm=(digest_algorithm or existing_config.digest_algorithm).strip(),
-                    private_key=(private_key or existing_config.private_key).strip()
-                    if (private_key or existing_config.private_key)
-                    else None,
-                    private_key_passphrase=(private_key_passphrase or existing_config.private_key_passphrase).strip()
-                    if (private_key_passphrase or existing_config.private_key_passphrase)
-                    else None,
-                    signing_certificate=(signing_certificate or existing_config.signing_certificate).strip()
-                    if (signing_certificate or existing_config.signing_certificate)
-                    else None,
-                    decryption_private_key=(decryption_private_key or existing_config.decryption_private_key).strip()
-                    if (decryption_private_key or existing_config.decryption_private_key)
-                    else None,
-                    decryption_private_key_passphrase=(
-                        (decryption_private_key_passphrase or existing_config.decryption_private_key_passphrase).strip()
-                        if (decryption_private_key_passphrase or existing_config.decryption_private_key_passphrase)
-                        else None
-                    ),
-                    claim_mapping=claim_mapping or existing_config.claim_mapping,
-                ),
-            ),
+            saml_config=serialize_saml_config(config),
         )
         if updated_provider is None:
             raise HTTPException(
@@ -678,6 +703,8 @@ class SSOClient[
         override_user_info_on_sign_in: bool,
         skip_discovery: bool,
     ) -> OIDCProviderConfig:
+        normalized_token_endpoint_auth_method = token_endpoint_auth_method.strip()
+        self._validate_oidc_token_endpoint_auth_method_or_400(normalized_token_endpoint_auth_method)
         normalized_issuer = normalize_issuer(issuer)
         normalized_client_id = client_id.strip()
         normalized_client_secret = client_secret.strip()
@@ -692,7 +719,7 @@ class SSOClient[
                     client_id=normalized_client_id,
                     client_secret=normalized_client_secret,
                     scopes=resolved_scopes,
-                    token_endpoint_auth_method=token_endpoint_auth_method,
+                    token_endpoint_auth_method=normalized_token_endpoint_auth_method,
                     claim_mapping=resolved_claim_mapping,
                     timeout_seconds=self.settings.discovery_timeout_seconds,
                     discovery_endpoint=normalized_discovery_endpoint,
@@ -728,7 +755,7 @@ class SSOClient[
             discovery_endpoint=normalized_discovery_endpoint,
             jwks_uri=jwks_uri.strip() if jwks_uri else None,
             scopes=tuple(resolved_scopes),
-            token_endpoint_auth_method=token_endpoint_auth_method,
+            token_endpoint_auth_method=normalized_token_endpoint_auth_method,
             use_pkce=use_pkce,
             override_user_info_on_sign_in=override_user_info_on_sign_in,
             claim_mapping=resolved_claim_mapping,
@@ -894,6 +921,216 @@ class SSOClient[
                 continue
             normalized.append(value)
         return normalized
+
+    def _validate_oidc_token_endpoint_auth_method_or_400(self, token_endpoint_auth_method: str) -> None:
+        normalized_token_endpoint_auth_method = token_endpoint_auth_method.strip()
+        try:
+            select_token_endpoint_auth_method(
+                requested_method=normalized_token_endpoint_auth_method,
+                supported_methods=None,
+            )
+        except DiscoveryError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+    def _require_any_oidc_update_field(  # noqa: PLR0913
+        self,
+        *,
+        issuer: str | None,
+        client_id: str | None,
+        client_secret: str | None,
+        domains: list[str] | None,
+        scopes: list[str] | None,
+        token_endpoint_auth_method: str | None,
+        claim_mapping: OIDCClaimMapping | None,
+        authorization_endpoint: str | None,
+        token_endpoint: str | None,
+        userinfo_endpoint: str | None,
+        jwks_uri: str | None,
+        discovery_endpoint: str | None,
+        use_pkce: bool | None,
+        override_user_info_on_sign_in: bool | None,
+    ) -> None:
+        if any(
+            value is not None
+            for value in (
+                issuer,
+                client_id,
+                client_secret,
+                domains,
+                scopes,
+                token_endpoint_auth_method,
+                claim_mapping,
+                authorization_endpoint,
+                token_endpoint,
+                userinfo_endpoint,
+                jwks_uri,
+                discovery_endpoint,
+                use_pkce,
+                override_user_info_on_sign_in,
+            )
+        ):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="at least one update field must be provided",
+        )
+
+    def _require_any_saml_update_field(  # noqa: PLR0913
+        self,
+        *,
+        issuer: str | None,
+        entity_id: str | None,
+        sso_url: str | None,
+        x509_certificate: str | None,
+        domains: list[str] | None,
+        slo_url: str | None,
+        audience: str | None,
+        idp_metadata_xml: str | None,
+        sp_metadata_xml: str | None,
+        name_id_format: str | None,
+        binding: str | None,
+        allow_idp_initiated: bool | None,
+        want_assertions_signed: bool | None,
+        sign_authn_request: bool | None,
+        signature_algorithm: str | None,
+        digest_algorithm: str | None,
+        private_key: str | None,
+        private_key_passphrase: str | None,
+        signing_certificate: str | None,
+        decryption_private_key: str | None,
+        decryption_private_key_passphrase: str | None,
+        claim_mapping: SAMLClaimMapping | None,
+    ) -> None:
+        if any(
+            value is not None
+            for value in (
+                issuer,
+                entity_id,
+                sso_url,
+                x509_certificate,
+                domains,
+                slo_url,
+                audience,
+                idp_metadata_xml,
+                sp_metadata_xml,
+                name_id_format,
+                binding,
+                allow_idp_initiated,
+                want_assertions_signed,
+                sign_authn_request,
+                signature_algorithm,
+                digest_algorithm,
+                private_key,
+                private_key_passphrase,
+                signing_certificate,
+                decryption_private_key,
+                decryption_private_key_passphrase,
+                claim_mapping,
+            )
+        ):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="at least one update field must be provided",
+        )
+
+    def _build_saml_config(  # noqa: PLR0913
+        self,
+        *,
+        entity_id: str,
+        sso_url: str,
+        x509_certificate: str,
+        slo_url: str | None,
+        audience: str | None,
+        idp_metadata_xml: str | None,
+        sp_metadata_xml: str | None,
+        name_id_format: str | None,
+        binding: str,
+        allow_idp_initiated: bool,
+        want_assertions_signed: bool,
+        sign_authn_request: bool,
+        signature_algorithm: str,
+        digest_algorithm: str,
+        private_key: str | None,
+        private_key_passphrase: str | None,
+        signing_certificate: str | None,
+        decryption_private_key: str | None,
+        decryption_private_key_passphrase: str | None,
+        claim_mapping: SAMLClaimMapping,
+    ) -> SAMLProviderConfig:
+        normalized_binding = binding.strip().lower()
+        if normalized_binding not in {"post", "redirect"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="binding must be one of: post, redirect",
+            )
+
+        normalized_signature_algorithm = signature_algorithm.strip().lower()
+        if normalized_signature_algorithm not in self.settings.saml.allowed_signature_algorithms:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"signature_algorithm must be one of: {', '.join(self.settings.saml.allowed_signature_algorithms)}"
+                ),
+            )
+
+        normalized_digest_algorithm = digest_algorithm.strip().lower()
+        if normalized_digest_algorithm not in self.settings.saml.allowed_digest_algorithms:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"digest_algorithm must be one of: {', '.join(self.settings.saml.allowed_digest_algorithms)}",
+            )
+
+        normalized_entity_id = entity_id.strip()
+        if not normalized_entity_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="entity_id must be a non-empty string",
+            )
+
+        normalized_x509_certificate = x509_certificate.strip()
+        if not normalized_x509_certificate:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="x509_certificate must be a non-empty string",
+            )
+
+        try:
+            normalized_sso_url = normalize_http_url(sso_url, field_name="sso_url")
+            normalized_slo_url = normalize_http_url(slo_url, field_name="slo_url") if slo_url else None
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+        return SAMLProviderConfig(
+            entity_id=normalized_entity_id,
+            sso_url=normalized_sso_url,
+            x509_certificate=normalized_x509_certificate,
+            slo_url=normalized_slo_url,
+            audience=audience.strip() if audience else None,
+            idp_metadata_xml=idp_metadata_xml.strip() if idp_metadata_xml else None,
+            sp_metadata_xml=sp_metadata_xml.strip() if sp_metadata_xml else None,
+            name_id_format=name_id_format.strip() if name_id_format else None,
+            binding=normalized_binding,
+            allow_idp_initiated=allow_idp_initiated,
+            want_assertions_signed=want_assertions_signed,
+            sign_authn_request=sign_authn_request,
+            signature_algorithm=normalized_signature_algorithm,
+            digest_algorithm=normalized_digest_algorithm,
+            private_key=private_key.strip() if private_key else None,
+            private_key_passphrase=private_key_passphrase.strip() if private_key_passphrase else None,
+            signing_certificate=signing_certificate.strip() if signing_certificate else None,
+            decryption_private_key=decryption_private_key.strip() if decryption_private_key else None,
+            decryption_private_key_passphrase=(
+                decryption_private_key_passphrase.strip() if decryption_private_key_passphrase else None
+            ),
+            claim_mapping=claim_mapping,
+        )
 
     def _current_individual_or_403(self) -> IndividualProtocol[str]:
         if self.current_individual is None:

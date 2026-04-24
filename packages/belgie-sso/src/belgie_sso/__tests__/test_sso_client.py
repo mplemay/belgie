@@ -960,6 +960,30 @@ async def test_register_oidc_provider_rejects_duplicate_provider_id(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_register_oidc_provider_rejects_unsupported_token_endpoint_auth_method_when_skip_discovery() -> None:
+    sso_client, _, _, _ = build_client()
+
+    with pytest.raises(
+        HTTPException,
+        match="token endpoint auth method 'private_key_jwt' is not supported",
+    ) as exc_info:
+        await sso_client.register_oidc_provider(
+            provider_id="acme",
+            issuer="https://idp.example.com",
+            client_id="client-id",
+            client_secret="client-secret",
+            authorization_endpoint="https://idp.example.com/authorize",
+            token_endpoint="https://idp.example.com/token",
+            userinfo_endpoint="https://idp.example.com/userinfo",
+            jwks_uri="https://idp.example.com/jwks",
+            token_endpoint_auth_method="private_key_jwt",
+            skip_discovery=True,
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_update_oidc_provider_preserves_existing_fields_when_partially_updating(monkeypatch) -> None:
     sso_client, _, _, _ = build_client()
     monkeypatch.setattr(
@@ -1020,6 +1044,66 @@ async def test_update_oidc_provider_preserves_existing_fields_when_partially_upd
 
 
 @pytest.mark.asyncio
+async def test_update_oidc_provider_rejects_empty_patch(monkeypatch) -> None:
+    sso_client, _, _, _ = build_client()
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(
+            return_value=OIDCDiscoveryResult(
+                issuer="https://idp.example.com",
+                config=OIDCProviderConfig(
+                    issuer="https://idp.example.com",
+                    client_id="client-id",
+                    client_secret="client-secret",
+                    authorization_endpoint="https://idp.example.com/authorize",
+                    token_endpoint="https://idp.example.com/token",
+                    userinfo_endpoint="https://idp.example.com/userinfo",
+                ),
+            ),
+        ),
+    )
+    await sso_client.register_oidc_provider(
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+    )
+
+    with pytest.raises(HTTPException, match="at least one update field must be provided") as exc_info:
+        await sso_client.update_oidc_provider(provider_id="acme")
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_update_oidc_provider_rejects_unsupported_token_endpoint_auth_method_when_skip_discovery() -> None:
+    sso_client, _, _, _ = build_client()
+    await sso_client.register_oidc_provider(
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        authorization_endpoint="https://idp.example.com/authorize",
+        token_endpoint="https://idp.example.com/token",
+        userinfo_endpoint="https://idp.example.com/userinfo",
+        jwks_uri="https://idp.example.com/jwks",
+        skip_discovery=True,
+    )
+
+    with pytest.raises(
+        HTTPException,
+        match="token endpoint auth method 'private_key_jwt' is not supported",
+    ) as exc_info:
+        await sso_client.update_oidc_provider(
+            provider_id="acme",
+            token_endpoint_auth_method="private_key_jwt",
+            skip_discovery=True,
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_update_saml_provider_preserves_existing_fields_when_partially_updating() -> None:
     sso_client, _, _, _ = build_client()
     await sso_client.register_saml_provider(
@@ -1041,6 +1125,24 @@ async def test_update_saml_provider_preserves_existing_fields_when_partially_upd
     assert updated_config.entity_id == "urn:acme:sp"
     assert updated_config.sso_url == "https://idp.example.com/updated/sso"
     assert updated_config.signing_certificate == "signing-certificate"
+
+
+@pytest.mark.asyncio
+async def test_update_saml_provider_rejects_empty_patch() -> None:
+    sso_client, _, _, _ = build_client()
+    await sso_client.register_saml_provider(
+        provider_id="acme-saml",
+        issuer="https://idp.example.com",
+        entity_id="urn:acme:sp",
+        sso_url="https://idp.example.com/sso",
+        x509_certificate="certificate",
+        sign_authn_request=False,
+    )
+
+    with pytest.raises(HTTPException, match="at least one update field must be provided") as exc_info:
+        await sso_client.update_saml_provider(provider_id="acme-saml")
+
+    assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -1075,6 +1177,62 @@ async def test_delete_provider_removes_provider_domains(monkeypatch) -> None:
     assert deleted is True
     assert await adapter.get_provider_by_provider_id(sso_client.client.db, provider_id="acme") is None
     assert await adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id) == []
+
+
+@pytest.mark.asyncio
+async def test_register_saml_provider_rejects_invalid_binding() -> None:
+    sso_client, _, _, _ = build_client()
+
+    with pytest.raises(HTTPException, match="binding must be one of: post, redirect") as exc_info:
+        await sso_client.register_saml_provider(
+            provider_id="acme-saml",
+            issuer="https://idp.example.com",
+            entity_id="urn:acme:sp",
+            sso_url="https://idp.example.com/sso",
+            x509_certificate="certificate",
+            binding="artifact",
+            sign_authn_request=False,
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_register_saml_provider_rejects_blank_sso_url() -> None:
+    sso_client, _, _, _ = build_client()
+
+    with pytest.raises(HTTPException, match="sso_url must be an absolute http\\(s\\) URL") as exc_info:
+        await sso_client.register_saml_provider(
+            provider_id="acme-saml",
+            issuer="https://idp.example.com",
+            entity_id="urn:acme:sp",
+            sso_url=" ",
+            x509_certificate="certificate",
+            sign_authn_request=False,
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_register_saml_provider_rejects_disallowed_signature_algorithm() -> None:
+    sso_client, _, _, _ = build_client()
+
+    with pytest.raises(
+        HTTPException,
+        match="signature_algorithm must be one of: rsa-sha256, rsa-sha384, rsa-sha512",
+    ) as exc_info:
+        await sso_client.register_saml_provider(
+            provider_id="acme-saml",
+            issuer="https://idp.example.com",
+            entity_id="urn:acme:sp",
+            sso_url="https://idp.example.com/sso",
+            x509_certificate="certificate",
+            signature_algorithm="rsa-sha1",
+            sign_authn_request=False,
+        )
+
+    assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio

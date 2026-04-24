@@ -231,8 +231,34 @@ class FakeSSOAdapter:
         self.providers_by_id = {provider.id: provider for provider in providers}
         self.domains = list(domains)
 
-    async def create_provider(self, *args, **kwargs):  # noqa: ANN002, ANN003
-        raise NotImplementedError
+    async def create_provider(
+        self,
+        _db: object,
+        *,
+        organization_id: UUID | None,
+        created_by_individual_id: UUID | None,
+        provider_type: str,
+        provider_id: str,
+        issuer: str,
+        oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None,
+        saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None,
+    ) -> FakeProvider:
+        now = datetime.now(UTC)
+        provider = FakeProvider(
+            id=uuid4(),
+            organization_id=organization_id,
+            created_by_individual_id=created_by_individual_id,
+            provider_type=provider_type,
+            provider_id=provider_id,
+            issuer=issuer,
+            oidc_config=oidc_config,
+            saml_config=saml_config,
+            created_at=now,
+            updated_at=now,
+        )
+        self.providers[provider.provider_id] = provider
+        self.providers_by_id[provider.id] = provider
+        return provider
 
     async def get_provider_by_provider_id(self, _db: object, *, provider_id: str) -> FakeProvider | None:
         return self.providers.get(provider_id)
@@ -265,14 +291,66 @@ class FakeSSOAdapter:
     async def list_providers_for_individual(self, _db: object, *, individual_id: UUID) -> list[FakeProvider]:
         return [provider for provider in self.providers.values() if provider.created_by_individual_id == individual_id]
 
-    async def update_provider(self, *args, **kwargs):  # noqa: ANN002, ANN003
-        raise NotImplementedError
+    async def update_provider(
+        self,
+        _db: object,
+        *,
+        sso_provider_id: UUID,
+        organization_id: UUID | None = None,
+        created_by_individual_id: UUID | None = None,
+        provider_type: str | None = None,
+        issuer: str | None = None,
+        oidc_config: dict[str, str | bool | list[str] | dict[str, str]] | None = None,
+        saml_config: dict[str, str | bool | list[str] | dict[str, str]] | None = None,
+    ) -> FakeProvider | None:
+        provider = self.providers_by_id.get(sso_provider_id)
+        if provider is None:
+            return None
+        if organization_id is not None:
+            provider.organization_id = organization_id
+        if created_by_individual_id is not None:
+            provider.created_by_individual_id = created_by_individual_id
+        if provider_type is not None:
+            provider.provider_type = provider_type
+        if issuer is not None:
+            provider.issuer = issuer
+        if oidc_config is not None:
+            provider.oidc_config = oidc_config
+        if saml_config is not None:
+            provider.saml_config = saml_config
+        provider.updated_at = datetime.now(UTC)
+        return provider
 
-    async def delete_provider(self, *args, **kwargs):  # noqa: ANN002, ANN003
-        raise NotImplementedError
+    async def delete_provider(self, _db: object, *, sso_provider_id: UUID) -> bool:
+        provider = self.providers_by_id.pop(sso_provider_id, None)
+        if provider is None:
+            return False
+        self.providers.pop(provider.provider_id, None)
+        self.domains = [domain for domain in self.domains if domain.sso_provider_id != sso_provider_id]
+        return True
 
-    async def create_domain(self, *args, **kwargs):  # noqa: ANN002, ANN003
-        raise NotImplementedError
+    async def create_domain(
+        self,
+        _db: object,
+        *,
+        sso_provider_id: UUID,
+        domain: str,
+        verification_token: str,
+        verification_token_expires_at: datetime | None = None,
+    ) -> FakeDomain:
+        now = datetime.now(UTC)
+        sso_domain = FakeDomain(
+            id=uuid4(),
+            sso_provider_id=sso_provider_id,
+            domain=domain,
+            verification_token=verification_token,
+            verification_token_expires_at=verification_token_expires_at,
+            verified_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.domains.append(sso_domain)
+        return sso_domain
 
     async def get_domain(self, _db: object, *, domain_id: UUID) -> FakeDomain | None:
         return next((domain for domain in self.domains if domain.id == domain_id), None)
@@ -280,14 +358,35 @@ class FakeSSOAdapter:
     async def get_domain_by_name(self, _db: object, *, domain: str) -> FakeDomain | None:
         return next((item for item in self.domains if item.domain == domain), None)
 
-    async def update_domain(self, *args, **kwargs):  # noqa: ANN002, ANN003
-        raise NotImplementedError
+    async def update_domain(
+        self,
+        _db: object,
+        *,
+        domain_id: UUID,
+        verification_token: str | None = None,
+        verification_token_expires_at: datetime | None = None,
+        verified_at: datetime | None = None,
+    ) -> FakeDomain | None:
+        sso_domain = await self.get_domain(_db, domain_id=domain_id)
+        if sso_domain is None:
+            return None
+        if verification_token is not None:
+            sso_domain.verification_token = verification_token
+        if verification_token_expires_at is not None:
+            sso_domain.verification_token_expires_at = verification_token_expires_at
+        sso_domain.verified_at = verified_at
+        sso_domain.updated_at = datetime.now(UTC)
+        return sso_domain
 
-    async def delete_domain(self, *args, **kwargs):  # noqa: ANN002, ANN003
-        raise NotImplementedError
+    async def delete_domain(self, _db: object, *, domain_id: UUID) -> bool:
+        original_count = len(self.domains)
+        self.domains = [domain for domain in self.domains if domain.id != domain_id]
+        return len(self.domains) != original_count
 
-    async def delete_domains_for_provider(self, *args, **kwargs):  # noqa: ANN002, ANN003
-        raise NotImplementedError
+    async def delete_domains_for_provider(self, _db: object, *, sso_provider_id: UUID) -> int:
+        original_count = len(self.domains)
+        self.domains = [domain for domain in self.domains if domain.sso_provider_id != sso_provider_id]
+        return original_count - len(self.domains)
 
 
 class FakeOrganizationAdapter:
@@ -373,9 +472,7 @@ class FakeBelgieClient:
         self.created_oauth_accounts: list[dict[str, object]] = []
         self.after_sign_up = None
         self.sessions: dict[UUID, SimpleNamespace] = {}
-
-    async def get_individual(self, security_scopes, request):
-        return FakeIndividual(
+        self.current_individual = FakeIndividual(
             id=uuid4(),
             email="owner@example.com",
             email_verified_at=datetime.now(UTC),
@@ -385,6 +482,11 @@ class FakeBelgieClient:
             updated_at=datetime.now(UTC),
             scopes=[],
         )
+        self.adapter.individuals_by_email[self.current_individual.email] = self.current_individual
+        self.adapter.individuals_by_id[self.current_individual.id] = self.current_individual
+
+    async def get_individual(self, security_scopes, request):
+        return self.current_individual
 
     async def get_oauth_account(self, *, provider: str, provider_account_id: str):
         return self.adapter.oauth_accounts.get((provider, provider_account_id))
@@ -486,6 +588,16 @@ class FakeOIDCTransport:
             name="Person Example",
             raw={"sub": "oidc-user-1", "email": self.email, "email_verified": True, "name": "Person Example"},
         )
+
+
+class MappedOIDCTransport(FakeOIDCTransport):
+    def __init__(self, *, plugin: SSOPlugin, provider: object, raw_profile: dict[str, object]) -> None:
+        super().__init__(email=str(raw_profile.get("email", "person@dept.example.com")))
+        self._map_profile = plugin._build_profile_mapper(plugin._provider_oidc_config(provider))
+        self._raw_profile = dict(raw_profile)
+
+    async def fetch_provider_profile(self, token_set: OAuthTokenSet, *, nonce: str | None = None) -> OAuthUserInfo:
+        return self._map_profile(dict(self._raw_profile), token_set)
 
 
 class FailingDiscoveryOIDCTransport(FakeOIDCTransport):
@@ -840,6 +952,7 @@ def _build_saml_response_payload(  # noqa: C901, PLR0912
     sign_response: bool = False,
     signature_algorithm: str | None = None,
     digest_algorithm: str | None = None,
+    include_assertion: bool = True,
 ) -> str:
     response = ET.Element("Response", ID="response-1", Version="2.0", Destination=recipient)
     if in_response_to is not None:
@@ -851,46 +964,47 @@ def _build_saml_response_payload(  # noqa: C901, PLR0912
         "StatusCode",
         Value="urn:oasis:names:tc:SAML:2.0:status:Success",
     )
-    assertions = 2 if duplicate_assertion else 1
-    for index in range(assertions):
-        assertion = ET.Element("Assertion", ID=f"{assertion_id}-{index}" if duplicate_assertion else assertion_id)
-        ET.SubElement(assertion, "Issuer").text = issuer
-        subject = ET.SubElement(assertion, "Subject")
-        ET.SubElement(subject, "NameID").text = provider_account_id
-        subject_confirmation = ET.SubElement(subject, "SubjectConfirmation")
-        subject_confirmation_data_attributes = {
-            "Recipient": recipient,
-            "NotOnOrAfter": not_on_or_after,
-        }
-        if in_response_to is not None:
-            subject_confirmation_data_attributes["InResponseTo"] = in_response_to
-        ET.SubElement(
-            subject_confirmation,
-            "SubjectConfirmationData",
-            subject_confirmation_data_attributes,
-        )
-        ET.SubElement(
-            assertion,
-            "Conditions",
-            {
-                "NotBefore": not_before,
+    if include_assertion:
+        assertions = 2 if duplicate_assertion else 1
+        for index in range(assertions):
+            assertion = ET.Element("Assertion", ID=f"{assertion_id}-{index}" if duplicate_assertion else assertion_id)
+            ET.SubElement(assertion, "Issuer").text = issuer
+            subject = ET.SubElement(assertion, "Subject")
+            ET.SubElement(subject, "NameID").text = provider_account_id
+            subject_confirmation = ET.SubElement(subject, "SubjectConfirmation")
+            subject_confirmation_data_attributes = {
+                "Recipient": recipient,
                 "NotOnOrAfter": not_on_or_after,
-            },
-        )
-        attribute_statement = ET.SubElement(assertion, "AttributeStatement")
-        for attribute_name, attribute_value in {
-            "email": email,
-            "email_verified": email_verified,
-            "name": name,
-        }.items():
-            attribute = ET.SubElement(attribute_statement, "Attribute", Name=attribute_name)
-            ET.SubElement(attribute, "AttributeValue").text = attribute_value
-        ET.SubElement(assertion, "AuthnStatement", SessionIndex=session_index)
-        if sign_assertion:
-            assertion = _sign_element(assertion, key_material=_IDP_KEYS)
-        response.append(assertion)
-    if encrypt_assertion:
-        _encrypt_assertion(response)
+            }
+            if in_response_to is not None:
+                subject_confirmation_data_attributes["InResponseTo"] = in_response_to
+            ET.SubElement(
+                subject_confirmation,
+                "SubjectConfirmationData",
+                subject_confirmation_data_attributes,
+            )
+            ET.SubElement(
+                assertion,
+                "Conditions",
+                {
+                    "NotBefore": not_before,
+                    "NotOnOrAfter": not_on_or_after,
+                },
+            )
+            attribute_statement = ET.SubElement(assertion, "AttributeStatement")
+            for attribute_name, attribute_value in {
+                "email": email,
+                "email_verified": email_verified,
+                "name": name,
+            }.items():
+                attribute = ET.SubElement(attribute_statement, "Attribute", Name=attribute_name)
+                ET.SubElement(attribute, "AttributeValue").text = attribute_value
+            ET.SubElement(assertion, "AuthnStatement", SessionIndex=session_index)
+            if sign_assertion:
+                assertion = _sign_element(assertion, key_material=_IDP_KEYS)
+            response.append(assertion)
+        if encrypt_assertion:
+            _encrypt_assertion(response)
     if sign_response:
         response = _sign_element(response, key_material=_IDP_KEYS)
     if signature_algorithm is not None:
@@ -1059,6 +1173,79 @@ def test_signin_passes_explicit_login_hint(monkeypatch) -> None:
     assert transport.last_authorization_kwargs["authorization_params"] == {"login_hint": "person@example.com"}
 
 
+def test_signin_explicit_provider_id_uses_database_provider_when_default_provider_is_unrelated(monkeypatch) -> None:
+    selected_provider_ids: list[str] = []
+    plugin, client_dependency, _ = build_plugin(
+        default_providers=(
+            DefaultSSOProviderConfig(
+                domain="static.example.com",
+                provider_id="static-default",
+                issuer="https://static.example.com",
+                oidc_config=OIDCProviderConfig(
+                    issuer="https://static.example.com",
+                    client_id="static-client-id",
+                    client_secret="static-client-secret",
+                    authorization_endpoint="https://static.example.com/authorize",
+                    token_endpoint="https://static.example.com/token",
+                    userinfo_endpoint="https://static.example.com/userinfo",
+                    jwks_uri="https://static.example.com/jwks",
+                ),
+            ),
+        ),
+    )
+    belgie = DummyBelgie(client_dependency)
+
+    def build_transport(provider: object) -> FakeOIDCTransport:
+        selected_provider_ids.append(provider.provider_id)
+        return FakeOIDCTransport()
+
+    monkeypatch.setattr(plugin, "_build_oidc_transport", build_transport)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    response = client.get("/auth/provider/sso/signin?provider_id=acme", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert selected_provider_ids == ["acme"]
+
+
+def test_signin_unknown_provider_id_still_returns_404_when_default_providers_exist() -> None:
+    plugin, client_dependency, _ = build_plugin(
+        default_providers=(
+            DefaultSSOProviderConfig(
+                domain="static.example.com",
+                provider_id="static-default",
+                issuer="https://static.example.com",
+                oidc_config=OIDCProviderConfig(
+                    issuer="https://static.example.com",
+                    client_id="static-client-id",
+                    client_secret="static-client-secret",
+                    authorization_endpoint="https://static.example.com/authorize",
+                    token_endpoint="https://static.example.com/token",
+                    userinfo_endpoint="https://static.example.com/userinfo",
+                    jwks_uri="https://static.example.com/jwks",
+                ),
+            ),
+        ),
+    )
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    response = client.get("/auth/provider/sso/signin?provider_id=missing", follow_redirects=False)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "provider not found"
+
+
 def test_build_oidc_transport_resolves_relative_redirect_uri() -> None:
     plugin, _, _ = build_plugin(redirect_uri="/sso/callback")
     provider = plugin.settings.adapter.providers["acme"]
@@ -1066,6 +1253,149 @@ def test_build_oidc_transport_resolves_relative_redirect_uri() -> None:
     transport = plugin._build_oidc_transport(provider)
 
     assert transport.redirect_uri == "http://localhost:8000/sso/callback"
+
+
+def test_build_profile_mapper_preserves_raw_claims_and_adds_extra_field_aliases() -> None:
+    plugin, _, _ = build_plugin()
+    provider = plugin.settings.adapter.providers["acme"]
+    assert provider.oidc_config is not None
+    provider.oidc_config["claim_mapping"]["extra_fields"] = {
+        "department_alias": "department",
+        "tenant_alias": "tid",
+    }
+    mapper = plugin._build_profile_mapper(plugin._provider_oidc_config(provider))
+
+    provider_user = mapper(
+        {
+            "sub": "oidc-user-1",
+            "email": "person@example.com",
+            "email_verified": True,
+            "name": "Person Example",
+            "department": "engineering",
+            "tid": "tenant-123",
+        },
+        OAuthTokenSet(
+            access_token="access-token",
+            refresh_token=None,
+            token_type="Bearer",
+            scope="openid email profile",
+            id_token="id-token",
+            access_token_expires_at=None,
+            refresh_token_expires_at=None,
+            raw={"access_token": "access-token"},
+        ),
+    )
+
+    assert provider_user.raw["department"] == "engineering"
+    assert provider_user.raw["department_alias"] == "engineering"
+    assert provider_user.raw["tid"] == "tenant-123"
+    assert provider_user.raw["tenant_alias"] == "tenant-123"
+
+
+def test_shared_callback_passes_mapped_oidc_extra_fields_to_provision_user(monkeypatch) -> None:
+    captured_profiles: list[dict[str, object]] = []
+
+    def provision_user(individual: object, context: object) -> None:
+        _ = individual
+        captured_profiles.append(dict(context.profile))
+
+    plugin, client_dependency, _ = build_plugin(provision_user=provision_user)
+    belgie = DummyBelgie(client_dependency)
+    provider = plugin.settings.adapter.providers["acme"]
+    assert provider.oidc_config is not None
+    provider.oidc_config["claim_mapping"]["extra_fields"] = {
+        "department_alias": "department",
+        "tenant_alias": "tid",
+    }
+    monkeypatch.setattr(
+        plugin,
+        "_build_oidc_transport",
+        lambda resolved_provider: MappedOIDCTransport(
+            plugin=plugin,
+            provider=resolved_provider,
+            raw_profile={
+                "sub": "oidc-user-1",
+                "email": "person@dept.example.com",
+                "email_verified": True,
+                "name": "Person Example",
+                "department": "engineering",
+                "tid": "tenant-123",
+            },
+        ),
+    )
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme&request_sign_up=true", follow_redirects=False)
+    state = parse_qs(urlparse(signin.headers["location"]).query)["state"][0]
+
+    response = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert captured_profiles == [
+        {
+            "sub": "oidc-user-1",
+            "email": "person@dept.example.com",
+            "email_verified": True,
+            "name": "Person Example",
+            "department": "engineering",
+            "tid": "tenant-123",
+            "department_alias": "engineering",
+            "tenant_alias": "tenant-123",
+        },
+    ]
+
+
+def test_shared_callback_passes_mapped_oidc_extra_fields_to_role_resolver(monkeypatch) -> None:
+    def organization_role_resolver(context: object) -> str:
+        return "admin" if context.profile["department_alias"] == "engineering" else "member"
+
+    plugin, client_dependency, organization_adapter = build_plugin(
+        organization_role_resolver=organization_role_resolver,
+    )
+    belgie = DummyBelgie(client_dependency)
+    provider = plugin.settings.adapter.providers["acme"]
+    assert provider.oidc_config is not None
+    provider.oidc_config["claim_mapping"]["extra_fields"] = {"department_alias": "department"}
+    monkeypatch.setattr(
+        plugin,
+        "_build_oidc_transport",
+        lambda resolved_provider: MappedOIDCTransport(
+            plugin=plugin,
+            provider=resolved_provider,
+            raw_profile={
+                "sub": "oidc-user-1",
+                "email": "person@dept.example.com",
+                "email_verified": True,
+                "name": "Person Example",
+                "department": "engineering",
+            },
+        ),
+    )
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme&request_sign_up=true", follow_redirects=False)
+    state = parse_qs(urlparse(signin.headers["location"]).query)["state"][0]
+
+    response = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert organization_adapter.created_members[-1][2] == "admin"
 
 
 def test_shared_callback_creates_session_and_assigns_org(monkeypatch) -> None:
@@ -1299,6 +1629,91 @@ def test_callback_request_sign_up_allows_new_user_when_disable_implicit_sign_up_
     assert response.status_code == 302
     assert response.headers["location"] == "/after"
     assert len(client_dependency.created_oauth_accounts) == 1
+
+
+def test_callback_ignores_protocol_relative_redirect_target(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(plugin, "_build_oidc_transport", lambda provider: FakeOIDCTransport())
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get(
+        "/auth/provider/sso/signin?provider_id=acme&request_sign_up=true&redirect_to=%2F%2Fevil.example.com",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlparse(signin.headers["location"]).query)["state"][0]
+
+    response = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
+
+
+def test_callback_falls_back_to_redirect_target_when_error_redirect_is_rejected(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(
+        plugin,
+        "_build_oidc_transport",
+        lambda provider: FakeOIDCTransport(email="person@untrusted.com"),
+    )
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get(
+        "/auth/provider/sso/signin?provider_id=acme&redirect_to=%2Fafter&error_redirect_url=%2F%2Fevil.example.com",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlparse(signin.headers["location"]).query)["state"][0]
+
+    response = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("/after?error=signup_disabled")
+
+
+def test_callback_falls_back_to_redirect_target_when_new_user_redirect_is_rejected(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(plugin, "_build_oidc_transport", lambda provider: FakeOIDCTransport())
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get(
+        (
+            "/auth/provider/sso/signin?provider_id=acme&request_sign_up=true"
+            "&redirect_to=%2Fafter&new_user_redirect_url=%2Fauth%2Fprovider%2Fsso%2Fcallback"
+        ),
+        follow_redirects=False,
+    )
+    state = parse_qs(urlparse(signin.headers["location"]).query)["state"][0]
+
+    response = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/after"
 
 
 def test_provision_user_runs_only_on_first_login_by_default(monkeypatch) -> None:
@@ -1605,6 +2020,115 @@ def test_management_routes_expose_provider_and_domain_operations() -> None:
     assert management_client.deleted_provider_id == "acme"
 
 
+def test_management_routes_reject_invalid_oidc_auth_method_when_skip_discovery() -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    response = client.post(
+        "/auth/provider/sso/providers/oidc",
+        json={
+            "provider_id": "route-acme",
+            "issuer": "https://idp.example.com",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "authorization_endpoint": "https://idp.example.com/authorize",
+            "token_endpoint": "https://idp.example.com/token",
+            "userinfo_endpoint": "https://idp.example.com/userinfo",
+            "jwks_uri": "https://idp.example.com/jwks",
+            "token_endpoint_auth_method": "private_key_jwt",
+            "skip_discovery": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "token endpoint auth method 'private_key_jwt' is not supported"
+
+
+def test_management_routes_reject_empty_oidc_patch() -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    created = client.post(
+        "/auth/provider/sso/providers/oidc",
+        json={
+            "provider_id": "route-acme",
+            "issuer": "https://idp.example.com",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "authorization_endpoint": "https://idp.example.com/authorize",
+            "token_endpoint": "https://idp.example.com/token",
+            "userinfo_endpoint": "https://idp.example.com/userinfo",
+            "jwks_uri": "https://idp.example.com/jwks",
+            "skip_discovery": True,
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.patch("/auth/provider/sso/providers/route-acme/oidc", json={})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "at least one update field must be provided"
+
+
+def test_deleting_sso_provider_does_not_delete_linked_oauth_accounts(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    monkeypatch.setattr(
+        plugin,
+        "_build_oidc_transport",
+        lambda provider: FakeOIDCTransport(email="person@route.example.com"),
+    )
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    created = client.post(
+        "/auth/provider/sso/providers/oidc",
+        json={
+            "provider_id": "route-acme",
+            "issuer": "https://idp.example.com",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "domains": ["route.example.com"],
+            "authorization_endpoint": "https://idp.example.com/authorize",
+            "token_endpoint": "https://idp.example.com/token",
+            "userinfo_endpoint": "https://idp.example.com/userinfo",
+            "jwks_uri": "https://idp.example.com/jwks",
+            "skip_discovery": True,
+        },
+    )
+    assert created.status_code == 201
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=route-acme&request_sign_up=true", follow_redirects=False)
+    state = parse_qs(urlparse(signin.headers["location"]).query)["state"][0]
+    callback = client.get(
+        f"/auth/provider/sso/callback?code=test-code&state={state}",
+        follow_redirects=False,
+    )
+    assert callback.status_code == 302
+
+    deleted = client.delete("/auth/provider/sso/providers/route-acme")
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {"success": True}
+    assert ("sso:route-acme", "oidc-user-1") in client_dependency.adapter.oauth_accounts
+
+
 def test_builtin_saml_metadata_route_returns_custom_sp_metadata_xml() -> None:
     plugin, client_dependency, _ = build_plugin(
         include_saml=True,
@@ -1724,6 +2248,55 @@ def test_builtin_saml_callback_accepts_encrypted_assertions(monkeypatch) -> None
     assert response.status_code == 302
     assert response.headers["location"] == "/dashboard"
     assert response.cookies.get("session") is not None
+
+
+def test_builtin_saml_rejects_missing_assertion(monkeypatch) -> None:
+    plugin, client_dependency, _ = build_plugin(include_saml=True, use_builtin_saml_engine=True)
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    signin = client.get("/auth/provider/sso/signin?provider_id=acme-saml", follow_redirects=False)
+    relay_state = parse_qs(urlparse(signin.headers["location"]).query)["RelayState"][0]
+    request_id = client_dependency.adapter.oauth_states[relay_state].payload["request_id"]
+    saml_response = _build_saml_response_payload(
+        recipient="https://testserver.local/auth/provider/sso/callback/acme-saml",
+        in_response_to=request_id,
+        include_assertion=False,
+    )
+
+    response = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": saml_response, "RelayState": relay_state},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("/dashboard?error=oauth_callback_failed")
+
+
+def test_saml_idp_initiated_callback_rejects_new_user_when_disable_implicit_sign_up_is_enabled() -> None:
+    plugin, client_dependency, _ = build_plugin(include_saml=True, disable_implicit_sign_up=True)
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+
+    response = client.post(
+        "/auth/provider/sso/callback/acme-saml",
+        data={"SAMLResponse": "response"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("/dashboard?error=signup_disabled")
 
 
 def test_builtin_saml_callback_rejects_replay(monkeypatch) -> None:

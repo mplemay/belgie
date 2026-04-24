@@ -1003,7 +1003,11 @@ def _parse_saml_datetime(value: str | None) -> datetime | None:
     if value is None:
         return None
     normalized = value.replace("Z", "+00:00")
-    return datetime.fromisoformat(normalized).astimezone(UTC)
+    try:
+        return datetime.fromisoformat(normalized).astimezone(UTC)
+    except ValueError as exc:
+        msg = "invalid SAML timestamp"
+        raise RuntimeError(msg) from exc
 
 
 def _response_in_response_to(root: ET._Element, assertion: ET._Element) -> str | None:
