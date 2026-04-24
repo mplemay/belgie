@@ -21,15 +21,23 @@ from belgie_oauth._helpers import append_query_params, generate_code_verifier
 from belgie_oauth._models import ConsumedOAuthState, OAuthTokenSet, OAuthUserInfo, PendingOAuthState, ResponseCookie
 from belgie_oauth._state import AdapterOAuthStateStore
 from belgie_organization.plugin import OrganizationPlugin
-from belgie_proto.sso import OIDCProviderConfig, SAMLProviderConfig, SSODomainProtocol, SSOProviderProtocol
+from belgie_proto.core.json import JSONValue  # noqa: TC002 - Pydantic response models resolve this at runtime.
+from belgie_proto.sso import (
+    OIDCClaimMapping,
+    OIDCProviderConfig,
+    SAMLClaimMapping,
+    SAMLProviderConfig,
+    SSODomainProtocol,
+    SSOProviderProtocol,
+)
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import SecurityScopes
-from pydantic import SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import DiscoveryError, ValidatingOAuthTransport, needs_runtime_discovery
-from belgie_sso.models import SSOProvisioningContext
+from belgie_sso.models import SSODomainChallenge, SSOProviderDetail, SSOProvisioningContext
 from belgie_sso.org_assignment import (
     assign_individual_to_provider_organization,
     provider_matches_domain,
@@ -89,6 +97,182 @@ class _DefaultProvider:
     created_at: datetime
     updated_at: datetime
     domain: str
+
+
+class _OIDCClaimMappingBody(BaseModel):
+    subject: str = "sub"
+    email: str = "email"
+    email_verified: str = "email_verified"
+    name: str = "name"
+    image: str = "picture"
+    extra_fields: dict[str, str] = Field(default_factory=dict)
+
+    def to_config(self) -> OIDCClaimMapping:
+        return OIDCClaimMapping(
+            subject=self.subject,
+            email=self.email,
+            email_verified=self.email_verified,
+            name=self.name,
+            image=self.image,
+            extra_fields=dict(self.extra_fields),
+        )
+
+
+class _SAMLClaimMappingBody(BaseModel):
+    subject: str = "name_id"
+    email: str = "email"
+    email_verified: str = "email_verified"
+    name: str = "name"
+    first_name: str = "first_name"
+    last_name: str = "last_name"
+    groups: str = "groups"
+    extra_fields: dict[str, str] = Field(default_factory=dict)
+
+    def to_config(self) -> SAMLClaimMapping:
+        return SAMLClaimMapping(
+            subject=self.subject,
+            email=self.email,
+            email_verified=self.email_verified,
+            name=self.name,
+            first_name=self.first_name,
+            last_name=self.last_name,
+            groups=self.groups,
+            extra_fields=dict(self.extra_fields),
+        )
+
+
+class _OIDCProviderCreateBody(BaseModel):
+    provider_id: str
+    issuer: str
+    client_id: str
+    client_secret: str
+    domains: list[str] | None = None
+    organization_id: UUID | None = None
+    scopes: list[str] | None = None
+    token_endpoint_auth_method: str = "client_secret_basic"  # noqa: S105
+    claim_mapping: _OIDCClaimMappingBody | None = None
+    authorization_endpoint: str | None = None
+    token_endpoint: str | None = None
+    userinfo_endpoint: str | None = None
+    jwks_uri: str | None = None
+    discovery_endpoint: str | None = None
+    use_pkce: bool = True
+    override_user_info_on_sign_in: bool = False
+    skip_discovery: bool = False
+
+
+class _OIDCProviderUpdateBody(BaseModel):
+    issuer: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    domains: list[str] | None = None
+    scopes: list[str] | None = None
+    token_endpoint_auth_method: str | None = None
+    claim_mapping: _OIDCClaimMappingBody | None = None
+    authorization_endpoint: str | None = None
+    token_endpoint: str | None = None
+    userinfo_endpoint: str | None = None
+    jwks_uri: str | None = None
+    discovery_endpoint: str | None = None
+    use_pkce: bool | None = None
+    override_user_info_on_sign_in: bool | None = None
+    skip_discovery: bool = False
+
+
+class _SAMLProviderCreateBody(BaseModel):
+    provider_id: str
+    issuer: str
+    entity_id: str
+    sso_url: str
+    x509_certificate: str
+    domains: list[str] | None = None
+    organization_id: UUID | None = None
+    slo_url: str | None = None
+    audience: str | None = None
+    idp_metadata_xml: str | None = None
+    sp_metadata_xml: str | None = None
+    name_id_format: str | None = None
+    binding: str = "redirect"
+    allow_idp_initiated: bool = True
+    want_assertions_signed: bool = True
+    sign_authn_request: bool = True
+    signature_algorithm: str = "rsa-sha256"
+    digest_algorithm: str = "sha256"
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
+    signing_certificate: str | None = None
+    decryption_private_key: str | None = None
+    decryption_private_key_passphrase: str | None = None
+    claim_mapping: _SAMLClaimMappingBody | None = None
+
+
+class _SAMLProviderUpdateBody(BaseModel):
+    issuer: str | None = None
+    entity_id: str | None = None
+    sso_url: str | None = None
+    x509_certificate: str | None = None
+    domains: list[str] | None = None
+    slo_url: str | None = None
+    audience: str | None = None
+    idp_metadata_xml: str | None = None
+    sp_metadata_xml: str | None = None
+    name_id_format: str | None = None
+    binding: str | None = None
+    allow_idp_initiated: bool | None = None
+    want_assertions_signed: bool | None = None
+    sign_authn_request: bool | None = None
+    signature_algorithm: str | None = None
+    digest_algorithm: str | None = None
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
+    signing_certificate: str | None = None
+    decryption_private_key: str | None = None
+    decryption_private_key_passphrase: str | None = None
+    claim_mapping: _SAMLClaimMappingBody | None = None
+
+
+class _SSOProviderDetailBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    provider_id: str
+    provider_type: str
+    issuer: str
+    organization_id: UUID | None
+    created_by_individual_id: UUID | None
+    domain_verified: bool
+    domains: tuple[str, ...]
+    verified_domains: tuple[str, ...]
+    config: dict[str, JSONValue]
+    created_at: datetime
+    updated_at: datetime
+
+
+class _SSODomainChallengeBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    domain: str
+    record_name: str
+    record_value: str
+    verification_token: str
+    expires_at: datetime | None
+    verified_at: datetime | None
+
+
+class _SSODomainBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    sso_provider_id: UUID
+    domain: str
+    verification_token_expires_at: datetime | None
+    verified_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class _DeleteProviderBody(BaseModel):
+    success: bool
 
 
 class SSOPlugin[
@@ -212,6 +396,12 @@ class SSOPlugin[
         self._ensure_dependency_resolver(belgie)
         router = APIRouter(prefix="/provider/sso", tags=["auth", "sso"])
 
+        async def resolve_sso_client(
+            request: Request,
+            client: BelgieClient = Depends(belgie),  # noqa: B008
+        ) -> SSOClient:
+            return await self(request, client)
+
         @router.get("/signin")
         async def signin(
             request: Request,
@@ -256,13 +446,194 @@ class SSOPlugin[
                 scopes=scopes,
             )
 
+        @router.post(
+            "/providers/oidc",
+            response_model=_SSOProviderDetailBody,
+            status_code=status.HTTP_201_CREATED,
+        )
+        async def register_oidc_provider(
+            body: _OIDCProviderCreateBody,
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+        ) -> SSOProviderDetail:
+            provider = await sso_client.register_oidc_provider(
+                provider_id=body.provider_id,
+                issuer=body.issuer,
+                client_id=body.client_id,
+                client_secret=body.client_secret,
+                domains=body.domains,
+                organization_id=body.organization_id,
+                scopes=body.scopes,
+                token_endpoint_auth_method=body.token_endpoint_auth_method,
+                claim_mapping=body.claim_mapping.to_config() if body.claim_mapping is not None else None,
+                authorization_endpoint=body.authorization_endpoint,
+                token_endpoint=body.token_endpoint,
+                userinfo_endpoint=body.userinfo_endpoint,
+                jwks_uri=body.jwks_uri,
+                discovery_endpoint=body.discovery_endpoint,
+                use_pkce=body.use_pkce,
+                override_user_info_on_sign_in=body.override_user_info_on_sign_in,
+                skip_discovery=body.skip_discovery,
+            )
+            return await sso_client.get_provider_detail(provider_id=provider.provider_id)
+
+        @router.patch("/providers/{provider_id}/oidc", response_model=_SSOProviderDetailBody)
+        async def update_oidc_provider(
+            provider_id: Annotated[str, Path(min_length=1)],
+            body: _OIDCProviderUpdateBody,
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+        ) -> SSOProviderDetail:
+            provider = await sso_client.update_oidc_provider(
+                provider_id=provider_id,
+                issuer=body.issuer,
+                client_id=body.client_id,
+                client_secret=body.client_secret,
+                domains=body.domains,
+                scopes=body.scopes,
+                token_endpoint_auth_method=body.token_endpoint_auth_method,
+                claim_mapping=body.claim_mapping.to_config() if body.claim_mapping is not None else None,
+                authorization_endpoint=body.authorization_endpoint,
+                token_endpoint=body.token_endpoint,
+                userinfo_endpoint=body.userinfo_endpoint,
+                jwks_uri=body.jwks_uri,
+                discovery_endpoint=body.discovery_endpoint,
+                use_pkce=body.use_pkce,
+                override_user_info_on_sign_in=body.override_user_info_on_sign_in,
+                skip_discovery=body.skip_discovery,
+            )
+            return await sso_client.get_provider_detail(provider_id=provider.provider_id)
+
+        @router.post(
+            "/providers/saml",
+            response_model=_SSOProviderDetailBody,
+            status_code=status.HTTP_201_CREATED,
+        )
+        async def register_saml_provider(
+            body: _SAMLProviderCreateBody,
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+        ) -> SSOProviderDetail:
+            provider = await sso_client.register_saml_provider(
+                provider_id=body.provider_id,
+                issuer=body.issuer,
+                entity_id=body.entity_id,
+                sso_url=body.sso_url,
+                x509_certificate=body.x509_certificate,
+                domains=body.domains,
+                organization_id=body.organization_id,
+                slo_url=body.slo_url,
+                audience=body.audience,
+                idp_metadata_xml=body.idp_metadata_xml,
+                sp_metadata_xml=body.sp_metadata_xml,
+                name_id_format=body.name_id_format,
+                binding=body.binding,
+                allow_idp_initiated=body.allow_idp_initiated,
+                want_assertions_signed=body.want_assertions_signed,
+                sign_authn_request=body.sign_authn_request,
+                signature_algorithm=body.signature_algorithm,
+                digest_algorithm=body.digest_algorithm,
+                private_key=body.private_key,
+                private_key_passphrase=body.private_key_passphrase,
+                signing_certificate=body.signing_certificate,
+                decryption_private_key=body.decryption_private_key,
+                decryption_private_key_passphrase=body.decryption_private_key_passphrase,
+                claim_mapping=body.claim_mapping.to_config() if body.claim_mapping is not None else None,
+            )
+            return await sso_client.get_provider_detail(provider_id=provider.provider_id)
+
+        @router.patch("/providers/{provider_id}/saml", response_model=_SSOProviderDetailBody)
+        async def update_saml_provider(
+            provider_id: Annotated[str, Path(min_length=1)],
+            body: _SAMLProviderUpdateBody,
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+        ) -> SSOProviderDetail:
+            provider = await sso_client.update_saml_provider(
+                provider_id=provider_id,
+                issuer=body.issuer,
+                entity_id=body.entity_id,
+                sso_url=body.sso_url,
+                x509_certificate=body.x509_certificate,
+                domains=body.domains,
+                slo_url=body.slo_url,
+                audience=body.audience,
+                idp_metadata_xml=body.idp_metadata_xml,
+                sp_metadata_xml=body.sp_metadata_xml,
+                name_id_format=body.name_id_format,
+                binding=body.binding,
+                allow_idp_initiated=body.allow_idp_initiated,
+                want_assertions_signed=body.want_assertions_signed,
+                sign_authn_request=body.sign_authn_request,
+                signature_algorithm=body.signature_algorithm,
+                digest_algorithm=body.digest_algorithm,
+                private_key=body.private_key,
+                private_key_passphrase=body.private_key_passphrase,
+                signing_certificate=body.signing_certificate,
+                decryption_private_key=body.decryption_private_key,
+                decryption_private_key_passphrase=body.decryption_private_key_passphrase,
+                claim_mapping=body.claim_mapping.to_config() if body.claim_mapping is not None else None,
+            )
+            return await sso_client.get_provider_detail(provider_id=provider.provider_id)
+
+        @router.get("/providers", response_model=list[_SSOProviderDetailBody])
+        async def list_providers(
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+            organization_id: Annotated[UUID | None, Query()] = None,
+        ) -> list[SSOProviderDetail]:
+            return await sso_client.list_provider_details(organization_id=organization_id)
+
+        @router.get("/providers/{provider_id}", response_model=_SSOProviderDetailBody)
+        async def get_provider(
+            provider_id: Annotated[str, Path(min_length=1)],
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+        ) -> SSOProviderDetail:
+            return await sso_client.get_provider_detail(provider_id=provider_id)
+
+        @router.delete("/providers/{provider_id}", response_model=_DeleteProviderBody)
+        async def delete_provider(
+            provider_id: Annotated[str, Path(min_length=1)],
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+        ) -> _DeleteProviderBody:
+            return _DeleteProviderBody(success=await sso_client.delete_provider(provider_id=provider_id))
+
+        @router.post(
+            "/providers/{provider_id}/domains/{domain}/challenge",
+            response_model=_SSODomainChallengeBody,
+            status_code=status.HTTP_201_CREATED,
+        )
+        async def create_domain_challenge(
+            provider_id: Annotated[str, Path(min_length=1)],
+            domain: Annotated[str, Path(min_length=1)],
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+        ) -> SSODomainChallenge:
+            return await sso_client.create_domain_challenge(provider_id=provider_id, domain=domain)
+
+        @router.post("/providers/{provider_id}/domains/{domain}/verify", response_model=_SSODomainBody)
+        async def verify_domain(
+            provider_id: Annotated[str, Path(min_length=1)],
+            domain: Annotated[str, Path(min_length=1)],
+            sso_client: SSOClient = Depends(resolve_sso_client),  # noqa: B008
+        ) -> _SSODomainBody:
+            verified_domain = await sso_client.verify_domain(provider_id=provider_id, domain=domain)
+            return _SSODomainBody.model_validate(verified_domain)
+
         async def complete_callback(
             request: Request,
             client: BelgieClient = Depends(belgie),  # noqa: B008
             provider_id: str | None = None,
         ) -> Response:
             callback_params = await self._extract_callback_params(request)
-            if callback_params.get("SAMLResponse") is not None or callback_params.get("RelayState") is not None:
+            if callback_params.get("SAMLResponse") is not None:
+                return await self._complete_saml_callback(
+                    belgie=belgie,
+                    client=client,
+                    request=request,
+                    provider_id=provider_id,
+                )
+            if callback_params.get("RelayState") is not None and request.method.upper() == "GET":
+                return await self._complete_saml_get_callback(
+                    client=client,
+                    request=request,
+                    provider_id=provider_id,
+                )
+            if callback_params.get("RelayState") is not None:
                 return await self._complete_saml_callback(
                     belgie=belgie,
                     client=client,
@@ -589,6 +960,33 @@ class SSOPlugin[
                 detail="SAML provider did not return a usable sign-in response",
             )
         return self._render_saml_form(start_result)
+
+    async def _complete_saml_get_callback(
+        self,
+        *,
+        client: BelgieClient,
+        request: Request,
+        provider_id: str | None,
+    ) -> RedirectResponse:
+        callback_params = await self._extract_callback_params(request)
+        relay_state = callback_params.get("RelayState")
+        if provider_id is None or relay_state is None:
+            raise OAuthCallbackError("state_mismatch", "missing SAML RelayState")
+
+        provider = await self._get_provider_by_provider_id(client=client, provider_id=provider_id)
+        if provider.provider_type != "saml":
+            raise OAuthCallbackError("state_mismatch", "SAML state provider mismatch")
+        if not (target := self._normalize_redirect_target(relay_state)):
+            raise OAuthCallbackError("state_mismatch", "invalid SAML RelayState")
+
+        try:
+            await client.get_session(request)
+        except (HTTPException, KeyError, RuntimeError):
+            return self._error_redirect_response(
+                exc=OAuthCallbackError("state_mismatch", "missing SAMLResponse"),
+                target=target,
+            )
+        return RedirectResponse(url=target, status_code=status.HTTP_302_FOUND)
 
     async def _complete_saml_callback(
         self,

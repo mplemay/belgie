@@ -912,7 +912,8 @@ def _decrypt_encrypted_assertions(root: ET._Element, *, config: SAMLProviderConf
         except Exception as exc:
             msg = "failed to decrypt SAML assertion"
             raise RuntimeError(msg) from exc
-        if not isinstance(decrypted, ET._Element) or _local_name(decrypted.tag) != "Assertion":
+        decrypted_tag = getattr(decrypted, "tag", None)
+        if not isinstance(decrypted_tag, str) or _local_name(decrypted_tag) != "Assertion":
             msg = "encrypted SAML assertion did not decrypt to an Assertion"
             raise RuntimeError(msg)
         if (parent := encrypted_assertion.getparent()) is None:

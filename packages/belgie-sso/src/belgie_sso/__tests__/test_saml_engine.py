@@ -212,7 +212,7 @@ def _encrypt_assertion(response: ET._Element, *, certificate: str) -> None:
     response.append(encrypted_assertion)
 
 
-def _build_saml_response_payload(
+def _build_saml_response_payload(  # noqa: C901
     *,
     recipient: str,
     issuer: str = "https://idp.example.com",
@@ -431,7 +431,7 @@ async def test_finish_signin_enforces_timestamp_boundaries(monkeypatch) -> None:
 
     class FrozenDatetime(datetime):
         @classmethod
-        def now(cls, tz=None):
+        def now(cls, tz=None) -> datetime:
             return frozen if tz is not None else frozen.replace(tzinfo=None)
 
     monkeypatch.setattr("belgie_sso.saml.datetime", FrozenDatetime)

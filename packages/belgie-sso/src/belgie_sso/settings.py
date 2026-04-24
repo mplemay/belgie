@@ -73,7 +73,7 @@ class EnterpriseSSO[
     )
 
     adapter: SSOAdapterProtocol[ProviderT, DomainT] = Field(exclude=True)
-    default_scopes: list[str] = Field(default_factory=lambda: ["openid", "email", "profile"])
+    default_scopes: list[str] = Field(default_factory=lambda: ["openid", "email", "profile", "offline_access"])
     discovery_timeout_seconds: float = 10.0
     state_ttl_seconds: int = 60 * 10
     providers_limit: int | ProvidersLimitCallback | None = None

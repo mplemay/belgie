@@ -419,7 +419,7 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
 
 
 @pytest.mark.asyncio
-async def test_encrypted_saml_signin_and_sp_initiated_logout_flow(session_factory) -> None:
+async def test_encrypted_saml_signin_and_sp_initiated_logout_flow(session_factory) -> None:  # noqa: PLR0915
     core_adapter = BelgieAdapter(
         account=Account,
         individual=Individual,

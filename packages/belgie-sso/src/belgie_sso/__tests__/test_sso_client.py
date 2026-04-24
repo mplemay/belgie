@@ -293,6 +293,12 @@ def build_client() -> tuple[SSOClient, MemorySSOAdapter, FakeOrganization, FakeI
     return client, sso_adapter, organization, admin_individual
 
 
+def test_default_scopes_include_offline_access() -> None:
+    sso_client, _, _, _ = build_client()
+
+    assert sso_client.settings.default_scopes == ["openid", "email", "profile", "offline_access"]
+
+
 @pytest.mark.asyncio
 async def test_register_oidc_provider_supports_user_owned_providers(monkeypatch) -> None:
     sso_client, sso_adapter, _, admin_individual = build_client()
@@ -637,6 +643,43 @@ async def test_create_domain_challenge_rotates_expired_token(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_create_domain_challenge_rejects_verified_domain(monkeypatch) -> None:
+    sso_client, adapter, _, _ = build_client()
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(
+            return_value=OIDCDiscoveryResult(
+                issuer="https://idp.example.com",
+                config=OIDCProviderConfig(
+                    issuer="https://idp.example.com",
+                    client_id="client-id",
+                    client_secret="client-secret",
+                    authorization_endpoint="https://idp.example.com/authorize",
+                    token_endpoint="https://idp.example.com/token",
+                    userinfo_endpoint="https://idp.example.com/userinfo",
+                ),
+            ),
+        ),
+    )
+    provider = await sso_client.register_oidc_provider(
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        domains=["example.com"],
+    )
+    await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
+    domain = (await adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
+    domain.verified_at = datetime.now(UTC)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "domain is already verified"
+
+
+@pytest.mark.asyncio
 async def test_verify_domain_rejects_expired_challenge(monkeypatch) -> None:
     sso_client, adapter, _, _ = build_client()
     monkeypatch.setattr(
@@ -666,8 +709,48 @@ async def test_verify_domain_rejects_expired_challenge(monkeypatch) -> None:
     domain = (await adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
     domain.verification_token_expires_at = datetime.now(UTC)
 
-    with pytest.raises(HTTPException, match="verification token has expired"):
+    with pytest.raises(HTTPException) as exc_info:
         await sso_client.verify_domain(provider_id=provider.provider_id, domain="example.com")
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "pending domain verification challenge not found"
+
+
+@pytest.mark.asyncio
+async def test_verify_domain_rejects_verified_domain(monkeypatch) -> None:
+    sso_client, adapter, _, _ = build_client()
+    monkeypatch.setattr(
+        "belgie_sso.client.discover_oidc_configuration",
+        AsyncMock(
+            return_value=OIDCDiscoveryResult(
+                issuer="https://idp.example.com",
+                config=OIDCProviderConfig(
+                    issuer="https://idp.example.com",
+                    client_id="client-id",
+                    client_secret="client-secret",
+                    authorization_endpoint="https://idp.example.com/authorize",
+                    token_endpoint="https://idp.example.com/token",
+                    userinfo_endpoint="https://idp.example.com/userinfo",
+                ),
+            ),
+        ),
+    )
+    provider = await sso_client.register_oidc_provider(
+        provider_id="acme",
+        issuer="https://idp.example.com",
+        client_id="client-id",
+        client_secret="client-secret",
+        domains=["example.com"],
+    )
+    await sso_client.create_domain_challenge(provider_id=provider.provider_id, domain="example.com")
+    domain = (await adapter.list_domains_for_provider(sso_client.client.db, sso_provider_id=provider.id))[0]
+    domain.verified_at = datetime.now(UTC)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await sso_client.verify_domain(provider_id=provider.provider_id, domain="example.com")
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "domain is already verified"
 
 
 @pytest.mark.asyncio

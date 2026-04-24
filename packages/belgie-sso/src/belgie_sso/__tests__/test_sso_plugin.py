@@ -17,6 +17,7 @@ from belgie_core.core.settings import BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_proto.sso import OIDCProviderConfig
 from belgie_sso.discovery import DiscoveryError
+from belgie_sso.models import SSODomainChallenge, SSOProviderDetail
 from belgie_sso.plugin import SSOPlugin
 from belgie_sso.saml import SAMLResponseProfile, SAMLStartResult
 from belgie_sso.settings import (
@@ -537,6 +538,103 @@ class FakeSAMLEngine:
         )
 
 
+class RelayStateOnlySAMLEngine(FakeSAMLEngine):
+    def __init__(self) -> None:
+        self.finish_called = False
+
+    async def finish_signin(self, *, provider, config, request, relay_state, request_id):
+        self.finish_called = True
+        raise AssertionError("RelayState-only GET callbacks should not parse a SAML response")
+
+
+class StubManagementSSOClient:
+    def __init__(self) -> None:
+        self.oidc_payload: dict[str, object] | None = None
+        self.deleted_provider_id: str | None = None
+        self.last_challenge: tuple[str, str] | None = None
+        self.last_verify: tuple[str, str] | None = None
+        self.detail = SSOProviderDetail(
+            id=uuid4(),
+            provider_id="acme",
+            provider_type="oidc",
+            issuer="https://idp.example.com",
+            organization_id=None,
+            created_by_individual_id=uuid4(),
+            domain_verified=False,
+            domains=("example.com",),
+            verified_domains=(),
+            config={
+                "client_id": "****1234",
+                "authorization_endpoint": "https://idp.example.com/authorize",
+                "token_endpoint": "https://idp.example.com/token",
+                "userinfo_endpoint": "https://idp.example.com/userinfo",
+                "scopes": ["openid", "email", "profile", "offline_access"],
+                "token_endpoint_auth_method": "client_secret_basic",
+                "use_pkce": True,
+                "override_user_info_on_sign_in": False,
+                "claim_mapping": {
+                    "subject": "sub",
+                    "email": "email",
+                    "email_verified": "email_verified",
+                    "name": "name",
+                    "image": "picture",
+                    "extra_fields": {},
+                },
+            },
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+    async def register_oidc_provider(self, **payload: object) -> FakeProvider:
+        self.oidc_payload = payload
+        return FakeProvider(
+            id=self.detail.id,
+            organization_id=None,
+            created_by_individual_id=self.detail.created_by_individual_id,
+            provider_type="oidc",
+            provider_id=str(payload["provider_id"]),
+            issuer=str(payload["issuer"]),
+            oidc_config=None,
+            saml_config=None,
+            created_at=self.detail.created_at,
+            updated_at=self.detail.updated_at,
+        )
+
+    async def get_provider_detail(self, *, provider_id: str) -> SSOProviderDetail:
+        return self.detail
+
+    async def list_provider_details(self, *, organization_id: UUID | None = None) -> list[SSOProviderDetail]:
+        return [self.detail]
+
+    async def delete_provider(self, *, provider_id: str) -> bool:
+        self.deleted_provider_id = provider_id
+        return True
+
+    async def create_domain_challenge(self, *, provider_id: str, domain: str) -> SSODomainChallenge:
+        self.last_challenge = (provider_id, domain)
+        return SSODomainChallenge(
+            domain="example.com",
+            record_name="_belgie-sso-acme.example.com",
+            record_value="_belgie-sso-acme=token",
+            verification_token="token",
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            verified_at=None,
+        )
+
+    async def verify_domain(self, *, provider_id: str, domain: str) -> FakeDomain:
+        self.last_verify = (provider_id, domain)
+        return FakeDomain(
+            id=uuid4(),
+            sso_provider_id=self.detail.id,
+            domain="example.com",
+            verification_token="token",
+            verification_token_expires_at=datetime.now(UTC) + timedelta(days=7),
+            verified_at=datetime.now(UTC),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+
 def build_plugin(
     *,
     include_saml: bool = False,
@@ -723,7 +821,7 @@ def _encrypt_assertion(response: ET._Element) -> None:
     response.append(encrypted_assertion)
 
 
-def _build_saml_response_payload(  # noqa: C901
+def _build_saml_response_payload(  # noqa: C901, PLR0912
     *,
     recipient: str,
     issuer: str = "https://idp.example.com",
@@ -1400,6 +1498,111 @@ def test_saml_metadata_and_signin_routes_use_engine() -> None:
     assert "EntityDescriptor" in metadata.text
     assert signin.status_code == 200
     assert "SAMLRequest" in signin.text
+
+
+def test_saml_get_callback_with_relay_state_redirects_current_session_without_saml_response() -> None:
+    saml_engine = RelayStateOnlySAMLEngine()
+    plugin, client_dependency, _ = build_plugin(include_saml=True, saml_engine=saml_engine)
+    belgie = DummyBelgie(client_dependency)
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+    client = TestClient(app, base_url="https://testserver.local")
+    session = SimpleNamespace(
+        id=uuid4(),
+        individual_id=uuid4(),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    client_dependency.sessions[session.id] = session
+    client.cookies.set("session", str(session.id))
+
+    response = client.get(
+        "/auth/provider/sso/callback/acme-saml?RelayState=%2Fdashboard",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
+    assert saml_engine.finish_called is False
+
+
+def test_management_routes_register_oidc_provider_return_redacted_detail() -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    management_client = StubManagementSSOClient()
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+
+    async def resolve_management_client(*_args: object, **_kwargs: object) -> StubManagementSSOClient:
+        return management_client
+
+    plugin._resolve_client = resolve_management_client
+    client = TestClient(app, base_url="https://testserver.local")
+
+    response = client.post(
+        "/auth/provider/sso/providers/oidc",
+        json={
+            "provider_id": "acme",
+            "issuer": "https://idp.example.com",
+            "client_id": "client-id-1234",
+            "client_secret": "client-secret",
+            "domains": ["example.com"],
+            "scopes": ["openid", "email", "profile", "offline_access"],
+            "claim_mapping": {"subject": "user_id"},
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["provider_id"] == "acme"
+    assert body["config"]["client_id"] == "****1234"
+    assert "client_secret" not in body["config"]
+    assert management_client.oidc_payload is not None
+    assert management_client.oidc_payload["provider_id"] == "acme"
+    assert management_client.oidc_payload["domains"] == ["example.com"]
+    assert management_client.oidc_payload["claim_mapping"].subject == "user_id"
+
+
+def test_management_routes_expose_provider_and_domain_operations() -> None:
+    plugin, client_dependency, _ = build_plugin()
+    belgie = DummyBelgie(client_dependency)
+    management_client = StubManagementSSOClient()
+
+    app = FastAPI()
+    auth_router = APIRouter(prefix="/auth")
+    auth_router.include_router(plugin.router(belgie))
+    app.include_router(auth_router)
+
+    async def resolve_management_client(*_args: object, **_kwargs: object) -> StubManagementSSOClient:
+        return management_client
+
+    plugin._resolve_client = resolve_management_client
+    client = TestClient(app, base_url="https://testserver.local")
+
+    providers = client.get("/auth/provider/sso/providers")
+    provider = client.get("/auth/provider/sso/providers/acme")
+    challenge = client.post("/auth/provider/sso/providers/acme/domains/example.com/challenge")
+    verified = client.post("/auth/provider/sso/providers/acme/domains/example.com/verify")
+    deleted = client.delete("/auth/provider/sso/providers/acme")
+
+    assert providers.status_code == 200
+    assert providers.json()[0]["provider_id"] == "acme"
+    assert provider.status_code == 200
+    assert provider.json()["provider_id"] == "acme"
+    assert challenge.status_code == 201
+    assert challenge.json()["record_name"] == "_belgie-sso-acme.example.com"
+    assert verified.status_code == 200
+    assert verified.json()["domain"] == "example.com"
+    assert deleted.status_code == 200
+    assert deleted.json() == {"success": True}
+    assert management_client.last_challenge == ("acme", "example.com")
+    assert management_client.last_verify == ("acme", "example.com")
+    assert management_client.deleted_provider_id == "acme"
 
 
 def test_builtin_saml_metadata_route_returns_custom_sp_metadata_xml() -> None:

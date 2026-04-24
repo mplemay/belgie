@@ -470,6 +470,11 @@ class SSOClient[
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="domain is already registered to another provider",
                 )
+            if existing.verified_at is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="domain is already verified",
+                )
             if self._domain_challenge_is_active(existing):
                 sso_domain = existing
             else:
@@ -500,13 +505,17 @@ class SSOClient[
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="domain not found for provider",
             )
-        if (
-            sso_domain.verification_token_expires_at is not None
-            and sso_domain.verification_token_expires_at <= datetime.now(UTC)
+        if sso_domain.verified_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="domain is already verified",
+            )
+        if sso_domain.verification_token_expires_at is None or sso_domain.verification_token_expires_at <= datetime.now(
+            UTC,
         ):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="verification token has expired",
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="pending domain verification challenge not found",
             )
 
         challenge = self._build_domain_challenge(provider=provider, sso_domain=sso_domain)
