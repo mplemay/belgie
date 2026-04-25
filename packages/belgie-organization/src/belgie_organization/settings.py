@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable  # noqa: TC003
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from belgie_proto.organization import OrganizationAdapterProtocol
@@ -14,6 +14,10 @@ if TYPE_CHECKING:
     from belgie_core.core.settings import BelgieSettings
 
     from belgie_organization.plugin import OrganizationPlugin
+
+
+type MaybeAwaitable[T] = T | Awaitable[T]
+type OrganizationLifecycleHook = Callable[..., MaybeAwaitable[None]]
 
 
 class Organization[
@@ -32,6 +36,26 @@ class Organization[
     allow_user_to_create_organization: bool = True
     invitation_expires_in_seconds: int = 60 * 60 * 48
     send_invitation_email: Callable[[InvitationT, OrganizationT], Awaitable[None]] | None = Field(
+        default=None,
+        exclude=True,
+    )
+    after_update: OrganizationLifecycleHook | None = Field(
+        default=None,
+        exclude=True,
+    )
+    before_delete: OrganizationLifecycleHook | None = Field(
+        default=None,
+        exclude=True,
+    )
+    after_member_add: OrganizationLifecycleHook | None = Field(
+        default=None,
+        exclude=True,
+    )
+    after_member_remove: OrganizationLifecycleHook | None = Field(
+        default=None,
+        exclude=True,
+    )
+    after_invitation_accept: OrganizationLifecycleHook | None = Field(
         default=None,
         exclude=True,
     )

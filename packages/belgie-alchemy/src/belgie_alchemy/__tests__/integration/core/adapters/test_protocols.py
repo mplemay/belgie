@@ -207,11 +207,15 @@ class ExampleStripeSubscription:
     status: str
     period_start: datetime | None
     period_end: datetime | None
+    trial_start: datetime | None
+    trial_end: datetime | None
+    seats: int | None
     cancel_at_period_end: bool
     cancel_at: datetime | None
     canceled_at: datetime | None
     ended_at: datetime | None
     billing_interval: StripeBillingInterval | None
+    stripe_schedule_id: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -543,11 +547,15 @@ def test_stripe_protocol_runtime_checks() -> None:
         status="active",
         period_start=now,
         period_end=now,
+        trial_start=None,
+        trial_end=None,
+        seats=None,
         cancel_at_period_end=False,
         cancel_at=None,
         canceled_at=None,
         ended_at=None,
         billing_interval="month",
+        stripe_schedule_id=None,
         created_at=now,
         updated_at=now,
     )

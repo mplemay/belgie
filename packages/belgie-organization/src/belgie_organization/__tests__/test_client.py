@@ -358,7 +358,197 @@ async def test_accept_invitation_rejects_full_team() -> None:
 
     adapter.create_member.assert_not_awaited()
     adapter.add_team_member.assert_not_awaited()
-    adapter.set_invitation_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_runs_after_update_hook() -> None:
+    organization_id = uuid4()
+    updated = SimpleNamespace(id=organization_id, name="Acme", slug="acme", logo=None)
+    hook = AsyncMock()
+    adapter = FakeOrganizationAdapter(
+        get_member=AsyncMock(return_value=SimpleNamespace(role="owner")),
+        get_organization_by_slug=AsyncMock(return_value=None),
+        update_organization=AsyncMock(return_value=updated),
+    )
+    organization_client = OrganizationClient(
+        client=SimpleNamespace(db=SimpleNamespace(), adapter=SimpleNamespace()),
+        settings=Organization(
+            adapter=adapter,
+            after_update=hook,
+        ),
+        current_individual=SimpleNamespace(id=uuid4(), email="owner@example.com"),
+    )
+
+    result = await organization_client.update(organization_id=organization_id, name="Acme")
+
+    assert result is updated
+    hook.assert_awaited_once_with(organization_client, updated)
+
+
+@pytest.mark.asyncio
+async def test_delete_runs_before_delete_hook() -> None:
+    organization_id = uuid4()
+    organization = SimpleNamespace(id=organization_id, name="Acme", slug="acme", logo=None)
+    hook = AsyncMock()
+    adapter = FakeOrganizationAdapter(
+        get_member=AsyncMock(return_value=SimpleNamespace(role="owner")),
+        get_organization_by_id=AsyncMock(return_value=organization),
+        delete_organization=AsyncMock(return_value=True),
+    )
+    organization_client = OrganizationClient(
+        client=SimpleNamespace(db=SimpleNamespace(), adapter=SimpleNamespace()),
+        settings=Organization(
+            adapter=adapter,
+            before_delete=hook,
+        ),
+        current_individual=SimpleNamespace(id=uuid4(), email="owner@example.com"),
+    )
+
+    deleted = await organization_client.delete(organization_id=organization_id)
+
+    assert deleted is True
+    hook.assert_awaited_once_with(organization_client, organization)
+
+
+@pytest.mark.asyncio
+async def test_add_member_runs_after_member_add_hook() -> None:
+    organization_id = uuid4()
+    individual_id = uuid4()
+    organization = SimpleNamespace(id=organization_id, name="Acme", slug="acme", logo=None)
+    member = SimpleNamespace(
+        id=uuid4(),
+        organization_id=organization_id,
+        individual_id=individual_id,
+        role="member",
+    )
+    hook = AsyncMock()
+    adapter = FakeOrganizationAdapter(
+        get_member=AsyncMock(side_effect=[SimpleNamespace(role="owner"), None]),
+        create_member=AsyncMock(return_value=member),
+        get_organization_by_id=AsyncMock(return_value=organization),
+    )
+    organization_client = _build_client(
+        adapter=adapter,
+        core_adapter=SimpleNamespace(
+            get_individual_by_email=AsyncMock(return_value=None),
+            get_individual_by_id=AsyncMock(return_value=SimpleNamespace(id=individual_id)),
+        ),
+    )
+    object.__setattr__(
+        organization_client,
+        "settings",
+        organization_client.settings.model_copy(
+            update={"after_member_add": hook},
+        ),
+    )
+
+    result = await organization_client.add_member(
+        individual_id=individual_id,
+        role="member",
+        organization_id=organization_id,
+    )
+
+    assert result is member
+    hook.assert_awaited_once_with(organization_client, organization, member)
+
+
+@pytest.mark.asyncio
+async def test_remove_member_runs_after_member_remove_hook() -> None:
+    organization_id = uuid4()
+    member = SimpleNamespace(
+        id=uuid4(),
+        organization_id=organization_id,
+        individual_id=uuid4(),
+        role="member",
+    )
+    organization = SimpleNamespace(id=organization_id, name="Acme", slug="acme", logo=None)
+    hook = AsyncMock()
+    adapter = FakeOrganizationAdapter(
+        get_member=AsyncMock(side_effect=[SimpleNamespace(role="owner"), member]),
+        get_organization_by_id=AsyncMock(return_value=organization),
+        remove_member=AsyncMock(return_value=True),
+    )
+    organization_client = _build_client(
+        adapter=adapter,
+        core_adapter=SimpleNamespace(
+            get_individual_by_email=AsyncMock(return_value=SimpleNamespace(id=member.individual_id)),
+            get_individual_by_id=AsyncMock(return_value=None),
+        ),
+    )
+    object.__setattr__(
+        organization_client,
+        "settings",
+        organization_client.settings.model_copy(
+            update={"after_member_remove": hook},
+        ),
+    )
+
+    removed = await organization_client.remove_member(
+        member_id_or_email="member@example.com",
+        organization_id=organization_id,
+    )
+
+    assert removed is True
+    hook.assert_awaited_once_with(organization_client, organization, member)
+
+
+@pytest.mark.asyncio
+async def test_accept_invitation_runs_after_invitation_accept_hook() -> None:
+    organization_id = uuid4()
+    team_id = uuid4()
+    individual_id = uuid4()
+    now = datetime.now(UTC)
+    pending_invitation = SimpleNamespace(
+        id=uuid4(),
+        organization_id=organization_id,
+        team_id=team_id,
+        email="member@example.com",
+        role="member",
+        status="pending",
+        inviter_individual_id=uuid4(),
+        expires_at=now + timedelta(hours=1),
+        created_at=now,
+        updated_at=now,
+    )
+    accepted_invitation = SimpleNamespace(**{**pending_invitation.__dict__, "status": "accepted"})
+    created_member = SimpleNamespace(
+        id=uuid4(),
+        organization_id=organization_id,
+        individual_id=individual_id,
+        role="member",
+        created_at=now,
+        updated_at=now,
+    )
+    organization = SimpleNamespace(id=organization_id, name="Acme", slug="acme", logo=None)
+    hook = AsyncMock()
+    adapter = FakeOrganizationTeamAdapter(
+        get_invitation=AsyncMock(return_value=pending_invitation),
+        get_member=AsyncMock(return_value=None),
+        create_member=AsyncMock(return_value=created_member),
+        get_team_by_id=AsyncMock(return_value=SimpleNamespace(id=team_id, organization_id=organization_id)),
+        get_team_member=AsyncMock(return_value=None),
+        add_team_member=AsyncMock(),
+        set_invitation_status=AsyncMock(return_value=accepted_invitation),
+        get_organization_by_id=AsyncMock(return_value=organization),
+    )
+    organization_client = _build_client(
+        adapter=adapter,
+        current_individual=SimpleNamespace(id=individual_id, email="member@example.com"),
+    )
+    object.__setattr__(
+        organization_client,
+        "settings",
+        organization_client.settings.model_copy(
+            update={"after_invitation_accept": hook},
+        ),
+    )
+
+    accepted, member = await organization_client.accept_invitation(invitation_id=pending_invitation.id)
+
+    assert accepted is accepted_invitation
+    assert member is created_member
+    hook.assert_awaited_once_with(organization_client, organization, accepted_invitation, created_member)
+    adapter.set_invitation_status.assert_awaited_once()
 
 
 @pytest.mark.asyncio

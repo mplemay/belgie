@@ -12,22 +12,39 @@ from belgie_proto.core.account import AccountType
 from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.stripe import (
+    UNSET,
     StripeAdapterProtocol,
     StripeBillingInterval,
     StripeSubscriptionStatus,
+    StripeUnset,
 )
 from stripe import Event, ListObject, Price, Subscription
 from stripe._billing_portal_service import BillingPortalService
 from stripe._checkout_service import CheckoutService
 from stripe._customer_service import CustomerService
 from stripe._price_service import PriceService
+from stripe._stripe_object import StripeObject
+from stripe._subscription_schedule import SubscriptionSchedule
+from stripe._subscription_schedule_service import SubscriptionScheduleService
 from stripe._subscription_service import SubscriptionService
 from stripe._v1_services import V1Services
 from stripe.billing_portal import Session as BillingPortalSession
 from stripe.billing_portal._session_service import SessionService as BillingPortalSessionService
 from stripe.checkout import Session as CheckoutSession
 from stripe.checkout._session_service import SessionService as CheckoutSessionService
-from stripe.params import CustomerCreateParams, PriceListParams, SubscriptionUpdateParams, billing_portal, checkout
+from stripe.params import (
+    CustomerCreateParams,
+    CustomerListParams,
+    CustomerSearchParams,
+    CustomerUpdateParams,
+    PriceListParams,
+    SubscriptionScheduleCreateParams,
+    SubscriptionScheduleReleaseParams,
+    SubscriptionScheduleUpdateParams,
+    SubscriptionUpdateParams,
+    billing_portal,
+    checkout,
+)
 
 from belgie_stripe._protocols import BelgieClientProtocol, BelgieRuntimeProtocol, StripeCoreAdapterProtocol
 
@@ -38,6 +55,7 @@ if TYPE_CHECKING:
     from fastapi import Request
     from fastapi.security import SecurityScopes
     from stripe._request_options import RequestOptions
+    from stripe.params._subscription_update_params import SubscriptionUpdateParamsItem
 
 
 @dataclass(slots=True, kw_only=True)
@@ -101,11 +119,15 @@ class FakeSubscription:
     status: StripeSubscriptionStatus
     period_start: datetime | None
     period_end: datetime | None
+    trial_start: datetime | None
+    trial_end: datetime | None
+    seats: int | None
     cancel_at_period_end: bool
     cancel_at: datetime | None
     canceled_at: datetime | None
     ended_at: datetime | None
     billing_interval: StripeBillingInterval | None
+    stripe_schedule_id: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -207,11 +229,15 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         status: StripeSubscriptionStatus = "incomplete",
         period_start: datetime | None = None,
         period_end: datetime | None = None,
+        trial_start: datetime | None = None,
+        trial_end: datetime | None = None,
+        seats: int | None = None,
         cancel_at_period_end: bool = False,
         cancel_at: datetime | None = None,
         canceled_at: datetime | None = None,
         ended_at: datetime | None = None,
         billing_interval: StripeBillingInterval | None = None,
+        stripe_schedule_id: str | None = None,
     ) -> FakeSubscription:
         assert session
         now = datetime.now(UTC)
@@ -224,11 +250,15 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
             status=status,
             period_start=period_start,
             period_end=period_end,
+            trial_start=trial_start,
+            trial_end=trial_end,
+            seats=seats,
             cancel_at_period_end=cancel_at_period_end,
             cancel_at=cancel_at,
             canceled_at=canceled_at,
             ended_at=ended_at,
             billing_interval=billing_interval,
+            stripe_schedule_id=stripe_schedule_id,
             created_at=now,
             updated_at=now,
         )
@@ -269,11 +299,18 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
         session: DBConnection,
         *,
         account_id: UUID,
+        active_only: bool = False,
     ) -> list[FakeSubscription]:
         assert session
         subscriptions = [
             subscription for subscription in self.subscriptions.values() if subscription.account_id == account_id
         ]
+        if active_only:
+            subscriptions = [
+                subscription
+                for subscription in subscriptions
+                if subscription.status in {"active", "past_due", "paused", "trialing", "unpaid"}
+            ]
         return sorted(subscriptions, key=lambda subscription: subscription.created_at, reverse=True)
 
     async def get_active_subscription(
@@ -298,22 +335,26 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
                 return subscription
         return None
 
-    async def update_subscription(
+    async def update_subscription(  # noqa: C901, PLR0912
         self,
         session: DBConnection,
         *,
         subscription_id: UUID,
-        plan: str | None = None,
-        stripe_customer_id: str | None = None,
-        stripe_subscription_id: str | None = None,
-        status: StripeSubscriptionStatus | None = None,
-        period_start: datetime | None = None,
-        period_end: datetime | None = None,
-        cancel_at_period_end: bool | None = None,
-        cancel_at: datetime | None = None,
-        canceled_at: datetime | None = None,
-        ended_at: datetime | None = None,
-        billing_interval: StripeBillingInterval | None = None,
+        plan: str | StripeUnset = UNSET,
+        stripe_customer_id: str | None | StripeUnset = UNSET,
+        stripe_subscription_id: str | None | StripeUnset = UNSET,
+        status: StripeSubscriptionStatus | StripeUnset = UNSET,
+        period_start: datetime | None | StripeUnset = UNSET,
+        period_end: datetime | None | StripeUnset = UNSET,
+        trial_start: datetime | None | StripeUnset = UNSET,
+        trial_end: datetime | None | StripeUnset = UNSET,
+        seats: int | None | StripeUnset = UNSET,
+        cancel_at_period_end: bool | StripeUnset = UNSET,
+        cancel_at: datetime | None | StripeUnset = UNSET,
+        canceled_at: datetime | None | StripeUnset = UNSET,
+        ended_at: datetime | None | StripeUnset = UNSET,
+        billing_interval: StripeBillingInterval | None | StripeUnset = UNSET,
+        stripe_schedule_id: str | None | StripeUnset = UNSET,
     ) -> FakeSubscription | None:
         assert session
         subscription = self.subscriptions.get(subscription_id)
@@ -321,25 +362,36 @@ class InMemoryStripeAdapter(StripeAdapterProtocol[FakeSubscription]):
             return None
 
         updated = replace(subscription)
-        if plan is not None:
+        if not isinstance(plan, StripeUnset):
             updated.plan = plan
-        if stripe_customer_id is not None:
+        if not isinstance(stripe_customer_id, StripeUnset):
             updated.stripe_customer_id = stripe_customer_id
-        if stripe_subscription_id is not None:
+        if not isinstance(stripe_subscription_id, StripeUnset):
             updated.stripe_subscription_id = stripe_subscription_id
-        if status is not None:
+        if not isinstance(status, StripeUnset):
             updated.status = status
-        if period_start is not None:
+        if not isinstance(period_start, StripeUnset):
             updated.period_start = period_start
-        if period_end is not None:
+        if not isinstance(period_end, StripeUnset):
             updated.period_end = period_end
-        if cancel_at_period_end is not None:
+        if not isinstance(trial_start, StripeUnset):
+            updated.trial_start = trial_start
+        if not isinstance(trial_end, StripeUnset):
+            updated.trial_end = trial_end
+        if not isinstance(seats, StripeUnset):
+            updated.seats = seats
+        if not isinstance(cancel_at_period_end, StripeUnset):
             updated.cancel_at_period_end = cancel_at_period_end
-        updated.cancel_at = cancel_at
-        updated.canceled_at = canceled_at
-        updated.ended_at = ended_at
-        if billing_interval is not None:
+        if not isinstance(cancel_at, StripeUnset):
+            updated.cancel_at = cancel_at
+        if not isinstance(canceled_at, StripeUnset):
+            updated.canceled_at = canceled_at
+        if not isinstance(ended_at, StripeUnset):
+            updated.ended_at = ended_at
+        if not isinstance(billing_interval, StripeUnset):
             updated.billing_interval = billing_interval
+        if not isinstance(stripe_schedule_id, StripeUnset):
+            updated.stripe_schedule_id = stripe_schedule_id
         updated.updated_at = datetime.now(UTC)
         self.subscriptions[subscription_id] = updated
         return updated
@@ -358,10 +410,74 @@ class FakeCustomerService(CustomerService):
         assert options is None
         payload = CustomerCreateParams() if params is None else CustomerCreateParams(params)
         self._sdk.created_customers.append(payload)
-        return Customer.construct_from(
-            {"id": f"cus_{len(self._sdk.created_customers)}", "object": "customer"},
+        customer = Customer.construct_from(
+            {
+                "id": f"cus_{len(self._sdk.created_customers)}",
+                "object": "customer",
+                "email": payload.get("email"),
+                "name": payload.get("name"),
+                "metadata": payload.get("metadata") or {},
+            },
             key=None,
         )
+        self._sdk.customer_responses[customer.id] = customer
+        return customer
+
+    async def search_async(
+        self,
+        params: CustomerSearchParams,
+        options: RequestOptions | None = None,
+    ) -> ListObject[Customer]:
+        assert options is None
+        self._sdk.searched_customers.append(params)
+        query = params.get("query", "")
+        email = _extract_search_email(query)
+        account_id = _extract_search_metadata(query, "account_id")
+        account_type = _extract_search_metadata(query, "account_type")
+        customers = list(self._sdk.customer_responses.values())
+        if email is not None:
+            customers = [customer for customer in customers if customer.email == email]
+        if account_id is not None:
+            customers = [
+                customer for customer in customers if _metadata_dict(customer.metadata).get("account_id") == account_id
+            ]
+        if account_type is not None:
+            customers = [
+                customer
+                for customer in customers
+                if _metadata_dict(customer.metadata).get("account_type") == account_type
+            ]
+        return _list_object(customers)
+
+    async def list_async(
+        self,
+        params: CustomerListParams | None = None,
+        options: RequestOptions | None = None,
+    ) -> ListObject[Customer]:
+        assert options is None
+        payload = CustomerListParams() if params is None else CustomerListParams(params)
+        self._sdk.listed_customers.append(payload)
+        email = payload.get("email")
+        customers = list(self._sdk.customer_responses.values())
+        if email is not None:
+            customers = [customer for customer in customers if customer.email == email]
+        return _list_object(customers)
+
+    async def update_async(
+        self,
+        customer: str,
+        params: CustomerUpdateParams | None = None,
+        options: RequestOptions | None = None,
+    ) -> Customer:
+        assert options is None
+        payload = CustomerUpdateParams() if params is None else CustomerUpdateParams(params)
+        self._sdk.updated_customers.append((customer, payload))
+        existing = self._sdk.customer_responses.get(customer)
+        if existing is None:
+            existing = Customer.construct_from({"id": customer, "object": "customer"}, key=None)
+            self._sdk.customer_responses[customer] = existing
+        existing.update(payload)
+        return existing
 
 
 class FakeCheckoutSessionService(CheckoutSessionService):
@@ -377,14 +493,28 @@ class FakeCheckoutSessionService(CheckoutSessionService):
         assert options is None
         payload = checkout.SessionCreateParams() if params is None else checkout.SessionCreateParams(params)
         self._sdk.created_checkout_sessions.append(payload)
-        return CheckoutSession.construct_from(
+        session = CheckoutSession.construct_from(
             {
                 "id": f"cs_{len(self._sdk.created_checkout_sessions)}",
                 "object": "checkout.session",
                 "url": "https://checkout.stripe.test/session",
+                "metadata": payload.get("metadata") or {},
+                "subscription": None,
             },
             key=None,
         )
+        self._sdk.checkout_session_responses[session.id] = session
+        return session
+
+    async def retrieve_async(
+        self,
+        session: str,
+        params: object | None = None,
+        options: RequestOptions | None = None,
+    ) -> CheckoutSession:
+        assert params is None
+        assert options is None
+        return self._sdk.checkout_session_responses[session]
 
 
 class FakeCheckoutService(CheckoutService):
@@ -447,8 +577,73 @@ class FakeSubscriptionService(SubscriptionService):
         payload = SubscriptionUpdateParams() if params is None else SubscriptionUpdateParams(params)
         self._sdk.modified_subscriptions.append((subscription_exposed_id, payload))
         subscription = self._sdk.subscription_responses[subscription_exposed_id]
-        subscription.update(payload)
+        subscription.update({key: value for key, value in payload.items() if key != "items"})
+        if (items := payload.get("items")) is not None:
+            _apply_subscription_items_update(
+                subscription=subscription,
+                items=items,
+                sdk=self._sdk,
+            )
         return subscription
+
+
+class FakeSubscriptionScheduleService(SubscriptionScheduleService):
+    def __init__(self, requestor: object, sdk: FakeStripeSDK) -> None:
+        super().__init__(requestor)
+        self._sdk = sdk
+
+    async def create_async(
+        self,
+        params: SubscriptionScheduleCreateParams | None = None,
+        options: RequestOptions | None = None,
+    ) -> SubscriptionSchedule:
+        assert options is None
+        payload = SubscriptionScheduleCreateParams() if params is None else SubscriptionScheduleCreateParams(params)
+        self._sdk.created_subscription_schedules.append(payload)
+        schedule = SubscriptionSchedule.construct_from(
+            {
+                "id": f"sub_sched_{len(self._sdk.created_subscription_schedules)}",
+                "object": "subscription_schedule",
+                "metadata": payload.get("metadata") or {},
+                "status": "active",
+                "subscription": payload.get("from_subscription"),
+            },
+            key=None,
+        )
+        self._sdk.subscription_schedule_responses[schedule.id] = schedule
+        return schedule
+
+    async def update_async(
+        self,
+        schedule: str,
+        params: SubscriptionScheduleUpdateParams | None = None,
+        options: RequestOptions | None = None,
+    ) -> SubscriptionSchedule:
+        assert options is None
+        payload = SubscriptionScheduleUpdateParams() if params is None else SubscriptionScheduleUpdateParams(params)
+        self._sdk.updated_subscription_schedules.append((schedule, payload))
+        existing = self._sdk.subscription_schedule_responses[schedule]
+        existing.update(payload)
+        return existing
+
+    async def release_async(
+        self,
+        schedule: str,
+        params: SubscriptionScheduleReleaseParams | None = None,
+        options: RequestOptions | None = None,
+    ) -> SubscriptionSchedule:
+        assert options is None
+        payload = SubscriptionScheduleReleaseParams() if params is None else SubscriptionScheduleReleaseParams(params)
+        self._sdk.released_subscription_schedules.append((schedule, payload))
+        existing = self._sdk.subscription_schedule_responses.get(schedule)
+        if existing is None:
+            existing = SubscriptionSchedule.construct_from(
+                {"id": schedule, "object": "subscription_schedule", "status": "released"},
+                key=None,
+            )
+            self._sdk.subscription_schedule_responses[schedule] = existing
+        existing["status"] = "released"
+        return existing
 
 
 class FakePriceService(PriceService):
@@ -479,6 +674,18 @@ class FakePriceService(PriceService):
             api_mode="V1",
         )
 
+    async def retrieve_async(
+        self,
+        price: str,
+        params: object | None = None,
+        options: RequestOptions | None = None,
+    ) -> Price:
+        assert params is None
+        assert options is None
+        if price not in self._sdk.price_responses:
+            self._sdk.price_responses[price] = make_price(price_id=price)
+        return self._sdk.price_responses[price]
+
 
 class FakeV1Services(V1Services):
     def __init__(self, requestor: object, sdk: FakeStripeSDK) -> None:
@@ -487,6 +694,7 @@ class FakeV1Services(V1Services):
         self.checkout = FakeCheckoutService(requestor, sdk)
         self.billing_portal = FakeBillingPortalService(requestor, sdk)
         self.subscriptions = FakeSubscriptionService(requestor, sdk)
+        self.subscription_schedules = FakeSubscriptionScheduleService(requestor, sdk)
         self.prices = FakePriceService(requestor, sdk)
 
 
@@ -495,11 +703,21 @@ class FakeStripeSDK(stripe.StripeClient):
         super().__init__("sk_test", http_client=stripe.HTTPXClient())
 
         self.created_customers: list[CustomerCreateParams] = []
+        self.searched_customers: list[CustomerSearchParams] = []
+        self.listed_customers: list[CustomerListParams] = []
+        self.updated_customers: list[tuple[str, CustomerUpdateParams]] = []
+        self.customer_responses: dict[str, Customer] = {}
         self.created_checkout_sessions: list[checkout.SessionCreateParams] = []
+        self.checkout_session_responses: dict[str, CheckoutSession] = {}
         self.created_billing_portal_sessions: list[billing_portal.SessionCreateParams] = []
         self.modified_subscriptions: list[tuple[str, SubscriptionUpdateParams]] = []
+        self.created_subscription_schedules: list[SubscriptionScheduleCreateParams] = []
+        self.updated_subscription_schedules: list[tuple[str, SubscriptionScheduleUpdateParams]] = []
+        self.released_subscription_schedules: list[tuple[str, SubscriptionScheduleReleaseParams]] = []
+        self.subscription_schedule_responses: dict[str, SubscriptionSchedule] = {}
         self.subscription_responses: dict[str, Subscription] = {}
         self.price_lookup: dict[str, str] = {}
+        self.price_responses: dict[str, Price] = {}
         self.event: Event | None = None
         self.construct_event_error: Exception | None = None
         self.construct_event_calls: list[tuple[bytes | str, str, str, int]] = []
@@ -598,12 +816,38 @@ def make_stripe_subscription(
     cancel_at: int | None = None,
     canceled_at: int | None = None,
     ended_at: int | None = None,
+    trial_start: int | None = None,
+    trial_end: int | None = None,
     metadata: dict[str, str] | None = None,
     price_id: str = "price_pro",
     lookup_key: str | None = None,
     interval: StripeBillingInterval = "month",
     item_id: str = "si_123",
+    quantity: int | None = 1,
+    usage_type: str | None = None,
+    schedule: str | None = None,
+    items: list[dict[str, object]] | None = None,
 ) -> Subscription:
+    subscription_items = (
+        [
+            {
+                "id": item_id,
+                "object": "subscription_item",
+                "price": {
+                    "id": price_id,
+                    "object": "price",
+                    "lookup_key": lookup_key,
+                    "recurring": {
+                        "interval": interval,
+                        "usage_type": usage_type,
+                    },
+                },
+                "quantity": quantity,
+            },
+        ]
+        if items is None
+        else items
+    )
     return Subscription.construct_from(
         {
             "id": subscription_id,
@@ -612,25 +856,17 @@ def make_stripe_subscription(
             "status": status,
             "current_period_start": current_period_start,
             "current_period_end": current_period_end,
+            "trial_start": trial_start,
+            "trial_end": trial_end,
             "cancel_at_period_end": cancel_at_period_end,
             "cancel_at": cancel_at,
             "canceled_at": canceled_at,
             "ended_at": ended_at,
+            "schedule": schedule,
             "metadata": metadata or {},
             "items": {
                 "object": "list",
-                "data": [
-                    {
-                        "id": item_id,
-                        "object": "subscription_item",
-                        "price": {
-                            "id": price_id,
-                            "object": "price",
-                            "lookup_key": lookup_key,
-                            "recurring": {"interval": interval},
-                        },
-                    },
-                ],
+                "data": subscription_items,
                 "has_more": False,
                 "url": f"/v1/subscription_items?subscription={subscription_id}",
             },
@@ -681,4 +917,145 @@ def make_subscription_event(
             "data": {"object": subscription.to_dict()},
         },
         key=None,
+    )
+
+
+def make_price(
+    *,
+    price_id: str,
+    lookup_key: str | None = None,
+    interval: StripeBillingInterval = "month",
+    usage_type: str | None = None,
+) -> Price:
+    return Price.construct_from(
+        {
+            "id": price_id,
+            "object": "price",
+            "lookup_key": lookup_key,
+            "recurring": {
+                "interval": interval,
+                "usage_type": usage_type,
+            },
+        },
+        key=None,
+    )
+
+
+def make_customer(
+    *,
+    customer_id: str = "cus_existing",
+    email: str | None = None,
+    name: str | None = None,
+    metadata: dict[str, str] | None = None,
+) -> Customer:
+    return Customer.construct_from(
+        {
+            "id": customer_id,
+            "object": "customer",
+            "email": email,
+            "name": name,
+            "metadata": metadata or {},
+        },
+        key=None,
+    )
+
+
+def _metadata_dict(metadata: StripeObject | dict[str, str] | None) -> dict[str, str]:
+    if metadata is None:
+        return {}
+    if isinstance(metadata, StripeObject):
+        raw_metadata = metadata.to_dict()
+        return {key: value for key, value in raw_metadata.items() if isinstance(value, str)}
+    return metadata
+
+
+def _stripe_dict(item: StripeObject) -> dict[str, object]:
+    return item._to_dict_recursive()
+
+
+def _list_object[T](items: list[T]) -> ListObject[T]:
+    return ListObject._construct_from(
+        values={
+            "object": "list",
+            "data": [_stripe_dict(item) for item in items],
+            "has_more": False,
+            "url": "/v1/customers",
+        },
+        requestor=None,
+        api_mode="V1",
+    )
+
+
+def _subscription_items_list(
+    *,
+    subscription_id: str,
+    items: list[dict[str, object]],
+) -> ListObject[StripeObject]:
+    return ListObject._construct_from(
+        values={
+            "object": "list",
+            "data": items,
+            "has_more": False,
+            "url": f"/v1/subscription_items?subscription={subscription_id}",
+        },
+        requestor=None,
+        api_mode="V1",
+    )
+
+
+def _extract_search_email(query: str) -> str | None:
+    marker = 'email:"'
+    if marker not in query:
+        return None
+    return query.split(marker, maxsplit=1)[1].split('"', maxsplit=1)[0].replace('\\"', '"')
+
+
+def _extract_search_metadata(query: str, key: str) -> str | None:
+    marker = f'metadata["{key}"]:"'
+    if marker not in query:
+        return None
+    return query.split(marker, maxsplit=1)[1].split('"', maxsplit=1)[0]
+
+
+def _apply_subscription_items_update(
+    *,
+    subscription: Subscription,
+    items: list[SubscriptionUpdateParamsItem],
+    sdk: FakeStripeSDK,
+) -> None:
+    current_items = [_stripe_dict(item) for item in subscription.items.data]
+    by_id = {item["id"]: item for item in current_items}
+    next_items: list[dict[str, object]] = []
+
+    for update in items:
+        item_id = update.get("id")
+        if item_id is not None and update.get("deleted"):
+            by_id.pop(item_id, None)
+            continue
+        if item_id is not None and item_id in by_id:
+            item = by_id.pop(item_id)
+            if (price_id := update.get("price")) is not None:
+                price = sdk.price_responses.get(price_id) or make_price(price_id=price_id)
+                sdk.price_responses[price_id] = price
+                item["price"] = _stripe_dict(price)
+            if "quantity" in update:
+                item["quantity"] = update["quantity"]
+            next_items.append(item)
+            continue
+        if (price_id := update.get("price")) is not None:
+            price = sdk.price_responses.get(price_id) or make_price(price_id=price_id)
+            sdk.price_responses[price_id] = price
+            next_items.append(
+                {
+                    "id": f"si_generated_{len(next_items) + 1}",
+                    "object": "subscription_item",
+                    "price": _stripe_dict(price),
+                    "quantity": update.get("quantity"),
+                },
+            )
+
+    next_items.extend(by_id.values())
+    subscription["items"] = _subscription_items_list(
+        subscription_id=subscription.id,
+        items=next_items,
     )

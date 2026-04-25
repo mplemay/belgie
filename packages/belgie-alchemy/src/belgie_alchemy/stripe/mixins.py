@@ -60,6 +60,18 @@ class StripeSubscriptionMixin(MappedAsDataclass):
         return mapped_column(DateTimeUTC, default=None, kw_only=True)
 
     @declared_attr
+    def trial_start(self) -> Mapped[datetime | None]:
+        return mapped_column(DateTimeUTC, default=None, kw_only=True)
+
+    @declared_attr
+    def trial_end(self) -> Mapped[datetime | None]:
+        return mapped_column(DateTimeUTC, default=None, kw_only=True)
+
+    @declared_attr
+    def seats(self) -> Mapped[int | None]:
+        return mapped_column(default=None, kw_only=True)
+
+    @declared_attr
     def cancel_at_period_end(self) -> Mapped[bool]:
         return mapped_column(default=False, kw_only=True)
 
@@ -78,6 +90,10 @@ class StripeSubscriptionMixin(MappedAsDataclass):
     @declared_attr
     def billing_interval(self) -> Mapped[str | None]:
         return mapped_column(Text, default=None, kw_only=True)
+
+    @declared_attr
+    def stripe_schedule_id(self) -> Mapped[str | None]:
+        return mapped_column(Text, default=None, unique=True, index=True, kw_only=True)
 
     @declared_attr.directive
     def __table_args__(self) -> tuple[Index, Index]:
