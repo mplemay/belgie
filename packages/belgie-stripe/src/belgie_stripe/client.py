@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol, overload
@@ -40,10 +41,18 @@ from stripe.params._subscription_schedule_update_params import (
 )
 from stripe.params._subscription_update_params import SubscriptionUpdateParamsItem
 
-from belgie_stripe.metadata import customer_metadata, schedule_metadata, subscription_metadata
+from belgie_stripe.metadata import (
+    customer_metadata,
+    parse_customer_metadata,
+    parse_schedule_metadata,
+    parse_subscription_metadata,
+    schedule_metadata,
+    subscription_metadata,
+)
 from belgie_stripe.models import (
     AccountAuthorizationContext,
     AccountCreateContext,
+    BillingPortalLocale,
     BillingPortalRequest,
     CancelSubscriptionRequest,
     CheckoutSessionContext,
@@ -51,7 +60,9 @@ from belgie_stripe.models import (
     RestoreSubscriptionRequest,
     StripeAction,
     StripePlan,
+    StripeProrationBehavior,
     StripeRedirectResponse,
+    StripeSubscriptionLocale,
     SubscriptionEventContext,
     SubscriptionView,
     UpgradeSubscriptionRequest,
@@ -79,6 +90,9 @@ if TYPE_CHECKING:
 
 
 type PlansResolver = Callable[[], list[StripePlan] | Awaitable[list[StripePlan]]]
+
+
+logger = logging.getLogger(__name__)
 
 
 SUCCESS_POLL_ATTEMPTS = 20
@@ -467,17 +481,28 @@ class StripeClient[
             account_id=account.id,
             metadata={},
         )
-        portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
-            self._build_cancel_portal_params(
-                customer_id=stripe_customer_id,
-                return_url=absolute_url(
-                    self.belgie_settings.base_url,
-                    self._validated_url(data.return_url),
+        try:
+            portal_session = await self.stripe.v1.billing_portal.sessions.create_async(
+                self._build_cancel_portal_params(
+                    customer_id=stripe_customer_id,
+                    return_url=absolute_url(
+                        self.belgie_settings.base_url,
+                        self._validated_url(data.return_url),
+                    ),
+                    subscription_id=subscription.stripe_subscription_id,
+                    locale=data.locale,
                 ),
-                subscription_id=subscription.stripe_subscription_id,
-                locale=data.locale,
-            ),
-        )
+            )
+        except Exception as exc:
+            if self._should_sync_pending_cancellation(exc):
+                try:
+                    await self._sync_pending_cancellation_from_stripe(subscription=subscription)
+                except Exception:
+                    logger.exception(
+                        "failed to sync pending stripe cancellation state",
+                        extra={"subscription_id": str(subscription.id)},
+                    )
+            raise
         return StripeRedirectResponse(url=portal_session.url, redirect=not data.disable_redirect)
 
     async def restore(self, *, data: RestoreSubscriptionRequest) -> SubscriptionView:
@@ -694,6 +719,28 @@ class StripeClient[
             )
         return stripe_customer_id
 
+    async def sync_individual_email(
+        self,
+        *,
+        previous_individual: IndividualProtocol[str],
+        individual: IndividualProtocol[str],
+    ) -> None:
+        if previous_individual.email == individual.email:
+            return
+        if not isinstance(individual, StripeAccountProtocol) or individual.stripe_customer_id is None:
+            return
+
+        stripe_customer = await self.stripe.v1.customers.retrieve_async(individual.stripe_customer_id)
+        if getattr(stripe_customer, "deleted", False):
+            return
+        if getattr(stripe_customer, "email", None) == individual.email:
+            return
+
+        await self.stripe.v1.customers.update_async(
+            individual.stripe_customer_id,
+            CustomerUpdateParams(email=individual.email),
+        )
+
     async def sync_organization_name(self, *, organization_id: UUID) -> None:
         organization = await self._get_account_by_id(organization_id)
         if organization.account_type != AccountType.ORGANIZATION or organization.stripe_customer_id is None:
@@ -904,13 +951,6 @@ class StripeClient[
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="url must be relative or same-origin")
         return normalized
 
-    def _coerce_stripe_uuid(self, value: str, *, field_name: str) -> UUID:
-        try:
-            return UUID(value)
-        except ValueError as exc:
-            detail = f"stripe metadata {field_name} must be a valid UUID"
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
-
     async def _build_checkout_session_params(  # noqa: PLR0913
         self,
         *,
@@ -919,9 +959,9 @@ class StripeClient[
         line_items: list[checkout.SessionCreateParamsLineItem],
         redirect_urls: tuple[str, str],
         metadata: dict[str, str],
-        locale: str | None,
+        locale: StripeSubscriptionLocale | None,
         trial_days: int | None,
-        proration_behavior: str | None,
+        proration_behavior: StripeProrationBehavior | None,
     ) -> checkout.SessionCreateParams:
         success_url, cancel_url = redirect_urls
         payload = _copy_checkout_session_params(extra_params)
@@ -954,7 +994,7 @@ class StripeClient[
         *,
         customer_id: str,
         return_url: str,
-        locale: str | None,
+        locale: BillingPortalLocale | None,
     ) -> billing_portal.SessionCreateParams:
         payload = billing_portal.SessionCreateParams(
             customer=customer_id,
@@ -970,7 +1010,7 @@ class StripeClient[
         customer_id: str,
         return_url: str,
         subscription_id: str,
-        locale: str | None,
+        locale: BillingPortalLocale | None,
     ) -> billing_portal.SessionCreateParams:
         payload = billing_portal.SessionCreateParams(
             customer=customer_id,
@@ -999,7 +1039,7 @@ class StripeClient[
         return_url: str,
         stripe_subscription: Subscription,
         desired_item: DesiredSubscriptionItem,
-        locale: str | None,
+        locale: StripeSubscriptionLocale | None,
     ) -> billing_portal.SessionCreateParams:
         if not stripe_subscription.items.data:
             raise HTTPException(
@@ -1356,13 +1396,12 @@ class StripeClient[
         return next((customer for customer in customers if self._customer_matches_account(customer, account)), None)
 
     def _customer_matches_account(self, customer: _HasID, account: StripeAccountProtocol) -> bool:
-        metadata = _metadata_dict(getattr(customer, "metadata", None))
+        metadata = parse_customer_metadata(_metadata_dict(getattr(customer, "metadata", None)))
         if account.account_type == AccountType.INDIVIDUAL:
-            if metadata.get("account_type") in {AccountType.ORGANIZATION, AccountType.TEAM}:
+            if metadata.account_type in {AccountType.ORGANIZATION, AccountType.TEAM}:
                 return False
-            metadata_account_id = metadata.get("account_id")
-            return metadata_account_id is None or metadata_account_id == str(account.id)
-        return metadata.get("account_id") == str(account.id) and metadata.get("account_type") == account.account_type
+            return metadata.raw.get("account_id") is None or metadata.account_id == account.id
+        return metadata.account_id == account.id and metadata.account_type == account.account_type
 
     def _coerce_checkout_session_event(self, event: Event) -> CheckoutSession:
         return CheckoutSession.construct_from(event.data.object, key=None)
@@ -1371,11 +1410,18 @@ class StripeClient[
         return Subscription.construct_from(event.data.object, key=None)
 
     async def _lookup_subscription_from_metadata(self, metadata: dict[str, str]) -> SubscriptionT | None:
-        if (metadata_subscription_id := metadata.get("local_subscription_id")) is None:
+        parsed_metadata = parse_subscription_metadata(metadata)
+        if (
+            parsed_metadata.raw.get("local_subscription_id") is not None
+            and parsed_metadata.local_subscription_id is None
+        ):
+            detail = "stripe metadata local_subscription_id must be a valid UUID"
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+        if parsed_metadata.local_subscription_id is None:
             return None
         return await self.subscription_adapter.get_subscription_by_id(
             self.client.db,
-            self._coerce_stripe_uuid(metadata_subscription_id, field_name="local_subscription_id"),
+            parsed_metadata.local_subscription_id,
         )
 
     async def _sync_subscription(
@@ -1495,12 +1541,11 @@ class StripeClient[
         metadata: dict[str, str],
         subscription: SubscriptionT | None,
     ) -> StripeAccountProtocol | None:
-        account_id_raw = metadata.get("account_id")
-        account_id = None
-        if account_id_raw is not None:
-            account_id = self._coerce_stripe_uuid(account_id_raw, field_name="account_id")
-        elif subscription is not None:
-            account_id = subscription.account_id
+        parsed_metadata = parse_subscription_metadata(metadata)
+        if parsed_metadata.raw.get("account_id") is not None and parsed_metadata.account_id is None:
+            detail = "stripe metadata account_id must be a valid UUID"
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+        account_id = parsed_metadata.account_id or (None if subscription is None else subscription.account_id)
         if account_id is None:
             return None
         return await self.client.adapter.get_account_by_id(self.client.db, account_id)
@@ -1591,11 +1636,16 @@ class StripeClient[
         stripe_subscription: Subscription,
         existing_subscription: SubscriptionT | None,
     ) -> str | None:
-        schedule_id = _expandable_id(getattr(stripe_subscription, "schedule", None))
+        schedule = getattr(stripe_subscription, "schedule", None)
+        schedule_id = _expandable_id(schedule)
         if schedule_id is None:
             return None
         if existing_subscription is not None and existing_subscription.stripe_schedule_id == schedule_id:
             return schedule_id
+        if isinstance(schedule, StripeObject):
+            parsed_schedule = parse_schedule_metadata(_metadata_dict(getattr(schedule, "metadata", None)))
+            if parsed_schedule.is_managed_by_plugin:
+                return schedule_id
         return None
 
     def _normalize_status(self, status_value: str) -> StripeSubscriptionStatus:
@@ -1653,6 +1703,40 @@ class StripeClient[
             stripe_subscription=stripe_subscription,
             event_type="checkout.session.completed",
             existing_subscription=local_subscription,
+        )
+
+    def _should_sync_pending_cancellation(self, exc: Exception) -> bool:
+        detail = str(exc).casefold()
+        return any(
+            marker in detail
+            for marker in (
+                "already set to be canceled",
+                "already scheduled to cancel",
+                "already canceled",
+                "pending cancellation",
+            )
+        )
+
+    async def _sync_pending_cancellation_from_stripe(self, *, subscription: SubscriptionT) -> None:
+        if subscription.stripe_subscription_id is None:
+            return
+        try:
+            stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(subscription.stripe_subscription_id)
+        except stripe.error.StripeError:
+            return
+        if not self._stripe_subscription_is_pending_cancellation(stripe_subscription):
+            return
+        await self._sync_subscription(
+            stripe_subscription=stripe_subscription,
+            event_type="customer.subscription.updated",
+            existing_subscription=subscription,
+        )
+
+    def _stripe_subscription_is_pending_cancellation(self, stripe_subscription: Subscription) -> bool:
+        return bool(
+            stripe_subscription.cancel_at_period_end
+            or isinstance(stripe_subscription.cancel_at, int)
+            or isinstance(stripe_subscription.canceled_at, int),
         )
 
     async def _release_plugin_schedule_if_present(self, subscription: SubscriptionT) -> SubscriptionT:

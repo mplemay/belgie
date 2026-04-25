@@ -335,7 +335,9 @@ class OAuthFlowCoordinator:
             if individual is None:
                 msg = "linked individual not found"
                 raise OAuthError(msg)
-            individual = await self._refresh_individual_profile(client, individual, provider_user) or individual
+            individual = (
+                await self._refresh_individual_profile(client, request, individual, provider_user) or individual
+            )
             session = await client.sign_in_individual(individual, request=request)
             if self.config.update_account_on_sign_in:
                 updated_account = await client.update_oauth_account_by_id(
@@ -394,7 +396,9 @@ class OAuthFlowCoordinator:
                     "account_not_linked",
                     "provider email is not trusted for implicit account linking",
                 )
-            individual = await self._refresh_individual_profile(client, individual, provider_user) or individual
+            individual = (
+                await self._refresh_individual_profile(client, request, individual, provider_user) or individual
+            )
         session = await client.sign_in_individual(individual, request=request)
         if created and client.after_sign_up is not None:
             await client.after_sign_up(
@@ -498,6 +502,7 @@ class OAuthFlowCoordinator:
     async def _refresh_individual_profile(
         self,
         client: BelgieClient,
+        request: Request,
         individual: IndividualProtocol[str],
         provider_user: OAuthUserInfo,
     ) -> IndividualProtocol[str] | None:
@@ -510,7 +515,7 @@ class OAuthFlowCoordinator:
             updates["email_verified_at"] = datetime.now(UTC)
         if not updates:
             return None
-        return await client.adapter.update_individual(client.db, individual.id, **updates)
+        return await client.update_individual(individual, request=request, **updates)
 
     async def _refresh_verified_email(
         self,

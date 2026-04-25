@@ -1261,7 +1261,8 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
             if individual is None:
                 raise OAuthError("linked individual not found")
             individual = (
-                await self._refresh_individual_profile(client, provider, individual, provider_user) or individual
+                await self._refresh_individual_profile(client, request, provider, individual, provider_user)
+                or individual
             )
             session = await client.sign_in_individual(individual, request=request)
             if token_set is not None:
@@ -1352,7 +1353,8 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
                     "provider email is not trusted for implicit account linking",
                 )
             individual = (
-                await self._refresh_individual_profile(client, provider, individual, provider_user) or individual
+                await self._refresh_individual_profile(client, request, provider, individual, provider_user)
+                or individual
             )
 
         session = await client.sign_in_individual(individual, request=request)
@@ -1727,6 +1729,7 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
     async def _refresh_individual_profile(
         self,
         client: BelgieClient,
+        request: Request,
         provider: ProviderT,
         individual: IndividualProtocol[str],
         provider_user: OAuthUserInfo,
@@ -1746,7 +1749,7 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
             updates["email_verified_at"] = datetime.now(UTC)
         if not updates:
             return None
-        return await client.adapter.update_individual(client.db, individual.id, **updates)
+        return await client.update_individual(individual, request=request, **updates)
 
     def _token_updates(self, token_set: OAuthTokenSet | None) -> dict[str, object]:
         if token_set is None:

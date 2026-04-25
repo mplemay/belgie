@@ -650,6 +650,7 @@ class StubBelgieClient(BelgieClient[StubIndividual, StubOAuthAccount, StubSessio
     get_oauth_account_mock: AsyncMock
     get_oauth_account_for_individual_mock: AsyncMock
     list_oauth_accounts_mock: AsyncMock
+    update_individual_mock: AsyncMock
     update_oauth_account_by_id_mock: AsyncMock
     unlink_oauth_account_mock: AsyncMock
     sign_in_individual_mock: AsyncMock
@@ -694,6 +695,7 @@ class StubBelgieClient(BelgieClient[StubIndividual, StubOAuthAccount, StubSessio
             AsyncMock(side_effect=self._get_oauth_account_for_individual_default),
         )
         object.__setattr__(self, "list_oauth_accounts_mock", AsyncMock(side_effect=self._list_oauth_accounts_default))
+        object.__setattr__(self, "update_individual_mock", AsyncMock(side_effect=self._update_individual_default))
         object.__setattr__(
             self,
             "update_oauth_account_by_id_mock",
@@ -746,6 +748,20 @@ class StubBelgieClient(BelgieClient[StubIndividual, StubOAuthAccount, StubSessio
         provider: str | None = None,
     ) -> list[StubOAuthAccount]:
         return await BelgieClient.list_oauth_accounts(self, individual_id=individual_id, provider=provider)
+
+    async def _update_individual_default(
+        self,
+        individual: StubIndividual,
+        *,
+        request: Request | None = None,
+        **updates: IndividualUpdateValue,
+    ) -> StubIndividual | None:
+        return await BelgieClient.update_individual(
+            self,
+            individual,
+            request=request,
+            **updates,
+        )
 
     async def _update_oauth_account_by_id_default(
         self,
@@ -847,6 +863,19 @@ class StubBelgieClient(BelgieClient[StubIndividual, StubOAuthAccount, StubSessio
         provider: str | None = None,
     ) -> list[StubOAuthAccount]:
         return await self.list_oauth_accounts_mock(individual_id=individual_id, provider=provider)
+
+    async def update_individual(
+        self,
+        individual: StubIndividual,
+        *,
+        request: Request | None = None,
+        **updates: IndividualUpdateValue,
+    ) -> StubIndividual | None:
+        return await self.update_individual_mock(
+            individual,
+            request=request,
+            **updates,
+        )
 
     async def update_oauth_account_by_id(
         self,
@@ -2042,6 +2071,10 @@ async def test_email_verification_only_updates_when_provider_email_matches(monke
         )
 
     assert response.status_code == 302
+    client_update_call = client_dependency.update_individual_mock.await_args
+    assert client_update_call is not None
+    assert client_update_call.args == (individual,)
+    assert client_update_call.kwargs["request"].url.path == "/auth/provider/acme/callback"
     update_call = adapter.update_individual_mock.await_args
     assert update_call is not None
     update_kwargs = update_call.kwargs

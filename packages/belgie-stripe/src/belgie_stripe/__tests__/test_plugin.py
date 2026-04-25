@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Annotated
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -16,6 +17,7 @@ from belgie_stripe.__tests__.fakes import (
     FakeBelgieClient,
     FakeStripeSDK,
     InMemoryStripeAdapter,
+    make_customer,
     make_individual,
     make_session,
     make_team,
@@ -206,6 +208,38 @@ async def test_after_sign_up_creates_customer_when_enabled() -> None:
 
     assert stripe_sdk.created_customers
     assert belgie_client.individual.stripe_customer_id == "cus_1"
+
+
+@pytest.mark.asyncio
+async def test_after_update_individual_syncs_changed_email_to_stripe() -> None:
+    plugin, belgie, belgie_client, stripe_sdk, _adapter = _build_plugin()
+    previous_individual = replace(
+        belgie_client.individual,
+        email="old@example.com",
+        stripe_customer_id="cus_existing",
+    )
+    updated_individual = replace(
+        belgie_client.individual,
+        email="new@example.com",
+        stripe_customer_id="cus_existing",
+    )
+    stripe_sdk.customer_responses["cus_existing"] = make_customer(
+        customer_id="cus_existing",
+        email="old@example.com",
+    )
+
+    await plugin.after_update_individual(
+        belgie=belgie,
+        client=belgie_client,
+        request=None,
+        previous_individual=previous_individual,
+        individual=updated_individual,
+    )
+
+    assert stripe_sdk.retrieved_customers == ["cus_existing"]
+    assert stripe_sdk.updated_customers == [
+        ("cus_existing", {"email": "new@example.com"}),
+    ]
 
 
 def test_router_configures_organization_hooks_when_plugin_present() -> None:

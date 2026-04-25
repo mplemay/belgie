@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
+import stripe
 from belgie_core.core.settings import BelgieSettings
 from belgie_proto.core.account import AccountType
 from fastapi import HTTPException
@@ -29,7 +30,8 @@ from belgie_stripe.__tests__.fakes import (
     make_subscription_event,
     make_team,
 )
-from belgie_stripe.client import StripeClient
+from belgie_stripe.client import DesiredSubscriptionItem, StripeClient
+from belgie_stripe.metadata import parse_customer_metadata, parse_schedule_metadata, parse_subscription_metadata
 from belgie_stripe.models import (
     BillingPortalRequest,
     CancelSubscriptionRequest,
@@ -1016,3 +1018,214 @@ async def test_ensure_organization_can_delete_rejects_active_subscription() -> N
 
     with pytest.raises(HTTPException, match="active subscription"):
         await client.ensure_organization_can_delete(organization_id=organization.id)
+
+
+@pytest.mark.asyncio
+async def test_ensure_account_calls_on_account_create_with_typed_context() -> None:
+    on_account_create = AsyncMock()
+    client, belgie_client, _stripe_sdk, _adapter = _build_client(
+        on_account_create=on_account_create,
+    )
+
+    stripe_customer_id = await client.ensure_account(
+        account_id=belgie_client.individual.id,
+        metadata={"source": "signup"},
+    )
+
+    callback_context = on_account_create.await_args.args[0]
+    assert callback_context.account is belgie_client.individual
+    assert callback_context.stripe_customer_id == stripe_customer_id
+    assert callback_context.metadata == {"source": "signup"}
+
+
+@pytest.mark.asyncio
+async def test_cancel_syncs_pending_cancellation_when_portal_creation_fails() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+    )
+    cancel_at = 1_720_000_000
+    canceled_at = cancel_at - 300
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        account_id="cus_existing",
+        status="active",
+        cancel_at=cancel_at,
+        canceled_at=canceled_at,
+        metadata={},
+    )
+    stripe_sdk.billing_portal_session_errors.append(
+        stripe.error.InvalidRequestError(
+            "This subscription is already set to be canceled",
+            "flow_data[subscription_cancel][subscription]",
+        ),
+    )
+
+    with pytest.raises(stripe.error.InvalidRequestError, match="already set to be canceled"):
+        await client.cancel(
+            data=CancelSubscriptionRequest(
+                subscription_id=subscription.id,
+                return_url="/billing",
+            ),
+        )
+
+    updated = adapter.subscriptions[subscription.id]
+    assert updated.cancel_at_period_end is False
+    assert updated.cancel_at == datetime.fromtimestamp(cancel_at, UTC)
+    assert updated.canceled_at == datetime.fromtimestamp(canceled_at, UTC)
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_rejects_missing_signature_header() -> None:
+    client, _belgie_client, _stripe_sdk, _adapter = _build_client()
+    request = MagicMock()
+    request.body = AsyncMock(return_value=b"{}")
+    request.headers = {}
+
+    with pytest.raises(HTTPException, match="missing stripe-signature"):
+        await client.handle_webhook(request=request)
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_rejects_invalid_signature() -> None:
+    client, _belgie_client, stripe_sdk, _adapter = _build_client()
+    stripe_sdk.construct_event_error = stripe.error.SignatureVerificationError(
+        "invalid signature",
+        sig_header="sig_test",
+        http_body=b"{}",
+    )
+
+    with pytest.raises(HTTPException, match="invalid stripe webhook"):
+        await client.handle_webhook(request=_webhook_request())
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_deleted_subscription_syncs_cancel_and_end_timestamps() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+    )
+    cancel_at = 1_720_000_000
+    canceled_at = cancel_at - 120
+    ended_at = cancel_at + 120
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.deleted",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_existing",
+            account_id="cus_existing",
+            status="canceled",
+            cancel_at=cancel_at,
+            canceled_at=canceled_at,
+            ended_at=ended_at,
+            metadata={},
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    updated = adapter.subscriptions[subscription.id]
+    assert updated.status == "canceled"
+    assert updated.cancel_at == datetime.fromtimestamp(cancel_at, UTC)
+    assert updated.canceled_at == datetime.fromtimestamp(canceled_at, UTC)
+    assert updated.ended_at == datetime.fromtimestamp(ended_at, UTC)
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_clears_plugin_schedule_when_schedule_removed() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        stripe_schedule_id="sub_sched_existing",
+        status="active",
+    )
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.updated",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_existing",
+            account_id="cus_existing",
+            status="active",
+            metadata={},
+            schedule=None,
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert adapter.subscriptions[subscription.id].stripe_schedule_id is None
+
+
+def test_build_subscription_update_items_swaps_and_deletes_removed_items() -> None:
+    client, _belgie_client, _stripe_sdk, _adapter = _build_client()
+    current_items = list(
+        make_stripe_subscription(
+            items=[
+                _subscription_item(item_id="si_base", price_id="price_pro"),
+                _subscription_item(item_id="si_addon", price_id="price_addon"),
+            ],
+        ).items.data,
+    )
+
+    update_items = client._build_subscription_update_items(
+        current_items=current_items,
+        desired_items=[DesiredSubscriptionItem(price_id="price_starter", quantity=1)],
+    )
+
+    assert {"id": "si_base", "price": "price_starter", "quantity": 1} in update_items
+    assert {"id": "si_addon", "deleted": True} in update_items
+
+
+def test_parse_subscription_metadata_extracts_typed_values() -> None:
+    account_id = uuid4()
+    subscription_id = uuid4()
+
+    parsed = parse_subscription_metadata(
+        {
+            "account_id": str(account_id),
+            "account_type": AccountType.ORGANIZATION,
+            "local_subscription_id": str(subscription_id),
+            "plan": "team",
+        },
+    )
+
+    assert parsed.account_id == account_id
+    assert parsed.account_type == AccountType.ORGANIZATION
+    assert parsed.local_subscription_id == subscription_id
+    assert parsed.plan == "team"
+
+
+def test_parse_customer_metadata_ignores_invalid_values() -> None:
+    parsed = parse_customer_metadata(
+        {
+            "account_id": "not-a-uuid",
+            "account_type": "not-an-account-type",
+        },
+    )
+
+    assert parsed.raw["account_id"] == "not-a-uuid"
+    assert parsed.account_id is None
+    assert parsed.account_type is None
+
+
+def test_parse_schedule_metadata_marks_plugin_owned_schedules() -> None:
+    parsed = parse_schedule_metadata({"managed_by": "belgie-stripe"})
+
+    assert parsed.is_managed_by_plugin is True

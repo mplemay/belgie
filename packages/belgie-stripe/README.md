@@ -52,6 +52,9 @@ plugin = Stripe(
 )
 ```
 
+`StripePlan.proration_behavior` and the request `locale` fields use Stripe 15 generated SDK types. Belgie Stripe is
+intentionally pinned to the Stripe 15 surface rather than carrying compatibility branches for newer major versions.
+
 ## Route Surface
 
 Mounted under `/auth`:
@@ -79,5 +82,9 @@ definitions that live in your application code.
 - Billing flows target a generic `Account`, so individuals, organizations, and teams all use `account_id`.
 - Stripe customer creation supports both lazy creation on first billing action and automatic creation during
   `client.sign_up()` when `create_account_on_sign_up=True`.
+- Individual email changes are synced back to Stripe as a best-effort hook when updates go through
+  `BelgieClient.update_individual(...)`. Belgie-owned OAuth and SSO profile refresh flows already use that path.
+- Direct adapter calls such as `adapter.update_individual(...)` bypass plugin hooks by design.
 - Injected `StripeClient` instances expose the raw async Stripe SDK as `client.stripe` for app-owned SDK calls.
 - The package is designed around Stripe Billing APIs, Checkout Sessions, and Customer Portal.
+- Stripe support is limited to `>=15,<16`.

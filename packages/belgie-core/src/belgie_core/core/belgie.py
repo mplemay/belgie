@@ -16,7 +16,14 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import SecurityScopes
 
 from belgie_core.core.client import BelgieClient
-from belgie_core.core.plugin import AfterAuthenticateHook, AfterSignUpHook, AuthenticatedProfile, Plugin, PluginClient
+from belgie_core.core.plugin import (
+    AfterAuthenticateHook,
+    AfterSignUpHook,
+    AfterUpdateIndividualHook,
+    AuthenticatedProfile,
+    Plugin,
+    PluginClient,
+)
 from belgie_core.core.settings import BelgieSettings
 from belgie_core.session.manager import SessionManager
 
@@ -50,6 +57,7 @@ class _BelgieCallable:
                 session_manager=obj.session_manager,
                 cookie_settings=obj.settings.cookie,
                 after_sign_up=obj.after_sign_up,
+                after_update_individual=obj.after_update_individual,
             )
 
         return __call__
@@ -199,6 +207,31 @@ class Belgie[
             except Exception:
                 logger.exception(
                     "after_sign_up hook failed",
+                    extra={"plugin": plugin.__class__.__name__},
+                )
+
+    async def after_update_individual(
+        self,
+        *,
+        client: BelgieClient[IndividualT, OAuthAccountT, SessionT, OAuthStateT],
+        request: Request | None,
+        previous_individual: IndividualProtocol[str],
+        individual: IndividualProtocol[str],
+    ) -> None:
+        for plugin in self.plugins:
+            if not isinstance(plugin, AfterUpdateIndividualHook):
+                continue
+            try:
+                await plugin.after_update_individual(
+                    belgie=self,
+                    client=client,
+                    request=request,
+                    previous_individual=previous_individual,
+                    individual=individual,
+                )
+            except Exception:
+                logger.exception(
+                    "after_update_individual hook failed",
                     extra={"plugin": plugin.__class__.__name__},
                 )
 

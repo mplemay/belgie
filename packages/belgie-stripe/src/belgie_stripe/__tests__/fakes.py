@@ -423,6 +423,19 @@ class FakeCustomerService(CustomerService):
         self._sdk.customer_responses[customer.id] = customer
         return customer
 
+    async def retrieve_async(
+        self,
+        customer: str,
+        params: object | None = None,
+        options: RequestOptions | None = None,
+    ) -> Customer:
+        assert params is None
+        assert options is None
+        self._sdk.retrieved_customers.append(customer)
+        if self._sdk.customer_retrieve_errors:
+            raise self._sdk.customer_retrieve_errors.pop(0)
+        return self._sdk.customer_responses[customer]
+
     async def search_async(
         self,
         params: CustomerSearchParams,
@@ -471,6 +484,8 @@ class FakeCustomerService(CustomerService):
     ) -> Customer:
         assert options is None
         payload = CustomerUpdateParams() if params is None else CustomerUpdateParams(params)
+        if self._sdk.customer_update_errors:
+            raise self._sdk.customer_update_errors.pop(0)
         self._sdk.updated_customers.append((customer, payload))
         existing = self._sdk.customer_responses.get(customer)
         if existing is None:
@@ -534,6 +549,8 @@ class FakeBillingPortalSessionService(BillingPortalSessionService):
         options: RequestOptions | None = None,
     ) -> BillingPortalSession:
         assert options is None
+        if self._sdk.billing_portal_session_errors:
+            raise self._sdk.billing_portal_session_errors.pop(0)
         payload = billing_portal.SessionCreateParams() if params is None else billing_portal.SessionCreateParams(params)
         self._sdk.created_billing_portal_sessions.append(payload)
         return BillingPortalSession.construct_from(
@@ -703,13 +720,17 @@ class FakeStripeSDK(stripe.StripeClient):
         super().__init__("sk_test", http_client=stripe.HTTPXClient())
 
         self.created_customers: list[CustomerCreateParams] = []
+        self.retrieved_customers: list[str] = []
         self.searched_customers: list[CustomerSearchParams] = []
         self.listed_customers: list[CustomerListParams] = []
         self.updated_customers: list[tuple[str, CustomerUpdateParams]] = []
+        self.customer_retrieve_errors: list[Exception] = []
+        self.customer_update_errors: list[Exception] = []
         self.customer_responses: dict[str, Customer] = {}
         self.created_checkout_sessions: list[checkout.SessionCreateParams] = []
         self.checkout_session_responses: dict[str, CheckoutSession] = {}
         self.created_billing_portal_sessions: list[billing_portal.SessionCreateParams] = []
+        self.billing_portal_session_errors: list[Exception] = []
         self.modified_subscriptions: list[tuple[str, SubscriptionUpdateParams]] = []
         self.created_subscription_schedules: list[SubscriptionScheduleCreateParams] = []
         self.updated_subscription_schedules: list[tuple[str, SubscriptionScheduleUpdateParams]] = []
@@ -947,6 +968,7 @@ def make_customer(
     email: str | None = None,
     name: str | None = None,
     metadata: dict[str, str] | None = None,
+    deleted: bool = False,
 ) -> Customer:
     return Customer.construct_from(
         {
@@ -954,6 +976,7 @@ def make_customer(
             "object": "customer",
             "email": email,
             "name": name,
+            "deleted": deleted,
             "metadata": metadata or {},
         },
         key=None,

@@ -212,3 +212,14 @@ def test_call_dependency_threads_after_sign_up_hook(
     client = belgie_instance(db)
 
     assert client.after_sign_up == belgie_instance.after_sign_up
+
+
+def test_call_dependency_threads_after_update_individual_hook(
+    db_provider: tuple[Callable[[], Mock], Mock],
+    belgie_instance: Belgie,
+) -> None:
+    _dependency, db = db_provider
+
+    client = belgie_instance(db)
+
+    assert client.after_update_individual == belgie_instance.after_update_individual

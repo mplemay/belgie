@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Literal, Self, get_args
 from uuid import UUID  # noqa: TC003
 
 from belgie_proto.stripe import (
@@ -13,6 +13,13 @@ from belgie_proto.stripe import (
 )
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from stripe.params import checkout  # noqa: TC002
+from stripe.params._subscription_update_params import SubscriptionUpdateParams
+from stripe.params.billing_portal._session_create_params import (
+    SessionCreateParams as BillingPortalSessionCreateParams,
+)
+from stripe.params.checkout._session_create_params import (
+    SessionCreateParams as CheckoutSessionCreateParams,
+)
 
 if TYPE_CHECKING:
     from stripe import Subscription
@@ -27,7 +34,16 @@ type StripeAction = Literal[
     "restore-subscription",
     "upgrade-subscription",
 ]
-type StripeProrationBehavior = Literal["always_invoice", "create_prorations", "none"]
+type StripeProrationBehavior = get_args(
+    SubscriptionUpdateParams.__annotations__["proration_behavior"],
+)[0]
+type CheckoutSessionLocale = get_args(
+    CheckoutSessionCreateParams.__annotations__["locale"],
+)[0]
+type BillingPortalLocale = get_args(
+    BillingPortalSessionCreateParams.__annotations__["locale"],
+)[0]
+type StripeSubscriptionLocale = CheckoutSessionLocale | BillingPortalLocale
 
 
 class StripeFreeTrial(BaseModel):
@@ -68,7 +84,7 @@ class UpgradeSubscriptionRequest(BaseModel):
     cancel_url: str
     return_url: str | None = None
     disable_redirect: bool = False
-    locale: str | None = None
+    locale: StripeSubscriptionLocale | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
 
 
@@ -82,7 +98,7 @@ class CancelSubscriptionRequest(BaseModel):
     subscription_id: UUID | None = None
     return_url: str
     disable_redirect: bool = False
-    locale: str | None = None
+    locale: BillingPortalLocale | None = None
 
 
 class RestoreSubscriptionRequest(BaseModel):
@@ -94,7 +110,7 @@ class BillingPortalRequest(BaseModel):
     account_id: UUID | None = None
     return_url: str | None = None
     disable_redirect: bool = False
-    locale: str | None = None
+    locale: BillingPortalLocale | None = None
 
 
 class StripeRedirectResponse(BaseModel):

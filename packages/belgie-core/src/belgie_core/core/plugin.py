@@ -55,5 +55,18 @@ class AfterSignUpHook(Protocol):
 
 
 @runtime_checkable
+class AfterUpdateIndividualHook(Protocol):
+    async def after_update_individual(
+        self,
+        *,
+        belgie: Belgie,
+        client: BelgieClient,
+        request: Request | None,
+        previous_individual: IndividualProtocol[str],
+        individual: IndividualProtocol[str],
+    ) -> None: ...
+
+
+@runtime_checkable
 class Plugin[P: PluginClient](Protocol):
     def __call__(self, belgie_settings: BelgieSettings) -> P: ...
