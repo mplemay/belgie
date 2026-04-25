@@ -599,12 +599,18 @@ class StripeClient[
             subscription_id = _expandable_id(checkout_session.subscription)
             metadata = _metadata_dict(checkout_session.metadata)
             local_subscription = await self._lookup_subscription_from_metadata(metadata)
+            if local_subscription is None and subscription_id is not None:
+                local_subscription = await self.subscription_adapter.get_subscription_by_stripe_subscription_id(
+                    self.client.db,
+                    stripe_subscription_id=subscription_id,
+                )
             if subscription_id is not None:
                 stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(subscription_id)
                 await self._sync_subscription(
                     stripe_subscription=stripe_subscription,
                     event_type=event.type,
                     existing_subscription=local_subscription,
+                    checkout_session=checkout_session,
                 )
         elif event.type in {
             "customer.subscription.created",
@@ -1430,17 +1436,18 @@ class StripeClient[
         stripe_subscription: Subscription,
         event_type: str,
         existing_subscription: SubscriptionT | None,
+        checkout_session: CheckoutSession | None = None,
     ) -> SubscriptionT | None:
         metadata = _metadata_dict(stripe_subscription.metadata)
-        subscription = existing_subscription or await self._lookup_subscription_from_metadata(metadata)
-        account = await self._resolve_sync_account(metadata=metadata, subscription=subscription)
+        prior_subscription = existing_subscription or await self._lookup_subscription_from_metadata(metadata)
+        account = await self._resolve_sync_account(metadata=metadata, subscription=prior_subscription)
         if account is None:
             return None
 
         plan = await self._match_plan(
             plan_name=metadata.get("plan"),
             stripe_subscription=stripe_subscription,
-            existing_subscription=subscription,
+            existing_subscription=prior_subscription,
         )
         recurring = self._extract_primary_recurring(stripe_subscription, plan=plan)
         stripe_customer_id = _expandable_id(stripe_subscription.customer)
@@ -1455,16 +1462,18 @@ class StripeClient[
         seats = self._extract_seat_count(stripe_subscription, plan=plan)
         stripe_schedule_id = self._plugin_schedule_id(
             stripe_subscription=stripe_subscription,
-            existing_subscription=subscription,
+            existing_subscription=prior_subscription,
         )
 
         local_plan_name = (
-            plan.name.lower() if plan is not None else (subscription.plan if subscription is not None else None)
+            plan.name.lower()
+            if plan is not None
+            else (prior_subscription.plan if prior_subscription is not None else None)
         )
         if local_plan_name is None:
             return None
 
-        if subscription is None:
+        if prior_subscription is None:
             subscription = await self.subscription_adapter.create_subscription(
                 self.client.db,
                 plan=local_plan_name,
@@ -1487,7 +1496,7 @@ class StripeClient[
         else:
             updated = await self.subscription_adapter.update_subscription(
                 self.client.db,
-                subscription_id=subscription.id,
+                subscription_id=prior_subscription.id,
                 plan=local_plan_name,
                 stripe_customer_id=stripe_customer_id,
                 stripe_subscription_id=stripe_subscription.id,
@@ -1517,23 +1526,167 @@ class StripeClient[
             raw_event=stripe_subscription,
             subscription=subscription,
             account=account,
+            checkout_session=checkout_session,
+            cancellation_details=getattr(stripe_subscription, "cancellation_details", None),
+        )
+        await self._run_subscription_hooks(
+            event_type=event_type,
+            prior_subscription=prior_subscription,
+            hook_context=hook_context,
+        )
+        return subscription
+
+    async def _run_subscription_hooks(
+        self,
+        *,
+        event_type: str,
+        prior_subscription: SubscriptionT | None,
+        hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
+    ) -> None:
+        match event_type:
+            case "checkout.session.completed":
+                await self._run_checkout_completed_hooks(
+                    prior_subscription=prior_subscription,
+                    hook_context=hook_context,
+                )
+            case "customer.subscription.created":
+                await self._run_subscription_created_hooks(
+                    prior_subscription=prior_subscription,
+                    hook_context=hook_context,
+                )
+            case "customer.subscription.updated":
+                await self._run_subscription_updated_hooks(
+                    prior_subscription=prior_subscription,
+                    hook_context=hook_context,
+                )
+            case "customer.subscription.deleted":
+                await self._run_subscription_deleted_hooks(hook_context=hook_context)
+
+    async def _run_checkout_completed_hooks(
+        self,
+        *,
+        prior_subscription: SubscriptionT | None,
+        hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
+    ) -> None:
+        await self._run_trial_start_hook(
+            event_type="checkout.session.completed",
+            prior_subscription=prior_subscription,
+            hook_context=hook_context,
         )
         if (
-            event_type == "customer.subscription.created"
-            and self.settings.subscription.on_subscription_created is not None
+            hook_context.checkout_session is not None
+            and hook_context.plan is not None
+            and self.settings.subscription.on_subscription_complete is not None
         ):
+            await maybe_await(self.settings.subscription.on_subscription_complete(hook_context))
+
+    async def _run_subscription_created_hooks(
+        self,
+        *,
+        prior_subscription: SubscriptionT | None,
+        hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
+    ) -> None:
+        if prior_subscription is None and self.settings.subscription.on_subscription_created is not None:
             await maybe_await(self.settings.subscription.on_subscription_created(hook_context))
-        elif (
-            event_type == "customer.subscription.updated"
-            and self.settings.subscription.on_subscription_updated is not None
+        await self._run_trial_start_hook(
+            event_type="customer.subscription.created",
+            prior_subscription=prior_subscription,
+            hook_context=hook_context,
+        )
+
+    async def _run_subscription_updated_hooks(
+        self,
+        *,
+        prior_subscription: SubscriptionT | None,
+        hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
+    ) -> None:
+        if (
+            self.settings.subscription.on_subscription_cancel_requested is not None
+            and self._is_pending_cancellation_transition(
+                prior_subscription=prior_subscription,
+                stripe_subscription=hook_context.raw_event,
+            )
         ):
+            await maybe_await(self.settings.subscription.on_subscription_cancel_requested(hook_context))
+        if self.settings.subscription.on_subscription_updated is not None:
             await maybe_await(self.settings.subscription.on_subscription_updated(hook_context))
-        elif event_type == "customer.subscription.deleted":
-            if self.settings.subscription.on_subscription_deleted is not None:
-                await maybe_await(self.settings.subscription.on_subscription_deleted(hook_context))
-            if self.settings.subscription.on_subscription_canceled is not None:
-                await maybe_await(self.settings.subscription.on_subscription_canceled(hook_context))
-        return subscription
+        await self._run_trial_update_hooks(
+            prior_subscription=prior_subscription,
+            hook_context=hook_context,
+        )
+
+    async def _run_subscription_deleted_hooks(
+        self,
+        *,
+        hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
+    ) -> None:
+        if self.settings.subscription.on_subscription_deleted is not None:
+            await maybe_await(self.settings.subscription.on_subscription_deleted(hook_context))
+        if self.settings.subscription.on_subscription_canceled is not None:
+            await maybe_await(self.settings.subscription.on_subscription_canceled(hook_context))
+
+    async def _run_trial_start_hook(
+        self,
+        *,
+        event_type: str,
+        prior_subscription: SubscriptionT | None,
+        hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
+    ) -> None:
+        free_trial = None if hook_context.plan is None else hook_context.plan.free_trial
+        if (
+            free_trial is None
+            or free_trial.on_trial_start is None
+            or not self._is_trial_start_transition(
+                event_type=event_type,
+                prior_subscription=prior_subscription,
+                subscription=hook_context.subscription,
+                checkout_session=hook_context.checkout_session,
+            )
+        ):
+            return
+        await maybe_await(free_trial.on_trial_start(hook_context))
+
+    async def _run_trial_update_hooks(
+        self,
+        *,
+        prior_subscription: SubscriptionT | None,
+        hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
+    ) -> None:
+        free_trial = None if hook_context.plan is None else hook_context.plan.free_trial
+        if free_trial is None or prior_subscription is None or prior_subscription.status != "trialing":
+            return
+        if hook_context.subscription.status == "active" and free_trial.on_trial_end is not None:
+            await maybe_await(free_trial.on_trial_end(hook_context))
+        if hook_context.subscription.status == "incomplete_expired" and free_trial.on_trial_expired is not None:
+            await maybe_await(free_trial.on_trial_expired(hook_context))
+
+    def _is_trial_start_transition(
+        self,
+        *,
+        event_type: str,
+        prior_subscription: SubscriptionT | None,
+        subscription: SubscriptionT,
+        checkout_session: CheckoutSession | None,
+    ) -> bool:
+        if event_type == "checkout.session.completed" and checkout_session is None:
+            return False
+        if event_type not in {"checkout.session.completed", "customer.subscription.created"}:
+            return False
+        had_trial = prior_subscription is not None and (
+            prior_subscription.trial_start is not None or prior_subscription.trial_end is not None
+        )
+        has_trial = subscription.trial_start is not None or subscription.trial_end is not None
+        return has_trial and not had_trial
+
+    def _is_pending_cancellation_transition(
+        self,
+        *,
+        prior_subscription: SubscriptionT | None,
+        stripe_subscription: Subscription,
+    ) -> bool:
+        return self._stripe_subscription_is_pending_cancellation(stripe_subscription) and not (
+            prior_subscription is not None and self._subscription_is_pending_cancellation(prior_subscription)
+        )
 
     async def _resolve_sync_account(
         self,
@@ -1572,9 +1725,9 @@ class StripeClient[
     def _subscription_matches_plan(self, stripe_subscription: Subscription, *, plan: StripePlan) -> bool:
         for item in stripe_subscription.items.data:
             price = item.price
-            if price.id in {plan.price_id, plan.annual_price_id}:
+            if price.id is not None and price.id in {plan.price_id, plan.annual_price_id}:
                 return True
-            if price.lookup_key in {plan.lookup_key, plan.annual_lookup_key}:
+            if price.lookup_key is not None and price.lookup_key in {plan.lookup_key, plan.annual_lookup_key}:
                 return True
         return False
 
@@ -1586,9 +1739,9 @@ class StripeClient[
     ) -> _SubscriptionItem | None:
         for item in stripe_subscription.items.data:
             price = item.price
-            if price.id in {plan.price_id, plan.annual_price_id}:
+            if price.id is not None and price.id in {plan.price_id, plan.annual_price_id}:
                 return item
-            if price.lookup_key in {plan.lookup_key, plan.annual_lookup_key}:
+            if price.lookup_key is not None and price.lookup_key in {plan.lookup_key, plan.annual_lookup_key}:
                 return item
         if len(stripe_subscription.items.data) == 1:
             return stripe_subscription.items.data[0]
@@ -1732,10 +1885,18 @@ class StripeClient[
             existing_subscription=subscription,
         )
 
+    def _subscription_is_pending_cancellation(self, subscription: SubscriptionT) -> bool:
+        return bool(
+            subscription.cancel_at_period_end
+            or subscription.cancel_at is not None
+            or subscription.canceled_at is not None,
+        )
+
     def _stripe_subscription_is_pending_cancellation(self, stripe_subscription: Subscription) -> bool:
         return bool(
             stripe_subscription.cancel_at_period_end
             or isinstance(stripe_subscription.cancel_at, int)
+            or getattr(stripe_subscription, "cancellation_details", None) is not None
             or isinstance(stripe_subscription.canceled_at, int),
         )
 

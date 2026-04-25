@@ -54,8 +54,11 @@ def _build_client(
     get_account_create_params=None,
     get_checkout_session_params=None,
     on_account_create=None,
+    on_subscription_complete=None,
     on_subscription_created=None,
     on_subscription_updated=None,
+    on_subscription_cancel_requested=None,
+    on_subscription_canceled=None,
     on_subscription_deleted=None,
     on_event=None,
     organization_adapter=None,
@@ -86,8 +89,11 @@ def _build_client(
                 plans=plans,
                 authorize_account=authorize_account,
                 get_checkout_session_params=get_checkout_session_params,
+                on_subscription_complete=on_subscription_complete,
                 on_subscription_created=on_subscription_created,
                 on_subscription_updated=on_subscription_updated,
+                on_subscription_cancel_requested=on_subscription_cancel_requested,
+                on_subscription_canceled=on_subscription_canceled,
                 on_subscription_deleted=on_subscription_deleted,
             ),
         ),
@@ -503,8 +509,103 @@ async def test_handle_webhook_checkout_completed_creates_subscription() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_webhook_checkout_completed_calls_on_subscription_complete_after_sync() -> None:
+    individual = make_individual()
+    captured_contexts = []
+    captured_statuses = []
+    adapter_ref: InMemoryStripeAdapter | None = None
+
+    async def on_subscription_complete(context) -> None:
+        assert adapter_ref is not None
+        captured_contexts.append(context)
+        captured_statuses.append(adapter_ref.subscriptions[context.subscription.id].status)
+
+    client, belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        on_subscription_complete=on_subscription_complete,
+    )
+    adapter_ref = adapter
+    stripe_sdk.event = make_checkout_completed_event(
+        subscription_id="sub_123",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+    )
+    stripe_sdk.subscription_responses["sub_123"] = make_stripe_subscription(
+        subscription_id="sub_123",
+        account_id="cus_123",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert captured_statuses == ["active"]
+    assert len(captured_contexts) == 1
+    context = captured_contexts[0]
+    assert isinstance(context.checkout_session, CheckoutSession)
+    assert isinstance(context.raw_event, stripe.Subscription)
+    assert context.checkout_session.id == "cs_123"
+    assert context.plan is not None
+    assert context.plan.name == "pro"
+    assert context.subscription.status == "active"
+    assert context.subscription.stripe_subscription_id == "sub_123"
+    assert context.account is belgie_client.individual
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_checkout_completed_skips_subscription_complete_without_account_mapping() -> None:
+    on_subscription_complete = AsyncMock()
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        on_subscription_complete=on_subscription_complete,
+    )
+    stripe_sdk.event = make_checkout_completed_event(
+        subscription_id="sub_123",
+        metadata={"plan": "pro"},
+    )
+    stripe_sdk.subscription_responses["sub_123"] = make_stripe_subscription(
+        subscription_id="sub_123",
+        account_id="cus_123",
+        metadata={"plan": "pro"},
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert adapter.subscriptions == {}
+    on_subscription_complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_checkout_completed_skips_subscription_complete_without_matching_plan() -> None:
+    individual = make_individual()
+    on_subscription_complete = AsyncMock()
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        on_subscription_complete=on_subscription_complete,
+    )
+    stripe_sdk.event = make_checkout_completed_event(
+        subscription_id="sub_123",
+        metadata={"account_id": str(individual.id), "plan": "missing"},
+    )
+    stripe_sdk.subscription_responses["sub_123"] = make_stripe_subscription(
+        subscription_id="sub_123",
+        account_id="cus_123",
+        metadata={"account_id": str(individual.id), "plan": "missing"},
+        price_id="price_missing",
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert adapter.subscriptions == {}
+    on_subscription_complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_handle_webhook_rejects_invalid_account_id() -> None:
-    client, _belgie_client, stripe_sdk, _adapter = _build_client()
+    on_subscription_created = AsyncMock()
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(
+        on_subscription_created=on_subscription_created,
+    )
     stripe_sdk.event = make_subscription_event(
         event_type="customer.subscription.created",
         subscription=make_stripe_subscription(
@@ -514,6 +615,7 @@ async def test_handle_webhook_rejects_invalid_account_id() -> None:
 
     with pytest.raises(HTTPException, match="account_id"):
         await client.handle_webhook(request=_webhook_request())
+    on_subscription_created.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -548,6 +650,59 @@ async def test_handle_webhook_updates_existing_subscription_without_customer_met
     assert updated.account_id == individual.id
     assert updated.status == "canceled"
     assert updated.cancel_at_period_end is True
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_updated_calls_on_subscription_cancel_requested_once() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    on_subscription_cancel_requested = AsyncMock()
+    on_subscription_updated = AsyncMock()
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        on_subscription_cancel_requested=on_subscription_cancel_requested,
+        on_subscription_updated=on_subscription_updated,
+    )
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        cancel_at_period_end=False,
+        billing_interval="month",
+    )
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.updated",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_existing",
+            account_id="cus_existing",
+            status="active",
+            metadata={},
+            cancel_at_period_end=True,
+            cancellation_details={
+                "feedback": "too_expensive",
+                "comment": "Customer canceled subscription",
+                "reason": "cancellation_requested",
+            },
+        ),
+    )
+
+    first_response = await client.handle_webhook(request=_webhook_request())
+    second_response = await client.handle_webhook(request=_webhook_request())
+
+    assert first_response == {"received": True}
+    assert second_response == {"received": True}
+    assert adapter.subscriptions[subscription.id].cancel_at_period_end is True
+    on_subscription_updated.assert_awaited()
+    assert on_subscription_updated.await_count == 2
+    on_subscription_cancel_requested.assert_awaited_once()
+    context = on_subscription_cancel_requested.await_args.args[0]
+    assert context.plan is not None
+    assert context.plan.name == "pro"
+    assert context.subscription.cancel_at_period_end is True
+    assert isinstance(context.cancellation_details, stripe.Subscription.CancellationDetails)
+    assert context.cancellation_details.feedback == "too_expensive"
 
 
 @pytest.mark.asyncio
@@ -762,6 +917,36 @@ async def test_upgrade_applies_free_trial_only_once() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancel_targets_active_subscription_when_newer_canceled_subscription_exists() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
+    await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_active",
+        status="active",
+    )
+    await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_canceled",
+        status="canceled",
+    )
+
+    result = await client.cancel(
+        data=CancelSubscriptionRequest(return_url="/billing"),
+    )
+
+    assert result.url == "https://billing.stripe.test/session"
+    portal_payload = stripe_sdk.created_billing_portal_sessions[0]
+    assert portal_payload["flow_data"]["subscription_cancel"]["subscription"] == "sub_active"
+
+
+@pytest.mark.asyncio
 async def test_cancel_uses_targeted_subscription_cancel_flow() -> None:
     individual = make_individual(stripe_customer_id="cus_existing")
     client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
@@ -786,6 +971,33 @@ async def test_cancel_uses_targeted_subscription_cancel_flow() -> None:
     portal_payload = stripe_sdk.created_billing_portal_sessions[0]
     assert portal_payload["flow_data"]["type"] == "subscription_cancel"
     assert portal_payload["flow_data"]["subscription_cancel"]["subscription"] == "sub_existing"
+
+
+@pytest.mark.asyncio
+async def test_cancel_rejects_cross_account_targeted_subscription() -> None:
+    organization = make_organization()
+    individual = make_individual(stripe_customer_id="cus_existing")
+    client, _belgie_client, _stripe_sdk, adapter = _build_client(
+        individual=individual,
+        accounts={organization.id: organization},
+    )
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+    )
+
+    with pytest.raises(HTTPException, match="subscription not found"):
+        await client.cancel(
+            data=CancelSubscriptionRequest(
+                account_id=organization.id,
+                subscription_id=subscription.id,
+                return_url="/billing",
+            ),
+        )
 
 
 @pytest.mark.asyncio
@@ -818,6 +1030,33 @@ async def test_restore_clears_cancel_at_timestamp() -> None:
     assert restored.id == subscription.id
     assert restored.cancel_at is None
     assert stripe_sdk.modified_subscriptions[-1] == ("sub_existing", {"cancel_at": ""})
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_cross_account_targeted_subscription() -> None:
+    organization = make_organization()
+    individual = make_individual(stripe_customer_id="cus_existing")
+    client, _belgie_client, _stripe_sdk, adapter = _build_client(
+        individual=individual,
+        accounts={organization.id: organization},
+    )
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        cancel_at_period_end=True,
+    )
+
+    with pytest.raises(HTTPException, match="subscription not found"):
+        await client.restore(
+            data=RestoreSubscriptionRequest(
+                account_id=organization.id,
+                subscription_id=subscription.id,
+            ),
+        )
 
 
 @pytest.mark.asyncio
@@ -940,6 +1179,166 @@ async def test_handle_webhook_syncs_trial_seats_and_schedule() -> None:
     assert updated.trial_end is not None
     assert updated.seats == 5
     assert updated.stripe_schedule_id == "sub_sched_team"
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_created_calls_on_trial_start_when_trial_is_first_synced() -> None:
+    individual = make_individual()
+    captured_contexts = []
+    captured_statuses = []
+    adapter_ref: InMemoryStripeAdapter | None = None
+
+    async def on_trial_start(context) -> None:
+        assert adapter_ref is not None
+        captured_contexts.append(context)
+        captured_statuses.append(adapter_ref.subscriptions[context.subscription.id].status)
+
+    client, belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        plans=[
+            StripePlan(
+                name="starter",
+                price_id="price_starter",
+                free_trial=StripeFreeTrial(days=7, on_trial_start=on_trial_start),
+            ),
+        ],
+    )
+    adapter_ref = adapter
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.created",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_trial_start",
+            account_id="cus_trial_start",
+            status="trialing",
+            trial_start=1_720_000_000,
+            trial_end=1_720_604_800,
+            metadata={"account_id": str(individual.id), "plan": "starter"},
+            price_id="price_starter",
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert captured_statuses == ["trialing"]
+    assert len(captured_contexts) == 1
+    context = captured_contexts[0]
+    assert context.account is belgie_client.individual
+    assert context.plan is not None
+    assert context.plan.name == "starter"
+    assert context.subscription.status == "trialing"
+    assert context.subscription.trial_start == datetime.fromtimestamp(1_720_000_000, UTC)
+    assert context.subscription.trial_end == datetime.fromtimestamp(1_720_604_800, UTC)
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_updated_calls_on_trial_end() -> None:
+    individual = make_individual(stripe_customer_id="cus_trial_end")
+    captured_contexts = []
+    adapter_ref: InMemoryStripeAdapter | None = None
+
+    async def on_trial_end(context) -> None:
+        assert adapter_ref is not None
+        captured_contexts.append((context, adapter_ref.subscriptions[context.subscription.id].status))
+
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        plans=[
+            StripePlan(
+                name="starter",
+                price_id="price_starter",
+                free_trial=StripeFreeTrial(days=7, on_trial_end=on_trial_end),
+            ),
+        ],
+    )
+    adapter_ref = adapter
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="starter",
+        account_id=individual.id,
+        stripe_customer_id="cus_trial_end",
+        stripe_subscription_id="sub_trial_end",
+        status="trialing",
+        trial_start=datetime.fromtimestamp(1_720_000_000, UTC),
+        trial_end=datetime.fromtimestamp(1_720_604_800, UTC),
+        billing_interval="month",
+    )
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.updated",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_trial_end",
+            account_id="cus_trial_end",
+            status="active",
+            trial_start=1_720_000_000,
+            trial_end=1_720_604_800,
+            metadata={},
+            price_id="price_starter",
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert adapter.subscriptions[subscription.id].status == "active"
+    assert len(captured_contexts) == 1
+    context, persisted_status = captured_contexts[0]
+    assert persisted_status == "active"
+    assert context.subscription.status == "active"
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_updated_calls_on_trial_expired() -> None:
+    individual = make_individual(stripe_customer_id="cus_trial_expired")
+    captured_contexts = []
+    adapter_ref: InMemoryStripeAdapter | None = None
+
+    async def on_trial_expired(context) -> None:
+        assert adapter_ref is not None
+        captured_contexts.append((context, adapter_ref.subscriptions[context.subscription.id].status))
+
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        plans=[
+            StripePlan(
+                name="starter",
+                price_id="price_starter",
+                free_trial=StripeFreeTrial(days=7, on_trial_expired=on_trial_expired),
+            ),
+        ],
+    )
+    adapter_ref = adapter
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="starter",
+        account_id=individual.id,
+        stripe_customer_id="cus_trial_expired",
+        stripe_subscription_id="sub_trial_expired",
+        status="trialing",
+        trial_start=datetime.fromtimestamp(1_720_000_000, UTC),
+        trial_end=datetime.fromtimestamp(1_720_604_800, UTC),
+        billing_interval="month",
+    )
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.updated",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_trial_expired",
+            account_id="cus_trial_expired",
+            status="incomplete_expired",
+            trial_start=1_720_000_000,
+            trial_end=1_720_604_800,
+            metadata={},
+            price_id="price_starter",
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert adapter.subscriptions[subscription.id].status == "incomplete_expired"
+    assert len(captured_contexts) == 1
+    context, persisted_status = captured_contexts[0]
+    assert persisted_status == "incomplete_expired"
+    assert context.subscription.status == "incomplete_expired"
 
 
 @pytest.mark.asyncio
@@ -1141,6 +1540,143 @@ async def test_handle_webhook_deleted_subscription_syncs_cancel_and_end_timestam
     assert updated.cancel_at == datetime.fromtimestamp(cancel_at, UTC)
     assert updated.canceled_at == datetime.fromtimestamp(canceled_at, UTC)
     assert updated.ended_at == datetime.fromtimestamp(ended_at, UTC)
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_created_skips_duplicate_subscription_and_created_hook() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    on_subscription_created = AsyncMock()
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        on_subscription_created=on_subscription_created,
+    )
+    existing = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.created",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_existing",
+            account_id="cus_existing",
+            status="active",
+            metadata={"account_id": str(individual.id), "plan": "pro"},
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert len(adapter.subscriptions) == 1
+    assert adapter.subscriptions[existing.id].stripe_subscription_id == "sub_existing"
+    on_subscription_created.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_subscription_event_hooks_receive_persisted_local_state() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    adapter_ref: InMemoryStripeAdapter | None = None
+    created_states = []
+    updated_states = []
+    deleted_states = []
+    canceled_states = []
+
+    async def on_subscription_created(context) -> None:
+        assert adapter_ref is not None
+        created_states.append(
+            (
+                context.subscription.status,
+                adapter_ref.subscriptions[context.subscription.id].status,
+            ),
+        )
+
+    async def on_subscription_updated(context) -> None:
+        assert adapter_ref is not None
+        updated_states.append(
+            (
+                context.subscription.seats,
+                adapter_ref.subscriptions[context.subscription.id].seats,
+            ),
+        )
+
+    async def on_subscription_deleted(context) -> None:
+        assert adapter_ref is not None
+        deleted_states.append(
+            (
+                context.subscription.status,
+                adapter_ref.subscriptions[context.subscription.id].status,
+            ),
+        )
+
+    async def on_subscription_canceled(context) -> None:
+        assert adapter_ref is not None
+        canceled_states.append(
+            (
+                context.subscription.status,
+                adapter_ref.subscriptions[context.subscription.id].status,
+            ),
+        )
+
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        on_subscription_created=on_subscription_created,
+        on_subscription_updated=on_subscription_updated,
+        on_subscription_deleted=on_subscription_deleted,
+        on_subscription_canceled=on_subscription_canceled,
+    )
+    adapter_ref = adapter
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.created",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_existing",
+            account_id="cus_existing",
+            status="active",
+            metadata={"account_id": str(individual.id), "plan": "pro"},
+        ),
+    )
+
+    created_response = await client.handle_webhook(request=_webhook_request())
+
+    created_subscription = next(iter(adapter.subscriptions.values()))
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.updated",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_existing",
+            account_id="cus_existing",
+            status="active",
+            metadata={},
+            items=[_subscription_item(item_id="si_base", price_id="price_pro", quantity=5)],
+        ),
+    )
+
+    updated_response = await client.handle_webhook(request=_webhook_request())
+
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.deleted",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_existing",
+            account_id="cus_existing",
+            status="canceled",
+            ended_at=1_720_000_120,
+            metadata={},
+        ),
+    )
+
+    deleted_response = await client.handle_webhook(request=_webhook_request())
+
+    assert created_response == {"received": True}
+    assert updated_response == {"received": True}
+    assert deleted_response == {"received": True}
+    assert created_states == [("active", "active")]
+    assert updated_states == [(5, 5)]
+    assert deleted_states == [("canceled", "canceled")]
+    assert canceled_states == [("canceled", "canceled")]
+    assert adapter.subscriptions[created_subscription.id].status == "canceled"
 
 
 @pytest.mark.asyncio

@@ -839,6 +839,7 @@ def make_stripe_subscription(
     ended_at: int | None = None,
     trial_start: int | None = None,
     trial_end: int | None = None,
+    cancellation_details: dict[str, str] | None = None,
     metadata: dict[str, str] | None = None,
     price_id: str = "price_pro",
     lookup_key: str | None = None,
@@ -879,6 +880,7 @@ def make_stripe_subscription(
             "current_period_end": current_period_end,
             "trial_start": trial_start,
             "trial_end": trial_end,
+            "cancellation_details": cancellation_details,
             "cancel_at_period_end": cancel_at_period_end,
             "cancel_at": cancel_at,
             "canceled_at": canceled_at,
@@ -913,6 +915,7 @@ def make_checkout_completed_event(
                 "object": {
                     "id": "cs_123",
                     "object": "checkout.session",
+                    "mode": "subscription",
                     "subscription": subscription_id,
                     "metadata": metadata or {},
                 },

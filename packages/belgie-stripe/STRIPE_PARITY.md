@@ -20,14 +20,18 @@ its Stripe 15-only SDK surface.
   - Checkout acquisition, same-plan duplicate prevention, monthly/yearly cadence switches, billing-portal upgrade
     flow, schedule-at-period-end changes, line-item swap/remove behavior, metered quantity omission, cancel fallback
     sync when Stripe is already pending cancellation, restore for `cancel_at_period_end`, restore for explicit
-    `cancel_at`, and pending schedule release.
+    `cancel_at`, pending schedule release, targeted `subscription_id` authorization checks, and active-subscription
+    resolution when historical canceled rows exist for the same account.
   - Coverage: `packages/belgie-stripe/src/belgie_stripe/__tests__/test_client.py`,
     `packages/belgie-stripe/src/belgie_stripe/__tests__/test_plugin.py`
 
 - Webhook sync
   - Missing signature rejection, invalid signature rejection, checkout completion sync, created/updated/deleted
-    subscription events, trial timestamps, seat extraction, `cancel_at_period_end`, `cancel_at`, `canceled_at`,
-    `ended_at`, plugin-managed schedule retention, and schedule clearing when Stripe removes a pending schedule.
+    subscription events, checkout-complete callback dispatch, first-transition pending-cancel callback dispatch,
+    trial start/end/expired callbacks, duplicate created-hook suppression when the Stripe subscription is already
+    synced locally, hook non-invocation when account or plan resolution fails, persisted local-state callback payloads,
+    trial timestamps, seat extraction, `cancel_at_period_end`, `cancel_at`, `canceled_at`, `ended_at`,
+    plugin-managed schedule retention, and schedule clearing when Stripe removes a pending schedule.
   - Coverage: `packages/belgie-stripe/src/belgie_stripe/__tests__/test_client.py`
 
 - Organization automation
@@ -46,6 +50,8 @@ its Stripe 15-only SDK surface.
   - Covered through the core Stripe client and plugin route tests in
     `packages/belgie-stripe/src/belgie_stripe/__tests__/test_client.py` and
     `packages/belgie-stripe/src/belgie_stripe/__tests__/test_plugin.py`
+  - Includes parity coverage for `checkout.session.completed`, pending-cancellation updates, free-trial lifecycle
+    callbacks, duplicate subscription-created suppression, and typed hook payloads.
 
 - `test/stripe-organization.test.ts`
   - Covered through Belgie Stripe organization billing tests plus organization hook chaining in
@@ -62,6 +68,8 @@ its Stripe 15-only SDK surface.
 - Belgie keeps its account-centric model: `account_id` is the billing target and local subscription IDs stay UUIDs.
 - Belgie does not expose Better Auth's `referenceId`, `customerType`, runtime schema inference, or client plugin
   typing surface.
+- Checkout-complete and free-trial start callbacks are emitted from webhook handling only; the
+  `/auth/subscription/success` fallback sync updates local state without replaying those hooks.
 - App-owned direct calls to `adapter.update_individual(...)` bypass plugin hooks; plugin-aware identity updates should
   use `BelgieClient.update_individual(...)`.
 - Organization seat automation is organization-only. Teams remain generic billing accounts.

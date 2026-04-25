@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
 from typing import TYPE_CHECKING, Literal, Self, get_args
@@ -23,10 +24,12 @@ from stripe.params.checkout._session_create_params import (
 
 if TYPE_CHECKING:
     from stripe import Subscription
+    from stripe.checkout import Session as CheckoutSession
 
 
 type JSONScalar = str | int | float | bool | None
 type JSONValue = JSONScalar | list[JSONValue] | dict[str, JSONValue]
+type MaybeAwaitable[T] = T | Awaitable[T]
 type StripeAction = Literal[
     "billing-portal",
     "cancel-subscription",
@@ -47,9 +50,30 @@ type StripeSubscriptionLocale = CheckoutSessionLocale | BillingPortalLocale
 
 
 class StripeFreeTrial(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     days: int = Field(ge=1)
+    on_trial_start: (
+        Callable[
+            [SubscriptionEventContext[StripeSubscriptionProtocol, StripeAccountProtocol]],
+            MaybeAwaitable[None],
+        ]
+        | None
+    ) = Field(default=None, exclude=True)
+    on_trial_end: (
+        Callable[
+            [SubscriptionEventContext[StripeSubscriptionProtocol, StripeAccountProtocol]],
+            MaybeAwaitable[None],
+        ]
+        | None
+    ) = Field(default=None, exclude=True)
+    on_trial_expired: (
+        Callable[
+            [SubscriptionEventContext[StripeSubscriptionProtocol, StripeAccountProtocol]],
+            MaybeAwaitable[None],
+        ]
+        | None
+    ) = Field(default=None, exclude=True)
 
 
 class StripePlan(BaseModel):
@@ -191,6 +215,8 @@ class SubscriptionEventContext[SubscriptionT, AccountT]:
     raw_event: Subscription
     subscription: SubscriptionT
     account: AccountT
+    checkout_session: CheckoutSession | None = None
+    cancellation_details: Subscription.CancellationDetails | None = None
 
 
 def account_type_label(account: StripeAccountProtocol) -> str:
