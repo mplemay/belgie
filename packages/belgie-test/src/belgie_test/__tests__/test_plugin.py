@@ -333,6 +333,36 @@ async def test_get_cookies_mirrors_cookie_settings(
 
 
 @pytest.mark.asyncio
+async def test_login_and_get_cookies_use_configured_cookie_domain(
+    adapter: BelgieAdapter,
+    database: Callable[[], AsyncGenerator[AsyncSession, None]],
+    db_session: AsyncSession,
+) -> None:
+    settings = BelgieSettings(
+        secret="test-utils-secret",
+        base_url="https://auth.example.com",
+        session=SessionSettings(max_age=7200, update_age=900),
+        cookie=CookieSettings(
+            name="secure_session",
+            secure=True,
+            http_only=False,
+            same_site="strict",
+            domain=".example.com",
+        ),
+        urls=URLSettings(signin_redirect="/dashboard", signout_redirect="/"),
+    )
+    belgie = Belgie(settings=settings, adapter=adapter, database=database)
+    test = belgie.add_plugin(BelgieTestUtils())
+    individual = await test.save_individual(db_session, test.create_individual(email="shared-cookie@example.com"))
+
+    login = await test.login(db_session, individual_id=individual.id)
+    cookies = await test.get_cookies(db_session, individual_id=individual.id)
+
+    assert login.cookies[0]["domain"] == ".example.com"
+    assert cookies[0]["domain"] == ".example.com"
+
+
+@pytest.mark.asyncio
 async def test_login_rejects_missing_individual(belgie: Belgie, db_session: AsyncSession) -> None:
     test = belgie.add_plugin(BelgieTestUtils())
 

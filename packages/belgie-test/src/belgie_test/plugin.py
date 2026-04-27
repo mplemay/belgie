@@ -239,10 +239,14 @@ class TestUtilsPlugin(PluginClient):
         return {"cookie": f"{self._belgie_settings.cookie.name}={token}"}
 
     def _cookies_for_token(self, token: str, *, domain: str | None = None) -> list[TestCookie]:
+        cookie_domain = domain if domain is not None else self._belgie_settings.cookie.domain
+        if cookie_domain is None:
+            cookie_domain = _domain_from_base_url(self._belgie_settings.base_url)
+
         cookie: TestCookie = {
             "name": self._belgie_settings.cookie.name,
             "value": token,
-            "domain": domain or _domain_from_base_url(self._belgie_settings.base_url),
+            "domain": cookie_domain,
             "path": "/",
             "httpOnly": self._belgie_settings.cookie.http_only,
             "secure": self._belgie_settings.cookie.secure,
