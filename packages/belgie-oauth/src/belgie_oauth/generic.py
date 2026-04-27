@@ -63,7 +63,7 @@ if TYPE_CHECKING:
 
 class OAuthSettings[P: PluginClient](Protocol):
     @property
-    def to_provider(self) -> OAuthProvider: ...
+    def provider(self) -> OAuthProvider: ...
 
 
 def _raise_oauth_http_error(exc: OAuthError) -> NoReturn:
@@ -235,7 +235,7 @@ class OAuthPlugin(PluginClient):
         settings: OAuthSettings[OAuthPlugin],
     ) -> None:
         self.settings = settings
-        self.config = settings.to_provider
+        self.config = settings.provider
         self._redirect_uri = build_provider_callback_url(
             belgie_settings.base_url,
             provider_id=self.provider_id,

@@ -58,7 +58,7 @@ class GoogleOAuth(OAuthPresetSettings):
     hosted_domain: str | None = None
 
     @cached_property
-    def to_provider(self) -> OAuthProvider:
+    def provider(self) -> OAuthProvider:
         authorization_params = dict(self.authorization_params)
         if self.include_granted_scopes and "include_granted_scopes" not in authorization_params:
             authorization_params["include_granted_scopes"] = "true"

@@ -1277,7 +1277,7 @@ def test_dependency_requires_router_initialization() -> None:
         plugin()
 
 
-def test_provider_to_provider_is_cached_self() -> None:
+def test_provider_provider_is_cached_self() -> None:
     provider = OAuthProvider(
         provider_id="acme",
         client_id="client-id",
@@ -1286,8 +1286,8 @@ def test_provider_to_provider_is_cached_self() -> None:
         token_endpoint="https://idp.example.com/oauth2/token",
     )
 
-    assert provider.to_provider is provider
-    assert provider.to_provider is provider
+    assert provider.provider is provider
+    assert provider.provider is provider
 
 
 @pytest.mark.asyncio

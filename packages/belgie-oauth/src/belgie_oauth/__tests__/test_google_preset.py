@@ -77,7 +77,7 @@ def test_google_preset_uses_discovery_and_offline_defaults() -> None:
         token_encryption_secret=SecretStr("token-secret"),
         encrypt_tokens=True,
     )
-    provider = settings.to_provider
+    provider = settings.provider
 
     assert provider.provider_id == "google"
     assert provider.discovery_url == "https://accounts.google.com/.well-known/openid-configuration"
@@ -87,16 +87,16 @@ def test_google_preset_uses_discovery_and_offline_defaults() -> None:
     assert provider.encrypt_tokens is True
 
 
-def test_google_to_provider_is_cached_and_plugin_uses_client_classvar() -> None:
+def test_google_provider_is_cached_and_plugin_uses_client_classvar() -> None:
     settings = GoogleOAuth(
         client_id="google-client-id",
         client_secret=GOOGLE_CLIENT_SECRET,
     )
 
-    provider = settings.to_provider
+    provider = settings.provider
     plugin = _build_plugin(settings)
 
-    assert settings.to_provider is provider
+    assert settings.provider is provider
     assert GoogleOAuthPlugin.__dict__.get("__init__") is None
     assert plugin.client_type is GoogleOAuthClient
 
@@ -116,7 +116,7 @@ def test_google_preset_exposes_common_oauth_options() -> None:
         discovery_headers={"x-test": "1"},
     )
 
-    provider = settings.to_provider
+    provider = settings.provider
 
     assert provider.response_mode == "form_post"
     assert provider.state_strategy == "cookie"
@@ -174,7 +174,7 @@ def test_google_hosted_domain_becomes_authorization_param() -> None:
         hosted_domain="example.com",
     )
 
-    provider = settings.to_provider
+    provider = settings.provider
 
     assert provider.authorization_params["hd"] == "example.com"
 

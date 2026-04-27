@@ -67,7 +67,7 @@ def test_microsoft_common_tenant_preset_uses_graph_userinfo() -> None:
         client_id="microsoft-client-id",
         client_secret=MICROSOFT_CLIENT_SECRET,
     )
-    provider = settings.to_provider
+    provider = settings.provider
 
     assert provider.authorization_endpoint == "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
     assert provider.token_endpoint == "https://login.microsoftonline.com/common/oauth2/v2.0/token"  # noqa: S105
@@ -80,7 +80,7 @@ def test_microsoft_public_client_mode_uses_none_auth() -> None:
         client_id="microsoft-client-id",
         client_secret=None,
     )
-    provider = settings.to_provider
+    provider = settings.provider
 
     assert provider.client_secret is None
     assert provider.token_endpoint_auth_method == "none"  # noqa: S105
@@ -92,22 +92,22 @@ def test_microsoft_tenant_specific_preset_sets_expected_issuer() -> None:
         client_secret=MICROSOFT_CLIENT_SECRET,
         tenant="tenant-123",
     )
-    provider = settings.to_provider
+    provider = settings.provider
 
     assert provider.issuer == "https://login.microsoftonline.com/tenant-123/v2.0"
     assert provider.jwks_uri == "https://login.microsoftonline.com/tenant-123/discovery/v2.0/keys"
 
 
-def test_microsoft_to_provider_is_cached_and_plugin_uses_client_classvar() -> None:
+def test_microsoft_provider_is_cached_and_plugin_uses_client_classvar() -> None:
     settings = MicrosoftOAuth(
         client_id="microsoft-client-id",
         client_secret=MICROSOFT_CLIENT_SECRET,
     )
 
-    provider = settings.to_provider
+    provider = settings.provider
     plugin = _build_plugin(settings)
 
-    assert settings.to_provider is provider
+    assert settings.provider is provider
     assert MicrosoftOAuthPlugin.__dict__.get("__init__") is None
     assert plugin.client_type is MicrosoftOAuthClient
 
@@ -127,7 +127,7 @@ def test_microsoft_preset_exposes_common_oauth_options() -> None:
         discovery_headers={"x-test": "1"},
     )
 
-    provider = settings.to_provider
+    provider = settings.provider
 
     assert provider.response_mode == "form_post"
     assert provider.state_strategy == "cookie"

@@ -116,7 +116,7 @@ class OAuthProvider(BaseModel):
         return accepted_client_ids(self.client_id)
 
     @cached_property
-    def to_provider(self) -> OAuthProvider:
+    def provider(self) -> OAuthProvider:
         return self
 
     def __call__(self, belgie_settings: BelgieSettings) -> OAuthPlugin:

@@ -97,7 +97,7 @@ class MicrosoftOAuth(OAuthPresetSettings):
         return value
 
     @cached_property
-    def to_provider(self) -> OAuthProvider:
+    def provider(self) -> OAuthProvider:
         issuer = None
         if self.tenant not in {"common", "organizations", "consumers"}:
             issuer = _authority_url(self.authority, path=f"/{self.tenant}/v2.0")
