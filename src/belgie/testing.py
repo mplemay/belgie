@@ -1,6 +1,6 @@
 """Test utility re-exports for belgie consumers."""
 
-_TEST_IMPORT_ERROR = "belgie.test requires the 'test' extra. Install with: uv add belgie[test]"
+_TEST_IMPORT_ERROR = "belgie.testing requires the 'test' extra. Install with: uv add belgie[test]"
 
 try:
     from belgie_testing import (

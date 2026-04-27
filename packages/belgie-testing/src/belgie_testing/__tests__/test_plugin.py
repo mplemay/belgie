@@ -145,7 +145,7 @@ def test_plugin_exposes_helpers_and_no_routes(belgie: Belgie) -> None:
 
 def test_public_exports_include_organization_test_utils() -> None:
     belgie_testing_package = import_module("belgie_testing")
-    belgie_testing_module = import_module("belgie.test")
+    belgie_testing_module = import_module("belgie.testing")
 
     assert belgie_testing_package.OrganizationTestUtils is BelgieOrganizationTestUtils
     assert belgie_testing_module.OrganizationTestUtils is BelgieOrganizationTestUtils
