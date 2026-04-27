@@ -6,6 +6,7 @@ from datetime import datetime  # noqa: TC003
 from typing import TYPE_CHECKING, Literal, Self
 from uuid import UUID  # noqa: TC003
 
+from belgie_proto.core.json import JSONObject  # noqa: TC002
 from belgie_proto.stripe import (
     StripeAccountProtocol,
     StripeBillingInterval,
@@ -20,8 +21,6 @@ if TYPE_CHECKING:
     from stripe.checkout import Session as CheckoutSession
 
 
-type JSONScalar = str | int | float | bool | None
-type JSONValue = JSONScalar | list[JSONValue] | dict[str, JSONValue]
 type MaybeAwaitable[T] = T | Awaitable[T]
 type StripeAction = Literal[
     "billing-portal",
@@ -125,7 +124,7 @@ class StripePlan(BaseModel):
     annual_lookup_key: str | None = None
     seat_price_id: str | None = None
     line_items: list[checkout.SessionCreateParamsLineItem] = Field(default_factory=list)
-    limits: dict[str, JSONValue] = Field(default_factory=dict)
+    limits: JSONObject = Field(default_factory=dict)
     proration_behavior: StripeProrationBehavior | None = None
     free_trial: StripeFreeTrial | None = None
 
@@ -202,7 +201,7 @@ class SubscriptionView(BaseModel):
     billing_interval: StripeBillingInterval | None = None
     stripe_schedule_id: str | None = None
     price_id: str | None = None
-    limits: dict[str, JSONValue] = Field(default_factory=dict)
+    limits: JSONObject = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
@@ -212,7 +211,7 @@ class SubscriptionView(BaseModel):
         subscription: T,
         *,
         price_id: str | None = None,
-        limits: dict[str, JSONValue] | None = None,
+        limits: JSONObject | None = None,
     ) -> Self:
         return cls.model_validate(
             {

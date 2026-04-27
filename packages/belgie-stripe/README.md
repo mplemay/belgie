@@ -74,8 +74,8 @@ To use `belgie-stripe` with `belgie-alchemy`, compose these mixins into your mod
 - `StripeAccountMixin`
 - `StripeSubscriptionMixin`
 
-Unlike Better Auth, Belgie does not do schema remapping at runtime. The Stripe columns and table are explicit model
-definitions that live in your application code.
+Belgie does not do schema remapping at runtime. The Stripe columns and table are explicit model definitions that
+live in your application code.
 
 ## Notes
 

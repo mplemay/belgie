@@ -7,6 +7,7 @@ from authlib.consts import default_json_headers
 from authlib.oauth2.rfc6749.errors import InvalidRequestError
 from authlib.oauth2.rfc7009 import RevocationEndpoint
 from authlib.oauth2.rfc7662 import IntrospectionEndpoint
+from belgie_proto.core.json import JSONValue
 
 from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer  # noqa: TC001
 from belgie_oauth_server.engine.bridge import run_async
@@ -17,7 +18,6 @@ from belgie_oauth_server.engine.token_response import (
     resolve_active_session_id,
     resolve_introspection_sub_for_response,
 )
-from belgie_oauth_server.types import JSONValue
 from belgie_oauth_server.verifier import verify_local_access_token
 
 if TYPE_CHECKING:

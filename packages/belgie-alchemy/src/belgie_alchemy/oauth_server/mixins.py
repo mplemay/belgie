@@ -1,9 +1,8 @@
 """SQLAlchemy mixins for OAuth server persistence.
 
 **Clients:** DCR and client registration do not persist ``jwks`` / ``jwks_uri``;
-those columns are intentionally absent from :class:`OAuthServerClientMixin`
-(aligned with the Better Auth OAuth provider plugin, which also omits them from
-supported registration fields).
+those columns are intentionally absent from :class:`OAuthServerClientMixin`,
+which keeps the DCR shape focused on the fields Belgie stores directly.
 
 **Keys:** Real models are expected to add ``PrimaryKeyMixin`` for a stable
 internal UUID and keep ``client_id`` as the public OAuth 2.0 client identifier

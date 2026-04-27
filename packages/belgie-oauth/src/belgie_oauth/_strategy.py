@@ -41,11 +41,14 @@ class OAuthPresetSettings(BaseSettings):
     discovery_headers: dict[str, str] = Field(default_factory=dict)
     disable_sign_up: bool = False
     disable_implicit_sign_up: bool = False
+    disable_id_token_sign_in: bool = False
     override_user_info_on_sign_in: bool = False
     update_account_on_sign_in: bool = True
     allow_implicit_account_linking: bool = True
     allow_different_link_emails: bool = False
     trusted_for_account_linking: bool = False
+    store_account_cookie: bool = False
+    default_error_redirect_url: str | None = None
     encrypt_tokens: bool = False
     token_encryption_secret: SecretStr | None = None
 
@@ -227,7 +230,7 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
             error_code = "user_info_missing"
             description = "provider did not return a usable profile"
             raise OAuthCallbackError(error_code, description)
-        return self.map_profile(config, raw_profile, token_set)
+        return await self.map_profile(config, raw_profile, token_set)
 
     async def fetch_userinfo(
         self,
@@ -239,6 +242,8 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
     ) -> RawProfile | OAuthUserInfo | None:
         if config.get_userinfo is not None:
             return await config.get_userinfo(oauth_client, token_set, metadata)
+        if token_set.access_token is None:
+            return None
         if metadata.get("userinfo_endpoint") is None:
             return None
         try:
@@ -249,14 +254,17 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
             raise OAuthCallbackError(error_code, description) from exc
         return dict(profile)
 
-    def map_profile(
+    async def map_profile(
         self,
         config: OAuthProvider,
         raw_profile: RawProfile,
         token_set: OAuthTokenSet,
     ) -> OAuthUserInfo:
         if config.map_profile is not None:
-            return config.map_profile(raw_profile, token_set)
+            mapped = config.map_profile(raw_profile, token_set)
+            if isinstance(mapped, OAuthUserInfo):
+                return mapped
+            return await mapped
 
         provider_account_id = coerce_optional_str(raw_profile.get("sub")) or coerce_optional_str(raw_profile.get("id"))
         if provider_account_id is None:
@@ -300,7 +308,7 @@ class GoogleOAuthStrategy(DefaultOAuthProviderStrategy):
 
         if id_token_claims:
             try:
-                return self.map_profile(config, dict(id_token_claims), token_set)
+                return await self.map_profile(config, dict(id_token_claims), token_set)
             except OAuthError:
                 pass
         return await super().resolve_profile(
@@ -370,22 +378,23 @@ class MicrosoftOAuthStrategy(DefaultOAuthProviderStrategy):
             )
 
         raw_profile = dict(id_token_claims)
-        try:
-            fetched_profile = await self._fetch_microsoft_profile(
-                oauth_client=oauth_client,
-                metadata=metadata,
-            )
-        except OAuthCallbackError:
-            if not raw_profile:
-                raise
-        else:
-            raw_profile.update(fetched_profile)
+        if token_set.access_token is not None:
+            try:
+                fetched_profile = await self._fetch_microsoft_profile(
+                    oauth_client=oauth_client,
+                    metadata=metadata,
+                )
+            except OAuthCallbackError:
+                if not raw_profile:
+                    raise
+            else:
+                raw_profile.update(fetched_profile)
 
         if not raw_profile:
             error_code = "user_info_missing"
             description = "provider did not return a usable profile"
             raise OAuthCallbackError(error_code, description)
-        return self.map_profile(config, raw_profile, token_set)
+        return await self.map_profile(config, raw_profile, token_set)
 
     async def _fetch_microsoft_profile(
         self,

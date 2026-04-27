@@ -1,4 +1,4 @@
-# belgie-oauth: Better-Auth-Informed OAuth/OIDC for Belgie
+# belgie-oauth: OAuth/OIDC for Belgie
 
 > [!WARNING]
 > This package is still part of Belgie's beta API surface.
@@ -17,7 +17,7 @@ It keeps the public integration centered on:
 
 Provider presets are the primary API. `OAuthProvider` remains public as the advanced custom-provider escape hatch.
 
-Internally, the runtime is split the same way better-auth is:
+Internally, the runtime is organized around these layers:
 
 - transport: discovery, authorization URL generation, code exchange, refresh, and Authlib-backed ID-token validation
 - provider strategy: provider-owned auth request defaults, userinfo/profile resolution, and refresh specialization
@@ -161,6 +161,25 @@ Available dependency methods:
 - `account_info(individual_id=..., provider_account_id=..., auto_refresh=True)`
 - `unlink_account(individual_id=..., provider_account_id=...)`
 
+When the provider plugin is injected as a FastAPI dependency, `provider_account_id` can be omitted for token,
+refresh, account-info, and unlink operations if `store_account_cookie=True` and the browser has a matching encrypted
+account cookie. Explicit `provider_account_id` values remain authoritative.
+
+The plugin also exposes provider-owned JSON routes:
+
+```text
+POST /auth/provider/{provider_id}/signin/id-token
+POST /auth/provider/{provider_id}/link/id-token
+GET  /auth/provider/{provider_id}/accounts
+POST /auth/provider/{provider_id}/unlink
+POST /auth/provider/{provider_id}/access-token
+POST /auth/provider/{provider_id}/refresh-token
+GET  /auth/provider/{provider_id}/account-info
+```
+
+Direct ID-token sign-in returns JSON with `redirect=False`, a Belgie session `token`, and the serialized individual
+while also setting the normal Belgie session cookie.
+
 ## Persistence Model
 
 OAuth account persistence is a clean break from the older single-expiry layout.
@@ -220,8 +239,13 @@ Provider presets are the primary API. Use `OAuthProvider` when you need a custom
 - sign-up gating
   - `disable_sign_up=True`
   - `disable_implicit_sign_up=True`
+  - `disable_id_token_sign_in=True`
 - profile refresh for existing linked users
   - `override_user_info_on_sign_in=True`
+- optional account-cookie lookup
+  - `store_account_cookie=True`
+- default callback error redirects
+  - `default_error_redirect_url="/auth/error"`
 - optional token encryption
   - `encrypt_tokens=True`
   - `token_encryption_secret=...`
@@ -247,6 +271,7 @@ provider = OAuthProvider(
     state_strategy="cookie",
     disable_sign_up=True,
     override_user_info_on_sign_in=True,
+    store_account_cookie=True,
 )
 ```
 
@@ -293,16 +318,16 @@ During successful callback handling, Belgie exposes:
 
 This keeps payload passthrough and callback metadata available to hooks like `after_authenticate`.
 
-## Better-Auth Parity and Intentional Omissions
+## Design Notes
 
-This refactor intentionally matches better-auth's server-driven OAuth client behavior around provider transport,
-state handling, linked accounts, and token refresh. It does not adopt every better-auth feature.
+Belgie's OAuth client runtime keeps provider transport, state handling, linked accounts, direct ID-token flows,
+account APIs, optional account-cookie lookup, and token refresh inside the plugin runtime.
 
-Not adopted:
+Belgie uses Authlib's low-level `AsyncOAuth2Client` + `AsyncOpenIDMixin`. It does not use
+`authlib.integrations.starlette_client.OAuth`, because Belgie owns state and cookies instead of relying on
+session-middleware state.
 
-- direct client-submitted `idToken` sign-in
-- better-auth's account-cookie storage model as Belgie's primary account persistence
-- Authlib session middleware or a public `authlib.OAuth` / `authlib.Auth` object on `Belgie`
+- Belgie does not expose Authlib session middleware or a public `authlib.OAuth` / `authlib.Auth` object on `Belgie`
 
 ## Examples
 

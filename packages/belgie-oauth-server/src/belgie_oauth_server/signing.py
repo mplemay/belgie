@@ -4,13 +4,13 @@ import hashlib
 from dataclasses import dataclass
 from typing import Literal
 
+from belgie_proto.core.json import JSONValue  # noqa: TC002
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from joserfc import jwt
 from joserfc.jwk import OctKey, RSAKey
 from pydantic import BaseModel, SecretStr
 
-from belgie_oauth_server.types import JSONValue  # noqa: TC001
 from belgie_oauth_server.utils import urlsafe_b64encode
 
 type SigningAlgorithm = Literal["RS256", "HS256"]

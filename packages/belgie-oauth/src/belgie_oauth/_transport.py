@@ -65,7 +65,7 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
     async def parse_id_token(  # noqa: C901, PLR0912
         self,
         token: TokenResponsePayload,
-        nonce: str,
+        nonce: str | None,
         claims_options: ProviderMetadata | None = None,
         claims_cls: IDTokenClaimsClass | None = None,
         leeway: int = 120,
@@ -83,11 +83,12 @@ class AuthlibOIDCClient(AsyncOpenIDMixin, AsyncOAuth2Client):
             msg = "OAuth client is missing a client_id"
             error_code = "oauth_code_verification_failed"
             raise OAuthCallbackError(error_code, msg)
-        claims_params: dict[str, str | tuple[str, ...] | None] = {
-            "nonce": nonce,
+        claims_params: dict[str, str | tuple[str, ...]] = {
             "client_id": accepted_client_ids[0],
             "accepted_client_ids": accepted_client_ids,
         }
+        if nonce is not None:
+            claims_params["nonce"] = nonce
         if (access_token := coerce_optional_str(token.get("access_token"))) is not None:
             claims_params["access_token"] = access_token
             if claims_cls is None:
@@ -283,6 +284,28 @@ class OAuthTransport:
                 id_token_claims=id_token_claims,
             )
 
+    async def fetch_id_token_profile(
+        self,
+        token_set: OAuthTokenSet,
+        *,
+        nonce: str | None = None,
+    ) -> OAuthUserInfo:
+        metadata = await self.resolve_server_metadata()
+        async with self._oauth_client(server_metadata=metadata, token=token_set.raw) as oauth_client:
+            try:
+                parsed_id_token = await oauth_client.parse_id_token(token_set.raw, nonce=nonce)
+            except Exception as exc:
+                error_code = "oauth_code_verification_failed"
+                description = "failed to validate provider id token"
+                raise OAuthCallbackError(error_code, description) from exc
+            return await self._strategy.resolve_profile(
+                oauth_client=oauth_client,
+                config=self.config,
+                token_set=token_set,
+                metadata=metadata,
+                id_token_claims=dict(parsed_id_token),
+            )
+
     def validate_issuer_parameter(self, issuer: str | None, metadata: ProviderMetadata) -> None:
         expected_issuer = self.config.issuer or coerce_optional_str(metadata.get("issuer"))
         if expected_issuer is None:
@@ -300,7 +323,8 @@ class OAuthTransport:
 
     def token_payload(self, token_set: OAuthTokenSet) -> TokenResponsePayload:
         payload = dict(token_set.raw)
-        payload["access_token"] = token_set.access_token
+        if token_set.access_token is not None:
+            payload["access_token"] = token_set.access_token
         if token_set.refresh_token is not None:
             payload["refresh_token"] = token_set.refresh_token
         if token_set.id_token is not None:

@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, ClassVar, NoReturn, Protocol
 from urllib.parse import urlparse, urlunparse
 
-from belgie_core.core.client import BelgieClient  # noqa: TC002
+from belgie_core.core.client import BelgieClient
 from belgie_core.core.exceptions import OAuthError
 from belgie_core.core.plugin import PluginClient
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
+from fastapi.security import SecurityScopes
 
+from belgie_oauth._account_cookie import OAuthAccountCookieStore
 from belgie_oauth._config import OAuthProvider
+from belgie_oauth._errors import OAuthCallbackError
 from belgie_oauth._flow import OAuthFlowCoordinator
 from belgie_oauth._helpers import (
     OAuthTokenCodec,
@@ -26,6 +29,18 @@ from belgie_oauth._models import (
     OAuthTokenSet,
     OAuthUserInfo,
     ResponseCookie,
+)
+from belgie_oauth._schemas import (
+    OAuthAccountInfoResponse,
+    OAuthAccountListResponse,
+    OAuthAccountResponse,
+    OAuthIdTokenRequest,
+    OAuthProviderAccountRequest,
+    OAuthRefreshTokenResponse,
+    OAuthSessionSignInResponse,
+    OAuthStatusResponse,
+    OAuthTokenResponse,
+    OAuthUserInfoResponse,
 )
 from belgie_oauth._state import build_state_store
 from belgie_oauth._transport import OAuthTransport
@@ -46,10 +61,29 @@ if TYPE_CHECKING:
     )
 
 
+class OAuthSettings[P: PluginClient](Protocol):
+    @property
+    def provider(self) -> OAuthProvider: ...
+
+
+def _raise_oauth_http_error(exc: OAuthError) -> NoReturn:
+    detail = exc.code if isinstance(exc, OAuthCallbackError) else str(exc)
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+
+
+def _require_account_info(user_info: OAuthUserInfo | None) -> OAuthUserInfo:
+    if user_info is not None:
+        return user_info
+    msg = "oauth account info not found"
+    raise OAuthError(msg)
+
+
 @dataclass(slots=True, kw_only=True)
 class OAuthClient:
     plugin: OAuthPlugin
     client: BelgieClient
+    request: Request | None = None
+    response: Response | None = None
 
     async def signin_url(  # noqa: PLR0913
         self,
@@ -118,7 +152,7 @@ class OAuthClient:
         self,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
         auto_refresh: bool = True,
     ) -> OAuthTokenSet:
         return await self.plugin.token_set(
@@ -126,13 +160,15 @@ class OAuthClient:
             individual_id=individual_id,
             provider_account_id=provider_account_id,
             auto_refresh=auto_refresh,
+            request=self.request,
+            response=self.response,
         )
 
     async def get_access_token(
         self,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
         auto_refresh: bool = True,
     ) -> str:
         token_set = await self.token_set(
@@ -140,25 +176,30 @@ class OAuthClient:
             provider_account_id=provider_account_id,
             auto_refresh=auto_refresh,
         )
+        if token_set.access_token is None:
+            msg = "oauth account does not have an access token"
+            raise OAuthError(msg)
         return token_set.access_token
 
     async def refresh_account(
         self,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
     ) -> OAuthLinkedAccount:
         return await self.plugin.refresh_account(
             self.client,
             individual_id=individual_id,
             provider_account_id=provider_account_id,
+            request=self.request,
+            response=self.response,
         )
 
     async def account_info(
         self,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
         auto_refresh: bool = True,
     ) -> OAuthUserInfo | None:
         return await self.plugin.account_info(
@@ -166,31 +207,35 @@ class OAuthClient:
             individual_id=individual_id,
             provider_account_id=provider_account_id,
             auto_refresh=auto_refresh,
+            request=self.request,
+            response=self.response,
         )
 
     async def unlink_account(
         self,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
     ) -> bool:
         return await self.plugin.unlink_account(
             self.client,
             individual_id=individual_id,
             provider_account_id=provider_account_id,
+            request=self.request,
+            response=self.response,
         )
 
 
 class OAuthPlugin(PluginClient):
+    client_type: ClassVar[type[OAuthClient]] = OAuthClient
+
     def __init__(
         self,
         belgie_settings: BelgieSettings,
-        config: OAuthProvider,
-        *,
-        client_type: type[OAuthClient] = OAuthClient,
+        settings: OAuthSettings[OAuthPlugin],
     ) -> None:
-        self.config = config
-        self._client_type = client_type
+        self.settings = settings
+        self.config = settings.provider
         self._redirect_uri = build_provider_callback_url(
             belgie_settings.base_url,
             provider_id=self.provider_id,
@@ -201,23 +246,28 @@ class OAuthPlugin(PluginClient):
         self._base_url_origin = (parsed_base_url.scheme.lower(), parsed_base_url.netloc.lower())
         self._start_box = SecretBox(secret=belgie_settings.secret, label="oauth redirect start")
         encryption_secret = (
-            config.token_encryption_secret.get_secret_value()
-            if config.token_encryption_secret is not None
+            self.config.token_encryption_secret.get_secret_value()
+            if self.config.token_encryption_secret is not None
             else belgie_settings.secret
         )
-        self._transport = OAuthTransport(config, redirect_uri=self.redirect_uri)
+        self._transport = OAuthTransport(self.config, redirect_uri=self.redirect_uri)
         self._state_store = build_state_store(
             provider_id=self.provider_id,
-            strategy=config.state_strategy,
+            strategy=self.config.state_strategy,
             cookie_settings=belgie_settings.cookie,
             secret=belgie_settings.secret,
         )
+        self._account_cookie_store = OAuthAccountCookieStore.from_settings(
+            provider_id=self.provider_id,
+            settings=belgie_settings,
+        )
         self._flow = OAuthFlowCoordinator(
-            config=config,
+            config=self.config,
             provider_id=self.provider_id,
             transport=self._transport,
             state_store=self._state_store,
-            token_codec=OAuthTokenCodec(enabled=config.encrypt_tokens, secret=encryption_secret),
+            token_codec=OAuthTokenCodec(enabled=self.config.encrypt_tokens, secret=encryption_secret),
+            account_cookie_store=self._account_cookie_store,
         )
 
     @property
@@ -238,11 +288,23 @@ class OAuthPlugin(PluginClient):
         if self._resolve_client is not None:
             return
 
-        def resolve_client(client: BelgieClient = Depends(belgie)) -> OAuthClient:  # noqa: B008
-            return self._client_type(plugin=self, client=client)
+        def resolve_client(
+            request: Request,
+            response: Response,
+            client: BelgieClient = Depends(belgie),  # noqa: B008
+        ) -> OAuthClient:
+            return self.client_type(plugin=self, client=client, request=request, response=response)
 
         self._resolve_client = resolve_client
-        self.__signature__ = inspect.signature(resolve_client)
+        signature = inspect.signature(resolve_client)
+        self.__signature__ = signature.replace(
+            parameters=[
+                signature.parameters["request"].replace(annotation=Request),
+                signature.parameters["response"].replace(annotation=Response),
+                signature.parameters["client"].replace(annotation=BelgieClient),
+            ],
+            return_annotation=self.client_type,
+        )
 
     def normalize_redirect_target(self, target: str | None) -> str | None:
         if not target:
@@ -334,19 +396,23 @@ class OAuthPlugin(PluginClient):
         )
         return build_provider_start_url(self._base_url, provider_id=self.provider_id, token=start_token)
 
-    async def token_set(
+    async def token_set(  # noqa: PLR0913
         self,
         client: BelgieClient,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
         auto_refresh: bool = True,
+        request: Request | None = None,
+        response: Response | None = None,
     ) -> OAuthTokenSet:
         return await self._flow.token_set(
             client,
             individual_id=individual_id,
             provider_account_id=provider_account_id,
             auto_refresh=auto_refresh,
+            request=request,
+            response=response,
         )
 
     async def list_accounts(
@@ -362,27 +428,35 @@ class OAuthPlugin(PluginClient):
         client: BelgieClient,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
+        request: Request | None = None,
+        response: Response | None = None,
     ) -> OAuthLinkedAccount:
         return await self._flow.refresh_account(
             client,
             individual_id=individual_id,
             provider_account_id=provider_account_id,
+            request=request,
+            response=response,
         )
 
-    async def account_info(
+    async def account_info(  # noqa: PLR0913
         self,
         client: BelgieClient,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
         auto_refresh: bool = True,
+        request: Request | None = None,
+        response: Response | None = None,
     ) -> OAuthUserInfo | None:
         return await self._flow.account_info(
             client,
             individual_id=individual_id,
             provider_account_id=provider_account_id,
             auto_refresh=auto_refresh,
+            request=request,
+            response=response,
         )
 
     async def unlink_account(
@@ -390,15 +464,19 @@ class OAuthPlugin(PluginClient):
         client: BelgieClient,
         *,
         individual_id: UUID,
-        provider_account_id: str,
+        provider_account_id: str | None = None,
+        request: Request | None = None,
+        response: Response | None = None,
     ) -> bool:
         return await self._flow.unlink_account(
             client,
             individual_id=individual_id,
             provider_account_id=provider_account_id,
+            request=request,
+            response=response,
         )
 
-    def router(self, belgie: OAuthBelgieRuntime) -> APIRouter:
+    def router(self, belgie: OAuthBelgieRuntime) -> APIRouter:  # noqa: C901, PLR0915
         self._ensure_dependency_resolver(belgie)
         router = APIRouter(prefix=f"/provider/{self.provider_id}", tags=["auth", "oauth"])
 
@@ -426,6 +504,181 @@ class OAuthPlugin(PluginClient):
                         domain=cookie.domain,
                     )
             return response
+
+        @router.post("/signin/id-token", response_model=OAuthSessionSignInResponse)
+        async def signin_id_token(
+            payload: OAuthIdTokenRequest,
+            request: Request,
+            response: Response,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> OAuthSessionSignInResponse:
+            try:
+                result = await self._flow.signin_with_id_token(
+                    belgie=belgie,
+                    client=client,
+                    request=request,
+                    response=response,
+                    id_token=payload.id_token,
+                    nonce=payload.nonce,
+                    access_token=payload.access_token,
+                    refresh_token=payload.refresh_token,
+                    token_type=payload.token_type,
+                    scope=payload.resolved_scope,
+                    access_token_expires_at=payload.access_token_expires_at,
+                    refresh_token_expires_at=payload.refresh_token_expires_at,
+                    request_sign_up=payload.request_sign_up,
+                )
+            except OAuthError as exc:
+                _raise_oauth_http_error(exc)
+            client.create_session_cookie(result.session, response)
+            return OAuthSessionSignInResponse.from_session(
+                individual=result.individual,
+                session=result.session,
+            )
+
+        @router.post("/link/id-token", response_model=OAuthStatusResponse)
+        async def link_id_token(
+            payload: OAuthIdTokenRequest,
+            request: Request,
+            response: Response,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> OAuthStatusResponse:
+            individual = await client.get_individual(SecurityScopes(), request)
+            try:
+                await self._flow.link_with_id_token(
+                    client=client,
+                    request=request,
+                    response=response,
+                    individual_id=individual.id,
+                    id_token=payload.id_token,
+                    nonce=payload.nonce,
+                    access_token=payload.access_token,
+                    refresh_token=payload.refresh_token,
+                    token_type=payload.token_type,
+                    scope=payload.resolved_scope,
+                    access_token_expires_at=payload.access_token_expires_at,
+                    refresh_token_expires_at=payload.refresh_token_expires_at,
+                )
+            except OAuthError as exc:
+                _raise_oauth_http_error(exc)
+            return OAuthStatusResponse(status=True)
+
+        @router.get("/accounts", response_model=OAuthAccountListResponse)
+        async def accounts(
+            request: Request,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> OAuthAccountListResponse:
+            individual = await client.get_individual(SecurityScopes(), request)
+            accounts = await self.list_accounts(client, individual_id=individual.id)
+            return OAuthAccountListResponse(
+                accounts=[OAuthAccountResponse.from_account(account) for account in accounts],
+            )
+
+        @router.post("/unlink", response_model=OAuthStatusResponse)
+        async def unlink(
+            payload: OAuthProviderAccountRequest,
+            request: Request,
+            response: Response,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> OAuthStatusResponse:
+            individual = await client.get_individual(SecurityScopes(), request)
+            try:
+                unlinked = await self.unlink_account(
+                    client,
+                    individual_id=individual.id,
+                    provider_account_id=payload.provider_account_id,
+                    request=request,
+                    response=response,
+                )
+            except OAuthError as exc:
+                _raise_oauth_http_error(exc)
+            return OAuthStatusResponse(status=unlinked)
+
+        @router.post("/access-token", response_model=OAuthTokenResponse)
+        async def access_token(
+            payload: OAuthProviderAccountRequest,
+            request: Request,
+            response: Response,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> OAuthTokenResponse:
+            individual = await client.get_individual(SecurityScopes(), request)
+            try:
+                account = await self._flow.linked_account(
+                    client,
+                    individual_id=individual.id,
+                    provider_account_id=payload.provider_account_id,
+                    request=request,
+                )
+                token_set = await self.token_set(
+                    client,
+                    individual_id=individual.id,
+                    provider_account_id=account.provider_account_id,
+                    request=request,
+                    response=response,
+                )
+                return OAuthTokenResponse.from_token_set(
+                    provider=self.provider_id,
+                    provider_account_id=account.provider_account_id,
+                    token_set=token_set,
+                )
+            except (OAuthError, ValueError) as exc:
+                if isinstance(exc, OAuthError):
+                    _raise_oauth_http_error(exc)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        @router.post("/refresh-token", response_model=OAuthRefreshTokenResponse)
+        async def refresh_token(
+            payload: OAuthProviderAccountRequest,
+            request: Request,
+            response: Response,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> OAuthRefreshTokenResponse:
+            individual = await client.get_individual(SecurityScopes(), request)
+            try:
+                account = await self.refresh_account(
+                    client,
+                    individual_id=individual.id,
+                    provider_account_id=payload.provider_account_id,
+                    request=request,
+                    response=response,
+                )
+                return OAuthRefreshTokenResponse.from_account(account)
+            except (OAuthError, ValueError) as exc:
+                if isinstance(exc, OAuthError):
+                    _raise_oauth_http_error(exc)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        @router.get("/account-info", response_model=OAuthAccountInfoResponse)
+        async def account_info(
+            request: Request,
+            response: Response,
+            provider_account_id: Annotated[str | None, Query()] = None,
+            client: BelgieClient = Depends(belgie),  # noqa: B008, FAST002
+        ) -> OAuthAccountInfoResponse:
+            individual = await client.get_individual(SecurityScopes(), request)
+            try:
+                account = await self._flow.linked_account(
+                    client,
+                    individual_id=individual.id,
+                    provider_account_id=provider_account_id,
+                    request=request,
+                )
+                user_info = _require_account_info(
+                    await self.account_info(
+                        client,
+                        individual_id=individual.id,
+                        provider_account_id=account.provider_account_id,
+                        request=request,
+                        response=response,
+                    ),
+                )
+                return OAuthAccountInfoResponse(
+                    provider=self.provider_id,
+                    provider_account_id=account.provider_account_id,
+                    user=OAuthUserInfoResponse.from_user_info(user_info),
+                )
+            except OAuthError as exc:
+                _raise_oauth_http_error(exc)
 
         async def complete_callback(
             request: Request,
@@ -463,6 +716,7 @@ __all__ = [
     "OAuthLinkedAccount",
     "OAuthPlugin",
     "OAuthProvider",
+    "OAuthSettings",
     "OAuthTokenSet",
     "OAuthUserInfo",
 ]

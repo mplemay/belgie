@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 from belgie_core.core.settings import BelgieSettings
-from belgie_oauth import GoogleOAuth, GoogleOAuthPlugin, GoogleUserInfo, OAuthTokenSet
+from belgie_oauth import GoogleOAuth, GoogleOAuthClient, GoogleOAuthPlugin, GoogleUserInfo, OAuthTokenSet
 from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signing_key, issue_id_token
 from belgie_oauth.google import _map_google_profile
 from pydantic import SecretStr, ValidationError
@@ -77,7 +77,7 @@ def test_google_preset_uses_discovery_and_offline_defaults() -> None:
         token_encryption_secret=SecretStr("token-secret"),
         encrypt_tokens=True,
     )
-    provider = settings.to_provider()
+    provider = settings.provider
 
     assert provider.provider_id == "google"
     assert provider.discovery_url == "https://accounts.google.com/.well-known/openid-configuration"
@@ -85,6 +85,20 @@ def test_google_preset_uses_discovery_and_offline_defaults() -> None:
     assert provider.prompt == "consent"
     assert provider.authorization_params["include_granted_scopes"] == "true"
     assert provider.encrypt_tokens is True
+
+
+def test_google_provider_is_cached_and_plugin_uses_client_classvar() -> None:
+    settings = GoogleOAuth(
+        client_id="google-client-id",
+        client_secret=GOOGLE_CLIENT_SECRET,
+    )
+
+    provider = settings.provider
+    plugin = _build_plugin(settings)
+
+    assert settings.provider is provider
+    assert GoogleOAuthPlugin.__dict__.get("__init__") is None
+    assert plugin.client_type is GoogleOAuthClient
 
 
 def test_google_preset_exposes_common_oauth_options() -> None:
@@ -95,16 +109,22 @@ def test_google_preset_exposes_common_oauth_options() -> None:
         state_strategy="cookie",
         use_pkce=False,
         use_nonce=False,
+        disable_id_token_sign_in=True,
+        store_account_cookie=True,
+        default_error_redirect_url="/oauth-error",
         token_params={"prompt": "select_account"},
         discovery_headers={"x-test": "1"},
     )
 
-    provider = settings.to_provider()
+    provider = settings.provider
 
     assert provider.response_mode == "form_post"
     assert provider.state_strategy == "cookie"
     assert provider.use_pkce is False
     assert provider.use_nonce is False
+    assert provider.disable_id_token_sign_in is True
+    assert provider.store_account_cookie is True
+    assert provider.default_error_redirect_url == "/oauth-error"
     assert provider.token_params == {"prompt": "select_account"}
     assert provider.discovery_headers == {"x-test": "1"}
 
@@ -154,7 +174,7 @@ def test_google_hosted_domain_becomes_authorization_param() -> None:
         hosted_domain="example.com",
     )
 
-    provider = settings.to_provider()
+    provider = settings.provider
 
     assert provider.authorization_params["hd"] == "example.com"
 

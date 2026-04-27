@@ -3,12 +3,13 @@ from __future__ import annotations
 import time
 from uuid import UUID
 
+from belgie_proto.core.json import JSONValue  # noqa: TC002
+
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.helpers import build_access_token_audience, parse_scope_param
 from belgie_oauth_server.engine.models import AuthlibAuthorizationCode, AuthlibClient, AuthlibRefreshToken, AuthlibUser
 from belgie_oauth_server.engine.runtime import OAuthEngineRuntime  # noqa: TC001
 from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request  # noqa: TC001
-from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 
 def build_token_payload(  # noqa: PLR0913

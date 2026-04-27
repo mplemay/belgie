@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: TC001
 import re
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator, model_validator
@@ -54,9 +55,12 @@ class OAuthProvider(BaseModel):
     discovery_headers: dict[str, str] = Field(default_factory=dict)
     disable_sign_up: bool = False
     disable_implicit_sign_up: bool = False
+    disable_id_token_sign_in: bool = False
     allow_implicit_account_linking: bool = True
     allow_different_link_emails: bool = False
     trusted_for_account_linking: bool = False
+    store_account_cookie: bool = False
+    default_error_redirect_url: str | None = None
     encrypt_tokens: bool = False
     token_encryption_secret: SecretStr | None = None
     strategy: OAuthProviderStrategy | None = None
@@ -110,6 +114,10 @@ class OAuthProvider(BaseModel):
     @property
     def accepted_client_ids(self) -> tuple[str, ...]:
         return accepted_client_ids(self.client_id)
+
+    @cached_property
+    def provider(self) -> OAuthProvider:
+        return self
 
     def __call__(self, belgie_settings: BelgieSettings) -> OAuthPlugin:
         from belgie_oauth.generic import OAuthPlugin  # noqa: PLC0415
