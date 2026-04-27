@@ -21,6 +21,7 @@ from belgie_core.core.plugin import (
     AfterSignUpHook,
     AfterUpdateIndividualHook,
     AuthenticatedProfile,
+    BindBelgieHook,
     Plugin,
     PluginClient,
 )
@@ -101,6 +102,9 @@ class Belgie[
         if not isinstance(instance, PluginClient):
             msg = "plugin callable must return an object implementing router(belgie) and public(belgie)"
             raise TypeError(msg)
+
+        if isinstance(instance, BindBelgieHook):
+            instance.bind_belgie(self)
 
         self.plugins.append(instance)
         return instance

@@ -26,6 +26,7 @@ members = [
     "belgie-sso",
     "belgie-stripe",
     "belgie-team",
+    "belgie-test",
 ]
 
 [[package]]
@@ -133,6 +134,7 @@ all = [
     { name = "belgie-sso" },
     { name = "belgie-stripe" },
     { name = "belgie-team" },
+    { name = "belgie-test" },
 ]
 examples = [
     { name = "uvicorn", extra = ["standard"] },
@@ -157,6 +159,9 @@ stripe = [
 ]
 team = [
     { name = "belgie-team" },
+]
+test = [
+    { name = "belgie-test" },
 ]
 
 [package.dev-dependencies]
@@ -193,6 +198,8 @@ requires-dist = [
     { name = "belgie-stripe", marker = "extra == 'stripe'", editable = "packages/belgie-stripe" },
     { name = "belgie-team", marker = "extra == 'all'", editable = "packages/belgie-team" },
     { name = "belgie-team", marker = "extra == 'team'", editable = "packages/belgie-team" },
+    { name = "belgie-test", marker = "extra == 'all'", editable = "packages/belgie-test" },
+    { name = "belgie-test", marker = "extra == 'test'", editable = "packages/belgie-test" },
     { name = "fastapi", specifier = ">=0.100" },
     { name = "httpx", specifier = ">=0.24" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -200,7 +207,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'examples'", specifier = ">=0.38.0" },
 ]
-provides-extras = ["alchemy", "all", "examples", "mcp", "oauth", "oauth-client", "organization", "sso", "stripe", "team"]
+provides-extras = ["alchemy", "all", "examples", "mcp", "oauth", "oauth-client", "organization", "sso", "stripe", "team", "test"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -422,6 +429,23 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.100" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
+]
+
+[[package]]
+name = "belgie-test"
+version = "0.1.0"
+source = { editable = "packages/belgie-test" }
+dependencies = [
+    { name = "belgie-core" },
+    { name = "belgie-proto" },
+    { name = "fastapi" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "belgie-core", editable = "packages/belgie-core" },
+    { name = "belgie-proto", editable = "packages/belgie-proto" },
+    { name = "fastapi", specifier = ">=0.100" },
 ]
 
 [[package]]
