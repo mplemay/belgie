@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-20T16:56:52.308134Z"
+exclude-newer = "2026-04-20T17:33:11.64111Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -26,7 +26,7 @@ members = [
     "belgie-sso",
     "belgie-stripe",
     "belgie-team",
-    "belgie-test",
+    "belgie-testing",
 ]
 
 [[package]]
@@ -134,7 +134,7 @@ all = [
     { name = "belgie-sso" },
     { name = "belgie-stripe" },
     { name = "belgie-team" },
-    { name = "belgie-test" },
+    { name = "belgie-testing" },
 ]
 examples = [
     { name = "uvicorn", extra = ["standard"] },
@@ -161,7 +161,7 @@ team = [
     { name = "belgie-team" },
 ]
 test = [
-    { name = "belgie-test" },
+    { name = "belgie-testing" },
 ]
 
 [package.dev-dependencies]
@@ -198,8 +198,8 @@ requires-dist = [
     { name = "belgie-stripe", marker = "extra == 'stripe'", editable = "packages/belgie-stripe" },
     { name = "belgie-team", marker = "extra == 'all'", editable = "packages/belgie-team" },
     { name = "belgie-team", marker = "extra == 'team'", editable = "packages/belgie-team" },
-    { name = "belgie-test", marker = "extra == 'all'", editable = "packages/belgie-test" },
-    { name = "belgie-test", marker = "extra == 'test'", editable = "packages/belgie-test" },
+    { name = "belgie-testing", marker = "extra == 'all'", editable = "packages/belgie-testing" },
+    { name = "belgie-testing", marker = "extra == 'test'", editable = "packages/belgie-testing" },
     { name = "fastapi", specifier = ">=0.100" },
     { name = "httpx", specifier = ">=0.24" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -432,9 +432,9 @@ requires-dist = [
 ]
 
 [[package]]
-name = "belgie-test"
+name = "belgie-testing"
 version = "0.1.0"
-source = { editable = "packages/belgie-test" }
+source = { editable = "packages/belgie-testing" }
 dependencies = [
     { name = "belgie-core" },
     { name = "belgie-proto" },

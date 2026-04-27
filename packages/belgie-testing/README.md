@@ -1,9 +1,9 @@
-# belgie-test
+# belgie-testing
 
 Testing utilities plugin for Belgie.
 
-`belgie-test` provides test-only helpers for creating individuals, persisting records, creating authenticated sessions,
-and building cookies for browser tests. It does not register public routes.
+`belgie-testing` provides test-only helpers for creating individuals, persisting records, creating authenticated
+sessions, and building cookies for browser tests. It does not register public routes.
 
 Pass `capture_otp=True` when registering the plugin to expose `get_otp(...)` and `clear_otps()` for verification-token
 capture in tests.

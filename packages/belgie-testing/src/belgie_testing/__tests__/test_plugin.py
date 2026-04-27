@@ -25,7 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
 
-from belgie_test import (
+from belgie_testing import (
     OrganizationTestUtils as BelgieOrganizationTestUtils,
     TestCookie as BelgieTestCookie,
     TestUtils as BelgieTestUtils,
@@ -42,7 +42,7 @@ _ = Team
 
 @pytest.fixture
 def sqlite_database() -> str:
-    return f"{gettempdir()}/belgie_test_utils_{uuid4().hex}.db"
+    return f"{gettempdir()}/belgie_testing_utils_{uuid4().hex}.db"
 
 
 @pytest_asyncio.fixture
@@ -144,13 +144,13 @@ def test_plugin_exposes_helpers_and_no_routes(belgie: Belgie) -> None:
 
 
 def test_public_exports_include_organization_test_utils() -> None:
-    belgie_test_package = import_module("belgie_test")
-    belgie_test_module = import_module("belgie.test")
+    belgie_testing_package = import_module("belgie_testing")
+    belgie_testing_module = import_module("belgie.test")
 
-    assert belgie_test_package.OrganizationTestUtils is BelgieOrganizationTestUtils
-    assert belgie_test_module.OrganizationTestUtils is BelgieOrganizationTestUtils
-    assert "OrganizationTestUtils" in belgie_test_package.__all__
-    assert "OrganizationTestUtils" in belgie_test_module.__all__
+    assert belgie_testing_package.OrganizationTestUtils is BelgieOrganizationTestUtils
+    assert belgie_testing_module.OrganizationTestUtils is BelgieOrganizationTestUtils
+    assert "OrganizationTestUtils" in belgie_testing_package.__all__
+    assert "OrganizationTestUtils" in belgie_testing_module.__all__
 
 
 def test_cookie_type_restricts_browser_same_site_values() -> None:

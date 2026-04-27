@@ -1,4 +1,4 @@
-from belgie_test.plugin import (
+from belgie_testing.plugin import (
     IndividualData,
     LoginResult,
     OrganizationData,

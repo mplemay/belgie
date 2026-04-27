@@ -28,7 +28,7 @@ from belgie_core import Belgie, BelgieClient, BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_organization import Organization
 from belgie_proto.sso import DomainVerificationState, OIDCProviderConfig
-from belgie_test import TestUtils as BelgieTestUtils
+from belgie_testing import TestUtils as BelgieTestUtils
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from cryptography import x509

@@ -1,5 +1,5 @@
 [project]
-name = "belgie-test"
+name = "belgie-testing"
 version = "0.1.0"
 description = "Testing utilities plugin for Belgie"
 readme = "README.md"

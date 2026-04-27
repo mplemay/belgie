@@ -3,7 +3,7 @@
 _TEST_IMPORT_ERROR = "belgie.test requires the 'test' extra. Install with: uv add belgie[test]"
 
 try:
-    from belgie_test import (  # type: ignore[import-not-found]
+    from belgie_testing import (
         IndividualData,
         LoginResult,
         OrganizationData,
