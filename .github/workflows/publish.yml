@@ -52,6 +52,7 @@ jobs:
             belgie-team \
             belgie-sso \
             belgie-stripe \
+            belgie-testing \
             belgie
           do
             uv version --package "$package" "$VERSION"
