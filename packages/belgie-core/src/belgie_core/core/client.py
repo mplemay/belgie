@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 
 
 type AfterSignUpCallback[IndividualT: IndividualProtocol] = Callable[..., Awaitable[None]]
+type AfterUpdateIndividualCallback[IndividualT: IndividualProtocol] = Callable[..., Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -68,6 +70,7 @@ class BelgieClient[
     session_manager: SessionManager[IndividualT, OAuthAccountT, SessionT, OAuthStateT]
     cookie_settings: CookieSettings = field(default_factory=CookieSettings)
     after_sign_up: AfterSignUpCallback[IndividualT] | None = None
+    after_update_individual: AfterUpdateIndividualCallback[IndividualT] | None = None
 
     async def _get_session_from_cookie(self, request: Request) -> SessionT | None:
         """Extract and validate session from request cookies.
@@ -158,6 +161,29 @@ class BelgieClient[
     async def delete_individual(self, individual: IndividualT) -> bool:
         """Delete an individual and all associated data."""
         return await self.adapter.delete_individual(self.db, individual.id)
+
+    async def update_individual(
+        self,
+        individual: IndividualT,
+        *,
+        request: Request | None = None,
+        **updates: Any,  # noqa: ANN401
+    ) -> IndividualT | None:
+        previous_individual = copy(individual)
+        updated_individual = await self.adapter.update_individual(
+            self.db,
+            individual.id,
+            **updates,
+        )
+        if updated_individual is None or self.after_update_individual is None:
+            return updated_individual
+        await self.after_update_individual(
+            client=self,
+            request=request,
+            previous_individual=previous_individual,
+            individual=updated_individual,
+        )
+        return updated_individual
 
     async def get_individual_from_session(self, session_id: UUID) -> IndividualT | None:
         """Retrieve an individual from a session ID.

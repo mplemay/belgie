@@ -30,10 +30,14 @@ class StripeSubscriptionProtocol(Protocol):
     status: StripeSubscriptionStatus
     period_start: datetime | None
     period_end: datetime | None
+    trial_start: datetime | None
+    trial_end: datetime | None
+    seats: int | None
     cancel_at_period_end: bool
     cancel_at: datetime | None
     canceled_at: datetime | None
     ended_at: datetime | None
     billing_interval: StripeBillingInterval | None
+    stripe_schedule_id: str | None
     created_at: datetime
     updated_at: datetime

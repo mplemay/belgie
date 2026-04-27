@@ -62,8 +62,13 @@ class StripeSubscription[
     require_email_verification: bool = False
     authorize_account: AccountAuthorizationHook | None = Field(default=None, exclude=True)
     get_checkout_session_params: CheckoutParamsHook[SubscriptionT] | None = Field(default=None, exclude=True)
+    on_subscription_complete: SubscriptionEventHook[SubscriptionT] | None = Field(default=None, exclude=True)
     on_subscription_created: SubscriptionEventHook[SubscriptionT] | None = Field(default=None, exclude=True)
     on_subscription_updated: SubscriptionEventHook[SubscriptionT] | None = Field(default=None, exclude=True)
+    on_subscription_cancel_requested: SubscriptionEventHook[SubscriptionT] | None = Field(
+        default=None,
+        exclude=True,
+    )
     on_subscription_canceled: SubscriptionEventHook[SubscriptionT] | None = Field(default=None, exclude=True)
     on_subscription_deleted: SubscriptionEventHook[SubscriptionT] | None = Field(default=None, exclude=True)
 

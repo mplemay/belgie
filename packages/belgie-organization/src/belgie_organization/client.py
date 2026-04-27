@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -14,6 +15,8 @@ from fastapi import HTTPException, status
 from belgie_organization.roles import RoleValue, has_any_role, has_role, normalize_roles
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from belgie_core import BelgieClient
     from belgie_proto.core.individual import IndividualProtocol
     from belgie_proto.team.member import TeamMemberProtocol
@@ -134,10 +137,15 @@ class OrganizationClient[
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="organization not found",
             )
+        if self.settings.after_update is not None:
+            await _maybe_await(self.settings.after_update(self, updated))
         return updated
 
     async def delete(self, *, organization_id: UUID) -> bool:
         await self._require_owner_role(organization_id=organization_id)
+        organization = await self.settings.adapter.get_organization_by_id(self.client.db, organization_id)
+        if organization is not None and self.settings.before_delete is not None:
+            await _maybe_await(self.settings.before_delete(self, organization))
         return await self.settings.adapter.delete_organization(self.client.db, organization_id)
 
     async def members(self, *, organization_id: UUID) -> list[MemberT]:
@@ -188,6 +196,12 @@ class OrganizationClient[
             team_adapter, existing_team_member = team_membership
             if existing_team_member is None:
                 await team_adapter.add_team_member(self.client.db, team_id=team_id, individual_id=individual_id)
+        if (
+            self.settings.after_member_add is not None
+            and (organization := await self.settings.adapter.get_organization_by_id(self.client.db, organization_id))
+            is not None
+        ):
+            await _maybe_await(self.settings.after_member_add(self, organization, member))
         return member
 
     async def remove_member(
@@ -229,11 +243,19 @@ class OrganizationClient[
             target_member=target_member,
         )
 
-        return await self.settings.adapter.remove_member(
+        removed = await self.settings.adapter.remove_member(
             self.client.db,
             organization_id=organization_id,
             individual_id=target_individual_id,
         )
+        if (
+            removed
+            and self.settings.after_member_remove is not None
+            and (organization := await self.settings.adapter.get_organization_by_id(self.client.db, organization_id))
+            is not None
+        ):
+            await _maybe_await(self.settings.after_member_remove(self, organization, target_member))
+        return removed
 
     async def update_member_role(
         self,
@@ -439,6 +461,24 @@ class OrganizationClient[
                 detail="failed to update invitation status",
             )
 
+        if (
+            self.settings.after_invitation_accept is not None
+            and (
+                organization := await self.settings.adapter.get_organization_by_id(
+                    self.client.db,
+                    invitation.organization_id,
+                )
+            )
+            is not None
+        ):
+            await _maybe_await(
+                self.settings.after_invitation_accept(
+                    self,
+                    organization,
+                    accepted_invitation,
+                    member,
+                ),
+            )
         return accepted_invitation, member
 
     async def cancel_invitation(self, *, invitation_id: UUID) -> InvitationT:
@@ -683,3 +723,9 @@ def _coerce_uuid(value: str) -> UUID | None:
         return UUID(value)
     except ValueError:
         return None
+
+
+async def _maybe_await[T](value: Awaitable[T] | T) -> T:
+    if inspect.isawaitable(value):
+        return await value
+    return value

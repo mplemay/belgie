@@ -270,6 +270,7 @@ class FakeBelgieClient:
         self.adapter = FakeAdapter()
         self.created_oauth_accounts: list[dict[str, object]] = []
         self.after_sign_up = None
+        self.update_individual_calls: list[tuple[FakeIndividual, object | None, dict[str, object]]] = []
         self.sessions: dict[UUID, SimpleNamespace] = {}
         self.current_individual = build_individual()
         self.adapter.individuals_by_email[self.current_individual.email] = self.current_individual
@@ -316,6 +317,16 @@ class FakeBelgieClient:
 
     async def update_oauth_account_by_id(self, oauth_account_id: UUID, **payload: object) -> object:
         return SimpleNamespace(id=oauth_account_id, **payload)
+
+    async def update_individual(
+        self,
+        individual: FakeIndividual,
+        *,
+        request=None,
+        **updates: object,
+    ) -> FakeIndividual | None:
+        self.update_individual_calls.append((individual, request, updates))
+        return await self.adapter.update_individual(self.db, individual.id, **updates)
 
     def create_session_cookie(self, session: object, response):
         response.set_cookie("session", str(session.id))
@@ -681,6 +692,43 @@ def build_plugin(
     plugin._organization_plugin = SimpleNamespace(settings=SimpleNamespace(adapter=organization_adapter))
     client_dependency = FakeBelgieClient()
     return plugin, client_dependency, organization_adapter
+
+
+@pytest.mark.asyncio
+async def test_refresh_individual_profile_uses_client_update_individual() -> None:
+    plugin, client_dependency, _organization_adapter = build_plugin()
+    provider = plugin._settings.adapter.providers["acme"]
+    assert provider.oidc_config is not None
+    provider.oidc_config["override_user_info_on_sign_in"] = True
+    individual = client_dependency.current_individual
+    individual.email = "person@example.com"
+    individual.name = "Existing Person"
+    individual.email_verified_at = None
+    request = object()
+
+    updated_individual = await plugin._refresh_individual_profile(
+        client_dependency,
+        request,
+        provider,
+        individual,
+        OAuthUserInfo(
+            provider_account_id="provider-account-1",
+            email="person@example.com",
+            email_verified=True,
+            name="Updated Name",
+            image="https://example.com/photo.jpg",
+            raw={"sub": "provider-account-1"},
+        ),
+    )
+
+    assert updated_individual is not None
+    assert len(client_dependency.update_individual_calls) == 1
+    call_individual, call_request, call_updates = client_dependency.update_individual_calls[0]
+    assert call_individual is individual
+    assert call_request is request
+    assert call_updates["name"] == "Updated Name"
+    assert call_updates["image"] == "https://example.com/photo.jpg"
+    assert "email_verified_at" in call_updates
 
 
 def _encode_xml(element: ET._Element) -> str:

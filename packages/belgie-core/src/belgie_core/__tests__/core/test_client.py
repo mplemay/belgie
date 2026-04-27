@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from http.cookies import SimpleCookie
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -236,6 +237,53 @@ async def test_delete_individual_returns_false_if_not_found(client, mock_adapter
     result = await client.delete_individual(user)
 
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_update_individual_calls_after_update_hook(client, mock_adapter):
+    individual_id = uuid4()
+    request = MagicMock()
+    previous_individual = SimpleNamespace(id=individual_id, email="old@example.com", name="Old Name")
+    updated_individual = SimpleNamespace(id=individual_id, email="new@example.com", name="New Name")
+    after_update_individual = AsyncMock()
+    mock_adapter.update_individual.return_value = updated_individual
+    object.__setattr__(client, "after_update_individual", after_update_individual)
+
+    result = await client.update_individual(
+        previous_individual,
+        request=request,
+        email="new@example.com",
+        name="New Name",
+    )
+
+    assert result is updated_individual
+    mock_adapter.update_individual.assert_awaited_once_with(
+        client.db,
+        individual_id,
+        email="new@example.com",
+        name="New Name",
+    )
+    after_update_individual.assert_awaited_once()
+    callback_kwargs = after_update_individual.await_args.kwargs
+    assert callback_kwargs["client"] is client
+    assert callback_kwargs["request"] is request
+    assert callback_kwargs["individual"] is updated_individual
+    assert callback_kwargs["previous_individual"].email == "old@example.com"
+    assert callback_kwargs["previous_individual"].name == "Old Name"
+
+
+@pytest.mark.asyncio
+async def test_update_individual_skips_after_update_hook_when_individual_missing(client, mock_adapter):
+    individual_id = uuid4()
+    individual = SimpleNamespace(id=individual_id, email="person@example.com")
+    after_update_individual = AsyncMock()
+    mock_adapter.update_individual.return_value = None
+    object.__setattr__(client, "after_update_individual", after_update_individual)
+
+    result = await client.update_individual(individual, email="updated@example.com")
+
+    assert result is None
+    after_update_individual.assert_not_awaited()
 
 
 @pytest.mark.asyncio

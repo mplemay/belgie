@@ -41,11 +41,15 @@ def test_subscription_mixin_exposes_expected_columns() -> None:
         "status",
         "period_start",
         "period_end",
+        "trial_start",
+        "trial_end",
+        "seats",
         "cancel_at_period_end",
         "cancel_at",
         "canceled_at",
         "ended_at",
         "billing_interval",
+        "stripe_schedule_id",
         "created_at",
         "updated_at",
     } <= columns
@@ -72,7 +76,11 @@ async def test_create_and_lookup_subscription(
         stripe_customer_id="cus_123",
         stripe_subscription_id="sub_123",
         status="active",
+        trial_start=datetime(2026, 1, 2, tzinfo=UTC),
+        trial_end=datetime(2026, 1, 9, tzinfo=UTC),
+        seats=5,
         billing_interval="month",
+        stripe_schedule_id="sub_sched_123",
     )
 
     by_id = await adapter.get_subscription_by_id(alchemy_session, subscription.id)
@@ -83,6 +91,10 @@ async def test_create_and_lookup_subscription(
 
     assert by_id is not None
     assert by_id.id == subscription.id
+    assert by_id.trial_start is not None
+    assert by_id.trial_end is not None
+    assert by_id.seats == 5
+    assert by_id.stripe_schedule_id == "sub_sched_123"
     assert by_stripe_id is not None
     assert by_stripe_id.id == subscription.id
 
@@ -126,6 +138,11 @@ async def test_list_active_and_incomplete_subscriptions(
         alchemy_session,
         account_id=primary_account.id,
     )
+    active_only = await adapter.list_subscriptions(
+        alchemy_session,
+        account_id=primary_account.id,
+        active_only=True,
+    )
     active = await adapter.get_active_subscription(
         alchemy_session,
         account_id=primary_account.id,
@@ -136,6 +153,8 @@ async def test_list_active_and_incomplete_subscriptions(
     )
 
     assert len(listed) == 2
+    assert len(active_only) == 1
+    assert active_only[0].id == active_subscription.id
     assert active is not None
     assert active.id == active_subscription.id
     assert incomplete is not None
@@ -160,6 +179,8 @@ async def test_update_subscription_persists_fields(
     )
     period_start = datetime(2026, 1, 1, tzinfo=UTC)
     period_end = datetime(2026, 2, 1, tzinfo=UTC)
+    trial_start = datetime(2025, 12, 25, tzinfo=UTC)
+    trial_end = datetime(2026, 1, 1, tzinfo=UTC)
 
     updated = await adapter.update_subscription(
         alchemy_session,
@@ -170,8 +191,12 @@ async def test_update_subscription_persists_fields(
         status="active",
         period_start=period_start,
         period_end=period_end,
+        trial_start=trial_start,
+        trial_end=trial_end,
+        seats=3,
         cancel_at_period_end=True,
         billing_interval="month",
+        stripe_schedule_id="sub_sched_456",
     )
 
     assert updated is not None
@@ -181,8 +206,12 @@ async def test_update_subscription_persists_fields(
     assert updated.status == "active"
     assert updated.period_start == period_start
     assert updated.period_end == period_end
+    assert updated.trial_start == trial_start
+    assert updated.trial_end == trial_end
+    assert updated.seats == 3
     assert updated.cancel_at_period_end is True
     assert updated.billing_interval == "month"
+    assert updated.stripe_schedule_id == "sub_sched_456"
 
 
 @pytest.mark.asyncio
@@ -222,3 +251,61 @@ async def test_update_subscription_preserves_cancellation_timestamps(
     assert updated.cancel_at == cancel_at
     assert updated.canceled_at == canceled_at
     assert updated.ended_at == ended_at
+
+
+@pytest.mark.asyncio
+async def test_update_subscription_can_clear_nullable_fields(
+    adapter: StripeAdapter[Subscription],
+    core_adapter: BelgieAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    account = await core_adapter.create_individual(
+        alchemy_session,
+        email="clear-subscription@example.com",
+    )
+    original = await adapter.create_subscription(
+        alchemy_session,
+        plan="starter",
+        account_id=account.id,
+        stripe_customer_id="cus_clear",
+        stripe_subscription_id="sub_clear",
+        status="active",
+        trial_start=datetime(2026, 1, 1, tzinfo=UTC),
+        trial_end=datetime(2026, 1, 8, tzinfo=UTC),
+        seats=9,
+        cancel_at_period_end=True,
+        cancel_at=datetime(2026, 2, 1, tzinfo=UTC),
+        canceled_at=datetime(2026, 2, 2, tzinfo=UTC),
+        ended_at=datetime(2026, 2, 3, tzinfo=UTC),
+        billing_interval="month",
+        stripe_schedule_id="sub_sched_clear",
+    )
+
+    updated = await adapter.update_subscription(
+        alchemy_session,
+        subscription_id=original.id,
+        stripe_customer_id=None,
+        stripe_subscription_id=None,
+        trial_start=None,
+        trial_end=None,
+        seats=None,
+        cancel_at_period_end=False,
+        cancel_at=None,
+        canceled_at=None,
+        ended_at=None,
+        billing_interval=None,
+        stripe_schedule_id=None,
+    )
+
+    assert updated is not None
+    assert updated.stripe_customer_id is None
+    assert updated.stripe_subscription_id is None
+    assert updated.trial_start is None
+    assert updated.trial_end is None
+    assert updated.seats is None
+    assert updated.cancel_at_period_end is False
+    assert updated.cancel_at is None
+    assert updated.canceled_at is None
+    assert updated.ended_at is None
+    assert updated.billing_interval is None
+    assert updated.stripe_schedule_id is None
