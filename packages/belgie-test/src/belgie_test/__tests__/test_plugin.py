@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from tempfile import gettempdir
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args, get_type_hints
 from uuid import uuid4
 
 import pytest
@@ -19,7 +21,12 @@ from belgie_alchemy.organization import OrganizationAdapter
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie_organization.settings import Organization
-from belgie_test import TestUtils as BelgieTestUtils, TestUtilsPlugin as BelgieTestUtilsPlugin
+from belgie_test import (
+    OrganizationTestUtils as BelgieOrganizationTestUtils,
+    TestCookie as BelgieTestCookie,
+    TestUtils as BelgieTestUtils,
+    TestUtilsPlugin as BelgieTestUtilsPlugin,
+)
 from fastapi import FastAPI, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
@@ -135,6 +142,22 @@ def test_plugin_exposes_helpers_and_no_routes(belgie: Belgie) -> None:
     assert client.get("/auth/test-utils").status_code == 404
 
 
+def test_public_exports_include_organization_test_utils() -> None:
+    belgie_test_package = import_module("belgie_test")
+    belgie_test_module = import_module("belgie.test")
+
+    assert belgie_test_package.OrganizationTestUtils is BelgieOrganizationTestUtils
+    assert belgie_test_module.OrganizationTestUtils is BelgieOrganizationTestUtils
+    assert "OrganizationTestUtils" in belgie_test_package.__all__
+    assert "OrganizationTestUtils" in belgie_test_module.__all__
+
+
+def test_cookie_type_restricts_browser_same_site_values() -> None:
+    same_site = get_type_hints(BelgieTestCookie)["sameSite"]
+
+    assert set(get_args(same_site)) == {"Lax", "Strict", "None"}
+
+
 def test_plugin_captures_otps_when_enabled(belgie: Belgie) -> None:
     test = belgie.add_plugin(BelgieTestUtils(capture_otp=True))
 
@@ -149,6 +172,16 @@ def test_plugin_captures_otps_when_enabled(belgie: Belgie) -> None:
     test.clear_otps()  # type: ignore[attr-defined]
 
     assert test.get_otp("example.com") is None  # type: ignore[attr-defined]
+
+
+def test_otp_capture_is_instance_scoped(belgie: Belgie) -> None:
+    first = belgie.add_plugin(BelgieTestUtils(capture_otp=True))
+    second = belgie.add_plugin(BelgieTestUtils(capture_otp=True))
+
+    first.capture_verification_token("example.com", "123456")  # type: ignore[attr-defined]
+
+    assert first.get_otp("example.com") == "123456"  # type: ignore[attr-defined]
+    assert second.get_otp("example.com") is None  # type: ignore[attr-defined]
 
 
 def test_create_individual_defaults_and_overrides(belgie: Belgie) -> None:
@@ -172,6 +205,15 @@ def test_create_individual_defaults_and_overrides(belgie: Belgie) -> None:
     assert custom.email_verified_at is None
     assert custom.scopes == ["read"]
     assert custom.custom_fields == {"custom_field": "custom value"}
+
+
+@pytest.mark.asyncio
+async def test_create_individual_is_unsaved_until_save(belgie: Belgie, db_session: AsyncSession) -> None:
+    test = belgie.add_plugin(BelgieTestUtils())
+
+    data = test.create_individual(email="factory@example.com")
+
+    assert await belgie.adapter.get_individual_by_email(db_session, data.email) is None
 
 
 @pytest.mark.asyncio
@@ -221,21 +263,24 @@ async def test_get_auth_headers_authenticates_fastapi_route(
     db_session: AsyncSession,
 ) -> None:
     test = belgie.add_plugin(BelgieTestUtils())
-    individual = await test.save_individual(db_session, test.create_individual(email="route@example.com"))
+    individual = await test.save_individual(
+        db_session,
+        test.create_individual(email="route@example.com", scopes=["openid", "email"]),
+    )
 
     app = FastAPI()
     app.include_router(belgie.router)
 
     @app.get("/me")
-    async def me(request: Request) -> dict[str, str]:
-        current = await belgie.__call__(db_session).get_individual(SecurityScopes(), request)
-        return {"id": str(current.id), "email": current.email}
+    async def me(request: Request) -> dict[str, str | list[str]]:
+        current = await belgie.__call__(db_session).get_individual(SecurityScopes(scopes=["openid"]), request)
+        return {"id": str(current.id), "email": current.email, "scopes": current.scopes}
 
     client = TestClient(app)
     response = client.get("/me", headers=await test.get_auth_headers(db_session, individual_id=individual.id))
 
     assert response.status_code == 200, response.json()
-    assert response.json() == {"id": str(individual.id), "email": "route@example.com"}
+    assert response.json() == {"id": str(individual.id), "email": "route@example.com", "scopes": ["openid", "email"]}
 
 
 @pytest.mark.asyncio
@@ -254,11 +299,68 @@ async def test_get_cookies_returns_browser_cookie_with_custom_domain(
 
 
 @pytest.mark.asyncio
+async def test_get_cookies_mirrors_cookie_settings(
+    adapter: BelgieAdapter,
+    database: Callable[[], AsyncGenerator[AsyncSession, None]],
+    db_session: AsyncSession,
+) -> None:
+    settings = BelgieSettings(
+        secret="test-utils-secret",
+        base_url="https://auth.example.com",
+        session=SessionSettings(max_age=7200, update_age=900),
+        cookie=CookieSettings(
+            name="secure_session",
+            secure=True,
+            http_only=False,
+            same_site="strict",
+        ),
+        urls=URLSettings(signin_redirect="/dashboard", signout_redirect="/"),
+    )
+    belgie = Belgie(settings=settings, adapter=adapter, database=database)
+    test = belgie.add_plugin(BelgieTestUtils())
+    individual = await test.save_individual(db_session, test.create_individual(email="secure-cookie@example.com"))
+
+    cookies = await test.get_cookies(db_session, individual_id=individual.id)
+
+    assert cookies[0]["name"] == "secure_session"
+    assert cookies[0]["domain"] == "auth.example.com"
+    assert cookies[0]["path"] == "/"
+    assert cookies[0]["httpOnly"] is False
+    assert cookies[0]["secure"] is True
+    assert cookies[0]["sameSite"] == "Strict"
+    assert cookies[0]["expires"] > int(datetime.now(UTC).timestamp())
+
+
+@pytest.mark.asyncio
 async def test_login_rejects_missing_individual(belgie: Belgie, db_session: AsyncSession) -> None:
     test = belgie.add_plugin(BelgieTestUtils())
 
     with pytest.raises(ValueError, match="individual not found"):
         await test.login(db_session, individual_id=uuid4())
+
+
+@pytest.mark.asyncio
+async def test_organization_factory_defaults_overrides_and_unsaved(
+    belgie: Belgie,
+    organization_adapter: OrganizationAdapter,
+    db_session: AsyncSession,
+) -> None:
+    test = belgie.add_plugin(BelgieTestUtils())
+    belgie.add_plugin(Organization(adapter=organization_adapter))
+
+    organization_helpers = test.organization
+    assert isinstance(organization_helpers, BelgieOrganizationTestUtils)
+
+    default = organization_helpers.create_organization()
+    assert default.name == "Test Organization"
+    assert default.slug.startswith("test-organization-")
+    assert default.logo is None
+
+    custom = organization_helpers.create_organization(name="Custom Org", slug="custom-org", logo="https://logo.test")
+    assert custom.name == "Custom Org"
+    assert custom.slug == "custom-org"
+    assert custom.logo == "https://logo.test"
+    assert await organization_adapter.get_organization_by_slug(db_session, custom.slug) is None
 
 
 @pytest.mark.asyncio
@@ -293,3 +395,45 @@ async def test_organization_helpers_are_lazy_and_adapter_backed(
 
     assert await organization_helpers.delete_organization(db_session, organization.id) is True
     assert await organization_adapter.get_organization_by_id(db_session, organization.id) is None
+
+
+@pytest.mark.asyncio
+async def test_delete_organization_removes_related_members_and_invitations(
+    belgie: Belgie,
+    organization_adapter: OrganizationAdapter,
+    db_session: AsyncSession,
+) -> None:
+    test = belgie.add_plugin(BelgieTestUtils())
+    belgie.add_plugin(Organization(adapter=organization_adapter))
+
+    organization_helpers = test.organization
+    assert organization_helpers is not None
+
+    owner = await test.save_individual(db_session, test.create_individual(email="owner@example.com"))
+    invitee = await test.save_individual(db_session, test.create_individual(email="invitee@example.com"))
+    organization = await organization_helpers.save_organization(
+        db_session,
+        organization_helpers.create_organization(name="Cascade Org", slug="cascade-org"),
+    )
+    member = await organization_helpers.add_member(
+        db_session,
+        individual_id=owner.id,
+        organization_id=organization.id,
+    )
+    invitation = await organization_adapter.create_invitation(
+        db_session,
+        organization_id=organization.id,
+        team_id=None,
+        email=invitee.email,
+        role="member",
+        inviter_individual_id=owner.id,
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+
+    assert member in await organization_adapter.list_members(db_session, organization_id=organization.id)
+    assert invitation in await organization_adapter.list_invitations(db_session, organization_id=organization.id)
+
+    assert await organization_helpers.delete_organization(db_session, organization.id) is True
+    assert await organization_adapter.get_organization_by_id(db_session, organization.id) is None
+    assert await organization_adapter.get_member_by_id(db_session, member.id) is None
+    assert await organization_adapter.get_invitation(db_session, invitation.id) is None

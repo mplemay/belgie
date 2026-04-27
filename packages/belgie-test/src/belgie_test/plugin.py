@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import time
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -31,7 +31,7 @@ class TestCookie(TypedDict):
     path: str
     httpOnly: bool
     secure: bool
-    sameSite: str
+    sameSite: Literal["Lax", "Strict", "None"]
     expires: NotRequired[int]
 
 
@@ -276,7 +276,7 @@ def _domain_from_base_url(base_url: str) -> str:
     return "localhost"
 
 
-def _same_site_value(same_site: str) -> str:
+def _same_site_value(same_site: str) -> Literal["Lax", "Strict", "None"]:
     match same_site:
         case "strict":
             return "Strict"
