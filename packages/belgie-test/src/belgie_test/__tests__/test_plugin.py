@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Callable
 from tempfile import gettempdir
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
@@ -23,7 +23,11 @@ from belgie_test import TestUtils as BelgieTestUtils, TestUtilsPlugin as BelgieT
 from fastapi import FastAPI, Request
 from fastapi.security import SecurityScopes
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Callable
+
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 _ = Team
 
@@ -120,13 +124,31 @@ def test_plugin_exposes_helpers_and_no_routes(belgie: Belgie) -> None:
     assert test.get_auth_headers is not None
     assert test.get_cookies is not None
     assert test.organization is None
+    assert not hasattr(test, "capture_verification_token")
     assert not hasattr(test, "get_otp")
+    assert not hasattr(test, "clear_otps")
 
     app = FastAPI()
     app.include_router(belgie.router)
     client = TestClient(app)
 
     assert client.get("/auth/test-utils").status_code == 404
+
+
+def test_plugin_captures_otps_when_enabled(belgie: Belgie) -> None:
+    test = belgie.add_plugin(BelgieTestUtils(capture_otp=True))
+
+    assert hasattr(test, "capture_verification_token")
+    assert hasattr(test, "get_otp")
+    assert hasattr(test, "clear_otps")
+
+    test.capture_verification_token("example.com", "123456")  # type: ignore[attr-defined]
+
+    assert test.get_otp("example.com") == "123456"  # type: ignore[attr-defined]
+
+    test.clear_otps()  # type: ignore[attr-defined]
+
+    assert test.get_otp("example.com") is None  # type: ignore[attr-defined]
 
 
 def test_create_individual_defaults_and_overrides(belgie: Belgie) -> None:

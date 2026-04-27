@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_core.core.client import BelgieClient
+    from belgie_core.core.plugin import VerificationTokenCaptureHook
     from belgie_proto.core.individual import IndividualProtocol
     from belgie_proto.organization import OrganizationAdapterProtocol
 
@@ -65,6 +66,7 @@ class SSOClient[
     settings: EnterpriseSSO[ProviderT]
     organization_adapter: OrganizationAdapterProtocol[OrganizationT, MemberT, InvitationT] | None = None
     current_individual: IndividualProtocol[str] | None = None
+    verification_capture: VerificationTokenCaptureHook | None = None
 
     async def register_oidc_provider(  # noqa: PLR0913
         self,
@@ -1272,9 +1274,12 @@ class SSOClient[
             return DomainVerificationState(verified=False, token=None, token_expires_at=None)
         if not self.settings.domain_verification.enabled and not force:
             return DomainVerificationState(verified=False, token=None, token_expires_at=None)
+        token = self._generate_verification_token()
+        if self.verification_capture is not None:
+            self.verification_capture.capture_verification_token(domain, token)
         return DomainVerificationState(
             verified=False,
-            token=self._generate_verification_token(),
+            token=token,
             token_expires_at=self._next_domain_challenge_expiration(),
         )
 

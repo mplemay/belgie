@@ -13,7 +13,12 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from belgie_core.core.client import BelgieClient  # noqa: TC002
 from belgie_core.core.exceptions import OAuthError
-from belgie_core.core.plugin import AfterAuthenticateHook, AuthenticatedProfile, PluginClient
+from belgie_core.core.plugin import (
+    AfterAuthenticateHook,
+    AuthenticatedProfile,
+    PluginClient,
+    VerificationTokenCaptureHook,
+)
 from belgie_core.utils.crypto import generate_state_token
 from belgie_oauth._config import OAuthProvider
 from belgie_oauth._errors import OAuthCallbackError
@@ -308,6 +313,12 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
             return None
         return organization_plugin.settings.adapter
 
+    def _verification_capture_hook(self, belgie: Belgie) -> VerificationTokenCaptureHook | None:
+        return next(
+            (plugin for plugin in belgie.plugins if isinstance(plugin, VerificationTokenCaptureHook)),
+            None,
+        )
+
     def _ensure_dependency_resolver(self, belgie: Belgie) -> None:
         if self._resolve_client is not None:
             return
@@ -323,6 +334,7 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
                 settings=self._settings,
                 organization_adapter=self._organization_adapter(belgie),
                 current_individual=current_individual,
+                verification_capture=self._verification_capture_hook(belgie),
             )
 
         self._resolve_client = resolve_client

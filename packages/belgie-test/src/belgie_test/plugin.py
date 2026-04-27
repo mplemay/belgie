@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import time
@@ -9,18 +8,20 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from belgie_core.core.plugin import PluginClient
-from belgie_proto.core.connection import DBConnection
-from belgie_proto.core.individual import IndividualProtocol
-from belgie_proto.core.json import JSONValue
-from belgie_proto.core.session import SessionProtocol
-from belgie_proto.organization.member import MemberProtocol
-from belgie_proto.organization.organization import OrganizationProtocol
-from fastapi import APIRouter
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from belgie_core.core.belgie import Belgie
     from belgie_core.core.settings import BelgieSettings
     from belgie_organization.plugin import OrganizationPlugin
+    from belgie_proto.core.connection import DBConnection
+    from belgie_proto.core.individual import IndividualProtocol
+    from belgie_proto.core.json import JSONValue
+    from belgie_proto.core.session import SessionProtocol
+    from belgie_proto.organization.member import MemberProtocol
+    from belgie_proto.organization.organization import OrganizationProtocol
+    from fastapi import APIRouter
 
 
 class TestCookie(TypedDict):
@@ -62,8 +63,10 @@ class LoginResult:
 
 @dataclass(slots=True, kw_only=True, frozen=True)
 class TestUtils:
+    capture_otp: bool = False
+
     def __call__(self, belgie_settings: BelgieSettings) -> TestUtilsPlugin:
-        return TestUtilsPlugin(belgie_settings)
+        return TestUtilsPlugin(belgie_settings, self)
 
 
 class OrganizationTestUtils:
@@ -115,9 +118,15 @@ class OrganizationTestUtils:
 
 
 class TestUtilsPlugin(PluginClient):
-    def __init__(self, belgie_settings: BelgieSettings) -> None:
+    def __init__(self, belgie_settings: BelgieSettings, options: TestUtils | None = None) -> None:
         self._belgie_settings = belgie_settings
         self._belgie: Belgie | None = None
+        self._verification_tokens: dict[str, str] = {}
+        self._capture_otp = options.capture_otp if options is not None else False
+        if self._capture_otp:
+            self.capture_verification_token = self._capture_verification_token  # type: ignore[attr-defined]
+            self.get_otp = self._get_otp  # type: ignore[attr-defined]
+            self.clear_otps = self._clear_otps  # type: ignore[attr-defined]
 
     def bind_belgie(self, belgie: Belgie) -> None:
         self._belgie = belgie
@@ -127,7 +136,7 @@ class TestUtilsPlugin(PluginClient):
         plugin = self._organization_plugin()
         return None if plugin is None else OrganizationTestUtils(plugin)
 
-    def create_individual(
+    def create_individual(  # noqa: PLR0913
         self,
         *,
         email: str | None = None,
@@ -166,7 +175,7 @@ class TestUtilsPlugin(PluginClient):
         )
         updates: dict[str, JSONValue] = dict(individual.custom_fields)
         if individual.scopes:
-            scope_values: list[JSONValue] = [scope for scope in individual.scopes]
+            scope_values: list[JSONValue] = list(individual.scopes)
             updates["scopes"] = scope_values
         if not updates:
             return saved
@@ -216,6 +225,15 @@ class TestUtilsPlugin(PluginClient):
 
     def public(self, belgie: Belgie) -> APIRouter | None:  # noqa: ARG002
         return None
+
+    def _capture_verification_token(self, identifier: str, token: str) -> None:
+        self._verification_tokens[identifier] = token
+
+    def _get_otp(self, identifier: str) -> str | None:
+        return self._verification_tokens.get(identifier)
+
+    def _clear_otps(self) -> None:
+        self._verification_tokens.clear()
 
     def _headers_for_token(self, token: str) -> dict[str, str]:
         return {"cookie": f"{self._belgie_settings.cookie.name}={token}"}

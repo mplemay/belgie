@@ -73,5 +73,10 @@ class AfterUpdateIndividualHook(Protocol):
 
 
 @runtime_checkable
+class VerificationTokenCaptureHook(Protocol):
+    def capture_verification_token(self, identifier: str, token: str) -> None: ...
+
+
+@runtime_checkable
 class Plugin[P: PluginClient](Protocol):
     def __call__(self, belgie_settings: BelgieSettings) -> P: ...
