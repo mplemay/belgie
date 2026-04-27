@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
-from typing import TYPE_CHECKING, Literal, Self, get_args
+from typing import TYPE_CHECKING, Literal, Self
 from uuid import UUID  # noqa: TC003
 
 from belgie_proto.stripe import (
@@ -14,13 +14,6 @@ from belgie_proto.stripe import (
 )
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from stripe.params import checkout  # noqa: TC002
-from stripe.params._subscription_update_params import SubscriptionUpdateParams
-from stripe.params.billing_portal._session_create_params import (
-    SessionCreateParams as BillingPortalSessionCreateParams,
-)
-from stripe.params.checkout._session_create_params import (
-    SessionCreateParams as CheckoutSessionCreateParams,
-)
 
 if TYPE_CHECKING:
     from stripe import Subscription
@@ -37,15 +30,61 @@ type StripeAction = Literal[
     "restore-subscription",
     "upgrade-subscription",
 ]
-type StripeProrationBehavior = get_args(
-    SubscriptionUpdateParams.__annotations__["proration_behavior"],
-)[0]
-type CheckoutSessionLocale = get_args(
-    CheckoutSessionCreateParams.__annotations__["locale"],
-)[0]
-type BillingPortalLocale = get_args(
-    BillingPortalSessionCreateParams.__annotations__["locale"],
-)[0]
+type StripeProrationBehavior = Literal["always_invoice", "create_prorations", "none"]
+type CheckoutSessionLocale = Literal[
+    "auto",
+    "bg",
+    "cs",
+    "da",
+    "de",
+    "el",
+    "en",
+    "en-GB",
+    "es",
+    "es-419",
+    "et",
+    "fi",
+    "fil",
+    "fr",
+    "fr-CA",
+    "hr",
+    "hu",
+    "id",
+    "it",
+    "ja",
+    "ko",
+    "lt",
+    "lv",
+    "ms",
+    "mt",
+    "nb",
+    "nl",
+    "pl",
+    "pt",
+    "pt-BR",
+    "ro",
+    "ru",
+    "sk",
+    "sl",
+    "sv",
+    "th",
+    "tr",
+    "vi",
+    "zh",
+    "zh-HK",
+    "zh-TW",
+]
+type BillingPortalLocale = (
+    CheckoutSessionLocale
+    | Literal[
+        "en-AU",
+        "en-CA",
+        "en-IE",
+        "en-IN",
+        "en-NZ",
+        "en-SG",
+    ]
+)
 type StripeSubscriptionLocale = CheckoutSessionLocale | BillingPortalLocale
 
 

@@ -7,8 +7,9 @@ its Stripe 15-only SDK surface.
 
 - Customer lifecycle
   - Lazy customer creation, create-on-sign-up, customer reuse through `customers.search`, fallback reuse through
-    `customers.list`, reserved metadata precedence, `on_account_create` callback context, and best-effort Stripe email
-    sync when an individual email changes through `BelgieClient.update_individual(...)`.
+    `customers.list`, individual-vs-group customer collision prevention, reserved metadata precedence,
+    `on_account_create` callback context, and best-effort Stripe email sync when an individual email changes through
+    `BelgieClient.update_individual(...)`.
   - Coverage: `packages/belgie-stripe/src/belgie_stripe/__tests__/test_client.py`,
     `packages/belgie-stripe/src/belgie_stripe/__tests__/test_plugin.py`,
     `packages/belgie-core/src/belgie_core/__tests__/core/test_client.py`,
@@ -39,6 +40,12 @@ its Stripe 15-only SDK surface.
     automatic seat resync for organization subscriptions.
   - Coverage: `packages/belgie-stripe/src/belgie_stripe/__tests__/test_client.py`,
     `packages/belgie-stripe/src/belgie_stripe/__tests__/test_plugin.py`
+
+- Stripe 15 SDK surface
+  - Generated Stripe 15 parameter dictionaries are used for Checkout Sessions, Customer Portal sessions,
+    subscription updates, and subscription schedules without multi-major compatibility branches.
+  - Coverage: `packages/belgie-stripe/src/belgie_stripe/__tests__/test_client.py` plus source-only `ty` checks over
+    the `belgie_stripe` package files.
 
 ## Better Auth Mapping
 

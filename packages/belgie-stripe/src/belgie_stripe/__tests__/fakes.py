@@ -443,6 +443,8 @@ class FakeCustomerService(CustomerService):
     ) -> ListObject[Customer]:
         assert options is None
         self._sdk.searched_customers.append(params)
+        if self._sdk.customer_search_errors:
+            raise self._sdk.customer_search_errors.pop(0)
         query = params.get("query", "")
         email = _extract_search_email(query)
         account_id = _extract_search_metadata(query, "account_id")
@@ -727,6 +729,7 @@ class FakeStripeSDK(stripe.StripeClient):
         self.customer_retrieve_errors: list[Exception] = []
         self.customer_update_errors: list[Exception] = []
         self.customer_responses: dict[str, Customer] = {}
+        self.customer_search_errors: list[Exception] = []
         self.created_checkout_sessions: list[checkout.SessionCreateParams] = []
         self.checkout_session_responses: dict[str, CheckoutSession] = {}
         self.created_billing_portal_sessions: list[billing_portal.SessionCreateParams] = []

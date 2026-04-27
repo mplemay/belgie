@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol, overload
@@ -19,7 +20,7 @@ from belgie_proto.stripe import (
 )
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from stripe import Event, StripeClient as StripeSDKClient, Subscription
+from stripe import Event, StripeClient as StripeSDKClient, Subscription, SubscriptionItem
 from stripe._stripe_object import StripeObject
 from stripe.checkout import Session as CheckoutSession
 from stripe.params import (
@@ -40,6 +41,7 @@ from stripe.params._subscription_schedule_update_params import (
     SubscriptionScheduleUpdateParamsPhaseItem,
 )
 from stripe.params._subscription_update_params import SubscriptionUpdateParamsItem
+from typing_extensions import TypeIs
 
 from belgie_stripe.metadata import (
     customer_metadata,
@@ -56,6 +58,7 @@ from belgie_stripe.models import (
     BillingPortalRequest,
     CancelSubscriptionRequest,
     CheckoutSessionContext,
+    CheckoutSessionLocale,
     ListSubscriptionsRequest,
     RestoreSubscriptionRequest,
     StripeAction,
@@ -109,27 +112,53 @@ NORMALIZED_SUBSCRIPTION_STATUSES: dict[str, StripeSubscriptionStatus] = {
     "trialing": "trialing",
     "unpaid": "unpaid",
 }
+CHECKOUT_SESSION_LOCALES: tuple[CheckoutSessionLocale, ...] = (
+    "auto",
+    "bg",
+    "cs",
+    "da",
+    "de",
+    "el",
+    "en",
+    "en-GB",
+    "es",
+    "es-419",
+    "et",
+    "fi",
+    "fil",
+    "fr",
+    "fr-CA",
+    "hr",
+    "hu",
+    "id",
+    "it",
+    "ja",
+    "ko",
+    "lt",
+    "lv",
+    "ms",
+    "mt",
+    "nb",
+    "nl",
+    "pl",
+    "pt",
+    "pt-BR",
+    "ro",
+    "ru",
+    "sk",
+    "sl",
+    "sv",
+    "th",
+    "tr",
+    "vi",
+    "zh",
+    "zh-HK",
+    "zh-TW",
+)
 
 
 class _HasID(Protocol):
     id: str
-
-
-class _SubscriptionRecurring(Protocol):
-    interval: str
-    usage_type: str | None
-
-
-class _SubscriptionPrice(Protocol):
-    id: str
-    lookup_key: str | None
-    recurring: _SubscriptionRecurring | None
-
-
-class _SubscriptionItem(Protocol):
-    id: str
-    price: _SubscriptionPrice
-    quantity: int | None
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
@@ -165,6 +194,29 @@ def _metadata_dict(metadata: StripeObject | dict[str, str] | None) -> dict[str, 
         raw_metadata = metadata.to_dict()
         return {key: value for key, value in raw_metadata.items() if isinstance(value, str)}
     return metadata
+
+
+def _metadata_param_dict(metadata: object) -> dict[str, str]:
+    if metadata is None or metadata == "":
+        return {}
+    if isinstance(metadata, StripeObject):
+        raw_metadata = metadata.to_dict()
+        return {key: value for key, value in raw_metadata.items() if isinstance(key, str) and isinstance(value, str)}
+    if isinstance(metadata, Mapping):
+        return {key: value for key, value in metadata.items() if isinstance(key, str) and isinstance(value, str)}
+    return {}
+
+
+def _is_checkout_session_locale(locale: StripeSubscriptionLocale) -> TypeIs[CheckoutSessionLocale]:
+    return locale in CHECKOUT_SESSION_LOCALES
+
+
+def _checkout_session_locale(locale: StripeSubscriptionLocale | None) -> CheckoutSessionLocale | None:
+    if locale is None:
+        return None
+    if _is_checkout_session_locale(locale):
+        return locale
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="locale is not supported by stripe checkout")
 
 
 @overload
@@ -294,9 +346,10 @@ class StripeClient[
         if stripe_customer_id is None:
             stripe_customer_id = await self.ensure_account(account_id=account.id, metadata=data.metadata)
 
-        if active_subscription and active_subscription.stripe_subscription_id is not None:
+        stripe_subscription_id = None if active_subscription is None else active_subscription.stripe_subscription_id
+        if active_subscription and stripe_subscription_id is not None:
             stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(
-                active_subscription.stripe_subscription_id,
+                stripe_subscription_id,
             )
             current_items = list(stripe_subscription.items.data)
             subscription_matches = self._subscription_matches_desired_items(
@@ -340,7 +393,7 @@ class StripeClient[
                 return StripeRedirectResponse(url=portal_session.url, redirect=not data.disable_redirect)
 
             updated_subscription = await self.stripe.v1.subscriptions.update_async(
-                active_subscription.stripe_subscription_id,
+                stripe_subscription_id,
                 SubscriptionUpdateParams(
                     items=self._build_subscription_update_items(
                         current_items=current_items,
@@ -702,7 +755,7 @@ class StripeClient[
         payload["metadata"] = customer_metadata(
             account=account,
             metadata={
-                **(payload.get("metadata") or {}),
+                **_metadata_param_dict(payload.get("metadata")),
                 **metadata,
             },
         )
@@ -749,7 +802,11 @@ class StripeClient[
 
     async def sync_organization_name(self, *, organization_id: UUID) -> None:
         organization = await self._get_account_by_id(organization_id)
-        if organization.account_type != AccountType.ORGANIZATION or organization.stripe_customer_id is None:
+        if (
+            organization.account_type != AccountType.ORGANIZATION
+            or organization.stripe_customer_id is None
+            or organization.name is None
+        ):
             return
         await self.stripe.v1.customers.update_async(
             organization.stripe_customer_id,
@@ -976,22 +1033,23 @@ class StripeClient[
         payload["line_items"] = line_items
         payload["success_url"] = success_url
         payload["cancel_url"] = cancel_url
-        if locale is not None:
-            payload["locale"] = locale
+        if (checkout_locale := _checkout_session_locale(locale)) is not None:
+            payload["locale"] = checkout_locale
         payload["metadata"] = {
-            **(payload.get("metadata") or {}),
+            **_metadata_param_dict(payload.get("metadata")),
             **metadata,
         }
 
         subscription_data = _copy_checkout_subscription_data(payload.get("subscription_data"))
         subscription_data["metadata"] = {
-            **(subscription_data.get("metadata") or {}),
+            **_metadata_param_dict(subscription_data.get("metadata")),
             **metadata,
         }
         if trial_days is not None:
             subscription_data["trial_period_days"] = trial_days
-        if proration_behavior in {"create_prorations", "none"}:
-            subscription_data["proration_behavior"] = proration_behavior
+        match proration_behavior:
+            case "create_prorations" | "none":
+                subscription_data["proration_behavior"] = proration_behavior
         payload["subscription_data"] = subscription_data
         return payload
 
@@ -1090,10 +1148,9 @@ class StripeClient[
         plan: StripePlan,
         desired_items: list[DesiredSubscriptionItem],
     ) -> None:
-        if not isinstance(stripe_subscription.current_period_start, int) or not isinstance(
-            stripe_subscription.current_period_end,
-            int,
-        ):
+        period_start = getattr(stripe_subscription, "current_period_start", None)
+        period_end = getattr(stripe_subscription, "current_period_end", None)
+        if not isinstance(period_start, int) or not isinstance(period_end, int):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="stripe subscription missing current period timestamps",
@@ -1117,7 +1174,7 @@ class StripeClient[
             )
 
         next_phase = SubscriptionScheduleUpdateParamsPhase(
-            start_date=stripe_subscription.current_period_end,
+            start_date=period_end,
             items=self._build_schedule_phase_items(desired_items),
             metadata=subscription_metadata(
                 account=account,
@@ -1135,8 +1192,8 @@ class StripeClient[
                 end_behavior="release",
                 phases=[
                     SubscriptionScheduleUpdateParamsPhase(
-                        start_date=stripe_subscription.current_period_start,
-                        end_date=stripe_subscription.current_period_end,
+                        start_date=period_start,
+                        end_date=period_end,
                         items=self._build_schedule_phase_items_from_subscription(stripe_subscription),
                     ),
                     next_phase,
@@ -1245,7 +1302,7 @@ class StripeClient[
     def _build_subscription_update_items(
         self,
         *,
-        current_items: list[_SubscriptionItem],
+        current_items: list[SubscriptionItem],
         desired_items: list[DesiredSubscriptionItem],
     ) -> list[SubscriptionUpdateParamsItem]:
         used_current_ids: set[str] = set()
@@ -1324,14 +1381,14 @@ class StripeClient[
     def _subscription_matches_desired_items(
         self,
         *,
-        current_items: list[_SubscriptionItem],
+        current_items: list[SubscriptionItem],
         desired_items: list[DesiredSubscriptionItem],
     ) -> bool:
         current_signatures = sorted((item.price.id, self._current_item_quantity(item)) for item in current_items)
         desired_signatures = sorted((item.price_id, item.quantity) for item in desired_items)
         return current_signatures == desired_signatures
 
-    def _current_item_quantity(self, item: _SubscriptionItem) -> int | None:
+    def _current_item_quantity(self, item: SubscriptionItem) -> int | None:
         recurring = getattr(item.price, "recurring", None)
         if recurring is not None and getattr(recurring, "usage_type", None) == "metered":
             return None
@@ -1354,16 +1411,16 @@ class StripeClient[
 
     async def _find_existing_customer(self, account: StripeAccountProtocol) -> _HasID | None:
         if account.account_type == AccountType.INDIVIDUAL:
-            if not isinstance(account, IndividualProtocol):
-                msg = "individual account must expose email"
-                raise TypeError(msg)
             return await self._find_existing_individual_customer(account)
         return await self._find_existing_group_customer(account)
 
     async def _find_existing_individual_customer(
         self,
-        account: IndividualProtocol[str],
+        account: StripeAccountProtocol,
     ) -> _HasID | None:
+        if not isinstance(account, IndividualProtocol):
+            msg = "individual account must expose email"
+            raise TypeError(msg)
         customers: list[_HasID] = []
         try:
             search_result = await self.stripe.v1.customers.search_async(
@@ -1410,10 +1467,10 @@ class StripeClient[
         return metadata.account_id == account.id and metadata.account_type == account.account_type
 
     def _coerce_checkout_session_event(self, event: Event) -> CheckoutSession:
-        return CheckoutSession.construct_from(event.data.object, key=None)
+        return CheckoutSession.construct_from(event.data.object.to_dict(), key=None)
 
     def _coerce_subscription_event(self, event: Event) -> Subscription:
-        return Subscription.construct_from(event.data.object, key=None)
+        return Subscription.construct_from(event.data.object.to_dict(), key=None)
 
     async def _lookup_subscription_from_metadata(self, metadata: dict[str, str]) -> SubscriptionT | None:
         parsed_metadata = parse_subscription_metadata(metadata)
@@ -1736,7 +1793,7 @@ class StripeClient[
         stripe_subscription: Subscription,
         *,
         plan: StripePlan,
-    ) -> _SubscriptionItem | None:
+    ) -> SubscriptionItem | None:
         for item in stripe_subscription.items.data:
             price = item.price
             if price.id is not None and price.id in {plan.price_id, plan.annual_price_id}:

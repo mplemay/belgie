@@ -11,6 +11,7 @@ from belgie_core.core.settings import BelgieSettings
 from belgie_proto.core.account import AccountType
 from fastapi import HTTPException
 from stripe.checkout import Session as CheckoutSession
+from stripe.params import checkout
 
 from belgie_stripe import Stripe, StripeFreeTrial, StripePlan, StripeSubscription
 from belgie_stripe.__tests__.fakes import (
@@ -747,6 +748,47 @@ async def test_ensure_account_reuses_existing_individual_customer_from_search() 
     assert belgie_client.individual.stripe_customer_id == "cus_existing"
     assert stripe_sdk.created_customers == []
     assert stripe_sdk.searched_customers[0]["query"] == f'email:"{individual.email}"'
+
+
+@pytest.mark.asyncio
+async def test_ensure_account_falls_back_to_customer_list_when_search_fails() -> None:
+    individual = make_individual(stripe_customer_id=None)
+    client, belgie_client, stripe_sdk, _adapter = _build_client(individual=individual)
+    stripe_sdk.customer_search_errors.append(stripe.error.StripeError("search unavailable"))
+    stripe_sdk.customer_responses["cus_existing"] = make_customer(
+        customer_id="cus_existing",
+        email=individual.email,
+    )
+
+    account_id = await client.ensure_account(account_id=individual.id, metadata={})
+
+    assert account_id == "cus_existing"
+    assert belgie_client.individual.stripe_customer_id == "cus_existing"
+    assert stripe_sdk.created_customers == []
+    assert stripe_sdk.listed_customers[0]["email"] == individual.email
+
+
+@pytest.mark.asyncio
+async def test_ensure_individual_customer_ignores_group_customer_with_same_email() -> None:
+    individual = make_individual(stripe_customer_id=None)
+    client, belgie_client, stripe_sdk, _adapter = _build_client(individual=individual)
+    stripe_sdk.customer_responses["cus_org"] = make_customer(
+        customer_id="cus_org",
+        email=individual.email,
+        metadata={
+            "account_id": str(uuid4()),
+            "account_type": AccountType.ORGANIZATION,
+        },
+    )
+
+    account_id = await client.ensure_account(account_id=individual.id, metadata={})
+
+    assert account_id == "cus_1"
+    assert belgie_client.individual.stripe_customer_id == "cus_1"
+    assert stripe_sdk.created_customers[0]["metadata"] == {
+        "account_id": str(individual.id),
+        "account_type": AccountType.INDIVIDUAL,
+    }
 
 
 @pytest.mark.asyncio
@@ -1727,6 +1769,49 @@ def test_build_subscription_update_items_swaps_and_deletes_removed_items() -> No
 
     assert {"id": "si_base", "price": "price_starter", "quantity": 1} in update_items
     assert {"id": "si_addon", "deleted": True} in update_items
+
+
+@pytest.mark.asyncio
+async def test_stripe_param_helpers_build_stripe_15_typed_payloads() -> None:
+    client, _belgie_client, _stripe_sdk, _adapter = _build_client()
+    line_items = await client._build_checkout_line_items(
+        [DesiredSubscriptionItem(price_id="price_pro", quantity=2)],
+    )
+
+    checkout_params = await client._build_checkout_session_params(
+        extra_params=checkout.SessionCreateParams(
+            metadata={"source": "hook", "plan": "spoofed"},
+            subscription_data={"metadata": {"subscription": "hook"}},
+        ),
+        customer_id="cus_123",
+        line_items=line_items,
+        redirect_urls=("http://localhost:8000/success", "http://localhost:8000/cancel"),
+        metadata={"plan": "pro", "local_subscription_id": str(uuid4())},
+        locale="en",
+        trial_days=14,
+        proration_behavior="none",
+    )
+    cancel_portal_params = client._build_cancel_portal_params(
+        customer_id="cus_123",
+        return_url="http://localhost:8000/account",
+        subscription_id="sub_123",
+        locale="en",
+    )
+    phase_items = client._build_schedule_phase_items(
+        [DesiredSubscriptionItem(price_id="price_pro", quantity=2)],
+    )
+
+    assert checkout_params["mode"] == "subscription"
+    assert checkout_params["line_items"] == [{"price": "price_pro", "quantity": 2}]
+    assert checkout_params["metadata"]["source"] == "hook"
+    assert checkout_params["metadata"]["plan"] == "pro"
+    assert checkout_params["subscription_data"]["trial_period_days"] == 14
+    assert checkout_params["subscription_data"]["proration_behavior"] == "none"
+    assert checkout_params["subscription_data"]["metadata"]["subscription"] == "hook"
+    assert checkout_params["subscription_data"]["metadata"]["plan"] == "pro"
+    assert cancel_portal_params["flow_data"]["type"] == "subscription_cancel"
+    assert cancel_portal_params["flow_data"]["subscription_cancel"]["subscription"] == "sub_123"
+    assert phase_items == [{"price": "price_pro", "quantity": 2}]
 
 
 def test_parse_subscription_metadata_extracts_typed_values() -> None:

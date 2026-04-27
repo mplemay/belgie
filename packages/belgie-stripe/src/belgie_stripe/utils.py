@@ -6,7 +6,7 @@ import hmac
 import inspect
 import json
 from typing import TYPE_CHECKING, overload
-from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote_plus, urlparse, urlunparse
 
 from typing_extensions import TypeIs
 
@@ -93,27 +93,14 @@ def append_query_params(url: str, **params: str) -> str:
     parsed = urlparse(url)
     current_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
     current_params.update(params)
-    return urlunparse(
-        parsed._replace(
-            query=urlencode(
-                current_params,
-                quote_via=_quote_preserving_braces,
-            ),
-        ),
+    encoded_query = "&".join(
+        f"{quote_plus(key)}={quote_plus(value, safe='{}')}" for key, value in current_params.items()
     )
+    return urlunparse(parsed._replace(query=encoded_query))
 
 
 def escape_stripe_search_value(value: str) -> str:
     return value.replace('"', '\\"')
-
-
-def _quote_preserving_braces(
-    value: str | bytes,
-    safe: str,
-    encoding: str | None = None,
-    errors: str | None = None,
-) -> str:
-    return quote_plus(value, safe=f"{safe}{{}}", encoding=encoding, errors=errors)
 
 
 def _urlsafe_encode(value: bytes) -> str:

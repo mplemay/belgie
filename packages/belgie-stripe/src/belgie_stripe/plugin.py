@@ -1,11 +1,11 @@
-import importlib
 import inspect
 import logging
 import uuid
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import stripe
 from belgie_core.core.settings import BelgieSettings
+from belgie_organization.plugin import OrganizationPlugin
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.organization import OrganizationAdapterProtocol
@@ -28,6 +28,9 @@ from belgie_stripe.models import (
 from belgie_stripe.settings import Stripe
 from belgie_stripe.utils import maybe_await
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
 type StripeBelgieClient = BelgieClientProtocol[StripeAccountProtocol, IndividualProtocol[str], SessionProtocol]
 type StripeBelgieRuntime = BelgieRuntimeProtocol[StripeBelgieClient]
 
@@ -45,8 +48,8 @@ class StripePlugin[
     ) -> None:
         self._belgie_settings = belgie_settings
         self._settings = settings
-        self._resolve_client = None
-        self._organization_plugin = None
+        self._resolve_client: Callable[..., Awaitable[StripeClient[SubscriptionT]]] | None = None
+        self._organization_plugin: OrganizationPlugin | None = None
         self._organization_plugin_resolved = False
         self._organization_hooks_configured = False
 
@@ -71,22 +74,14 @@ class StripePlugin[
             organization_adapter=organization_adapter,
         )
 
-    def _resolve_organization_plugin(self, belgie: StripeBelgieRuntime) -> object | None:
+    def _resolve_organization_plugin(self, belgie: StripeBelgieRuntime) -> OrganizationPlugin | None:
         if self._organization_plugin_resolved:
             return self._organization_plugin
 
         self._organization_plugin_resolved = True
-        try:
-            organization_plugin_type = importlib.import_module("belgie_organization.plugin").OrganizationPlugin
-        except ModuleNotFoundError:
-            organization_plugin_type = None
-        self._organization_plugin = (
-            None
-            if organization_plugin_type is None
-            else next(
-                (plugin for plugin in belgie.plugins if isinstance(plugin, organization_plugin_type)),
-                None,
-            )
+        self._organization_plugin = next(
+            (plugin for plugin in belgie.plugins if isinstance(plugin, OrganizationPlugin)),
+            None,
         )
         return self._organization_plugin
 
