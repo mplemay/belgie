@@ -32,6 +32,7 @@ all = [
     "belgie-sso==0.1.0",
     "belgie-stripe==0.1.0",
     "belgie-team==0.1.0",
+    "belgie-testing==0.1.0",
 ]
 examples = [
     "uvicorn[standard]>=0.38.0",
@@ -56,6 +57,9 @@ stripe = [
 ]
 team = [
     "belgie-team==0.1.0",
+]
+test = [
+    "belgie-testing==0.1.0",
 ]
 
 [build-system]
@@ -93,6 +97,7 @@ belgie-proto = { workspace = true }
 belgie-sso = { workspace = true }
 belgie-stripe = { workspace = true }
 belgie-team = { workspace = true }
+belgie-testing = { workspace = true }
 belgie-alchemy = { workspace = true }
 
 [tool.uv.workspace]
@@ -107,6 +112,7 @@ members = [
     "packages/belgie-sso",
     "packages/belgie-stripe",
     "packages/belgie-team",
+    "packages/belgie-testing",
 ]
 
 [tool.ruff]

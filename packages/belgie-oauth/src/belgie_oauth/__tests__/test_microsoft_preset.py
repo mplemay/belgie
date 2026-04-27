@@ -6,10 +6,11 @@ import httpx
 import pytest
 import respx
 from belgie_core.core.settings import BelgieSettings
+from pydantic import SecretStr, ValidationError
+
 from belgie_oauth import MicrosoftOAuth, MicrosoftOAuthClient, MicrosoftOAuthPlugin, MicrosoftUserInfo, OAuthTokenSet
 from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signing_key, issue_id_token
 from belgie_oauth.microsoft import _map_microsoft_profile
-from pydantic import SecretStr, ValidationError
 
 MICROSOFT_CLIENT_SECRET = SecretStr("microsoft-client-secret")
 

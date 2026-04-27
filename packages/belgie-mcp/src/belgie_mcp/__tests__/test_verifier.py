@@ -10,8 +10,6 @@ from pydantic import AnyUrl
 pytest.importorskip("mcp")
 pytest.importorskip("belgie_oauth_server")
 
-from belgie_mcp.auth_context import get_verified_access_token, set_verified_access_token
-from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.provider import AccessToken as OAuthServerAccessToken, AuthorizationParams, SimpleOAuthProvider
@@ -20,6 +18,9 @@ from belgie_oauth_server.testing import InMemoryDBConnection
 from belgie_oauth_server.utils import join_url
 from mcp.server.auth.provider import AccessToken
 from mcp.server.mcpserver import MCPServer
+
+from belgie_mcp.auth_context import get_verified_access_token, set_verified_access_token
+from belgie_mcp.verifier import BelgieOAuthTokenVerifier, mcp_auth, mcp_token_verifier
 
 
 @respx.mock

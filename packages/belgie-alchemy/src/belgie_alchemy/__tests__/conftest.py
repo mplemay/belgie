@@ -28,7 +28,7 @@ if SQLALCHEMY_AVAILABLE:
 
     @pytest.fixture
     def sqlite_database() -> str:
-        return f"{gettempdir()}/belgie_test_{uuid4().hex}.db"
+        return f"{gettempdir()}/belgie_testing_{uuid4().hex}.db"
 
     @pytest_asyncio.fixture
     async def alchemy_engine(sqlite_database: str) -> AsyncGenerator[AsyncEngine, None]:

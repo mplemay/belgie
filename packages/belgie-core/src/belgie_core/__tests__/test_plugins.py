@@ -70,6 +70,41 @@ def test_add_plugin_returns_instance(belgie_instance: Belgie) -> None:
     assert isinstance(plugin, MockPlugin)
 
 
+def test_add_plugin_binds_plugin_when_supported(belgie_instance: Belgie) -> None:
+    class BindingPlugin(MockPlugin):
+        def __init__(self, belgie_settings: object, settings: MockPluginConfig) -> None:
+            super().__init__(belgie_settings, settings)
+            self.bound_belgie: Belgie | None = None
+
+        def bind_belgie(self, belgie: Belgie) -> None:
+            self.bound_belgie = belgie
+
+    @dataclass(slots=True, kw_only=True, frozen=True)
+    class BindingPluginConfig:
+        def __call__(self, belgie_settings: object) -> BindingPlugin:
+            return BindingPlugin(belgie_settings, MockPluginConfig(label="alpha"))
+
+    plugin = belgie_instance.add_plugin(BindingPluginConfig())
+
+    assert isinstance(plugin, BindingPlugin)
+    assert plugin.bound_belgie is belgie_instance
+
+
+def test_add_plugin_ignores_non_callable_bind_belgie_attribute(belgie_instance: Belgie) -> None:
+    class NonCallableBindingPlugin(MockPlugin):
+        bind_belgie = "not callable"
+
+    @dataclass(slots=True, kw_only=True, frozen=True)
+    class NonCallableBindingPluginConfig:
+        def __call__(self, belgie_settings: object) -> NonCallableBindingPlugin:
+            return NonCallableBindingPlugin(belgie_settings, MockPluginConfig(label="alpha"))
+
+    plugin = belgie_instance.add_plugin(NonCallableBindingPluginConfig())
+
+    assert isinstance(plugin, NonCallableBindingPlugin)
+    assert plugin in belgie_instance.plugins
+
+
 def test_add_plugin_callable_signature_fails_fast(belgie_instance: Belgie) -> None:
     class LegacyPluginConfig:
         def __call__(self) -> MockPlugin:

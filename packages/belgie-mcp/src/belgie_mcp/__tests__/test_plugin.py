@@ -2,23 +2,24 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-import belgie_mcp
 import pytest
 from pydantic import AnyUrl
 
+import belgie_mcp
 from belgie import mcp as belgie_mcp_exports
 
 pytest.importorskip("mcp")
 
 from belgie_core.core.settings import BelgieSettings
-from belgie_mcp.plugin import Mcp, McpPlugin
-from belgie_mcp.verifier import BelgieOAuthTokenVerifier
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.plugin import OAuthServerPlugin
 from belgie_oauth_server.provider import AccessToken as OAuthServerAccessToken, AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.testing import InMemoryDBConnection
 from mcp.server.auth.provider import AccessToken
+
+from belgie_mcp.plugin import Mcp, McpPlugin
+from belgie_mcp.verifier import BelgieOAuthTokenVerifier
 
 
 def _belgie_settings() -> BelgieSettings:

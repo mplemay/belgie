@@ -7,10 +7,11 @@ import httpx
 import pytest
 import respx
 from belgie_core.core.settings import BelgieSettings
+from pydantic import SecretStr, ValidationError
+
 from belgie_oauth import GoogleOAuth, GoogleOAuthClient, GoogleOAuthPlugin, GoogleUserInfo, OAuthTokenSet
 from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signing_key, issue_id_token
 from belgie_oauth.google import _map_google_profile
-from pydantic import SecretStr, ValidationError
 
 GOOGLE_CLIENT_SECRET = SecretStr("google-client-secret")
 
@@ -133,7 +134,7 @@ def test_google_preset_exposes_common_oauth_options() -> None:
 async def test_google_authorization_url_includes_prompt_and_access_type(monkeypatch) -> None:
     plugin = _build_plugin()
     monkeypatch.setattr(
-        plugin,
+        plugin._transport,
         "resolve_server_metadata",
         AsyncMock(return_value={"authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth"}),
     )
@@ -156,7 +157,7 @@ async def test_google_authorization_url_uses_primary_client_id_from_list(monkeyp
         ),
     )
     monkeypatch.setattr(
-        plugin,
+        plugin._transport,
         "resolve_server_metadata",
         AsyncMock(return_value={"authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth"}),
     )

@@ -1,4 +1,5 @@
 import pytest
+
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.engine.errors import InvalidTargetError
 from belgie_oauth_server.engine.helpers import resolve_token_resource

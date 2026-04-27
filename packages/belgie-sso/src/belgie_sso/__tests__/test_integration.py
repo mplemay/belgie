@@ -28,6 +28,7 @@ from belgie_core import Belgie, BelgieClient, BelgieSettings
 from belgie_oauth._models import OAuthTokenSet, OAuthUserInfo
 from belgie_organization import Organization
 from belgie_proto.sso import DomainVerificationState, OIDCProviderConfig
+from belgie_testing import TestUtils as BelgieTestUtils
 from brussels.base import DataclassBase
 from brussels.mixins import PrimaryKeyMixin, TimestampMixin
 from cryptography import x509
@@ -46,7 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from belgie_sso import EnterpriseSSO
 from belgie_sso.client import SSOClient
 from belgie_sso.discovery import OIDCDiscoveryResult
-from belgie_sso.settings import SAMLSecuritySettings
+from belgie_sso.settings import DomainVerificationSettings, SAMLSecuritySettings
 
 
 class SSOProvider(DataclassBase, PrimaryKeyMixin, TimestampMixin, SSOProviderMixin):
@@ -421,6 +422,60 @@ async def test_enterprise_sso_flow_assigns_user_to_existing_org(monkeypatch, ses
         )
         assert member is not None
         assert member.role == "member"
+
+
+@pytest.mark.asyncio
+async def test_test_utils_captures_generated_verification_tokens(session_factory) -> None:
+    core_adapter = BelgieAdapter(
+        account=Account,
+        individual=Individual,
+        oauth_account=OAuthAccount,
+        session=Session,
+        oauth_state=OAuthState,
+    )
+    sso_adapter = SSOAdapter(
+        sso_provider=SSOProvider,
+    )
+
+    settings = BelgieSettings(secret="secret", base_url="http://localhost:8000")
+
+    async def database():
+        async with session_factory() as session:
+            yield session
+
+    belgie = Belgie(
+        settings=settings,
+        adapter=core_adapter,
+        database=database,
+    )
+    test_utils = belgie.add_plugin(BelgieTestUtils(capture_otp=True))
+    belgie.add_plugin(
+        EnterpriseSSO(adapter=sso_adapter, domain_verification=DomainVerificationSettings(enabled=True)),
+    )
+
+    app = FastAPI()
+    app.include_router(belgie.router)
+    client = TestClient(app)
+
+    async with session_factory() as session:
+        owner = await test_utils.save_individual(session, test_utils.create_individual(email="owner@example.com"))
+        login = await test_utils.login(session, individual_id=owner.id)
+
+    response = client.post(
+        "/auth/provider/sso/providers/oidc",
+        headers=login.headers,
+        json={
+            "provider_id": "acme",
+            "issuer": "https://idp.example.com",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+            "domain": "example.com",
+            "skip_discovery": True,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert test_utils.get_otp("example.com") == response.json()["domain_challenge"]["verification_token"]
 
 
 @pytest.mark.asyncio

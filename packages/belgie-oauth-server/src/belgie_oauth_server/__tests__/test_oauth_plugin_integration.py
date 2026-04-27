@@ -9,15 +9,16 @@ from uuid import UUID, uuid4
 
 import pytest
 from belgie_core.core.settings import BelgieSettings
-from belgie_oauth_server.__tests__.helpers import build_oauth_settings
-from belgie_oauth_server.plugin import OAuthServerPlugin
-from belgie_oauth_server.testing import InMemoryConsent, InMemoryDBConnection, InMemoryOAuthServerAdapter
-from belgie_oauth_server.utils import create_code_challenge
 from fastapi import APIRouter, FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
 from joserfc import jwt
 from joserfc.jwk import OctKey
 from pydantic import SecretStr
+
+from belgie_oauth_server.__tests__.helpers import build_oauth_settings
+from belgie_oauth_server.plugin import OAuthServerPlugin
+from belgie_oauth_server.testing import InMemoryConsent, InMemoryDBConnection, InMemoryOAuthServerAdapter
+from belgie_oauth_server.utils import create_code_challenge
 
 if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer

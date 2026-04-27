@@ -102,6 +102,10 @@ class Belgie[
             msg = "plugin callable must return an object implementing router(belgie) and public(belgie)"
             raise TypeError(msg)
 
+        bind_belgie = getattr(instance, "bind_belgie", None)
+        if callable(bind_belgie):
+            bind_belgie(self)
+
         self.plugins.append(instance)
         return instance
 

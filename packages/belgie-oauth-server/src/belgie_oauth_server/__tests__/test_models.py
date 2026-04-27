@@ -1,12 +1,13 @@
 import pytest
+from pydantic import AnyUrl
+from pydantic_core import ValidationError
+
 from belgie_oauth_server.models import (
     InvalidRedirectUriError,
     InvalidScopeError,
     OAuthServerClientMetadata,
     OAuthServerToken,
 )
-from pydantic import AnyUrl
-from pydantic_core import ValidationError
 
 BEARER = "Bearer"
 

@@ -30,6 +30,11 @@ class PluginClient(Protocol):
 
 
 @runtime_checkable
+class BindBelgieHook(Protocol):
+    def bind_belgie(self, belgie: Belgie) -> None: ...
+
+
+@runtime_checkable
 class AfterAuthenticateHook(Protocol):
     async def after_authenticate(
         self,
@@ -65,6 +70,11 @@ class AfterUpdateIndividualHook(Protocol):
         previous_individual: IndividualProtocol[str],
         individual: IndividualProtocol[str],
     ) -> None: ...
+
+
+@runtime_checkable
+class VerificationTokenCaptureHook(Protocol):
+    def capture_verification_token(self, identifier: str, token: str) -> None: ...
 
 
 @runtime_checkable
