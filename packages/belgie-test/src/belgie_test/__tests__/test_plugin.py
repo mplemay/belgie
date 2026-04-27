@@ -21,15 +21,16 @@ from belgie_alchemy.organization import OrganizationAdapter
 from belgie_core.core.belgie import Belgie
 from belgie_core.core.settings import BelgieSettings, CookieSettings, SessionSettings, URLSettings
 from belgie_organization.settings import Organization
+from fastapi import FastAPI, Request
+from fastapi.security import SecurityScopes
+from fastapi.testclient import TestClient
+
 from belgie_test import (
     OrganizationTestUtils as BelgieOrganizationTestUtils,
     TestCookie as BelgieTestCookie,
     TestUtils as BelgieTestUtils,
     TestUtilsPlugin as BelgieTestUtilsPlugin,
 )
-from fastapi import FastAPI, Request
-from fastapi.security import SecurityScopes
-from fastapi.testclient import TestClient
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
