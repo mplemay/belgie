@@ -471,6 +471,7 @@ class StripeClient[
         checkout_session = await self.stripe.v1.checkout.sessions.create_async(
             await self._build_checkout_session_params(
                 extra_params=extra_params,
+                account_type=account.account_type,
                 customer_id=stripe_customer_id,
                 line_items=await self._build_checkout_line_items(desired_items),
                 redirect_urls=(
@@ -645,9 +646,6 @@ class StripeClient[
             event = self.stripe.construct_event(payload, signature, self.settings.stripe_webhook_secret)
         except (stripe.error.SignatureVerificationError, ValueError) as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid stripe webhook") from exc
-        if self.settings.on_event is not None:
-            await maybe_await(self.settings.on_event(event))
-
         if event.type == "checkout.session.completed":
             checkout_session = self._coerce_checkout_session_event(event)
             subscription_id = _expandable_id(checkout_session.subscription)
@@ -683,6 +681,8 @@ class StripeClient[
                 event_type=event.type,
                 existing_subscription=existing_subscription,
             )
+        if self.settings.on_event is not None:
+            await maybe_await(self.settings.on_event(event))
         return {"received": True}
 
     async def subscription_success(
@@ -701,6 +701,7 @@ class StripeClient[
 
         if checkout_session_id is not None:
             await self._sync_checkout_session(checkout_session_id)
+            redirect_to = redirect_to.replace("{CHECKOUT_SESSION_ID}", checkout_session_id)
 
         for _ in range(SUCCESS_POLL_ATTEMPTS):
             subscription = await self.subscription_adapter.get_subscription_by_id(
@@ -1052,6 +1053,7 @@ class StripeClient[
         self,
         *,
         extra_params: checkout.SessionCreateParams | None,
+        account_type: AccountType,
         customer_id: str,
         line_items: list[checkout.SessionCreateParamsLineItem],
         redirect_urls: tuple[str, str],
@@ -1067,6 +1069,8 @@ class StripeClient[
         payload["line_items"] = line_items
         payload["success_url"] = success_url
         payload["cancel_url"] = cancel_url
+        if "customer_update" not in payload:
+            payload["customer_update"] = self._build_checkout_customer_update(account_type)
         if (checkout_locale := _checkout_session_locale(locale)) is not None:
             payload["locale"] = checkout_locale
         payload["metadata"] = {
@@ -1085,6 +1089,15 @@ class StripeClient[
             case "create_prorations" | "none":
                 subscription_data["proration_behavior"] = proration_behavior
         payload["subscription_data"] = subscription_data
+        return payload
+
+    def _build_checkout_customer_update(
+        self,
+        account_type: AccountType,
+    ) -> checkout.SessionCreateParamsCustomerUpdate:
+        payload = checkout.SessionCreateParamsCustomerUpdate(address="auto")
+        if account_type == AccountType.INDIVIDUAL:
+            payload["name"] = "auto"
         return payload
 
     def _build_billing_portal_params(

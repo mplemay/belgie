@@ -33,7 +33,13 @@ from belgie_stripe.__tests__.fakes import (
     make_team,
 )
 from belgie_stripe.client import DesiredSubscriptionItem, StripeClient
-from belgie_stripe.metadata import parse_customer_metadata, parse_schedule_metadata, parse_subscription_metadata
+from belgie_stripe.metadata import (
+    customer_metadata,
+    parse_customer_metadata,
+    parse_schedule_metadata,
+    parse_subscription_metadata,
+    subscription_metadata,
+)
 from belgie_stripe.models import (
     BillingPortalRequest,
     CancelSubscriptionRequest,
@@ -41,7 +47,7 @@ from belgie_stripe.models import (
     RestoreSubscriptionRequest,
     UpgradeSubscriptionRequest,
 )
-from belgie_stripe.utils import sign_success_token
+from belgie_stripe.utils import escape_stripe_search_value, sign_success_token
 
 if TYPE_CHECKING:
     from belgie_proto.stripe import StripeBillingInterval
@@ -140,6 +146,43 @@ def test_client_exposes_raw_stripe_sdk() -> None:
     client, _belgie_client, stripe_sdk, _adapter = _build_client()
 
     assert client.stripe is stripe_sdk
+
+
+def test_escape_stripe_search_value_escapes_quotes() -> None:
+    assert escape_stripe_search_value('"a" and "b"') == '\\"a\\" and \\"b\\"'
+
+
+def test_metadata_helpers_keep_internal_fields_over_user_metadata() -> None:
+    account = make_individual()
+    subscription_id = uuid4()
+
+    customer = customer_metadata(
+        account=account,
+        metadata={
+            "account_id": str(uuid4()),
+            "account_type": AccountType.ORGANIZATION,
+            "source": "user",
+        },
+    )
+    subscription = subscription_metadata(
+        account=account,
+        subscription_id=subscription_id,
+        plan="pro",
+        metadata={
+            "account_id": str(uuid4()),
+            "local_subscription_id": str(uuid4()),
+            "plan": "spoofed",
+            "source": "user",
+        },
+    )
+
+    assert customer["account_id"] == str(account.id)
+    assert customer["account_type"] == AccountType.INDIVIDUAL
+    assert customer["source"] == "user"
+    assert subscription["account_id"] == str(account.id)
+    assert subscription["local_subscription_id"] == str(subscription_id)
+    assert subscription["plan"] == "pro"
+    assert subscription["source"] == "user"
 
 
 @pytest.mark.asyncio
@@ -378,6 +421,47 @@ async def test_upgrade_creates_checkout_session_for_organization_customer() -> N
 
 
 @pytest.mark.asyncio
+async def test_upgrade_checkout_allows_customer_updates_for_individual_customer() -> None:
+    client, _belgie_client, stripe_sdk, _adapter = _build_client()
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="pro",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    assert stripe_sdk.created_checkout_sessions[0]["customer_update"] == {
+        "address": "auto",
+        "name": "auto",
+    }
+
+
+@pytest.mark.asyncio
+async def test_upgrade_checkout_allows_address_updates_for_organization_customer() -> None:
+    organization = make_organization()
+    authorize_account = AsyncMock(return_value=True)
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(
+        accounts={organization.id: organization},
+        authorize_account=authorize_account,
+    )
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="pro",
+            account_id=organization.id,
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    assert stripe_sdk.created_checkout_sessions[0]["customer_update"] == {
+        "address": "auto",
+    }
+
+
+@pytest.mark.asyncio
 async def test_list_subscriptions_defaults_to_current_individual() -> None:
     organization = make_organization()
     client, _belgie_client, _stripe_sdk, adapter = _build_client(
@@ -554,6 +638,37 @@ async def test_handle_webhook_checkout_completed_calls_on_subscription_complete_
     assert context.subscription.status == "active"
     assert context.subscription.stripe_subscription_id == "sub_123"
     assert context.account is belgie_client.individual
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_calls_on_event_after_builtin_subscription_sync() -> None:
+    individual = make_individual()
+    captured_subscription_count = []
+    adapter_ref: InMemoryStripeAdapter | None = None
+
+    async def on_event(_event) -> None:
+        assert adapter_ref is not None
+        captured_subscription_count.append(len(adapter_ref.subscriptions))
+
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        on_event=on_event,
+    )
+    adapter_ref = adapter
+    stripe_sdk.event = make_checkout_completed_event(
+        subscription_id="sub_123",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+    )
+    stripe_sdk.subscription_responses["sub_123"] = make_stripe_subscription(
+        subscription_id="sub_123",
+        account_id="cus_123",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert captured_subscription_count == [1]
 
 
 @pytest.mark.asyncio
@@ -951,6 +1066,43 @@ async def test_list_subscriptions_active_only_returns_limits_and_price_id() -> N
     assert subscriptions[0].id == active_subscription.id
     assert subscriptions[0].price_id == "price_pro_year"
     assert subscriptions[0].limits == {"seats": {"soft": 5}}
+
+
+@pytest.mark.asyncio
+async def test_plan_resolution_supports_lookup_keys() -> None:
+    plans = [
+        StripePlan(name="lookup", lookup_key="lookup_month"),
+        StripePlan(name="annual", price_id="price_annual_month", annual_lookup_key="lookup_year"),
+    ]
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(plans=plans)
+    stripe_sdk.price_lookup["lookup_month"] = "price_lookup_month"
+    stripe_sdk.price_lookup["lookup_year"] = "price_lookup_year"
+
+    monthly_price = await client._resolve_price_id(plan=plans[0], annual=False)
+    annual_price = await client._resolve_price_id(plan=plans[1], annual=True)
+    matched_monthly = await client._match_plan(
+        plan_name=None,
+        stripe_subscription=make_stripe_subscription(
+            price_id="price_lookup_month",
+            lookup_key="lookup_month",
+        ),
+        existing_subscription=None,
+    )
+    matched_annual = await client._match_plan(
+        plan_name=None,
+        stripe_subscription=make_stripe_subscription(
+            price_id="price_lookup_year",
+            lookup_key="lookup_year",
+        ),
+        existing_subscription=None,
+    )
+
+    assert monthly_price == "price_lookup_month"
+    assert annual_price == "price_lookup_year"
+    assert matched_monthly is not None
+    assert matched_monthly.name == "lookup"
+    assert matched_annual is not None
+    assert matched_annual.name == "annual"
 
 
 @pytest.mark.asyncio
@@ -1623,6 +1775,55 @@ async def test_subscription_success_syncs_via_checkout_session_id() -> None:
     assert response.status_code == 302
     assert adapter.subscriptions[subscription.id].status == "active"
     assert adapter.subscriptions[subscription.id].stripe_subscription_id == "sub_success"
+
+
+@pytest.mark.asyncio
+async def test_subscription_success_replaces_checkout_session_placeholder() -> None:
+    client, _belgie_client, stripe_sdk, adapter = _build_client()
+    assert client.current_individual is not None
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=client.current_individual.id,
+        stripe_customer_id="cus_success",
+        status="incomplete",
+    )
+    token = sign_success_token(
+        secret=client.belgie_settings.secret,
+        subscription_id=subscription.id,
+        redirect_to="/billing/success?session_id={CHECKOUT_SESSION_ID}",
+    )
+    stripe_sdk.checkout_session_responses["cs_success"] = CheckoutSession.construct_from(
+        {
+            "id": "cs_success",
+            "object": "checkout.session",
+            "subscription": "sub_success",
+            "metadata": {
+                "local_subscription_id": str(subscription.id),
+                "account_id": str(client.current_individual.id),
+                "plan": "pro",
+            },
+        },
+        key=None,
+    )
+    stripe_sdk.subscription_responses["sub_success"] = make_stripe_subscription(
+        subscription_id="sub_success",
+        account_id="cus_success",
+        status="active",
+        metadata={
+            "local_subscription_id": str(subscription.id),
+            "account_id": str(client.current_individual.id),
+            "plan": "pro",
+        },
+    )
+
+    response = await client.subscription_success(
+        token=token,
+        checkout_session_id="cs_success",
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "http://localhost:8000/billing/success?session_id=cs_success"
 
 
 @pytest.mark.asyncio
@@ -2378,6 +2579,7 @@ async def test_stripe_param_helpers_build_stripe_15_typed_payloads() -> None:
             metadata={"source": "hook", "plan": "spoofed"},
             subscription_data={"metadata": {"subscription": "hook"}},
         ),
+        account_type=AccountType.INDIVIDUAL,
         customer_id="cus_123",
         line_items=line_items,
         redirect_urls=("http://localhost:8000/success", "http://localhost:8000/cancel"),
