@@ -324,8 +324,8 @@ class OAuthFlowCoordinator:
             return response  # noqa: TRY300
         except (InvalidStateError, OAuthError) as exc:
             error_redirect_url = (
-                consumed_state.error_redirect_url if consumed_state else self.config.default_error_redirect_url
-            )
+                consumed_state.error_redirect_url if consumed_state else None
+            ) or self.config.default_error_redirect_url
             if error_redirect_url:
                 response = RedirectResponse(
                     url=append_query_params(

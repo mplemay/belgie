@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, ClassVar, NoReturn, Protocol
 from urllib.parse import urlparse, urlunparse
 
-from belgie_core.core.client import BelgieClient  # noqa: TC002
+from belgie_core.core.client import BelgieClient
 from belgie_core.core.exceptions import OAuthError
 from belgie_core.core.plugin import PluginClient
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -296,7 +296,15 @@ class OAuthPlugin(PluginClient):
             return self.client_type(plugin=self, client=client, request=request, response=response)
 
         self._resolve_client = resolve_client
-        self.__signature__ = inspect.signature(resolve_client)
+        signature = inspect.signature(resolve_client)
+        self.__signature__ = signature.replace(
+            parameters=[
+                signature.parameters["request"].replace(annotation=Request),
+                signature.parameters["response"].replace(annotation=Response),
+                signature.parameters["client"].replace(annotation=BelgieClient),
+            ],
+            return_annotation=self.client_type,
+        )
 
     def normalize_redirect_target(self, target: str | None) -> str | None:
         if not target:

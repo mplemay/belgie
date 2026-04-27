@@ -16,7 +16,7 @@ from belgie_core.core.exceptions import InvalidStateError, OAuthError
 from belgie_core.core.plugin import AuthenticatedProfile
 from belgie_core.core.settings import BelgieSettings, CookieSettings
 from belgie_core.session.manager import SessionManager
-from belgie_oauth import OAuthLinkedAccount, OAuthPlugin, OAuthProvider, OAuthTokenSet, OAuthUserInfo
+from belgie_oauth import OAuthClient, OAuthLinkedAccount, OAuthPlugin, OAuthProvider, OAuthTokenSet, OAuthUserInfo
 from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signing_key, issue_id_token
 from belgie_oauth._types import (
     OAuthFlowIntent,
@@ -31,7 +31,7 @@ from belgie_proto.core.account import AccountType
 from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.json import JSONValue
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
@@ -1277,6 +1277,30 @@ def test_dependency_requires_router_initialization() -> None:
         plugin()
 
 
+def test_plugin_dependency_injects_client_with_request_and_response() -> None:
+    plugin = _build_plugin()
+    app = _build_app(plugin, _build_client())
+
+    @app.get("/uses-plugin")
+    async def uses_plugin(oauth: OAuthClient = Depends(plugin)) -> dict[str, str]:
+        request_path = oauth.request.url.path if oauth.request is not None else ""
+        response_attached = "yes" if oauth.response is not None else "no"
+        return {
+            "provider": oauth.plugin.provider_id,
+            "request_path": request_path,
+            "response_attached": response_attached,
+        }
+
+    response = TestClient(app).get("/uses-plugin")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "acme",
+        "request_path": "/uses-plugin",
+        "response_attached": "yes",
+    }
+
+
 def test_provider_provider_is_cached_self() -> None:
     provider = OAuthProvider(
         provider_id="acme",
@@ -2135,7 +2159,7 @@ async def test_callback_rejects_issuer_mismatch(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_callback_redirects_to_error_url_on_oauth_failure(monkeypatch) -> None:
-    plugin = _build_plugin()
+    plugin = _build_plugin(default_error_redirect_url="/oauth-error")
     adapter = _build_state_adapter()
     client_dependency = _build_client(adapter=adapter)
     app = _build_app(plugin, client_dependency)
@@ -2157,6 +2181,32 @@ async def test_callback_redirects_to_error_url_on_oauth_failure(monkeypatch) -> 
 
     assert response.status_code == 302
     assert response.headers["location"] == "/error?error=oauth_code_verification_failed"
+
+
+@pytest.mark.asyncio
+async def test_callback_uses_default_error_redirect_after_state_consumption(monkeypatch) -> None:
+    plugin = _build_plugin(default_error_redirect_url="/oauth-error")
+    adapter = _build_state_adapter()
+    client_dependency = _build_client(adapter=adapter)
+    app = _build_app(plugin, client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
+
+    with TestClient(app) as test_client:
+        start_url = await oauth_client.signin_url()
+        _, state = _start_provider_flow(test_client, start_url)
+        monkeypatch.setattr(plugin._transport, "resolve_server_metadata", AsyncMock(return_value={}))
+        monkeypatch.setattr(
+            plugin._transport,
+            "exchange_code_for_tokens",
+            AsyncMock(side_effect=OAuthError("bad token")),
+        )
+        response = test_client.get(
+            f"/auth/provider/acme/callback?code=test-code&state={state}",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/oauth-error?error=oauth_code_verification_failed"
 
 
 @pytest.mark.asyncio
