@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID  # noqa: TC003
 
+from belgie_proto.core.json import JSONObject, JSONValue  # noqa: TC002
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from belgie_oauth_server.types import JSONObject, JSONValue  # noqa: TC001
 from belgie_oauth_server.utils import parse_scope_string, validate_safe_redirect_uri
 
 

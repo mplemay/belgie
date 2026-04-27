@@ -4,6 +4,7 @@ from uuid import UUID
 
 from authlib.oauth2.rfc6749.errors import InvalidGrantError, InvalidRequestError
 from authlib.oauth2.rfc7636.challenge import create_s256_code_challenge
+from belgie_proto.core.json import JSONValue  # noqa: TC002
 
 from belgie_oauth_server.engine.authlib_server import BelgieAuthorizationServer  # noqa: TC001
 from belgie_oauth_server.engine.bridge import run_async
@@ -21,7 +22,6 @@ from belgie_oauth_server.engine.token_response import (
     maybe_build_id_token,
 )
 from belgie_oauth_server.engine.transport_starlette import StarletteOAuth2Request  # noqa: TC001
-from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 _MIN_TOKEN_RESPONSE_ITEMS = 2
 

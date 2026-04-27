@@ -18,6 +18,7 @@ from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.plugin import PluginClient
 from belgie_core.core.settings import BelgieSettings
+from belgie_proto.core.json import JSONValue
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import SecurityScopes
@@ -64,7 +65,6 @@ from belgie_oauth_server.query_signature import (
 )
 from belgie_oauth_server.rate_limit import OAuthServerRateLimiter
 from belgie_oauth_server.settings import OAuthServer
-from belgie_oauth_server.types import JSONValue
 from belgie_oauth_server.utils import (
     construct_redirect_uri,
     is_fetch_request,

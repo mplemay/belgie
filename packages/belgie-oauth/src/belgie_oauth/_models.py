@@ -75,7 +75,7 @@ def parse_oauth_samesite(
 
 @dataclass(slots=True, frozen=True, kw_only=True)
 class OAuthTokenSet:
-    access_token: str
+    access_token: str | None
     token_type: str | None
     refresh_token: str | None
     scope: str | None
@@ -90,8 +90,12 @@ class OAuthTokenSet:
         token: TokenResponsePayload,
         *,
         existing: OAuthTokenSet | OAuthLinkedAccount | None = None,
+        require_access_token: bool = True,
     ) -> OAuthTokenSet:
-        if not (access_token := token.get("access_token")):
+        access_token = coerce_optional_str(token.get("access_token"))
+        if access_token is None and existing is not None:
+            access_token = existing.access_token
+        if access_token is None and require_access_token:
             msg = "missing required field in token response: access_token"
             raise OAuthError(msg)
 
@@ -113,7 +117,7 @@ class OAuthTokenSet:
                 refresh_token_expires_at = existing.refresh_token_expires_at
 
         return cls(
-            access_token=str(access_token),
+            access_token=access_token,
             token_type=coerce_optional_str(token.get("token_type"))
             or (existing.token_type if existing is not None else None),
             refresh_token=coerce_optional_str(token.get("refresh_token"))
@@ -127,10 +131,46 @@ class OAuthTokenSet:
         )
 
     @classmethod
+    def from_id_token(  # noqa: PLR0913
+        cls,
+        *,
+        id_token: str,
+        access_token: str | None = None,
+        refresh_token: str | None = None,
+        token_type: str | None = None,
+        scope: str | None = None,
+        access_token_expires_at: datetime | None = None,
+        refresh_token_expires_at: datetime | None = None,
+    ) -> OAuthTokenSet:
+        raw: TokenResponsePayload = {"id_token": id_token}
+        if access_token is not None:
+            raw["access_token"] = access_token
+        if refresh_token is not None:
+            raw["refresh_token"] = refresh_token
+        if token_type is not None:
+            raw["token_type"] = token_type
+        if scope is not None:
+            raw["scope"] = scope
+        if access_token_expires_at is not None:
+            raw["expires_at"] = int(access_token_expires_at.timestamp())
+        if refresh_token_expires_at is not None:
+            raw["refresh_token_expires_at"] = int(refresh_token_expires_at.timestamp())
+        return cls(
+            access_token=access_token,
+            token_type=token_type,
+            refresh_token=refresh_token,
+            scope=scope,
+            id_token=id_token,
+            access_token_expires_at=access_token_expires_at,
+            refresh_token_expires_at=refresh_token_expires_at,
+            raw=raw,
+        )
+
+    @classmethod
     def from_account(cls, account: OAuthLinkedAccount) -> OAuthTokenSet:
-        raw: TokenResponsePayload = {
-            "access_token": account.access_token,
-        }
+        raw: TokenResponsePayload = {}
+        if account.access_token is not None:
+            raw["access_token"] = account.access_token
         if account.refresh_token is not None:
             raw["refresh_token"] = account.refresh_token
         if account.token_type is not None:
@@ -144,7 +184,7 @@ class OAuthTokenSet:
         if account.refresh_token_expires_at is not None:
             raw["refresh_token_expires_at"] = int(account.refresh_token_expires_at.timestamp())
         return cls(
-            access_token=account.access_token or "",
+            access_token=account.access_token,
             token_type=account.token_type,
             refresh_token=account.refresh_token,
             scope=account.scope,

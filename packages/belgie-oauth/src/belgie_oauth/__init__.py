@@ -4,6 +4,7 @@ from belgie_oauth.generic import (
     OAuthLinkedAccount,
     OAuthPlugin,
     OAuthProvider,
+    OAuthSettings,
     OAuthTokenSet,
     OAuthUserInfo,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "OAuthLinkedAccount",
     "OAuthPlugin",
     "OAuthProvider",
+    "OAuthSettings",
     "OAuthTokenSet",
     "OAuthUserInfo",
 ]

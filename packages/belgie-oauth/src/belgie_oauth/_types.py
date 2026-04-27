@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, runtime_checkable
 
-from belgie_proto.core.json import JSONScalar, JSONValue
+from belgie_proto.core.json import JSONObject, JSONScalar, JSONValue
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -23,7 +23,6 @@ type OAuthResponseMode = Literal["query", "form_post"]
 type OAuthSameSite = Literal["lax", "strict", "none"]
 type OAuthStateStrategy = Literal["adapter", "cookie"]
 type TokenEndpointAuthMethod = Literal["client_secret_basic", "client_secret_post", "none"]
-type JSONObject = dict[str, JSONValue]
 type ProviderMetadata = JSONObject
 type RawProfile = JSONObject
 type TokenResponsePayload = JSONObject
@@ -66,7 +65,25 @@ class CookieStoredOAuthStatePayload(TypedDict):
     expires_at: str
 
 
-type SecretBoxPayload = JSONObject | OAuthStartPayload | OAuthStateMarkerPayload | CookieStoredOAuthStatePayload
+class OAuthAccountCookiePayload(TypedDict):
+    provider: str
+    oauth_account_id: str
+    individual_id: str
+    provider_account_id: str
+    access_token: str | None
+    refresh_token: str | None
+    access_token_expires_at: str | None
+    refresh_token_expires_at: str | None
+    scope: str | None
+    token_type: str | None
+    id_token: str | None
+    created_at: str
+    updated_at: str
+
+
+type SecretBoxPayload = (
+    JSONObject | OAuthStartPayload | OAuthStateMarkerPayload | CookieStoredOAuthStatePayload | OAuthAccountCookiePayload
+)
 
 
 class OAuthAccountTokenUpdates(TypedDict):
@@ -80,6 +97,8 @@ class OAuthAccountTokenUpdates(TypedDict):
 
 
 if TYPE_CHECKING:
+    type MaybeAwaitable[T] = T | Awaitable[T]
+
     type UserInfoFetcher = Callable[
         [AuthlibOIDCClient, OAuthTokenSet, ProviderMetadata],
         Awaitable[RawProfile | OAuthUserInfo | None],
@@ -95,7 +114,7 @@ if TYPE_CHECKING:
         Awaitable[TokenResponsePayload],
     ]
 
-    type ProfileMapper = Callable[[RawProfile, OAuthTokenSet], OAuthUserInfo]
+    type ProfileMapper = Callable[[RawProfile, OAuthTokenSet], MaybeAwaitable[OAuthUserInfo]]
 else:
     type UserInfoFetcher = Callable[..., Awaitable[RawProfile | None]]
     type TokenExchangeOverride = Callable[..., Awaitable[TokenResponsePayload]]
@@ -128,6 +147,7 @@ __all__ = [
     "JSONObject",
     "JSONScalar",
     "JSONValue",
+    "OAuthAccountCookiePayload",
     "OAuthAccountTokenUpdates",
     "OAuthBelgieRuntime",
     "OAuthFlowIntent",

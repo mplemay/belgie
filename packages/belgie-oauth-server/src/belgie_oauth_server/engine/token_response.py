@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from authlib.oidc.core.claims import UserInfo
+from belgie_proto.core.json import JSONValue  # noqa: TC002
 
 from belgie_oauth_server.engine.helpers import oauth_client_is_public
 from belgie_oauth_server.models import OAuthServerClientInformationFull, OAuthServerToken
 from belgie_oauth_server.signing import encode_jwt
-from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping

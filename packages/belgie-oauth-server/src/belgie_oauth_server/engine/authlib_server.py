@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from authlib.oauth2.rfc6749 import AuthorizationServer
 from authlib.oauth2.rfc6749.authenticate_client import ClientAuthentication
+from belgie_proto.core.json import JSONValue  # noqa: TC002
 
 from belgie_oauth_server.engine.bridge import run_async
 from belgie_oauth_server.engine.helpers import build_access_token_audience, parse_scope_param
@@ -19,7 +20,6 @@ from belgie_oauth_server.engine.transport_starlette import (
     TransportRequestData,
     TransportResponse,
 )
-from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 if TYPE_CHECKING:
     from belgie_oauth_server.engine.runtime import OAuthEngineRuntime

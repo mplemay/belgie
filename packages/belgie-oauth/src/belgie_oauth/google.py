@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar
 
 from belgie_core.core.exceptions import OAuthError
@@ -56,6 +57,7 @@ class GoogleOAuth(OAuthPresetSettings):
     include_granted_scopes: bool = True
     hosted_domain: str | None = None
 
+    @cached_property
     def to_provider(self) -> OAuthProvider:
         authorization_params = dict(self.authorization_params)
         if self.include_granted_scopes and "include_granted_scopes" not in authorization_params:
@@ -78,11 +80,14 @@ class GoogleOAuth(OAuthPresetSettings):
             use_nonce=self.use_nonce,
             disable_sign_up=self.disable_sign_up,
             disable_implicit_sign_up=self.disable_implicit_sign_up,
+            disable_id_token_sign_in=self.disable_id_token_sign_in,
             override_user_info_on_sign_in=self.override_user_info_on_sign_in,
             update_account_on_sign_in=self.update_account_on_sign_in,
             allow_implicit_account_linking=self.allow_implicit_account_linking,
             allow_different_link_emails=self.allow_different_link_emails,
             trusted_for_account_linking=self.trusted_for_account_linking,
+            store_account_cookie=self.store_account_cookie,
+            default_error_redirect_url=self.default_error_redirect_url,
             encrypt_tokens=self.encrypt_tokens,
             token_encryption_secret=self.token_encryption_secret,
             authorization_params=authorization_params,
@@ -101,13 +106,10 @@ class GoogleOAuthClient(OAuthClient):
 
 
 class GoogleOAuthPlugin(OAuthPlugin):
+    client_type: ClassVar[type[OAuthClient]] = GoogleOAuthClient
     DISCOVERY_URL = GoogleOAuth.DISCOVERY_URL
     TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
     USER_INFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
-
-    def __init__(self, belgie_settings: BelgieSettings, settings: GoogleOAuth) -> None:
-        self.settings = settings
-        super().__init__(belgie_settings, settings.to_provider(), client_type=GoogleOAuthClient)
 
 
 def _map_google_profile(raw_profile: RawProfile, token_set: OAuthTokenSet) -> OAuthUserInfo:  # noqa: ARG001

@@ -22,6 +22,8 @@ from belgie_oauth._types import (
     OAuthFlowIntent,
     OAuthResponseMode,
     OAuthStateStrategy,
+    ProfileMapper,
+    TokenExchangeOverride,
     TokenRefreshOverride,
     UserInfoFetcher,
 )
@@ -1003,12 +1005,17 @@ def _build_plugin(
     response_mode: OAuthResponseMode | None = None,
     disable_sign_up: bool = False,
     disable_implicit_sign_up: bool = False,
+    disable_id_token_sign_in: bool = False,
     update_account_on_sign_in: bool = True,
     trusted_for_account_linking: bool = False,
     override_user_info_on_sign_in: bool = False,
+    store_account_cookie: bool = False,
+    default_error_redirect_url: str | None = None,
     encrypt_tokens: bool = False,
+    get_token: TokenExchangeOverride | None = None,
     refresh_tokens: TokenRefreshOverride | None = None,
     get_userinfo: UserInfoFetcher | None = None,
+    map_profile: ProfileMapper | None = None,
 ) -> OAuthPlugin:
     belgie_settings = BelgieSettings(
         secret="test-secret",
@@ -1032,12 +1039,17 @@ def _build_plugin(
         response_mode=response_mode,
         disable_sign_up=disable_sign_up,
         disable_implicit_sign_up=disable_implicit_sign_up,
+        disable_id_token_sign_in=disable_id_token_sign_in,
         update_account_on_sign_in=update_account_on_sign_in,
         trusted_for_account_linking=trusted_for_account_linking,
         override_user_info_on_sign_in=override_user_info_on_sign_in,
+        store_account_cookie=store_account_cookie,
+        default_error_redirect_url=default_error_redirect_url,
         encrypt_tokens=encrypt_tokens,
+        get_token=get_token,
         refresh_tokens=refresh_tokens,
         get_userinfo=get_userinfo,
+        map_profile=map_profile,
     )
     return OAuthPlugin(belgie_settings, provider)
 
@@ -1203,6 +1215,37 @@ def _start_provider_flow(test_client: TestClient, start_url: str) -> tuple[str, 
     return provider_url, state
 
 
+def _issue_acme_id_token(
+    *,
+    signing_key,
+    subject: str = "provider-account-1",
+    nonce: str = "direct-nonce",
+    email: str | None = "person@example.com",
+    email_verified: bool = True,
+) -> str:
+    claims: dict[str, JSONValue] = {
+        "email_verified": email_verified,
+        "name": "Test Person",
+        "picture": "https://example.com/photo.jpg",
+    }
+    if email is not None:
+        claims["email"] = email
+    return issue_id_token(
+        signing_key=signing_key,
+        issuer="https://idp.example.com",
+        audience="test-client-id",
+        subject=subject,
+        nonce=nonce,
+        claims=claims,
+    )
+
+
+def _mock_acme_jwks(signing_key) -> None:
+    respx.get("https://idp.example.com/jwks").mock(
+        return_value=httpx.Response(200, json=build_jwks_document(signing_key)),
+    )
+
+
 def _cookie_names(test_client: TestClient) -> set[str]:
     return {cookie.name for cookie in test_client.cookies.jar}
 
@@ -1234,12 +1277,37 @@ def test_dependency_requires_router_initialization() -> None:
         plugin()
 
 
+def test_provider_to_provider_is_cached_self() -> None:
+    provider = OAuthProvider(
+        provider_id="acme",
+        client_id="client-id",
+        client_secret=SecretStr("client-secret"),
+        authorization_endpoint="https://idp.example.com/oauth2/authorize",
+        token_endpoint="https://idp.example.com/oauth2/token",
+    )
+
+    assert provider.to_provider is provider
+    assert provider.to_provider is provider
+
+
+@pytest.mark.asyncio
+async def test_missing_callback_state_uses_default_error_redirect() -> None:
+    plugin = _build_plugin(default_error_redirect_url="/oauth-error")
+    app = _build_app(plugin, _build_client())
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/auth/provider/acme/callback", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/oauth-error?error=state_mismatch"
+
+
 @pytest.mark.asyncio
 async def test_signin_url_uses_start_route_and_persists_adapter_state() -> None:
     plugin = _build_plugin()
     adapter = _build_state_adapter()
     client_dependency = _build_client(adapter=adapter)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
     app = _build_app(plugin, client_dependency)
 
     start_url = await oauth_client.signin_url(
@@ -1283,7 +1351,7 @@ async def test_signin_url_uses_start_route_and_persists_adapter_state() -> None:
 async def test_signin_url_uses_primary_client_id_from_list() -> None:
     plugin = _build_plugin(client_id=["primary-client-id", "secondary-client-id"])
     client_dependency = _build_client(adapter=_build_state_adapter())
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
     app = _build_app(plugin, client_dependency)
 
     start_url = await oauth_client.signin_url()
@@ -1300,7 +1368,7 @@ async def test_link_url_persists_link_intent_and_individual() -> None:
     plugin = _build_plugin()
     adapter = _build_state_adapter()
     client_dependency = _build_client(adapter=adapter)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
     app = _build_app(plugin, client_dependency)
 
     individual_id = uuid4()
@@ -1337,7 +1405,7 @@ async def test_cookie_state_strategy_uses_cookie_store_and_trampoline() -> None:
     plugin = _build_plugin(state_strategy="cookie")
     adapter = _build_state_adapter()
     client_dependency = _build_client(adapter=adapter)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
     app = _build_app(plugin, client_dependency)
 
     start_url = await oauth_client.signin_url(payload={"flow": "cookie"})
@@ -1354,7 +1422,7 @@ async def test_cookie_state_strategy_uses_cookie_store_and_trampoline() -> None:
 async def test_signin_url_supports_additional_scope_reconsent() -> None:
     plugin = _build_plugin()
     client_dependency = _build_client(adapter=_build_state_adapter())
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
     app = _build_app(plugin, client_dependency)
 
     start_url = await oauth_client.signin_url(
@@ -1431,6 +1499,75 @@ async def test_exchange_code_for_tokens_uses_manual_token_endpoint() -> None:
 
 
 @pytest.mark.asyncio
+async def test_custom_get_token_success_and_failure_paths() -> None:
+    async def get_token_success(
+        _oauth_client,
+        code: str,
+        token_params: dict[str, str],
+        code_verifier: str | None,
+    ) -> dict[str, JSONValue]:
+        assert code == "custom-code"
+        assert token_params == {}
+        assert code_verifier == "custom-verifier"
+        return {
+            "access_token": "custom-access-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        }
+
+    success_plugin = _build_plugin(get_token=get_token_success)
+
+    token_set = await success_plugin.exchange_code_for_tokens("custom-code", code_verifier="custom-verifier")
+
+    assert token_set.access_token == "custom-access-token"
+
+    async def get_token_failure(
+        _oauth_client,
+        _code: str,
+        _token_params: dict[str, str],
+        _code_verifier: str | None,
+    ) -> dict[str, JSONValue]:
+        msg = "custom token exchange failed"
+        raise OAuthError(msg)
+
+    failure_plugin = _build_plugin(get_token=get_token_failure)
+
+    with pytest.raises(OAuthError, match="custom token exchange failed"):
+        await failure_plugin.exchange_code_for_tokens("custom-code", code_verifier="custom-verifier")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_map_profile_is_awaited_for_id_token_profile() -> None:
+    async def map_profile(raw_profile: dict[str, JSONValue], token_set: OAuthTokenSet) -> OAuthUserInfo:
+        assert token_set.id_token is not None
+        return OAuthUserInfo(
+            provider_account_id=str(raw_profile["sub"]),
+            email="mapped@example.com",
+            email_verified=True,
+            name="Mapped Person",
+            raw=dict(raw_profile),
+        )
+
+    plugin = _build_plugin(
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+        map_profile=map_profile,
+    )
+    signing_key = build_rsa_signing_key(kid="async-map-profile")
+    _mock_acme_jwks(signing_key)
+    token_set = OAuthTokenSet.from_id_token(
+        id_token=_issue_acme_id_token(signing_key=signing_key, subject="async-profile"),
+    )
+
+    profile = await plugin._transport.fetch_id_token_profile(token_set, nonce="direct-nonce")
+
+    assert profile.provider_account_id == "async-profile"
+    assert profile.email == "mapped@example.com"
+
+
+@pytest.mark.asyncio
 @respx.mock
 async def test_fetch_provider_profile_accepts_secondary_client_id_audience() -> None:
     plugin = _build_plugin(
@@ -1476,6 +1613,330 @@ async def test_fetch_provider_profile_accepts_secondary_client_id_audience() -> 
 
 
 @pytest.mark.asyncio
+@respx.mock
+async def test_id_token_signin_creates_session_account_and_json_response() -> None:
+    plugin = _build_plugin(
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    adapter = _build_state_adapter()
+    client_dependency = _build_client(adapter=adapter)
+    app = _build_app(plugin, client_dependency)
+    signing_key = build_rsa_signing_key(kid="direct-signin")
+    _mock_acme_jwks(signing_key)
+
+    with TestClient(app) as test_client:
+        response = test_client.post(
+            "/auth/provider/acme/signin/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key),
+                "nonce": "direct-nonce",
+                "access_token": "direct-access-token",
+                "refresh_token": "direct-refresh-token",
+                "token_type": "Bearer",
+                "scope": "openid email profile",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["redirect"] is False
+    assert payload["token"]
+    assert payload["individual"]["email"] == "person@example.com"
+    assert "belgie_session" in response.cookies
+    client_dependency.after_sign_up_mock.assert_awaited_once()
+    app.state.belgie.after_authenticate_mock.assert_awaited_once()
+    account = next(iter(adapter._oauth_accounts_by_id.values()))
+    assert account.provider_account_id == "provider-account-1"
+    assert account.access_token == "direct-access-token"
+    assert account.refresh_token == "direct-refresh-token"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_id_token_signin_existing_account_updates_tokens() -> None:
+    plugin = _build_plugin(
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    adapter = _build_state_adapter()
+    individual = _build_individual(email="person@example.com")
+    adapter._individuals_by_id[individual.id] = individual
+    adapter._individual_ids_by_email[individual.email.casefold()] = individual.id
+    adapter._store_oauth_account(
+        _build_account(
+            individual_id=individual.id,
+            provider_account_id="provider-account-1",
+            access_token="old-access-token",
+            id_token="old-id-token",
+        ),
+    )
+    app = _build_app(plugin, _build_client(adapter=adapter))
+    signing_key = build_rsa_signing_key(kid="direct-update")
+    _mock_acme_jwks(signing_key)
+
+    with TestClient(app) as test_client:
+        response = test_client.post(
+            "/auth/provider/acme/signin/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key),
+                "nonce": "direct-nonce",
+                "access_token": "new-access-token",
+            },
+        )
+
+    assert response.status_code == 200
+    account = next(iter(adapter._oauth_accounts_by_id.values()))
+    assert account.access_token == "new-access-token"
+    assert account.id_token != "old-id-token"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_id_token_signin_rejects_disabled_missing_email_and_untrusted_linking() -> None:
+    signing_key = build_rsa_signing_key(kid="direct-reject")
+    _mock_acme_jwks(signing_key)
+
+    disabled_plugin = _build_plugin(
+        disable_id_token_sign_in=True,
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    with TestClient(_build_app(disabled_plugin, _build_client())) as test_client:
+        disabled_response = test_client.post(
+            "/auth/provider/acme/signin/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key),
+                "nonce": "direct-nonce",
+            },
+        )
+    assert disabled_response.status_code == 400
+    assert disabled_response.json()["detail"] == "id_token_sign_in_disabled"
+
+    missing_email_plugin = _build_plugin(
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    with TestClient(_build_app(missing_email_plugin, _build_client())) as test_client:
+        missing_email_response = test_client.post(
+            "/auth/provider/acme/signin/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key, subject="missing-email", email=None),
+                "nonce": "direct-nonce",
+            },
+        )
+    assert missing_email_response.status_code == 400
+    assert missing_email_response.json()["detail"] == "email_missing"
+
+    adapter = _build_state_adapter()
+    individual = _build_individual(email="person@example.com")
+    adapter._individuals_by_id[individual.id] = individual
+    adapter._individual_ids_by_email[individual.email.casefold()] = individual.id
+    untrusted_plugin = _build_plugin(
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    with TestClient(_build_app(untrusted_plugin, _build_client(adapter=adapter))) as test_client:
+        untrusted_response = test_client.post(
+            "/auth/provider/acme/signin/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key, email_verified=False),
+                "nonce": "direct-nonce",
+            },
+        )
+    assert untrusted_response.status_code == 400
+    assert untrusted_response.json()["detail"] == "account_not_linked"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_id_token_link_succeeds_idempotently_and_rejects_mismatch() -> None:
+    plugin = _build_plugin(
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    adapter = _build_state_adapter()
+    individual = _build_individual(email="person@example.com", email_verified_at=_naive_now())
+    session = _build_session(individual_id=individual.id)
+    adapter._individuals_by_id[individual.id] = individual
+    adapter._individual_ids_by_email[individual.email.casefold()] = individual.id
+    adapter._sessions[session.id] = session
+    app = _build_app(plugin, _build_client(adapter=adapter))
+    signing_key = build_rsa_signing_key(kid="direct-link")
+    _mock_acme_jwks(signing_key)
+
+    with TestClient(app) as test_client:
+        test_client.cookies.set("belgie_session", str(session.id))
+        first = test_client.post(
+            "/auth/provider/acme/link/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key, subject="linked-account"),
+                "nonce": "direct-nonce",
+                "access_token": "link-access-token",
+            },
+        )
+        second = test_client.post(
+            "/auth/provider/acme/link/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key, subject="linked-account"),
+                "nonce": "direct-nonce",
+                "access_token": "link-access-token-2",
+            },
+        )
+        mismatch = test_client.post(
+            "/auth/provider/acme/link/id-token",
+            json={
+                "id_token": _issue_acme_id_token(
+                    signing_key=signing_key,
+                    subject="mismatch-account",
+                    email="other@example.com",
+                ),
+                "nonce": "direct-nonce",
+            },
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert mismatch.status_code == 400
+    assert mismatch.json()["detail"] == "email_does_not_match"
+    account = next(iter(adapter._oauth_accounts_by_id.values()))
+    assert account.provider_account_id == "linked-account"
+    assert account.access_token == "link-access-token-2"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_account_cookie_signin_allows_access_token_without_provider_account_id() -> None:
+    plugin = _build_plugin(
+        store_account_cookie=True,
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    adapter = _build_state_adapter()
+    app = _build_app(plugin, _build_client(adapter=adapter))
+    signing_key = build_rsa_signing_key(kid="account-cookie")
+    _mock_acme_jwks(signing_key)
+
+    with TestClient(app) as test_client:
+        signin_response = test_client.post(
+            "/auth/provider/acme/signin/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key),
+                "nonce": "direct-nonce",
+                "access_token": "cookie-access-token",
+                "refresh_token": "cookie-refresh-token",
+                "token_type": "Bearer",
+                "scope": "openid email profile",
+            },
+        )
+        token_response = test_client.post("/auth/provider/acme/access-token", json={})
+
+    assert signin_response.status_code == 200
+    assert "belgie_oauth_acme_account" in signin_response.cookies
+    assert token_response.status_code == 200
+    assert token_response.json()["access_token"] == "cookie-access-token"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_refresh_token_persists_tokens_and_updates_account_cookie() -> None:
+    plugin = _build_plugin(
+        store_account_cookie=True,
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    adapter = _build_state_adapter()
+    app = _build_app(plugin, _build_client(adapter=adapter))
+    signing_key = build_rsa_signing_key(kid="refresh-cookie")
+    _mock_acme_jwks(signing_key)
+    respx.post("https://idp.example.com/oauth2/token").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "access_token": "fresh-access-token",
+                "refresh_token": "fresh-refresh-token",
+                "token_type": "Bearer",
+                "scope": "openid email profile",
+                "expires_in": 3600,
+                "id_token": "fresh-id-token",
+            },
+        ),
+    )
+
+    with TestClient(app) as test_client:
+        signin_response = test_client.post(
+            "/auth/provider/acme/signin/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key),
+                "nonce": "direct-nonce",
+                "access_token": "stale-access-token",
+                "refresh_token": "stale-refresh-token",
+            },
+        )
+        refresh_response = test_client.post("/auth/provider/acme/refresh-token", json={})
+
+    assert signin_response.status_code == 200
+    assert refresh_response.status_code == 200
+    assert "belgie_oauth_acme_account" in refresh_response.cookies
+    payload = refresh_response.json()
+    assert payload["access_token"] == "fresh-access-token"
+    assert payload["refresh_token"] == "fresh-refresh-token"
+    account = next(iter(adapter._oauth_accounts_by_id.values()))
+    assert account.access_token == "fresh-access-token"
+    assert account.refresh_token == "fresh-refresh-token"
+    assert account.id_token == "fresh-id-token"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_account_cookie_stale_cookie_requires_db_account_or_explicit_id() -> None:
+    plugin = _build_plugin(
+        store_account_cookie=True,
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+    )
+    adapter = _build_state_adapter()
+    app = _build_app(plugin, _build_client(adapter=adapter))
+    signing_key = build_rsa_signing_key(kid="stale-cookie")
+    _mock_acme_jwks(signing_key)
+
+    with TestClient(app) as test_client:
+        signin_response = test_client.post(
+            "/auth/provider/acme/signin/id-token",
+            json={
+                "id_token": _issue_acme_id_token(signing_key=signing_key),
+                "nonce": "direct-nonce",
+                "access_token": "first-access-token",
+            },
+        )
+        account = next(iter(adapter._oauth_accounts_by_id.values()))
+        adapter._oauth_accounts_by_id.clear()
+        adapter._oauth_accounts_by_provider.clear()
+        adapter._oauth_accounts_by_individual.clear()
+        missing_response = test_client.post("/auth/provider/acme/access-token", json={})
+        adapter._store_oauth_account(replace(account, access_token="explicit-access-token"))
+        explicit_response = test_client.post(
+            "/auth/provider/acme/access-token",
+            json={"provider_account_id": account.provider_account_id},
+        )
+
+    assert signin_response.status_code == 200
+    assert missing_response.status_code == 400
+    assert missing_response.json()["detail"] == "oauth account not found"
+    assert explicit_response.status_code == 200
+    assert explicit_response.json()["access_token"] == "explicit-access-token"
+
+
+@pytest.mark.asyncio
 async def test_callback_signin_new_user_exposes_payload_on_request_state(monkeypatch) -> None:
     plugin = _build_plugin()
     adapter = _build_state_adapter()
@@ -1487,7 +1948,7 @@ async def test_callback_signin_new_user_exposes_payload_on_request_state(monkeyp
     _set_async_return(client_dependency.sign_in_individual_mock, session)
     app = _build_app(plugin, client_dependency)
 
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
     with TestClient(app) as test_client:
         # The trampoline sets the browser-bound state marker before the provider redirect.
         start_url = await oauth_client.signin_url(
@@ -1557,7 +2018,7 @@ async def test_callback_link_flow_does_not_set_session_cookie(monkeypatch) -> No
     _set_async_return(client_dependency.get_oauth_account_mock, None)
     app = _build_app(plugin, client_dependency)
 
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
     with TestClient(app) as test_client:
         start_url = await oauth_client.link_url(
             individual_id=individual_id,
@@ -1656,7 +2117,7 @@ async def test_callback_rejects_issuer_mismatch(monkeypatch) -> None:
     adapter = _build_state_adapter()
     client_dependency = _build_client(adapter=adapter)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url()
@@ -1678,7 +2139,7 @@ async def test_callback_redirects_to_error_url_on_oauth_failure(monkeypatch) -> 
     adapter = _build_state_adapter()
     client_dependency = _build_client(adapter=adapter)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url(error_redirect_url="/error")
@@ -1705,7 +2166,7 @@ async def test_signin_disallows_signup_when_provider_forbids_it(monkeypatch) -> 
     client_dependency = _build_client(adapter=adapter)
     _set_async_return(client_dependency.get_oauth_account_mock, None)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url(error_redirect_url="/error")
@@ -1741,7 +2202,7 @@ async def test_signin_requires_explicit_signup_flag(monkeypatch) -> None:
     client_dependency = _build_client(adapter=adapter)
     _set_async_return(client_dependency.get_oauth_account_mock, None)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url(error_redirect_url="/error")
@@ -1782,7 +2243,7 @@ async def test_existing_account_signin_can_skip_account_updates(monkeypatch) -> 
     _set_async_return(client_dependency.get_oauth_account_mock, existing_account)
     _set_async_return(client_dependency.sign_in_individual_mock, session)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url(return_to="/after")
@@ -1824,7 +2285,7 @@ async def test_signin_implicitly_links_existing_verified_user(monkeypatch) -> No
     _set_async_return(client_dependency.get_or_create_individual_mock, (individual, False))
     _set_async_return(client_dependency.sign_in_individual_mock, session)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url()
@@ -1873,7 +2334,7 @@ async def test_signin_rejects_untrusted_implicit_linking(monkeypatch) -> None:
     client_dependency = _build_client(adapter=adapter)
     _set_async_return(client_dependency.get_oauth_account_mock, None)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url(error_redirect_url="/error")
@@ -1914,7 +2375,7 @@ async def test_signin_trusted_provider_can_implicitly_link_unverified_email(monk
     _set_async_return(client_dependency.get_or_create_individual_mock, (individual, False))
     _set_async_return(client_dependency.sign_in_individual_mock, session)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url()
@@ -1953,7 +2414,7 @@ async def test_link_flow_rejects_mismatched_email(monkeypatch) -> None:
     client_dependency = _build_client(adapter=adapter)
     _set_async_return(client_dependency.get_oauth_account_mock, None)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.link_url(
@@ -1996,7 +2457,7 @@ async def test_link_flow_rejects_missing_email(monkeypatch) -> None:
     client_dependency = _build_client(adapter=adapter)
     _set_async_return(client_dependency.get_oauth_account_mock, None)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.link_url(
@@ -2044,7 +2505,7 @@ async def test_email_verification_only_updates_when_provider_email_matches(monke
     _set_async_return(client_dependency.sign_in_individual_mock, session)
     _set_async_return(client_dependency.update_oauth_account_by_id_mock, existing_account)
     app = _build_app(plugin, client_dependency)
-    oauth_client = plugin._client_type(plugin=plugin, client=client_dependency)
+    oauth_client = plugin.client_type(plugin=plugin, client=client_dependency)
 
     with TestClient(app) as test_client:
         start_url = await oauth_client.signin_url()
@@ -2146,7 +2607,7 @@ async def test_refresh_account_encrypts_tokens_and_persists_both_expiries() -> N
 @pytest.mark.asyncio
 async def test_token_set_and_get_access_token_auto_refresh_expired_tokens(monkeypatch) -> None:
     plugin = _build_plugin()
-    oauth_client = plugin._client_type(plugin=plugin, client=_build_client())
+    oauth_client = plugin.client_type(plugin=plugin, client=_build_client())
     expired = _linked_account(
         access_token_expires_at=datetime.now(UTC) - timedelta(seconds=10),
         access_token="expired-token",

@@ -6,10 +6,9 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from authlib.oauth2.rfc6749 import JsonPayload, JsonRequest, OAuth2Payload, OAuth2Request
+from belgie_proto.core.json import JSONValue  # noqa: TC002
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
-
-from belgie_oauth_server.types import JSONValue  # noqa: TC001
 
 _REDIRECT_STATUS_MIN = 300
 _REDIRECT_STATUS_MAX = 400
