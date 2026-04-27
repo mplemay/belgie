@@ -179,12 +179,13 @@ def _authorization_query_parts(
     oauth_client: OAuthServerClientInformationFull,
     raw_params: dict[str, str],
     params: AuthorizationParams,
+    state_key: str,
 ) -> dict[str, str | list[str] | None]:
     parts: dict[str, str | list[str] | None] = {
         "response_type": "code",
         "client_id": oauth_client.client_id,
         "redirect_uri": str(params.redirect_uri),
-        "state": params.state or "",
+        "state": state_key,
     }
     if params.scopes:
         parts["scope"] = " ".join(params.scopes)
@@ -231,15 +232,16 @@ def _authorization_query_parts_for_state(
     return parts
 
 
-def _signed_oauth_query_string(
+def _signed_oauth_query_string(  # noqa: PLR0913
     oauth_client: OAuthServerClientInformationFull,
     raw_params: dict[str, str],
     params: AuthorizationParams,
     *,
+    state_key: str,
     secret: str,
     settings: OAuthServer,
 ) -> str:
-    parts = _authorization_query_parts(oauth_client, raw_params, params)
+    parts = _authorization_query_parts(oauth_client, raw_params, params, state_key)
     return build_signed_oauth_query(
         parts,
         secret=secret,
@@ -259,7 +261,7 @@ def _wants_interaction_json(request: Request) -> bool:
 
 def _interaction_response(request: Request, redirect_url: str) -> Response:
     if _wants_interaction_json(request):
-        return JSONResponse({"redirect_uri": redirect_url})
+        return JSONResponse({"redirect": True, "url": redirect_url, "redirect_uri": redirect_url})
     return _redirect_response(request, redirect_url)
 
 
@@ -325,9 +327,17 @@ def _build_login_with_signed_query(  # noqa: PLR0913
     oauth_client: OAuthServerClientInformationFull,
     raw_params: dict[str, str],
     params: AuthorizationParams,
+    state_key: str,
     secret: str,
 ) -> str:
-    signed = _signed_oauth_query_string(oauth_client, raw_params, params, secret=secret, settings=settings)
+    signed = _signed_oauth_query_string(
+        oauth_client,
+        raw_params,
+        params,
+        state_key=state_key,
+        secret=secret,
+        settings=settings,
+    )
     return _interaction_redirect_for_signed_query(
         issuer_url=issuer_url,
         belgie_base_url=belgie_base_url,
@@ -619,7 +629,7 @@ class OAuthServerPlugin(PluginClient):
                             status_code=status.HTTP_400_BAD_REQUEST,
                         )
 
-                    await _authorize_state(
+                    state_value = await _authorize_state(
                         provider,
                         authorize_request.oauth_client,
                         authorize_request.params,
@@ -632,6 +642,7 @@ class OAuthServerPlugin(PluginClient):
                         oauth_client=authorize_request.oauth_client,
                         raw_params=authorize_request.raw_params,
                         params=authorize_request.params,
+                        state_key=state_value,
                         secret=secret_oq,
                     )
                     return _redirect_response(request, login_url)
@@ -675,10 +686,11 @@ class OAuthServerPlugin(PluginClient):
                     issuer_url=issuer_url,
                 )
             if interaction is not None:
-                await _authorize_state(
+                interaction_params = replace(params_with_principal, intent=interaction)
+                state_value = await _authorize_state(
                     provider,
                     authorize_request.oauth_client,
-                    replace(params_with_principal, intent=interaction),
+                    interaction_params,
                 )
                 secret_oq = _resolve_oauth_query_secret(belgie, settings)
                 login_url = _build_login_with_signed_query(
@@ -687,7 +699,8 @@ class OAuthServerPlugin(PluginClient):
                     settings=settings,
                     oauth_client=authorize_request.oauth_client,
                     raw_params=authorize_request.raw_params,
-                    params=replace(params_with_principal, intent=interaction),
+                    params=interaction_params,
+                    state_key=state_value,
                     secret=secret_oq,
                 )
                 return _redirect_response(request, login_url)
@@ -1210,7 +1223,7 @@ class OAuthServerPlugin(PluginClient):
                     state_data.redirect_uri,
                     error="access_denied",
                     description="User denied access",
-                    state=state,
+                    state=state_data.client_state,
                     issuer_url=issuer_url,
                 )
                 return _interaction_response(request, redirect_url)
@@ -1881,7 +1894,7 @@ class OAuthServerPlugin(PluginClient):
                 return _oauth_error("access_denied", status_code=status.HTTP_403_FORBIDDEN)
             return _serialize_consent(consent)
 
-        async def update_consent_handler(  # noqa: PLR0911
+        async def update_consent_handler(  # noqa: C901, PLR0911
             request: Request,
             client: BelgieClientDep,
         ) -> OAuthServerConsentRpcResponse | Response:
@@ -1918,6 +1931,13 @@ class OAuthServerPlugin(PluginClient):
                     "scopes must be provided",
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
+            oauth_client = await provider.get_client(existing_consent.client_id, db=client.db)
+            if oauth_client is None:
+                return _oauth_error("invalid_client", status_code=status.HTTP_400_BAD_REQUEST)
+            try:
+                provider.validate_scopes_for_client(oauth_client, list(scopes))
+            except ValueError as exc:
+                return _oauth_error("invalid_scope", str(exc), status_code=status.HTTP_400_BAD_REQUEST)
             updated_consent = await provider.update_consent(consent_id, scopes=list(scopes), db=client.db)
             if updated_consent is None:
                 return _oauth_error("not_found", "no consent", status_code=status.HTTP_404_NOT_FOUND)
@@ -2018,7 +2038,7 @@ def _build_issuer_url(belgie: Belgie, _settings: OAuthServer) -> str:
     return urlunparse(parsed._replace(path=full_path, query="", fragment=""))
 
 
-async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
+async def _parse_authorize_request(  # noqa: C901, PLR0911
     data: dict[str, str],
     provider: SimpleOAuthProvider,
     settings: OAuthServer,
@@ -2049,15 +2069,6 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
         return _oauth_error("invalid_request", exc.message, status_code=status.HTTP_400_BAD_REQUEST)
 
     redirect_uri_string = str(validated_redirect_uri)
-    state = _get_str(resolved_data, "state")
-    if not state:
-        return _authorize_error(
-            "invalid_request",
-            "missing state",
-            redirect_uri=redirect_uri_string,
-            issuer_url=issuer_url,
-        )
-
     prompt_values, prompt_error = _parse_prompt_values(_get_str(resolved_data, "prompt"))
     if prompt_error is not None:
         return _authorize_error(
@@ -2110,7 +2121,7 @@ async def _parse_authorize_request(  # noqa: C901, PLR0911, PLR0912
     prompt = _normalize_prompt_values(prompt_values)
 
     params = AuthorizationParams(
-        state=state,
+        state=_get_str(resolved_data, "state") or None,
         scopes=scopes,
         code_challenge=code_challenge,
         code_challenge_method=code_challenge_method_value,
@@ -2587,7 +2598,7 @@ def _enforce_rate_limit(
 
 def _redirect_response(request: Request, url: str, *, status_code: int = status.HTTP_302_FOUND) -> Response:
     if is_fetch_request(request):
-        return JSONResponse({"redirect_to": url, "redirect_url": url})
+        return JSONResponse({"redirect": True, "url": url, "redirect_to": url, "redirect_url": url})
     return RedirectResponse(url=url, status_code=status_code)
 
 

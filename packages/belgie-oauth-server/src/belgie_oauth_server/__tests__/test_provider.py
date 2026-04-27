@@ -283,8 +283,8 @@ async def test_load_access_token_purges_expired_twice() -> None:
 
 
 @pytest.mark.asyncio
-async def test_authorize_rejects_duplicate_state() -> None:
-    settings, provider, _adapter, _db = build_oauth_provider(
+async def test_authorize_allows_duplicate_client_state_with_distinct_internal_state() -> None:
+    settings, provider, adapter, _db = build_oauth_provider(
         base_url="http://example.com",
         test_redirect_uris=["https://example.com/callback"],
     )
@@ -298,9 +298,12 @@ async def test_authorize_rejects_duplicate_state() -> None:
         redirect_uri_provided_explicitly=True,
         resource=None,
     )
-    await provider.authorize(oauth_client, params)
-    with pytest.raises(ValueError, match="Authorization state already exists"):
-        await provider.authorize(oauth_client, params)
+    first_state = await provider.authorize(oauth_client, params)
+    second_state = await provider.authorize(oauth_client, params)
+
+    assert first_state == "state-dup"
+    assert second_state != "state-dup"
+    assert adapter.authorization_states[second_state].client_state == "state-dup"
 
 
 @pytest.mark.asyncio
@@ -566,7 +569,7 @@ async def test_exchange_refresh_token_preserves_resource_binding() -> None:
 
 
 @pytest.mark.asyncio
-async def test_exchange_refresh_token_replay_only_purges_current_session() -> None:
+async def test_exchange_refresh_token_replay_purges_client_individual_family() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
         test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
@@ -610,8 +613,8 @@ async def test_exchange_refresh_token_replay_only_purges_current_session() -> No
     assert rotated_token.refresh_token is not None
     assert await provider.load_refresh_token(rotated_token.refresh_token) is None
     assert await provider.load_access_token(rotated_token.access_token) is None
-    assert await provider.load_refresh_token(other_refresh.token) is not None
-    assert await provider.load_access_token(other_access.token) is not None
+    assert await provider.load_refresh_token(other_refresh.token) is None
+    assert await provider.load_access_token(other_access.token) is None
 
 
 @pytest.mark.asyncio
@@ -668,7 +671,7 @@ async def test_issue_client_credentials_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_revoke_refresh_token_removes_linked_access_tokens() -> None:
+async def test_revoke_refresh_token_marks_revoked_and_removes_linked_access_tokens() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
         test_redirect_uris=["https://example.com/callback"],
         base_url="http://example.com",
@@ -688,7 +691,9 @@ async def test_revoke_refresh_token_removes_linked_access_tokens() -> None:
 
     await provider.revoke_token(refresh)
 
-    assert provider._hash_value(refresh.token) not in adapter.refresh_tokens
+    stored_refresh = adapter.refresh_tokens[provider._hash_value(refresh.token)]
+    assert stored_refresh.revoked_at is not None
+    assert await provider.load_refresh_token(refresh.token) is None
     assert provider._hash_value("access-linked") not in adapter.access_tokens
 
 

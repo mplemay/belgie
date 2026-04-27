@@ -85,6 +85,9 @@ def test_oauth_authorization_state_mixin_defaults() -> None:
     assert state_column.unique
     assert state_column.index
 
+    client_state_column = OAuthServerAuthorizationState.__table__.c.client_state
+    assert client_state_column.nullable
+
     client_id_column = OAuthServerAuthorizationState.__table__.c.client_id
     assert client_id_column.index
     assert len(client_id_column.foreign_keys) == 0

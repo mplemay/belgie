@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class OAuthServerAuthorizationStateProtocol(Protocol):
     id: UUID
     state: str
+    client_state: str | None
     client_id: str
     redirect_uri: str
     redirect_uri_provided_explicitly: bool

@@ -125,6 +125,7 @@ class OAuthServerAdapterProtocol[
         individual_id: UUID | None,
         session_id: UUID | None,
         expires_at: datetime,
+        client_state: str | None = None,
     ) -> AuthorizationStateT: ...
 
     async def get_authorization_state(
