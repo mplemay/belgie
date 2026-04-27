@@ -29,6 +29,7 @@ from stripe.params import (
     CustomerSearchParams,
     CustomerUpdateParams,
     PriceListParams,
+    SubscriptionListParams,
     SubscriptionScheduleCreateParams,
     SubscriptionScheduleReleaseParams,
     SubscriptionScheduleUpdateParams,
@@ -808,10 +809,21 @@ class StripeClient[
             or organization.name is None
         ):
             return
-        await self.stripe.v1.customers.update_async(
-            organization.stripe_customer_id,
-            CustomerUpdateParams(name=organization.name),
-        )
+        try:
+            stripe_customer = await self.stripe.v1.customers.retrieve_async(organization.stripe_customer_id)
+            if getattr(stripe_customer, "deleted", False):
+                return
+            if getattr(stripe_customer, "name", None) == organization.name:
+                return
+            await self.stripe.v1.customers.update_async(
+                organization.stripe_customer_id,
+                CustomerUpdateParams(name=organization.name),
+            )
+        except stripe.error.StripeError:
+            logger.exception(
+                "failed to sync stripe customer organization name",
+                extra={"stripe_customer_id": organization.stripe_customer_id},
+            )
 
     async def ensure_organization_can_delete(self, *, organization_id: UUID) -> None:
         organization = await self._get_account_by_id(organization_id)
@@ -828,6 +840,21 @@ class StripeClient[
                 status_code=status.HTTP_409_CONFLICT,
                 detail="organization has an active subscription",
             )
+        if organization.stripe_customer_id is None:
+            return
+        subscriptions = await self.stripe.v1.subscriptions.list_async(
+            SubscriptionListParams(
+                customer=organization.stripe_customer_id,
+                status="all",
+                limit=100,
+            ),
+        )
+        for subscription in subscriptions.data:
+            if subscription.status not in {"canceled", "incomplete", "incomplete_expired"}:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="organization has an active subscription",
+                )
 
     async def sync_organization_seats(self, *, organization_id: UUID) -> None:
         if self.organization_adapter is None:
@@ -845,36 +872,43 @@ class StripeClient[
         if plan is None or plan.seat_price_id is None:
             return
 
-        stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(subscription.stripe_subscription_id)
-        desired_items = await self._build_desired_subscription_items(
-            account=organization,
-            plan=plan,
-            base_price_id=await self._resolve_price_id(
+        try:
+            stripe_subscription = await self.stripe.v1.subscriptions.retrieve_async(subscription.stripe_subscription_id)
+            desired_items = await self._build_desired_subscription_items(
+                account=organization,
                 plan=plan,
-                annual=self._is_annual_subscription(
-                    subscription=subscription,
-                    stripe_subscription=stripe_subscription,
+                base_price_id=await self._resolve_price_id(
                     plan=plan,
+                    annual=self._is_annual_subscription(
+                        subscription=subscription,
+                        stripe_subscription=stripe_subscription,
+                        plan=plan,
+                    ),
                 ),
-            ),
-            seats=None,
-        )
-        updated_subscription = await self.stripe.v1.subscriptions.update_async(
-            subscription.stripe_subscription_id,
-            SubscriptionUpdateParams(
-                items=self._build_subscription_update_items(
-                    current_items=list(stripe_subscription.items.data),
-                    desired_items=desired_items,
+                seats=None,
+            )
+            updated_subscription = await self.stripe.v1.subscriptions.update_async(
+                subscription.stripe_subscription_id,
+                SubscriptionUpdateParams(
+                    items=self._build_subscription_update_items(
+                        current_items=list(stripe_subscription.items.data),
+                        desired_items=desired_items,
+                    ),
+                    metadata=subscription_metadata(
+                        account=organization,
+                        subscription_id=subscription.id,
+                        plan=subscription.plan,
+                        metadata={},
+                    ),
+                    **({} if plan.proration_behavior is None else {"proration_behavior": plan.proration_behavior}),
                 ),
-                metadata=subscription_metadata(
-                    account=organization,
-                    subscription_id=subscription.id,
-                    plan=subscription.plan,
-                    metadata={},
-                ),
-                **({} if plan.proration_behavior is None else {"proration_behavior": plan.proration_behavior}),
-            ),
-        )
+            )
+        except stripe.error.StripeError:
+            logger.exception(
+                "failed to sync stripe organization seats",
+                extra={"subscription_id": str(subscription.id)},
+            )
+            return
         await self._sync_subscription(
             stripe_subscription=updated_subscription,
             event_type="customer.subscription.updated",
@@ -1497,7 +1531,18 @@ class StripeClient[
     ) -> SubscriptionT | None:
         metadata = _metadata_dict(stripe_subscription.metadata)
         prior_subscription = existing_subscription or await self._lookup_subscription_from_metadata(metadata)
-        account = await self._resolve_sync_account(metadata=metadata, subscription=prior_subscription)
+        if prior_subscription is None and event_type not in {
+            "checkout.session.completed",
+            "customer.subscription.created",
+        }:
+            return None
+
+        stripe_customer_id = _expandable_id(stripe_subscription.customer)
+        account = await self._resolve_sync_account(
+            metadata=metadata,
+            subscription=prior_subscription,
+            stripe_customer_id=stripe_customer_id,
+        )
         if account is None:
             return None
 
@@ -1507,7 +1552,6 @@ class StripeClient[
             existing_subscription=prior_subscription,
         )
         recurring = self._extract_primary_recurring(stripe_subscription, plan=plan)
-        stripe_customer_id = _expandable_id(stripe_subscription.customer)
         period_start = self._timestamp_to_datetime(getattr(stripe_subscription, "current_period_start", None))
         period_end = self._timestamp_to_datetime(getattr(stripe_subscription, "current_period_end", None))
         trial_start = self._timestamp_to_datetime(getattr(stripe_subscription, "trial_start", None))
@@ -1750,15 +1794,18 @@ class StripeClient[
         *,
         metadata: dict[str, str],
         subscription: SubscriptionT | None,
+        stripe_customer_id: str | None,
     ) -> StripeAccountProtocol | None:
         parsed_metadata = parse_subscription_metadata(metadata)
         if parsed_metadata.raw.get("account_id") is not None and parsed_metadata.account_id is None:
             detail = "stripe metadata account_id must be a valid UUID"
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
         account_id = parsed_metadata.account_id or (None if subscription is None else subscription.account_id)
-        if account_id is None:
+        if account_id is not None:
+            return await self.client.adapter.get_account_by_id(self.client.db, account_id)
+        if stripe_customer_id is None:
             return None
-        return await self.client.adapter.get_account_by_id(self.client.db, account_id)
+        return await self.client.adapter.get_account_by_stripe_customer_id(self.client.db, stripe_customer_id)
 
     async def _match_plan(
         self,

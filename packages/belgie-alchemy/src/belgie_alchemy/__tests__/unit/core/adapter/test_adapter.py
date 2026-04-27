@@ -121,6 +121,29 @@ async def test_update_individual_persists_stripe_customer_id(
 
 
 @pytest.mark.asyncio
+async def test_get_account_by_stripe_customer_id(
+    adapter: BelgieAdapter,
+    alchemy_session: AsyncSession,
+) -> None:
+    user = await adapter.create_individual(
+        alchemy_session,
+        email="stripe-lookup@example.com",
+    )
+    await adapter.update_account(
+        alchemy_session,
+        user.id,
+        stripe_customer_id="cus_lookup",
+    )
+
+    found_user = await adapter.get_account_by_stripe_customer_id(alchemy_session, "cus_lookup")
+    missing_user = await adapter.get_account_by_stripe_customer_id(alchemy_session, "cus_missing")
+
+    assert found_user is not None
+    assert found_user.id == user.id
+    assert missing_user is None
+
+
+@pytest.mark.asyncio
 async def test_update_individual_not_found(adapter: BelgieAdapter, alchemy_session: AsyncSession) -> None:
     updated_user = await adapter.update_individual(
         alchemy_session,

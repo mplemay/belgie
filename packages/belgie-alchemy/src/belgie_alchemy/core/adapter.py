@@ -47,6 +47,15 @@ class BelgieAdapter[
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_account_by_stripe_customer_id(
+        self,
+        session: AsyncSession,
+        stripe_customer_id: str,
+    ) -> AccountT | None:
+        stmt = select(self.account_model).where(self.account_model.stripe_customer_id == stripe_customer_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def update_account(
         self,
         session: AsyncSession,

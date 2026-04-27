@@ -10,9 +10,11 @@ import stripe
 import stripe._customer as _stripe_customer
 from belgie_proto.core.account import AccountType
 from belgie_proto.core.connection import DBConnection
+from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.stripe import (
     UNSET,
+    StripeAccountProtocol,
     StripeAdapterProtocol,
     StripeBillingInterval,
     StripeSubscriptionStatus,
@@ -23,6 +25,7 @@ from stripe._billing_portal_service import BillingPortalService
 from stripe._checkout_service import CheckoutService
 from stripe._customer_service import CustomerService
 from stripe._price_service import PriceService
+from stripe._search_result_object import SearchResultObject
 from stripe._stripe_object import StripeObject
 from stripe._subscription_schedule import SubscriptionSchedule
 from stripe._subscription_schedule_service import SubscriptionScheduleService
@@ -38,6 +41,7 @@ from stripe.params import (
     CustomerSearchParams,
     CustomerUpdateParams,
     PriceListParams,
+    SubscriptionListParams,
     SubscriptionScheduleCreateParams,
     SubscriptionScheduleReleaseParams,
     SubscriptionScheduleUpdateParams,
@@ -59,7 +63,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(slots=True, kw_only=True)
-class FakeIndividual:
+class FakeIndividual(IndividualProtocol[str], StripeAccountProtocol):
     id: UUID
     email: str
     email_verified_at: datetime | None
@@ -73,7 +77,7 @@ class FakeIndividual:
 
 
 @dataclass(slots=True, kw_only=True)
-class FakeOrganization:
+class FakeOrganization(StripeAccountProtocol):
     id: UUID
     name: str
     slug: str
@@ -85,7 +89,7 @@ class FakeOrganization:
 
 
 @dataclass(slots=True, kw_only=True)
-class FakeTeam:
+class FakeTeam(StripeAccountProtocol):
     id: UUID
     organization_id: UUID
     name: str
@@ -99,7 +103,7 @@ type FakeAccount = FakeIndividual | FakeOrganization | FakeTeam
 
 
 @dataclass(slots=True, kw_only=True)
-class FakeSession:
+class FakeSession(SessionProtocol):
     id: UUID
     individual_id: UUID
     expires_at: datetime
@@ -143,7 +147,7 @@ class FakeDB(DBConnection):
         return None
 
 
-class FakeCoreAdapter(StripeCoreAdapterProtocol[FakeAccount]):
+class FakeCoreAdapter(StripeCoreAdapterProtocol[StripeAccountProtocol]):
     def __init__(self, *, accounts: dict[UUID, FakeAccount]) -> None:
         self.accounts = accounts
 
@@ -154,6 +158,17 @@ class FakeCoreAdapter(StripeCoreAdapterProtocol[FakeAccount]):
     ) -> FakeAccount | None:
         assert session
         return self.accounts.get(account_id)
+
+    async def get_account_by_stripe_customer_id(
+        self,
+        session: DBConnection,
+        stripe_customer_id: str,
+    ) -> FakeAccount | None:
+        assert session
+        return next(
+            (account for account in self.accounts.values() if account.stripe_customer_id == stripe_customer_id),
+            None,
+        )
 
     async def update_account(
         self,
@@ -172,7 +187,7 @@ class FakeCoreAdapter(StripeCoreAdapterProtocol[FakeAccount]):
         return account
 
 
-class FakeBelgieClient(BelgieClientProtocol[FakeAccount, FakeIndividual, FakeSession]):
+class FakeBelgieClient(BelgieClientProtocol[StripeAccountProtocol, IndividualProtocol[str], SessionProtocol]):
     def __init__(
         self,
         *,
@@ -203,7 +218,9 @@ class FakeBelgieClient(BelgieClientProtocol[FakeAccount, FakeIndividual, FakeSes
         return self.session
 
 
-class DummyBelgie(BelgieRuntimeProtocol[BelgieClientProtocol[FakeAccount, FakeIndividual, SessionProtocol]]):
+class DummyBelgie(
+    BelgieRuntimeProtocol[BelgieClientProtocol[StripeAccountProtocol, IndividualProtocol[str], SessionProtocol]],
+):
     def __init__(self, client: FakeBelgieClient, *, plugins: list[object] | None = None) -> None:
         self._client = client
         self.plugins = [] if plugins is None else plugins
@@ -440,7 +457,7 @@ class FakeCustomerService(CustomerService):
         self,
         params: CustomerSearchParams,
         options: RequestOptions | None = None,
-    ) -> ListObject[Customer]:
+    ) -> SearchResultObject[Customer]:
         assert options is None
         self._sdk.searched_customers.append(params)
         if self._sdk.customer_search_errors:
@@ -462,7 +479,7 @@ class FakeCustomerService(CustomerService):
                 for customer in customers
                 if _metadata_dict(customer.metadata).get("account_type") == account_type
             ]
-        return _list_object(customers)
+        return _search_result_object(customers)
 
     async def list_async(
         self,
@@ -584,6 +601,8 @@ class FakeSubscriptionService(SubscriptionService):
     ) -> Subscription:
         assert params is None
         assert options is None
+        if self._sdk.subscription_retrieve_errors:
+            raise self._sdk.subscription_retrieve_errors.pop(0)
         return self._sdk.subscription_responses[subscription_exposed_id]
 
     async def update_async(
@@ -594,6 +613,8 @@ class FakeSubscriptionService(SubscriptionService):
     ) -> Subscription:
         assert options is None
         payload = SubscriptionUpdateParams() if params is None else SubscriptionUpdateParams(params)
+        if self._sdk.subscription_update_errors:
+            raise self._sdk.subscription_update_errors.pop(0)
         self._sdk.modified_subscriptions.append((subscription_exposed_id, payload))
         subscription = self._sdk.subscription_responses[subscription_exposed_id]
         subscription.update({key: value for key, value in payload.items() if key != "items"})
@@ -604,6 +625,20 @@ class FakeSubscriptionService(SubscriptionService):
                 sdk=self._sdk,
             )
         return subscription
+
+    async def list_async(
+        self,
+        params: SubscriptionListParams | None = None,
+        options: RequestOptions | None = None,
+    ) -> ListObject[Subscription]:
+        assert options is None
+        payload = SubscriptionListParams() if params is None else SubscriptionListParams(params)
+        self._sdk.listed_subscriptions.append(payload)
+        customer = payload.get("customer")
+        subscriptions = list(self._sdk.subscription_responses.values())
+        if customer is not None:
+            subscriptions = [subscription for subscription in subscriptions if subscription.customer == customer]
+        return _list_object(subscriptions)
 
 
 class FakeSubscriptionScheduleService(SubscriptionScheduleService):
@@ -735,6 +770,9 @@ class FakeStripeSDK(stripe.StripeClient):
         self.created_billing_portal_sessions: list[billing_portal.SessionCreateParams] = []
         self.billing_portal_session_errors: list[Exception] = []
         self.modified_subscriptions: list[tuple[str, SubscriptionUpdateParams]] = []
+        self.listed_subscriptions: list[SubscriptionListParams] = []
+        self.subscription_retrieve_errors: list[Exception] = []
+        self.subscription_update_errors: list[Exception] = []
         self.created_subscription_schedules: list[SubscriptionScheduleCreateParams] = []
         self.updated_subscription_schedules: list[tuple[str, SubscriptionScheduleUpdateParams]] = []
         self.released_subscription_schedules: list[tuple[str, SubscriptionScheduleReleaseParams]] = []
@@ -1002,16 +1040,27 @@ def _stripe_dict(item: StripeObject) -> dict[str, object]:
     return item._to_dict_recursive()
 
 
-def _list_object[T](items: list[T]) -> ListObject[T]:
-    return ListObject._construct_from(
-        values={
+def _list_object[T: StripeObject](items: list[T]) -> ListObject[T]:
+    return ListObject.construct_from(
+        {
             "object": "list",
             "data": [_stripe_dict(item) for item in items],
             "has_more": False,
             "url": "/v1/customers",
         },
-        requestor=None,
-        api_mode="V1",
+        key=None,
+    )
+
+
+def _search_result_object[T: StripeObject](items: list[T]) -> SearchResultObject[T]:
+    return SearchResultObject.construct_from(
+        {
+            "object": "search_result",
+            "data": [_stripe_dict(item) for item in items],
+            "has_more": False,
+            "url": "/v1/customers/search",
+        },
+        key=None,
     )
 
 
@@ -1020,15 +1069,14 @@ def _subscription_items_list(
     subscription_id: str,
     items: list[dict[str, object]],
 ) -> ListObject[StripeObject]:
-    return ListObject._construct_from(
-        values={
+    return ListObject.construct_from(
+        {
             "object": "list",
             "data": items,
             "has_more": False,
             "url": f"/v1/subscription_items?subscription={subscription_id}",
         },
-        requestor=None,
-        api_mode="V1",
+        key=None,
     )
 
 

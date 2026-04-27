@@ -22,6 +22,12 @@ class StripeCoreAdapterProtocol[AccountT: StripeAccountProtocol](Protocol):
         account_id: UUID,
     ) -> AccountT | None: ...
 
+    async def get_account_by_stripe_customer_id(
+        self,
+        session: DBConnection,
+        stripe_customer_id: str,
+    ) -> AccountT | None: ...
+
     async def update_account(
         self,
         session: DBConnection,

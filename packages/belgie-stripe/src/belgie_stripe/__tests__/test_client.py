@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
@@ -42,6 +43,9 @@ from belgie_stripe.models import (
 )
 from belgie_stripe.utils import sign_success_token
 
+if TYPE_CHECKING:
+    from belgie_proto.stripe import StripeBillingInterval
+
 
 def _build_client(
     *,
@@ -76,7 +80,7 @@ def _build_client(
     adapter = InMemoryStripeAdapter() if adapter is None else adapter
     plans = [StripePlan(name="pro", price_id="price_pro", annual_price_id="price_pro_year")] if plans is None else plans
 
-    client = StripeClient(
+    client: StripeClient[FakeSubscription] = StripeClient(
         client=belgie_client,
         belgie_settings=settings,
         settings=Stripe(
@@ -117,7 +121,7 @@ def _subscription_item(
     item_id: str,
     price_id: str,
     quantity: int | None = 1,
-    interval: str = "month",
+    interval: StripeBillingInterval = "month",
     usage_type: str | None = None,
 ) -> dict[str, object]:
     return {
@@ -698,12 +702,111 @@ async def test_handle_webhook_updated_calls_on_subscription_cancel_requested_onc
     on_subscription_updated.assert_awaited()
     assert on_subscription_updated.await_count == 2
     on_subscription_cancel_requested.assert_awaited_once()
+    assert on_subscription_cancel_requested.await_args is not None
     context = on_subscription_cancel_requested.await_args.args[0]
     assert context.plan is not None
     assert context.plan.name == "pro"
     assert context.subscription.cancel_at_period_end is True
     assert isinstance(context.cancellation_details, stripe.Subscription.CancellationDetails)
     assert context.cancellation_details.feedback == "too_expensive"
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_created_resolves_individual_account_by_stripe_customer_id() -> None:
+    individual = make_individual(stripe_customer_id="cus_dashboard")
+    on_subscription_created = AsyncMock()
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        individual=individual,
+        on_subscription_created=on_subscription_created,
+    )
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.created",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_dashboard",
+            account_id="cus_dashboard",
+            status="active",
+            metadata={},
+            price_id="price_pro",
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    stored = next(iter(adapter.subscriptions.values()))
+    assert stored.account_id == individual.id
+    assert stored.stripe_customer_id == "cus_dashboard"
+    assert stored.stripe_subscription_id == "sub_dashboard"
+    assert stored.plan == "pro"
+    on_subscription_created.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_created_resolves_organization_account_by_stripe_customer_id() -> None:
+    organization = make_organization(stripe_customer_id="cus_org_dashboard")
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        accounts={organization.id: organization},
+        plans=[StripePlan(name="team", price_id="price_team")],
+    )
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.created",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_org_dashboard",
+            account_id="cus_org_dashboard",
+            status="active",
+            metadata={},
+            price_id="price_team",
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    stored = next(iter(adapter.subscriptions.values()))
+    assert stored.account_id == organization.id
+    assert stored.stripe_customer_id == "cus_org_dashboard"
+    assert stored.stripe_subscription_id == "sub_org_dashboard"
+    assert stored.plan == "team"
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_updated_without_local_subscription_does_not_create_subscription() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.updated",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_missing",
+            account_id="cus_existing",
+            status="active",
+            metadata={"account_id": str(individual.id), "plan": "pro"},
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert adapter.subscriptions == {}
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_deleted_without_local_subscription_does_not_create_subscription() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual)
+    stripe_sdk.event = make_subscription_event(
+        event_type="customer.subscription.deleted",
+        subscription=make_stripe_subscription(
+            subscription_id="sub_missing",
+            account_id="cus_existing",
+            status="canceled",
+            metadata={"account_id": str(individual.id), "plan": "pro"},
+        ),
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert adapter.subscriptions == {}
 
 
 @pytest.mark.asyncio
@@ -956,6 +1059,354 @@ async def test_upgrade_applies_free_trial_only_once() -> None:
     )
 
     assert "trial_period_days" not in stripe_sdk.created_checkout_sessions[0]["subscription_data"]
+
+
+@pytest.mark.asyncio
+async def test_upgrade_checkout_includes_line_items_and_dedupes_seat_only_price() -> None:
+    organization = make_organization()
+    organization_adapter = SimpleNamespace(
+        list_members=AsyncMock(
+            return_value=[SimpleNamespace(id=uuid4()) for _ in range(2)],
+        ),
+    )
+    plans = [
+        StripePlan(
+            name="team",
+            price_id="price_team_seat",
+            seat_price_id="price_team_seat",
+            line_items=[checkout.SessionCreateParamsLineItem(price="price_meter_api")],
+        ),
+    ]
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(
+        accounts={organization.id: organization},
+        authorize_account=AsyncMock(return_value=True),
+        organization_adapter=organization_adapter,
+        plans=plans,
+    )
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="team",
+            account_id=organization.id,
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    assert stripe_sdk.created_checkout_sessions[0]["line_items"] == [
+        {"price": "price_team_seat", "quantity": 2},
+        {"price": "price_meter_api"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_upgrade_direct_update_adds_new_line_items() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    plans = [
+        StripePlan(name="starter", price_id="price_starter"),
+        StripePlan(
+            name="pro",
+            price_id="price_pro",
+            line_items=[checkout.SessionCreateParamsLineItem(price="price_api")],
+        ),
+    ]
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual, plans=plans)
+    await adapter.create_subscription(
+        client.client.db,
+        plan="starter",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        account_id="cus_existing",
+        metadata={"account_id": str(individual.id), "plan": "starter"},
+        price_id="price_starter",
+        item_id="si_base",
+    )
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="pro",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    update_items = stripe_sdk.modified_subscriptions[0][1]["items"]
+    assert {"id": "si_base", "price": "price_pro", "quantity": 1} in update_items
+    assert {"price": "price_api"} in update_items
+
+
+@pytest.mark.asyncio
+async def test_upgrade_direct_update_removes_extra_line_items() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    plans = [
+        StripePlan(
+            name="pro",
+            price_id="price_pro",
+            line_items=[checkout.SessionCreateParamsLineItem(price="price_api")],
+        ),
+        StripePlan(name="starter", price_id="price_starter"),
+    ]
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual, plans=plans)
+    await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        account_id="cus_existing",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+        items=[
+            _subscription_item(item_id="si_base", price_id="price_pro"),
+            _subscription_item(item_id="si_api", price_id="price_api"),
+        ],
+    )
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="starter",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    update_items = stripe_sdk.modified_subscriptions[0][1]["items"]
+    assert {"id": "si_base", "price": "price_starter", "quantity": 1} in update_items
+    assert {"id": "si_api", "deleted": True} in update_items
+
+
+@pytest.mark.asyncio
+async def test_upgrade_scheduled_change_replaces_line_items_without_duplicates() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    plans = [
+        StripePlan(
+            name="pro",
+            price_id="price_pro",
+            line_items=[checkout.SessionCreateParamsLineItem(price="price_api_old")],
+        ),
+        StripePlan(
+            name="enterprise",
+            price_id="price_enterprise",
+            line_items=[checkout.SessionCreateParamsLineItem(price="price_api_new")],
+        ),
+    ]
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual, plans=plans)
+    await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        account_id="cus_existing",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+        items=[
+            _subscription_item(item_id="si_base", price_id="price_pro"),
+            _subscription_item(item_id="si_api", price_id="price_api_old"),
+        ],
+    )
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="enterprise",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+            schedule_at_period_end=True,
+        ),
+    )
+
+    next_phase_items = stripe_sdk.updated_subscription_schedules[0][1]["phases"][1]["items"]
+    assert next_phase_items == [
+        {"price": "price_enterprise", "quantity": 1},
+        {"price": "price_api_new"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_upgrade_duplicate_multi_item_subscription_is_rejected() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    plans = [
+        StripePlan(
+            name="pro",
+            price_id="price_pro",
+            line_items=[checkout.SessionCreateParamsLineItem(price="price_api")],
+        ),
+    ]
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual, plans=plans)
+    await adapter.create_subscription(
+        client.client.db,
+        plan="pro",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        account_id="cus_existing",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+        items=[
+            _subscription_item(item_id="si_base", price_id="price_pro"),
+            _subscription_item(item_id="si_api", price_id="price_api", quantity=None),
+        ],
+    )
+
+    with pytest.raises(HTTPException, match="already subscribed to this plan"):
+        await client.upgrade(
+            data=UpgradeSubscriptionRequest(
+                plan="pro",
+                success_url="/dashboard",
+                cancel_url="/pricing",
+            ),
+        )
+
+    assert stripe_sdk.modified_subscriptions == []
+    assert stripe_sdk.created_billing_portal_sessions == []
+
+
+@pytest.mark.asyncio
+async def test_upgrade_billing_portal_omits_quantity_for_metered_price() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    plans = [
+        StripePlan(name="starter", price_id="price_starter"),
+        StripePlan(name="metered", price_id="price_metered"),
+    ]
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual, plans=plans)
+    stripe_sdk.price_responses["price_metered"] = make_price(
+        price_id="price_metered",
+        usage_type="metered",
+    )
+    await adapter.create_subscription(
+        client.client.db,
+        plan="starter",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        account_id="cus_existing",
+        price_id="price_starter",
+        item_id="si_base",
+    )
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="metered",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    portal_item = stripe_sdk.created_billing_portal_sessions[0]["flow_data"]["subscription_update_confirm"]["items"][0]
+    assert portal_item["price"] == "price_metered"
+    assert "quantity" not in portal_item
+
+
+@pytest.mark.asyncio
+async def test_upgrade_direct_update_omits_quantity_for_metered_price() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    plans = [
+        StripePlan(
+            name="starter",
+            price_id="price_starter",
+            line_items=[checkout.SessionCreateParamsLineItem(price="price_api")],
+        ),
+        StripePlan(name="metered", price_id="price_metered"),
+    ]
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual, plans=plans)
+    stripe_sdk.price_responses["price_metered"] = make_price(
+        price_id="price_metered",
+        usage_type="metered",
+    )
+    await adapter.create_subscription(
+        client.client.db,
+        plan="starter",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        account_id="cus_existing",
+        items=[
+            _subscription_item(item_id="si_base", price_id="price_starter"),
+            _subscription_item(item_id="si_api", price_id="price_api"),
+        ],
+    )
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="metered",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+        ),
+    )
+
+    update_items = stripe_sdk.modified_subscriptions[0][1]["items"]
+    metered_item = next(item for item in update_items if item.get("price") == "price_metered")
+    assert "quantity" not in metered_item
+
+
+@pytest.mark.asyncio
+async def test_upgrade_scheduled_change_omits_quantity_for_metered_price() -> None:
+    individual = make_individual(stripe_customer_id="cus_existing")
+    plans = [
+        StripePlan(name="starter", price_id="price_starter"),
+        StripePlan(name="metered", price_id="price_metered"),
+    ]
+    client, _belgie_client, stripe_sdk, adapter = _build_client(individual=individual, plans=plans)
+    stripe_sdk.price_responses["price_metered"] = make_price(
+        price_id="price_metered",
+        usage_type="metered",
+    )
+    await adapter.create_subscription(
+        client.client.db,
+        plan="starter",
+        account_id=individual.id,
+        stripe_customer_id="cus_existing",
+        stripe_subscription_id="sub_existing",
+        status="active",
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_responses["sub_existing"] = make_stripe_subscription(
+        subscription_id="sub_existing",
+        account_id="cus_existing",
+        price_id="price_starter",
+        item_id="si_base",
+    )
+
+    await client.upgrade(
+        data=UpgradeSubscriptionRequest(
+            plan="metered",
+            success_url="/dashboard",
+            cancel_url="/pricing",
+            schedule_at_period_end=True,
+        ),
+    )
+
+    next_phase_item = stripe_sdk.updated_subscription_schedules[0][1]["phases"][1]["items"][0]
+    assert next_phase_item["price"] == "price_metered"
+    assert "quantity" not in next_phase_item
 
 
 @pytest.mark.asyncio
@@ -1389,12 +1840,53 @@ async def test_sync_organization_name_updates_customer() -> None:
     client, _belgie_client, stripe_sdk, _adapter = _build_client(
         accounts={organization.id: organization},
     )
+    stripe_sdk.customer_responses["cus_org"] = make_customer(
+        customer_id="cus_org",
+        name="Old Name",
+    )
 
     await client.sync_organization_name(organization_id=organization.id)
 
     assert stripe_sdk.updated_customers == [
         ("cus_org", {"name": organization.name}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_sync_organization_name_skips_deleted_and_unchanged_customers() -> None:
+    organization = make_organization(stripe_customer_id="cus_org")
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(
+        accounts={organization.id: organization},
+    )
+    stripe_sdk.customer_responses["cus_org"] = make_customer(
+        customer_id="cus_org",
+        name=organization.name,
+    )
+
+    await client.sync_organization_name(organization_id=organization.id)
+
+    assert stripe_sdk.updated_customers == []
+
+    stripe_sdk.customer_responses["cus_org"] = make_customer(
+        customer_id="cus_org",
+        deleted=True,
+    )
+    await client.sync_organization_name(organization_id=organization.id)
+
+    assert stripe_sdk.updated_customers == []
+
+
+@pytest.mark.asyncio
+async def test_sync_organization_name_ignores_stripe_errors() -> None:
+    organization = make_organization(stripe_customer_id="cus_org")
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(
+        accounts={organization.id: organization},
+    )
+    stripe_sdk.customer_retrieve_errors.append(stripe.error.StripeError("stripe unavailable"))
+
+    await client.sync_organization_name(organization_id=organization.id)
+
+    assert stripe_sdk.updated_customers == []
 
 
 @pytest.mark.asyncio
@@ -1445,6 +1937,90 @@ async def test_sync_organization_seats_updates_subscription_quantity() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sync_organization_seats_uses_plan_proration_behavior() -> None:
+    organization = make_organization(stripe_customer_id="cus_org")
+    plans = [
+        StripePlan(
+            name="team",
+            price_id="price_team",
+            seat_price_id="price_team_seat",
+            proration_behavior="none",
+        ),
+    ]
+    organization_adapter = SimpleNamespace(
+        list_members=AsyncMock(
+            return_value=[SimpleNamespace(id=uuid4()) for _ in range(2)],
+        ),
+    )
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        accounts={organization.id: organization},
+        plans=plans,
+        organization_adapter=organization_adapter,
+    )
+    await adapter.create_subscription(
+        client.client.db,
+        plan="team",
+        account_id=organization.id,
+        stripe_customer_id="cus_org",
+        stripe_subscription_id="sub_org",
+        status="active",
+        seats=1,
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_responses["sub_org"] = make_stripe_subscription(
+        subscription_id="sub_org",
+        account_id="cus_org",
+        metadata={"account_id": str(organization.id), "plan": "team"},
+        items=[
+            _subscription_item(item_id="si_base", price_id="price_team"),
+            _subscription_item(item_id="si_seat", price_id="price_team_seat", quantity=1),
+        ],
+    )
+
+    await client.sync_organization_seats(organization_id=organization.id)
+
+    assert stripe_sdk.modified_subscriptions[0][1]["proration_behavior"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_sync_organization_seats_ignores_stripe_errors() -> None:
+    organization = make_organization(stripe_customer_id="cus_org")
+    plans = [
+        StripePlan(
+            name="team",
+            price_id="price_team",
+            seat_price_id="price_team_seat",
+        ),
+    ]
+    organization_adapter = SimpleNamespace(
+        list_members=AsyncMock(
+            return_value=[SimpleNamespace(id=uuid4()) for _ in range(2)],
+        ),
+    )
+    client, _belgie_client, stripe_sdk, adapter = _build_client(
+        accounts={organization.id: organization},
+        plans=plans,
+        organization_adapter=organization_adapter,
+    )
+    subscription = await adapter.create_subscription(
+        client.client.db,
+        plan="team",
+        account_id=organization.id,
+        stripe_customer_id="cus_org",
+        stripe_subscription_id="sub_org",
+        status="active",
+        seats=1,
+        billing_interval="month",
+    )
+    stripe_sdk.subscription_retrieve_errors.append(stripe.error.StripeError("stripe unavailable"))
+
+    await client.sync_organization_seats(organization_id=organization.id)
+
+    assert stripe_sdk.modified_subscriptions == []
+    assert adapter.subscriptions[subscription.id].seats == 1
+
+
+@pytest.mark.asyncio
 async def test_ensure_organization_can_delete_rejects_active_subscription() -> None:
     organization = make_organization()
     client, _belgie_client, _stripe_sdk, adapter = _build_client(
@@ -1462,6 +2038,24 @@ async def test_ensure_organization_can_delete_rejects_active_subscription() -> N
 
 
 @pytest.mark.asyncio
+async def test_ensure_organization_can_delete_rejects_live_stripe_subscription() -> None:
+    organization = make_organization(stripe_customer_id="cus_org")
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(
+        accounts={organization.id: organization},
+    )
+    stripe_sdk.subscription_responses["sub_live"] = make_stripe_subscription(
+        subscription_id="sub_live",
+        account_id="cus_org",
+        status="active",
+    )
+
+    with pytest.raises(HTTPException, match="active subscription"):
+        await client.ensure_organization_can_delete(organization_id=organization.id)
+
+    assert stripe_sdk.listed_subscriptions[0]["customer"] == "cus_org"
+
+
+@pytest.mark.asyncio
 async def test_ensure_account_calls_on_account_create_with_typed_context() -> None:
     on_account_create = AsyncMock()
     client, belgie_client, _stripe_sdk, _adapter = _build_client(
@@ -1473,6 +2067,7 @@ async def test_ensure_account_calls_on_account_create_with_typed_context() -> No
         metadata={"source": "signup"},
     )
 
+    assert on_account_create.await_args is not None
     callback_context = on_account_create.await_args.args[0]
     assert callback_context.account is belgie_client.individual
     assert callback_context.stripe_customer_id == stripe_customer_id
