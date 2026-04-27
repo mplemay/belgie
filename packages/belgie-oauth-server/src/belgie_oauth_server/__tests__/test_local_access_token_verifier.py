@@ -1,6 +1,7 @@
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+
 from belgie_oauth_server.__tests__.helpers import build_oauth_provider
 from belgie_oauth_server.provider import AuthorizationParams
 from belgie_oauth_server.utils import create_code_challenge

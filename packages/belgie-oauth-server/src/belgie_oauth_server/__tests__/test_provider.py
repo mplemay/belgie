@@ -2,13 +2,14 @@ from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from pydantic import AnyUrl, SecretStr, ValidationError
+
 from belgie_oauth_server import provider as provider_module
 from belgie_oauth_server.__tests__.helpers import build_oauth_provider, build_oauth_settings
 from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
 from belgie_oauth_server.testing import InMemoryDBConnection, InMemoryOAuthServerAdapter
 from belgie_oauth_server.utils import create_code_challenge
-from pydantic import AnyUrl, SecretStr, ValidationError
 
 TEST_REDIRECT = AnyUrl("https://example.com/callback")
 

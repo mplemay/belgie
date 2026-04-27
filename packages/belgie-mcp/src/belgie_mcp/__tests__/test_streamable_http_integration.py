@@ -14,8 +14,6 @@ pytest.importorskip("mcp")
 pytest.importorskip("belgie_oauth_server")
 
 from belgie_core.core.settings import BelgieSettings
-from belgie_mcp.auth_context import get_verified_access_token
-from belgie_mcp.plugin import Mcp, McpPlugin
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.__tests__.test_oauth_plugin_integration import _build_app
 from mcp.client.auth import OAuthClientProvider
@@ -24,6 +22,9 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server.auth.routes import build_resource_metadata_url
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+
+from belgie_mcp.auth_context import get_verified_access_token
+from belgie_mcp.plugin import Mcp, McpPlugin
 
 PUBLIC_TOKEN_ENDPOINT_AUTH_METHOD = "none"  # noqa: S105
 

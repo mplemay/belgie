@@ -1,11 +1,12 @@
 import pytest
+from cryptography.hazmat.primitives import serialization
+from pydantic import SecretStr, ValidationError
+
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.development import DEVELOPMENT_RSA_PRIVATE_KEY_PEM, build_development_signing
 from belgie_oauth_server.provider import SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.signing import OAuthServerSigning
-from cryptography.hazmat.primitives import serialization
-from pydantic import SecretStr, ValidationError
 
 
 def test_oauth_settings_defaults() -> None:

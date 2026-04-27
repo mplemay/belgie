@@ -3,6 +3,9 @@ from uuid import uuid4
 
 import pytest
 import respx
+from httpx import Response
+from pydantic import AnyUrl, SecretStr
+
 from belgie_oauth_server.__tests__.helpers import build_oauth_provider
 from belgie_oauth_server.models import OAuthServerClientMetadata
 from belgie_oauth_server.provider import (
@@ -15,8 +18,6 @@ from belgie_oauth_server.resource_verifier import (
     verify_resource_access_token,
 )
 from belgie_oauth_server.utils import create_code_challenge
-from httpx import Response
-from pydantic import AnyUrl, SecretStr
 
 
 @pytest.mark.asyncio

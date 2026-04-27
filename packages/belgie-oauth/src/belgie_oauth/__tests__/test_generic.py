@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from inspect import Signature
+from typing import TYPE_CHECKING
 from unittest.mock import ANY, AsyncMock, MagicMock
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
@@ -16,17 +17,6 @@ from belgie_core.core.exceptions import InvalidStateError, OAuthError
 from belgie_core.core.plugin import AuthenticatedProfile
 from belgie_core.core.settings import BelgieSettings, CookieSettings
 from belgie_core.session.manager import SessionManager
-from belgie_oauth import OAuthClient, OAuthLinkedAccount, OAuthPlugin, OAuthProvider, OAuthTokenSet, OAuthUserInfo
-from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signing_key, issue_id_token
-from belgie_oauth._types import (
-    OAuthFlowIntent,
-    OAuthResponseMode,
-    OAuthStateStrategy,
-    ProfileMapper,
-    TokenExchangeOverride,
-    TokenRefreshOverride,
-    UserInfoFetcher,
-)
 from belgie_proto.core.account import AccountType
 from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.individual import IndividualProtocol
@@ -34,6 +24,20 @@ from belgie_proto.core.json import JSONValue
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
+
+from belgie_oauth import OAuthClient, OAuthLinkedAccount, OAuthPlugin, OAuthProvider, OAuthTokenSet, OAuthUserInfo
+from belgie_oauth.__tests__.helpers import build_jwks_document, build_rsa_signing_key, issue_id_token
+
+if TYPE_CHECKING:
+    from belgie_oauth._types import (
+        OAuthFlowIntent,
+        OAuthResponseMode,
+        OAuthStateStrategy,
+        ProfileMapper,
+        TokenExchangeOverride,
+        TokenRefreshOverride,
+        UserInfoFetcher,
+    )
 
 type AccountTokenValue = str | datetime | None
 type IndividualUpdateValue = str | datetime | None

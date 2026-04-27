@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Final
 
+from pydantic import SecretStr
+
 from belgie_oauth_server.development import build_development_signing
 from belgie_oauth_server.provider import SimpleOAuthProvider
 from belgie_oauth_server.settings import OAuthServer
 from belgie_oauth_server.testing import InMemoryDBConnection, InMemoryOAuthServerAdapter
-from pydantic import SecretStr
 
 _TEST_DEFAULT_OAUTH_CLIENT_SECRET: Final[str] = "test-secret"  # noqa: S105
 

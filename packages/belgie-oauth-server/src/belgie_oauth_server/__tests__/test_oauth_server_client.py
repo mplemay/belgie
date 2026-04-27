@@ -4,11 +4,12 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlencode
 
 import pytest
+from fastapi import HTTPException
+from starlette.requests import Request
+
 from belgie_oauth_server.__tests__.helpers import build_oauth_provider
 from belgie_oauth_server.client import OAuthLoginFlowClient
 from belgie_oauth_server.provider import AuthorizationParams, SimpleOAuthProvider
-from fastapi import HTTPException
-from starlette.requests import Request
 
 if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer

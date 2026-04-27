@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from belgie_mcp.www_authenticate import build_mcp_www_authenticate_value
 
 
