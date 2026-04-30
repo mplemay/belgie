@@ -79,6 +79,7 @@ class InMemoryOAuthClient:
 @dataclass(slots=True, kw_only=True)
 class InMemoryAuthorizationState:
     state: str
+    client_state: str | None
     client_id: str
     redirect_uri: str
     redirect_uri_provided_explicitly: bool
@@ -373,10 +374,12 @@ class InMemoryOAuthServerAdapter(
         individual_id: UUID | None,
         session_id: UUID | None,
         expires_at: datetime,
+        client_state: str | None = None,
     ) -> InMemoryAuthorizationState:
         _ = session
         authorization_state = InMemoryAuthorizationState(
             state=state,
+            client_state=client_state,
             client_id=client_id,
             redirect_uri=redirect_uri,
             redirect_uri_provided_explicitly=redirect_uri_provided_explicitly,

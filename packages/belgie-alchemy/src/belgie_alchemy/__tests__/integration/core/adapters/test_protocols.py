@@ -278,6 +278,7 @@ class ExampleOAuthClient:
 class ExampleOAuthAuthorizationState:
     id: UUID
     state: str
+    client_state: str | None
     client_id: str
     redirect_uri: str
     redirect_uri_provided_explicitly: bool
@@ -704,6 +705,7 @@ def test_oauth_entity_protocol_runtime_checks() -> None:
     authorization_state = ExampleOAuthAuthorizationState(
         id=uuid4(),
         state="state-123",
+        client_state="client-state-123",
         client_id=client.client_id,
         redirect_uri="https://client.example/callback",
         redirect_uri_provided_explicitly=True,

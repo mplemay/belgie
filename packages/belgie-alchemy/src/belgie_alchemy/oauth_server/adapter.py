@@ -218,9 +218,11 @@ class OAuthServerAdapter[
         individual_id: UUID | None,
         session_id: UUID | None,
         expires_at: datetime,
+        client_state: str | None = None,
     ) -> AuthorizationStateT:
         authorization_state = self.oauth_authorization_state_model(
             state=state,
+            client_state=client_state,
             client_id=client_id,
             redirect_uri=redirect_uri,
             redirect_uri_provided_explicitly=redirect_uri_provided_explicitly,

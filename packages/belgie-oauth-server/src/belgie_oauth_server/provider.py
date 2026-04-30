@@ -75,6 +75,7 @@ _TIME_SPAN_UNITS = {
     "yrs": 31557600,
     "y": 31557600,
 }
+JWT_DELIMITER_COUNT = 2
 _TIME_SPAN_PATTERN = re.compile(r"^(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>[a-z]+)$")
 
 
@@ -166,6 +167,8 @@ class AccessToken:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StateEntry:
+    state: str
+    client_state: str | None
     redirect_uri: str
     code_challenge: str | None
     redirect_uri_provided_explicitly: bool
@@ -347,7 +350,7 @@ class SimpleOAuthProvider:
         require_confidential: bool = False,
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
-        normalized_client_secret = self._strip_client_secret_prefix(client_secret)
+        normalized_client_secret = self._normalize_supplied_client_secret(client_secret)
 
         async with self._db_session(db) as session:
             client = await self.adapter.get_client_by_client_id(session, client_id=client_id)
@@ -459,19 +462,19 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> str:
+        client_state = params.state or None
         state = params.state or secrets.token_hex(16)
         async with self._db_session(db, transactional=True) as session:
-            existing_state = await self.adapter.get_authorization_state(session, state=state)
-            if existing_state is not None:
+            while (existing_state := await self.adapter.get_authorization_state(session, state=state)) is not None:
                 if self._is_expired(existing_state.expires_at):
                     await self.adapter.delete_authorization_state(session, state=state)
-                else:
-                    msg = "Authorization state already exists"
-                    raise ValueError(msg)
+                    break
+                state = secrets.token_hex(16)
 
             await self.adapter.create_authorization_state(
                 session,
                 state=state,
+                client_state=client_state,
                 client_id=client.client_id,
                 redirect_uri=str(params.redirect_uri),
                 redirect_uri_provided_explicitly=params.redirect_uri_provided_explicitly,
@@ -585,7 +588,8 @@ class SimpleOAuthProvider:
             )
             await self.adapter.delete_authorization_state(session, state=state)
 
-        return construct_redirect_uri(redirect_uri, code=new_code, state=state, iss=issuer)
+        client_state = getattr(state_record, "client_state", state)
+        return construct_redirect_uri(redirect_uri, code=new_code, state=client_state, iss=issuer)
 
     async def load_authorization_code(
         self,
@@ -770,7 +774,9 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> AccessToken | None:
-        normalized_token = self._strip_access_token_prefix(token)
+        normalized_token = self._normalize_supplied_access_token(token)
+        if normalized_token is None:
+            return None
         async with self._db_session(db, transactional=True) as session:
             access_token = await self.adapter.get_access_token_by_token_hash(
                 session,
@@ -912,9 +918,12 @@ class SimpleOAuthProvider:
     ) -> None:
         async with self._db_session(db, transactional=True) as session:
             if isinstance(token, AccessToken):
+                normalized_token = self._normalize_supplied_access_token(token.token)
+                if normalized_token is None:
+                    return
                 await self.adapter.delete_access_token_by_token_hash(
                     session,
-                    token_hash=self._hash_value(self._strip_access_token_prefix(token.token)),
+                    token_hash=self._hash_value(normalized_token),
                 )
                 return
 
@@ -933,7 +942,11 @@ class SimpleOAuthProvider:
                 session,
                 refresh_token_id=stored_refresh_token.id,
             )
-            await self.adapter.delete_refresh_token_by_token_hash(session, token_hash=stored_refresh_token.token_hash)
+            await self.adapter.update_refresh_token_revoked_at(
+                session,
+                refresh_token_id=stored_refresh_token.id,
+                revoked_at=datetime.fromtimestamp(time.time(), UTC),
+            )
 
     async def revoke_refresh_token(
         self,
@@ -1368,21 +1381,6 @@ class SimpleOAuthProvider:
         session: DBConnection,
         refresh_token: OAuthServerRefreshTokenProtocol,
     ) -> None:
-        if refresh_token.individual_id is not None and refresh_token.session_id is not None:
-            await self.adapter.delete_access_tokens_for_client_individual_and_session(
-                session,
-                client_id=refresh_token.client_id,
-                individual_id=refresh_token.individual_id,
-                session_id=refresh_token.session_id,
-            )
-            await self.adapter.delete_refresh_tokens_for_client_individual_and_session(
-                session,
-                client_id=refresh_token.client_id,
-                individual_id=refresh_token.individual_id,
-                session_id=refresh_token.session_id,
-            )
-            return
-
         if refresh_token.individual_id is not None:
             await self.adapter.delete_access_tokens_for_client_and_individual(
                 session,
@@ -1510,6 +1508,16 @@ class SimpleOAuthProvider:
             return client_secret.removeprefix(prefix)
         return client_secret
 
+    def _normalize_supplied_client_secret(self, client_secret: str | None) -> str | None:
+        if client_secret is None:
+            return None
+        prefix = self.settings.token_prefixes.client_secret
+        if prefix is None:
+            return client_secret
+        if not client_secret.startswith(prefix):
+            return None
+        return client_secret.removeprefix(prefix)
+
     async def _generate_opaque_access_token(self) -> str:
         if self.settings.generate_access_token is not None:
             generated = self.settings.generate_access_token()
@@ -1586,6 +1594,8 @@ class SimpleOAuthProvider:
         prefix = self.settings.token_prefixes.refresh_token
         if prefix and decoded.startswith(prefix):
             decoded = decoded.removeprefix(prefix)
+        elif prefix:
+            return None
 
         if self.settings.refresh_token_decoder is None:
             return None, decoded
@@ -1603,6 +1613,16 @@ class SimpleOAuthProvider:
         if prefix and token.startswith(prefix):
             return token.removeprefix(prefix)
         return token
+
+    def _normalize_supplied_access_token(self, token: str) -> str | None:
+        prefix = self.settings.token_prefixes.access_token
+        if prefix is None:
+            return token
+        if token.startswith(prefix):
+            return token.removeprefix(prefix)
+        if token.count(".") == JWT_DELIMITER_COUNT:
+            return token
+        return None
 
     def _access_token_expires_in_seconds(
         self,
@@ -1727,6 +1747,8 @@ class SimpleOAuthProvider:
     @staticmethod
     def _state_entry_from_record(state_record: OAuthServerAuthorizationStateProtocol) -> StateEntry:
         return StateEntry(
+            state=state_record.state,
+            client_state=getattr(state_record, "client_state", state_record.state),
             redirect_uri=state_record.redirect_uri,
             code_challenge=state_record.code_challenge,
             redirect_uri_provided_explicitly=state_record.redirect_uri_provided_explicitly,

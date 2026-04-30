@@ -17,6 +17,7 @@ from pydantic import SecretStr
 
 from belgie_oauth_server.__tests__.helpers import build_oauth_settings
 from belgie_oauth_server.plugin import OAuthServerPlugin
+from belgie_oauth_server.settings import OAuthServerTokenPrefixSettings
 from belgie_oauth_server.testing import InMemoryConsent, InMemoryDBConnection, InMemoryOAuthServerAdapter
 from belgie_oauth_server.utils import create_code_challenge
 
@@ -127,7 +128,8 @@ def _build_fixture(settings: OAuthServer) -> tuple[TestClient, OAuthServerPlugin
 
 
 def _build_settings(**overrides: object) -> OAuthServer:
-    return build_oauth_settings(default_scopes=["user"], **overrides)
+    overrides.setdefault("default_scopes", ["user"])
+    return build_oauth_settings(**overrides)
 
 
 def _auth_headers() -> dict[str, str]:
@@ -137,7 +139,7 @@ def _auth_headers() -> dict[str, str]:
 def _authorize_params(
     settings: OAuthServer,
     *,
-    state: str,
+    state: str | None = None,
     scope: str = "user",
     verifier: str = "verifier",
     prompt: str | None = None,
@@ -148,8 +150,9 @@ def _authorize_params(
         "client_id": TEST_CLIENT_ID,
         "redirect_uri": TEST_DEFAULT_REDIRECT,
         "scope": scope,
-        "state": state,
     }
+    if state is not None:
+        params["state"] = state
     if prompt is not None:
         params["prompt"] = prompt
     if with_pkce:
@@ -226,7 +229,7 @@ def _authorize_to_next_location(
     client: TestClient,
     settings: OAuthServer,
     *,
-    state: str,
+    state: str | None,
     scope: str = "user",
     verifier: str = "verifier",
     prompt: str | None = None,
@@ -292,7 +295,7 @@ def _authorize_and_return_code(
     client: TestClient,
     settings: OAuthServer,
     *,
-    state: str,
+    state: str | None,
     scope: str = "user",
     verifier: str = "verifier",
     prompt: str | None = None,
@@ -488,6 +491,75 @@ def test_authorize_and_consent_interactions_use_oauth2_paths() -> None:
     prompt_none_query = _query(prompt_none.headers["location"])
     assert prompt_none_query["error"] == ["consent_required"]
     assert prompt_none_query["iss"] == ["http://testserver/auth"]
+
+
+def test_authorization_code_flow_allows_omitted_state() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        test_redirect_uris=["https://client.local/callback"],
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    callback = _authorize_to_next_location(client, settings, state=None)
+    query = _query(callback)
+
+    assert "code" in query
+    assert "state" not in query
+
+    token = _exchange_code(client, settings, code=query["code"][0])
+    assert token.status_code == 200
+    assert token.json()["access_token"]
+
+
+def test_consent_flow_allows_omitted_state() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        default_scopes=["openid", "user", "offline_access"],
+        test_redirect_uris=["https://client.local/callback"],
+    )
+    client, plugin, _belgie_client = _build_fixture(settings)
+    _configure_public_pkce_client(plugin)
+
+    authorize = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(settings, state=None, scope="openid user"),
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+    assert authorize.status_code == 302
+    consent_state = _query(authorize.headers["location"])["state"][0]
+
+    consent = client.post(
+        "/auth/oauth2/consent",
+        data={"state": consent_state, "accept": "true", "scope": "openid user"},
+        headers=_auth_headers(),
+        follow_redirects=False,
+    )
+    assert consent.status_code == 302
+    callback_query = _query(consent.headers["location"])
+    assert "code" in callback_query
+    assert "state" not in callback_query
+
+
+def test_fetch_authorize_redirect_response_includes_better_auth_aliases() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        test_redirect_uris=["https://client.local/callback"],
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    response = client.get(
+        "/auth/oauth2/authorize",
+        params=_authorize_params(settings, state="state-fetch-json"),
+        headers={**_auth_headers(), "accept": "application/json"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["redirect"] is True
+    assert body["url"] == body["redirect_url"] == body["redirect_to"]
+    assert _query(body["url"])["state"] == ["state-fetch-json"]
 
 
 def test_public_pkce_client_with_authorize_resource_still_requires_consent_without_saved_record() -> None:
@@ -877,6 +949,83 @@ def test_admin_create_client_allows_confidential_pkce_opt_out() -> None:
     assert token_payload["access_token"]
     assert token_payload["id_token"]
     assert "refresh_token" not in token_payload
+
+
+def test_configured_client_secret_prefix_is_required_for_token_endpoint() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        test_redirect_uris=["https://client.local/callback"],
+        token_prefixes=OAuthServerTokenPrefixSettings(client_secret="ba_sk_"),
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    rejected_code = _authorize_and_return_code(client, settings, state="state-secret-prefix-rejected")
+    rejected = _exchange_code(client, settings, code=rejected_code, client_secret=TEST_CLIENT_SECRET)
+    assert rejected.status_code == 401
+    assert rejected.json()["error"] == "invalid_client"
+
+    accepted_code = _authorize_and_return_code(client, settings, state="state-secret-prefix-accepted")
+    accepted = _exchange_code(client, settings, code=accepted_code, client_secret=f"ba_sk_{TEST_CLIENT_SECRET}")
+    assert accepted.status_code == 200
+    assert accepted.json()["access_token"]
+
+
+def test_configured_access_and_refresh_prefixes_are_required_on_supplied_tokens() -> None:
+    settings = _build_settings(
+        base_url="http://testserver",
+        default_scopes=["user", "offline_access"],
+        test_redirect_uris=["https://client.local/callback"],
+        token_prefixes=OAuthServerTokenPrefixSettings(access_token="ba_at_", refresh_token="ba_rt_"),
+    )
+    client, _plugin, _belgie_client = _build_fixture(settings)
+
+    code = _authorize_and_return_code(
+        client,
+        settings,
+        state="state-token-prefixes",
+        scope="user offline_access",
+    )
+    token = _exchange_code(client, settings, code=code)
+    assert token.status_code == 200
+    payload = token.json()
+    access_token = payload["access_token"]
+    refresh_token = payload["refresh_token"]
+    assert access_token.startswith("ba_at_")
+    assert refresh_token.startswith("ba_rt_")
+
+    raw_access = access_token.removeprefix("ba_at_")
+    raw_refresh = refresh_token.removeprefix("ba_rt_")
+    inactive = _introspect_token(client, settings, raw_access, token_type_hint=ACCESS_TOKEN_HINT)
+    assert inactive.status_code == 200
+    assert inactive.json() == {"active": False}
+
+    active = _introspect_token(client, settings, access_token, token_type_hint=ACCESS_TOKEN_HINT)
+    assert active.status_code == 200
+    assert active.json()["active"] is True
+
+    rejected_refresh = client.post(
+        "/auth/oauth2/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": TEST_CLIENT_ID,
+            "client_secret": TEST_CLIENT_SECRET,
+            "refresh_token": raw_refresh,
+        },
+    )
+    assert rejected_refresh.status_code == 400
+    assert rejected_refresh.json()["error"] == "invalid_grant"
+
+    accepted_refresh = client.post(
+        "/auth/oauth2/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": TEST_CLIENT_ID,
+            "client_secret": TEST_CLIENT_SECRET,
+            "refresh_token": refresh_token,
+        },
+    )
+    assert accepted_refresh.status_code == 200
+    assert accepted_refresh.json()["refresh_token"].startswith("ba_rt_")
 
 
 def test_token_resource_is_applied_at_token_and_refresh_time() -> None:
@@ -1523,11 +1672,19 @@ def test_consent_management_rpc_routes_match_reference_shape() -> None:
 
     updated = client.post(
         "/auth/oauth2/update-consent",
-        json={"id": str(consent.id), "update": {"scopes": ["user", "openid"]}},
+        json={"id": str(consent.id), "update": {"scopes": ["user"]}},
         headers=_auth_headers(),
     )
     assert updated.status_code == 200
-    assert updated.json()["scopes"] == ["user", "openid"]
+    assert updated.json()["scopes"] == ["user"]
+
+    invalid_update = client.post(
+        "/auth/oauth2/update-consent",
+        json={"id": str(consent.id), "update": {"scopes": ["admin"]}},
+        headers=_auth_headers(),
+    )
+    assert invalid_update.status_code == 400
+    assert invalid_update.json()["error"] == "invalid_scope"
 
     deleted = client.post(
         "/auth/oauth2/delete-consent",

@@ -194,6 +194,10 @@ class OAuthServerAuthorizationStateMixin(MappedAsDataclass):
         return mapped_column(Text, unique=True, index=True, kw_only=True)
 
     @declared_attr
+    def client_state(self) -> Mapped[str | None]:
+        return mapped_column(Text, default=None, kw_only=True)
+
+    @declared_attr
     def client_id(self) -> Mapped[str]:
         return mapped_column(Text, index=True, kw_only=True)
 

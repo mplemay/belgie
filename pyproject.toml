@@ -81,9 +81,6 @@ dev = [
 [tool.uv]
 exclude-newer = "7 days"
 
-[tool.uv.exclude-newer-package]
-authlib = false
-
 [tool.uv.build-backend]
 source-exclude = ["**/__tests__/**"]
 
