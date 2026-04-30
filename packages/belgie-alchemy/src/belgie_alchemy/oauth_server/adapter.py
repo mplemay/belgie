@@ -21,7 +21,7 @@ from __future__ import annotations
 
 # ruff: noqa: PLR0913, A002
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from belgie_proto.oauth_server import OAuthServerAdapterProtocol
 from sqlalchemy import delete, select
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from belgie_proto.core.connection import DBConnection
+    from belgie_proto.core.json import JSONObject
     from belgie_proto.oauth_server.access_token import OAuthServerAccessTokenProtocol
     from belgie_proto.oauth_server.client import OAuthServerClientProtocol
     from belgie_proto.oauth_server.code import OAuthServerAuthorizationCodeProtocol
@@ -40,14 +41,18 @@ if TYPE_CHECKING:
         AuthorizationIntent,
         OAuthServerAudience,
         OAuthServerClientType,
+        OAuthServerClientUpdates,
         OAuthServerSubjectType,
         TokenEndpointAuthMethod,
     )
 
 
-def _execute_rowcount(result: object) -> int:
-    rowcount = getattr(result, "rowcount", None)
-    return 0 if rowcount is None else int(rowcount)
+class _RowCountResult(Protocol):
+    rowcount: int | None
+
+
+def _execute_rowcount(result: _RowCountResult) -> int:
+    return 0 if result.rowcount is None else int(result.rowcount)
 
 
 class OAuthServerAdapter[
@@ -113,7 +118,7 @@ class OAuthServerAdapter[
         require_pkce: bool | None,
         enable_end_session: bool | None,
         reference_id: str | None,
-        metadata_json: dict[str, str] | dict[str, object] | None,
+        metadata_json: JSONObject | None,
         client_id_issued_at: int | None,
         client_secret_expires_at: int | None,
         individual_id: UUID | None,
@@ -174,18 +179,74 @@ class OAuthServerAdapter[
         result = await session.execute(stmt.order_by(self.oauth_client_model.created_at.desc()))
         return list(result.scalars().all())
 
-    async def update_client(
+    async def update_client(  # noqa: C901, PLR0912, PLR0915
         self,
         session: DBConnection,
         *,
         client_id: str,
-        updates: dict[str, object],
+        updates: OAuthServerClientUpdates,
     ) -> ClientT | None:
         client = await self.get_client_by_client_id(session, client_id=client_id)
         if client is None:
             return None
-        for field, value in updates.items():
-            setattr(client, field, value)
+        if "client_secret" in updates:
+            client.client_secret = updates["client_secret"]
+        if "client_secret_hash" in updates:
+            client.client_secret_hash = updates["client_secret_hash"]
+        if "disabled" in updates:
+            client.disabled = updates["disabled"]
+        if "skip_consent" in updates:
+            client.skip_consent = updates["skip_consent"]
+        if "redirect_uris" in updates:
+            client.redirect_uris = None if updates["redirect_uris"] is None else list(updates["redirect_uris"])
+        if "post_logout_redirect_uris" in updates:
+            client.post_logout_redirect_uris = (
+                None if updates["post_logout_redirect_uris"] is None else list(updates["post_logout_redirect_uris"])
+            )
+        if "token_endpoint_auth_method" in updates:
+            client.token_endpoint_auth_method = updates["token_endpoint_auth_method"]
+        if "grant_types" in updates:
+            client.grant_types = list(updates["grant_types"])
+        if "response_types" in updates:
+            client.response_types = list(updates["response_types"])
+        if "scope" in updates:
+            client.scope = updates["scope"]
+        if "client_name" in updates:
+            client.client_name = updates["client_name"]
+        if "client_uri" in updates:
+            client.client_uri = updates["client_uri"]
+        if "logo_uri" in updates:
+            client.logo_uri = updates["logo_uri"]
+        if "contacts" in updates:
+            client.contacts = None if updates["contacts"] is None else list(updates["contacts"])
+        if "tos_uri" in updates:
+            client.tos_uri = updates["tos_uri"]
+        if "policy_uri" in updates:
+            client.policy_uri = updates["policy_uri"]
+        if "software_id" in updates:
+            client.software_id = updates["software_id"]
+        if "software_version" in updates:
+            client.software_version = updates["software_version"]
+        if "software_statement" in updates:
+            client.software_statement = updates["software_statement"]
+        if "type" in updates:
+            client.type = updates["type"]
+        if "subject_type" in updates:
+            client.subject_type = updates["subject_type"]
+        if "require_pkce" in updates:
+            client.require_pkce = updates["require_pkce"]
+        if "enable_end_session" in updates:
+            client.enable_end_session = updates["enable_end_session"]
+        if "reference_id" in updates:
+            client.reference_id = updates["reference_id"]
+        if "metadata_json" in updates:
+            client.metadata_json = updates["metadata_json"]
+        if "client_id_issued_at" in updates:
+            client.client_id_issued_at = updates["client_id_issued_at"]
+        if "client_secret_expires_at" in updates:
+            client.client_secret_expires_at = updates["client_secret_expires_at"]
+        if "individual_id" in updates:
+            client.individual_id = updates["individual_id"]
         client.updated_at = datetime.now(UTC)
         await session.flush()
         await session.refresh(client)

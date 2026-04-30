@@ -2738,9 +2738,9 @@ def _json_value_or_none(value: object) -> JSONValue:
 
 
 async def _resolve_custom_mapping(
-    resolver: Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]] | None,
+    resolver: Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]] | None,
     payload: dict[str, object],
-) -> dict[str, object]:
+) -> dict[str, JSONValue]:
     if resolver is None:
         return {}
     resolved = resolver(payload)

@@ -236,9 +236,9 @@ def resolve_introspection_sub_for_response(
 
 
 async def resolve_custom_mapping(
-    resolver: Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]] | None,
+    resolver: Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]] | None,
     payload: dict[str, object],
-) -> dict[str, object]:
+) -> dict[str, JSONValue]:
     if resolver is None:
         return {}
     resolved = resolver(payload)

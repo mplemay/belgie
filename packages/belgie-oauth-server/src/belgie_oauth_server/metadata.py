@@ -148,7 +148,7 @@ def build_protected_resource_metadata(  # noqa: C901, PLR0913
                 msg = f'Unsupported scope "{scope}". If external, add it to external_scopes.'
                 raise ValueError(msg)
 
-    payload: dict[str, object] = {"resource": resource}
+    payload: dict[str, str | list[str]] = {"resource": resource}
     if resolved_authorization_servers:
         payload["authorization_servers"] = resolved_authorization_servers
     if supported_scopes is not None:

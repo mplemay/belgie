@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
+    from belgie_proto.core.json import JSONObject
     from belgie_proto.oauth_server.types import OAuthServerClientType, OAuthServerSubjectType, TokenEndpointAuthMethod
 
 
@@ -46,7 +47,7 @@ class OAuthServerClientProtocol(Protocol):
     require_pkce: bool | None
     enable_end_session: bool | None
     reference_id: str | None
-    metadata_json: dict[str, str] | dict[str, object] | None
+    metadata_json: JSONObject | None
     client_id_issued_at: int | None
     client_secret_expires_at: int | None
     individual_id: UUID | None

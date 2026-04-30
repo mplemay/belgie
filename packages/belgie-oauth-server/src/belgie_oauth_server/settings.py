@@ -7,6 +7,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Literal, Self
 from urllib.parse import urlparse, urlunparse
 
+from belgie_proto.core.json import JSONValue
 from belgie_proto.oauth_server import (
     OAuthServerAccessTokenProtocol,
     OAuthServerAdapterProtocol,
@@ -39,10 +40,10 @@ type ClientPrivilegesResolver = Callable[
     bool | Awaitable[bool] | None,
 ]
 type ScopeExpirations = dict[str, int]
-type AccessTokenClaimsResolver = Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]]
-type IdTokenClaimsResolver = Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]]
-type UserInfoClaimsResolver = Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]]
-type TokenResponseFieldsResolver = Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]]
+type AccessTokenClaimsResolver = Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]]
+type IdTokenClaimsResolver = Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]]
+type UserInfoClaimsResolver = Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]]
+type TokenResponseFieldsResolver = Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]]
 type TokenGenerator = Callable[[], str | Awaitable[str]]
 type RefreshTokenEncoder = Callable[[str, str | None], str | Awaitable[str]]
 type RefreshTokenDecoder = Callable[[str], tuple[str | None, str] | Awaitable[tuple[str | None, str]]]

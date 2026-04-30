@@ -10,8 +10,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from inspect import isawaitable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeGuard
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -20,7 +19,7 @@ from authlib.oidc.registration.claims import ClientMetadataClaims as OIDCClientM
 from authlib.oidc.rpinitiated.registration import ClientMetadataClaims as RPInitiatedClientMetadataClaims
 from belgie_proto.core.connection import DBConnection
 from joserfc.errors import InvalidClaimError, JoseError
-from pydantic import AnyUrl
+from pydantic import AnyHttpUrl, AnyUrl
 
 from belgie_oauth_server.metadata import build_oauth_metadata, build_openid_metadata
 from belgie_oauth_server.models import (
@@ -33,21 +32,35 @@ from belgie_oauth_server.signing import OAuthServerSigningState, build_signing_s
 from belgie_oauth_server.utils import construct_redirect_uri, dedupe_scopes, parse_scope_string
 
 if TYPE_CHECKING:
+    from belgie_proto.core.json import JSONValue
     from belgie_proto.oauth_server import (
         OAuthServerAccessTokenProtocol,
         OAuthServerAuthorizationCodeProtocol,
         OAuthServerAuthorizationStateProtocol,
         OAuthServerClientProtocol,
+        OAuthServerClientUpdates,
         OAuthServerConsentProtocol,
         OAuthServerRefreshTokenProtocol,
     )
-    from belgie_proto.oauth_server.types import AuthorizationIntent, OAuthServerAudience
+    from belgie_proto.oauth_server.types import (
+        AuthorizationIntent,
+        OAuthServerAudience,
+        OAuthServerClientType,
+        OAuthServerSubjectType,
+        TokenEndpointAuthMethod,
+    )
 
     from belgie_oauth_server.settings import OAuthServer
 
 _RESERVED_ACCESS_TOKEN_CLAIMS = frozenset({"iss", "sub", "aud", "azp", "scope", "iat", "exp", "sid"})
 _NO_CLIENT_STATE = ""
-_UNSET = object()
+
+
+class _Unset:
+    __slots__ = ()
+
+
+_UNSET = _Unset()
 _TIME_SPAN_UNITS = {
     "sec": 1,
     "secs": 1,
@@ -108,10 +121,22 @@ def _resolve_time_span_to_timestamp(value: str) -> int:
 
 
 def _outbound_client_state(state_record: OAuthServerAuthorizationStateProtocol) -> str | None:
-    client_state = getattr(state_record, "client_state", None)
+    client_state = state_record.client_state
     if client_state == _NO_CLIENT_STATE:
         return None
     return client_state or state_record.state
+
+
+def _is_token_endpoint_auth_method(value: JSONValue) -> TypeGuard[TokenEndpointAuthMethod]:
+    return isinstance(value, str) and value in {"none", "client_secret_post", "client_secret_basic"}
+
+
+def _is_oauth_client_type(value: JSONValue) -> TypeGuard[OAuthServerClientType]:
+    return isinstance(value, str) and value in {"web", "native", "user-agent-based"}
+
+
+def _is_oauth_subject_type(value: JSONValue) -> TypeGuard[OAuthServerSubjectType]:
+    return isinstance(value, str) and value in {"public", "pairwise"}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -170,7 +195,7 @@ class AccessToken:
     refresh_token: str | None = None
     individual_id: str | None = None
     session_id: str | None = None
-    claims: dict[str, object] | None = None
+    claims: dict[str, JSONValue] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -270,7 +295,7 @@ class SimpleOAuthProvider:
         self,
         client_id: str,
         *,
-        updates: dict[str, object],
+        updates: Mapping[str, JSONValue],
         db: DBConnection | None = None,
     ) -> OAuthServerClientInformationFull | None:
         if client_id in self.settings.cached_trusted_clients:
@@ -281,11 +306,7 @@ class SimpleOAuthProvider:
             if existing_client is None:
                 return None
 
-            normalized_updates = dict(updates)
-            if "client_secret_expires_at" in normalized_updates:
-                normalized_updates["client_secret_expires_at"] = self._resolve_client_secret_expiration(
-                    normalized_updates["client_secret_expires_at"],
-                )
+            normalized_updates = self._normalize_client_updates(updates)
 
             updated_auth_method = normalized_updates.get(
                 "token_endpoint_auth_method",
@@ -302,6 +323,89 @@ class SimpleOAuthProvider:
             if client is None:
                 return None
             return await self._apply_trusted_client_policy(self._client_information_from_record(client))
+
+    def _normalize_client_updates(  # noqa: C901, PLR0912, PLR0915
+        self,
+        updates: Mapping[str, JSONValue],
+    ) -> OAuthServerClientUpdates:
+        normalized: OAuthServerClientUpdates = {}
+        if "client_secret" in updates and ((value := updates["client_secret"]) is None or isinstance(value, str)):
+            normalized["client_secret"] = value
+        if "client_secret_hash" in updates and (
+            (value := updates["client_secret_hash"]) is None or isinstance(value, str)
+        ):
+            normalized["client_secret_hash"] = value
+        if "disabled" in updates and ((value := updates["disabled"]) is None or isinstance(value, bool)):
+            normalized["disabled"] = value
+        if "skip_consent" in updates and ((value := updates["skip_consent"]) is None or isinstance(value, bool)):
+            normalized["skip_consent"] = value
+        if "redirect_uris" in updates and isinstance(value := updates["redirect_uris"], list):
+            normalized["redirect_uris"] = [item for item in value if isinstance(item, str)]
+        if "post_logout_redirect_uris" in updates and isinstance(value := updates["post_logout_redirect_uris"], list):
+            normalized["post_logout_redirect_uris"] = [item for item in value if isinstance(item, str)]
+        if "token_endpoint_auth_method" in updates and _is_token_endpoint_auth_method(
+            value := updates["token_endpoint_auth_method"],
+        ):
+            normalized["token_endpoint_auth_method"] = value
+        if "grant_types" in updates and isinstance(value := updates["grant_types"], list):
+            normalized["grant_types"] = [item for item in value if isinstance(item, str)]
+        if "response_types" in updates and isinstance(value := updates["response_types"], list):
+            normalized["response_types"] = [item for item in value if isinstance(item, str)]
+        if "scope" in updates and ((value := updates["scope"]) is None or isinstance(value, str)):
+            normalized["scope"] = value
+        if "client_name" in updates and ((value := updates["client_name"]) is None or isinstance(value, str)):
+            normalized["client_name"] = value
+        if "client_uri" in updates and ((value := updates["client_uri"]) is None or isinstance(value, str)):
+            normalized["client_uri"] = value
+        if "logo_uri" in updates and ((value := updates["logo_uri"]) is None or isinstance(value, str)):
+            normalized["logo_uri"] = value
+        if "contacts" in updates and isinstance(value := updates["contacts"], list):
+            normalized["contacts"] = [item for item in value if isinstance(item, str)]
+        if "tos_uri" in updates and ((value := updates["tos_uri"]) is None or isinstance(value, str)):
+            normalized["tos_uri"] = value
+        if "policy_uri" in updates and ((value := updates["policy_uri"]) is None or isinstance(value, str)):
+            normalized["policy_uri"] = value
+        if "software_id" in updates and ((value := updates["software_id"]) is None or isinstance(value, str)):
+            normalized["software_id"] = value
+        if "software_version" in updates and ((value := updates["software_version"]) is None or isinstance(value, str)):
+            normalized["software_version"] = value
+        if "software_statement" in updates and (
+            (value := updates["software_statement"]) is None or isinstance(value, str)
+        ):
+            normalized["software_statement"] = value
+        if "type" in updates:
+            value = updates["type"]
+            if value is None:
+                normalized["type"] = None
+            elif _is_oauth_client_type(value):
+                normalized["type"] = value
+        if "subject_type" in updates:
+            value = updates["subject_type"]
+            if value is None:
+                normalized["subject_type"] = None
+            elif _is_oauth_subject_type(value):
+                normalized["subject_type"] = value
+        if "require_pkce" in updates and ((value := updates["require_pkce"]) is None or isinstance(value, bool)):
+            normalized["require_pkce"] = value
+        if "enable_end_session" in updates and (
+            (value := updates["enable_end_session"]) is None or isinstance(value, bool)
+        ):
+            normalized["enable_end_session"] = value
+        if "reference_id" in updates and ((value := updates["reference_id"]) is None or isinstance(value, str)):
+            normalized["reference_id"] = value
+        if "metadata_json" in updates and ((value := updates["metadata_json"]) is None or isinstance(value, dict)):
+            normalized["metadata_json"] = value
+        if "metadata" in updates and ((value := updates["metadata"]) is None or isinstance(value, dict)):
+            normalized["metadata_json"] = value
+        if "client_id_issued_at" in updates and (
+            (value := updates["client_id_issued_at"]) is None or isinstance(value, int)
+        ):
+            normalized["client_id_issued_at"] = value
+        if "client_secret_expires_at" in updates and (
+            (value := updates["client_secret_expires_at"]) is None or isinstance(value, (int, str))
+        ):
+            normalized["client_secret_expires_at"] = self._resolve_client_secret_expiration(value)
+        return normalized
 
     async def delete_client(
         self,
@@ -404,10 +508,13 @@ class SimpleOAuthProvider:
         raw_client_secret = None
         client_secret = None
         client_secret_hash = None
-        client_secret_expires_at = self._resolve_client_secret_expiration(
-            getattr(metadata, "client_secret_expires_at", _UNSET),
+        client_secret_expires_at_config = (
+            metadata.client_secret_expires_at if isinstance(metadata, OAuthServerAdminClientMetadata) else _UNSET
         )
-        enable_end_session = getattr(metadata, "enable_end_session", None)
+        client_secret_expires_at = self._resolve_client_secret_expiration(client_secret_expires_at_config)
+        enable_end_session = (
+            metadata.enable_end_session if isinstance(metadata, OAuthServerAdminClientMetadata) else None
+        )
         skip_consent = bool(metadata.skip_consent)
         if token_endpoint_auth_method != "none":  # noqa: S105
             raw_client_secret = await self._generate_client_secret()
@@ -1233,23 +1340,21 @@ class SimpleOAuthProvider:
         payload = metadata.model_dump(mode="json", by_alias=True, exclude_none=True)
         server_metadata = self._authlib_server_metadata()
 
-        for claims_class in (
-            OAuth2ClientMetadataClaims,
-            OIDCClientMetadataClaims,
-            RPInitiatedClientMetadataClaims,
-        ):
-            options = (
-                claims_class.get_claims_options(server_metadata)
-                if hasattr(claims_class, "get_claims_options")
-                else None
-            )
+        for claims_class in (OAuth2ClientMetadataClaims, OIDCClientMetadataClaims):
             try:
+                options = claims_class.get_claims_options(server_metadata)
                 claims = claims_class(payload, {}, options, server_metadata)
                 claims.validate()
             except (InvalidClaimError, ValueError) as exc:
                 raise ValueError(str(exc)) from exc
 
-    def _authlib_server_metadata(self) -> dict[str, object]:
+        try:
+            claims = RPInitiatedClientMetadataClaims(payload, {}, None, server_metadata)
+            claims.validate()
+        except (InvalidClaimError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    def _authlib_server_metadata(self) -> dict[str, JSONValue]:
         if "openid" in self.settings.supported_scopes():
             metadata = build_openid_metadata(self.issuer_url, self.settings).model_dump(
                 mode="json",
@@ -1261,7 +1366,12 @@ class SimpleOAuthProvider:
                 exclude_none=True,
             )
 
-        auth_methods = list(metadata.get("token_endpoint_auth_methods_supported", []))
+        auth_methods_value = metadata.get("token_endpoint_auth_methods_supported")
+        auth_methods = (
+            [method for method in auth_methods_value if isinstance(method, str)]
+            if isinstance(auth_methods_value, list)
+            else []
+        )
         if "none" not in auth_methods:
             auth_methods.insert(0, "none")
         metadata["token_endpoint_auth_methods_supported"] = auth_methods
@@ -1285,9 +1395,8 @@ class SimpleOAuthProvider:
             is_machine_token=individual_id is None,
         )
         expires_at = self._expires_at(expires_in)
-        should_issue_signed_access_token = resource is not None and not self.settings.disable_jwt_plugin
-        token_value = (
-            await self._generate_signed_access_token(
+        if resource is not None and not self.settings.disable_jwt_plugin:
+            token_value = await self._generate_signed_access_token(
                 client_id=client_id,
                 scopes=scopes,
                 resource=resource,
@@ -1297,9 +1406,8 @@ class SimpleOAuthProvider:
                 issued_at=now,
                 expires_at=int(expires_at.timestamp()),
             )
-            if should_issue_signed_access_token
-            else self._prefix_access_token(await self._generate_opaque_access_token())
-        )
+        else:
+            token_value = self._prefix_access_token(await self._generate_opaque_access_token())
         access_token = await self.adapter.create_access_token(
             session,
             token_hash=self._hash_value(self._strip_access_token_prefix(token_value)),
@@ -1367,7 +1475,8 @@ class SimpleOAuthProvider:
         if not isinstance(client_id, str) or not client_id:
             return None
 
-        scopes = parse_scope_string(payload.get("scope")) or []
+        scope_value = payload.get("scope")
+        scopes = parse_scope_string(scope_value if isinstance(scope_value, str) else None) or []
         issued_at = payload.get("iat")
         expires_at = payload.get("exp")
         subject = payload.get("sub")
@@ -1378,7 +1487,7 @@ class SimpleOAuthProvider:
             scopes=scopes,
             created_at=issued_at if isinstance(issued_at, int) else int(time.time()),
             expires_at=expires_at if isinstance(expires_at, int) else None,
-            resource=payload.get("aud") if isinstance(payload.get("aud"), (str, list)) else None,
+            resource=self._access_token_resource_from_claims(payload),
             individual_id=subject if isinstance(subject, str) else None,
             session_id=session_id if isinstance(session_id, str) else None,
             claims=dict(payload),
@@ -1488,9 +1597,9 @@ class SimpleOAuthProvider:
 
     def _resolve_client_secret_expiration(
         self,
-        configured: int | str | datetime | None | object = _UNSET,
+        configured: int | str | datetime | None | _Unset = _UNSET,
     ) -> int | None:
-        if configured is _UNSET:
+        if isinstance(configured, _Unset):
             configured = self.settings.client_registration_client_secret_expires_at
         if configured is None:
             return None
@@ -1557,10 +1666,15 @@ class SimpleOAuthProvider:
         user: object | None = None,
         reference_id: str | None = None,
     ) -> str:
-        payload: dict[str, object] = {
+        if isinstance(resource, list):
+            audience_values: list[JSONValue] = list(resource)
+            audience_claim: JSONValue = resource[0] if len(resource) == 1 else audience_values
+        else:
+            audience_claim = resource
+        payload: dict[str, JSONValue] = {
             "iss": self.issuer_url,
             "sub": self._stringify_uuid(individual_id),
-            "aud": resource if not isinstance(resource, list) or len(resource) != 1 else resource[0],
+            "aud": audience_claim,
             "azp": client_id,
             "scope": " ".join(scopes),
             "iat": issued_at,
@@ -1592,7 +1706,7 @@ class SimpleOAuthProvider:
         encoded = token
         if self.settings.refresh_token_encoder is not None:
             resolved = self.settings.refresh_token_encoder(encoded, self._stringify_uuid(session_id))
-            encoded = await resolved if isawaitable(resolved) else resolved
+            encoded = resolved if isinstance(resolved, str) else await resolved
         if self.settings.token_prefixes.refresh_token:
             return f"{self.settings.token_prefixes.refresh_token}{encoded}"
         return encoded
@@ -1609,7 +1723,15 @@ class SimpleOAuthProvider:
             return None, decoded
 
         resolved = self.settings.refresh_token_decoder(decoded)
-        return await resolved if isawaitable(resolved) else resolved
+        if isinstance(resolved, tuple):
+            encoded_session_id, raw_refresh_token = resolved
+        else:
+            encoded_session_id, raw_refresh_token = await resolved
+        if not (encoded_session_id is None or isinstance(encoded_session_id, str)):
+            return None
+        if not isinstance(raw_refresh_token, str):
+            return None
+        return encoded_session_id, raw_refresh_token
 
     def _prefix_access_token(self, token: str) -> str:
         if self.settings.token_prefixes.access_token:
@@ -1653,14 +1775,49 @@ class SimpleOAuthProvider:
 
     async def _resolve_custom_claims(
         self,
-        resolver: Callable[[dict[str, object]], dict[str, object] | Awaitable[dict[str, object]]] | None,
+        resolver: Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]] | None,
         payload: dict[str, object],
-    ) -> dict[str, object]:
+    ) -> dict[str, JSONValue]:
         if resolver is None:
             return {}
         resolved = resolver(payload)
-        claims = await resolved if isawaitable(resolved) else resolved
-        return dict(claims)
+        if isinstance(resolved, dict) and not isinstance(resolved, Awaitable):
+            return self._json_claims_from_mapping(resolved)
+        claims = await resolved
+        return self._json_claims_from_mapping(claims)
+
+    @classmethod
+    def _json_claims_from_mapping(cls, claims: object) -> dict[str, JSONValue]:
+        if not isinstance(claims, dict):
+            return {}
+        normalized: dict[str, JSONValue] = {}
+        for key, value in claims.items():
+            if not isinstance(key, str):
+                continue
+            if isinstance(converted := cls._json_value_or_unset(value), _Unset):
+                continue
+            normalized[key] = converted
+        return normalized
+
+    @classmethod
+    def _json_value_or_unset(cls, value: object) -> JSONValue | _Unset:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, list):
+            converted_items: list[JSONValue] = []
+            for item in value:
+                converted = cls._json_value_or_unset(item)
+                if not isinstance(converted, _Unset):
+                    converted_items.append(converted)
+            return converted_items
+        if isinstance(value, dict):
+            converted_dict: dict[str, JSONValue] = {}
+            for key, item in value.items():
+                converted = cls._json_value_or_unset(item)
+                if isinstance(key, str) and not isinstance(converted, _Unset):
+                    converted_dict[key] = converted
+            return converted_dict
+        return _UNSET
 
     @staticmethod
     def _hash_value(value: str) -> str:
@@ -1670,6 +1827,16 @@ class SimpleOAuthProvider:
     @staticmethod
     def _stringify_uuid(value: UUID | None) -> str | None:
         return None if value is None else str(value)
+
+    @staticmethod
+    def _access_token_resource_from_claims(payload: Mapping[str, JSONValue]) -> OAuthServerAudience | None:
+        audience = payload.get("aud")
+        if isinstance(audience, str):
+            return audience
+        if isinstance(audience, list):
+            values = [value for value in audience if isinstance(value, str)]
+            return values or None
+        return None
 
     @staticmethod
     def _parse_uuid(value: str | None) -> UUID | None:
@@ -1733,11 +1900,11 @@ class SimpleOAuthProvider:
             response_types=list(client.response_types),
             scope=client.scope,
             client_name=client.client_name,
-            client_uri=AnyUrl(client.client_uri) if client.client_uri is not None else None,
-            logo_uri=AnyUrl(client.logo_uri) if client.logo_uri is not None else None,
+            client_uri=AnyHttpUrl(client.client_uri) if client.client_uri is not None else None,
+            logo_uri=AnyHttpUrl(client.logo_uri) if client.logo_uri is not None else None,
             contacts=list(client.contacts) if client.contacts is not None else None,
-            tos_uri=AnyUrl(client.tos_uri) if client.tos_uri is not None else None,
-            policy_uri=AnyUrl(client.policy_uri) if client.policy_uri is not None else None,
+            tos_uri=AnyHttpUrl(client.tos_uri) if client.tos_uri is not None else None,
+            policy_uri=AnyHttpUrl(client.policy_uri) if client.policy_uri is not None else None,
             software_id=client.software_id,
             software_version=client.software_version,
             software_statement=client.software_statement,
