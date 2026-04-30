@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from belgie_oauth_server.settings import OAuthServer
 
 _RESERVED_ACCESS_TOKEN_CLAIMS = frozenset({"iss", "sub", "aud", "azp", "scope", "iat", "exp", "sid"})
+_NO_CLIENT_STATE = ""
 _UNSET = object()
 _TIME_SPAN_UNITS = {
     "sec": 1,
@@ -104,6 +105,13 @@ def _resolve_time_span_to_timestamp(value: str) -> int:
 
     amount = float(match.group("value"))
     return int(time.time() + (direction * amount * seconds_per_unit))
+
+
+def _outbound_client_state(state_record: OAuthServerAuthorizationStateProtocol) -> str | None:
+    client_state = getattr(state_record, "client_state", None)
+    if client_state == _NO_CLIENT_STATE:
+        return None
+    return client_state or state_record.state
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -462,7 +470,7 @@ class SimpleOAuthProvider:
         *,
         db: DBConnection | None = None,
     ) -> str:
-        client_state = params.state or None
+        client_state = params.state or _NO_CLIENT_STATE
         state = params.state or secrets.token_hex(16)
         async with self._db_session(db, transactional=True) as session:
             while (existing_state := await self.adapter.get_authorization_state(session, state=state)) is not None:
@@ -588,7 +596,7 @@ class SimpleOAuthProvider:
             )
             await self.adapter.delete_authorization_state(session, state=state)
 
-        client_state = getattr(state_record, "client_state", state)
+        client_state = _outbound_client_state(state_record)
         return construct_redirect_uri(redirect_uri, code=new_code, state=client_state, iss=issuer)
 
     async def load_authorization_code(
@@ -1748,7 +1756,7 @@ class SimpleOAuthProvider:
     def _state_entry_from_record(state_record: OAuthServerAuthorizationStateProtocol) -> StateEntry:
         return StateEntry(
             state=state_record.state,
-            client_state=getattr(state_record, "client_state", state_record.state),
+            client_state=_outbound_client_state(state_record),
             redirect_uri=state_record.redirect_uri,
             code_challenge=state_record.code_challenge,
             redirect_uri_provided_explicitly=state_record.redirect_uri_provided_explicitly,
