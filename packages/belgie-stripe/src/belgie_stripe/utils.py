@@ -3,30 +3,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import inspect
 import json
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, quote_plus, urlparse, urlunparse
 
-from typing_extensions import TypeIs
-
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
     from uuid import UUID
-
-
-@overload
-async def maybe_await[T](value: Awaitable[T]) -> T: ...
-
-
-@overload
-async def maybe_await[T](value: T) -> T: ...
-
-
-async def maybe_await(value):
-    if not _is_awaitable(value):
-        return value
-    return await value
 
 
 def normalize_relative_or_same_origin_url(url: str, *, base_url: str) -> str | None:
@@ -110,7 +92,3 @@ def _urlsafe_encode(value: bytes) -> str:
 def _urlsafe_decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(f"{value}{padding}")
-
-
-def _is_awaitable[T](value: T | Awaitable[T]) -> TypeIs[Awaitable[T]]:
-    return inspect.isawaitable(value)

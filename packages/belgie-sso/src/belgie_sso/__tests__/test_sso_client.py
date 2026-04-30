@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from belgie_proto.sso import OIDCClaimMapping, OIDCProviderConfig
@@ -676,6 +676,23 @@ async def test_provider_limit_supports_callable(monkeypatch) -> None:
             client_id="client-id",
             client_secret="client-secret",
         )
+
+
+@pytest.mark.asyncio
+async def test_provider_limit_supports_async_callable() -> None:
+    sso_client, _, _, _ = build_client()
+    calls: list[UUID | None] = []
+
+    async def providers_limit(organization_id: UUID | None) -> int:
+        calls.append(organization_id)
+        return 0
+
+    sso_client.settings.providers_limit = providers_limit
+
+    with pytest.raises(HTTPException, match="provider registration is disabled"):
+        await sso_client._ensure_provider_capacity(organization_id=None)
+
+    assert calls == [None]
 
 
 @pytest.mark.asyncio

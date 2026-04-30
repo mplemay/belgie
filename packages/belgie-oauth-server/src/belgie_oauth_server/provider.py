@@ -6,17 +6,18 @@ import hmac
 import re
 import secrets
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, TypeGuard, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
 from authlib.oauth2.rfc7591.claims import ClientMetadataClaims as OAuth2ClientMetadataClaims
 from authlib.oidc.registration.claims import ClientMetadataClaims as OIDCClientMetadataClaims
 from authlib.oidc.rpinitiated.registration import ClientMetadataClaims as RPInitiatedClientMetadataClaims
+from belgie_core.utils.callbacks import MaybeAwaitable, maybe_awaitable
 from belgie_proto.core.connection import DBConnection
 from joserfc.errors import InvalidClaimError, JoseError
 from pydantic import AnyHttpUrl, AnyUrl
@@ -1576,18 +1577,14 @@ class SimpleOAuthProvider:
 
     async def _generate_client_id(self) -> str:
         if self.settings.generate_client_id is not None:
-            generated = self.settings.generate_client_id()
-            if isinstance(generated, str):
-                return generated
-            return await generated
+            # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+            return cast("str", await maybe_awaitable(self.settings.generate_client_id)())
         return f"belgie_client_{secrets.token_hex(8)}"
 
     async def _generate_client_secret(self) -> str:
         if self.settings.generate_client_secret is not None:
-            generated = self.settings.generate_client_secret()
-            if isinstance(generated, str):
-                return generated
-            return await generated
+            # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+            return cast("str", await maybe_awaitable(self.settings.generate_client_secret)())
         return secrets.token_hex(16)
 
     def _store_client_secret(self, client_secret: str) -> tuple[str | None, str]:
@@ -1637,18 +1634,14 @@ class SimpleOAuthProvider:
 
     async def _generate_opaque_access_token(self) -> str:
         if self.settings.generate_access_token is not None:
-            generated = self.settings.generate_access_token()
-            if isinstance(generated, str):
-                return generated
-            return await generated
+            # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+            return cast("str", await maybe_awaitable(self.settings.generate_access_token)())
         return f"belgie_{secrets.token_hex(16)}"
 
     async def _generate_refresh_token(self) -> str:
         if self.settings.generate_refresh_token is not None:
-            generated = self.settings.generate_refresh_token()
-            if isinstance(generated, str):
-                return generated
-            return await generated
+            # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+            return cast("str", await maybe_awaitable(self.settings.generate_refresh_token)())
         return f"belgie_refresh_{secrets.token_hex(16)}"
 
     async def _generate_signed_access_token(  # noqa: PLR0913
@@ -1705,8 +1698,14 @@ class SimpleOAuthProvider:
     async def _encode_refresh_token(self, token: str, session_id: UUID | None) -> str:
         encoded = token
         if self.settings.refresh_token_encoder is not None:
-            resolved = self.settings.refresh_token_encoder(encoded, self._stringify_uuid(session_id))
-            encoded = resolved if isinstance(resolved, str) else await resolved
+            # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+            encoded = cast(
+                "str",
+                await maybe_awaitable(self.settings.refresh_token_encoder)(
+                    encoded,
+                    self._stringify_uuid(session_id),
+                ),
+            )
         if self.settings.token_prefixes.refresh_token:
             return f"{self.settings.token_prefixes.refresh_token}{encoded}"
         return encoded
@@ -1722,11 +1721,11 @@ class SimpleOAuthProvider:
         if self.settings.refresh_token_decoder is None:
             return None, decoded
 
-        resolved = self.settings.refresh_token_decoder(decoded)
-        if isinstance(resolved, tuple):
-            encoded_session_id, raw_refresh_token = resolved
-        else:
-            encoded_session_id, raw_refresh_token = await resolved
+        # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+        encoded_session_id, raw_refresh_token = cast(
+            "tuple[str | None, str]",
+            await maybe_awaitable(self.settings.refresh_token_decoder)(decoded),
+        )
         if not (encoded_session_id is None or isinstance(encoded_session_id, str)):
             return None
         if not isinstance(raw_refresh_token, str):
@@ -1775,15 +1774,12 @@ class SimpleOAuthProvider:
 
     async def _resolve_custom_claims(
         self,
-        resolver: Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]] | None,
+        resolver: Callable[[dict[str, object]], MaybeAwaitable[dict[str, JSONValue]]] | None,
         payload: dict[str, object],
     ) -> dict[str, JSONValue]:
         if resolver is None:
             return {}
-        resolved = resolver(payload)
-        if isinstance(resolved, dict) and not isinstance(resolved, Awaitable):
-            return self._json_claims_from_mapping(resolved)
-        claims = await resolved
+        claims = await maybe_awaitable(resolver)(payload)
         return self._json_claims_from_mapping(claims)
 
     @classmethod

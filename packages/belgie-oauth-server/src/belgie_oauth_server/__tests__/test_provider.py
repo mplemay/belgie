@@ -293,6 +293,27 @@ async def test_refresh_token_encoder_round_trip_supports_load_exchange_and_revok
 
 
 @pytest.mark.asyncio
+async def test_refresh_token_encoder_supports_async_callbacks() -> None:
+    async def encode(token: str, session_id: str | None) -> str:
+        return f"wrapped:{session_id}:{token}"
+
+    async def decode(token: str) -> tuple[str | None, str]:
+        encoded_session_id, raw_refresh_token = token.split(":", maxsplit=2)[1:]
+        return None if encoded_session_id == "None" else encoded_session_id, raw_refresh_token
+
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        base_url="http://example.com",
+        refresh_token_encoder=encode,
+        refresh_token_decoder=decode,
+    )
+
+    encoded = await provider._encode_refresh_token("raw-token", None)
+
+    assert encoded == "wrapped:None:raw-token"
+    assert await provider._decode_refresh_token(encoded) == (None, "raw-token")
+
+
+@pytest.mark.asyncio
 async def test_load_access_token_purges_expired() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
         test_redirect_uris=["https://example.com/callback"],

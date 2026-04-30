@@ -672,6 +672,34 @@ async def test_handle_webhook_calls_on_event_after_builtin_subscription_sync() -
 
 
 @pytest.mark.asyncio
+async def test_handle_webhook_supports_sync_on_event_callback() -> None:
+    individual = make_individual()
+    captured_event_types = []
+
+    def on_event(event) -> None:
+        captured_event_types.append(event.type)
+
+    client, _belgie_client, stripe_sdk, _adapter = _build_client(
+        individual=individual,
+        on_event=on_event,
+    )
+    stripe_sdk.event = make_checkout_completed_event(
+        subscription_id="sub_123",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+    )
+    stripe_sdk.subscription_responses["sub_123"] = make_stripe_subscription(
+        subscription_id="sub_123",
+        account_id="cus_123",
+        metadata={"account_id": str(individual.id), "plan": "pro"},
+    )
+
+    response = await client.handle_webhook(request=_webhook_request())
+
+    assert response == {"received": True}
+    assert captured_event_types == ["checkout.session.completed"]
+
+
+@pytest.mark.asyncio
 async def test_handle_webhook_checkout_completed_skips_subscription_complete_without_account_mapping() -> None:
     on_subscription_complete = AsyncMock()
     client, _belgie_client, stripe_sdk, adapter = _build_client(

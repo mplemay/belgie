@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import inspect
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime  # noqa: TC003
 from functools import cached_property
 from typing import TYPE_CHECKING, Literal, Self
 from urllib.parse import urlparse, urlunparse
 
+from belgie_core.utils.callbacks import MaybeAwaitable, maybe_awaitable
 from belgie_proto.core.json import JSONValue
 from belgie_proto.oauth_server import (
     OAuthServerAccessTokenProtocol,
@@ -29,26 +29,26 @@ if TYPE_CHECKING:
     from belgie_oauth_server.plugin import OAuthServerPlugin
 
 type RequestURIParams = Mapping[str, str]
-type RequestURIResolver = Callable[[str, str], RequestURIParams | Awaitable[RequestURIParams | None] | None]
-type SelectAccountResolver = Callable[[str, str, str, list[str]], bool | Awaitable[bool]]
-type PostLoginResolver = Callable[[str, str, str, list[str]], bool | Awaitable[bool]]
+type RequestURIResolver = Callable[[str, str], MaybeAwaitable[RequestURIParams | None]]
+type SelectAccountResolver = Callable[[str, str, str, list[str]], MaybeAwaitable[bool]]
+type PostLoginResolver = Callable[[str, str, str, list[str]], MaybeAwaitable[bool]]
 type OAuthServerGrantType = Literal["authorization_code", "client_credentials", "refresh_token"]
-type ConsentReferenceResolver = Callable[[str, str, str, list[str]], str | Awaitable[str | None] | None]
-type ClientReferenceResolver = Callable[[str, str], str | Awaitable[str | None] | None]
+type ConsentReferenceResolver = Callable[[str, str, str, list[str]], MaybeAwaitable[str | None]]
+type ClientReferenceResolver = Callable[[str, str], MaybeAwaitable[str | None]]
 type ClientPrivilegesResolver = Callable[
     [Literal["create", "read", "update", "delete", "list", "rotate"], str, str, str | None],
-    bool | Awaitable[bool] | None,
+    MaybeAwaitable[bool | None],
 ]
 type ScopeExpirations = dict[str, int]
-type AccessTokenClaimsResolver = Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]]
-type IdTokenClaimsResolver = Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]]
-type UserInfoClaimsResolver = Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]]
-type TokenResponseFieldsResolver = Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]]
-type TokenGenerator = Callable[[], str | Awaitable[str]]
-type RefreshTokenEncoder = Callable[[str, str | None], str | Awaitable[str]]
-type RefreshTokenDecoder = Callable[[str], tuple[str | None, str] | Awaitable[tuple[str | None, str]]]
+type AccessTokenClaimsResolver = Callable[[dict[str, object]], MaybeAwaitable[dict[str, JSONValue]]]
+type IdTokenClaimsResolver = Callable[[dict[str, object]], MaybeAwaitable[dict[str, JSONValue]]]
+type UserInfoClaimsResolver = Callable[[dict[str, object]], MaybeAwaitable[dict[str, JSONValue]]]
+type TokenResponseFieldsResolver = Callable[[dict[str, object]], MaybeAwaitable[dict[str, JSONValue]]]
+type TokenGenerator = Callable[[], MaybeAwaitable[str]]
+type RefreshTokenEncoder = Callable[[str, str | None], MaybeAwaitable[str]]
+type RefreshTokenDecoder = Callable[[str], MaybeAwaitable[tuple[str | None, str]]]
 type TrustedClient = OAuthServerClientMetadata | OAuthServerClientInformationFull
-type TrustedClientResolver = Callable[[TrustedClient], bool | Awaitable[bool] | None]
+type TrustedClientResolver = Callable[[TrustedClient], MaybeAwaitable[bool | None]]
 
 PAIRWISE_SECRET_MIN_LENGTH = 32
 
@@ -327,9 +327,7 @@ class OAuthServer(BaseSettings):
         if self.trusted_client_resolver is None:
             return False
 
-        trusted = self.trusted_client_resolver(oauth_client)
-        if inspect.isawaitable(trusted):
-            trusted = await trusted
+        trusted = await maybe_awaitable(self.trusted_client_resolver)(oauth_client)
         return bool(trusted)
 
     def __call__(self, belgie_settings: BelgieSettings) -> OAuthServerPlugin:

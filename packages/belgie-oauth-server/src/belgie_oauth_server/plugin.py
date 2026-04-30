@@ -7,10 +7,10 @@ registration metadata.
 
 import inspect
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal, Protocol, cast
 from urllib.parse import parse_qsl, urlparse, urlunparse
 from uuid import UUID
 
@@ -18,6 +18,7 @@ from belgie_core.core.belgie import Belgie
 from belgie_core.core.client import BelgieClient
 from belgie_core.core.plugin import PluginClient
 from belgie_core.core.settings import BelgieSettings
+from belgie_core.utils.callbacks import MaybeAwaitable, maybe_awaitable
 from belgie_proto.core.json import JSONValue
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -2203,9 +2204,11 @@ async def _resolve_request_uri_params(
         return None
 
     client_id = _get_str(data, "client_id") or ""
-    resolved = settings.request_uri_resolver(request_uri, client_id)
-    if inspect.isawaitable(resolved):
-        resolved = await resolved
+    # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+    resolved = cast(
+        "Mapping[str, str] | None",
+        await maybe_awaitable(settings.request_uri_resolver)(request_uri, client_id),
+    )
     if resolved is None:
         return None
 
@@ -2407,14 +2410,12 @@ async def _select_account_required(
     if params.individual_id is None or params.session_id is None:
         return False
 
-    should_select = settings.select_account_resolver(
+    should_select = await maybe_awaitable(settings.select_account_resolver)(
         oauth_client.client_id,
         params.individual_id,
         params.session_id,
         params.scopes or list(settings.default_scopes),
     )
-    if inspect.isawaitable(should_select):
-        should_select = await should_select
     return should_select is True
 
 
@@ -2428,14 +2429,12 @@ async def _post_login_required(
     if params.individual_id is None or params.session_id is None:
         return False
 
-    should_redirect = settings.post_login_resolver(
+    should_redirect = await maybe_awaitable(settings.post_login_resolver)(
         oauth_client.client_id,
         params.individual_id,
         params.session_id,
         params.scopes or list(settings.default_scopes),
     )
-    if inspect.isawaitable(should_redirect):
-        should_redirect = await should_redirect
     return should_redirect is True
 
 
@@ -2449,15 +2448,16 @@ async def _resolve_consent_reference(
     if params.individual_id is None or params.session_id is None:
         return None
 
-    resolved_reference = settings.consent_reference_resolver(
-        oauth_client.client_id,
-        params.individual_id,
-        params.session_id,
-        params.scopes or list(settings.default_scopes),
+    # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+    return cast(
+        "str | None",
+        await maybe_awaitable(settings.consent_reference_resolver)(
+            oauth_client.client_id,
+            params.individual_id,
+            params.session_id,
+            params.scopes or list(settings.default_scopes),
+        ),
     )
-    if inspect.isawaitable(resolved_reference):
-        resolved_reference = await resolved_reference
-    return resolved_reference
 
 
 async def _resume_authorization_flow(  # noqa: PLR0913
@@ -2738,13 +2738,12 @@ def _json_value_or_none(value: object) -> JSONValue:
 
 
 async def _resolve_custom_mapping(
-    resolver: Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]] | None,
+    resolver: Callable[[dict[str, object]], MaybeAwaitable[dict[str, JSONValue]]] | None,
     payload: dict[str, object],
 ) -> dict[str, JSONValue]:
     if resolver is None:
         return {}
-    resolved = resolver(payload)
-    custom_payload = await resolved if inspect.isawaitable(resolved) else resolved
+    custom_payload = await maybe_awaitable(resolver)(payload)
     return dict(custom_payload or {})
 
 
@@ -2755,10 +2754,11 @@ async def _resolve_client_reference_id(
 ) -> str | None:
     if settings.client_reference_resolver is None:
         return None
-    resolved_reference = settings.client_reference_resolver(individual_id, session_id)
-    if inspect.isawaitable(resolved_reference):
-        resolved_reference = await resolved_reference
-    return resolved_reference
+    # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+    return cast(
+        "str | None",
+        await maybe_awaitable(settings.client_reference_resolver)(individual_id, session_id),
+    )
 
 
 async def _has_client_privilege(
@@ -2770,9 +2770,7 @@ async def _has_client_privilege(
 ) -> bool:
     if settings.client_privileges is None:
         return False
-    allowed = settings.client_privileges(action, individual_id, session_id, reference_id)
-    if inspect.isawaitable(allowed):
-        allowed = await allowed
+    allowed = await maybe_awaitable(settings.client_privileges)(action, individual_id, session_id, reference_id)
     return allowed is True
 
 

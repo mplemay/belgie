@@ -21,6 +21,7 @@ from belgie_core.core.settings import (
     URLSettings,
 )
 from belgie_core.session.manager import SessionManager
+from belgie_core.utils.callbacks import MaybeAwaitable, maybe_awaitable
 from belgie_core.utils.crypto import generate_session_id, generate_state_token
 from belgie_core.utils.scopes import parse_scopes, validate_scopes
 
@@ -49,8 +50,10 @@ __all__ = [  # noqa: RUF022
     "OAuthError",
     "ConfigurationError",
     # Utils
+    "MaybeAwaitable",
     "generate_session_id",
     "generate_state_token",
+    "maybe_awaitable",
     "parse_scopes",
     "validate_scopes",
 ]

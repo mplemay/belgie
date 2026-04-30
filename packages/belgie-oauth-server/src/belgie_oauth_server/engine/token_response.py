@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import inspect
 import time
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from authlib.oidc.core.claims import UserInfo
+from belgie_core.utils.callbacks import MaybeAwaitable, maybe_awaitable
 from belgie_proto.core.json import JSONValue  # noqa: TC002
 
 from belgie_oauth_server.engine.helpers import oauth_client_is_public
@@ -13,7 +13,7 @@ from belgie_oauth_server.models import OAuthServerClientInformationFull, OAuthSe
 from belgie_oauth_server.signing import encode_jwt
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import Callable, Mapping
     from datetime import datetime
 
     from belgie_core.core.client import BelgieClient
@@ -236,13 +236,12 @@ def resolve_introspection_sub_for_response(
 
 
 async def resolve_custom_mapping(
-    resolver: Callable[[dict[str, object]], dict[str, JSONValue] | Awaitable[dict[str, JSONValue]]] | None,
+    resolver: Callable[[dict[str, object]], MaybeAwaitable[dict[str, JSONValue]]] | None,
     payload: dict[str, object],
 ) -> dict[str, JSONValue]:
     if resolver is None:
         return {}
-    resolved = resolver(payload)
-    custom_payload = await resolved if inspect.isawaitable(resolved) else resolved
+    custom_payload = await maybe_awaitable(resolver)(payload)
     return dict(custom_payload or {})
 
 

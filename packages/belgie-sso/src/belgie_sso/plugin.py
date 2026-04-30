@@ -7,7 +7,7 @@ import inspect
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 from urllib.parse import urlparse, urlunparse
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -19,6 +19,7 @@ from belgie_core.core.plugin import (
     PluginClient,
     VerificationTokenCaptureHook,
 )
+from belgie_core.utils.callbacks import maybe_awaitable
 from belgie_core.utils.crypto import generate_state_token
 from belgie_oauth._config import OAuthProvider
 from belgie_oauth._errors import OAuthCallbackError
@@ -1639,9 +1640,7 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
             token_payload=None if token_set is None else token_set.raw,
             created=created,
         )
-        maybe_awaitable = self._settings.provision_user(individual, context)
-        if inspect.isawaitable(maybe_awaitable):
-            await maybe_awaitable
+        await maybe_awaitable(self._settings.provision_user)(individual, context)
 
     async def _assign_provider_organization(
         self,
@@ -1687,9 +1686,11 @@ class SSOPlugin[ProviderT: SSOProviderProtocol](PluginClient, AfterAuthenticateH
             token_payload=None if token_set is None else token_set.raw,
             created=created,
         )
-        resolved_role = self._settings.organization_role_resolver(context)
-        if inspect.isawaitable(resolved_role):
-            resolved_role = await resolved_role
+        # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+        resolved_role = cast(
+            "str | None",
+            await maybe_awaitable(self._settings.organization_role_resolver)(context),
+        )
         return resolved_role or role
 
     async def _matched_domain_provider(
