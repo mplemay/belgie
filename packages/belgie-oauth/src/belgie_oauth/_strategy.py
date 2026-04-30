@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from belgie_core.core.exceptions import OAuthError
+from belgie_core.utils.callbacks import maybe_awaitable
 from httpx import HTTPError
 from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -261,10 +262,7 @@ class DefaultOAuthProviderStrategy(OAuthProviderStrategy):
         token_set: OAuthTokenSet,
     ) -> OAuthUserInfo:
         if config.map_profile is not None:
-            mapped = config.map_profile(raw_profile, token_set)
-            if isinstance(mapped, OAuthUserInfo):
-                return mapped
-            return await mapped
+            return await maybe_awaitable(config.map_profile)(raw_profile, token_set)
 
         provider_account_id = coerce_optional_str(raw_profile.get("sub")) or coerce_optional_str(raw_profile.get("id"))
         if provider_account_id is None:

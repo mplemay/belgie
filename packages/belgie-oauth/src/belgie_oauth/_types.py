@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from belgie_core.core.client import BelgieClient
     from belgie_core.core.plugin import AuthenticatedProfile
     from belgie_core.core.settings import BelgieSettings
+    from belgie_core.utils.callbacks import MaybeAwaitable
     from belgie_proto.core.individual import IndividualProtocol
     from fastapi import Request
 
@@ -97,8 +98,6 @@ class OAuthAccountTokenUpdates(TypedDict):
 
 
 if TYPE_CHECKING:
-    type MaybeAwaitable[T] = T | Awaitable[T]
-
     type UserInfoFetcher = Callable[
         [AuthlibOIDCClient, OAuthTokenSet, ProviderMetadata],
         Awaitable[RawProfile | OAuthUserInfo | None],

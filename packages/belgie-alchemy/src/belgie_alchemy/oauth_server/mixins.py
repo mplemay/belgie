@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+from belgie_proto.core.json import JSONObject
 from belgie_proto.oauth_server.types import (
     AuthorizationIntent,
     OAuthServerClientType,
@@ -164,7 +165,7 @@ class OAuthServerClientMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, index=True, kw_only=True)
 
     @declared_attr
-    def metadata_json(self) -> Mapped[dict[str, str] | dict[str, object] | None]:
+    def metadata_json(self) -> Mapped[JSONObject | None]:
         return mapped_column(Json, default=None, kw_only=True)
 
     @declared_attr

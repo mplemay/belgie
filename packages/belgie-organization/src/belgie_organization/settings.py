@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
+from belgie_core.utils.callbacks import MaybeAwaitable
 from belgie_proto.organization import OrganizationAdapterProtocol
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
@@ -16,7 +17,6 @@ if TYPE_CHECKING:
     from belgie_organization.plugin import OrganizationPlugin
 
 
-type MaybeAwaitable[T] = T | Awaitable[T]
 type OrganizationLifecycleHook = Callable[..., MaybeAwaitable[None]]
 
 

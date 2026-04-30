@@ -9,6 +9,7 @@ from belgie_proto.oauth_server.types import (
     AuthorizationIntent,
     OAuthServerAudience,
     OAuthServerClientType,
+    OAuthServerClientUpdates,
     OAuthServerSubjectType,
     TokenEndpointAuthMethod,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "OAuthServerAuthorizationStateProtocol",
     "OAuthServerClientProtocol",
     "OAuthServerClientType",
+    "OAuthServerClientUpdates",
     "OAuthServerConsentProtocol",
     "OAuthServerRefreshTokenProtocol",
     "OAuthServerSubjectType",

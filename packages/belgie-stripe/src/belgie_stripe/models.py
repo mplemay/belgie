@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003
 from typing import TYPE_CHECKING, Literal, Self
 from uuid import UUID  # noqa: TC003
 
+from belgie_core.utils.callbacks import MaybeAwaitable
 from belgie_proto.core.json import JSONObject  # noqa: TC002
 from belgie_proto.stripe import (
     StripeAccountProtocol,
@@ -21,7 +22,10 @@ if TYPE_CHECKING:
     from stripe.checkout import Session as CheckoutSession
 
 
-type MaybeAwaitable[T] = T | Awaitable[T]
+type TrialHook = Callable[
+    [SubscriptionEventContext[StripeSubscriptionProtocol, StripeAccountProtocol]],
+    MaybeAwaitable[None],
+]
 type StripeAction = Literal[
     "billing-portal",
     "cancel-subscription",
@@ -91,27 +95,9 @@ class StripeFreeTrial(BaseModel):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     days: int = Field(ge=1)
-    on_trial_start: (
-        Callable[
-            [SubscriptionEventContext[StripeSubscriptionProtocol, StripeAccountProtocol]],
-            MaybeAwaitable[None],
-        ]
-        | None
-    ) = Field(default=None, exclude=True)
-    on_trial_end: (
-        Callable[
-            [SubscriptionEventContext[StripeSubscriptionProtocol, StripeAccountProtocol]],
-            MaybeAwaitable[None],
-        ]
-        | None
-    ) = Field(default=None, exclude=True)
-    on_trial_expired: (
-        Callable[
-            [SubscriptionEventContext[StripeSubscriptionProtocol, StripeAccountProtocol]],
-            MaybeAwaitable[None],
-        ]
-        | None
-    ) = Field(default=None, exclude=True)
+    on_trial_start: TrialHook | None = Field(default=None, exclude=True)
+    on_trial_end: TrialHook | None = Field(default=None, exclude=True)
+    on_trial_expired: TrialHook | None = Field(default=None, exclude=True)
 
 
 class StripePlan(BaseModel):

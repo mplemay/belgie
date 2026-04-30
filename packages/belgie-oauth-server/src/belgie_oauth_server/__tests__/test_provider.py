@@ -41,6 +41,62 @@ async def test_provider_authorize_and_issue_code() -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_issue_authorization_code_omits_state_when_not_requested() -> None:
+    _settings, provider, adapter, _db = build_oauth_provider(
+        base_url="http://example.com",
+        test_redirect_uris=["https://example.com/callback"],
+    )
+
+    oauth_client = await provider.get_client("test-client")
+    state_value = await provider.authorize(
+        oauth_client,
+        AuthorizationParams(
+            state=None,
+            scopes=["user"],
+            code_challenge="challenge",
+            redirect_uri=TEST_REDIRECT,
+            redirect_uri_provided_explicitly=True,
+            resource=None,
+        ),
+    )
+    assert adapter.authorization_states[state_value].client_state == ""
+
+    redirect_url = await provider.issue_authorization_code(state_value)
+    query = parse_qs(urlparse(redirect_url).query)
+
+    assert "code" in query
+    assert "state" not in query
+
+
+@pytest.mark.asyncio
+async def test_provider_issue_authorization_code_restores_legacy_null_client_state() -> None:
+    _settings, provider, adapter, _db = build_oauth_provider(
+        base_url="http://example.com",
+        test_redirect_uris=["https://example.com/callback"],
+    )
+
+    oauth_client = await provider.get_client("test-client")
+    await provider.authorize(
+        oauth_client,
+        AuthorizationParams(
+            state="state-legacy",
+            scopes=["user"],
+            code_challenge="challenge",
+            redirect_uri=TEST_REDIRECT,
+            redirect_uri_provided_explicitly=True,
+            resource=None,
+        ),
+    )
+    adapter.authorization_states["state-legacy"].client_state = None
+
+    redirect_url = await provider.issue_authorization_code("state-legacy")
+    query = parse_qs(urlparse(redirect_url).query)
+
+    assert "code" in query
+    assert query["state"] == ["state-legacy"]
+
+
+@pytest.mark.asyncio
 async def test_provider_closes_async_generator_database_factory() -> None:
     settings = build_oauth_settings(
         adapter=InMemoryOAuthServerAdapter(),
@@ -237,6 +293,27 @@ async def test_refresh_token_encoder_round_trip_supports_load_exchange_and_revok
 
 
 @pytest.mark.asyncio
+async def test_refresh_token_encoder_supports_async_callbacks() -> None:
+    async def encode(token: str, session_id: str | None) -> str:
+        return f"wrapped:{session_id}:{token}"
+
+    async def decode(token: str) -> tuple[str | None, str]:
+        encoded_session_id, raw_refresh_token = token.split(":", maxsplit=2)[1:]
+        return None if encoded_session_id == "None" else encoded_session_id, raw_refresh_token
+
+    _settings, provider, _adapter, _db = build_oauth_provider(
+        base_url="http://example.com",
+        refresh_token_encoder=encode,
+        refresh_token_decoder=decode,
+    )
+
+    encoded = await provider._encode_refresh_token("raw-token", None)
+
+    assert encoded == "wrapped:None:raw-token"
+    assert await provider._decode_refresh_token(encoded) == (None, "raw-token")
+
+
+@pytest.mark.asyncio
 async def test_load_access_token_purges_expired() -> None:
     _settings, provider, adapter, db = build_oauth_provider(
         test_redirect_uris=["https://example.com/callback"],
@@ -304,6 +381,10 @@ async def test_authorize_allows_duplicate_client_state_with_distinct_internal_st
     assert first_state == "state-dup"
     assert second_state != "state-dup"
     assert adapter.authorization_states[second_state].client_state == "state-dup"
+
+    redirect_url = await provider.issue_authorization_code(second_state)
+    query = parse_qs(urlparse(redirect_url).query)
+    assert query["state"] == ["state-dup"]
 
 
 @pytest.mark.asyncio

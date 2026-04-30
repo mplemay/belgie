@@ -386,6 +386,35 @@ async def test_update_runs_after_update_hook() -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_runs_sync_after_update_hook() -> None:
+    organization_id = uuid4()
+    updated = SimpleNamespace(id=organization_id, name="Acme", slug="acme", logo=None)
+    calls = []
+
+    def hook(client, organization) -> None:
+        calls.append((client, organization))
+
+    adapter = FakeOrganizationAdapter(
+        get_member=AsyncMock(return_value=SimpleNamespace(role="owner")),
+        get_organization_by_slug=AsyncMock(return_value=None),
+        update_organization=AsyncMock(return_value=updated),
+    )
+    organization_client = OrganizationClient(
+        client=SimpleNamespace(db=SimpleNamespace(), adapter=SimpleNamespace()),
+        settings=Organization(
+            adapter=adapter,
+            after_update=hook,
+        ),
+        current_individual=SimpleNamespace(id=uuid4(), email="owner@example.com"),
+    )
+
+    result = await organization_client.update(organization_id=organization_id, name="Acme")
+
+    assert result is updated
+    assert calls == [(organization_client, updated)]
+
+
+@pytest.mark.asyncio
 async def test_delete_runs_before_delete_hook() -> None:
     organization_id = uuid4()
     organization = SimpleNamespace(id=organization_id, name="Acme", slug="acme", logo=None)

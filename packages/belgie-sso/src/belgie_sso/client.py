@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import inspect
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from belgie_core.utils.callbacks import maybe_awaitable
 from belgie_organization.roles import has_any_role
 from belgie_proto.organization.invitation import InvitationProtocol
 from belgie_proto.organization.member import MemberProtocol
@@ -900,9 +900,8 @@ class SSOClient[
         limit = self.settings.providers_limit
         if limit is None:
             return
-        if inspect.isroutine(limit):
-            resolved_limit = limit(organization_id)
-            limit = await resolved_limit if inspect.isawaitable(resolved_limit) else resolved_limit
+        if callable(limit):
+            limit = await maybe_awaitable(limit)(organization_id)
         if limit is None:
             return
         if limit == 0:

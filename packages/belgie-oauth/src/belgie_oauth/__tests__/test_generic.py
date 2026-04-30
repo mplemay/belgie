@@ -1566,6 +1566,37 @@ async def test_custom_get_token_success_and_failure_paths() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_sync_map_profile_is_normalized_for_id_token_profile() -> None:
+    def map_profile(raw_profile: dict[str, JSONValue], token_set: OAuthTokenSet) -> OAuthUserInfo:
+        assert token_set.id_token is not None
+        return OAuthUserInfo(
+            provider_account_id=str(raw_profile["sub"]),
+            email="sync-mapped@example.com",
+            email_verified=True,
+            name="Sync Mapped Person",
+            raw=dict(raw_profile),
+        )
+
+    plugin = _build_plugin(
+        userinfo_endpoint=None,
+        issuer="https://idp.example.com",
+        jwks_uri="https://idp.example.com/jwks",
+        map_profile=map_profile,
+    )
+    signing_key = build_rsa_signing_key(kid="sync-map-profile")
+    _mock_acme_jwks(signing_key)
+    token_set = OAuthTokenSet.from_id_token(
+        id_token=_issue_acme_id_token(signing_key=signing_key, subject="sync-profile"),
+    )
+
+    profile = await plugin._transport.fetch_id_token_profile(token_set, nonce="direct-nonce")
+
+    assert profile.provider_account_id == "sync-profile"
+    assert profile.email == "sync-mapped@example.com"
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_async_map_profile_is_awaited_for_id_token_profile() -> None:
     async def map_profile(raw_profile: dict[str, JSONValue], token_set: OAuthTokenSet) -> OAuthUserInfo:
         assert token_set.id_token is not None

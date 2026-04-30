@@ -5,10 +5,11 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol, overload
+from typing import TYPE_CHECKING, Protocol, cast, overload
 from uuid import UUID
 
 import stripe
+from belgie_core.utils.callbacks import MaybeAwaitable, maybe_awaitable
 from belgie_proto.core.account import AccountType
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.stripe import (
@@ -72,18 +73,16 @@ from belgie_stripe.models import (
     UpgradeSubscriptionRequest,
 )
 from belgie_stripe.utils import (
-    _is_awaitable,
     absolute_url,
     append_query_params,
     escape_stripe_search_value,
-    maybe_await,
     normalize_relative_or_same_origin_url,
     sign_success_token,
     unsign_success_token,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Callable
 
     from belgie_core.core.settings import BelgieSettings
     from belgie_proto.core.session import SessionProtocol
@@ -93,7 +92,7 @@ if TYPE_CHECKING:
     from belgie_stripe.settings import Stripe
 
 
-type PlansResolver = Callable[[], list[StripePlan] | Awaitable[list[StripePlan]]]
+type PlansResolver = Callable[[], MaybeAwaitable[list[StripePlan]]]
 
 
 logger = logging.getLogger(__name__)
@@ -231,44 +230,7 @@ async def _resolve_plans(plans: PlansResolver) -> list[StripePlan]: ...
 async def _resolve_plans(plans):
     if isinstance(plans, list):
         return plans
-    resolved = plans()
-    if _is_awaitable(resolved):
-        return await resolved
-    return resolved
-
-
-@overload
-async def _resolve_customer_create_params(params: CustomerCreateParams | None) -> CustomerCreateParams | None: ...
-
-
-@overload
-async def _resolve_customer_create_params(
-    params: Awaitable[CustomerCreateParams | None],
-) -> CustomerCreateParams | None: ...
-
-
-async def _resolve_customer_create_params(params):
-    if _is_awaitable(params):
-        return await params
-    return params
-
-
-@overload
-async def _resolve_checkout_session_params(
-    params: checkout.SessionCreateParams | None,
-) -> checkout.SessionCreateParams | None: ...
-
-
-@overload
-async def _resolve_checkout_session_params(
-    params: Awaitable[checkout.SessionCreateParams | None],
-) -> checkout.SessionCreateParams | None: ...
-
-
-async def _resolve_checkout_session_params(params):
-    if _is_awaitable(params):
-        return await params
-    return params
+    return await maybe_awaitable(plans)()
 
 
 def _expandable_id(value: str | _HasID | None) -> str | None:
@@ -451,11 +413,13 @@ class StripeClient[
             individual=individual,
             session=session,
         )
-        extra_params = (
-            await _resolve_checkout_session_params(
-                self.settings.subscription.get_checkout_session_params(checkout_context),
+        # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+        extra_params: checkout.SessionCreateParams | None = (
+            cast(
+                "checkout.SessionCreateParams | None",
+                await maybe_awaitable(get_checkout_session_params)(checkout_context),
             )
-            if self.settings.subscription.get_checkout_session_params
+            if (get_checkout_session_params := self.settings.subscription.get_checkout_session_params)
             else None
         )
         success_token = sign_success_token(
@@ -682,7 +646,7 @@ class StripeClient[
                 existing_subscription=existing_subscription,
             )
         if self.settings.on_event is not None:
-            await maybe_await(self.settings.on_event(event))
+            await maybe_awaitable(self.settings.on_event)(event)
         return {"received": True}
 
     async def subscription_success(
@@ -747,9 +711,13 @@ class StripeClient[
             stripe_customer_id="",
             metadata=metadata,
         )
-        extra_params = (
-            await _resolve_customer_create_params(self.settings.get_account_create_params(context))
-            if self.settings.get_account_create_params
+        # ty cannot invert MaybeAwaitable[T] from callback return aliases yet.
+        extra_params: CustomerCreateParams | None = (
+            cast(
+                "CustomerCreateParams | None",
+                await maybe_awaitable(get_account_create_params)(context),
+            )
+            if (get_account_create_params := self.settings.get_account_create_params)
             else None
         )
         payload = _copy_customer_create_params(extra_params)
@@ -769,13 +737,11 @@ class StripeClient[
             stripe_customer_id=stripe_customer_id,
         )
         if self.settings.on_account_create is not None:
-            await maybe_await(
-                self.settings.on_account_create(
-                    AccountCreateContext(
-                        account=account,
-                        stripe_customer_id=stripe_customer_id,
-                        metadata=metadata,
-                    ),
+            await maybe_awaitable(self.settings.on_account_create)(
+                AccountCreateContext(
+                    account=account,
+                    stripe_customer_id=stripe_customer_id,
+                    metadata=metadata,
                 ),
             )
         return stripe_customer_id
@@ -949,14 +915,12 @@ class StripeClient[
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="account billing requires authorize_account",
             )
-        allowed = await maybe_await(
-            self.settings.subscription.authorize_account(
-                AccountAuthorizationContext(
-                    action=action,
-                    account=account,
-                    individual=individual,
-                    session=session,
-                ),
+        allowed = await maybe_awaitable(self.settings.subscription.authorize_account)(
+            AccountAuthorizationContext(
+                action=action,
+                account=account,
+                individual=individual,
+                session=session,
             ),
         )
         if not allowed:
@@ -1692,7 +1656,7 @@ class StripeClient[
             and hook_context.plan is not None
             and self.settings.subscription.on_subscription_complete is not None
         ):
-            await maybe_await(self.settings.subscription.on_subscription_complete(hook_context))
+            await maybe_awaitable(self.settings.subscription.on_subscription_complete)(hook_context)
 
     async def _run_subscription_created_hooks(
         self,
@@ -1701,7 +1665,7 @@ class StripeClient[
         hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
     ) -> None:
         if prior_subscription is None and self.settings.subscription.on_subscription_created is not None:
-            await maybe_await(self.settings.subscription.on_subscription_created(hook_context))
+            await maybe_awaitable(self.settings.subscription.on_subscription_created)(hook_context)
         await self._run_trial_start_hook(
             event_type="customer.subscription.created",
             prior_subscription=prior_subscription,
@@ -1721,9 +1685,9 @@ class StripeClient[
                 stripe_subscription=hook_context.raw_event,
             )
         ):
-            await maybe_await(self.settings.subscription.on_subscription_cancel_requested(hook_context))
+            await maybe_awaitable(self.settings.subscription.on_subscription_cancel_requested)(hook_context)
         if self.settings.subscription.on_subscription_updated is not None:
-            await maybe_await(self.settings.subscription.on_subscription_updated(hook_context))
+            await maybe_awaitable(self.settings.subscription.on_subscription_updated)(hook_context)
         await self._run_trial_update_hooks(
             prior_subscription=prior_subscription,
             hook_context=hook_context,
@@ -1735,9 +1699,9 @@ class StripeClient[
         hook_context: SubscriptionEventContext[SubscriptionT, StripeAccountProtocol],
     ) -> None:
         if self.settings.subscription.on_subscription_deleted is not None:
-            await maybe_await(self.settings.subscription.on_subscription_deleted(hook_context))
+            await maybe_awaitable(self.settings.subscription.on_subscription_deleted)(hook_context)
         if self.settings.subscription.on_subscription_canceled is not None:
-            await maybe_await(self.settings.subscription.on_subscription_canceled(hook_context))
+            await maybe_awaitable(self.settings.subscription.on_subscription_canceled)(hook_context)
 
     async def _run_trial_start_hook(
         self,
@@ -1758,7 +1722,7 @@ class StripeClient[
             )
         ):
             return
-        await maybe_await(free_trial.on_trial_start(hook_context))
+        await maybe_awaitable(free_trial.on_trial_start)(hook_context)
 
     async def _run_trial_update_hooks(
         self,
@@ -1770,9 +1734,9 @@ class StripeClient[
         if free_trial is None or prior_subscription is None or prior_subscription.status != "trialing":
             return
         if hook_context.subscription.status == "active" and free_trial.on_trial_end is not None:
-            await maybe_await(free_trial.on_trial_end(hook_context))
+            await maybe_awaitable(free_trial.on_trial_end)(hook_context)
         if hook_context.subscription.status == "incomplete_expired" and free_trial.on_trial_expired is not None:
-            await maybe_await(free_trial.on_trial_expired(hook_context))
+            await maybe_awaitable(free_trial.on_trial_expired)(hook_context)
 
     def _is_trial_start_transition(
         self,

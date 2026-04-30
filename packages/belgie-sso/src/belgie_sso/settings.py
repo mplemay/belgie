@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from belgie_core.utils.callbacks import MaybeAwaitable
 from belgie_proto.sso import (
     OIDCProviderConfig,
     SAMLProviderConfig,
@@ -31,9 +31,9 @@ if TYPE_CHECKING:
     from belgie_sso.plugin import SSOPlugin
 
 
-type ProvisionUserCallback = Callable[..., Awaitable[None] | None]
-type OrganizationRoleResolver = Callable[..., Awaitable[str | None] | str | None]
-type ProvidersLimitCallback = Callable[[UUID | None], Awaitable[int | None] | int | None]
+type ProvisionUserCallback = Callable[..., MaybeAwaitable[None]]
+type OrganizationRoleResolver = Callable[..., MaybeAwaitable[str | None]]
+type ProvidersLimitCallback = Callable[[UUID | None], MaybeAwaitable[int | None]]
 
 
 @dataclass(slots=True, kw_only=True, frozen=True)
@@ -127,7 +127,7 @@ class EnterpriseSSO[ProviderT: SSOProviderProtocol](BaseSettings):
         cls,
         value: int | ProvidersLimitCallback | None,
     ) -> int | ProvidersLimitCallback | None:
-        if value is None or inspect.isroutine(value):
+        if value is None or callable(value):
             return value
         if not isinstance(value, int):
             msg = "providers_limit must be an integer or callable"

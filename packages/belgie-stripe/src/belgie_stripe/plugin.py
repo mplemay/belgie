@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Annotated
 
 import stripe
 from belgie_core.core.settings import BelgieSettings
+from belgie_core.utils.callbacks import maybe_awaitable
 from belgie_organization.plugin import OrganizationPlugin
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.session import SessionProtocol
@@ -26,7 +27,6 @@ from belgie_stripe.models import (
     UpgradeSubscriptionRequest,
 )
 from belgie_stripe.settings import Stripe
-from belgie_stripe.utils import maybe_await
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -111,7 +111,7 @@ class StripePlugin[
 
         async def after_update(organization_client, organization) -> None:  # noqa: ANN001
             if existing_after_update is not None:
-                await maybe_await(existing_after_update(organization_client, organization))
+                await maybe_awaitable(existing_after_update)(organization_client, organization)
             await self._build_client(
                 belgie_client=organization_client.client,
                 organization_adapter=organization_adapter,
@@ -119,7 +119,7 @@ class StripePlugin[
 
         async def before_delete(organization_client, organization) -> None:  # noqa: ANN001
             if existing_before_delete is not None:
-                await maybe_await(existing_before_delete(organization_client, organization))
+                await maybe_awaitable(existing_before_delete)(organization_client, organization)
             await self._build_client(
                 belgie_client=organization_client.client,
                 organization_adapter=organization_adapter,
@@ -127,7 +127,7 @@ class StripePlugin[
 
         async def after_member_add(organization_client, organization, member) -> None:  # noqa: ANN001
             if existing_after_member_add is not None:
-                await maybe_await(existing_after_member_add(organization_client, organization, member))
+                await maybe_awaitable(existing_after_member_add)(organization_client, organization, member)
             await self._build_client(
                 belgie_client=organization_client.client,
                 organization_adapter=organization_adapter,
@@ -135,7 +135,7 @@ class StripePlugin[
 
         async def after_member_remove(organization_client, organization, member) -> None:  # noqa: ANN001
             if existing_after_member_remove is not None:
-                await maybe_await(existing_after_member_remove(organization_client, organization, member))
+                await maybe_awaitable(existing_after_member_remove)(organization_client, organization, member)
             await self._build_client(
                 belgie_client=organization_client.client,
                 organization_adapter=organization_adapter,
@@ -143,13 +143,11 @@ class StripePlugin[
 
         async def after_invitation_accept(organization_client, organization, invitation, member) -> None:  # noqa: ANN001
             if existing_after_invitation_accept is not None:
-                await maybe_await(
-                    existing_after_invitation_accept(
-                        organization_client,
-                        organization,
-                        invitation,
-                        member,
-                    ),
+                await maybe_awaitable(existing_after_invitation_accept)(
+                    organization_client,
+                    organization,
+                    invitation,
+                    member,
                 )
             await self._build_client(
                 belgie_client=organization_client.client,

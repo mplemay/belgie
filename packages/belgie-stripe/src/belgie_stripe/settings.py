@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from belgie_core.utils.callbacks import MaybeAwaitable
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.session import SessionProtocol
 from belgie_proto.stripe import StripeAccountProtocol, StripeAdapterProtocol, StripeSubscriptionProtocol
@@ -25,8 +26,7 @@ if TYPE_CHECKING:
     from belgie_stripe.plugin import StripePlugin
 
 
-type MaybeAwaitable[T] = T | Awaitable[T]
-type PlansResolver = Callable[[], list[StripePlan] | Awaitable[list[StripePlan]]]
+type PlansResolver = Callable[[], MaybeAwaitable[list[StripePlan]]]
 type AccountAuthorizationHook = Callable[
     [AccountAuthorizationContext[StripeAccountProtocol, IndividualProtocol[str], SessionProtocol]],
     MaybeAwaitable[bool],
