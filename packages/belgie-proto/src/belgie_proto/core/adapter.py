@@ -5,12 +5,11 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from belgie_proto.core.account import AccountAdapterProtocol, AccountProtocol
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.oauth_account import OAuthAccountProtocol
-from belgie_proto.core.oauth_state import OAuthStateProtocol
+from belgie_proto.core.oauth_state import OAuthFlowIntent, OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from typing import Any, Literal
     from uuid import UUID
 
     from belgie_proto.core.connection import DBConnection
@@ -147,7 +146,7 @@ class AdapterProtocol[
         provider: str | None = None,
         code_verifier: str | None = None,
         nonce: str | None = None,
-        intent: Literal["signin", "link"] = "signin",
+        intent: OAuthFlowIntent = "signin",
         redirect_url: str | None = None,
         error_redirect_url: str | None = None,
         new_user_redirect_url: str | None = None,

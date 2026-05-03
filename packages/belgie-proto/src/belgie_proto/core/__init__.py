@@ -4,7 +4,7 @@ from belgie_proto.core.connection import DBConnection
 from belgie_proto.core.individual import IndividualProtocol
 from belgie_proto.core.json import JSONObject, JSONScalar, JSONValue
 from belgie_proto.core.oauth_account import OAuthAccountProtocol
-from belgie_proto.core.oauth_state import OAuthStateProtocol
+from belgie_proto.core.oauth_state import OAuthFlowIntent, OAuthStateProtocol
 from belgie_proto.core.session import SessionProtocol
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "JSONScalar",
     "JSONValue",
     "OAuthAccountProtocol",
+    "OAuthFlowIntent",
     "OAuthStateProtocol",
     "SessionProtocol",
 ]

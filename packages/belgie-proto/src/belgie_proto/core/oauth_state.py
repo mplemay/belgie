@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+
+type OAuthFlowIntent = Literal["signin", "link"]
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from typing import Literal
     from uuid import UUID
 
     from belgie_proto.core.json import JSONValue
@@ -18,7 +19,7 @@ class OAuthStateProtocol(Protocol):
     individual_id: UUID | None
     code_verifier: str | None
     nonce: str | None
-    intent: Literal["signin", "link"]
+    intent: OAuthFlowIntent
     redirect_url: str | None
     error_redirect_url: str | None
     new_user_redirect_url: str | None
@@ -26,3 +27,9 @@ class OAuthStateProtocol(Protocol):
     request_sign_up: bool
     created_at: datetime
     expires_at: datetime
+
+
+__all__ = [
+    "OAuthFlowIntent",
+    "OAuthStateProtocol",
+]

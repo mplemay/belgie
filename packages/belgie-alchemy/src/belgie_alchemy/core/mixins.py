@@ -6,6 +6,8 @@ from typing import Final
 from uuid import UUID
 
 from belgie_proto.core.account import AccountType
+from belgie_proto.core.json import JSONValue  # noqa: TC002 - SQLAlchemy evaluates Mapped annotations at runtime.
+from belgie_proto.core.oauth_state import OAuthFlowIntent  # noqa: TC002 - SQLAlchemy evaluates Mapped annotations.
 from brussels.types import DateTimeUTC
 from sqlalchemy import JSON, Enum, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT
@@ -247,7 +249,7 @@ class OAuthStateMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
-    def intent(self) -> Mapped[str]:
+    def intent(self) -> Mapped[OAuthFlowIntent]:
         return mapped_column(Text, default="signin", nullable=False, kw_only=True)
 
     @declared_attr
@@ -263,7 +265,7 @@ class OAuthStateMixin(MappedAsDataclass):
         return mapped_column(Text, default=None, kw_only=True)
 
     @declared_attr
-    def payload(self) -> Mapped[dict[str, object] | list[object] | str | int | float | bool | None]:
+    def payload(self) -> Mapped[JSONValue]:
         return mapped_column(JSON, default=None, kw_only=True)
 
     @declared_attr
