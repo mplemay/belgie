@@ -1,0 +1,4 @@
+interface:
+  display_name: "Belgie"
+  short_description: "FastAPI auth and plugin patterns"
+  default_prompt: "Use $belgie to add Belgie authentication to this FastAPI app."
