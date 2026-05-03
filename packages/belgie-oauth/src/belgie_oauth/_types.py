@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, runtime_checkable
 
 from belgie_proto.core.json import JSONObject, JSONScalar, JSONValue
+from belgie_proto.core.oauth_state import OAuthFlowIntent
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -19,7 +20,6 @@ if TYPE_CHECKING:
     from belgie_oauth._transport import AuthlibOIDCClient
 
 
-type OAuthFlowIntent = Literal["signin", "link"]
 type OAuthResponseMode = Literal["query", "form_post"]
 type OAuthSameSite = Literal["lax", "strict", "none"]
 type OAuthStateStrategy = Literal["adapter", "cookie"]
