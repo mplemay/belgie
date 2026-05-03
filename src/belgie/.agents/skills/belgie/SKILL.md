@@ -84,23 +84,25 @@ async def profile(
     return {"email": individual.email}
 ```
 
-## Package References
+## Reference Map
 
 Load the smallest relevant reference first. Read additional references only when the task spans package areas.
 
 | Task | Reference |
 | --- | --- |
-| Wire `Belgie`, settings, sessions, protected routes, or request clients | [Core](references/core.md) |
-| Use SQLAlchemy models, mixins, concrete adapters, or database schema ownership | [Alchemy](references/alchemy.md) |
-| Add Google, Microsoft, custom OAuth/OIDC sign-in, account linking, or token access | [OAuth](references/oauth.md) |
-| Build an OAuth 2.1/OIDC provider, dynamic clients, consent, or protected resource metadata | [OAuth Server](references/oauth-server.md) |
-| Add organization workflows, members, invitations, or roles | [Organization](references/organization.md) |
-| Add organization-scoped teams or team membership workflows | [Team](references/team.md) |
-| Add enterprise SSO with OIDC/SAML providers or domain verification | [SSO](references/sso.md) |
-| Add Stripe subscriptions, Checkout, billing portal, or webhook sync | [Stripe](references/stripe.md) |
-| Protect MCP servers with Belgie OAuth or publish MCP resource metadata | [MCP](references/mcp.md) |
-| Write tests with authenticated sessions, seeded individuals, organizations, or captured OTPs | [Testing](references/testing.md) |
-| Implement custom adapters or shared protocol interfaces | [Proto](references/proto.md) |
+| Configure environment variables or `.env` files | [Environment](references/environment.md) |
+| Understand `Account`, `Individual`, `Organization`, and `Team` | [Account Model](references/account-model.md) |
+| Wire `Belgie`, settings, sessions, protected routes, or request clients | [Core](references/packages/core.md) |
+| Use SQLAlchemy models, mixins, concrete adapters, or database schema ownership | [Alchemy](references/packages/alchemy.md) |
+| Add Google, Microsoft, custom OAuth/OIDC sign-in, account linking, or token access | [OAuth](references/packages/oauth.md) |
+| Build an OAuth 2.1/OIDC provider, dynamic clients, consent, or protected resource metadata | [OAuth Server](references/packages/oauth-server.md) |
+| Add organization workflows, members, invitations, or roles | [Organization](references/packages/organization.md) |
+| Add organization-scoped teams or team membership workflows | [Team](references/packages/team.md) |
+| Add enterprise SSO with OIDC/SAML providers or domain verification | [SSO](references/packages/sso.md) |
+| Add Stripe subscriptions, Checkout, billing portal, or webhook sync | [Stripe](references/packages/stripe.md) |
+| Protect MCP servers with Belgie OAuth or publish MCP resource metadata | [MCP](references/packages/mcp.md) |
+| Write tests with authenticated sessions, seeded individuals, organizations, or captured OTPs | [Testing](references/packages/testing.md) |
+| Implement custom adapters or shared protocol interfaces | [Proto](references/packages/proto.md) |
 
 ## Practices
 
