@@ -58,7 +58,7 @@ stripe = [
 team = [
     "belgie-team==0.1.0",
 ]
-test = [
+testing = [
     "belgie-testing==0.1.0",
 ]
 
