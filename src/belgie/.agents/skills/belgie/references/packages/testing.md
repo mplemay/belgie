@@ -5,7 +5,7 @@ capture.
 
 ## Package
 
-- Umbrella install: `uv add "belgie[test]"`
+- Umbrella install: `uv add "belgie[testing]"`
 - Direct package install: `uv add belgie-testing`
 - Umbrella import: `from belgie.testing import TestUtils`
 
