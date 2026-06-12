@@ -350,6 +350,9 @@ fn resolve_run_function(
     let run_export = namespace
         .get(scope, run_key.into())
         .ok_or_else(|| BindingError::missing_run_export(context.to_string()))?;
+    if run_export.is_undefined() {
+        return Err(BindingError::missing_run_export(context.to_string()));
+    }
     if !run_export.is_function() {
         return Err(BindingError::non_function_run_export(context.to_string()));
     }
