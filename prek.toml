@@ -96,11 +96,14 @@ hooks = [
     types = ["markdown"],
     require_serial = true,
   },
-]
-
-[[repos]]
-repo = "https://github.com/zizmorcore/zizmor-pre-commit"
-rev = "v1.25.2"
-hooks = [
-  { id = "zizmor" },
+  {
+    id = "zizmor",
+    name = "zizmor",
+    entry = "uv run zizmor",
+    args = ["--no-progress"],
+    language = "python",
+    types = ["yaml"],
+    files = '(\.github/(workflows/.*|dependabot\.ya?ml))|(action\.ya?ml)$',
+    require_serial = true,
+  },
 ]

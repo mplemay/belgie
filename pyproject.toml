@@ -9,6 +9,15 @@ authors = [
 requires-python = ">=3.12,<3.14"
 dependencies = []
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.16",
+    "rumdl>=0.2.7",
+    "ty>=0.0.43",
+    "zizmor>=1.25.2",
+]
+
 [project.scripts]
 belgie = "belgie:main"
 
@@ -33,13 +42,14 @@ include = ["pyproject.toml"]
 
 [tool.ruff.lint]
 select = ["ALL"]
-exclude = [
+ignore = [
     "D",    # pydocstyle (i.e. ignore missing/malformed docstrings)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = [
     "F401", # imported but unused (common in __init__.py to re-export symbols)
+    "T201", # print is intentional in CLI entry points
 ]
 "**/__tests__/**/*" = [
     "ANN001",  # missing type annotation for function argument
@@ -74,7 +84,6 @@ docstring-code-format = true
 quote-style = "double"
 
 [tool.pytest.ini_options]
-anyio_mode = "auto"
 markers = [
     "integration: marks tests that hit the database or external services",
 ]
