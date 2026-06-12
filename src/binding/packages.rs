@@ -6,7 +6,7 @@ use crate::{binding::blocking, packages, utils::normalize_path};
 
 #[pyclass(
     name = "PackageInstallResult",
-    module = "belgie._core",
+    module = "belgie.dependencies",
     skip_from_py_object
 )]
 #[derive(Clone, Debug)]
@@ -45,7 +45,7 @@ impl PyPackageInstallResult {
 
 #[pyclass(
     name = "PackageUpdateChange",
-    module = "belgie._core",
+    module = "belgie.dependencies",
     skip_from_py_object
 )]
 #[derive(Clone, Debug)]
@@ -82,7 +82,7 @@ impl PyPackageUpdateChange {
 
 #[pyclass(
     name = "PackageUpdateResult",
-    module = "belgie._core",
+    module = "belgie.dependencies",
     skip_from_py_object
 )]
 #[derive(Clone, Debug)]

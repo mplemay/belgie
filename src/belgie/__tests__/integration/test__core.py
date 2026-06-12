@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from belgie._core import Runtime, RuntimeOptions, Script, lock
+from belgie import Runtime, RuntimeOptions, Script
+from belgie.dependencies import lock
 
 if TYPE_CHECKING:
     from pathlib import Path
