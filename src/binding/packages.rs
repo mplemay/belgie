@@ -112,8 +112,8 @@ impl PyPackageUpdateResult {
     }
 }
 
-#[pyfunction(name = "install_packages", signature = (cwd = None, *, include_dev = true, lockfile_only = false))]
-pub fn py_install_packages(
+#[pyfunction(name = "install", signature = (cwd = None, *, include_dev = true, lockfile_only = false))]
+pub fn py_install(
     py: Python<'_>,
     cwd: Option<&Bound<'_, PyAny>>,
     include_dev: bool,
@@ -125,8 +125,8 @@ pub fn py_install_packages(
     .map(Into::into)
 }
 
-#[pyfunction(name = "lock_packages", signature = (cwd = None, *, include_dev = true))]
-pub fn py_lock_packages(
+#[pyfunction(name = "lock", signature = (cwd = None, *, include_dev = true))]
+pub fn py_lock(
     py: Python<'_>,
     cwd: Option<&Bound<'_, PyAny>>,
     include_dev: bool,
@@ -137,8 +137,8 @@ pub fn py_lock_packages(
     .map(Into::into)
 }
 
-#[pyfunction(name = "update_packages", signature = (cwd = None, packages = None, *, include_dev = true, latest = false, lockfile_only = false))]
-pub fn py_update_packages(
+#[pyfunction(name = "update", signature = (cwd = None, packages = None, *, include_dev = true, latest = false, lockfile_only = false))]
+pub fn py_update(
     py: Python<'_>,
     cwd: Option<&Bound<'_, PyAny>>,
     packages: Option<&Bound<'_, PyAny>>,
@@ -153,8 +153,8 @@ pub fn py_update_packages(
     .map(Into::into)
 }
 
-#[pyfunction(name = "ainstall_packages", signature = (cwd = None, *, include_dev = true, lockfile_only = false))]
-pub fn py_ainstall_packages<'py>(
+#[pyfunction(name = "ainstall", signature = (cwd = None, *, include_dev = true, lockfile_only = false))]
+pub fn py_ainstall<'py>(
     py: Python<'py>,
     cwd: Option<&Bound<'_, PyAny>>,
     include_dev: bool,
@@ -174,8 +174,8 @@ pub fn py_ainstall_packages<'py>(
     })
 }
 
-#[pyfunction(name = "alock_packages", signature = (cwd = None, *, include_dev = true))]
-pub fn py_alock_packages<'py>(
+#[pyfunction(name = "alock", signature = (cwd = None, *, include_dev = true))]
+pub fn py_alock<'py>(
     py: Python<'py>,
     cwd: Option<&Bound<'_, PyAny>>,
     include_dev: bool,
@@ -191,8 +191,8 @@ pub fn py_alock_packages<'py>(
     })
 }
 
-#[pyfunction(name = "aupdate_packages", signature = (cwd = None, packages = None, *, include_dev = true, latest = false, lockfile_only = false))]
-pub fn py_aupdate_packages<'py>(
+#[pyfunction(name = "aupdate", signature = (cwd = None, packages = None, *, include_dev = true, latest = false, lockfile_only = false))]
+pub fn py_aupdate<'py>(
     py: Python<'py>,
     cwd: Option<&Bound<'_, PyAny>>,
     packages: Option<&Bound<'_, PyAny>>,

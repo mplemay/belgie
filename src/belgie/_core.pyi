@@ -109,18 +109,18 @@ class Runtime[**BoundP, BoundR]:
         traceback: TracebackType | None,
     ) -> bool | None: ...
 
-def install_packages(
+def install(
     cwd: str | PathLike[str] | None = None,
     *,
     include_dev: bool = True,
     lockfile_only: bool = False,
 ) -> PackageInstallResult: ...
-def lock_packages(
+def lock(
     cwd: str | PathLike[str] | None = None,
     *,
     include_dev: bool = True,
 ) -> PackageInstallResult: ...
-def update_packages(
+def update(
     cwd: str | PathLike[str] | None = None,
     packages: list[str] | None = None,
     *,
@@ -128,18 +128,18 @@ def update_packages(
     latest: bool = False,
     lockfile_only: bool = False,
 ) -> PackageUpdateResult: ...
-def ainstall_packages(
+def ainstall(
     cwd: str | PathLike[str] | None = None,
     *,
     include_dev: bool = True,
     lockfile_only: bool = False,
 ) -> Awaitable[PackageInstallResult]: ...
-def alock_packages(
+def alock(
     cwd: str | PathLike[str] | None = None,
     *,
     include_dev: bool = True,
 ) -> Awaitable[PackageInstallResult]: ...
-def aupdate_packages(
+def aupdate(
     cwd: str | PathLike[str] | None = None,
     packages: list[str] | None = None,
     *,

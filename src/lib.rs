@@ -27,12 +27,12 @@ fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::Py
     m.add_class::<binding::PyTaskRunner>()?;
     m.add_class::<binding::PyRunTaskOptions>()?;
     m.add_class::<binding::PyTaskProcess>()?;
-    m.add_function(wrap_pyfunction!(binding::py_install_packages, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_lock_packages, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_update_packages, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_ainstall_packages, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_alock_packages, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_aupdate_packages, m)?)?;
+    m.add_function(wrap_pyfunction!(binding::py_install, m)?)?;
+    m.add_function(wrap_pyfunction!(binding::py_lock, m)?)?;
+    m.add_function(wrap_pyfunction!(binding::py_update, m)?)?;
+    m.add_function(wrap_pyfunction!(binding::py_ainstall, m)?)?;
+    m.add_function(wrap_pyfunction!(binding::py_alock, m)?)?;
+    m.add_function(wrap_pyfunction!(binding::py_aupdate, m)?)?;
     m.add("BelgieError", py.get_type::<exceptions::BelgieError>())?;
     m.add(
         "BelgieRuntimeError",

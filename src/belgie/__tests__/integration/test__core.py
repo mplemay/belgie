@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from belgie._core import Runtime, RuntimeOptions, Script, lock_packages
+from belgie._core import Runtime, RuntimeOptions, Script, lock
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -245,7 +245,7 @@ std_path = "jsr:@std/path@^1"
         encoding="utf-8",
     )
 
-    result = lock_packages(cwd=tmp_path)
+    result = lock(cwd=tmp_path)
 
     assert (tmp_path / "deno.lock").exists()
     assert result.dependencies == 1

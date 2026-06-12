@@ -17,12 +17,12 @@ from belgie import (
     Runtime,
     RuntimeOptions,
     Script,
-    ainstall_packages,
-    alock_packages,
-    aupdate_packages,
-    install_packages,
-    lock_packages,
-    update_packages,
+    ainstall,
+    alock,
+    aupdate,
+    install,
+    lock,
+    update,
 )
 
 if TYPE_CHECKING:
@@ -37,12 +37,12 @@ def test_runtime_api_is_exported_from_top_level_belgie() -> None:
     assert belgie.PackageInstallResult is PackageInstallResult
     assert belgie.PackageUpdateChange is PackageUpdateChange
     assert belgie.PackageUpdateResult is PackageUpdateResult
-    assert belgie.install_packages is install_packages
-    assert belgie.lock_packages is lock_packages
-    assert belgie.update_packages is update_packages
-    assert belgie.ainstall_packages is ainstall_packages
-    assert belgie.alock_packages is alock_packages
-    assert belgie.aupdate_packages is aupdate_packages
+    assert belgie.install is install
+    assert belgie.lock is lock
+    assert belgie.update is update
+    assert belgie.ainstall is ainstall
+    assert belgie.alock is alock
+    assert belgie.aupdate is aupdate
 
 
 def test_belgie_exception_hierarchy_is_exported() -> None:
@@ -154,18 +154,18 @@ def test_package_helpers_require_belgie_dependency_tables(tmp_path: Path) -> Non
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "example"\n', encoding="utf-8")
 
     with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
-        install_packages(cwd=tmp_path)
+        install(cwd=tmp_path)
 
 
 async def test_async_package_helpers_are_exported_and_renamed(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "example"\n', encoding="utf-8")
 
     with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
-        await ainstall_packages(cwd=tmp_path)
+        await ainstall(cwd=tmp_path)
     with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
-        await alock_packages(cwd=tmp_path)
+        await alock(cwd=tmp_path)
     with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
-        await aupdate_packages(cwd=tmp_path)
+        await aupdate(cwd=tmp_path)
 
 
 def test_package_helpers_read_belgie_dependency_table_errors(tmp_path: Path) -> None:
@@ -178,14 +178,14 @@ react = ["^19"]
     )
 
     with pytest.raises(BelgieRuntimeError, match=r"\[belgie\.dependencies\].*string dependency specifier"):
-        lock_packages(cwd=tmp_path)
+        lock(cwd=tmp_path)
 
 
 def test_package_update_accepts_empty_filter_but_requires_dependencies(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "example"\n', encoding="utf-8")
 
     with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
-        update_packages(cwd=tmp_path, packages=[])
+        update(cwd=tmp_path, packages=[])
 
 
 def test_no_deno_public_error_names_are_exported() -> None:
