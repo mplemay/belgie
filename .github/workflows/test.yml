@@ -23,9 +23,9 @@ jobs:
       - name: Configure Cargo environment
         shell: bash
         run: |
-          mkdir -p "${RUNNER_TEMP}/c" "${RUNNER_TEMP}/t"
+          mkdir -p "${RUNNER_TEMP}/c" "${GITHUB_WORKSPACE}/t"
           echo "CARGO_HOME=${RUNNER_TEMP}/c" >> "${GITHUB_ENV}"
-          echo "CARGO_TARGET_DIR=${RUNNER_TEMP}/t" >> "${GITHUB_ENV}"
+          echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE}/t" >> "${GITHUB_ENV}"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
@@ -36,6 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-bin: false
+          workspaces: . -> t
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -64,9 +65,9 @@ jobs:
       - name: Configure Cargo environment
         shell: bash
         run: |
-          mkdir -p "${RUNNER_TEMP}/c" "${RUNNER_TEMP}/t"
+          mkdir -p "${RUNNER_TEMP}/c" "${GITHUB_WORKSPACE}/t"
           echo "CARGO_HOME=${RUNNER_TEMP}/c" >> "${GITHUB_ENV}"
-          echo "CARGO_TARGET_DIR=${RUNNER_TEMP}/t" >> "${GITHUB_ENV}"
+          echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE}/t" >> "${GITHUB_ENV}"
 
       - name: Enable Windows long paths
         if: runner.os == 'Windows'
@@ -82,6 +83,7 @@ jobs:
         with:
           cache-bin: false
           key: python-${{ matrix.python-version }}
+          workspaces: . -> t
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -111,9 +113,9 @@ jobs:
       - name: Configure Cargo environment
         shell: bash
         run: |
-          mkdir -p "${RUNNER_TEMP}/c" "${RUNNER_TEMP}/t"
+          mkdir -p "${RUNNER_TEMP}/c" "${GITHUB_WORKSPACE}/t"
           echo "CARGO_HOME=${RUNNER_TEMP}/c" >> "${GITHUB_ENV}"
-          echo "CARGO_TARGET_DIR=${RUNNER_TEMP}/t" >> "${GITHUB_ENV}"
+          echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE}/t" >> "${GITHUB_ENV}"
 
       - name: Enable Windows long paths
         if: runner.os == 'Windows'
@@ -128,6 +130,7 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-bin: false
+          workspaces: . -> t
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
