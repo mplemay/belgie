@@ -19,7 +19,6 @@ hooks = [
   {
     id = "pretty-format-json",
     args = ["--autofix", "--no-ensure-ascii"],
-    exclude = "tsconfig\\.json$",
   },
 
   # Safety guards
@@ -27,7 +26,6 @@ hooks = [
   { id = "check-case-conflict" },
   { id = "check-merge-conflict" },
   { id = "detect-private-key" },
-  { id = "no-commit-to-branch" },
 ]
 
 [[repos]]
@@ -104,6 +102,24 @@ hooks = [
     language = "python",
     types = ["yaml"],
     files = '(\.github/(workflows/.*|dependabot\.ya?ml))|(action\.ya?ml)$',
+    require_serial = true,
+  },
+  {
+    id = "cargo-fmt",
+    name = "cargo fmt",
+    entry = "cargo fmt --package belgie --",
+    language = "system",
+    files = '^(Cargo\.(toml|lock)|rust-toolchain\.toml|\.cargo/config\.toml|src/.*\.rs)$',
+    pass_filenames = false,
+    require_serial = true,
+  },
+  {
+    id = "cargo-clippy",
+    name = "cargo clippy",
+    entry = "env PYO3_NO_PYTHON=1 cargo clippy --package belgie --all-targets --all-features -- -D warnings",
+    language = "system",
+    files = '^(Cargo\.(toml|lock)|rust-toolchain\.toml|\.cargo/config\.toml|src/.*\.rs)$',
+    pass_filenames = false,
     require_serial = true,
   },
 ]
