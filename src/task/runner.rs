@@ -26,13 +26,13 @@ pub(crate) struct TaskProcess {
 struct TaskProcessInner {
     origin: Option<String>,
     child: Mutex<Option<Child>>,
-    _config_dir: TempDir,
+    config_dir: TempDir,
 }
 
 #[derive(Debug)]
 struct SpawnedTask {
     child: Child,
-    _config_dir: TempDir,
+    config_dir: TempDir,
 }
 
 impl TaskProcess {
@@ -63,6 +63,7 @@ impl TaskProcess {
     }
 
     pub(crate) fn stop_blocking(&self) -> Result<(), AnyError> {
+        let _ = self.inner.config_dir.path();
         let mut guard = self
             .inner
             .child
@@ -95,12 +96,12 @@ impl TaskRunner {
 
     pub(crate) fn start_blocking(&self, options: RunTaskOptions) -> Result<TaskProcess, AnyError> {
         let origin = task_origin(&options);
-        let SpawnedTask { child, _config_dir } = spawn_deno_task(&options, true)?;
+        let SpawnedTask { child, config_dir } = spawn_deno_task(&options, true)?;
         Ok(TaskProcess {
             inner: Arc::new(TaskProcessInner {
                 origin,
                 child: Mutex::new(Some(child)),
-                _config_dir,
+                config_dir,
             }),
         })
     }
@@ -200,10 +201,7 @@ fn spawn_deno_task(options: &RunTaskOptions, background: bool) -> Result<Spawned
     let child = command
         .spawn()
         .with_context(|| format!("Failed to spawn deno task '{}'", options.script))?;
-    Ok(SpawnedTask {
-        child,
-        _config_dir: config_dir,
-    })
+    Ok(SpawnedTask { child, config_dir })
 }
 
 fn copy_task_config_to_temp_dir(env: &PackageEnvironment) -> Result<(TempDir, PathBuf), AnyError> {
@@ -436,7 +434,7 @@ build = "echo ok"
             .unwrap();
         let task = SpawnedTask {
             child,
-            _config_dir: tempfile::tempdir().unwrap(),
+            config_dir: tempfile::tempdir().unwrap(),
         };
 
         let result = wait_for_foreground_child(task).unwrap();
