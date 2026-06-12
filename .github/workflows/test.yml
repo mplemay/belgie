@@ -14,8 +14,9 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     env:
-      CARGO_HOME: ${{ github.workspace }}/.cargo-home
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_HOME: ${{ runner.temp }}/c
+      CARGO_TARGET_DIR: ${{ runner.temp }}/t
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -44,8 +45,9 @@ jobs:
     name: test (python ${{ matrix.python-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
-      CARGO_HOME: ${{ github.workspace }}/.cargo-home
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_HOME: ${{ runner.temp }}/c
+      CARGO_TARGET_DIR: ${{ runner.temp }}/t
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +57,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
@@ -82,8 +88,9 @@ jobs:
     name: test (rust, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
-      CARGO_HOME: ${{ github.workspace }}/.cargo-home
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_HOME: ${{ runner.temp }}/c
+      CARGO_TARGET_DIR: ${{ runner.temp }}/t
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     strategy:
       fail-fast: false
       matrix:
@@ -92,6 +99,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
