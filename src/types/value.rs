@@ -149,9 +149,14 @@ impl PyJsValue {
         scope: &mut v8::PinScope<'s, 'i>,
         value: v8::Local<'s, v8::Value>,
     ) -> Result<Self, BindingError> {
-        Ok(Self::from_json(value_from_v8(scope, value, "$")?))
+        let mut seen = Vec::new();
+        Ok(Self::from_json(value_from_v8(
+            scope, value, "$", &mut seen,
+        )?))
     }
 }
+
+type SeenV8Objects = Vec<v8::Global<v8::Object>>;
 
 fn json_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
     match value {
@@ -197,6 +202,7 @@ fn value_from_v8<'s, 'i>(
     scope: &mut v8::PinScope<'s, 'i>,
     value: v8::Local<'s, v8::Value>,
     path: &str,
+    seen: &mut SeenV8Objects,
 ) -> Result<Value, BindingError> {
     if value.is_null_or_undefined() {
         return Ok(Value::Null);
@@ -273,6 +279,10 @@ fn value_from_v8<'s, 'i>(
         let array = v8::Local::<v8::Array>::try_from(value).map_err(|_| {
             BindingError::value_conversion(format!("Could not convert JavaScript array at {path}",))
         })?;
+        let object = v8::Local::<v8::Object>::try_from(value).map_err(|_| {
+            BindingError::value_conversion(format!("Could not convert JavaScript array at {path}",))
+        })?;
+        enter_v8_object(scope, object, path, seen)?;
         let mut values = Vec::with_capacity(array.length() as usize);
         for index in 0..array.length() {
             let value = array.get_index(scope, index).ok_or_else(|| {
@@ -288,9 +298,11 @@ fn value_from_v8<'s, 'i>(
                     scope,
                     value,
                     &array_path(path, index as usize),
+                    seen,
                 )?);
             }
         }
+        let _ = seen.pop();
         return Ok(Value::Array(values));
     }
     if value.is_object() {
@@ -305,6 +317,7 @@ fn value_from_v8<'s, 'i>(
                 "Only plain JavaScript objects can be returned as Python JSON at {path}; got {constructor_name}",
             )));
         }
+        enter_v8_object(scope, object, path, seen)?;
         let keys = object
             .get_own_property_names(
                 scope,
@@ -335,9 +348,10 @@ fn value_from_v8<'s, 'i>(
             let key = key.to_rust_string_lossy(scope);
             values.insert(
                 key.clone(),
-                value_from_v8(scope, value, &object_path(path, &key))?,
+                value_from_v8(scope, value, &object_path(path, &key), seen)?,
             );
         }
+        let _ = seen.pop();
         return Ok(Value::Object(values));
     }
 
@@ -345,6 +359,21 @@ fn value_from_v8<'s, 'i>(
         "Cannot convert JavaScript {} at {path} to Python JSON",
         value.type_repr()
     )))
+}
+
+fn enter_v8_object<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    object: v8::Local<'s, v8::Object>,
+    path: &str,
+    seen: &mut SeenV8Objects,
+) -> Result<(), BindingError> {
+    if seen.iter().any(|seen_object| seen_object == &object) {
+        return Err(BindingError::value_conversion(format!(
+            "Cannot convert JavaScript data structure cycle at {path} to Python JSON",
+        )));
+    }
+    seen.push(v8::Global::new(scope, object));
+    Ok(())
 }
 
 fn array_path(path: &str, index: usize) -> String {
@@ -369,7 +398,10 @@ fn object_path(path: &str, key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{MAX_SAFE_INTEGER, PyJsValue};
-    use deno_core::serde_json::{Map, Number, Value};
+    use deno_core::{
+        serde_json::{Map, Number, Value},
+        v8,
+    };
     use pyo3::types::{PyAnyMethods, PyDict, PyDictMethods, PyList, PyListMethods, PyTuple};
 
     #[test]
@@ -556,6 +588,43 @@ mod tests {
         let round_trip = PyJsValue::from_v8(scope, v8_value).expect("V8 should convert to JSON");
 
         assert_eq!(round_trip.as_json(), value.as_json());
+    }
+
+    #[test]
+    fn rejects_cyclic_javascript_objects() {
+        let mut runtime = deno_core::JsRuntime::new(Default::default());
+        deno_core::scope!(scope, &mut runtime);
+        let object = v8::Object::new(scope);
+        let key = v8::String::new(scope, "self").expect("key should build");
+        object
+            .set(scope, key.into(), object.into())
+            .expect("property should set");
+
+        let error = PyJsValue::from_v8(scope, object.into())
+            .expect_err("cycles should fail")
+            .message()
+            .to_string();
+
+        assert!(error.contains("cycle"));
+        assert!(error.contains("$.self"));
+    }
+
+    #[test]
+    fn rejects_cyclic_javascript_arrays() {
+        let mut runtime = deno_core::JsRuntime::new(Default::default());
+        deno_core::scope!(scope, &mut runtime);
+        let array = v8::Array::new(scope, 0);
+        array
+            .set_index(scope, 0, array.into())
+            .expect("array item should set");
+
+        let error = PyJsValue::from_v8(scope, array.into())
+            .expect_err("cycles should fail")
+            .message()
+            .to_string();
+
+        assert!(error.contains("cycle"));
+        assert!(error.contains("$[0]"));
     }
 
     #[test]

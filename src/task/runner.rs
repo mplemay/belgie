@@ -3,6 +3,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use deno_core::anyhow::Context;
@@ -81,15 +82,7 @@ pub(crate) struct TaskRunner;
 
 impl TaskRunner {
     pub(crate) fn run_blocking(&self, options: RunTaskOptions) -> Result<TaskResult, AnyError> {
-        let mut child = spawn_deno_task(&options, false)?;
-        let status = child.wait().context("Failed to wait for task subprocess")?;
-        let exit_code = status.code().unwrap_or(1);
-        let stderr = if exit_code == 0 {
-            None
-        } else {
-            read_captured_stderr(&mut child)
-        };
-        Ok(TaskResult { exit_code, stderr })
+        wait_for_foreground_child(spawn_deno_task(&options, false)?)
     }
 
     pub(crate) fn start_blocking(&self, options: RunTaskOptions) -> Result<TaskProcess, AnyError> {
@@ -104,6 +97,25 @@ impl TaskRunner {
     }
 }
 
+fn wait_for_foreground_child(mut child: Child) -> Result<TaskResult, AnyError> {
+    let stderr_reader = child.stderr.take().map(spawn_captured_stderr_reader);
+    let status = child.wait().context("Failed to wait for task subprocess")?;
+    let exit_code = status.code().unwrap_or(1);
+    let captured_stderr = stderr_reader
+        .and_then(|reader| reader.join().ok())
+        .flatten();
+    let stderr = if exit_code == 0 {
+        None
+    } else {
+        captured_stderr
+    };
+    Ok(TaskResult { exit_code, stderr })
+}
+
+fn spawn_captured_stderr_reader(stderr: impl Read + Send + 'static) -> JoinHandle<Option<String>> {
+    thread::spawn(move || read_captured_stderr(stderr))
+}
+
 fn task_origin(options: &RunTaskOptions) -> Option<String> {
     match (&options.host, options.port) {
         (Some(host), Some(port)) => Some(format!("http://{host}:{port}")),
@@ -111,13 +123,19 @@ fn task_origin(options: &RunTaskOptions) -> Option<String> {
     }
 }
 
-fn read_captured_stderr(child: &mut Child) -> Option<String> {
-    let stderr = child.stderr.take()?;
+fn read_captured_stderr(mut stderr: impl Read) -> Option<String> {
     let mut buffer = Vec::new();
-    stderr
-        .take(STDERR_CAPTURE_LIMIT as u64)
-        .read_to_end(&mut buffer)
-        .ok()?;
+    let mut chunk = [0; 1024];
+    loop {
+        let read = stderr.read(&mut chunk).ok()?;
+        if read == 0 {
+            break;
+        }
+        let remaining = STDERR_CAPTURE_LIMIT.saturating_sub(buffer.len());
+        if remaining > 0 {
+            buffer.extend_from_slice(&chunk[..read.min(remaining)]);
+        }
+    }
     let text = String::from_utf8_lossy(&buffer).trim().to_string();
     if text.is_empty() { None } else { Some(text) }
 }
@@ -255,6 +273,9 @@ fn terminate_child_unix(child: &mut Child) -> Result<(), AnyError> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use std::io::Write;
+
+    const LARGE_STDERR_CHILD_ENV: &str = "BELGIE_LARGE_STDERR_CHILD";
 
     fn sample_options(argv: Vec<&str>) -> RunTaskOptions {
         RunTaskOptions {
@@ -333,5 +354,33 @@ mod tests {
             task_origin(&options).as_deref(),
             Some("http://127.0.0.1:13714")
         );
+    }
+
+    #[test]
+    fn drains_foreground_task_stderr_before_waiting() {
+        let child = Command::new(std::env::current_exe().unwrap())
+            .arg("foreground_task_stderr_writer_child")
+            .arg("--nocapture")
+            .env(LARGE_STDERR_CHILD_ENV, "1")
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let result = wait_for_foreground_child(child).unwrap();
+
+        assert_eq!(result.exit_code, 7);
+        assert_eq!(result.stderr.unwrap().len(), STDERR_CAPTURE_LIMIT);
+    }
+
+    #[test]
+    fn foreground_task_stderr_writer_child() {
+        if std::env::var_os(LARGE_STDERR_CHILD_ENV).is_none() {
+            return;
+        }
+
+        let stderr = vec![b'x'; STDERR_CAPTURE_LIMIT * 4];
+        std::io::stderr().write_all(&stderr).unwrap();
+        std::process::exit(7);
     }
 }

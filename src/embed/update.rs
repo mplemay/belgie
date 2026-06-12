@@ -81,7 +81,9 @@ fn parse_filters(filters: &[String]) -> Vec<FilterEntry> {
     filters
         .iter()
         .map(|filter| {
-            if let Some((alias, version_req)) = filter.split_once('@') {
+            if let Some((alias, version_req)) = filter.rsplit_once('@')
+                && !alias.is_empty()
+            {
                 FilterEntry {
                     alias: alias.to_string(),
                     version_req: Some(format!("@{version_req}")),
@@ -310,12 +312,40 @@ mod tests {
 
     #[test]
     fn parses_filters_with_explicit_versions() {
-        let filters = parse_filters(&["react".to_string(), "std_path@^2".to_string()]);
+        let filters = parse_filters(&[
+            "react".to_string(),
+            "std_path@^2".to_string(),
+            "@types/react".to_string(),
+            "@types/react@^20".to_string(),
+        ]);
 
         assert_eq!(filters[0].alias, "react");
         assert!(filters[0].version_req.is_none());
         assert_eq!(filters[1].alias, "std_path");
         assert_eq!(filters[1].version_req.as_deref(), Some("@^2"));
+        assert_eq!(filters[2].alias, "@types/react");
+        assert!(filters[2].version_req.is_none());
+        assert_eq!(filters[3].alias, "@types/react");
+        assert_eq!(filters[3].version_req.as_deref(), Some("@^20"));
+    }
+
+    #[test]
+    fn resolves_scoped_alias_filters() {
+        let imports = serde_json::Map::from_iter([
+            (
+                "react".to_string(),
+                serde_json::Value::String("npm:react@^19".to_string()),
+            ),
+            (
+                "@types/react".to_string(),
+                serde_json::Value::String("npm:@types/react@^19".to_string()),
+            ),
+        ]);
+        let filters = parse_filters(&["@types/react@^20".to_string()]);
+
+        let aliases = resolve_aliases_to_update(&imports, &filters).unwrap();
+
+        assert_eq!(aliases, vec!["@types/react"]);
     }
 
     #[test]

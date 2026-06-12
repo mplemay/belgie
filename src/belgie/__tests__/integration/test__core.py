@@ -216,6 +216,18 @@ def test_reports_non_json_javascript_return_values(tmp_path: Path, expression: s
         run_script(tmp_path, source)
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "export default function run() { const value = {}; value.self = value; return value; }",
+        "export default function run() { const value = []; value.push(value); return value; }",
+    ],
+)
+def test_reports_cyclic_javascript_return_values(tmp_path: Path, source: str):
+    with pytest.raises((TypeError, ValueError), match=r"cycle|\$"):
+        run_script(tmp_path, source)
+
+
 def test_reports_missing_run_export(tmp_path: Path):
     with pytest.raises(Exception, match="run"):
         run_script(tmp_path, "export const answer = 42;")
