@@ -15,17 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-
-      - name: Configure Cargo environment
-        shell: bash
-        run: |
-          mkdir -p "${RUNNER_TEMP}/c" "${GITHUB_WORKSPACE}/t"
-          echo "CARGO_HOME=${RUNNER_TEMP}/c" >> "${GITHUB_ENV}"
-          echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE}/t" >> "${GITHUB_ENV}"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
@@ -35,8 +29,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
+          shared-key: lint
           cache-bin: false
-          workspaces: . -> t
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -48,6 +42,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     strategy:
       fail-fast: false
       matrix:
@@ -58,13 +53,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Configure Cargo environment
-        shell: bash
-        run: |
-          mkdir -p "${RUNNER_TEMP}/c" "${GITHUB_WORKSPACE}/t"
-          echo "CARGO_HOME=${RUNNER_TEMP}/c" >> "${GITHUB_ENV}"
-          echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE}/t" >> "${GITHUB_ENV}"
-
       - name: Enable Windows long paths
         if: runner.os == 'Windows'
         run: git config --global core.longpaths true
@@ -73,13 +61,12 @@ jobs:
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           toolchain: stable
-          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          cache-bin: false
+          shared-key: test-python-${{ matrix.os }}
           key: python-${{ matrix.python-version }}
-          workspaces: . -> t
+          cache-bin: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -94,6 +81,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     strategy:
       fail-fast: false
       matrix:
@@ -102,13 +90,6 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-
-      - name: Configure Cargo environment
-        shell: bash
-        run: |
-          mkdir -p "${RUNNER_TEMP}/c" "${GITHUB_WORKSPACE}/t"
-          echo "CARGO_HOME=${RUNNER_TEMP}/c" >> "${GITHUB_ENV}"
-          echo "CARGO_TARGET_DIR=${GITHUB_WORKSPACE}/t" >> "${GITHUB_ENV}"
 
       - name: Enable Windows long paths
         if: runner.os == 'Windows'
@@ -121,8 +102,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
+          shared-key: test-rust-${{ matrix.os }}
           cache-bin: false
-          workspaces: . -> t
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Rust tests
