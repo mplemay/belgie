@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from json import dumps
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -29,7 +30,11 @@ class TestRunTaskOptions:
         assert options.task_cwd == str(tmp_path)
         assert options.script == "build"
         assert options.argv == ["--mode", "test"]
-        assert repr(options) == f'RunTaskOptions(task_cwd="{tmp_path}", script="build", argv=["--mode", "test"])'
+        expected_repr = (
+            f"RunTaskOptions(task_cwd={dumps(str(tmp_path))}, "
+            f"script={dumps('build')}, argv=[{dumps('--mode')}, {dumps('test')}])"
+        )
+        assert repr(options) == expected_repr
 
     def test_defaults_optional_collections(self, tmp_path: Path) -> None:
         options = RunTaskOptions(str(tmp_path), "build")

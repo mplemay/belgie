@@ -217,11 +217,11 @@ mod tests {
         with_python(|py| {
             let (normalized, content) =
                 read_script_file(py, PathBuf::from("main.ts")).expect("script should be read");
+            let expected = env::current_dir()
+                .expect("current dir should be available")
+                .join("main.ts");
 
-            assert_eq!(
-                normalized,
-                fs::canonicalize(root.join("main.ts")).expect("script path should canonicalize")
-            );
+            assert_eq!(normalized, expected);
             assert_eq!(content, "export default () => 42;\n");
         });
 
