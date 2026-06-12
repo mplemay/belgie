@@ -85,6 +85,7 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 anyio_mode = "auto"
+testpaths = ["src/belgie/__tests__"]
 markers = [
     "integration: marks tests that hit the database or external services",
 ]
