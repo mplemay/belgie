@@ -1,0 +1,25 @@
+[project]
+name = "belgie"
+version = "0.1.0"
+description = "A minimal, secure javascript runtime for python"
+readme = "README.md"
+authors = [
+    { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+belgie = "belgie:main"
+
+[tool.maturin]
+module-name = "belgie._core"
+python-packages = ["belgie"]
+python-source = "src"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
