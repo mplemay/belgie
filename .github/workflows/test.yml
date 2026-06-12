@@ -41,6 +41,13 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            Cargo.toml
+            Cargo.lock
+            src/**/*.py
+            src/**/*.rs
 
       - name: Install python dependencies
         run: uv sync --all-groups --all-extras --all-packages
@@ -89,6 +96,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            Cargo.toml
+            Cargo.lock
+            src/**/*.py
+            src/**/*.rs
 
       - name: Install dependencies
         run: uv sync --all-groups --all-extras --all-packages
@@ -136,6 +150,13 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            Cargo.toml
+            Cargo.lock
+            src/**/*.py
+            src/**/*.rs
 
       - name: Run Rust tests
         run: uv run cargo test --package belgie --all-targets
