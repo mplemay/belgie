@@ -107,7 +107,8 @@ jobs:
           uv version "$VERSION" --frozen
           cargo install cargo-edit --version 0.13.11 --locked
           cargo set-version "$VERSION"
-          cargo generate-lockfile
+          cargo update --workspace
+          cargo metadata --locked --format-version 1 >/dev/null
 
           python - <<'PY'
           from pathlib import Path
@@ -147,6 +148,25 @@ jobs:
           maturin-version: v1.14.0
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
+          before-script-linux: |
+            if command -v dnf >/dev/null; then
+              dnf install -y clang clang-devel glibc-devel
+            elif command -v yum >/dev/null; then
+              yum install -y clang clang-devel glibc-devel
+            elif command -v apt-get >/dev/null; then
+              apt-get update
+              apt-get install -y clang libclang-dev libc6-dev
+            else
+              echo "::error::No supported package manager found for installing clang."
+              exit 1
+            fi
+
+            export LIBCLANG_PATH="$(llvm-config --libdir)"
+
+            if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+              sysroot="$(aarch64-unknown-linux-gnu-gcc -print-sysroot)"
+              export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include -I$sysroot/usr/include/aarch64-linux-gnu"
+            fi
           args: --release --locked --compatibility pypi --out dist
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -194,7 +214,8 @@ jobs:
           uv version "$VERSION" --frozen
           cargo install cargo-edit --version 0.13.11 --locked
           cargo set-version "$VERSION"
-          cargo generate-lockfile
+          cargo update --workspace
+          cargo metadata --locked --format-version 1 >/dev/null
 
           python - <<'PY'
           from pathlib import Path
@@ -227,7 +248,7 @@ jobs:
         with:
           command: sdist
           maturin-version: v1.14.0
-          args: --locked --out dist
+          args: --out dist
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
