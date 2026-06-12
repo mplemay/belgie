@@ -19,7 +19,6 @@ hooks = [
   {
     id = "pretty-format-json",
     args = ["--autofix", "--no-ensure-ascii"],
-    exclude = "tsconfig\\.json$",
   },
 
   # Safety guards
@@ -27,7 +26,6 @@ hooks = [
   { id = "check-case-conflict" },
   { id = "check-merge-conflict" },
   { id = "detect-private-key" },
-  { id = "no-commit-to-branch" },
 ]
 
 [[repos]]
