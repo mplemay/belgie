@@ -22,7 +22,11 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+        id: toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -30,7 +34,7 @@ jobs:
             ${{ env.CARGO_HOME }}/registry
             ${{ env.CARGO_HOME }}/git
             ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-prek-cargo-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-prek-cargo-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-prek-cargo-
 
@@ -60,7 +64,11 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+        id: toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -68,7 +76,7 @@ jobs:
             ${{ env.CARGO_HOME }}/registry
             ${{ env.CARGO_HOME }}/git
             ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-test-python-cargo-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-test-python-cargo-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-test-python-cargo-
 
@@ -99,7 +107,11 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+        id: toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -107,7 +119,7 @@ jobs:
             ${{ env.CARGO_HOME }}/registry
             ${{ env.CARGO_HOME }}/git
             ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-test-rust-cargo-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-test-rust-cargo-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-test-rust-cargo-
 
