@@ -37,20 +37,9 @@ jobs:
         with:
           cache-bin: false
           workspaces: . -> t
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
-            Cargo.toml
-            Cargo.lock
-            src/**/*.py
-            src/**/*.rs
-
-      - name: Install python dependencies
-        run: uv sync --all-groups --all-extras --all-packages
 
       - uses: j178/prek-action@bdca6f102f98e2b4c7029491a53dfd366469e33d # v2.0.4
 
@@ -91,21 +80,11 @@ jobs:
           cache-bin: false
           key: python-${{ matrix.python-version }}
           workspaces: . -> t
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: ${{ matrix.python-version }}
-          enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
-            Cargo.toml
-            Cargo.lock
-            src/**/*.py
-            src/**/*.rs
-
-      - name: Install dependencies
-        run: uv sync --all-groups --all-extras --all-packages
 
       - name: Run tests
         run: uv run pytest
@@ -139,24 +118,12 @@ jobs:
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           toolchain: stable
-          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-bin: false
           workspaces: . -> t
-
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          python-version: "3.12"
-          enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
-            Cargo.toml
-            Cargo.lock
-            src/**/*.py
-            src/**/*.rs
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Rust tests
-        run: uv run cargo test --package belgie --all-targets
+        run: cargo test --package belgie --all-targets
