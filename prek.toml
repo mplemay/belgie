@@ -104,4 +104,22 @@ hooks = [
     files = '(\.github/(workflows/.*|dependabot\.ya?ml))|(action\.ya?ml)$',
     require_serial = true,
   },
+  {
+    id = "cargo-fmt",
+    name = "cargo fmt",
+    entry = "cargo fmt --package belgie --",
+    language = "system",
+    files = '^(Cargo\.(toml|lock)|rust-toolchain\.toml|\.cargo/config\.toml|src/.*\.rs)$',
+    pass_filenames = false,
+    require_serial = true,
+  },
+  {
+    id = "cargo-clippy",
+    name = "cargo clippy",
+    entry = "env PYO3_NO_PYTHON=1 cargo clippy --package belgie --all-targets --all-features -- -D warnings",
+    language = "system",
+    files = '^(Cargo\.(toml|lock)|rust-toolchain\.toml|\.cargo/config\.toml|src/.*\.rs)$',
+    pass_filenames = false,
+    require_serial = true,
+  },
 ]
