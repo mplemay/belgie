@@ -22,21 +22,14 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        id: toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           toolchain: stable
           components: rustfmt, clippy
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ${{ env.CARGO_HOME }}/registry
-            ${{ env.CARGO_HOME }}/git
-            ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-prek-cargo-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-prek-cargo-
+          cache-bin: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -64,21 +57,15 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        id: toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           toolchain: stable
           components: rustfmt, clippy
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ${{ env.CARGO_HOME }}/registry
-            ${{ env.CARGO_HOME }}/git
-            ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-test-python-cargo-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-test-python-cargo-
+          cache-bin: false
+          key: python-${{ matrix.python-version }}
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -107,21 +94,14 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust
-        id: toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
         with:
           toolchain: stable
           components: rustfmt, clippy
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ${{ env.CARGO_HOME }}/registry
-            ${{ env.CARGO_HOME }}/git
-            ${{ env.CARGO_TARGET_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-test-rust-cargo-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-test-rust-cargo-
+          cache-bin: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
