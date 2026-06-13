@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use deno_core::anyhow::Context;
@@ -15,6 +16,7 @@ use crate::task::deno_exe::resolve_deno_exe;
 use crate::task::types::{RunTaskOptions, TaskResult};
 
 const STDERR_CAPTURE_LIMIT: usize = 8 * 1024;
+#[cfg(unix)]
 const TERMINATE_GRACE_PERIOD: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug)]
@@ -220,13 +222,14 @@ fn copy_task_config_to_temp_dir(env: &PackageEnvironment) -> Result<(TempDir, Pa
     Ok((config_dir, config_file))
 }
 
+#[cfg(unix)]
 fn set_process_group(command: &mut Command) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
 }
+
+#[cfg(not(unix))]
+fn set_process_group(_command: &mut Command) {}
 
 fn terminate_child(child: &mut Child) -> Result<(), AnyError> {
     #[cfg(unix)]
@@ -311,8 +314,10 @@ fn signal_process_group(pid: i32, signal: i32) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    #[cfg(not(windows))]
     use std::io::Write;
 
+    #[cfg(not(windows))]
     const LARGE_STDERR_CHILD_ENV: &str = "BELGIE_LARGE_STDERR_CHILD";
 
     fn sample_options(argv: Vec<&str>) -> RunTaskOptions {
@@ -422,12 +427,35 @@ build = "echo ok"
         assert!(!project.join(".belgie").exists());
     }
 
-    #[test]
-    fn drains_foreground_task_stderr_before_waiting() {
-        let child = Command::new(std::env::current_exe().unwrap())
+    #[cfg(windows)]
+    fn large_stderr_child_command() -> Command {
+        let script = format!(
+            "[Console]::Error.Write(('x' * {})); exit 7",
+            STDERR_CAPTURE_LIMIT * 4
+        );
+        let mut command = Command::new("powershell.exe");
+        command
+            .arg("-NoLogo")
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-Command")
+            .arg(script);
+        command
+    }
+
+    #[cfg(not(windows))]
+    fn large_stderr_child_command() -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
             .arg("foreground_task_stderr_writer_child")
             .arg("--nocapture")
-            .env(LARGE_STDERR_CHILD_ENV, "1")
+            .env(LARGE_STDERR_CHILD_ENV, "1");
+        command
+    }
+
+    #[test]
+    fn drains_foreground_task_stderr_before_waiting() {
+        let child = large_stderr_child_command()
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
@@ -443,6 +471,7 @@ build = "echo ok"
         assert_eq!(result.stderr.unwrap().len(), STDERR_CAPTURE_LIMIT);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn foreground_task_stderr_writer_child() {
         if std::env::var_os(LARGE_STDERR_CHILD_ENV).is_none() {
