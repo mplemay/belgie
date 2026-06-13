@@ -3,6 +3,12 @@ name: publish
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (vX.Y.Z)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -24,7 +30,7 @@ jobs:
       - name: Validate release tag
         id: release
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
         run: |
           set -euo pipefail
 
@@ -40,34 +46,19 @@ jobs:
           fi
 
           version="${TAG_NAME#v}"
-          export VERSION="$version"
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-          import tomllib
-
-          expected = os.environ["VERSION"]
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
-          cargo = tomllib.loads(Path("Cargo.toml").read_text())
-          lock = tomllib.loads(Path("Cargo.lock").read_text())
-
-          actual = {
-              "pyproject.toml": pyproject["project"]["version"],
-              "Cargo.toml": cargo["package"]["version"],
-          }
-          for package in lock["package"]:
-              if package["name"] == "belgie":
-                  actual["Cargo.lock"] = package["version"]
-                  break
-
-          if "Cargo.lock" not in actual:
-              raise SystemExit("Cargo.lock is missing the belgie package entry")
-
-          mismatched = {name: version for name, version in actual.items() if version != expected}
-          if mismatched:
-              raise SystemExit(f"release version mismatch: {mismatched}")
-          PY
+          status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "https://pypi.org/pypi/belgie/${version}/json")"
+          case "$status" in
+            404)
+              ;;
+            200)
+              echo "::error::belgie $version already exists on PyPI."
+              exit 1
+              ;;
+            *)
+              echo "::error::Failed to check PyPI for belgie $version (HTTP $status)."
+              exit 1
+              ;;
+          esac
 
           echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "tag_commit=$tag_commit" >> "$GITHUB_OUTPUT"
@@ -80,6 +71,7 @@ jobs:
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      VERSION: ${{ needs.check.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -127,6 +119,89 @@ jobs:
           python-version: "3.12"
           enable-cache: false
 
+      - name: Set release version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          uv version "$VERSION" --frozen
+
+          uv run --no-project --python 3.12 python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+          import tomllib
+
+          version = os.environ["VERSION"]
+
+
+          def replace_version_in_named_block(path: str, header_pattern: str, name: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text()
+              header = re.search(header_pattern, text, flags=re.MULTILINE)
+              if header is None:
+                  raise SystemExit(f"{path} is missing block for {name}")
+
+              next_block = re.search(r"\n(?:\[\[package\]\]|\[[^\]\n]+\])", text[header.end() :])
+              block_end = len(text) if next_block is None else header.end() + next_block.start()
+              block = text[header.start() : block_end]
+              updated_block, count = re.subn(
+                  r'(?m)^version = "[^"]+"$',
+                  f'version = "{version}"',
+                  block,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f"{path} block for {name} is missing exactly one version")
+
+              file_path.write_text(text[: header.start()] + updated_block + text[block_end:])
+
+
+          replace_version_in_named_block(
+              "Cargo.toml",
+              r'(?m)^\[package\]\nname = "belgie"$',
+              "belgie",
+          )
+          replace_version_in_named_block(
+              "Cargo.lock",
+              r'(?ms)^\[\[package\]\]\nname = "belgie"$',
+              "belgie",
+          )
+          replace_version_in_named_block(
+              "uv.lock",
+              r'(?ms)^\[\[package\]\]\nname = "belgie"$',
+              "belgie",
+          )
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          cargo = tomllib.loads(Path("Cargo.toml").read_text())
+          cargo_lock = tomllib.loads(Path("Cargo.lock").read_text())
+          uv_lock = tomllib.loads(Path("uv.lock").read_text())
+
+          actual = {
+              "pyproject.toml": pyproject["project"]["version"],
+              "Cargo.toml": cargo["package"]["version"],
+          }
+          for package in cargo_lock["package"]:
+              if package["name"] == "belgie":
+                  actual["Cargo.lock"] = package["version"]
+                  break
+          for package in uv_lock["package"]:
+              if package["name"] == "belgie":
+                  actual["uv.lock"] = package["version"]
+                  break
+
+          missing = {"Cargo.lock", "uv.lock"} - actual.keys()
+          if missing:
+              raise SystemExit(f"missing belgie package entries: {sorted(missing)}")
+
+          mismatched = {name: found for name, found in actual.items() if found != version}
+          if mismatched:
+              raise SystemExit(f"release version mismatch: {mismatched}")
+          PY
+
+          cargo metadata --locked --format-version 1 --no-deps >/dev/null
+
       - name: Set up QEMU
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
@@ -172,6 +247,7 @@ jobs:
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -195,6 +271,89 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: false
+
+      - name: Set release version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          uv version "$VERSION" --frozen
+
+          uv run --no-project --python 3.12 python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+          import tomllib
+
+          version = os.environ["VERSION"]
+
+
+          def replace_version_in_named_block(path: str, header_pattern: str, name: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text()
+              header = re.search(header_pattern, text, flags=re.MULTILINE)
+              if header is None:
+                  raise SystemExit(f"{path} is missing block for {name}")
+
+              next_block = re.search(r"\n(?:\[\[package\]\]|\[[^\]\n]+\])", text[header.end() :])
+              block_end = len(text) if next_block is None else header.end() + next_block.start()
+              block = text[header.start() : block_end]
+              updated_block, count = re.subn(
+                  r'(?m)^version = "[^"]+"$',
+                  f'version = "{version}"',
+                  block,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f"{path} block for {name} is missing exactly one version")
+
+              file_path.write_text(text[: header.start()] + updated_block + text[block_end:])
+
+
+          replace_version_in_named_block(
+              "Cargo.toml",
+              r'(?m)^\[package\]\nname = "belgie"$',
+              "belgie",
+          )
+          replace_version_in_named_block(
+              "Cargo.lock",
+              r'(?ms)^\[\[package\]\]\nname = "belgie"$',
+              "belgie",
+          )
+          replace_version_in_named_block(
+              "uv.lock",
+              r'(?ms)^\[\[package\]\]\nname = "belgie"$',
+              "belgie",
+          )
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          cargo = tomllib.loads(Path("Cargo.toml").read_text())
+          cargo_lock = tomllib.loads(Path("Cargo.lock").read_text())
+          uv_lock = tomllib.loads(Path("uv.lock").read_text())
+
+          actual = {
+              "pyproject.toml": pyproject["project"]["version"],
+              "Cargo.toml": cargo["package"]["version"],
+          }
+          for package in cargo_lock["package"]:
+              if package["name"] == "belgie":
+                  actual["Cargo.lock"] = package["version"]
+                  break
+          for package in uv_lock["package"]:
+              if package["name"] == "belgie":
+                  actual["uv.lock"] = package["version"]
+                  break
+
+          missing = {"Cargo.lock", "uv.lock"} - actual.keys()
+          if missing:
+              raise SystemExit(f"missing belgie package entries: {sorted(missing)}")
+
+          mismatched = {name: found for name, found in actual.items() if found != version}
+          if mismatched:
+              raise SystemExit(f"release version mismatch: {mismatched}")
+          PY
+
+          cargo metadata --locked --format-version 1 --no-deps >/dev/null
 
       - name: Build source distribution
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
