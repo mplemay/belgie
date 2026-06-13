@@ -40,6 +40,35 @@ jobs:
           fi
 
           version="${TAG_NAME#v}"
+          export VERSION="$version"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import tomllib
+
+          expected = os.environ["VERSION"]
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          cargo = tomllib.loads(Path("Cargo.toml").read_text())
+          lock = tomllib.loads(Path("Cargo.lock").read_text())
+
+          actual = {
+              "pyproject.toml": pyproject["project"]["version"],
+              "Cargo.toml": cargo["package"]["version"],
+          }
+          for package in lock["package"]:
+              if package["name"] == "belgie":
+                  actual["Cargo.lock"] = package["version"]
+                  break
+
+          if "Cargo.lock" not in actual:
+              raise SystemExit("Cargo.lock is missing the belgie package entry")
+
+          mismatched = {name: version for name, version in actual.items() if version != expected}
+          if mismatched:
+              raise SystemExit(f"release version mismatch: {mismatched}")
+          PY
+
           echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "tag_commit=$tag_commit" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -51,7 +80,6 @@ jobs:
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
-      VERSION: ${{ needs.check.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -99,43 +127,6 @@ jobs:
           python-version: "3.12"
           enable-cache: false
 
-      - name: Set release version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          uv version "$VERSION" --frozen
-          cargo install cargo-edit --version 0.13.11 --locked
-          cargo set-version "$VERSION"
-          cargo update --workspace
-          cargo metadata --locked --format-version 1 >/dev/null
-
-          python - <<'PY'
-          from pathlib import Path
-          import os
-          import tomllib
-
-          expected = os.environ["VERSION"]
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
-          cargo = tomllib.loads(Path("Cargo.toml").read_text())
-          lock = tomllib.loads(Path("Cargo.lock").read_text())
-
-          actual = {
-              "pyproject.toml": pyproject["project"]["version"],
-              "Cargo.toml": cargo["package"]["version"],
-          }
-          for package in lock["package"]:
-              if package["name"] == "belgie":
-                  actual["Cargo.lock"] = package["version"]
-                  break
-
-          mismatched = {name: version for name, version in actual.items() if version != expected}
-          if "Cargo.lock" not in actual:
-              raise SystemExit("Cargo.lock is missing the belgie package entry")
-          if mismatched:
-              raise SystemExit(f"release version mismatch: {mismatched}")
-          PY
-
       - name: Set up QEMU
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
@@ -181,7 +172,6 @@ jobs:
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
-      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -206,49 +196,12 @@ jobs:
           python-version: "3.12"
           enable-cache: false
 
-      - name: Set release version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          uv version "$VERSION" --frozen
-          cargo install cargo-edit --version 0.13.11 --locked
-          cargo set-version "$VERSION"
-          cargo update --workspace
-          cargo metadata --locked --format-version 1 >/dev/null
-
-          python - <<'PY'
-          from pathlib import Path
-          import os
-          import tomllib
-
-          expected = os.environ["VERSION"]
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
-          cargo = tomllib.loads(Path("Cargo.toml").read_text())
-          lock = tomllib.loads(Path("Cargo.lock").read_text())
-
-          actual = {
-              "pyproject.toml": pyproject["project"]["version"],
-              "Cargo.toml": cargo["package"]["version"],
-          }
-          for package in lock["package"]:
-              if package["name"] == "belgie":
-                  actual["Cargo.lock"] = package["version"]
-                  break
-
-          mismatched = {name: version for name, version in actual.items() if version != expected}
-          if "Cargo.lock" not in actual:
-              raise SystemExit("Cargo.lock is missing the belgie package entry")
-          if mismatched:
-              raise SystemExit(f"release version mismatch: {mismatched}")
-          PY
-
       - name: Build source distribution
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: sdist
           maturin-version: v1.14.0
-          args: --out dist
+          args: --locked --out dist
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -310,5 +263,8 @@ jobs:
             fi
           done
 
+      - name: Check distributions
+        run: uvx twine check --strict dist/*
+
       - name: Publish to PyPI
-        run: uv publish dist/*
+        run: uv publish --trusted-publishing always dist/*
