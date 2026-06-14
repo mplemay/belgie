@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from belgie import _core
+from belgie import _core, tasks as public_tasks
 from belgie._core import BelgieRuntimeError, RunTaskOptions, TaskProcess, TaskRunner
 
 if TYPE_CHECKING:
@@ -17,6 +17,22 @@ class TestTaskExports:
         assert _core.RunTaskOptions is RunTaskOptions
         assert _core.TaskProcess is TaskProcess
         assert _core.TaskRunner is TaskRunner
+
+    def test_core_task_exports_are_identical_to_public_tasks(self) -> None:
+        assert _core.RunTaskOptions is public_tasks.RunTaskOptions
+        assert _core.TaskProcess is public_tasks.TaskProcess
+        assert _core.TaskRunner is public_tasks.TaskRunner
+
+    @pytest.mark.parametrize(
+        "task_type",
+        [
+            RunTaskOptions,
+            TaskProcess,
+            TaskRunner,
+        ],
+    )
+    def test_core_task_classes_use_public_tasks_module(self, task_type: type[object]) -> None:
+        assert task_type.__module__ == "belgie.tasks"
 
 
 class TestRunTaskOptions:

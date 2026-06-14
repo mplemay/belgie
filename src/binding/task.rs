@@ -8,7 +8,7 @@ use crate::{
     utils::py_error,
 };
 
-#[pyclass(name = "TaskRunner", module = "belgie._core")]
+#[pyclass(name = "TaskRunner", module = "belgie.tasks")]
 #[derive(Debug, Default)]
 pub(crate) struct PyTaskRunner;
 
