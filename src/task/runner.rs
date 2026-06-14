@@ -20,6 +20,7 @@ struct TaskProcessInner {
     origin: Option<String>,
     stop_tx: Mutex<Option<tokio::sync::mpsc::Sender<()>>>,
     join_handle: Mutex<Option<JoinHandle<Result<TaskResult, AnyError>>>>,
+    worker_result: Mutex<Option<Result<TaskResult, AnyError>>>,
 }
 
 impl TaskProcess {
@@ -28,20 +29,12 @@ impl TaskProcess {
     }
 
     pub(crate) fn is_running_blocking(&self) -> bool {
-        let mut guard = self
-            .inner
+        collect_worker_if_finished(&self.inner);
+        self.inner
             .join_handle
             .lock()
-            .expect("task process join handle lock should not be poisoned");
-        let Some(handle) = guard.as_ref() else {
-            return false;
-        };
-        if handle.is_finished() {
-            *guard = None;
-            false
-        } else {
-            true
-        }
+            .expect("task process join handle lock should not be poisoned")
+            .is_some()
     }
 
     pub(crate) fn stop_blocking(&self) -> Result<(), AnyError> {
@@ -55,15 +48,38 @@ impl TaskProcess {
             let _ = stop_tx.blocking_send(());
         }
 
-        let mut guard = self
+        collect_worker_if_finished(&self.inner);
+
+        let joined_in_stop = {
+            let mut guard = self
+                .inner
+                .join_handle
+                .lock()
+                .expect("task process join handle lock should not be poisoned");
+            if let Some(handle) = guard.take() {
+                *self
+                    .inner
+                    .worker_result
+                    .lock()
+                    .expect("task process worker result lock should not be poisoned") =
+                    Some(join_worker_handle(handle));
+                true
+            } else {
+                false
+            }
+        };
+
+        let mut result_guard = self
             .inner
-            .join_handle
+            .worker_result
             .lock()
-            .expect("task process join handle lock should not be poisoned");
-        if let Some(handle) = guard.take() {
-            handle
-                .join()
-                .map_err(|_| anyhow!("Background task thread panicked"))??;
+            .expect("task process worker result lock should not be poisoned");
+        if let Some(result) = result_guard.take() {
+            match result {
+                Err(error) => return Err(error),
+                Ok(task_result) if !joined_in_stop => task_failure_error(task_result)?,
+                Ok(_) => {}
+            }
         }
         Ok(())
     }
@@ -97,6 +113,7 @@ impl TaskRunner {
     }
 
     pub(crate) fn start_blocking(&self, options: RunTaskOptions) -> Result<TaskProcess, AnyError> {
+        PackageEnvironment::resolve_task(&options.task_cwd, &options.script)?;
         let origin = task_origin(&options);
         let (stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
@@ -138,9 +155,56 @@ impl TaskRunner {
                 origin,
                 stop_tx: Mutex::new(Some(stop_tx)),
                 join_handle: Mutex::new(Some(join_handle)),
+                worker_result: Mutex::new(None),
             }),
         })
     }
+}
+
+fn collect_worker_if_finished(inner: &TaskProcessInner) {
+    let handle = {
+        let mut guard = inner
+            .join_handle
+            .lock()
+            .expect("task process join handle lock should not be poisoned");
+        let Some(handle) = guard.as_ref() else {
+            return;
+        };
+        if !handle.is_finished() {
+            return;
+        }
+        guard.take()
+    };
+
+    if let Some(handle) = handle {
+        let result = join_worker_handle(handle);
+        *inner
+            .worker_result
+            .lock()
+            .expect("task process worker result lock should not be poisoned") = Some(result);
+    }
+}
+
+fn join_worker_handle(
+    handle: JoinHandle<Result<TaskResult, AnyError>>,
+) -> Result<TaskResult, AnyError> {
+    match handle.join() {
+        Ok(result) => result,
+        Err(_) => Err(anyhow!("Background task thread panicked")),
+    }
+}
+
+fn task_failure_error(result: TaskResult) -> Result<(), AnyError> {
+    if result.success() {
+        return Ok(());
+    }
+
+    let mut message = format!("Task exited with status {}", result.exit_code);
+    if let Some(stderr) = result.stderr {
+        message.push_str(":\n");
+        message.push_str(&stderr);
+    }
+    Err(anyhow!(message))
 }
 
 fn build_task_runtime(context: &str) -> Result<tokio::runtime::Runtime, AnyError> {

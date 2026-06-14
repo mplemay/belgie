@@ -116,12 +116,31 @@ class TestTaskRunner:
         with pytest.raises(BelgieRuntimeError, match=r"No \[belgie\.scripts\] entry 'missing'"):
             await TaskRunner().run(options)
 
+    async def test_rejects_missing_belgie_script_on_start(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(scripts={"build": "echo ok"})
+        options = RunTaskOptions(str(pyproject.parent), "missing")
+
+        with pytest.raises(BelgieRuntimeError, match=r"No \[belgie\.scripts\] entry 'missing'"):
+            await TaskRunner().start(options)
+
     async def test_failed_task_includes_captured_stderr(self, write_belgie_pyproject) -> None:
         pyproject = write_belgie_pyproject(scripts={"fail": "sh -c 'echo task exploded >&2; exit 7'"})
         options = RunTaskOptions(str(pyproject.parent), "fail")
 
         with pytest.raises(BelgieRuntimeError, match="task exploded"):
             await TaskRunner().run(options)
+
+    async def test_background_task_failure_surfaces_on_stop(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(scripts={"fail": "sh -c 'echo task exploded >&2; exit 7'"})
+        options = RunTaskOptions(str(pyproject.parent), "fail")
+
+        process = await TaskRunner().start(options)
+
+        while process.is_running:
+            pass
+
+        with pytest.raises(BelgieRuntimeError, match=r"status 7"):
+            await process.stop()
 
     async def test_task_environment_is_passed_to_subprocess(self, write_belgie_pyproject) -> None:
         command = "sh -c 'test \"$BELGIE_TEST_FLAG\" = set'"
