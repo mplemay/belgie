@@ -64,10 +64,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
+          # The extension uses abi3-py312, so one Rust target cache per OS is enough for the Python matrix.
           shared-key: test-python-${{ matrix.os }}
-          key: python-${{ matrix.python-version }}
           cache-bin: false
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' && matrix.python-version == '3.12' }}
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -102,8 +102,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          shared-key: test-rust-${{ matrix.os }}
+          shared-key: test-rust-registry-${{ matrix.os }}
           cache-bin: false
+          cache-targets: false
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Rust tests
