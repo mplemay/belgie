@@ -94,11 +94,13 @@ class TestPackageHelpers:
 
         with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
             lock(cwd=pyproject.parent, groups=["default"])
+        with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
+            lock(cwd=pyproject.parent)
         with pytest.raises(
             BelgieRuntimeError,
             match=r"\[belgie\.dependencies\.dev\].*string dependency specifier",
         ):
-            lock(cwd=pyproject.parent)
+            lock(cwd=pyproject.parent, groups=["dev"])
 
     def test_package_update_accepts_empty_filters_but_requires_dependencies(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "example"\n', encoding="utf-8")

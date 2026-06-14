@@ -255,8 +255,8 @@ fn normalize_package_filters(packages: Option<&Bound<'_, PyAny>>) -> PyResult<Ve
 
 fn normalize_groups(groups: Option<&Bound<'_, PyAny>>) -> PyResult<Option<Vec<String>>> {
     match groups {
-        None => Ok(None),
-        Some(value) if value.is_none() => Ok(None),
+        None => Ok(Some(vec!["default".into()])),
+        Some(value) if value.is_none() => Ok(Some(vec!["default".into()])),
         Some(value) => value.extract(),
     }
 }

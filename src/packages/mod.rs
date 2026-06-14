@@ -20,17 +20,10 @@ enum PyprojectValueKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum DependencyLocation {
-    Default,
-    Group(String),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PackageDependency {
     alias: String,
     specifier: String,
     group: String,
-    location: DependencyLocation,
     value_kind: PyprojectValueKind,
 }
 
@@ -132,12 +125,13 @@ impl PackageEnvironment {
 
     pub(crate) fn for_task(task_cwd: &Path, script_name: &str) -> Result<Self, AnyError> {
         let pyproject_dir = find_pyproject_dir(task_cwd)?;
-        let manifest = read_manifest(&pyproject_dir, None)?.ok_or_else(|| {
-            anyhow!(
-                "No pyproject.toml with [belgie] configuration found near {}",
-                task_cwd.display()
-            )
-        })?;
+        let manifest = read_manifest(&pyproject_dir, Some(vec![DEFAULT_GROUP.to_string()]))?
+            .ok_or_else(|| {
+                anyhow!(
+                    "No pyproject.toml with [belgie] configuration found near {}",
+                    task_cwd.display()
+                )
+            })?;
         if !manifest.scripts.contains_key(script_name) {
             bail!(
                 "No [belgie.scripts] entry '{script_name}' in {}",
@@ -239,7 +233,12 @@ pub(crate) async fn update_packages(
 fn install_result_from_env(env: &PackageEnvironment) -> PackageInstallResult {
     let mut groups = BTreeMap::new();
     for dep in env.dependencies() {
-        *groups.entry(dep.group.clone()).or_insert(0) += 1;
+        match groups.get_mut(dep.group.as_str()) {
+            Some(count) => *count += 1,
+            None => {
+                groups.insert(dep.group.clone(), 1);
+            }
+        }
     }
     PackageInstallResult {
         lockfile: env.lockfile().to_path_buf(),
@@ -260,9 +259,16 @@ fn read_manifest(
     let document = text
         .parse::<DocumentMut>()
         .with_context(|| format!("Parsing {}", path.display()))?;
-    reject_legacy_dev_dependencies_table(&document)?;
+    if document
+        .get("belgie")
+        .and_then(|belgie| belgie.get("dev-dependencies"))
+        .is_some()
+    {
+        bail!("Unsupported table [belgie.dev-dependencies]; use [belgie.dependencies.dev] instead");
+    }
+    let group_filter = groups.map(|names| names.into_iter().collect::<BTreeSet<_>>());
     let mut dependencies = Vec::new();
-    collect_dependency_groups(&document, groups.as_deref(), &mut dependencies)?;
+    collect_dependency_groups(&document, group_filter.as_ref(), &mut dependencies)?;
     let mut scripts = BTreeMap::new();
     collect_scripts(&document, &mut scripts)?;
     Ok(Some(PyprojectManifest {
@@ -271,17 +277,6 @@ fn read_manifest(
         dependencies,
         scripts,
     }))
-}
-
-fn reject_legacy_dev_dependencies_table(document: &DocumentMut) -> Result<(), AnyError> {
-    let has_legacy = document
-        .get("belgie")
-        .and_then(|belgie| belgie.get("dev-dependencies"))
-        .is_some();
-    if has_legacy {
-        bail!("Unsupported table [belgie.dev-dependencies]; use [belgie.dependencies.dev] instead");
-    }
-    Ok(())
 }
 
 pub(crate) fn find_pyproject_dir(start: &Path) -> Result<PathBuf, AnyError> {
@@ -329,16 +324,31 @@ fn collect_scripts(
     Ok(())
 }
 
-fn group_is_included(group: &str, groups: Option<&[String]>) -> bool {
+fn group_is_included(group: &str, groups: Option<&BTreeSet<String>>) -> bool {
     match groups {
         None => true,
-        Some(names) => names.iter().any(|name| name == group),
+        Some(names) => names.contains(group),
     }
+}
+
+fn push_unique_dep(
+    dep: PackageDependency,
+    seen_aliases: &mut BTreeSet<String>,
+    dependencies: &mut Vec<PackageDependency>,
+) -> Result<(), AnyError> {
+    if !seen_aliases.insert(dep.alias.clone()) {
+        bail!(
+            "Duplicate dependency alias '{}' across included groups",
+            dep.alias
+        );
+    }
+    dependencies.push(dep);
+    Ok(())
 }
 
 fn collect_dependency_groups(
     document: &DocumentMut,
-    groups: Option<&[String]>,
+    groups: Option<&BTreeSet<String>>,
     dependencies: &mut Vec<PackageDependency>,
 ) -> Result<(), AnyError> {
     let Some(table) = document
@@ -349,21 +359,18 @@ fn collect_dependency_groups(
         return Ok(());
     };
 
+    let include_default = group_is_included(DEFAULT_GROUP, groups);
     let mut seen_aliases = BTreeSet::new();
     for (key, item) in table.iter() {
         if let Some(raw_value) = item.as_str() {
-            if !group_is_included(DEFAULT_GROUP, groups) {
+            if !include_default {
                 continue;
             }
-            let dep =
-                normalize_dependency(key, raw_value, DEFAULT_GROUP, DependencyLocation::Default)?;
-            if !seen_aliases.insert(dep.alias.clone()) {
-                bail!(
-                    "Duplicate dependency alias '{}' across included groups",
-                    dep.alias
-                );
-            }
-            dependencies.push(dep);
+            push_unique_dep(
+                normalize_dependency(key, raw_value, DEFAULT_GROUP)?,
+                &mut seen_aliases,
+                dependencies,
+            )?;
         } else if let Some(subtable) = item.as_table() {
             if !group_is_included(key, groups) {
                 continue;
@@ -374,19 +381,11 @@ fn collect_dependency_groups(
                         "[belgie.dependencies.{key}] entry '{alias}' must be a string dependency specifier"
                     )
                 })?;
-                let dep = normalize_dependency(
-                    alias,
-                    raw_value,
-                    key,
-                    DependencyLocation::Group(key.to_string()),
+                push_unique_dep(
+                    normalize_dependency(alias, raw_value, key)?,
+                    &mut seen_aliases,
+                    dependencies,
                 )?;
-                if !seen_aliases.insert(dep.alias.clone()) {
-                    bail!(
-                        "Duplicate dependency alias '{}' across included groups",
-                        dep.alias
-                    );
-                }
-                dependencies.push(dep);
             }
         } else {
             bail!(
@@ -401,7 +400,6 @@ fn normalize_dependency(
     alias: &str,
     raw_value: &str,
     group: &str,
-    location: DependencyLocation,
 ) -> Result<PackageDependency, AnyError> {
     let (specifier, value_kind) = if raw_value.starts_with("npm:") || raw_value.starts_with("jsr:")
     {
@@ -419,7 +417,6 @@ fn normalize_dependency(
         alias: alias.to_string(),
         specifier,
         group: group.to_string(),
-        location,
         value_kind,
     })
 }
@@ -499,11 +496,10 @@ fn read_pyproject_dependency_value(
     document: &DocumentMut,
     dep: &PackageDependency,
 ) -> Result<Option<String>, AnyError> {
-    let value = match &dep.location {
-        DependencyLocation::Default => document["belgie"]["dependencies"][&dep.alias].clone(),
-        DependencyLocation::Group(group) => {
-            document["belgie"]["dependencies"][group][&dep.alias].clone()
-        }
+    let value = if dep.group == DEFAULT_GROUP {
+        document["belgie"]["dependencies"][&dep.alias].clone()
+    } else {
+        document["belgie"]["dependencies"][&dep.group][&dep.alias].clone()
     };
     Ok(value.as_str().map(str::to_string))
 }
@@ -513,13 +509,10 @@ fn write_pyproject_dependency_value(
     dep: &PackageDependency,
     updated_value: &str,
 ) -> Result<(), AnyError> {
-    match &dep.location {
-        DependencyLocation::Default => {
-            document["belgie"]["dependencies"][&dep.alias] = value(updated_value);
-        }
-        DependencyLocation::Group(group) => {
-            document["belgie"]["dependencies"][group][&dep.alias] = value(updated_value);
-        }
+    if dep.group == DEFAULT_GROUP {
+        document["belgie"]["dependencies"][&dep.alias] = value(updated_value);
+    } else {
+        document["belgie"]["dependencies"][&dep.group][&dep.alias] = value(updated_value);
     }
     Ok(())
 }
@@ -551,10 +544,15 @@ mod tests {
             .expect("manifest should exist")
     }
 
+    fn parse_manifest_err(text: &str, groups: Option<Vec<String>>) -> AnyError {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(temp_dir.path().join("pyproject.toml"), text).unwrap();
+        read_manifest(temp_dir.path(), groups).unwrap_err()
+    }
+
     #[test]
     fn normalizes_unprefixed_dependencies_to_npm_imports() {
-        let dep = normalize_dependency("react", "^19", DEFAULT_GROUP, DependencyLocation::Default)
-            .unwrap();
+        let dep = normalize_dependency("react", "^19", DEFAULT_GROUP).unwrap();
 
         assert_eq!(dep.alias, "react");
         assert_eq!(dep.specifier, "npm:react@^19");
@@ -562,26 +560,14 @@ mod tests {
 
     #[test]
     fn preserves_explicit_jsr_specifiers() {
-        let dep = normalize_dependency(
-            "@std/path",
-            "jsr:@std/path@^1",
-            DEFAULT_GROUP,
-            DependencyLocation::Default,
-        )
-        .unwrap();
+        let dep = normalize_dependency("@std/path", "jsr:@std/path@^1", DEFAULT_GROUP).unwrap();
 
         assert_eq!(dep.specifier, "jsr:@std/path@^1");
     }
 
     #[test]
     fn extracts_updated_version_for_version_only_entries() {
-        let dep = normalize_dependency(
-            "@types/react",
-            "^19",
-            "dev",
-            DependencyLocation::Group("dev".to_string()),
-        )
-        .unwrap();
+        let dep = normalize_dependency("@types/react", "^19", "dev").unwrap();
 
         assert_eq!(
             dep.pyproject_value_for("npm:@types/react@^20").unwrap(),
@@ -642,19 +628,15 @@ react = "^19"
 
     #[test]
     fn rejects_duplicate_aliases_across_groups() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        fs::write(
-            temp_dir.path().join("pyproject.toml"),
+        let err = parse_manifest_err(
             r#"[belgie.dependencies]
 react = "^19"
 
 [belgie.dependencies.dev]
 react = "^20"
 "#,
-        )
-        .unwrap();
-
-        let err = read_manifest(temp_dir.path(), None).unwrap_err();
+            None,
+        );
         assert!(
             err.to_string()
                 .contains("Duplicate dependency alias 'react'")
@@ -663,16 +645,12 @@ react = "^20"
 
     #[test]
     fn rejects_legacy_dev_dependencies_table() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        fs::write(
-            temp_dir.path().join("pyproject.toml"),
+        let err = parse_manifest_err(
             r#"[belgie.dev-dependencies]
 "@types/react" = "^19"
 "#,
-        )
-        .unwrap();
-
-        let err = read_manifest(temp_dir.path(), None).unwrap_err();
+            None,
+        );
         assert!(
             err.to_string()
                 .contains("Unsupported table [belgie.dev-dependencies]")
@@ -681,16 +659,12 @@ react = "^20"
 
     #[test]
     fn rejects_non_string_entries_in_nested_groups() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        fs::write(
-            temp_dir.path().join("pyproject.toml"),
+        let err = parse_manifest_err(
             r#"[belgie.dependencies.dev]
 react = ["^19"]
 "#,
-        )
-        .unwrap();
-
-        let err = read_manifest(temp_dir.path(), None).unwrap_err();
+            None,
+        );
         assert!(
             err.to_string()
                 .contains("[belgie.dependencies.dev] entry 'react'")
@@ -701,10 +675,7 @@ react = ["^19"]
     fn synthetic_config_contains_imports_and_disables_node_modules_dir() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config_path = temp_dir.path().join("deno.json");
-        let dependencies = vec![
-            normalize_dependency("react", "^19", DEFAULT_GROUP, DependencyLocation::Default)
-                .unwrap(),
-        ];
+        let dependencies = vec![normalize_dependency("react", "^19", DEFAULT_GROUP).unwrap()];
 
         write_synthetic_config(&config_path, &dependencies, &BTreeMap::new()).unwrap();
 
@@ -727,15 +698,8 @@ std_path = "jsr:@std/path@^1"
         )
         .unwrap();
         let dependencies = vec![
-            normalize_dependency("react", "^18", DEFAULT_GROUP, DependencyLocation::Default)
-                .unwrap(),
-            normalize_dependency(
-                "std_path",
-                "jsr:@std/path@^1",
-                DEFAULT_GROUP,
-                DependencyLocation::Default,
-            )
-            .unwrap(),
+            normalize_dependency("react", "^18", DEFAULT_GROUP).unwrap(),
+            normalize_dependency("std_path", "jsr:@std/path@^1", DEFAULT_GROUP).unwrap(),
         ];
         let env = PackageEnvironment::from_dependencies(cwd.clone(), dependencies).unwrap();
         let mut config: serde_json::Value =
@@ -771,15 +735,7 @@ std_path = "jsr:@std/path@^1"
 "#,
         )
         .unwrap();
-        let dependencies = vec![
-            normalize_dependency(
-                "@types/react",
-                "^18",
-                "dev",
-                DependencyLocation::Group("dev".to_string()),
-            )
-            .unwrap(),
-        ];
+        let dependencies = vec![normalize_dependency("@types/react", "^18", "dev").unwrap()];
         let env = PackageEnvironment::from_dependencies(cwd.clone(), dependencies).unwrap();
         let mut config: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(env.config_file()).unwrap()).unwrap();
@@ -826,9 +782,7 @@ dev = "vite"
     fn synthetic_config_includes_tasks_from_scripts() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config_path = temp_dir.path().join("deno.json");
-        let dependencies = vec![
-            normalize_dependency("vite", "^8", DEFAULT_GROUP, DependencyLocation::Default).unwrap(),
-        ];
+        let dependencies = vec![normalize_dependency("vite", "^8", DEFAULT_GROUP).unwrap()];
         let mut scripts = BTreeMap::new();
         scripts.insert("build".to_string(), "vite build".to_string());
 
