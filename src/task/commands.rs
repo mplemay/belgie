@@ -27,7 +27,7 @@ type EmbedNodeResolver = NodeResolver<
 >;
 
 #[derive(Clone)]
-pub(crate) struct BelgieDenoCommand {
+struct BelgieDenoCommand {
     deno_path: PathBuf,
     config_file: PathBuf,
     lockfile: PathBuf,
@@ -35,10 +35,11 @@ pub(crate) struct BelgieDenoCommand {
 
 impl BelgieDenoCommand {
     fn new(package_env: &PackageEnvironment) -> Result<Self, AnyError> {
+        let (_, config_file, lockfile) = package_env.embed_paths();
         Ok(Self {
             deno_path: resolve_deno_exe()?,
-            config_file: package_env.config_file().to_path_buf(),
-            lockfile: package_env.lockfile().to_path_buf(),
+            config_file,
+            lockfile,
         })
     }
 
@@ -88,6 +89,18 @@ impl ShellCommand for NodeModulesFileRunCommand {
     }
 }
 
+fn npm_bin_command(
+    command_name: String,
+    path: PathBuf,
+    deno_command: &BelgieDenoCommand,
+) -> Rc<dyn ShellCommand> {
+    Rc::new(NodeModulesFileRunCommand {
+        command_name,
+        path,
+        deno_command: deno_command.clone(),
+    })
+}
+
 pub(crate) async fn prepare_custom_commands(
     package_env: &PackageEnvironment,
     cwd: &Path,
@@ -101,7 +114,12 @@ pub(crate) async fn prepare_custom_commands(
     let node_resolver = context.resolver_factory().node_resolver()?;
     let npm_resolver = context.resolver_factory().npm_resolver()?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
-    let deno_command = BelgieDenoCommand::new(package_env).ok();
+    let needs_deno = npm_resolver_needs_deno(npm_resolver, node_resolver, &bin_dirs);
+    let deno_command = if needs_deno {
+        Some(BelgieDenoCommand::new(package_env)?)
+    } else {
+        BelgieDenoCommand::new(package_env).ok()
+    };
 
     let mut commands = match npm_resolver {
         NpmResolver::Byonm(_) => {
@@ -131,6 +149,21 @@ pub(crate) async fn prepare_custom_commands(
     Ok((commands, bin_dirs))
 }
 
+fn npm_resolver_needs_deno(
+    npm_resolver: &NpmResolver<EmbedSys>,
+    node_resolver: &EmbedNodeResolver,
+    bin_dirs: &[PathBuf],
+) -> bool {
+    match npm_resolver {
+        NpmResolver::Managed(managed) => !managed.resolution().top_level_packages().is_empty(),
+        NpmResolver::Byonm(_) => bin_dirs.iter().any(|bin_dir| {
+            !node_resolver
+                .resolve_npm_commands_from_bin_dir(bin_dir)
+                .is_empty()
+        }),
+    }
+}
+
 fn resolve_task_node_modules_bin_dirs(
     npm_resolver: &NpmResolver<EmbedSys>,
     cwd: &Path,
@@ -158,11 +191,7 @@ fn resolve_npm_commands_from_bin_dir(
         .map(|(command_name, path)| {
             (
                 command_name.clone(),
-                Rc::new(NodeModulesFileRunCommand {
-                    command_name,
-                    path: path.path().to_path_buf(),
-                    deno_command: deno_command.clone(),
-                }) as Rc<dyn ShellCommand>,
+                npm_bin_command(command_name, path.path().to_path_buf(), deno_command),
             )
         })
         .collect()
@@ -189,11 +218,7 @@ fn resolve_managed_npm_commands(
         result.extend(bins.into_iter().map(|(command_name, path)| {
             (
                 command_name.clone(),
-                Rc::new(NodeModulesFileRunCommand {
-                    command_name,
-                    path: path.path().to_path_buf(),
-                    deno_command: deno_command.clone(),
-                }) as Rc<dyn ShellCommand>,
+                npm_bin_command(command_name, path.path().to_path_buf(), deno_command),
             )
         }));
     }

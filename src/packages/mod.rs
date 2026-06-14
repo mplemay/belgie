@@ -141,7 +141,7 @@ impl PackageEnvironment {
             )
         })?;
         let env = Self::from_manifest_parts(pyproject_dir, manifest.dependencies)?;
-        Ok((env, command.clone()))
+        Ok((env, command.to_owned()))
     }
 
     pub(crate) fn cwd(&self) -> &Path {

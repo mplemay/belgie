@@ -55,11 +55,10 @@ pub(crate) struct ShellTaskOptions {
     pub(crate) task_name: String,
     pub(crate) command: String,
     pub(crate) cwd: PathBuf,
-    pub(crate) init_cwd: PathBuf,
     pub(crate) extra_env: BTreeMap<String, String>,
     pub(crate) argv: Vec<String>,
     pub(crate) package_env: PackageEnvironment,
-    pub(crate) stdio: Option<TaskIo>,
+    pub(crate) stdio: TaskIo,
     pub(crate) kill_signal: KillSignal,
 }
 
@@ -86,17 +85,14 @@ pub(crate) fn real_env_vars() -> HashMap<OsString, OsString> {
 }
 
 fn prepare_env_vars(
-    mut env_vars: HashMap<OsString, OsString>,
-    initial_cwd: &Path,
+    env_vars: &mut HashMap<OsString, OsString>,
+    cwd: &Path,
     node_modules_bin_dirs: &[PathBuf],
     extra_env: &BTreeMap<String, String>,
-) -> HashMap<OsString, OsString> {
+) {
     const INIT_CWD_NAME: &str = "INIT_CWD";
     if !env_vars.contains_key(OsStr::new(INIT_CWD_NAME)) {
-        env_vars.insert(
-            INIT_CWD_NAME.into(),
-            initial_cwd.to_path_buf().into_os_string(),
-        );
+        env_vars.insert(INIT_CWD_NAME.into(), cwd.to_path_buf().into_os_string());
     }
 
     for (key, value) in extra_env {
@@ -104,9 +100,8 @@ fn prepare_env_vars(
     }
 
     for bin_dir in node_modules_bin_dirs.iter().rev() {
-        prepend_to_path(&mut env_vars, bin_dir.as_os_str().to_os_string());
+        prepend_to_path(env_vars, bin_dir.as_os_str().to_os_string());
     }
-    env_vars
 }
 
 fn prepend_to_path(env_vars: &mut HashMap<OsString, OsString>, value: OsString) {
@@ -127,6 +122,25 @@ fn prepend_to_path(env_vars: &mut HashMap<OsString, OsString>, value: OsString) 
     }
 }
 
+fn read_capped_stderr(reader: ShellPipeReader) -> JoinHandle<Result<Vec<u8>, AnyError>> {
+    tokio::task::spawn_blocking(move || {
+        let mut reader = reader;
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            let read = reader.read(&mut chunk)?;
+            if read == 0 {
+                break;
+            }
+            let remaining = STDERR_CAPTURE_LIMIT.saturating_sub(buffer.len());
+            if remaining > 0 {
+                buffer.extend_from_slice(&chunk[..read.min(remaining)]);
+            }
+        }
+        Ok(buffer)
+    })
+}
+
 pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResult, AnyError> {
     let script = get_script_with_args(&options.command, &options.argv);
     let seq_list = deno_task_shell::parser::parse(&script)
@@ -136,9 +150,9 @@ pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResu
         prepare_custom_commands(&options.package_env, &options.cwd).await?;
 
     let mut env_vars = real_env_vars();
-    env_vars = prepare_env_vars(
-        env_vars,
-        &options.init_cwd,
+    prepare_env_vars(
+        &mut env_vars,
+        &options.cwd,
         &node_modules_bin_dirs,
         &options.extra_env,
     );
@@ -150,19 +164,12 @@ pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResu
         options.kill_signal,
     );
 
-    let stdio = options.stdio.unwrap_or_default();
-    let (TaskStdio(_stdout_read, stdout_write), TaskStdio(stderr_read, stderr_write)) =
-        (stdio.stdout, stdio.stderr);
+    let TaskIo {
+        stdout: TaskStdio(_stdout_read, stdout_write),
+        stderr: TaskStdio(stderr_read, stderr_write),
+    } = options.stdio;
 
-    fn read(reader: ShellPipeReader) -> JoinHandle<Result<Vec<u8>, AnyError>> {
-        tokio::task::spawn_blocking(move || {
-            let mut buffer = Vec::new();
-            reader.pipe_to(&mut buffer)?;
-            Ok(buffer)
-        })
-    }
-
-    let stderr = stderr_read.map(read);
+    let stderr = stderr_read.map(read_capped_stderr);
 
     let local = LocalSet::new();
     let future = async move {
@@ -176,29 +183,27 @@ pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResu
         .await;
 
         let stderr = if let Some(stderr) = stderr {
-            Some(stderr.await??)
+            stderr.await??
         } else {
-            None
+            Vec::new()
         };
 
         Ok::<_, AnyError>(TaskResult {
             exit_code,
-            stderr: stderr
-                .map(truncate_stderr)
-                .and_then(|text| if text.is_empty() { None } else { Some(text) }),
+            stderr: truncate_stderr(stderr),
         })
     };
 
     local.run_until(future).await
 }
 
-fn truncate_stderr(bytes: Vec<u8>) -> String {
+fn truncate_stderr(bytes: Vec<u8>) -> Option<String> {
     let text = String::from_utf8_lossy(&bytes[..bytes.len().min(STDERR_CAPTURE_LIMIT)]);
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        String::new()
+        None
     } else {
-        trimmed.to_string()
+        Some(trimmed.to_string())
     }
 }
 
@@ -222,6 +227,6 @@ mod tests {
     #[test]
     fn truncate_stderr_caps_output_length() {
         let bytes = vec![b'x'; STDERR_CAPTURE_LIMIT * 2];
-        assert_eq!(truncate_stderr(bytes).len(), STDERR_CAPTURE_LIMIT);
+        assert_eq!(truncate_stderr(bytes).unwrap().len(), STDERR_CAPTURE_LIMIT);
     }
 }

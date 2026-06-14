@@ -82,58 +82,41 @@ impl TaskRunner {
     pub(crate) fn run_blocking(&self, options: RunTaskOptions) -> Result<TaskResult, AnyError> {
         let (package_env, command) =
             PackageEnvironment::resolve_task(&options.task_cwd, &options.script)?;
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("Failed to create task runtime")?;
+        let runtime = build_task_runtime("foreground")?;
 
-        runtime.block_on(run_shell_task(ShellTaskOptions {
-            task_name: options.script.clone(),
-            command,
-            cwd: options.task_cwd.clone(),
-            init_cwd: options.task_cwd.clone(),
-            extra_env: options.env.clone(),
-            argv: options.argv.clone(),
+        runtime.block_on(run_shell_task(shell_options(
+            &options,
             package_env,
-            stdio: Some(TaskIo {
+            command,
+            TaskIo {
                 stdout: TaskStdio::stdout(),
                 stderr: TaskStdio::piped(),
-            }),
-            kill_signal: KillSignal::default(),
-        }))
+            },
+            KillSignal::default(),
+        )))
     }
 
     pub(crate) fn start_blocking(&self, options: RunTaskOptions) -> Result<TaskProcess, AnyError> {
         let origin = task_origin(&options);
-        let task_cwd = options.task_cwd.clone();
-        let script = options.script.clone();
-        let argv = options.argv.clone();
-        let env = options.env.clone();
         let (stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
         let join_handle = thread::spawn(move || {
-            let (package_env, command) = PackageEnvironment::resolve_task(&task_cwd, &script)?;
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .context("Failed to create background task runtime")?;
+            let (package_env, command) =
+                PackageEnvironment::resolve_task(&options.task_cwd, &options.script)?;
+            let runtime = build_task_runtime("background")?;
 
             runtime.block_on(async move {
                 let kill_signal = KillSignal::default();
                 let stop_kill_signal = kill_signal.clone();
                 let mut stop_rx = stop_rx;
                 let mut stopping = false;
-                let mut task_fut = std::pin::pin!(run_shell_task(ShellTaskOptions {
-                    task_name: script,
-                    command,
-                    cwd: task_cwd.clone(),
-                    init_cwd: task_cwd,
-                    extra_env: env,
-                    argv,
+                let mut task_fut = std::pin::pin!(run_shell_task(shell_options(
+                    &options,
                     package_env,
-                    stdio: None,
+                    command,
+                    TaskIo::default(),
                     kill_signal,
-                }));
+                )));
 
                 loop {
                     tokio::select! {
@@ -157,6 +140,32 @@ impl TaskRunner {
                 join_handle: Mutex::new(Some(join_handle)),
             }),
         })
+    }
+}
+
+fn build_task_runtime(context: &str) -> Result<tokio::runtime::Runtime, AnyError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .with_context(|| format!("Failed to create {context} task runtime"))
+}
+
+fn shell_options(
+    options: &RunTaskOptions,
+    package_env: PackageEnvironment,
+    command: String,
+    stdio: TaskIo,
+    kill_signal: KillSignal,
+) -> ShellTaskOptions {
+    ShellTaskOptions {
+        task_name: options.script.clone(),
+        command,
+        cwd: options.task_cwd.clone(),
+        extra_env: options.env.clone(),
+        argv: options.argv.clone(),
+        package_env,
+        stdio,
+        kill_signal,
     }
 }
 
