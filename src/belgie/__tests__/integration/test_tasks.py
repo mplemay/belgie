@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from belgie._core import RunTaskOptions, TaskRunner
 from belgie.dependencies import install
+from belgie.tasks import RunTaskOptions, TaskRunner
 
 pytestmark = pytest.mark.integration
 

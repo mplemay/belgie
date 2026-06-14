@@ -52,7 +52,6 @@ impl Default for TaskIo {
 }
 
 pub(crate) struct ShellTaskOptions {
-    pub(crate) task_name: String,
     pub(crate) command: String,
     pub(crate) cwd: PathBuf,
     pub(crate) extra_env: BTreeMap<String, String>,
@@ -62,7 +61,7 @@ pub(crate) struct ShellTaskOptions {
     pub(crate) kill_signal: KillSignal,
 }
 
-pub(crate) fn get_script_with_args(script: &str, argv: &[String]) -> String {
+fn get_script_with_args(script: &str, argv: &[String]) -> String {
     let additional_args = argv
         .iter()
         .map(|argument| format!("'{}'", argument.replace('\'', "'\"'\"'")))
@@ -72,7 +71,7 @@ pub(crate) fn get_script_with_args(script: &str, argv: &[String]) -> String {
     format!("{script} {additional_args}").trim().to_owned()
 }
 
-pub(crate) fn real_env_vars() -> HashMap<OsString, OsString> {
+fn real_env_vars() -> HashMap<OsString, OsString> {
     std::env::vars_os()
         .map(|(key, value)| {
             if cfg!(windows) {
@@ -144,7 +143,7 @@ fn read_capped_stderr(reader: ShellPipeReader) -> JoinHandle<Result<Vec<u8>, Any
 pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResult, AnyError> {
     let script = get_script_with_args(&options.command, &options.argv);
     let seq_list = deno_task_shell::parser::parse(&script)
-        .with_context(|| format!("Error parsing script for task '{}'.", options.task_name))?;
+        .with_context(|| format!("Error parsing script '{}'.", &options.command))?;
 
     let (custom_commands, node_modules_bin_dirs) =
         prepare_custom_commands(&options.package_env, &options.cwd).await?;
@@ -190,23 +189,18 @@ pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResu
 
         Ok::<_, AnyError>(TaskResult {
             exit_code,
-            stderr: task_result_stderr(exit_code, stderr),
+            stderr: failure_stderr(exit_code, stderr),
         })
     };
 
     local.run_until(future).await
 }
 
-fn task_result_stderr(exit_code: i32, stderr: Vec<u8>) -> Option<String> {
+fn failure_stderr(exit_code: i32, stderr: Vec<u8>) -> Option<String> {
     if exit_code == 0 {
-        None
-    } else {
-        truncate_stderr(stderr)
+        return None;
     }
-}
-
-fn truncate_stderr(bytes: Vec<u8>) -> Option<String> {
-    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(STDERR_CAPTURE_LIMIT)]);
+    let text = String::from_utf8_lossy(&stderr[..stderr.len().min(STDERR_CAPTURE_LIMIT)]);
     let trimmed = text.trim();
     if trimmed.is_empty() {
         None
@@ -241,21 +235,24 @@ mod tests {
     }
 
     #[test]
-    fn task_result_stderr_is_none_on_success() {
-        assert!(task_result_stderr(0, b"warning".to_vec()).is_none());
+    fn failure_stderr_is_none_on_success() {
+        assert!(failure_stderr(0, b"warning".to_vec()).is_none());
     }
 
     #[test]
-    fn task_result_stderr_includes_failure_output() {
+    fn failure_stderr_includes_failure_output() {
         assert_eq!(
-            task_result_stderr(1, b"failed".to_vec()).as_deref(),
+            failure_stderr(1, b"failed".to_vec()).as_deref(),
             Some("failed")
         );
     }
 
     #[test]
-    fn truncate_stderr_caps_output_length() {
+    fn failure_stderr_caps_output_length() {
         let bytes = vec![b'x'; STDERR_CAPTURE_LIMIT * 2];
-        assert_eq!(truncate_stderr(bytes).unwrap().len(), STDERR_CAPTURE_LIMIT);
+        assert_eq!(
+            failure_stderr(1, bytes).unwrap().len(),
+            STDERR_CAPTURE_LIMIT
+        );
     }
 }

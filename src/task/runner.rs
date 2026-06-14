@@ -79,26 +79,6 @@ impl TaskProcess {
             std::thread::sleep(Duration::from_millis(50));
         }
 
-        let joined_in_stop = {
-            let mut guard = self
-                .inner
-                .join_handle
-                .lock()
-                .expect("task process join handle lock should not be poisoned");
-            if let Some(handle) = guard.take() {
-                *self
-                    .inner
-                    .worker_result
-                    .lock()
-                    .expect("task process worker result lock should not be poisoned") =
-                    Some(join_worker_handle(handle));
-                true
-            } else {
-                false
-            }
-        };
-        let _ = joined_in_stop;
-
         let mut result_guard = self
             .inner
             .worker_result
@@ -107,9 +87,12 @@ impl TaskProcess {
         if let Some(result) = result_guard.take() {
             match result {
                 Err(error) => return Err(error),
-                Ok(task_result)
-                    if stop_requested && was_stopped_by_signal(task_result.exit_code) => {}
-                Ok(task_result) => task_failure_error(task_result)?,
+                Ok(task_result) if stop_requested && task_result.exit_code >= 128 => {}
+                Ok(task_result) => {
+                    if !task_result.success() {
+                        return Err(anyhow!(task_result.failure_message()));
+                    }
+                }
             }
         }
         Ok(())
@@ -144,7 +127,7 @@ impl TaskRunner {
     }
 
     pub(crate) fn start_blocking(&self, options: RunTaskOptions) -> Result<TaskProcess, AnyError> {
-        PackageEnvironment::resolve_task(&options.task_cwd, &options.script)?;
+        PackageEnvironment::validate_task(&options.task_cwd, &options.script)?;
         let origin = task_origin(&options);
         let (stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
@@ -237,23 +220,6 @@ fn join_worker_handle(
     }
 }
 
-fn task_failure_error(result: TaskResult) -> Result<(), AnyError> {
-    if result.success() {
-        return Ok(());
-    }
-
-    let mut message = format!("Task exited with status {}", result.exit_code);
-    if let Some(stderr) = result.stderr {
-        message.push_str(":\n");
-        message.push_str(&stderr);
-    }
-    Err(anyhow!(message))
-}
-
-fn was_stopped_by_signal(exit_code: i32) -> bool {
-    exit_code >= 128
-}
-
 fn build_task_runtime(context: &str) -> Result<tokio::runtime::Runtime, AnyError> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -269,7 +235,6 @@ fn shell_options(
     kill_signal: KillSignal,
 ) -> ShellTaskOptions {
     ShellTaskOptions {
-        task_name: options.script.clone(),
         command,
         cwd: options.task_cwd.clone(),
         extra_env: options.env.clone(),

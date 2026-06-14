@@ -123,31 +123,17 @@ impl PackageEnvironment {
         })
     }
 
+    pub(crate) fn validate_task(task_cwd: &Path, script_name: &str) -> Result<(), AnyError> {
+        resolve_task_manifest(task_cwd, script_name).map(|_| ())
+    }
+
     pub(crate) fn resolve_task(
         task_cwd: &Path,
         script_name: &str,
     ) -> Result<(Self, String), AnyError> {
-        let pyproject_dir = find_pyproject_dir(task_cwd)?;
-        let manifest = read_manifest(&pyproject_dir, None)?.ok_or_else(|| {
-            anyhow!(
-                "No pyproject.toml with [belgie] configuration found near {}",
-                task_cwd.display()
-            )
-        })?;
-        let command = manifest.scripts.get(script_name).ok_or_else(|| {
-            anyhow!(
-                "No [belgie.scripts] entry '{script_name}' in {}",
-                manifest.path.display()
-            )
-        })?;
-        if manifest.dependencies.is_empty() {
-            bail!(
-                "No belgie package dependencies found in {}",
-                manifest.path.display()
-            );
-        }
-        let env = Self::from_manifest_parts(pyproject_dir, manifest.dependencies)?;
-        Ok((env, command.to_owned()))
+        let (pyproject_dir, dependencies, command) = resolve_task_manifest(task_cwd, script_name)?;
+        let env = Self::from_manifest_parts(pyproject_dir, dependencies)?;
+        Ok((env, command))
     }
 
     pub(crate) fn cwd(&self) -> &Path {
@@ -334,6 +320,32 @@ pub(crate) fn find_pyproject_dir(start: &Path) -> Result<PathBuf, AnyError> {
         "Could not find pyproject.toml with a [belgie] table. Searched: {}",
         searched.join(", ")
     )
+}
+
+fn resolve_task_manifest(
+    task_cwd: &Path,
+    script_name: &str,
+) -> Result<(PathBuf, Vec<PackageDependency>, String), AnyError> {
+    let pyproject_dir = find_pyproject_dir(task_cwd)?;
+    let manifest = read_manifest(&pyproject_dir, None)?.ok_or_else(|| {
+        anyhow!(
+            "No pyproject.toml with [belgie] configuration found near {}",
+            task_cwd.display()
+        )
+    })?;
+    let command = manifest.scripts.get(script_name).ok_or_else(|| {
+        anyhow!(
+            "No [belgie.scripts] entry '{script_name}' in {}",
+            manifest.path.display()
+        )
+    })?;
+    if manifest.dependencies.is_empty() {
+        bail!(
+            "No belgie package dependencies found in {}",
+            manifest.path.display()
+        );
+    }
+    Ok((pyproject_dir, manifest.dependencies, command.to_owned()))
 }
 
 fn collect_scripts(

@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use deno_core::anyhow::Context;
+use deno_core::anyhow::{Context, anyhow};
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_resolver::npm::ManagedNpmResolver;
@@ -114,55 +114,46 @@ pub(crate) async fn prepare_custom_commands(
     let node_resolver = context.resolver_factory().node_resolver()?;
     let npm_resolver = context.resolver_factory().npm_resolver()?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
-    let needs_deno = npm_resolver_needs_deno(npm_resolver, node_resolver, &bin_dirs);
     let resolved_deno = BelgieDenoCommand::new(package_env);
-    let deno_command = if needs_deno {
-        Some(resolved_deno?)
-    } else {
-        resolved_deno.ok()
-    };
 
     let mut commands = match npm_resolver {
         NpmResolver::Byonm(_) => {
-            let mut commands: HashMap<String, Rc<dyn ShellCommand>> = HashMap::new();
-            if let Some(deno_command) = &deno_command {
-                for bin_dir in &bin_dirs {
-                    for (name, command) in
-                        resolve_npm_commands_from_bin_dir(bin_dir, node_resolver, deno_command)
-                    {
-                        commands.entry(name).or_insert(command);
-                    }
-                }
-            }
-            commands
+            resolve_byonm_npm_commands(node_resolver, &bin_dirs, &resolved_deno)?
         }
-        NpmResolver::Managed(managed) => match &deno_command {
-            Some(deno_command) => {
-                resolve_managed_npm_commands(node_resolver, managed, deno_command)?
-            }
-            None => HashMap::new(),
-        },
+        NpmResolver::Managed(managed) => {
+            resolve_managed_npm_commands(node_resolver, managed, &resolved_deno)?
+        }
     };
 
-    if let Some(deno_command) = deno_command {
+    if let Ok(deno_command) = resolved_deno {
         commands.insert("deno".to_string(), Rc::new(deno_command));
     }
     Ok((commands, bin_dirs))
 }
 
-fn npm_resolver_needs_deno(
-    npm_resolver: &NpmResolver<EmbedSys>,
+fn resolve_byonm_npm_commands(
     node_resolver: &EmbedNodeResolver,
     bin_dirs: &[PathBuf],
-) -> bool {
-    match npm_resolver {
-        NpmResolver::Managed(managed) => !managed.resolution().top_level_packages().is_empty(),
-        NpmResolver::Byonm(_) => bin_dirs.iter().any(|bin_dir| {
-            !node_resolver
-                .resolve_npm_commands_from_bin_dir(bin_dir)
-                .is_empty()
-        }),
+    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
+) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
+    let mut commands = HashMap::new();
+    for bin_dir in bin_dirs {
+        let bins = node_resolver.resolve_npm_commands_from_bin_dir(bin_dir);
+        if bins.is_empty() {
+            continue;
+        }
+        let deno_command = require_deno_command(resolved_deno)?;
+        for (command_name, path) in bins {
+            commands
+                .entry(command_name.clone())
+                .or_insert(npm_bin_command(
+                    command_name,
+                    path.path().to_path_buf(),
+                    deno_command,
+                ));
+        }
     }
+    Ok(commands)
 }
 
 fn resolve_task_node_modules_bin_dirs(
@@ -181,28 +172,24 @@ fn resolve_task_node_modules_bin_dirs(
     }
 }
 
-fn resolve_npm_commands_from_bin_dir(
-    bin_dir: &Path,
-    node_resolver: &EmbedNodeResolver,
-    deno_command: &BelgieDenoCommand,
-) -> HashMap<String, Rc<dyn ShellCommand>> {
-    node_resolver
-        .resolve_npm_commands_from_bin_dir(bin_dir)
-        .into_iter()
-        .map(|(command_name, path)| {
-            (
-                command_name.clone(),
-                npm_bin_command(command_name, path.path().to_path_buf(), deno_command),
-            )
-        })
-        .collect()
+fn require_deno_command(
+    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
+) -> Result<&BelgieDenoCommand, AnyError> {
+    match resolved_deno {
+        Ok(deno_command) => Ok(deno_command),
+        Err(error) => Err(anyhow!("{error}")),
+    }
 }
 
 fn resolve_managed_npm_commands(
     node_resolver: &EmbedNodeResolver,
     npm_resolver: &ManagedNpmResolver<EmbedSys>,
-    deno_command: &BelgieDenoCommand,
+    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
+    if npm_resolver.resolution().top_level_packages().is_empty() {
+        return Ok(HashMap::new());
+    }
+    let deno_command = require_deno_command(resolved_deno)?;
     let mut result = HashMap::new();
     for id in npm_resolver.resolution().top_level_packages() {
         let package_folder = npm_resolver
@@ -216,12 +203,12 @@ fn resolve_managed_npm_commands(
                     package_folder.display()
                 )
             })?;
-        result.extend(bins.into_iter().map(|(command_name, path)| {
-            (
+        for (command_name, path) in bins {
+            result.insert(
                 command_name.clone(),
                 npm_bin_command(command_name, path.path().to_path_buf(), deno_command),
-            )
-        }));
+            );
+        }
     }
     Ok(result)
 }
