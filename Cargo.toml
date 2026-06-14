@@ -33,6 +33,7 @@ deno_permissions = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3
 deno_resolver = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", features = ["sync", "graph", "deno_ast"] }
 deno_runtime = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", default-features = false, features = ["transpile"] }
 deno_semver = "=0.10.0"
+deno_task_shell = "=0.33.0"
 which = "7"
 deno_terminal = { version = "=0.2.3", default-features = false }
 ed448-goldilocks = "=0.14.0-pre.10"
@@ -54,7 +55,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.145"
 sys_traits = { version = "0.1.28", features = ["getrandom", "real", "libc", "winapi"] }
 tempfile = "3"
-tokio = { version = "1.47.1", features = ["rt", "sync", "macros"] }
+tokio = { version = "1.47.1", features = ["rt", "sync", "macros", "rt-multi-thread"] }
 toml_edit = "0.23"
 url = "2.5.7"
 yaml_parser = "=0.2.1"

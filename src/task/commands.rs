@@ -1,0 +1,201 @@
+use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use deno_core::anyhow::Context;
+use deno_core::error::AnyError;
+use deno_core::futures::future::LocalBoxFuture;
+use deno_resolver::npm::ManagedNpmResolver;
+use deno_resolver::npm::NpmResolver;
+use deno_task_shell::ExecutableCommand;
+use deno_task_shell::ExecuteResult;
+use deno_task_shell::ShellCommand;
+use deno_task_shell::ShellCommandContext;
+use node_resolver::DenoIsBuiltInNodeModuleChecker;
+use node_resolver::NodeResolver;
+
+use crate::embed::sys::EmbedSys;
+use crate::packages::PackageEnvironment;
+use crate::task::deno_exe::resolve_deno_exe;
+
+type EmbedNodeResolver = NodeResolver<
+    deno_resolver::npm::DenoInNpmPackageChecker,
+    DenoIsBuiltInNodeModuleChecker,
+    NpmResolver<EmbedSys>,
+    EmbedSys,
+>;
+
+#[derive(Clone)]
+pub(crate) struct BelgieDenoCommand {
+    deno_path: PathBuf,
+    config_file: PathBuf,
+    lockfile: PathBuf,
+}
+
+impl BelgieDenoCommand {
+    fn new(package_env: &PackageEnvironment) -> Result<Self, AnyError> {
+        Ok(Self {
+            deno_path: resolve_deno_exe()?,
+            config_file: package_env.config_file().to_path_buf(),
+            lockfile: package_env.lockfile().to_path_buf(),
+        })
+    }
+
+    fn prepend_config_args(&self, args: Vec<OsString>) -> Vec<OsString> {
+        let mut prefixed = vec![
+            OsString::from("--config"),
+            self.config_file.as_os_str().to_os_string(),
+            OsString::from("--lock"),
+            self.lockfile.as_os_str().to_os_string(),
+        ];
+        prefixed.extend(args);
+        prefixed
+    }
+}
+
+impl ShellCommand for BelgieDenoCommand {
+    fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+        let deno_path = self.deno_path.clone();
+        let args = self.prepend_config_args(context.args);
+        ExecutableCommand::new("deno".to_string(), deno_path)
+            .execute(ShellCommandContext { args, ..context })
+    }
+}
+
+#[derive(Clone)]
+struct NodeModulesFileRunCommand {
+    command_name: String,
+    path: PathBuf,
+    deno_command: BelgieDenoCommand,
+}
+
+impl ShellCommand for NodeModulesFileRunCommand {
+    fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+        let mut args: Vec<OsString> = vec![
+            "run".into(),
+            "--ext=js".into(),
+            "-A".into(),
+            self.path.clone().into_os_string(),
+        ];
+        args.extend(context.args);
+        context.state.apply_env_var(
+            OsStr::new("DENO_INTERNAL_NPM_CMD_NAME"),
+            OsStr::new(&self.command_name),
+        );
+        self.deno_command
+            .execute(ShellCommandContext { args, ..context })
+    }
+}
+
+pub(crate) async fn prepare_custom_commands(
+    package_env: &PackageEnvironment,
+    cwd: &Path,
+) -> Result<(HashMap<String, Rc<dyn ShellCommand>>, Vec<PathBuf>), AnyError> {
+    let context = package_env.embed_context()?;
+    context
+        .npm_installer_factory()
+        .initialize_npm_resolution_if_managed()
+        .await?;
+
+    let node_resolver = context.resolver_factory().node_resolver()?;
+    let npm_resolver = context.resolver_factory().npm_resolver()?;
+    let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
+    let deno_command = BelgieDenoCommand::new(package_env).ok();
+
+    let mut commands = match npm_resolver {
+        NpmResolver::Byonm(_) => {
+            let mut commands: HashMap<String, Rc<dyn ShellCommand>> = HashMap::new();
+            if let Some(deno_command) = &deno_command {
+                for bin_dir in &bin_dirs {
+                    for (name, command) in
+                        resolve_npm_commands_from_bin_dir(bin_dir, node_resolver, deno_command)
+                    {
+                        commands.entry(name).or_insert(command);
+                    }
+                }
+            }
+            commands
+        }
+        NpmResolver::Managed(managed) => match &deno_command {
+            Some(deno_command) => {
+                resolve_managed_npm_commands(node_resolver, managed, deno_command)?
+            }
+            None => HashMap::new(),
+        },
+    };
+
+    if let Some(deno_command) = deno_command {
+        commands.insert("deno".to_string(), Rc::new(deno_command));
+    }
+    Ok((commands, bin_dirs))
+}
+
+fn resolve_task_node_modules_bin_dirs(
+    npm_resolver: &NpmResolver<EmbedSys>,
+    cwd: &Path,
+) -> Vec<PathBuf> {
+    match npm_resolver {
+        NpmResolver::Byonm(_) => cwd
+            .ancestors()
+            .map(|dir| dir.join("node_modules").join(".bin"))
+            .collect(),
+        NpmResolver::Managed(managed) => managed
+            .root_node_modules_path()
+            .map(|path| vec![path.join(".bin")])
+            .unwrap_or_default(),
+    }
+}
+
+fn resolve_npm_commands_from_bin_dir(
+    bin_dir: &Path,
+    node_resolver: &EmbedNodeResolver,
+    deno_command: &BelgieDenoCommand,
+) -> HashMap<String, Rc<dyn ShellCommand>> {
+    node_resolver
+        .resolve_npm_commands_from_bin_dir(bin_dir)
+        .into_iter()
+        .map(|(command_name, path)| {
+            (
+                command_name.clone(),
+                Rc::new(NodeModulesFileRunCommand {
+                    command_name,
+                    path: path.path().to_path_buf(),
+                    deno_command: deno_command.clone(),
+                }) as Rc<dyn ShellCommand>,
+            )
+        })
+        .collect()
+}
+
+fn resolve_managed_npm_commands(
+    node_resolver: &EmbedNodeResolver,
+    npm_resolver: &ManagedNpmResolver<EmbedSys>,
+    deno_command: &BelgieDenoCommand,
+) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
+    let mut result = HashMap::new();
+    for id in npm_resolver.resolution().top_level_packages() {
+        let package_folder = npm_resolver
+            .resolve_pkg_folder_from_pkg_id(&id)
+            .with_context(|| format!("Failed resolving npm package folder for '{id}'"))?;
+        let bins = node_resolver
+            .resolve_npm_binary_commands_for_package(&package_folder)
+            .with_context(|| {
+                format!(
+                    "Failed resolving npm binary commands for '{}'",
+                    package_folder.display()
+                )
+            })?;
+        result.extend(bins.into_iter().map(|(command_name, path)| {
+            (
+                command_name.clone(),
+                Rc::new(NodeModulesFileRunCommand {
+                    command_name,
+                    path: path.path().to_path_buf(),
+                    deno_command: deno_command.clone(),
+                }) as Rc<dyn ShellCommand>,
+            )
+        }));
+    }
+    Ok(result)
+}

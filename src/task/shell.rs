@@ -1,0 +1,227 @@
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+
+use deno_core::anyhow::Context;
+use deno_core::error::AnyError;
+use deno_task_shell::KillSignal;
+use deno_task_shell::ShellPipeReader;
+use deno_task_shell::ShellPipeWriter;
+use tokio::task::JoinHandle;
+use tokio::task::LocalSet;
+
+use crate::packages::PackageEnvironment;
+use crate::task::commands::prepare_custom_commands;
+use crate::task::types::TaskResult;
+
+pub(crate) const STDERR_CAPTURE_LIMIT: usize = 8 * 1024;
+
+pub(crate) struct TaskStdio(
+    pub(crate) Option<ShellPipeReader>,
+    pub(crate) ShellPipeWriter,
+);
+
+impl TaskStdio {
+    pub(crate) fn stdout() -> Self {
+        Self(None, ShellPipeWriter::stdout())
+    }
+
+    pub(crate) fn stderr() -> Self {
+        Self(None, ShellPipeWriter::stderr())
+    }
+
+    pub(crate) fn piped() -> Self {
+        let (reader, writer) = deno_task_shell::pipe();
+        Self(Some(reader), writer)
+    }
+}
+
+pub(crate) struct TaskIo {
+    pub(crate) stdout: TaskStdio,
+    pub(crate) stderr: TaskStdio,
+}
+
+impl Default for TaskIo {
+    fn default() -> Self {
+        Self {
+            stdout: TaskStdio::stdout(),
+            stderr: TaskStdio::stderr(),
+        }
+    }
+}
+
+pub(crate) struct ShellTaskOptions {
+    pub(crate) task_name: String,
+    pub(crate) command: String,
+    pub(crate) cwd: PathBuf,
+    pub(crate) init_cwd: PathBuf,
+    pub(crate) extra_env: BTreeMap<String, String>,
+    pub(crate) argv: Vec<String>,
+    pub(crate) package_env: PackageEnvironment,
+    pub(crate) stdio: Option<TaskIo>,
+    pub(crate) kill_signal: KillSignal,
+}
+
+pub(crate) fn get_script_with_args(script: &str, argv: &[String]) -> String {
+    let additional_args = argv
+        .iter()
+        .map(|argument| format!("'{}'", argument.replace('\'', "'\"'\"'")))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    format!("{script} {additional_args}").trim().to_owned()
+}
+
+pub(crate) fn real_env_vars() -> HashMap<OsString, OsString> {
+    std::env::vars_os()
+        .map(|(key, value)| {
+            if cfg!(windows) {
+                (key.to_ascii_uppercase(), value)
+            } else {
+                (key, value)
+            }
+        })
+        .collect()
+}
+
+fn prepare_env_vars(
+    mut env_vars: HashMap<OsString, OsString>,
+    initial_cwd: &Path,
+    node_modules_bin_dirs: &[PathBuf],
+    extra_env: &BTreeMap<String, String>,
+) -> HashMap<OsString, OsString> {
+    const INIT_CWD_NAME: &str = "INIT_CWD";
+    if !env_vars.contains_key(OsStr::new(INIT_CWD_NAME)) {
+        env_vars.insert(
+            INIT_CWD_NAME.into(),
+            initial_cwd.to_path_buf().into_os_string(),
+        );
+    }
+
+    for (key, value) in extra_env {
+        env_vars.insert(key.clone().into(), value.clone().into());
+    }
+
+    for bin_dir in node_modules_bin_dirs.iter().rev() {
+        prepend_to_path(&mut env_vars, bin_dir.as_os_str().to_os_string());
+    }
+    env_vars
+}
+
+fn prepend_to_path(env_vars: &mut HashMap<OsString, OsString>, value: OsString) {
+    match env_vars.get_mut(OsStr::new("PATH")) {
+        Some(path) => {
+            if path.is_empty() {
+                *path = value;
+            } else {
+                let mut new_path = value;
+                new_path.push(if cfg!(windows) { ";" } else { ":" });
+                new_path.push(&*path);
+                *path = new_path;
+            }
+        }
+        None => {
+            env_vars.insert("PATH".into(), value);
+        }
+    }
+}
+
+pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResult, AnyError> {
+    let script = get_script_with_args(&options.command, &options.argv);
+    let seq_list = deno_task_shell::parser::parse(&script)
+        .with_context(|| format!("Error parsing script for task '{}'.", options.task_name))?;
+
+    let (custom_commands, node_modules_bin_dirs) =
+        prepare_custom_commands(&options.package_env, &options.cwd).await?;
+
+    let mut env_vars = real_env_vars();
+    env_vars = prepare_env_vars(
+        env_vars,
+        &options.init_cwd,
+        &node_modules_bin_dirs,
+        &options.extra_env,
+    );
+
+    let state = deno_task_shell::ShellState::new(
+        env_vars,
+        options.cwd,
+        custom_commands,
+        options.kill_signal,
+    );
+
+    let stdio = options.stdio.unwrap_or_default();
+    let (TaskStdio(_stdout_read, stdout_write), TaskStdio(stderr_read, stderr_write)) =
+        (stdio.stdout, stdio.stderr);
+
+    fn read(reader: ShellPipeReader) -> JoinHandle<Result<Vec<u8>, AnyError>> {
+        tokio::task::spawn_blocking(move || {
+            let mut buffer = Vec::new();
+            reader.pipe_to(&mut buffer)?;
+            Ok(buffer)
+        })
+    }
+
+    let stderr = stderr_read.map(read);
+
+    let local = LocalSet::new();
+    let future = async move {
+        let exit_code = deno_task_shell::execute_with_pipes(
+            seq_list,
+            state,
+            ShellPipeReader::stdin(),
+            stdout_write,
+            stderr_write,
+        )
+        .await;
+
+        let stderr = if let Some(stderr) = stderr {
+            Some(stderr.await??)
+        } else {
+            None
+        };
+
+        Ok::<_, AnyError>(TaskResult {
+            exit_code,
+            stderr: stderr
+                .map(truncate_stderr)
+                .and_then(|text| if text.is_empty() { None } else { Some(text) }),
+        })
+    };
+
+    local.run_until(future).await
+}
+
+fn truncate_stderr(bytes: Vec<u8>) -> String {
+    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(STDERR_CAPTURE_LIMIT)]);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_script_with_args_appends_quoted_arguments() {
+        assert_eq!(
+            get_script_with_args("vite build", &["--outDir".to_string(), "dist".to_string()]),
+            "vite build '--outDir' 'dist'"
+        );
+    }
+
+    #[test]
+    fn get_script_with_args_omits_extra_whitespace_without_argv() {
+        assert_eq!(get_script_with_args("vite build", &[]), "vite build");
+    }
+
+    #[test]
+    fn truncate_stderr_caps_output_length() {
+        let bytes = vec![b'x'; STDERR_CAPTURE_LIMIT * 2];
+        assert_eq!(truncate_stderr(bytes).len(), STDERR_CAPTURE_LIMIT);
+    }
+}

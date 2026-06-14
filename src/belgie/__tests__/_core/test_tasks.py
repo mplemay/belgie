@@ -116,7 +116,6 @@ class TestTaskRunner:
         with pytest.raises(BelgieRuntimeError, match=r"No \[belgie\.scripts\] entry 'missing'"):
             await TaskRunner().run(options)
 
-    @pytest.mark.usefixtures("deno_executable")
     async def test_failed_task_includes_captured_stderr(self, write_belgie_pyproject) -> None:
         pyproject = write_belgie_pyproject(scripts={"fail": "sh -c 'echo task exploded >&2; exit 7'"})
         options = RunTaskOptions(str(pyproject.parent), "fail")
@@ -124,7 +123,6 @@ class TestTaskRunner:
         with pytest.raises(BelgieRuntimeError, match="task exploded"):
             await TaskRunner().run(options)
 
-    @pytest.mark.usefixtures("deno_executable")
     async def test_task_environment_is_passed_to_subprocess(self, write_belgie_pyproject) -> None:
         command = "sh -c 'test \"$BELGIE_TEST_FLAG\" = set'"
         pyproject = write_belgie_pyproject(scripts={"check": command})
@@ -132,7 +130,6 @@ class TestTaskRunner:
 
         await TaskRunner().run(options)
 
-    @pytest.mark.usefixtures("deno_executable")
     async def test_task_process_reports_origin_running_state_and_stops(
         self,
         write_belgie_pyproject,

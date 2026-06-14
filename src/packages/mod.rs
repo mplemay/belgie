@@ -97,20 +97,19 @@ impl PackageEnvironment {
         cwd: PathBuf,
         dependencies: Vec<PackageDependency>,
     ) -> Result<Self, AnyError> {
-        Self::from_manifest_parts(cwd, dependencies, BTreeMap::new())
+        Self::from_manifest_parts(cwd, dependencies)
     }
 
     fn from_manifest_parts(
         cwd: PathBuf,
         dependencies: Vec<PackageDependency>,
-        scripts: BTreeMap<String, String>,
     ) -> Result<Self, AnyError> {
         let temp_dir = tempfile::Builder::new()
             .prefix("belgie-packages-")
             .tempdir()
             .context("Failed to create temporary Deno package config directory")?;
         let config_file = temp_dir.path().join("deno.json");
-        write_synthetic_config(&config_file, &dependencies, &scripts)?;
+        write_synthetic_config(&config_file, &dependencies)?;
         let lockfile = cwd.join("deno.lock");
         Ok(Self {
             inner: Rc::new(PackageEnvironmentInner {
@@ -124,7 +123,10 @@ impl PackageEnvironment {
         })
     }
 
-    pub(crate) fn for_task(task_cwd: &Path, script_name: &str) -> Result<Self, AnyError> {
+    pub(crate) fn resolve_task(
+        task_cwd: &Path,
+        script_name: &str,
+    ) -> Result<(Self, String), AnyError> {
         let pyproject_dir = find_pyproject_dir(task_cwd)?;
         let manifest = read_manifest(&pyproject_dir, true)?.ok_or_else(|| {
             anyhow!(
@@ -132,13 +134,14 @@ impl PackageEnvironment {
                 task_cwd.display()
             )
         })?;
-        if !manifest.scripts.contains_key(script_name) {
-            bail!(
+        let command = manifest.scripts.get(script_name).ok_or_else(|| {
+            anyhow!(
                 "No [belgie.scripts] entry '{script_name}' in {}",
                 manifest.path.display()
-            );
-        }
-        Self::from_manifest_parts(pyproject_dir, manifest.dependencies, manifest.scripts)
+            )
+        })?;
+        let env = Self::from_manifest_parts(pyproject_dir, manifest.dependencies)?;
+        Ok((env, command.clone()))
     }
 
     pub(crate) fn cwd(&self) -> &Path {
@@ -369,22 +372,15 @@ fn normalize_dependency(
     })
 }
 
-fn write_synthetic_config(
-    path: &Path,
-    dependencies: &[PackageDependency],
-    scripts: &BTreeMap<String, String>,
-) -> Result<(), AnyError> {
+fn write_synthetic_config(path: &Path, dependencies: &[PackageDependency]) -> Result<(), AnyError> {
     let imports = dependencies
         .iter()
         .map(|dep| (dep.alias.clone(), dep.specifier.clone()))
         .collect::<BTreeMap<_, _>>();
-    let mut config = serde_json::json!({
+    let config = serde_json::json!({
       "imports": imports,
       "nodeModulesDir": "none",
     });
-    if !scripts.is_empty() {
-        config["tasks"] = serde_json::json!(scripts);
-    }
     let text = serde_json::to_string_pretty(&config)?;
     std::fs::write(path, format!("{text}\n"))
         .with_context(|| format!("Writing {}", path.display()))?;
@@ -529,7 +525,7 @@ std_path = "jsr:@std/path@^1"
         let dependencies =
             vec![normalize_dependency("react", "^19", DependencyKind::Dependency).unwrap()];
 
-        write_synthetic_config(&config_path, &dependencies, &BTreeMap::new()).unwrap();
+        write_synthetic_config(&config_path, &dependencies).unwrap();
 
         let text = fs::read_to_string(config_path).unwrap();
         let config: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -605,19 +601,25 @@ dev = "vite"
     }
 
     #[test]
-    fn synthetic_config_includes_tasks_from_scripts() {
+    fn resolve_task_returns_command_string() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let config_path = temp_dir.path().join("deno.json");
-        let dependencies =
-            vec![normalize_dependency("vite", "^8", DependencyKind::Dependency).unwrap()];
-        let mut scripts = BTreeMap::new();
-        scripts.insert("build".to_string(), "vite build".to_string());
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            r#"[belgie.dependencies]
+vite = "^8"
 
-        write_synthetic_config(&config_path, &dependencies, &scripts).unwrap();
+[belgie.scripts]
+build = "vite build"
+"#,
+        )
+        .unwrap();
 
+        let (env, command) = PackageEnvironment::resolve_task(temp_dir.path(), "build").unwrap();
+
+        assert_eq!(command, "vite build");
         let config: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
-        assert_eq!(config["tasks"]["build"], "vite build");
+            serde_json::from_str(&fs::read_to_string(env.config_file()).unwrap()).unwrap();
+        assert!(config.get("tasks").is_none());
     }
 
     #[test]
