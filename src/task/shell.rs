@@ -190,11 +190,19 @@ pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResu
 
         Ok::<_, AnyError>(TaskResult {
             exit_code,
-            stderr: truncate_stderr(stderr),
+            stderr: task_result_stderr(exit_code, stderr),
         })
     };
 
     local.run_until(future).await
+}
+
+fn task_result_stderr(exit_code: i32, stderr: Vec<u8>) -> Option<String> {
+    if exit_code == 0 {
+        None
+    } else {
+        truncate_stderr(stderr)
+    }
 }
 
 fn truncate_stderr(bytes: Vec<u8>) -> Option<String> {
@@ -222,6 +230,27 @@ mod tests {
     #[test]
     fn get_script_with_args_omits_extra_whitespace_without_argv() {
         assert_eq!(get_script_with_args("vite build", &[]), "vite build");
+    }
+
+    #[test]
+    fn get_script_with_args_escapes_single_quotes() {
+        assert_eq!(
+            get_script_with_args("echo", &["it's".to_string()]),
+            "echo 'it'\"'\"'s'"
+        );
+    }
+
+    #[test]
+    fn task_result_stderr_is_none_on_success() {
+        assert!(task_result_stderr(0, b"warning".to_vec()).is_none());
+    }
+
+    #[test]
+    fn task_result_stderr_includes_failure_output() {
+        assert_eq!(
+            task_result_stderr(1, b"failed".to_vec()).as_deref(),
+            Some("failed")
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use deno_core::anyhow::{Context, anyhow};
 use deno_core::error::AnyError;
@@ -9,6 +10,9 @@ use deno_task_shell::SignalKind;
 use crate::packages::PackageEnvironment;
 use crate::task::shell::{ShellTaskOptions, TaskIo, TaskStdio, run_shell_task};
 use crate::task::types::{RunTaskOptions, TaskResult};
+
+const TERMINATE_GRACE_PERIOD: Duration = Duration::from_secs(5);
+const STOP_JOIN_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Debug)]
 pub(crate) struct TaskProcess {
@@ -38,7 +42,7 @@ impl TaskProcess {
     }
 
     pub(crate) fn stop_blocking(&self) -> Result<(), AnyError> {
-        if let Some(stop_tx) = self
+        let stop_requested = if let Some(stop_tx) = self
             .inner
             .stop_tx
             .lock()
@@ -46,9 +50,34 @@ impl TaskProcess {
             .take()
         {
             let _ = stop_tx.blocking_send(());
-        }
+            true
+        } else {
+            false
+        };
 
-        collect_worker_if_finished(&self.inner);
+        let deadline = Instant::now() + STOP_JOIN_TIMEOUT;
+        loop {
+            collect_worker_if_finished(&self.inner);
+            let has_result = self
+                .inner
+                .worker_result
+                .lock()
+                .expect("task process worker result lock should not be poisoned")
+                .is_some();
+            let has_handle = self
+                .inner
+                .join_handle
+                .lock()
+                .expect("task process join handle lock should not be poisoned")
+                .is_some();
+            if has_result || !has_handle {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(anyhow!("Background task did not stop within timeout"));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
 
         let joined_in_stop = {
             let mut guard = self
@@ -68,6 +97,7 @@ impl TaskProcess {
                 false
             }
         };
+        let _ = joined_in_stop;
 
         let mut result_guard = self
             .inner
@@ -77,8 +107,9 @@ impl TaskProcess {
         if let Some(result) = result_guard.take() {
             match result {
                 Err(error) => return Err(error),
-                Ok(task_result) if !joined_in_stop => task_failure_error(task_result)?,
-                Ok(_) => {}
+                Ok(task_result)
+                    if stop_requested && was_stopped_by_signal(task_result.exit_code) => {}
+                Ok(task_result) => task_failure_error(task_result)?,
             }
         }
         Ok(())
@@ -123,10 +154,14 @@ impl TaskRunner {
             let runtime = build_task_runtime("background")?;
 
             runtime.block_on(async move {
+                use tokio::time::{Instant as TokioInstant, sleep};
+
                 let kill_signal = KillSignal::default();
                 let stop_kill_signal = kill_signal.clone();
                 let mut stop_rx = stop_rx;
                 let mut stopping = false;
+                let mut escalated = false;
+                let mut grace_deadline = None;
                 let mut task_fut = std::pin::pin!(run_shell_task(shell_options(
                     &options,
                     package_env,
@@ -143,7 +178,15 @@ impl TaskRunner {
                                 return Err(anyhow!("Background task stop channel closed"));
                             }
                             stopping = true;
+                            // deno_task_shell signals individual child PIDs, not POSIX process groups.
                             stop_kill_signal.send(SignalKind::SIGTERM);
+                            grace_deadline = Some(TokioInstant::now() + TERMINATE_GRACE_PERIOD);
+                        }
+                        _ = sleep(Duration::from_millis(50)), if stopping && !escalated => {
+                            if grace_deadline.is_some_and(|deadline| TokioInstant::now() >= deadline) {
+                                stop_kill_signal.send(SignalKind::SIGKILL);
+                                escalated = true;
+                            }
                         }
                     }
                 }
@@ -205,6 +248,10 @@ fn task_failure_error(result: TaskResult) -> Result<(), AnyError> {
         message.push_str(&stderr);
     }
     Err(anyhow!(message))
+}
+
+fn was_stopped_by_signal(exit_code: i32) -> bool {
+    exit_code >= 128
 }
 
 fn build_task_runtime(context: &str) -> Result<tokio::runtime::Runtime, AnyError> {
@@ -272,5 +319,51 @@ mod tests {
             task_origin(&options).as_deref(),
             Some("http://127.0.0.1:13714")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn background_stop_escalates_after_grace_period() {
+        use std::fs;
+
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        fs::create_dir_all(&project).unwrap();
+        let heartbeat = project.join("heartbeat");
+        let script = format!(
+            "sh -c \"trap '' TERM; while true; do echo tick >> \\\"{}\\\"; sleep 0.05; done\"",
+            heartbeat.display()
+        );
+        fs::write(
+            project.join("pyproject.toml"),
+            format!(
+                "[belgie.dependencies]\nstub = \"jsr:@std/assert@^1\"\n\n[belgie.scripts]\nserve = {}\n",
+                serde_json::to_string(&script).unwrap()
+            ),
+        )
+        .unwrap();
+
+        let options = RunTaskOptions {
+            task_cwd: project.canonicalize().unwrap(),
+            script: "serve".to_string(),
+            argv: Vec::new(),
+            env: BTreeMap::new(),
+            host: None,
+            port: None,
+        };
+
+        let process = TaskRunner.start_blocking(options).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !heartbeat.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(heartbeat.exists());
+
+        process.stop_blocking().unwrap();
+
+        let len_after_stop = fs::metadata(&heartbeat).unwrap().len();
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(fs::metadata(&heartbeat).unwrap().len(), len_after_stop);
     }
 }

@@ -130,6 +130,90 @@ class TestTaskRunner:
         with pytest.raises(BelgieRuntimeError, match="task exploded"):
             await TaskRunner().run(options)
 
+    async def test_successful_task_ignores_stderr_output(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(scripts={"ok": "sh -c 'echo warn >&2; exit 0'"})
+        options = RunTaskOptions(str(pyproject.parent), "ok")
+
+        await TaskRunner().run(options)
+
+    async def test_task_argv_is_forwarded_to_script(
+        self,
+        write_belgie_pyproject,
+        tmp_path: Path,
+    ) -> None:
+        argv_out = tmp_path / "argv.txt"
+        pyproject = write_belgie_pyproject(
+            scripts={"args": 'sh -c \'printf "%s\\n" "$@" > "$BELGIE_ARGV_OUT"\' _'},
+        )
+        options = RunTaskOptions(
+            str(pyproject.parent),
+            "args",
+            argv=["--outDir", "dist"],
+            env={"BELGIE_ARGV_OUT": str(argv_out)},
+        )
+
+        await TaskRunner().run(options)
+
+        assert argv_out.read_text(encoding="utf-8").splitlines() == ["--outDir", "dist"]
+
+    async def test_task_argv_handles_single_quotes(
+        self,
+        write_belgie_pyproject,
+        tmp_path: Path,
+    ) -> None:
+        argv_out = tmp_path / "argv.txt"
+        pyproject = write_belgie_pyproject(
+            scripts={"args": 'sh -c \'printf "%s\\n" "$@" > "$BELGIE_ARGV_OUT"\' _'},
+        )
+        options = RunTaskOptions(
+            str(pyproject.parent),
+            "args",
+            argv=["it's"],
+            env={"BELGIE_ARGV_OUT": str(argv_out)},
+        )
+
+        await TaskRunner().run(options)
+
+        assert argv_out.read_text(encoding="utf-8").splitlines() == ["it's"]
+
+    async def test_task_runs_from_nested_task_cwd(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = tmp_path / "project"
+        nested = project / "apps" / "web"
+        nested.mkdir(parents=True)
+        cwd_out = tmp_path / "cwd.txt"
+        (project / "pyproject.toml").write_text(
+            '[belgie]\n\n[belgie.dependencies]\nstub = "jsr:@std/assert@^1"\n\n'
+            '[belgie.scripts]\ncheck = "sh -c \'pwd > \\"$BELGIE_CWD_OUT\\"\'"\n',
+            encoding="utf-8",
+        )
+        options = RunTaskOptions(
+            str(nested),
+            "check",
+            env={"BELGIE_CWD_OUT": str(cwd_out)},
+        )
+
+        await TaskRunner().run(options)
+
+        assert cwd_out.read_text(encoding="utf-8").strip() == str(nested.resolve())
+
+    async def test_stop_completes_for_term_ignoring_task(
+        self,
+        write_belgie_pyproject,
+    ) -> None:
+        pyproject = write_belgie_pyproject(
+            scripts={"serve": "sh -c 'trap '' TERM; while true; do sleep 0.05; done'"},
+        )
+        options = RunTaskOptions(str(pyproject.parent), "serve")
+
+        process = await TaskRunner().start(options)
+
+        await process.stop()
+
+        assert not process.is_running
+
     async def test_background_task_failure_surfaces_on_stop(self, write_belgie_pyproject) -> None:
         pyproject = write_belgie_pyproject(scripts={"fail": "sh -c 'echo task exploded >&2; exit 7'"})
         options = RunTaskOptions(str(pyproject.parent), "fail")

@@ -11,17 +11,6 @@ import pytest
 
 
 @pytest.fixture
-def write_script(tmp_path: Path):
-    def write_script_file(source: str, name: str = "main.js") -> Path:
-        path = tmp_path / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(source, encoding="utf-8")
-        return path
-
-    return write_script_file
-
-
-@pytest.fixture
 def write_belgie_pyproject(tmp_path: Path):
     def write_pyproject(
         *,

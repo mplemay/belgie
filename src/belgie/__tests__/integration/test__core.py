@@ -261,4 +261,43 @@ std_path = "jsr:@std/path@^1"
     result = lock(cwd=tmp_path)
 
     assert (tmp_path / "deno.lock").exists()
-    assert result.dependencies == 1
+    assert result.groups == {"default": 1}
+
+
+def test_lock_reports_group_counts_for_multiple_groups(tmp_path: Path):
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[belgie.dependencies]
+std_path = "jsr:@std/path@^1"
+
+[belgie.dependencies.dev]
+std_asserts = "jsr:@std/assert@^1"
+""",
+        encoding="utf-8",
+    )
+
+    result = lock(cwd=tmp_path, groups=["default", "dev"])
+
+    assert (tmp_path / "deno.lock").exists()
+    assert result.groups == {"default": 1, "dev": 1}
+
+
+def test_runtime_resolves_dev_group_dependencies(tmp_path: Path):
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[belgie.dependencies.dev]
+std_path = "jsr:@std/path@^1"
+""",
+        encoding="utf-8",
+    )
+    lock(cwd=tmp_path, groups=["dev"])
+
+    source = """
+import { join } from "std_path";
+
+export default function run() {
+  return join.name;
+}
+"""
+
+    assert run_script(tmp_path, source) == "join"

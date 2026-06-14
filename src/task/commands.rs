@@ -115,10 +115,11 @@ pub(crate) async fn prepare_custom_commands(
     let npm_resolver = context.resolver_factory().npm_resolver()?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
     let needs_deno = npm_resolver_needs_deno(npm_resolver, node_resolver, &bin_dirs);
+    let resolved_deno = BelgieDenoCommand::new(package_env);
     let deno_command = if needs_deno {
-        Some(BelgieDenoCommand::new(package_env)?)
+        Some(resolved_deno?)
     } else {
-        BelgieDenoCommand::new(package_env).ok()
+        resolved_deno.ok()
     };
 
     let mut commands = match npm_resolver {
