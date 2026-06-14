@@ -1,5 +1,7 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use pyo3::types::PyDict;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pyfunction, pymethods, types::PyAnyMethods};
 
 use crate::{binding::blocking, packages, utils::normalize_path};
@@ -12,8 +14,7 @@ use crate::{binding::blocking, packages, utils::normalize_path};
 #[derive(Clone, Debug)]
 pub struct PyPackageInstallResult {
     lockfile: PathBuf,
-    dependencies: usize,
-    dev_dependencies: usize,
+    groups: BTreeMap<String, usize>,
 }
 
 #[pymethods]
@@ -24,21 +25,19 @@ impl PyPackageInstallResult {
     }
 
     #[getter]
-    fn dependencies(&self) -> usize {
-        self.dependencies
-    }
-
-    #[getter]
-    fn dev_dependencies(&self) -> usize {
-        self.dev_dependencies
+    fn groups<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        for (group, count) in &self.groups {
+            dict.set_item(group, count)?;
+        }
+        Ok(dict)
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "PackageInstallResult(lockfile={:?}, dependencies={}, dev_dependencies={})",
+            "PackageInstallResult(lockfile={:?}, groups={:?})",
             self.lockfile(),
-            self.dependencies,
-            self.dev_dependencies,
+            self.groups,
         )
     }
 }
@@ -112,60 +111,64 @@ impl PyPackageUpdateResult {
     }
 }
 
-#[pyfunction(name = "install", signature = (cwd = None, *, include_dev = true, lockfile_only = false))]
+#[pyfunction(name = "install", signature = (cwd = None, *, groups = None, lockfile_only = false))]
 pub fn py_install(
     py: Python<'_>,
     cwd: Option<&Bound<'_, PyAny>>,
-    include_dev: bool,
+    groups: Option<&Bound<'_, PyAny>>,
     lockfile_only: bool,
 ) -> PyResult<PyPackageInstallResult> {
+    let groups = normalize_groups(groups)?;
     run_packages_sync(py, cwd, move |cwd| {
-        packages::install_packages(cwd, include_dev, lockfile_only)
+        packages::install_packages(cwd, groups, lockfile_only)
     })
     .map(Into::into)
 }
 
-#[pyfunction(name = "lock", signature = (cwd = None, *, include_dev = true))]
+#[pyfunction(name = "lock", signature = (cwd = None, *, groups = None))]
 pub fn py_lock(
     py: Python<'_>,
     cwd: Option<&Bound<'_, PyAny>>,
-    include_dev: bool,
+    groups: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyPackageInstallResult> {
-    run_packages_sync(py, cwd, move |cwd| {
-        packages::lock_packages(cwd, include_dev)
-    })
-    .map(Into::into)
+    let groups = normalize_groups(groups)?;
+    run_packages_sync(py, cwd, move |cwd| packages::lock_packages(cwd, groups)).map(Into::into)
 }
 
-#[pyfunction(name = "update", signature = (cwd = None, packages = None, *, include_dev = true, latest = false, lockfile_only = false))]
+#[pyfunction(
+    name = "update",
+    signature = (cwd = None, packages = None, *, groups = None, latest = false, lockfile_only = false)
+)]
 pub fn py_update(
     py: Python<'_>,
     cwd: Option<&Bound<'_, PyAny>>,
     packages: Option<&Bound<'_, PyAny>>,
-    include_dev: bool,
+    groups: Option<&Bound<'_, PyAny>>,
     latest: bool,
     lockfile_only: bool,
 ) -> PyResult<PyPackageUpdateResult> {
     let filters = normalize_package_filters(packages)?;
+    let groups = normalize_groups(groups)?;
     run_packages_sync(py, cwd, move |cwd| {
-        packages::update_packages(cwd, filters, include_dev, latest, lockfile_only)
+        packages::update_packages(cwd, filters, groups, latest, lockfile_only)
     })
     .map(Into::into)
 }
 
-#[pyfunction(name = "ainstall", signature = (cwd = None, *, include_dev = true, lockfile_only = false))]
+#[pyfunction(name = "ainstall", signature = (cwd = None, *, groups = None, lockfile_only = false))]
 pub fn py_ainstall<'py>(
     py: Python<'py>,
     cwd: Option<&Bound<'_, PyAny>>,
-    include_dev: bool,
+    groups: Option<&Bound<'_, PyAny>>,
     lockfile_only: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     let cwd = normalize_path::normalize_cwd(py, cwd)?;
+    let groups = normalize_groups(groups)?;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let result = run_packages_on_blocking_thread(move || {
             pyo3_async_runtimes::tokio::get_runtime().block_on(packages::install_packages(
                 cwd,
-                include_dev,
+                groups,
                 lockfile_only,
             ))
         })
@@ -174,40 +177,44 @@ pub fn py_ainstall<'py>(
     })
 }
 
-#[pyfunction(name = "alock", signature = (cwd = None, *, include_dev = true))]
+#[pyfunction(name = "alock", signature = (cwd = None, *, groups = None))]
 pub fn py_alock<'py>(
     py: Python<'py>,
     cwd: Option<&Bound<'_, PyAny>>,
-    include_dev: bool,
+    groups: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let cwd = normalize_path::normalize_cwd(py, cwd)?;
+    let groups = normalize_groups(groups)?;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let result = run_packages_on_blocking_thread(move || {
-            pyo3_async_runtimes::tokio::get_runtime()
-                .block_on(packages::lock_packages(cwd, include_dev))
+            pyo3_async_runtimes::tokio::get_runtime().block_on(packages::lock_packages(cwd, groups))
         })
         .await?;
         Ok(PyPackageInstallResult::from(result))
     })
 }
 
-#[pyfunction(name = "aupdate", signature = (cwd = None, packages = None, *, include_dev = true, latest = false, lockfile_only = false))]
+#[pyfunction(
+    name = "aupdate",
+    signature = (cwd = None, packages = None, *, groups = None, latest = false, lockfile_only = false)
+)]
 pub fn py_aupdate<'py>(
     py: Python<'py>,
     cwd: Option<&Bound<'_, PyAny>>,
     packages: Option<&Bound<'_, PyAny>>,
-    include_dev: bool,
+    groups: Option<&Bound<'_, PyAny>>,
     latest: bool,
     lockfile_only: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     let cwd = normalize_path::normalize_cwd(py, cwd)?;
     let filters = normalize_package_filters(packages)?;
+    let groups = normalize_groups(groups)?;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let result = run_packages_on_blocking_thread(move || {
             pyo3_async_runtimes::tokio::get_runtime().block_on(packages::update_packages(
                 cwd,
                 filters,
-                include_dev,
+                groups,
                 latest,
                 lockfile_only,
             ))
@@ -246,12 +253,19 @@ fn normalize_package_filters(packages: Option<&Bound<'_, PyAny>>) -> PyResult<Ve
     }
 }
 
+fn normalize_groups(groups: Option<&Bound<'_, PyAny>>) -> PyResult<Option<Vec<String>>> {
+    match groups {
+        None => Ok(None),
+        Some(value) if value.is_none() => Ok(None),
+        Some(value) => value.extract(),
+    }
+}
+
 impl From<packages::PackageInstallResult> for PyPackageInstallResult {
     fn from(value: packages::PackageInstallResult) -> Self {
         Self {
             lockfile: value.lockfile,
-            dependencies: value.dependencies,
-            dev_dependencies: value.dev_dependencies,
+            groups: value.groups,
         }
     }
 }

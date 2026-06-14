@@ -18,9 +18,7 @@ class PackageInstallResult:
     @property
     def lockfile(self) -> str: ...
     @property
-    def dependencies(self) -> int: ...
-    @property
-    def dev_dependencies(self) -> int: ...
+    def groups(self) -> dict[str, int]: ...
 
 class PackageUpdateChange:
     @property
@@ -112,38 +110,38 @@ class Runtime[**BoundP, BoundR]:
 def install(
     cwd: str | PathLike[str] | None = None,
     *,
-    include_dev: bool = True,
+    groups: list[str] | None = None,
     lockfile_only: bool = False,
 ) -> PackageInstallResult: ...
 def lock(
     cwd: str | PathLike[str] | None = None,
     *,
-    include_dev: bool = True,
+    groups: list[str] | None = None,
 ) -> PackageInstallResult: ...
 def update(
     cwd: str | PathLike[str] | None = None,
     packages: list[str] | None = None,
     *,
-    include_dev: bool = True,
+    groups: list[str] | None = None,
     latest: bool = False,
     lockfile_only: bool = False,
 ) -> PackageUpdateResult: ...
 def ainstall(
     cwd: str | PathLike[str] | None = None,
     *,
-    include_dev: bool = True,
+    groups: list[str] | None = None,
     lockfile_only: bool = False,
 ) -> Awaitable[PackageInstallResult]: ...
 def alock(
     cwd: str | PathLike[str] | None = None,
     *,
-    include_dev: bool = True,
+    groups: list[str] | None = None,
 ) -> Awaitable[PackageInstallResult]: ...
 def aupdate(
     cwd: str | PathLike[str] | None = None,
     packages: list[str] | None = None,
     *,
-    include_dev: bool = True,
+    groups: list[str] | None = None,
     latest: bool = False,
     lockfile_only: bool = False,
 ) -> Awaitable[PackageUpdateResult]: ...

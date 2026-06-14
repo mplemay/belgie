@@ -261,4 +261,4 @@ std_path = "jsr:@std/path@^1"
     result = lock(cwd=tmp_path)
 
     assert (tmp_path / "deno.lock").exists()
-    assert result.dependencies == 1
+    assert result.groups == {"default": 1}

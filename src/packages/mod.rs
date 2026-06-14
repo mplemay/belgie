@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -11,11 +11,7 @@ use toml_edit::{DocumentMut, value};
 
 use crate::embed::EmbedContext;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum DependencyKind {
-    Dependency,
-    DevDependency,
-}
+const DEFAULT_GROUP: &str = "default";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PyprojectValueKind {
@@ -24,10 +20,17 @@ enum PyprojectValueKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+enum DependencyLocation {
+    Default,
+    Group(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PackageDependency {
     alias: String,
     specifier: String,
-    kind: DependencyKind,
+    group: String,
+    location: DependencyLocation,
     value_kind: PyprojectValueKind,
 }
 
@@ -49,8 +52,7 @@ struct PackageEnvironmentInner {
 #[derive(Clone, Debug)]
 pub(crate) struct PackageInstallResult {
     pub lockfile: PathBuf,
-    pub dependencies: usize,
-    pub dev_dependencies: usize,
+    pub groups: BTreeMap<String, usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +68,7 @@ pub(crate) struct PackageUpdateChange {
     pub updated: String,
 }
 
+#[derive(Debug)]
 struct PyprojectManifest {
     path: PathBuf,
     document: DocumentMut,
@@ -74,8 +77,11 @@ struct PyprojectManifest {
 }
 
 impl PackageEnvironment {
-    pub(crate) fn discover(cwd: PathBuf, include_dev: bool) -> Result<Option<Self>, AnyError> {
-        let Some(manifest) = read_manifest(&cwd, include_dev)? else {
+    pub(crate) fn discover(
+        cwd: PathBuf,
+        groups: Option<Vec<String>>,
+    ) -> Result<Option<Self>, AnyError> {
+        let Some(manifest) = read_manifest(&cwd, groups)? else {
             return Ok(None);
         };
         if manifest.dependencies.is_empty() {
@@ -84,8 +90,8 @@ impl PackageEnvironment {
         Self::from_dependencies(cwd, manifest.dependencies).map(Some)
     }
 
-    fn required(cwd: PathBuf, include_dev: bool) -> Result<Self, AnyError> {
-        Self::discover(cwd.clone(), include_dev)?.ok_or_else(|| {
+    fn required(cwd: PathBuf, groups: Option<Vec<String>>) -> Result<Self, AnyError> {
+        Self::discover(cwd.clone(), groups)?.ok_or_else(|| {
             anyhow!(
                 "No belgie package dependencies found in {}",
                 cwd.join("pyproject.toml").display()
@@ -126,7 +132,7 @@ impl PackageEnvironment {
 
     pub(crate) fn for_task(task_cwd: &Path, script_name: &str) -> Result<Self, AnyError> {
         let pyproject_dir = find_pyproject_dir(task_cwd)?;
-        let manifest = read_manifest(&pyproject_dir, true)?.ok_or_else(|| {
+        let manifest = read_manifest(&pyproject_dir, None)?.ok_or_else(|| {
             anyhow!(
                 "No pyproject.toml with [belgie] configuration found near {}",
                 task_cwd.display()
@@ -184,10 +190,10 @@ impl PackageEnvironment {
 
 pub(crate) async fn install_packages(
     cwd: PathBuf,
-    include_dev: bool,
+    groups: Option<Vec<String>>,
     lockfile_only: bool,
 ) -> Result<PackageInstallResult, AnyError> {
-    let env = PackageEnvironment::required(cwd, include_dev)?;
+    let env = PackageEnvironment::required(cwd, groups)?;
     let (cwd, config_file, lockfile) = env.embed_paths();
     crate::embed::install_packages(cwd, config_file, lockfile, lockfile_only).await?;
     Ok(install_result_from_env(&env))
@@ -195,19 +201,19 @@ pub(crate) async fn install_packages(
 
 pub(crate) async fn lock_packages(
     cwd: PathBuf,
-    include_dev: bool,
+    groups: Option<Vec<String>>,
 ) -> Result<PackageInstallResult, AnyError> {
-    install_packages(cwd, include_dev, true).await
+    install_packages(cwd, groups, true).await
 }
 
 pub(crate) async fn update_packages(
     cwd: PathBuf,
     packages: Vec<String>,
-    include_dev: bool,
+    groups: Option<Vec<String>>,
     latest: bool,
     lockfile_only: bool,
 ) -> Result<PackageUpdateResult, AnyError> {
-    let env = PackageEnvironment::required(cwd.clone(), include_dev)?;
+    let env = PackageEnvironment::required(cwd.clone(), groups)?;
     let (project_cwd, config_file, lockfile) = env.embed_paths();
     crate::embed::update_packages(
         project_cwd,
@@ -231,24 +237,20 @@ pub(crate) async fn update_packages(
 }
 
 fn install_result_from_env(env: &PackageEnvironment) -> PackageInstallResult {
-    let dependencies = env
-        .dependencies()
-        .iter()
-        .filter(|dep| dep.kind == DependencyKind::Dependency)
-        .count();
-    let dev_dependencies = env
-        .dependencies()
-        .iter()
-        .filter(|dep| dep.kind == DependencyKind::DevDependency)
-        .count();
+    let mut groups = BTreeMap::new();
+    for dep in env.dependencies() {
+        *groups.entry(dep.group.clone()).or_insert(0) += 1;
+    }
     PackageInstallResult {
         lockfile: env.lockfile().to_path_buf(),
-        dependencies,
-        dev_dependencies,
+        groups,
     }
 }
 
-fn read_manifest(cwd: &Path, include_dev: bool) -> Result<Option<PyprojectManifest>, AnyError> {
+fn read_manifest(
+    cwd: &Path,
+    groups: Option<Vec<String>>,
+) -> Result<Option<PyprojectManifest>, AnyError> {
     let path = cwd.join("pyproject.toml");
     if !path.exists() {
         return Ok(None);
@@ -258,11 +260,9 @@ fn read_manifest(cwd: &Path, include_dev: bool) -> Result<Option<PyprojectManife
     let document = text
         .parse::<DocumentMut>()
         .with_context(|| format!("Parsing {}", path.display()))?;
+    reject_legacy_dev_dependencies_table(&document)?;
     let mut dependencies = Vec::new();
-    collect_table_deps(&document, DependencyKind::Dependency, &mut dependencies)?;
-    if include_dev {
-        collect_table_deps(&document, DependencyKind::DevDependency, &mut dependencies)?;
-    }
+    collect_dependency_groups(&document, groups.as_deref(), &mut dependencies)?;
     let mut scripts = BTreeMap::new();
     collect_scripts(&document, &mut scripts)?;
     Ok(Some(PyprojectManifest {
@@ -271,6 +271,17 @@ fn read_manifest(cwd: &Path, include_dev: bool) -> Result<Option<PyprojectManife
         dependencies,
         scripts,
     }))
+}
+
+fn reject_legacy_dev_dependencies_table(document: &DocumentMut) -> Result<(), AnyError> {
+    let has_legacy = document
+        .get("belgie")
+        .and_then(|belgie| belgie.get("dev-dependencies"))
+        .is_some();
+    if has_legacy {
+        bail!("Unsupported table [belgie.dev-dependencies]; use [belgie.dependencies.dev] instead");
+    }
+    Ok(())
 }
 
 pub(crate) fn find_pyproject_dir(start: &Path) -> Result<PathBuf, AnyError> {
@@ -318,28 +329,70 @@ fn collect_scripts(
     Ok(())
 }
 
-fn collect_table_deps(
+fn group_is_included(group: &str, groups: Option<&[String]>) -> bool {
+    match groups {
+        None => true,
+        Some(names) => names.iter().any(|name| name == group),
+    }
+}
+
+fn collect_dependency_groups(
     document: &DocumentMut,
-    kind: DependencyKind,
+    groups: Option<&[String]>,
     dependencies: &mut Vec<PackageDependency>,
 ) -> Result<(), AnyError> {
-    let table_name = match kind {
-        DependencyKind::Dependency => "dependencies",
-        DependencyKind::DevDependency => "dev-dependencies",
-    };
     let Some(table) = document
         .get("belgie")
-        .and_then(|deno| deno.get(table_name))
+        .and_then(|belgie| belgie.get("dependencies"))
         .and_then(|deps| deps.as_table())
     else {
         return Ok(());
     };
 
-    for (alias, item) in table.iter() {
-        let raw_value = item.as_str().ok_or_else(|| {
-            anyhow!("[belgie.{table_name}] entry '{alias}' must be a string dependency specifier")
-        })?;
-        dependencies.push(normalize_dependency(alias, raw_value, kind)?);
+    let mut seen_aliases = BTreeSet::new();
+    for (key, item) in table.iter() {
+        if let Some(raw_value) = item.as_str() {
+            if !group_is_included(DEFAULT_GROUP, groups) {
+                continue;
+            }
+            let dep =
+                normalize_dependency(key, raw_value, DEFAULT_GROUP, DependencyLocation::Default)?;
+            if !seen_aliases.insert(dep.alias.clone()) {
+                bail!(
+                    "Duplicate dependency alias '{}' across included groups",
+                    dep.alias
+                );
+            }
+            dependencies.push(dep);
+        } else if let Some(subtable) = item.as_table() {
+            if !group_is_included(key, groups) {
+                continue;
+            }
+            for (alias, subitem) in subtable.iter() {
+                let raw_value = subitem.as_str().ok_or_else(|| {
+                    anyhow!(
+                        "[belgie.dependencies.{key}] entry '{alias}' must be a string dependency specifier"
+                    )
+                })?;
+                let dep = normalize_dependency(
+                    alias,
+                    raw_value,
+                    key,
+                    DependencyLocation::Group(key.to_string()),
+                )?;
+                if !seen_aliases.insert(dep.alias.clone()) {
+                    bail!(
+                        "Duplicate dependency alias '{}' across included groups",
+                        dep.alias
+                    );
+                }
+                dependencies.push(dep);
+            }
+        } else {
+            bail!(
+                "[belgie.dependencies] entry '{key}' must be a string dependency specifier or nested dependency group table"
+            );
+        }
     }
     Ok(())
 }
@@ -347,7 +400,8 @@ fn collect_table_deps(
 fn normalize_dependency(
     alias: &str,
     raw_value: &str,
-    kind: DependencyKind,
+    group: &str,
+    location: DependencyLocation,
 ) -> Result<PackageDependency, AnyError> {
     let (specifier, value_kind) = if raw_value.starts_with("npm:") || raw_value.starts_with("jsr:")
     {
@@ -364,7 +418,8 @@ fn normalize_dependency(
     Ok(PackageDependency {
         alias: alias.to_string(),
         specifier,
-        kind,
+        group: group.to_string(),
+        location,
         value_kind,
     })
 }
@@ -409,7 +464,7 @@ fn apply_updates_to_pyproject(
     cwd: &Path,
     env: &PackageEnvironment,
 ) -> Result<Vec<PackageUpdateChange>, AnyError> {
-    let mut manifest = read_manifest(cwd, true)?
+    let mut manifest = read_manifest(cwd, None)?
         .ok_or_else(|| anyhow!("Missing {}", cwd.join("pyproject.toml").display()))?;
     let imports = read_synthetic_config_imports(env.config_file())?;
 
@@ -423,15 +478,9 @@ fn apply_updates_to_pyproject(
             continue;
         }
         let updated_value = dep.pyproject_value_for(updated_specifier)?;
-        let table_name = match dep.kind {
-            DependencyKind::Dependency => "dependencies",
-            DependencyKind::DevDependency => "dev-dependencies",
-        };
-        let previous = manifest.document["belgie"][table_name][&dep.alias]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-        manifest.document["belgie"][table_name][&dep.alias] = value(&updated_value);
+        let previous =
+            read_pyproject_dependency_value(&manifest.document, dep)?.unwrap_or_default();
+        write_pyproject_dependency_value(&mut manifest.document, dep, &updated_value)?;
         changes.push(PackageUpdateChange {
             name: dep.alias.clone(),
             previous,
@@ -444,6 +493,35 @@ fn apply_updates_to_pyproject(
             .with_context(|| format!("Writing {}", manifest.path.display()))?;
     }
     Ok(changes)
+}
+
+fn read_pyproject_dependency_value(
+    document: &DocumentMut,
+    dep: &PackageDependency,
+) -> Result<Option<String>, AnyError> {
+    let value = match &dep.location {
+        DependencyLocation::Default => document["belgie"]["dependencies"][&dep.alias].clone(),
+        DependencyLocation::Group(group) => {
+            document["belgie"]["dependencies"][group][&dep.alias].clone()
+        }
+    };
+    Ok(value.as_str().map(str::to_string))
+}
+
+fn write_pyproject_dependency_value(
+    document: &mut DocumentMut,
+    dep: &PackageDependency,
+    updated_value: &str,
+) -> Result<(), AnyError> {
+    match &dep.location {
+        DependencyLocation::Default => {
+            document["belgie"]["dependencies"][&dep.alias] = value(updated_value);
+        }
+        DependencyLocation::Group(group) => {
+            document["belgie"]["dependencies"][group][&dep.alias] = value(updated_value);
+        }
+    }
+    Ok(())
 }
 
 impl PackageDependency {
@@ -465,9 +543,18 @@ mod tests {
     use super::*;
     use std::fs;
 
+    fn parse_manifest(text: &str, groups: Option<Vec<String>>) -> PyprojectManifest {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(temp_dir.path().join("pyproject.toml"), text).unwrap();
+        read_manifest(temp_dir.path(), groups)
+            .unwrap()
+            .expect("manifest should exist")
+    }
+
     #[test]
     fn normalizes_unprefixed_dependencies_to_npm_imports() {
-        let dep = normalize_dependency("react", "^19", DependencyKind::Dependency).unwrap();
+        let dep = normalize_dependency("react", "^19", DEFAULT_GROUP, DependencyLocation::Default)
+            .unwrap();
 
         assert_eq!(dep.alias, "react");
         assert_eq!(dep.specifier, "npm:react@^19");
@@ -475,16 +562,26 @@ mod tests {
 
     #[test]
     fn preserves_explicit_jsr_specifiers() {
-        let dep = normalize_dependency("@std/path", "jsr:@std/path@^1", DependencyKind::Dependency)
-            .unwrap();
+        let dep = normalize_dependency(
+            "@std/path",
+            "jsr:@std/path@^1",
+            DEFAULT_GROUP,
+            DependencyLocation::Default,
+        )
+        .unwrap();
 
         assert_eq!(dep.specifier, "jsr:@std/path@^1");
     }
 
     #[test]
     fn extracts_updated_version_for_version_only_entries() {
-        let dep =
-            normalize_dependency("@types/react", "^19", DependencyKind::DevDependency).unwrap();
+        let dep = normalize_dependency(
+            "@types/react",
+            "^19",
+            "dev",
+            DependencyLocation::Group("dev".to_string()),
+        )
+        .unwrap();
 
         assert_eq!(
             dep.pyproject_value_for("npm:@types/react@^20").unwrap(),
@@ -493,10 +590,8 @@ mod tests {
     }
 
     #[test]
-    fn reads_pyproject_deno_dependency_tables() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        fs::write(
-            temp_dir.path().join("pyproject.toml"),
+    fn reads_pyproject_nested_dependency_groups() {
+        let manifest = parse_manifest(
             r#"[project]
 name = "example"
 
@@ -504,30 +599,112 @@ name = "example"
 react = "^19"
 std_path = "jsr:@std/path@^1"
 
-[belgie.dev-dependencies]
+[belgie.dependencies.dev]
+"@types/react" = "^19"
+
+[belgie.dependencies.test]
+vitest = "^1"
+"#,
+            None,
+        );
+
+        assert_eq!(manifest.dependencies.len(), 4);
+        assert_eq!(manifest.dependencies[0].alias, "react");
+        assert_eq!(manifest.dependencies[0].group, DEFAULT_GROUP);
+        assert_eq!(manifest.dependencies[0].specifier, "npm:react@^19");
+        assert_eq!(manifest.dependencies[1].specifier, "jsr:@std/path@^1");
+        assert_eq!(manifest.dependencies[2].alias, "@types/react");
+        assert_eq!(manifest.dependencies[2].group, "dev");
+        assert_eq!(manifest.dependencies[3].alias, "vitest");
+        assert_eq!(manifest.dependencies[3].group, "test");
+    }
+
+    #[test]
+    fn groups_filter_limits_collected_dependencies() {
+        let text = r#"[belgie.dependencies]
+react = "^19"
+
+[belgie.dependencies.dev]
+"@types/react" = "^19"
+"#;
+
+        let default_only = parse_manifest(text, Some(vec!["default".to_string()]));
+        assert_eq!(default_only.dependencies.len(), 1);
+        assert_eq!(default_only.dependencies[0].alias, "react");
+
+        let dev_only = parse_manifest(text, Some(vec!["dev".to_string()]));
+        assert_eq!(dev_only.dependencies.len(), 1);
+        assert_eq!(dev_only.dependencies[0].alias, "@types/react");
+
+        let both = parse_manifest(text, Some(vec!["default".to_string(), "dev".to_string()]));
+        assert_eq!(both.dependencies.len(), 2);
+    }
+
+    #[test]
+    fn rejects_duplicate_aliases_across_groups() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            r#"[belgie.dependencies]
+react = "^19"
+
+[belgie.dependencies.dev]
+react = "^20"
+"#,
+        )
+        .unwrap();
+
+        let err = read_manifest(temp_dir.path(), None).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Duplicate dependency alias 'react'")
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_dev_dependencies_table() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            r#"[belgie.dev-dependencies]
 "@types/react" = "^19"
 "#,
         )
         .unwrap();
 
-        let manifest = read_manifest(temp_dir.path(), true).unwrap().unwrap();
-        let prod_manifest = read_manifest(temp_dir.path(), false).unwrap().unwrap();
+        let err = read_manifest(temp_dir.path(), None).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Unsupported table [belgie.dev-dependencies]")
+        );
+    }
 
-        assert_eq!(manifest.dependencies.len(), 3);
-        assert_eq!(prod_manifest.dependencies.len(), 2);
-        assert_eq!(manifest.dependencies[0].alias, "react");
-        assert_eq!(manifest.dependencies[0].specifier, "npm:react@^19");
-        assert_eq!(manifest.dependencies[1].specifier, "jsr:@std/path@^1");
-        assert_eq!(manifest.dependencies[2].alias, "@types/react");
-        assert_eq!(manifest.dependencies[2].kind, DependencyKind::DevDependency);
+    #[test]
+    fn rejects_non_string_entries_in_nested_groups() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            r#"[belgie.dependencies.dev]
+react = ["^19"]
+"#,
+        )
+        .unwrap();
+
+        let err = read_manifest(temp_dir.path(), None).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("[belgie.dependencies.dev] entry 'react'")
+        );
     }
 
     #[test]
     fn synthetic_config_contains_imports_and_disables_node_modules_dir() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config_path = temp_dir.path().join("deno.json");
-        let dependencies =
-            vec![normalize_dependency("react", "^19", DependencyKind::Dependency).unwrap()];
+        let dependencies = vec![
+            normalize_dependency("react", "^19", DEFAULT_GROUP, DependencyLocation::Default)
+                .unwrap(),
+        ];
 
         write_synthetic_config(&config_path, &dependencies, &BTreeMap::new()).unwrap();
 
@@ -538,7 +715,7 @@ std_path = "jsr:@std/path@^1"
     }
 
     #[test]
-    fn applies_updates_back_to_pyproject_values() {
+    fn applies_updates_back_to_default_group() {
         let temp_dir = tempfile::tempdir().unwrap();
         let cwd = temp_dir.path().to_path_buf();
         fs::write(
@@ -550,9 +727,15 @@ std_path = "jsr:@std/path@^1"
         )
         .unwrap();
         let dependencies = vec![
-            normalize_dependency("react", "^18", DependencyKind::Dependency).unwrap(),
-            normalize_dependency("std_path", "jsr:@std/path@^1", DependencyKind::Dependency)
+            normalize_dependency("react", "^18", DEFAULT_GROUP, DependencyLocation::Default)
                 .unwrap(),
+            normalize_dependency(
+                "std_path",
+                "jsr:@std/path@^1",
+                DEFAULT_GROUP,
+                DependencyLocation::Default,
+            )
+            .unwrap(),
         ];
         let env = PackageEnvironment::from_dependencies(cwd.clone(), dependencies).unwrap();
         let mut config: serde_json::Value =
@@ -578,10 +761,47 @@ std_path = "jsr:@std/path@^1"
     }
 
     #[test]
-    fn reads_pyproject_script_table() {
+    fn applies_updates_back_to_named_group() {
         let temp_dir = tempfile::tempdir().unwrap();
+        let cwd = temp_dir.path().to_path_buf();
         fs::write(
-            temp_dir.path().join("pyproject.toml"),
+            cwd.join("pyproject.toml"),
+            r#"[belgie.dependencies.dev]
+"@types/react" = "^18"
+"#,
+        )
+        .unwrap();
+        let dependencies = vec![
+            normalize_dependency(
+                "@types/react",
+                "^18",
+                "dev",
+                DependencyLocation::Group("dev".to_string()),
+            )
+            .unwrap(),
+        ];
+        let env = PackageEnvironment::from_dependencies(cwd.clone(), dependencies).unwrap();
+        let mut config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(env.config_file()).unwrap()).unwrap();
+        config["imports"]["@types/react"] =
+            serde_json::Value::String("npm:@types/react@^19".into());
+        fs::write(
+            env.config_file(),
+            serde_json::to_string_pretty(&config).unwrap(),
+        )
+        .unwrap();
+
+        let changes = apply_updates_to_pyproject(&cwd, &env).unwrap();
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].updated, "^19");
+        let pyproject = fs::read_to_string(cwd.join("pyproject.toml")).unwrap();
+        assert!(pyproject.contains("\"@types/react\" = \"^19\""));
+    }
+
+    #[test]
+    fn reads_pyproject_script_table() {
+        let manifest = parse_manifest(
             r#"[project]
 name = "example"
 
@@ -592,10 +812,8 @@ vite = "^8"
 build = "vite build"
 dev = "vite"
 "#,
-        )
-        .unwrap();
-
-        let manifest = read_manifest(temp_dir.path(), true).unwrap().unwrap();
+            None,
+        );
 
         assert_eq!(
             manifest.scripts.get("build"),
@@ -608,8 +826,9 @@ dev = "vite"
     fn synthetic_config_includes_tasks_from_scripts() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config_path = temp_dir.path().join("deno.json");
-        let dependencies =
-            vec![normalize_dependency("vite", "^8", DependencyKind::Dependency).unwrap()];
+        let dependencies = vec![
+            normalize_dependency("vite", "^8", DEFAULT_GROUP, DependencyLocation::Default).unwrap(),
+        ];
         let mut scripts = BTreeMap::new();
         scripts.insert("build".to_string(), "vite build".to_string());
 

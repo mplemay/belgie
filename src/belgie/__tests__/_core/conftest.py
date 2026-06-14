@@ -26,12 +26,13 @@ def write_belgie_pyproject(tmp_path: Path):
     def write_pyproject(
         *,
         dependencies: dict[str, object] | None = None,
-        dev_dependencies: dict[str, object] | None = None,
+        dependency_groups: dict[str, dict[str, object]] | None = None,
         scripts: dict[str, str] | None = None,
     ) -> Path:
         lines = ["[belgie]"]
         append_table(lines, "belgie.dependencies", dependencies or {})
-        append_table(lines, "belgie.dev-dependencies", dev_dependencies or {})
+        for group_name, group_deps in (dependency_groups or {}).items():
+            append_table(lines, f"belgie.dependencies.{group_name}", group_deps)
         append_table(lines, "belgie.scripts", scripts or {})
         path = tmp_path / "pyproject.toml"
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
