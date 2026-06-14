@@ -185,9 +185,8 @@ struct DenoExecutionContext {
 impl DenoExecutionContext {
     fn new(bound: BoundRuntime, tokio_runtime: &tokio::runtime::Runtime) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
-        let package_environment =
-            PackageEnvironment::discover(bound.cwd().to_path_buf(), Some(vec!["default".into()]))
-                .map_err(|error| BindingError::runtime(error.to_string()))?;
+        let package_environment = PackageEnvironment::discover(bound.cwd().to_path_buf(), None)
+            .map_err(|error| BindingError::runtime(error.to_string()))?;
         let uses_package_loader = package_environment.is_some();
         let js_runtime = if let Some(package_environment) = package_environment {
             tokio_runtime.block_on(create_js_runtime_with_packages(

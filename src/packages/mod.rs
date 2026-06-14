@@ -84,12 +84,13 @@ impl PackageEnvironment {
     }
 
     fn required(cwd: PathBuf, groups: Option<Vec<String>>) -> Result<Self, AnyError> {
-        Self::discover(cwd.clone(), groups)?.ok_or_else(|| {
-            anyhow!(
-                "No belgie package dependencies found in {}",
-                cwd.join("pyproject.toml").display()
-            )
-        })
+        let Some(manifest) = read_manifest(&cwd, groups.clone())? else {
+            return Err(no_dependencies_error(&cwd, groups));
+        };
+        if manifest.dependencies.is_empty() {
+            return Err(no_dependencies_error(&cwd, groups));
+        }
+        Self::from_manifest_parts(cwd, manifest.dependencies, BTreeMap::new())
     }
 
     fn from_dependencies(
@@ -125,16 +126,21 @@ impl PackageEnvironment {
 
     pub(crate) fn for_task(task_cwd: &Path, script_name: &str) -> Result<Self, AnyError> {
         let pyproject_dir = find_pyproject_dir(task_cwd)?;
-        let manifest = read_manifest(&pyproject_dir, Some(vec![DEFAULT_GROUP.to_string()]))?
-            .ok_or_else(|| {
-                anyhow!(
-                    "No pyproject.toml with [belgie] configuration found near {}",
-                    task_cwd.display()
-                )
-            })?;
+        let manifest = read_manifest(&pyproject_dir, None)?.ok_or_else(|| {
+            anyhow!(
+                "No pyproject.toml with [belgie] configuration found near {}",
+                task_cwd.display()
+            )
+        })?;
         if !manifest.scripts.contains_key(script_name) {
             bail!(
                 "No [belgie.scripts] entry '{script_name}' in {}",
+                manifest.path.display()
+            );
+        }
+        if manifest.dependencies.is_empty() {
+            bail!(
+                "No belgie package dependencies found in {}",
                 manifest.path.display()
             );
         }
@@ -228,6 +234,30 @@ pub(crate) async fn update_packages(
         lockfile: env.lockfile().to_path_buf(),
         changes,
     })
+}
+
+fn dependency_tables_have_any_entries(document: &DocumentMut) -> bool {
+    document
+        .get("belgie")
+        .and_then(|belgie| belgie.get("dependencies"))
+        .and_then(|deps| deps.as_table())
+        .is_some_and(|table| !table.is_empty())
+}
+
+fn no_dependencies_error(cwd: &Path, groups: Option<Vec<String>>) -> AnyError {
+    let path = cwd.join("pyproject.toml");
+    if let Some(group_names) = groups
+        && let Ok(text) = std::fs::read_to_string(&path)
+        && let Ok(document) = text.parse::<DocumentMut>()
+        && dependency_tables_have_any_entries(&document)
+    {
+        let group_list = group_names.join(", ");
+        return anyhow!(
+            "No dependencies matched groups: [{group_list}] in {}",
+            path.display()
+        );
+    }
+    anyhow!("No belgie package dependencies found in {}", path.display())
 }
 
 fn install_result_from_env(env: &PackageEnvironment) -> PackageInstallResult {
@@ -807,5 +837,71 @@ dev = "vite"
         let found = find_pyproject_dir(&nested).unwrap();
 
         assert_eq!(found, temp_dir.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn required_reports_unmatched_groups_when_filter_excludes_dependencies() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            r#"[belgie.dependencies]
+react = "^19"
+
+[belgie.dependencies.dev]
+"@types/react" = "^19"
+"#,
+        )
+        .unwrap();
+
+        let err = PackageEnvironment::required(
+            temp_dir.path().to_path_buf(),
+            Some(vec!["typo".to_string()]),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("No dependencies matched groups: [typo]")
+        );
+    }
+
+    #[test]
+    fn for_task_loads_dependencies_from_all_groups() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            r#"[belgie.dependencies.dev]
+vite = "^8"
+
+[belgie.scripts]
+build = "vite build"
+"#,
+        )
+        .unwrap();
+
+        let env = PackageEnvironment::for_task(temp_dir.path(), "build").unwrap();
+
+        assert_eq!(env.dependencies().len(), 1);
+        assert_eq!(env.dependencies()[0].alias, "vite");
+        assert_eq!(env.dependencies()[0].group, "dev");
+    }
+
+    #[test]
+    fn for_task_rejects_projects_without_dependencies() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            r#"[belgie.scripts]
+build = "echo ok"
+"#,
+        )
+        .unwrap();
+
+        let err = PackageEnvironment::for_task(temp_dir.path(), "build").unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("No belgie package dependencies found")
+        );
     }
 }

@@ -92,15 +92,21 @@ class TestPackageHelpers:
     def test_groups_filter_controls_nested_dependency_validation(self, write_belgie_pyproject) -> None:
         pyproject = write_belgie_pyproject(dependency_groups={"dev": {"react": ["^19"]}})
 
-        with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
+        with pytest.raises(BelgieRuntimeError, match="No dependencies matched groups"):
             lock(cwd=pyproject.parent, groups=["default"])
-        with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
+        with pytest.raises(BelgieRuntimeError, match="No dependencies matched groups"):
             lock(cwd=pyproject.parent)
         with pytest.raises(
             BelgieRuntimeError,
             match=r"\[belgie\.dependencies\.dev\].*string dependency specifier",
         ):
             lock(cwd=pyproject.parent, groups=["dev"])
+
+    def test_groups_filter_reports_unknown_groups(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(dependencies={"react": "^19"})
+
+        with pytest.raises(BelgieRuntimeError, match="No dependencies matched groups: \\[typo\\]"):
+            lock(cwd=pyproject.parent, groups=["typo"])
 
     def test_package_update_accepts_empty_filters_but_requires_dependencies(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "example"\n', encoding="utf-8")
