@@ -411,7 +411,8 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         fs::write(
             project.join("pyproject.toml"),
-            r#"[belgie]
+            r#"[belgie.dependencies.dev]
+vite = "^8"
 
 [belgie.scripts]
 build = "echo ok"
