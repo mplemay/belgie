@@ -21,4 +21,13 @@ impl TaskResult {
     pub(crate) fn success(&self) -> bool {
         self.exit_code == 0
     }
+
+    pub(crate) fn failure_message(&self) -> String {
+        let mut message = format!("Task exited with status {}", self.exit_code);
+        if let Some(stderr) = &self.stderr {
+            message.push_str(":\n");
+            message.push_str(stderr);
+        }
+        message
+    }
 }

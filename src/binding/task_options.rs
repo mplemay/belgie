@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use pyo3::prelude::*;
 
-#[pyclass(name = "RunTaskOptions", module = "belgie._core", skip_from_py_object)]
+#[pyclass(name = "RunTaskOptions", module = "belgie.tasks", skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyRunTaskOptions {
     pub(crate) task_cwd: String,

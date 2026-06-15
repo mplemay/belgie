@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 
 use crate::{binding::blocking, task::TaskProcess};
 
-#[pyclass(name = "TaskProcess", module = "belgie._core")]
+#[pyclass(name = "TaskProcess", module = "belgie.tasks")]
 pub(crate) struct PyTaskProcess {
     inner: TaskProcess,
 }

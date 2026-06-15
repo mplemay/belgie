@@ -61,12 +61,7 @@ pub(crate) fn ensure_task_success(result: crate::task::TaskResult) -> Result<(),
         return Ok(());
     }
 
-    let mut message = format!("Task exited with status {}", result.exit_code);
-    if let Some(stderr) = result.stderr {
-        message.push_str(":\n");
-        message.push_str(&stderr);
-    }
-    Err(BindingError::runtime(message))
+    Err(BindingError::runtime(result.failure_message()))
 }
 
 #[cfg(test)]

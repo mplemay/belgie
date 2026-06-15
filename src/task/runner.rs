@@ -1,23 +1,18 @@
-use std::fs;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-#[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use deno_core::anyhow::Context;
+use deno_core::anyhow::{Context, anyhow};
 use deno_core::error::AnyError;
-use tempfile::TempDir;
+use deno_task_shell::KillSignal;
+use deno_task_shell::SignalKind;
 
 use crate::packages::PackageEnvironment;
-use crate::task::deno_exe::resolve_deno_exe;
+use crate::task::shell::{ShellTaskOptions, TaskIo, TaskStdio, run_shell_task};
 use crate::task::types::{RunTaskOptions, TaskResult};
 
-const STDERR_CAPTURE_LIMIT: usize = 8 * 1024;
-#[cfg(unix)]
 const TERMINATE_GRACE_PERIOD: Duration = Duration::from_secs(5);
+const STOP_JOIN_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Debug)]
 pub(crate) struct TaskProcess {
@@ -27,14 +22,9 @@ pub(crate) struct TaskProcess {
 #[derive(Debug)]
 struct TaskProcessInner {
     origin: Option<String>,
-    child: Mutex<Option<Child>>,
-    config_dir: TempDir,
-}
-
-#[derive(Debug)]
-struct SpawnedTask {
-    child: Child,
-    config_dir: TempDir,
+    stop_tx: Mutex<Option<tokio::sync::mpsc::Sender<()>>>,
+    join_handle: Mutex<Option<JoinHandle<Result<TaskResult, AnyError>>>>,
+    worker_result: Mutex<Option<Result<TaskResult, AnyError>>>,
 }
 
 impl TaskProcess {
@@ -43,41 +33,70 @@ impl TaskProcess {
     }
 
     pub(crate) fn is_running_blocking(&self) -> bool {
-        let mut guard = self
-            .inner
-            .child
+        collect_worker_if_finished(&self.inner);
+        self.inner
+            .join_handle
             .lock()
-            .expect("task process child lock should not be poisoned");
-        let Some(child) = guard.as_mut() else {
-            return false;
-        };
-        match child.try_wait() {
-            Ok(None) => true,
-            Ok(Some(_)) => {
-                *guard = None;
-                false
-            }
-            Err(_) => {
-                *guard = None;
-                false
-            }
-        }
+            .expect("task process join handle lock should not be poisoned")
+            .is_some()
     }
 
     pub(crate) fn stop_blocking(&self) -> Result<(), AnyError> {
-        let _ = self.inner.config_dir.path();
-        let mut guard = self
+        let was_running = self.is_running_blocking();
+        let stop_requested = if let Some(stop_tx) = self
             .inner
-            .child
+            .stop_tx
             .lock()
-            .expect("task process child lock should not be poisoned");
-        let Some(mut child) = guard.take() else {
-            return Ok(());
+            .expect("task process stop lock should not be poisoned")
+            .take()
+        {
+            let _ = stop_tx.blocking_send(());
+            true
+        } else {
+            false
         };
-        terminate_child(&mut child)?;
-        child
-            .wait()
-            .context("Failed to wait for task subprocess after stop")?;
+
+        let deadline = Instant::now() + STOP_JOIN_TIMEOUT;
+        loop {
+            collect_worker_if_finished(&self.inner);
+            let has_result = self
+                .inner
+                .worker_result
+                .lock()
+                .expect("task process worker result lock should not be poisoned")
+                .is_some();
+            let has_handle = self
+                .inner
+                .join_handle
+                .lock()
+                .expect("task process join handle lock should not be poisoned")
+                .is_some();
+            if has_result || !has_handle {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(anyhow!("Background task did not stop within timeout"));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        let mut result_guard = self
+            .inner
+            .worker_result
+            .lock()
+            .expect("task process worker result lock should not be poisoned");
+        if let Some(result) = result_guard.take() {
+            match result {
+                Err(error) => return Err(error),
+                Ok(task_result)
+                    if stop_requested && (was_running || task_result.exit_code >= 128) => {}
+                Ok(task_result) => {
+                    if !task_result.success() {
+                        return Err(anyhow!(task_result.failure_message()));
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -93,42 +112,139 @@ pub(crate) struct TaskRunner;
 
 impl TaskRunner {
     pub(crate) fn run_blocking(&self, options: RunTaskOptions) -> Result<TaskResult, AnyError> {
-        wait_for_foreground_child(spawn_deno_task(&options, false)?)
+        let (package_env, command) =
+            PackageEnvironment::resolve_task(&options.task_cwd, &options.script)?;
+        let runtime = build_task_runtime("foreground")?;
+
+        runtime.block_on(run_shell_task(shell_options(
+            &options,
+            package_env,
+            command,
+            TaskIo {
+                stdout: TaskStdio::stdout(),
+                stderr: TaskStdio::piped(),
+            },
+            KillSignal::default(),
+        )))
     }
 
     pub(crate) fn start_blocking(&self, options: RunTaskOptions) -> Result<TaskProcess, AnyError> {
+        PackageEnvironment::validate_task(&options.task_cwd, &options.script)?;
         let origin = task_origin(&options);
-        let SpawnedTask { child, config_dir } = spawn_deno_task(&options, true)?;
+        let (stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
+
+        let join_handle = thread::spawn(move || {
+            let (package_env, command) =
+                PackageEnvironment::resolve_task(&options.task_cwd, &options.script)?;
+            let runtime = build_task_runtime("background")?;
+
+            runtime.block_on(async move {
+                use tokio::time::{Instant as TokioInstant, sleep};
+
+                let kill_signal = KillSignal::default();
+                let stop_kill_signal = kill_signal.clone();
+                let mut stop_rx = stop_rx;
+                let mut stopping = false;
+                let mut escalated = false;
+                let mut grace_deadline = None;
+                let mut task_fut = std::pin::pin!(run_shell_task(shell_options(
+                    &options,
+                    package_env,
+                    command,
+                    TaskIo::default(),
+                    kill_signal,
+                )));
+
+                loop {
+                    tokio::select! {
+                        result = task_fut.as_mut() => return result,
+                        msg = stop_rx.recv(), if !stopping => {
+                            if msg.is_none() {
+                                return Err(anyhow!("Background task stop channel closed"));
+                            }
+                            stopping = true;
+                            // deno_task_shell signals individual child PIDs, not POSIX process groups.
+                            stop_kill_signal.send(SignalKind::SIGTERM);
+                            grace_deadline = Some(TokioInstant::now() + TERMINATE_GRACE_PERIOD);
+                        }
+                        _ = sleep(Duration::from_millis(50)), if stopping && !escalated => {
+                            if grace_deadline.is_some_and(|deadline| TokioInstant::now() >= deadline) {
+                                stop_kill_signal.send(SignalKind::SIGKILL);
+                                escalated = true;
+                            }
+                        }
+                    }
+                }
+            })
+        });
+
         Ok(TaskProcess {
             inner: Arc::new(TaskProcessInner {
                 origin,
-                child: Mutex::new(Some(child)),
-                config_dir,
+                stop_tx: Mutex::new(Some(stop_tx)),
+                join_handle: Mutex::new(Some(join_handle)),
+                worker_result: Mutex::new(None),
             }),
         })
     }
 }
 
-fn wait_for_foreground_child(mut task: SpawnedTask) -> Result<TaskResult, AnyError> {
-    let stderr_reader = task.child.stderr.take().map(spawn_captured_stderr_reader);
-    let status = task
-        .child
-        .wait()
-        .context("Failed to wait for task subprocess")?;
-    let exit_code = status.code().unwrap_or(1);
-    let captured_stderr = stderr_reader
-        .and_then(|reader| reader.join().ok())
-        .flatten();
-    let stderr = if exit_code == 0 {
-        None
-    } else {
-        captured_stderr
+fn collect_worker_if_finished(inner: &TaskProcessInner) {
+    let handle = {
+        let mut guard = inner
+            .join_handle
+            .lock()
+            .expect("task process join handle lock should not be poisoned");
+        let Some(handle) = guard.as_ref() else {
+            return;
+        };
+        if !handle.is_finished() {
+            return;
+        }
+        guard.take()
     };
-    Ok(TaskResult { exit_code, stderr })
+
+    if let Some(handle) = handle {
+        let result = join_worker_handle(handle);
+        *inner
+            .worker_result
+            .lock()
+            .expect("task process worker result lock should not be poisoned") = Some(result);
+    }
 }
 
-fn spawn_captured_stderr_reader(stderr: impl Read + Send + 'static) -> JoinHandle<Option<String>> {
-    thread::spawn(move || read_captured_stderr(stderr))
+fn join_worker_handle(
+    handle: JoinHandle<Result<TaskResult, AnyError>>,
+) -> Result<TaskResult, AnyError> {
+    match handle.join() {
+        Ok(result) => result,
+        Err(_) => Err(anyhow!("Background task thread panicked")),
+    }
+}
+
+fn build_task_runtime(context: &str) -> Result<tokio::runtime::Runtime, AnyError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .with_context(|| format!("Failed to create {context} task runtime"))
+}
+
+fn shell_options(
+    options: &RunTaskOptions,
+    package_env: PackageEnvironment,
+    command: String,
+    stdio: TaskIo,
+    kill_signal: KillSignal,
+) -> ShellTaskOptions {
+    ShellTaskOptions {
+        command,
+        cwd: options.task_cwd.clone(),
+        extra_env: options.env.clone(),
+        argv: options.argv.clone(),
+        package_env,
+        stdio,
+        kill_signal,
+    }
 }
 
 fn task_origin(options: &RunTaskOptions) -> Option<String> {
@@ -138,187 +254,11 @@ fn task_origin(options: &RunTaskOptions) -> Option<String> {
     }
 }
 
-fn read_captured_stderr(mut stderr: impl Read) -> Option<String> {
-    let mut buffer = Vec::new();
-    let mut chunk = [0; 1024];
-    loop {
-        let read = stderr.read(&mut chunk).ok()?;
-        if read == 0 {
-            break;
-        }
-        let remaining = STDERR_CAPTURE_LIMIT.saturating_sub(buffer.len());
-        if remaining > 0 {
-            buffer.extend_from_slice(&chunk[..read.min(remaining)]);
-        }
-    }
-    let text = String::from_utf8_lossy(&buffer).trim().to_string();
-    if text.is_empty() { None } else { Some(text) }
-}
-
-pub(crate) fn build_deno_task_argv(
-    options: &RunTaskOptions,
-    config_file: &Path,
-    lockfile: &Path,
-) -> Vec<String> {
-    let mut argv = vec![
-        "task".to_string(),
-        "--config".to_string(),
-        config_file.to_string_lossy().into_owned(),
-        "--lock".to_string(),
-        lockfile.to_string_lossy().into_owned(),
-        "--cwd".to_string(),
-        options.task_cwd.to_string_lossy().into_owned(),
-        options.script.clone(),
-    ];
-    if !options.argv.is_empty() {
-        argv.push("--".to_string());
-        argv.extend(options.argv.clone());
-    }
-    argv
-}
-
-fn spawn_deno_task(options: &RunTaskOptions, background: bool) -> Result<SpawnedTask, AnyError> {
-    let env = PackageEnvironment::for_task(&options.task_cwd, &options.script)?;
-    let pyproject_dir = env.cwd().to_path_buf();
-    let (config_dir, config_file) = copy_task_config_to_temp_dir(&env)?;
-    let deno_exe = resolve_deno_exe()?;
-
-    let mut command = Command::new(deno_exe);
-    for arg in build_deno_task_argv(options, &config_file, env.lockfile()) {
-        command.arg(arg);
-    }
-    command.current_dir(&pyproject_dir).stdin(Stdio::inherit());
-
-    if background {
-        command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
-        set_process_group(&mut command);
-    } else {
-        command.stdout(Stdio::inherit()).stderr(Stdio::piped());
-    }
-
-    for (key, value) in &options.env {
-        command.env(key, value);
-    }
-
-    let child = command
-        .spawn()
-        .with_context(|| format!("Failed to spawn deno task '{}'", options.script))?;
-    Ok(SpawnedTask { child, config_dir })
-}
-
-fn copy_task_config_to_temp_dir(env: &PackageEnvironment) -> Result<(TempDir, PathBuf), AnyError> {
-    let config_dir = tempfile::Builder::new()
-        .prefix("belgie-task-")
-        .tempdir()
-        .context("Failed to create temporary Deno task config directory")?;
-    let config_file = config_dir.path().join("deno.json");
-    fs::copy(env.config_file(), &config_file).with_context(|| {
-        format!(
-            "Failed to copy task config from {} to {}",
-            env.config_file().display(),
-            config_file.display()
-        )
-    })?;
-    Ok((config_dir, config_file))
-}
-
-#[cfg(unix)]
-fn set_process_group(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    command.process_group(0);
-}
-
-#[cfg(not(unix))]
-fn set_process_group(_command: &mut Command) {}
-
-fn terminate_child(child: &mut Child) -> Result<(), AnyError> {
-    #[cfg(unix)]
-    {
-        terminate_child_unix(child)
-    }
-    #[cfg(not(unix))]
-    {
-        child
-            .kill()
-            .context("Failed to terminate task subprocess")?;
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-fn terminate_child_unix(child: &mut Child) -> Result<(), AnyError> {
-    terminate_child_unix_with_grace(child, TERMINATE_GRACE_PERIOD)
-}
-
-#[cfg(unix)]
-fn terminate_child_unix_with_grace(
-    child: &mut Child,
-    grace_period: Duration,
-) -> Result<(), AnyError> {
-    const SIGTERM: i32 = 15;
-    const SIGKILL: i32 = 9;
-
-    let pid = child.id() as i32;
-    if signal_process_group(pid, SIGTERM).is_err() {
-        child
-            .kill()
-            .context("Failed to terminate task subprocess")?;
-        return Ok(());
-    }
-
-    let deadline = Instant::now() + grace_period;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return Ok(()),
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Ok(None) => break,
-            Err(error) => {
-                return Err(error).context("Failed to wait for task subprocess after SIGTERM");
-            }
-        }
-    }
-
-    if child
-        .try_wait()
-        .context("Failed to wait for task subprocess before SIGKILL")?
-        .is_some()
-    {
-        return Ok(());
-    }
-    if signal_process_group(pid, SIGKILL).is_err() {
-        child
-            .kill()
-            .context("Failed to terminate task subprocess after grace period")?;
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn signal_process_group(pid: i32, signal: i32) -> std::io::Result<()> {
-    unsafe extern "C" {
-        fn kill(pid: i32, sig: i32) -> i32;
-    }
-
-    // SAFETY: kill is a POSIX syscall; negative pid targets the process group.
-    let result = unsafe { kill(-pid, signal) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-    #[cfg(not(windows))]
-    use std::io::Write;
-
-    #[cfg(not(windows))]
-    const LARGE_STDERR_CHILD_ENV: &str = "BELGIE_LARGE_STDERR_CHILD";
+    use std::path::PathBuf;
 
     fn sample_options(argv: Vec<&str>) -> RunTaskOptions {
         RunTaskOptions {
@@ -329,62 +269,6 @@ mod tests {
             host: None,
             port: None,
         }
-    }
-
-    #[cfg(unix)]
-    fn shell_quote(value: &Path) -> String {
-        format!("'{}'", value.to_string_lossy().replace('\'', "'\\''"))
-    }
-
-    #[test]
-    fn build_deno_task_argv_orders_flags_before_script() {
-        let options = sample_options(vec!["--outDir", "dist"]);
-        let argv = build_deno_task_argv(
-            &options,
-            Path::new("/proj/.belgie/deno.json"),
-            Path::new("/proj/deno.lock"),
-        );
-
-        assert_eq!(
-            argv,
-            vec![
-                "task",
-                "--config",
-                "/proj/.belgie/deno.json",
-                "--lock",
-                "/proj/deno.lock",
-                "--cwd",
-                "/tmp/views",
-                "build",
-                "--",
-                "--outDir",
-                "dist",
-            ]
-        );
-    }
-
-    #[test]
-    fn build_deno_task_argv_omits_passthrough_without_argv() {
-        let options = sample_options(vec![]);
-        let argv = build_deno_task_argv(
-            &options,
-            Path::new("/proj/.belgie/deno.json"),
-            Path::new("/proj/deno.lock"),
-        );
-
-        assert_eq!(
-            argv,
-            vec![
-                "task",
-                "--config",
-                "/proj/.belgie/deno.json",
-                "--lock",
-                "/proj/deno.lock",
-                "--cwd",
-                "/tmp/views",
-                "build",
-            ]
-        );
     }
 
     #[test]
@@ -404,104 +288,38 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn task_config_is_copied_to_temp_dir_not_project() {
+    fn background_stop_escalates_after_grace_period() {
+        use std::fs;
+
         let root = tempfile::tempdir().unwrap();
         let project = root.path().join("project");
         fs::create_dir_all(&project).unwrap();
+        let heartbeat = project.join("heartbeat");
+        let script = format!(
+            "sh -c \"trap '' TERM; while true; do echo tick >> \\\"{}\\\"; sleep 0.05; done\"",
+            heartbeat.display()
+        );
         fs::write(
             project.join("pyproject.toml"),
-            r#"[belgie.dependencies.dev]
-vite = "^8"
-
-[belgie.scripts]
-build = "echo ok"
-"#,
+            format!(
+                "[belgie.dependencies]\nstub = \"jsr:@std/assert@^1\"\n\n[belgie.scripts]\nserve = {}\n",
+                serde_json::to_string(&script).unwrap()
+            ),
         )
         .unwrap();
-        let env = PackageEnvironment::for_task(&project, "build").unwrap();
 
-        let (config_dir, config_file) = copy_task_config_to_temp_dir(&env).unwrap();
-
-        assert!(config_file.starts_with(config_dir.path()));
-        assert!(config_file.is_file());
-        assert!(!project.join(".belgie").exists());
-    }
-
-    #[cfg(windows)]
-    fn large_stderr_child_command() -> Command {
-        let script = format!(
-            "[Console]::Error.Write(('x' * {})); exit 7",
-            STDERR_CAPTURE_LIMIT * 4
-        );
-        let mut command = Command::new("powershell.exe");
-        command
-            .arg("-NoLogo")
-            .arg("-NoProfile")
-            .arg("-NonInteractive")
-            .arg("-Command")
-            .arg(script);
-        command
-    }
-
-    #[cfg(not(windows))]
-    fn large_stderr_child_command() -> Command {
-        let mut command = Command::new(std::env::current_exe().unwrap());
-        command
-            .arg("foreground_task_stderr_writer_child")
-            .arg("--nocapture")
-            .env(LARGE_STDERR_CHILD_ENV, "1");
-        command
-    }
-
-    #[test]
-    fn drains_foreground_task_stderr_before_waiting() {
-        let child = large_stderr_child_command()
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let task = SpawnedTask {
-            child,
-            config_dir: tempfile::tempdir().unwrap(),
+        let options = RunTaskOptions {
+            task_cwd: project.canonicalize().unwrap(),
+            script: "serve".to_string(),
+            argv: Vec::new(),
+            env: BTreeMap::new(),
+            host: None,
+            port: None,
         };
 
-        let result = wait_for_foreground_child(task).unwrap();
-
-        assert_eq!(result.exit_code, 7);
-        assert_eq!(result.stderr.unwrap().len(), STDERR_CAPTURE_LIMIT);
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn foreground_task_stderr_writer_child() {
-        if std::env::var_os(LARGE_STDERR_CHILD_ENV).is_none() {
-            return;
-        }
-
-        let stderr = vec![b'x'; STDERR_CAPTURE_LIMIT * 4];
-        std::io::stderr().write_all(&stderr).unwrap();
-        std::process::exit(7);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn unix_termination_kills_process_group_after_grace_period() {
-        let root = tempfile::tempdir().unwrap();
-        let heartbeat = root.path().join("heartbeat");
-        let heartbeat_arg = shell_quote(&heartbeat);
-        let script = format!(
-            "trap '' TERM; (trap '' TERM; while true; do echo tick >> {heartbeat_arg}; sleep 0.05; done) & wait"
-        );
-        let mut command = Command::new("sh");
-        command
-            .arg("-c")
-            .arg(script)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        set_process_group(&mut command);
-        let mut child = command.spawn().unwrap();
+        let process = TaskRunner.start_blocking(options).unwrap();
 
         let deadline = Instant::now() + Duration::from_secs(2);
         while !heartbeat.exists() && Instant::now() < deadline {
@@ -509,11 +327,10 @@ build = "echo ok"
         }
         assert!(heartbeat.exists());
 
-        terminate_child_unix_with_grace(&mut child, Duration::from_millis(50)).unwrap();
-        child.wait().unwrap();
+        process.stop_blocking().unwrap();
+
         let len_after_stop = fs::metadata(&heartbeat).unwrap().len();
         std::thread::sleep(Duration::from_millis(200));
-
         assert_eq!(fs::metadata(&heartbeat).unwrap().len(), len_after_stop);
     }
 }

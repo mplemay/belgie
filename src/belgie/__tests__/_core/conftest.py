@@ -30,8 +30,12 @@ def write_belgie_pyproject(tmp_path: Path):
         scripts: dict[str, str] | None = None,
     ) -> Path:
         lines = ["[belgie]"]
-        append_table(lines, "belgie.dependencies", dependencies or {})
-        for group_name, group_deps in (dependency_groups or {}).items():
+        deps = dict(dependencies or {})
+        groups = dict(dependency_groups or {})
+        if scripts and not deps and not groups:
+            deps = {"@std/assert": "jsr:@std/assert@^1"}
+        append_table(lines, "belgie.dependencies", deps)
+        for group_name, group_deps in groups.items():
             append_table(lines, f"belgie.dependencies.{group_name}", group_deps)
         append_table(lines, "belgie.scripts", scripts or {})
         path = tmp_path / "pyproject.toml"
