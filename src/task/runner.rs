@@ -42,6 +42,7 @@ impl TaskProcess {
     }
 
     pub(crate) fn stop_blocking(&self) -> Result<(), AnyError> {
+        let was_running = self.is_running_blocking();
         let stop_requested = if let Some(stop_tx) = self
             .inner
             .stop_tx
@@ -87,7 +88,8 @@ impl TaskProcess {
         if let Some(result) = result_guard.take() {
             match result {
                 Err(error) => return Err(error),
-                Ok(task_result) if stop_requested && task_result.exit_code >= 128 => {}
+                Ok(task_result)
+                    if stop_requested && (was_running || task_result.exit_code >= 128) => {}
                 Ok(task_result) => {
                     if !task_result.success() {
                         return Err(anyhow!(task_result.failure_message()));
