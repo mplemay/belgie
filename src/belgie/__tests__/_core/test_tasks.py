@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import sys
 from json import dumps
-from typing import TYPE_CHECKING, Any, cast
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
 from belgie import _core, tasks as public_tasks
 from belgie._core import BelgieRuntimeError, RunTaskOptions, TaskProcess, TaskRunner
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class TestTaskExports:
@@ -156,6 +155,7 @@ class TestTaskRunner:
 
         assert argv_out.read_text(encoding="utf-8").splitlines() == ["--outDir", "dist"]
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX single-quote argv escaping is Unix-specific")
     async def test_task_argv_handles_single_quotes(
         self,
         write_belgie_pyproject,
@@ -184,9 +184,14 @@ class TestTaskRunner:
         nested = project / "apps" / "web"
         nested.mkdir(parents=True)
         cwd_out = tmp_path / "cwd.txt"
+        check_script = (
+            'python -c "import os, pathlib; '
+            "pathlib.Path(os.environ['BELGIE_CWD_OUT']).write_text("
+            "str(pathlib.Path.cwd().resolve()), encoding='utf-8')\""
+        )
         (project / "pyproject.toml").write_text(
             '[belgie]\n\n[belgie.dependencies]\nstub = "jsr:@std/assert@^1"\n\n'
-            '[belgie.scripts]\ncheck = "sh -c \'pwd > \\"$BELGIE_CWD_OUT\\"\'"\n',
+            f"[belgie.scripts]\ncheck = {dumps(check_script)}\n",
             encoding="utf-8",
         )
         options = RunTaskOptions(
@@ -194,11 +199,13 @@ class TestTaskRunner:
             "check",
             env={"BELGIE_CWD_OUT": str(cwd_out)},
         )
+        expected_cwd = str(nested.resolve())
 
         await TaskRunner().run(options)
 
-        assert cwd_out.read_text(encoding="utf-8").strip() == str(nested.resolve())
+        assert cwd_out.read_text(encoding="utf-8").strip() == expected_cwd
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="TERM trap behavior is Unix-specific")
     async def test_stop_completes_for_term_ignoring_task(
         self,
         write_belgie_pyproject,
