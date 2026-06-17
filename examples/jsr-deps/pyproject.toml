@@ -1,0 +1,29 @@
+[project]
+name = "jsr-deps"
+version = "0.1.0"
+description = "JSR dependency locking and Runtime imports for belgie"
+readme = "readme.md"
+authors = [
+    { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
+]
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "belgie",
+]
+
+[project.scripts]
+main = "jsr_deps.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { belgie = false }
+
+[tool.uv.sources]
+belgie = { path = "../../", editable = true }
+
+[belgie.dependencies]
+std_path = "jsr:@std/path@^1"

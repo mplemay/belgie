@@ -86,6 +86,7 @@ quote-style = "double"
 [tool.pytest.ini_options]
 anyio_mode = "auto"
 testpaths = ["src/belgie/__tests__"]
+norecursedirs = ["target", "dist", "build", ".venv", "node_modules"]
 markers = [
     "integration: marks tests that hit the database or external services",
 ]
