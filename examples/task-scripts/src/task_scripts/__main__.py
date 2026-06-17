@@ -1,14 +1,14 @@
 import asyncio
 from pathlib import Path
 
-from belgie.dependencies import install
+from belgie.dependencies import ainstall
 from belgie.tasks import RunTaskOptions, TaskRunner
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 async def run_version_task() -> None:
-    install(cwd=PROJECT_ROOT)
+    await ainstall(cwd=PROJECT_ROOT)
     await TaskRunner().run(RunTaskOptions(str(PROJECT_ROOT), "version"))
 
 

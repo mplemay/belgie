@@ -3,7 +3,7 @@ from pathlib import Path
 from belgie import Runtime, Script
 
 PACKAGE_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = PACKAGE_DIR.parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 async def greet(name: str) -> str:
