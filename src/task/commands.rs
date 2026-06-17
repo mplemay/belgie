@@ -26,6 +26,8 @@ type EmbedNodeResolver = NodeResolver<
     EmbedSys,
 >;
 
+const RUN_SUBCOMMAND: &str = "run";
+
 #[derive(Clone)]
 struct BelgieDenoCommand {
     deno_path: PathBuf,
@@ -43,32 +45,31 @@ impl BelgieDenoCommand {
         })
     }
 
-    fn prepend_config_args(&self, args: Vec<OsString>) -> Vec<OsString> {
+    fn with_config_args(&self, args: Vec<OsString>) -> Vec<OsString> {
         let config_args = [
             OsString::from("--config"),
             self.config_file.as_os_str().to_os_string(),
             OsString::from("--lock"),
             self.lockfile.as_os_str().to_os_string(),
         ];
+        let insert_at = args
+            .iter()
+            .position(|arg| arg == RUN_SUBCOMMAND)
+            .map(|index| index + 1)
+            .unwrap_or(0);
 
-        if args.first().is_some_and(|arg| arg == "run") {
-            let mut prefixed = Vec::with_capacity(args.len() + config_args.len());
-            prefixed.push(args[0].clone());
-            prefixed.extend(config_args);
-            prefixed.extend(args.into_iter().skip(1));
-            prefixed
-        } else {
-            let mut prefixed = config_args.to_vec();
-            prefixed.extend(args);
-            prefixed
-        }
+        let mut result = Vec::with_capacity(args.len() + config_args.len());
+        result.extend(args.iter().take(insert_at).cloned());
+        result.extend(config_args);
+        result.extend(args.into_iter().skip(insert_at));
+        result
     }
 }
 
 impl ShellCommand for BelgieDenoCommand {
     fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
         let deno_path = self.deno_path.clone();
-        let args = self.prepend_config_args(context.args);
+        let args = self.with_config_args(context.args);
         ExecutableCommand::new("deno".to_string(), deno_path)
             .execute(ShellCommandContext { args, ..context })
     }
@@ -84,7 +85,7 @@ struct NodeModulesFileRunCommand {
 impl ShellCommand for NodeModulesFileRunCommand {
     fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
         let mut args: Vec<OsString> = vec![
-            "run".into(),
+            RUN_SUBCOMMAND.into(),
             "--ext=js".into(),
             "-A".into(),
             self.path.clone().into_os_string(),
@@ -235,43 +236,65 @@ mod tests {
         }
     }
 
-    fn os_strings(values: &[&str]) -> Vec<OsString> {
-        values.iter().map(|value| OsString::from(*value)).collect()
-    }
-
     #[test]
-    fn prepend_config_args_inserts_after_run() {
+    fn with_config_args_inserts_after_run() {
         let command = sample_deno_command();
-        let result =
-            command.prepend_config_args(os_strings(&["run", "--ext=js", "-A", "script.js"]));
+        let result = command.with_config_args(vec![
+            "run".into(),
+            "--ext=js".into(),
+            "-A".into(),
+            "script.js".into(),
+        ]);
         assert_eq!(
             result,
-            os_strings(&[
-                "run",
-                "--config",
-                "/embed/deno.json",
-                "--lock",
-                "/embed/deno.lock",
-                "--ext=js",
-                "-A",
-                "script.js",
-            ])
+            vec![
+                OsString::from("run"),
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("--ext=js"),
+                OsString::from("-A"),
+                OsString::from("script.js"),
+            ]
         );
     }
 
     #[test]
-    fn prepend_config_args_prepends_for_non_run_commands() {
+    fn with_config_args_prepends_for_non_run_commands() {
         let command = sample_deno_command();
-        let result = command.prepend_config_args(os_strings(&["--version"]));
+        let result = command.with_config_args(vec!["--version".into()]);
         assert_eq!(
             result,
-            os_strings(&[
-                "--config",
-                "/embed/deno.json",
-                "--lock",
-                "/embed/deno.lock",
-                "--version",
-            ])
+            vec![
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("--version"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_inserts_after_run_with_global_flags() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec![
+            "--log-level=debug".into(),
+            "run".into(),
+            "main.ts".into(),
+        ]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--log-level=debug"),
+                OsString::from("run"),
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("main.ts"),
+            ]
         );
     }
 }
