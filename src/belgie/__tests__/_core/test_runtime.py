@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from belgie import _core
+from belgie.__tests__._core.conftest import EMPTY_DENO_LOCK
 from belgie._core import AsyncRunner, Environment, Runtime, RuntimeOptions, Script, SyncRunner
 
 if TYPE_CHECKING:
@@ -189,7 +190,7 @@ class TestRuntimeLifecycle:
 class TestEnvironmentLifecycle:
     def test_lockfile_requires_dependencies(self, tmp_path: Path) -> None:
         lockfile = tmp_path / "deno.lock"
-        lockfile.write_text('{"version":"5"}\n', encoding="utf-8")
+        lockfile.write_text(EMPTY_DENO_LOCK, encoding="utf-8")
 
         with pytest.raises(ValueError, match="requires at least one dependency"):
             Environment(lockfile=lockfile)

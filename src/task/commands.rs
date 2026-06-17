@@ -44,7 +44,7 @@ struct BelgieDenoCommand {
     deno_path: PathBuf,
     config_file: PathBuf,
     lockfile: PathBuf,
-    process_state_file: Option<PathBuf>,
+    process_state_file: PathBuf,
 }
 
 impl BelgieDenoCommand {
@@ -85,12 +85,10 @@ impl ShellCommand for BelgieDenoCommand {
     fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
         let deno_path = self.deno_path.clone();
         let args = self.with_config_args(context.args);
-        if let Some(process_state_file) = &self.process_state_file {
-            context.state.apply_env_var(
-                OsStr::new(NPM_RESOLUTION_STATE_FD_ENV_VAR_NAME),
-                process_state_file.as_os_str(),
-            );
-        }
+        context.state.apply_env_var(
+            OsStr::new(NPM_RESOLUTION_STATE_FD_ENV_VAR_NAME),
+            self.process_state_file.as_os_str(),
+        );
         ExecutableCommand::new("deno".to_string(), deno_path)
             .execute(ShellCommandContext { args, ..context })
     }
@@ -185,7 +183,7 @@ pub(crate) async fn prepare_custom_commands(
 fn write_process_state(
     package_env: &PackageEnvironment,
     npm_resolver: &NpmResolver<EmbedSys>,
-) -> Result<Option<PathBuf>, AnyError> {
+) -> Result<PathBuf, AnyError> {
     let state = match npm_resolver {
         NpmResolver::Managed(managed) => NpmProcessState::new_managed(
             managed.resolution().serialized_valid_snapshot(),
@@ -206,7 +204,7 @@ fn write_process_state(
     let path = package_env.process_state_file();
     fs::write(&path, state.as_serialized())
         .with_context(|| format!("Writing {}", path.display()))?;
-    Ok(Some(path))
+    Ok(path)
 }
 
 fn resolve_byonm_npm_commands(
@@ -316,7 +314,7 @@ mod tests {
             deno_path: PathBuf::from("/deno"),
             config_file: PathBuf::from("/embed/deno.json"),
             lockfile: PathBuf::from("/embed/deno.lock"),
-            process_state_file: None,
+            process_state_file: PathBuf::from("/embed/npm-process-state.json"),
         }
     }
 
