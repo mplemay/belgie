@@ -100,7 +100,10 @@ impl SharedEnvironment {
     }
 
     pub(crate) fn activate_blocking(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {
-        pyo3_async_runtimes::tokio::get_runtime().block_on(self.activate())
+        let environment = self.clone();
+        crate::utils::tokio::run_outside_runtime(move || {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.activate())
+        })
     }
 
     async fn activate(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {

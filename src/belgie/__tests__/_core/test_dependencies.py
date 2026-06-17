@@ -83,6 +83,13 @@ class TestPackageHelpers:
         with pytest.raises(BelgieRuntimeError, match="No belgie package dependencies"):
             await aupdate(cwd=tmp_path)
 
+    async def test_sync_lock_inside_async_coroutine(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
+
+        result = lock(cwd=pyproject.parent)
+
+        assert result.groups == {"default": 1}
+
     def test_dependency_table_values_must_be_strings(self, write_belgie_pyproject) -> None:
         pyproject = write_belgie_pyproject(dependencies={"react": ["^19"]})
 
