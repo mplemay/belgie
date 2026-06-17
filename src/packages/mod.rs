@@ -489,12 +489,12 @@ pub(crate) fn dependencies_from_folder(
     groups: Option<Vec<String>>,
 ) -> Result<Vec<PackageDependency>, AnyError> {
     let Some(manifest) = read_manifest(cwd, groups.clone())? else {
+        if groups.is_some() {
+            return Err(no_dependencies_error(cwd, groups));
+        }
         return Ok(Vec::new());
     };
-    if manifest.dependencies.is_empty()
-        && groups.is_some()
-        && dependency_tables_have_any_entries(&manifest.document)
-    {
+    if manifest.dependencies.is_empty() && groups.is_some() {
         return Err(no_dependencies_error(cwd, groups));
     }
     Ok(manifest.dependencies)
@@ -1170,6 +1170,56 @@ react = "^19"
             err.to_string()
                 .contains("No dependencies matched groups: [typo]")
         );
+    }
+
+    #[test]
+    fn from_folder_reports_unmatched_groups_when_filter_excludes_dependencies() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            "[belgie.dependencies]\nreact = \"^19\"\n",
+        )
+        .unwrap();
+
+        let err = ProjectPackageEnvironment::from_folder(
+            temp_dir.path().to_path_buf(),
+            Some(vec!["typo".to_string()]),
+            false,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("No dependencies matched groups: [typo]")
+        );
+    }
+
+    #[test]
+    fn from_folder_reports_missing_dependencies_when_groups_are_explicit() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let err = ProjectPackageEnvironment::from_folder(
+            temp_dir.path().to_path_buf(),
+            Some(vec!["default".to_string()]),
+            false,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("No belgie package dependencies found")
+        );
+    }
+
+    #[test]
+    fn from_folder_allows_missing_manifest_without_explicit_groups() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let environment =
+            ProjectPackageEnvironment::from_folder(temp_dir.path().to_path_buf(), None, false)
+                .unwrap();
+
+        assert!(environment.is_none());
     }
 
     #[test]

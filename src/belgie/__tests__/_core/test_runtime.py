@@ -136,6 +136,12 @@ class TestRuntimeLifecycle:
         with pytest.raises(_core.BelgieRuntimeError, match=r"node_modules.*install=True"):
             Runtime.from_folder(pyproject.parent)
 
+    def test_project_runtime_rejects_unknown_groups(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(dependencies={"react": "^19"})
+
+        with pytest.raises(_core.BelgieRuntimeError, match="No dependencies matched groups: \\[typo\\]"):
+            Runtime.from_folder(pyproject.parent, groups=["typo"])
+
     def test_project_runtime_does_not_require_node_modules_for_jsr_only_dependencies(
         self,
         write_belgie_pyproject,
