@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use deno_core::error::AnyError;
 use deno_npm_installer::PackageCaching;
@@ -19,7 +20,8 @@ pub(crate) async fn install_packages(
         lockfile_only,
         EmbedContextOptions::default(),
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 pub(crate) async fn install_packages_with_options(
@@ -28,8 +30,13 @@ pub(crate) async fn install_packages_with_options(
     lockfile: PathBuf,
     lockfile_only: bool,
     options: EmbedContextOptions,
-) -> Result<(), AnyError> {
-    let context = EmbedContext::new_with_options(cwd, config_file, lockfile, options)?;
+) -> Result<Rc<EmbedContext>, AnyError> {
+    let context = Rc::new(EmbedContext::new_with_options(
+        cwd,
+        config_file,
+        lockfile,
+        options,
+    )?);
     let npm_installer_factory = context.npm_installer_factory();
     npm_installer_factory
         .initialize_npm_resolution_if_managed()
@@ -44,7 +51,7 @@ pub(crate) async fn install_packages_with_options(
         lockfile.error_if_changed()?;
     }
 
-    build_module_graph(&context, Vec::new()).await?;
+    build_module_graph(context.as_ref(), Vec::new()).await?;
 
     if lockfile_only {
         npm_installer.install_resolution_if_pending().await?;
@@ -56,5 +63,5 @@ pub(crate) async fn install_packages_with_options(
         lockfile.write_if_changed()?;
     }
 
-    Ok(())
+    Ok(context)
 }

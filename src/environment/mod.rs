@@ -35,9 +35,7 @@ pub(crate) struct ActiveEnvironment {
     cwd: PathBuf,
     config_file: PathBuf,
     lockfile: PathBuf,
-    cache_root: PathBuf,
-    has_dependencies: bool,
-    frozen_lockfile: bool,
+    embed_options: Option<EmbedContextOptions>,
     _temp_dir: TempDir,
 }
 
@@ -111,11 +109,7 @@ impl SharedEnvironment {
     }
 
     pub(crate) fn activate_blocking(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("Failed to create environment activation runtime")?;
-        runtime.block_on(self.activate())
+        pyo3_async_runtimes::tokio::get_runtime().block_on(self.activate())
     }
 
     async fn activate(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {
@@ -215,17 +209,18 @@ impl ActiveEnvironment {
             false
         };
 
+        let embed_options = EmbedContextOptions {
+            cache_root: Some(cache_root.clone()),
+            frozen_lockfile: Some(frozen_lockfile),
+            lockfile_skip_write: false,
+        };
         if !definition.dependencies.is_empty() {
-            install_packages_with_options(
+            let _embed_context = install_packages_with_options(
                 definition.cwd.clone(),
                 config_file.clone(),
                 lockfile.clone(),
                 false,
-                EmbedContextOptions {
-                    cache_root: Some(cache_root.clone()),
-                    frozen_lockfile: Some(frozen_lockfile),
-                    lockfile_skip_write: false,
-                },
+                embed_options.clone(),
             )
             .await?;
         }
@@ -234,27 +229,25 @@ impl ActiveEnvironment {
             cwd: definition.cwd.clone(),
             config_file,
             lockfile,
-            cache_root,
-            has_dependencies: !definition.dependencies.is_empty(),
-            frozen_lockfile,
+            embed_options: (!definition.dependencies.is_empty()).then_some(embed_options),
             _temp_dir: temp_dir,
         })
     }
 
-    pub(crate) fn has_dependencies(&self) -> bool {
-        self.has_dependencies
+    pub(crate) fn uses_package_loader(&self) -> bool {
+        self.embed_options.is_some()
     }
 
     pub(crate) fn embed_context(&self) -> Result<EmbedContext, AnyError> {
+        let options = self
+            .embed_options
+            .clone()
+            .ok_or_else(|| anyhow!("Environment has no package dependencies"))?;
         EmbedContext::new_with_options(
             self.cwd.clone(),
             self.config_file.clone(),
             self.lockfile.clone(),
-            EmbedContextOptions {
-                cache_root: Some(self.cache_root.clone()),
-                frozen_lockfile: Some(self.frozen_lockfile),
-                lockfile_skip_write: false,
-            },
+            options,
         )
     }
 

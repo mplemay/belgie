@@ -23,7 +23,7 @@ class StringPath(PathLike[str]):
         return self.value
 
 
-def run_source(tmp_path: Path, source: str, *args: object, **kwargs: object) -> object:
+def run_source(source: str, *args: object, **kwargs: object) -> object:
     with Runtime()(Script(source)) as run:
         return run(*args, **kwargs)
 
@@ -238,17 +238,17 @@ class TestSyncRuntimeExecution:
             "export default (input) => ({ value: input.value + 1 });",
         ],
     )
-    def test_executes_common_export_shapes(self, tmp_path: Path, source: str) -> None:
-        assert run_source(tmp_path, source, {"value": 41}) == {"value": 42}
+    def test_executes_common_export_shapes(self, source: str) -> None:
+        assert run_source(source, {"value": 41}) == {"value": 42}
 
-    def test_executes_typescript_annotations_in_inline_source(self, tmp_path: Path) -> None:
+    def test_executes_typescript_annotations_in_inline_source(self) -> None:
         source = """
 export default function run(input: { first: number; second: number }): number {
   return input.first + input.second;
 }
 """
 
-        assert run_source(tmp_path, source, {"first": 20, "second": 22}) == 42
+        assert run_source(source, {"first": 20, "second": 22}) == 42
 
     def test_preserves_module_scope_state_in_one_context(self) -> None:
         source = """
@@ -264,7 +264,7 @@ export default function run() {
             assert run() == 2
             assert run() == 3
 
-    def test_passes_positional_arguments_and_keyword_object(self, tmp_path: Path) -> None:
+    def test_passes_positional_arguments_and_keyword_object(self) -> None:
         source = """
 export default function run(first, second, options) {
   return {
@@ -275,7 +275,7 @@ export default function run(first, second, options) {
 }
 """
 
-        assert run_source(tmp_path, source, 1, "two", z=True, a=False) == {
+        assert run_source(source, 1, "two", z=True, a=False) == {
             "values": [1, "two"],
             "optionKeys": ["z", "a"],
             "options": {"z": True, "a": False},
@@ -338,7 +338,7 @@ export default async function run(input) {
 
 
 class TestJsonConversion:
-    def test_round_trips_json_values(self, tmp_path: Path) -> None:
+    def test_round_trips_json_values(self) -> None:
         value = {
             "none": None,
             "bool": True,
@@ -351,19 +351,19 @@ class TestJsonConversion:
             "tuple": (1, 2),
         }
 
-        assert run_source(tmp_path, "export default function run(input) { return input; }", value) == {
+        assert run_source("export default function run(input) { return input; }", value) == {
             **value,
             "tuple": [1, 2],
         }
 
-    def test_converts_undefined_return_values_to_none_or_omits_object_fields(self, tmp_path: Path) -> None:
+    def test_converts_undefined_return_values_to_none_or_omits_object_fields(self) -> None:
         source = """
 export default function run() {
   return { missing: undefined, items: [undefined, 1], explicit: null };
 }
 """
 
-        assert run_source(tmp_path, source) == {"items": [None, 1], "explicit": None}
+        assert run_source(source) == {"items": [None, 1], "explicit": None}
 
     @pytest.mark.parametrize(
         ("input_value", "error_type", "message"),
@@ -426,7 +426,6 @@ export default function run() {
     )
     def test_rejects_non_json_javascript_return_values(
         self,
-        tmp_path: Path,
         expression: str,
         error_type: type[Exception],
         message: str,
@@ -434,7 +433,7 @@ export default function run() {
         source = f"export default function run() {{ return {expression}; }}"
 
         with pytest.raises(error_type, match=message):
-            run_source(tmp_path, source)
+            run_source(source)
 
     @pytest.mark.parametrize(
         "source",
@@ -443,6 +442,6 @@ export default function run() {
             "export default function run() { const value = {}; value.self = value; return value; }",
         ],
     )
-    def test_rejects_javascript_cycles(self, tmp_path: Path, source: str) -> None:
+    def test_rejects_javascript_cycles(self, source: str) -> None:
         with pytest.raises(ValueError, match="cycle"):
-            run_source(tmp_path, source)
+            run_source(source)
