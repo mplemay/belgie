@@ -1,0 +1,39 @@
+version = 1
+revision = 3
+requires-python = ">=3.12, <3.15"
+
+[options]
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer-span = "P7D"
+
+[options.exclude-newer-package]
+belgie = false
+
+[[package]]
+name = "belgie"
+version = "0.1.1"
+source = { editable = "../../" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "anyio", specifier = ">=4" },
+    { name = "prek", specifier = ">=0.4.4" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "ruff", specifier = ">=0.15.16" },
+    { name = "rumdl", specifier = ">=0.2.7" },
+    { name = "ty", specifier = ">=0.0.43" },
+    { name = "zizmor", specifier = ">=1.25.2" },
+]
+
+[[package]]
+name = "jsr-deps"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "belgie" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "belgie", editable = "../../" }]
