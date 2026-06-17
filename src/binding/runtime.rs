@@ -307,7 +307,7 @@ fn reset_runtime_context_state(context_state: &Arc<Mutex<RuntimeContextState>>) 
 fn prepare_bound_runtime(bound: BoundRuntime) -> Result<BoundRuntime, deno_core::error::AnyError> {
     let environment = match bound.runtime_environment() {
         Some(environment) if environment.is_owned() => {
-            Some(environment.environment().activate_blocking()?)
+            Some(environment.environment().activate_for_owned_runtime()?)
         }
         Some(environment) => Some(environment.environment().acquire_active()?),
         None => None,
@@ -322,5 +322,5 @@ fn deactivate_owned_environment(runtime: &DenoRuntime) -> Result<(), deno_core::
     else {
         return Ok(());
     };
-    environment.environment().deactivate()
+    environment.environment().release_owned_runtime()
 }

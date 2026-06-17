@@ -209,6 +209,31 @@ class TestEnvironmentLifecycle:
             assert run_first() == "first"
             assert run_second() == "second"
 
+    def test_multiple_from_folder_runtimes_share_one_owned_environment(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        runtime = Runtime.from_folder(tmp_path)
+        first = runtime(Script("export default () => 'first';"))
+        second = runtime(Script("export default () => 'second';"))
+
+        with first as run_first, second as run_second:
+            assert run_first() == "first"
+            assert run_second() == "second"
+
+    def test_from_folder_runtimes_release_environment_on_last_exit(self, tmp_path: Path) -> None:
+        runtime = Runtime.from_folder(tmp_path)
+        first = runtime(Script("export default () => 'first';"))
+        second = runtime(Script("export default () => 'second';"))
+
+        with first as run_first:
+            assert run_first() == "first"
+            with second as run_second:
+                assert run_second() == "second"
+
+        with runtime(Script("export default () => 'again';")) as run:
+            assert run() == "again"
+
     def test_runtime_from_folder_resolves_inline_relative_imports(self, tmp_path: Path) -> None:
         (tmp_path / "value.ts").write_text("export const value = 42;\n", encoding="utf-8")
         script = Script('import { value } from "./value.ts"; export default () => value;')
