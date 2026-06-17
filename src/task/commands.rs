@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use deno_core::anyhow::{Context, anyhow};
+use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_resolver::npm::ManagedNpmResolver;
@@ -26,6 +26,13 @@ type EmbedNodeResolver = NodeResolver<
     EmbedSys,
 >;
 
+const RUN_SUBCOMMAND: &str = "run";
+
+fn first_subcommand_index(args: &[OsString]) -> Option<usize> {
+    args.iter()
+        .position(|arg| arg.to_str().is_none_or(|value| !value.starts_with('-')))
+}
+
 #[derive(Clone)]
 struct BelgieDenoCommand {
     deno_path: PathBuf,
@@ -35,32 +42,47 @@ struct BelgieDenoCommand {
 
 impl BelgieDenoCommand {
     fn new(package_env: &PackageEnvironment) -> Result<Self, AnyError> {
-        let (_, config_file, lockfile) = package_env.embed_paths();
         Ok(Self {
             deno_path: resolve_deno_exe()?,
-            config_file,
-            lockfile,
+            config_file: package_env.config_file().to_path_buf(),
+            lockfile: package_env.lockfile().to_path_buf(),
         })
     }
 
-    fn prepend_config_args(&self, args: Vec<OsString>) -> Vec<OsString> {
-        let mut prefixed = vec![
+    fn with_config_args(&self, args: Vec<OsString>) -> Vec<OsString> {
+        let config_args = [
             OsString::from("--config"),
             self.config_file.as_os_str().to_os_string(),
             OsString::from("--lock"),
             self.lockfile.as_os_str().to_os_string(),
         ];
-        prefixed.extend(args);
-        prefixed
+        let insert_at = first_subcommand_index(&args)
+            .filter(|&index| args[index] == RUN_SUBCOMMAND)
+            .map(|index| index + 1)
+            .unwrap_or(0);
+
+        let mut result = Vec::with_capacity(args.len() + config_args.len());
+        result.extend(args.iter().take(insert_at).cloned());
+        result.extend(config_args);
+        result.extend(args.into_iter().skip(insert_at));
+        result
     }
 }
 
 impl ShellCommand for BelgieDenoCommand {
     fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
         let deno_path = self.deno_path.clone();
-        let args = self.prepend_config_args(context.args);
+        let args = self.with_config_args(context.args);
         ExecutableCommand::new("deno".to_string(), deno_path)
             .execute(ShellCommandContext { args, ..context })
+    }
+}
+
+struct BelgieDenoShellCommand(Rc<BelgieDenoCommand>);
+
+impl ShellCommand for BelgieDenoShellCommand {
+    fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+        self.0.as_ref().execute(context)
     }
 }
 
@@ -68,13 +90,13 @@ impl ShellCommand for BelgieDenoCommand {
 struct NodeModulesFileRunCommand {
     command_name: String,
     path: PathBuf,
-    deno_command: BelgieDenoCommand,
+    deno_command: Rc<BelgieDenoCommand>,
 }
 
 impl ShellCommand for NodeModulesFileRunCommand {
     fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
         let mut args: Vec<OsString> = vec![
-            "run".into(),
+            RUN_SUBCOMMAND.into(),
             "--ext=js".into(),
             "-A".into(),
             self.path.clone().into_os_string(),
@@ -85,19 +107,20 @@ impl ShellCommand for NodeModulesFileRunCommand {
             OsStr::new(&self.command_name),
         );
         self.deno_command
+            .as_ref()
             .execute(ShellCommandContext { args, ..context })
     }
 }
 
-fn npm_bin_command(
+fn npm_bin_shell_command(
     command_name: String,
     path: PathBuf,
-    deno_command: &BelgieDenoCommand,
+    deno_command: Rc<BelgieDenoCommand>,
 ) -> Rc<dyn ShellCommand> {
     Rc::new(NodeModulesFileRunCommand {
         command_name,
         path,
-        deno_command: deno_command.clone(),
+        deno_command,
     })
 }
 
@@ -114,7 +137,7 @@ pub(crate) async fn prepare_custom_commands(
     let node_resolver = context.resolver_factory().node_resolver()?;
     let npm_resolver = context.resolver_factory().npm_resolver()?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
-    let resolved_deno = BelgieDenoCommand::new(package_env);
+    let resolved_deno = BelgieDenoCommand::new(package_env).map(Rc::new);
 
     let mut commands = match npm_resolver {
         NpmResolver::Byonm(_) => {
@@ -125,8 +148,11 @@ pub(crate) async fn prepare_custom_commands(
         }
     };
 
-    if let Ok(deno_command) = resolved_deno {
-        commands.insert("deno".to_string(), Rc::new(deno_command));
+    if let Ok(deno_command) = &resolved_deno {
+        commands.insert(
+            "deno".to_string(),
+            Rc::new(BelgieDenoShellCommand(Rc::clone(deno_command))),
+        );
     }
     Ok((commands, bin_dirs))
 }
@@ -134,22 +160,33 @@ pub(crate) async fn prepare_custom_commands(
 fn resolve_byonm_npm_commands(
     node_resolver: &EmbedNodeResolver,
     bin_dirs: &[PathBuf],
-    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
+    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut commands = HashMap::new();
+    let mut deno_command: Option<Rc<BelgieDenoCommand>> = None;
     for bin_dir in bin_dirs {
+        if !bin_dir.is_dir() {
+            continue;
+        }
         let bins = node_resolver.resolve_npm_commands_from_bin_dir(bin_dir);
         if bins.is_empty() {
             continue;
         }
-        let deno_command = require_deno_command(resolved_deno)?;
+        let deno_command = match &deno_command {
+            Some(command) => Rc::clone(command),
+            None => {
+                let command = require_deno_command(resolved_deno)?;
+                deno_command = Some(Rc::clone(&command));
+                command
+            }
+        };
         for (command_name, path) in bins {
             commands
                 .entry(command_name.clone())
-                .or_insert(npm_bin_command(
+                .or_insert(npm_bin_shell_command(
                     command_name,
                     path.path().to_path_buf(),
-                    deno_command,
+                    Rc::clone(&deno_command),
                 ));
         }
     }
@@ -173,25 +210,26 @@ fn resolve_task_node_modules_bin_dirs(
 }
 
 fn require_deno_command(
-    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
-) -> Result<&BelgieDenoCommand, AnyError> {
+    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
+) -> Result<Rc<BelgieDenoCommand>, AnyError> {
     match resolved_deno {
-        Ok(deno_command) => Ok(deno_command),
-        Err(error) => Err(anyhow!("{error}")),
+        Ok(deno_command) => Ok(Rc::clone(deno_command)),
+        Err(error) => Err(deno_core::anyhow::anyhow!("{error}")),
     }
 }
 
 fn resolve_managed_npm_commands(
     node_resolver: &EmbedNodeResolver,
     npm_resolver: &ManagedNpmResolver<EmbedSys>,
-    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
+    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
-    if npm_resolver.resolution().top_level_packages().is_empty() {
+    let packages = npm_resolver.resolution().top_level_packages();
+    if packages.is_empty() {
         return Ok(HashMap::new());
     }
     let deno_command = require_deno_command(resolved_deno)?;
     let mut result = HashMap::new();
-    for id in npm_resolver.resolution().top_level_packages() {
+    for id in packages {
         let package_folder = npm_resolver
             .resolve_pkg_folder_from_pkg_id(&id)
             .with_context(|| format!("Failed resolving npm package folder for '{id}'"))?;
@@ -206,9 +244,144 @@ fn resolve_managed_npm_commands(
         for (command_name, path) in bins {
             result.insert(
                 command_name.clone(),
-                npm_bin_command(command_name, path.path().to_path_buf(), deno_command),
+                npm_bin_shell_command(
+                    command_name,
+                    path.path().to_path_buf(),
+                    Rc::clone(&deno_command),
+                ),
             );
         }
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_deno_command() -> BelgieDenoCommand {
+        BelgieDenoCommand {
+            deno_path: PathBuf::from("/deno"),
+            config_file: PathBuf::from("/embed/deno.json"),
+            lockfile: PathBuf::from("/embed/deno.lock"),
+        }
+    }
+
+    #[test]
+    fn with_config_args_inserts_after_run() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec![
+            "run".into(),
+            "--ext=js".into(),
+            "-A".into(),
+            "script.js".into(),
+        ]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("run"),
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("--ext=js"),
+                OsString::from("-A"),
+                OsString::from("script.js"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_prepends_for_non_run_commands() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec!["--version".into()]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("--version"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_inserts_after_run_with_global_flags() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec![
+            "--log-level=debug".into(),
+            "run".into(),
+            "main.ts".into(),
+        ]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--log-level=debug"),
+                OsString::from("run"),
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("main.ts"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_prepends_for_task_run() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec!["task".into(), "run".into()]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("task"),
+                OsString::from("run"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_prepends_for_install_run() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec!["install".into(), "run".into()]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("install"),
+                OsString::from("run"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_prepends_for_task_run_with_global_flags() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec![
+            "--log-level=debug".into(),
+            "task".into(),
+            "run".into(),
+        ]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("--log-level=debug"),
+                OsString::from("task"),
+                OsString::from("run"),
+            ]
+        );
+    }
 }
