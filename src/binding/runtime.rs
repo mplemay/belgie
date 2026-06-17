@@ -143,7 +143,7 @@ impl PyRuntime {
         let close_result = py
             .detach(|| handle.close_blocking())
             .map_err(py_error::from_binding_error);
-        let environment_result = deactivate_owned_environment(&self.inner);
+        let environment_result = release_owned_environment(&self.inner);
         close_result?;
         environment_result.map_err(blocking::any_error_to_py)?;
         Ok(false)
@@ -186,7 +186,7 @@ impl PyRuntime {
                 .await
                 .map_err(py_error::from_binding_error);
             let environment_result =
-                deactivate_owned_environment(&runtime).map_err(blocking::any_error_to_py);
+                release_owned_environment(&runtime).map_err(blocking::any_error_to_py);
             close_result?;
             environment_result?;
             Ok(false)
@@ -315,7 +315,7 @@ fn prepare_bound_runtime(bound: BoundRuntime) -> Result<BoundRuntime, deno_core:
     Ok(bound.with_environment(environment))
 }
 
-fn deactivate_owned_environment(runtime: &DenoRuntime) -> Result<(), deno_core::error::AnyError> {
+fn release_owned_environment(runtime: &DenoRuntime) -> Result<(), deno_core::error::AnyError> {
     let Some(environment) = runtime
         .environment()
         .filter(|environment| environment.is_owned())

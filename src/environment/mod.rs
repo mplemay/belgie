@@ -197,6 +197,7 @@ impl SharedEnvironment {
             .state
             .lock()
             .expect("environment state lock should not be poisoned");
+        exit_error_if_not_active(&state)?;
         match &*state {
             EnvironmentState::Active {
                 owned_runtime_refs: 0,
@@ -211,10 +212,7 @@ impl SharedEnvironment {
             } => Err(anyhow!(
                 "Environment cannot exit while owned runtimes are still active"
             )),
-            EnvironmentState::Activating => Err(anyhow!(
-                "Environment cannot exit while it is being activated"
-            )),
-            EnvironmentState::Inactive => Err(anyhow!("Environment context is not active")),
+            EnvironmentState::Activating | EnvironmentState::Inactive => unreachable!(),
         }
     }
 
@@ -223,6 +221,7 @@ impl SharedEnvironment {
             .state
             .lock()
             .expect("environment state lock should not be poisoned");
+        exit_error_if_not_active(&state)?;
         match &mut *state {
             EnvironmentState::Active {
                 owned_runtime_refs: 0,
@@ -237,11 +236,18 @@ impl SharedEnvironment {
                 }
                 Ok(())
             }
-            EnvironmentState::Activating => Err(anyhow!(
-                "Environment cannot exit while it is being activated"
-            )),
-            EnvironmentState::Inactive => Err(anyhow!("Environment context is not active")),
+            EnvironmentState::Activating | EnvironmentState::Inactive => unreachable!(),
         }
+    }
+}
+
+fn exit_error_if_not_active(state: &EnvironmentState) -> Result<(), AnyError> {
+    match state {
+        EnvironmentState::Activating => Err(anyhow!(
+            "Environment cannot exit while it is being activated"
+        )),
+        EnvironmentState::Inactive => Err(anyhow!("Environment context is not active")),
+        EnvironmentState::Active { .. } => Ok(()),
     }
 }
 
@@ -331,12 +337,17 @@ mod tests {
 
     use super::{EnvironmentDefinition, SharedEnvironment};
 
-    #[test]
-    fn empty_environment_uses_an_isolated_temporary_root() {
+    fn folder_environment() -> (tempfile::TempDir, SharedEnvironment) {
         let folder = tempfile::tempdir().unwrap();
         let environment = SharedEnvironment::new(
             EnvironmentDefinition::from_folder(folder.path().to_path_buf(), None).unwrap(),
         );
+        (folder, environment)
+    }
+
+    #[test]
+    fn empty_environment_uses_an_isolated_temporary_root() {
+        let (_folder, environment) = folder_environment();
 
         let active = environment.activate_blocking().unwrap();
         let root = active.root().to_path_buf();
@@ -387,10 +398,7 @@ mod tests {
 
     #[test]
     fn nested_activation_is_rejected() {
-        let folder = tempfile::tempdir().unwrap();
-        let environment = SharedEnvironment::new(
-            EnvironmentDefinition::from_folder(folder.path().to_path_buf(), None).unwrap(),
-        );
+        let (_folder, environment) = folder_environment();
 
         let _active = environment.activate_blocking().unwrap();
         let error = environment.activate_blocking().unwrap_err();
@@ -400,10 +408,7 @@ mod tests {
 
     #[test]
     fn owned_runtime_activation_can_be_shared() {
-        let folder = tempfile::tempdir().unwrap();
-        let environment = SharedEnvironment::new(
-            EnvironmentDefinition::from_folder(folder.path().to_path_buf(), None).unwrap(),
-        );
+        let (_folder, environment) = folder_environment();
 
         let first = environment.activate_for_owned_runtime().unwrap();
         let second = environment.activate_for_owned_runtime().unwrap();
@@ -420,14 +425,45 @@ mod tests {
 
     #[test]
     fn activate_blocking_rejects_active_owned_runtime() {
-        let folder = tempfile::tempdir().unwrap();
-        let environment = SharedEnvironment::new(
-            EnvironmentDefinition::from_folder(folder.path().to_path_buf(), None).unwrap(),
-        );
+        let (_folder, environment) = folder_environment();
 
         let _active = environment.activate_for_owned_runtime().unwrap();
         let error = environment.activate_blocking().unwrap_err();
 
         assert!(error.to_string().contains("already active"));
+    }
+
+    #[test]
+    fn activate_for_owned_runtime_rejects_blocking_active() {
+        let (_folder, environment) = folder_environment();
+
+        let _active = environment.activate_blocking().unwrap();
+        let error = environment.activate_for_owned_runtime().unwrap_err();
+
+        assert!(error.to_string().contains("already active"));
+    }
+
+    #[test]
+    fn deactivate_rejects_active_owned_runtime() {
+        let (_folder, environment) = folder_environment();
+
+        let _active = environment.activate_for_owned_runtime().unwrap();
+        let error = environment.deactivate().unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("owned runtimes are still active")
+        );
+    }
+
+    #[test]
+    fn release_owned_runtime_rejects_blocking_active() {
+        let (_folder, environment) = folder_environment();
+
+        let _active = environment.activate_blocking().unwrap();
+        let error = environment.release_owned_runtime().unwrap_err();
+
+        assert!(error.to_string().contains("no owned runtime holders"));
     }
 }
