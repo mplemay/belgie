@@ -5,29 +5,11 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
+from typing import Final
 
 import pytest
 
-EXAMPLES_ROOT = Path(__file__).resolve().parents[5] / "examples"
-
-
-def example_dir(name: str) -> Path:
-    return EXAMPLES_ROOT / name
-
-
-@pytest.fixture
-def simple_example_dir() -> Path:
-    return example_dir("simple")
-
-
-@pytest.fixture
-def jsr_deps_example_dir() -> Path:
-    return example_dir("jsr-deps")
-
-
-@pytest.fixture
-def task_scripts_example_dir() -> Path:
-    return example_dir("task-scripts")
+EXAMPLES_ROOT: Final[Path] = Path(__file__).resolve().parents[5] / "examples"
 
 
 def _load_example_main(example_dir: Path, package: str) -> Iterator[ModuleType]:
@@ -40,15 +22,15 @@ def _load_example_main(example_dir: Path, package: str) -> Iterator[ModuleType]:
 
 
 @pytest.fixture
-def simple_module(simple_example_dir: Path) -> Iterator[ModuleType]:
-    yield from _load_example_main(simple_example_dir, "simple")
+def simple_module() -> Iterator[ModuleType]:
+    yield from _load_example_main(EXAMPLES_ROOT / "simple", "simple")
 
 
 @pytest.fixture
-def jsr_deps_module(jsr_deps_example_dir: Path) -> Iterator[ModuleType]:
-    yield from _load_example_main(jsr_deps_example_dir, "jsr_deps")
+def jsr_deps_module() -> Iterator[ModuleType]:
+    yield from _load_example_main(EXAMPLES_ROOT / "jsr-deps", "jsr_deps")
 
 
 @pytest.fixture
-def task_scripts_module(task_scripts_example_dir: Path) -> Iterator[ModuleType]:
-    yield from _load_example_main(task_scripts_example_dir, "task_scripts")
+def task_scripts_module() -> Iterator[ModuleType]:
+    yield from _load_example_main(EXAMPLES_ROOT / "task-scripts", "task_scripts")
