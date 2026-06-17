@@ -179,7 +179,7 @@ struct DenoExecutionContext {
     js_runtime: JsRuntime,
     main_module: ModuleSpecifier,
     run_function: Option<v8::Global<v8::Function>>,
-    uses_package_loader: bool,
+    package_environment: Option<Arc<ActiveEnvironment>>,
 }
 
 impl DenoExecutionContext {
@@ -187,10 +187,9 @@ impl DenoExecutionContext {
         let main_module = main_module_specifier(&bound)?;
         let package_environment = bound
             .environment()
-            .filter(|environment| environment.has_dependencies())
+            .filter(|environment| environment.uses_package_loader())
             .cloned();
-        let uses_package_loader = package_environment.is_some();
-        let js_runtime = if let Some(package_environment) = package_environment {
+        let js_runtime = if let Some(package_environment) = package_environment.clone() {
             tokio_runtime.block_on(create_js_runtime_with_packages(
                 &bound,
                 package_environment,
@@ -204,7 +203,7 @@ impl DenoExecutionContext {
             js_runtime,
             main_module,
             run_function: None,
-            uses_package_loader,
+            package_environment,
         })
     }
 
@@ -234,7 +233,7 @@ impl DenoExecutionContext {
             return Ok(());
         }
 
-        let module_id = if self.uses_package_loader {
+        let module_id = if self.package_environment.is_some() {
             self.js_runtime
                 .load_main_es_module(&self.main_module)
                 .await

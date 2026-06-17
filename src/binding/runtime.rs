@@ -4,7 +4,7 @@ use pyo3::{Bound, PyAny, PyResult, Python, exceptions::PyValueError, prelude::*,
 
 use crate::{
     binding::{PyAsyncRunner, PyEnvironment, PyScript, PySyncRunner, blocking, environment},
-    environment::{EnvironmentDefinition, SharedEnvironment},
+    environment::SharedEnvironment,
     options::{JsRuntimeOptions, RuntimeEnvironment, RuntimeOptions as InternalRuntimeOptions},
     runtime::{BoundRuntime, DenoExecutionHandle, DenoRuntime},
     utils::{normalize_path, py_error},
@@ -97,11 +97,8 @@ impl PyRuntime {
         options: Option<PyRef<'_, PyRuntimeOptions>>,
     ) -> PyResult<Self> {
         let py = path.py();
-        let path = normalize_path::path_from_py(path, "path")?;
-        let path = normalize_path::normalize_directory(py, path, "path")?;
-        let groups = environment::normalize_groups(py, groups)?;
-        let definition = EnvironmentDefinition::from_folder(path.clone(), groups)
-            .map_err(blocking::any_error_to_py)?;
+        let (path, definition) =
+            environment::environment_definition_from_py_folder(py, path, groups)?;
         let environment = RuntimeEnvironment::Owned(SharedEnvironment::new(definition));
         Ok(Self::from_parts(
             path,
@@ -122,17 +119,17 @@ impl PyRuntime {
     fn __enter__(&self, py: Python<'_>) -> PyResult<PySyncRunner> {
         let bound = self.bound_runtime()?;
         self.start_enter()?;
-        let prepared = match py.detach(|| prepare_bound_runtime(bound)) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                self.reset_context_state();
-                return Err(blocking::any_error_to_py(error));
+        match py.detach(|| prepare_bound_runtime(bound)) {
+            Ok(prepared) => {
+                let (handle, description) =
+                    activate_prepared_runtime(prepared, &self.context_state);
+                Ok(PySyncRunner::from_handle(handle, description))
             }
-        };
-        let description = prepared.description();
-        let handle = DenoExecutionHandle::new(prepared);
-        self.set_active(handle.clone());
-        Ok(PySyncRunner::from_handle(handle, description))
+            Err(error) => {
+                reset_runtime_context_state(&self.context_state);
+                Err(blocking::any_error_to_py(error))
+            }
+        }
     }
 
     fn __exit__(
@@ -165,19 +162,11 @@ impl PyRuntime {
             {
                 Ok(prepared) => prepared,
                 Err(error) => {
-                    *context_state
-                        .lock()
-                        .expect("runtime context state lock should not be poisoned") =
-                        RuntimeContextState::Inactive;
+                    reset_runtime_context_state(&context_state);
                     return Err(error);
                 }
             };
-            let description = prepared.description();
-            let handle = DenoExecutionHandle::new(prepared);
-            *context_state
-                .lock()
-                .expect("runtime context state lock should not be poisoned") =
-                RuntimeContextState::Active(handle.clone());
+            let (handle, description) = activate_prepared_runtime(prepared, &context_state);
             Ok(PyAsyncRunner::from_handle(handle, description))
         })
     }
@@ -275,22 +264,6 @@ impl PyRuntime {
         }
     }
 
-    fn set_active(&self, handle: DenoExecutionHandle) {
-        *self
-            .context_state
-            .lock()
-            .expect("runtime context state lock should not be poisoned") =
-            RuntimeContextState::Active(handle);
-    }
-
-    fn reset_context_state(&self) {
-        *self
-            .context_state
-            .lock()
-            .expect("runtime context state lock should not be poisoned") =
-            RuntimeContextState::Inactive;
-    }
-
     fn take_active(&self) -> PyResult<DenoExecutionHandle> {
         let mut state = self
             .context_state
@@ -309,6 +282,26 @@ impl PyRuntime {
             )),
         }
     }
+}
+
+fn activate_prepared_runtime(
+    prepared: BoundRuntime,
+    context_state: &Arc<Mutex<RuntimeContextState>>,
+) -> (DenoExecutionHandle, String) {
+    let description = prepared.description();
+    let handle = DenoExecutionHandle::new(prepared);
+    *context_state
+        .lock()
+        .expect("runtime context state lock should not be poisoned") =
+        RuntimeContextState::Active(handle.clone());
+    (handle, description)
+}
+
+fn reset_runtime_context_state(context_state: &Arc<Mutex<RuntimeContextState>>) {
+    *context_state
+        .lock()
+        .expect("runtime context state lock should not be poisoned") =
+        RuntimeContextState::Inactive;
 }
 
 fn prepare_bound_runtime(bound: BoundRuntime) -> Result<BoundRuntime, deno_core::error::AnyError> {

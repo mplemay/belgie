@@ -4,7 +4,12 @@ use std::path::PathBuf;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyAny, PyResult, Python, pyclass, pyfunction, pymethods, types::PyAnyMethods};
 
-use crate::{binding::blocking, packages, utils::normalize_path};
+use crate::{
+    binding::blocking,
+    binding::coerce::{self, GroupsDefault},
+    packages,
+    utils::normalize_path,
+};
 
 #[pyclass(
     name = "PackageInstallResult",
@@ -118,7 +123,7 @@ pub fn py_install(
     groups: Option<&Bound<'_, PyAny>>,
     lockfile_only: bool,
 ) -> PyResult<PyPackageInstallResult> {
-    let groups = normalize_groups(groups)?;
+    let groups = coerce::normalize_groups(groups, GroupsDefault::Default)?;
     run_packages_sync(py, cwd, move |cwd| {
         packages::install_packages(cwd, groups, lockfile_only)
     })
@@ -131,7 +136,7 @@ pub fn py_lock(
     cwd: Option<&Bound<'_, PyAny>>,
     groups: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyPackageInstallResult> {
-    let groups = normalize_groups(groups)?;
+    let groups = coerce::normalize_groups(groups, GroupsDefault::Default)?;
     run_packages_sync(py, cwd, move |cwd| packages::lock_packages(cwd, groups)).map(Into::into)
 }
 
@@ -148,7 +153,7 @@ pub fn py_update(
     lockfile_only: bool,
 ) -> PyResult<PyPackageUpdateResult> {
     let filters = normalize_package_filters(packages)?;
-    let groups = normalize_groups(groups)?;
+    let groups = coerce::normalize_groups(groups, GroupsDefault::Default)?;
     run_packages_sync(py, cwd, move |cwd| {
         packages::update_packages(cwd, filters, groups, latest, lockfile_only)
     })
@@ -163,7 +168,7 @@ pub fn py_ainstall<'py>(
     lockfile_only: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     let cwd = normalize_path::normalize_cwd(py, cwd)?;
-    let groups = normalize_groups(groups)?;
+    let groups = coerce::normalize_groups(groups, GroupsDefault::Default)?;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let result = run_packages_on_blocking_thread(move || {
             pyo3_async_runtimes::tokio::get_runtime().block_on(packages::install_packages(
@@ -184,7 +189,7 @@ pub fn py_alock<'py>(
     groups: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let cwd = normalize_path::normalize_cwd(py, cwd)?;
-    let groups = normalize_groups(groups)?;
+    let groups = coerce::normalize_groups(groups, GroupsDefault::Default)?;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let result = run_packages_on_blocking_thread(move || {
             pyo3_async_runtimes::tokio::get_runtime().block_on(packages::lock_packages(cwd, groups))
@@ -208,7 +213,7 @@ pub fn py_aupdate<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     let cwd = normalize_path::normalize_cwd(py, cwd)?;
     let filters = normalize_package_filters(packages)?;
-    let groups = normalize_groups(groups)?;
+    let groups = coerce::normalize_groups(groups, GroupsDefault::Default)?;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let result = run_packages_on_blocking_thread(move || {
             pyo3_async_runtimes::tokio::get_runtime().block_on(packages::update_packages(
@@ -250,14 +255,6 @@ fn normalize_package_filters(packages: Option<&Bound<'_, PyAny>>) -> PyResult<Ve
     match packages {
         Some(value) if !value.is_none() => value.extract(),
         _ => Ok(Vec::new()),
-    }
-}
-
-fn normalize_groups(groups: Option<&Bound<'_, PyAny>>) -> PyResult<Option<Vec<String>>> {
-    match groups {
-        None => Ok(Some(vec!["default".into()])),
-        Some(value) if value.is_none() => Ok(Some(vec!["default".into()])),
-        Some(value) => value.extract(),
     }
 }
 

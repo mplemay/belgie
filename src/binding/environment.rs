@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use pyo3::{
     Bound, PyAny, PyResult, Python,
@@ -8,7 +8,10 @@ use pyo3::{
 };
 
 use crate::{
-    binding::blocking,
+    binding::{
+        blocking,
+        coerce::{self, GroupsDefault},
+    },
     environment::{EnvironmentDefinition, SharedEnvironment},
     utils::normalize_path,
 };
@@ -28,7 +31,7 @@ impl PyEnvironment {
         dependencies: Option<&Bound<'_, PyAny>>,
         lockfile: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let dependencies = normalize_dependencies(py, dependencies)?;
+        let dependencies = coerce::normalize_dependencies(dependencies)?;
         if dependencies.is_empty() && lockfile.is_some_and(|value| !value.is_none()) {
             return Err(PyValueError::new_err(
                 "lockfile requires at least one dependency mapping",
@@ -51,11 +54,7 @@ impl PyEnvironment {
         groups: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let py = path.py();
-        let path = normalize_path::path_from_py(path, "path")?;
-        let path = normalize_path::normalize_directory(py, path, "path")?;
-        let groups = normalize_groups(py, groups)?;
-        let definition =
-            EnvironmentDefinition::from_folder(path, groups).map_err(blocking::any_error_to_py)?;
+        let (_, definition) = environment_definition_from_py_folder(py, path, groups)?;
         Ok(Self {
             inner: SharedEnvironment::new(definition),
         })
@@ -127,17 +126,17 @@ impl PyEnvironment {
     }
 }
 
-fn normalize_dependencies(
+pub(crate) fn environment_definition_from_py_folder(
     py: Python<'_>,
-    dependencies: Option<&Bound<'_, PyAny>>,
-) -> PyResult<BTreeMap<String, String>> {
-    let Some(dependencies) = dependencies.filter(|value| !value.is_none()) else {
-        return Ok(BTreeMap::new());
-    };
-    py.import("builtins")?
-        .getattr("dict")?
-        .call1((dependencies,))?
-        .extract()
+    path: &Bound<'_, PyAny>,
+    groups: Option<&Bound<'_, PyAny>>,
+) -> PyResult<(PathBuf, EnvironmentDefinition)> {
+    let path = normalize_path::path_from_py(path, "path")?;
+    let path = normalize_path::normalize_directory(py, path, "path")?;
+    let groups = coerce::normalize_groups(groups, GroupsDefault::All)?;
+    let definition = EnvironmentDefinition::from_folder(path.clone(), groups)
+        .map_err(blocking::any_error_to_py)?;
+    Ok((path, definition))
 }
 
 fn normalize_lockfile(
@@ -149,18 +148,4 @@ fn normalize_lockfile(
     };
     let path = normalize_path::path_from_py(lockfile, "lockfile")?;
     normalize_path::normalize_file(py, path, "lockfile").map(Some)
-}
-
-pub(crate) fn normalize_groups(
-    py: Python<'_>,
-    groups: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Option<Vec<String>>> {
-    let Some(groups) = groups.filter(|value| !value.is_none()) else {
-        return Ok(None);
-    };
-    py.import("builtins")?
-        .getattr("list")?
-        .call1((groups,))?
-        .extract()
-        .map(Some)
 }

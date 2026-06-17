@@ -6,6 +6,7 @@ import pytest
 
 from belgie import Environment, Runtime, RuntimeOptions, Script
 from belgie.dependencies import lock
+from belgie.errors import BelgieRuntimeError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -282,14 +283,8 @@ std_asserts = "jsr:@std/assert@^1"
     assert result.groups == {"default": 1, "dev": 1}
 
 
-def test_runtime_resolves_dev_group_dependencies(tmp_path: Path):
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[belgie.dependencies.dev]
-std_path = "jsr:@std/path@^1"
-""",
-        encoding="utf-8",
-    )
+def test_runtime_resolves_dev_group_dependencies(tmp_path: Path, write_belgie_pyproject):
+    write_belgie_pyproject(dependency_groups={"dev": {"std_path": "jsr:@std/path@^1"}})
     lock(cwd=tmp_path, groups=["dev"])
 
     source = """
@@ -334,15 +329,13 @@ export default async function run() {
         assert await run() == "basename"
 
 
-def test_environment_uses_supplied_lockfile_as_frozen_input(tmp_path: Path, monkeypatch):
+def test_environment_uses_supplied_lockfile_as_frozen_input(
+    tmp_path: Path,
+    monkeypatch,
+    write_belgie_pyproject,
+):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[belgie.dependencies]
-std_path = "jsr:@std/path@^1"
-""",
-        encoding="utf-8",
-    )
+    write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
     lock(cwd=tmp_path)
     original_lock = (tmp_path / "deno.lock").read_text(encoding="utf-8")
 
@@ -357,18 +350,16 @@ std_path = "jsr:@std/path@^1"
     assert not (tmp_path / "node_modules").exists()
 
 
-def test_environment_rejects_stale_supplied_lockfile(tmp_path: Path, monkeypatch):
+def test_environment_rejects_stale_supplied_lockfile(
+    tmp_path: Path,
+    monkeypatch,
+    write_belgie_pyproject,
+):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[belgie.dependencies]
-std_path = "jsr:@std/path@^1"
-""",
-        encoding="utf-8",
-    )
+    write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
     lock(cwd=tmp_path)
 
-    with pytest.raises(Exception, match="lockfile is out of date"):
+    with pytest.raises(BelgieRuntimeError, match="lockfile is out of date"):
         Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile=tmp_path / "deno.lock").__enter__()
 
 
