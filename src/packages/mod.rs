@@ -12,6 +12,7 @@ use toml_edit::{DocumentMut, value};
 use crate::embed::{EmbedContext, EmbedContextOptions};
 
 const DEFAULT_GROUP: &str = "default";
+pub(crate) const EMPTY_DENO_LOCK: &str = "{\"version\":\"5\"}\n";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PyprojectValueKind {
@@ -136,9 +137,10 @@ impl PackageEnvironment {
         task_cwd: &Path,
         script_name: &str,
         install: bool,
-    ) -> Result<(), AnyError> {
-        let (project_dir, dependencies, _) = resolve_task_manifest(task_cwd, script_name)?;
-        validate_project_artifacts(&project_dir, &dependencies, install)
+    ) -> Result<(PathBuf, Vec<PackageDependency>, String), AnyError> {
+        let (project_dir, dependencies, command) = resolve_task_manifest(task_cwd, script_name)?;
+        validate_project_artifacts(&project_dir, &dependencies, install)?;
+        Ok((project_dir, dependencies, command))
     }
 
     pub(crate) fn resolve_task(
@@ -146,8 +148,17 @@ impl PackageEnvironment {
         script_name: &str,
         install: bool,
     ) -> Result<(Self, String), AnyError> {
-        let (pyproject_dir, dependencies, command) = resolve_task_manifest(task_cwd, script_name)?;
-        validate_project_artifacts(&pyproject_dir, &dependencies, install)?;
+        let (pyproject_dir, dependencies, command) =
+            Self::validate_task(task_cwd, script_name, install)?;
+        Self::resolve_task_from_parts(pyproject_dir, dependencies, command, install)
+    }
+
+    pub(crate) fn resolve_task_from_parts(
+        pyproject_dir: PathBuf,
+        dependencies: Vec<PackageDependency>,
+        command: String,
+        install: bool,
+    ) -> Result<(Self, String), AnyError> {
         let options = project_embed_options(&pyproject_dir);
         let env = Self::from_manifest_parts(pyproject_dir, dependencies, options)?;
         if install {
@@ -205,14 +216,13 @@ impl PackageEnvironment {
 
     pub(crate) async fn synchronize(&self) -> Result<(), AnyError> {
         let (cwd, config_file, lockfile) = self.embed_paths();
-        crate::embed::install_packages_with_options(
-            cwd,
-            config_file,
-            lockfile,
-            false,
-            self.inner.embed_options.clone(),
-        )
-        .await?;
+        let context =
+            synchronize_embed(cwd, config_file, lockfile, self.inner.embed_options.clone()).await?;
+        *self
+            .inner
+            .embed_context
+            .lock()
+            .expect("package embed context lock should not be poisoned") = Some(context);
         Ok(())
     }
 
@@ -256,29 +266,29 @@ impl ProjectPackageEnvironment {
         Ok(Some(environment))
     }
 
-    pub(crate) fn embed_context(&self) -> Result<EmbedContext, AnyError> {
+    pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
         debug_assert!(self.inner.temp_dir.path().is_dir());
-        EmbedContext::new_with_options(
-            self.inner.cwd.clone(),
-            self.inner.config_file.clone(),
-            self.inner.lockfile.clone(),
-            self.inner.embed_options.clone(),
-        )
-        .map_err(project_state_error)
+        Ok(Rc::new(
+            EmbedContext::new_with_options(
+                self.inner.cwd.clone(),
+                self.inner.config_file.clone(),
+                self.inner.lockfile.clone(),
+                self.inner.embed_options.clone(),
+            )
+            .map_err(project_state_error)?,
+        ))
     }
 
     async fn synchronize(&self) -> Result<(), AnyError> {
-        crate::embed::install_packages_with_options(
+        synchronize_embed(
             self.inner.cwd.clone(),
             self.inner.config_file.clone(),
             self.inner.lockfile.clone(),
-            false,
             self.inner.embed_options.clone(),
         )
         .await?;
         Ok(())
     }
-
 }
 
 pub(crate) async fn install_packages(
@@ -286,11 +296,7 @@ pub(crate) async fn install_packages(
     groups: Option<Vec<String>>,
     lockfile_only: bool,
 ) -> Result<PackageInstallResult, AnyError> {
-    let embed_options = if lockfile_only {
-        EmbedContextOptions::default()
-    } else {
-        local_install_options(&cwd)
-    };
+    let embed_options = embed_options_for_install(&cwd, lockfile_only);
     let env = PackageEnvironment::required(cwd, groups, embed_options)?;
     let (cwd, config_file, lockfile) = env.embed_paths();
     crate::embed::install_packages_with_options(
@@ -318,11 +324,7 @@ pub(crate) async fn update_packages(
     latest: bool,
     lockfile_only: bool,
 ) -> Result<PackageUpdateResult, AnyError> {
-    let embed_options = if lockfile_only {
-        EmbedContextOptions::default()
-    } else {
-        local_install_options(&cwd)
-    };
+    let embed_options = embed_options_for_install(&cwd, lockfile_only);
     let env = PackageEnvironment::required(cwd.clone(), groups, embed_options.clone())?;
     let (project_cwd, config_file, lockfile) = env.embed_paths();
     crate::embed::update_packages(
@@ -347,6 +349,23 @@ pub(crate) async fn update_packages(
     })
 }
 
+async fn synchronize_embed(
+    cwd: PathBuf,
+    config_file: PathBuf,
+    lockfile: PathBuf,
+    options: EmbedContextOptions,
+) -> Result<Rc<EmbedContext>, AnyError> {
+    crate::embed::install_packages_with_options(cwd, config_file, lockfile, false, options).await
+}
+
+fn embed_options_for_install(cwd: &Path, lockfile_only: bool) -> EmbedContextOptions {
+    if lockfile_only {
+        EmbedContextOptions::default()
+    } else {
+        local_install_options(cwd)
+    }
+}
+
 fn local_install_options(cwd: &Path) -> EmbedContextOptions {
     EmbedContextOptions {
         node_modules_root: Some(cwd.join("node_modules")),
@@ -358,8 +377,7 @@ fn project_embed_options(cwd: &Path) -> EmbedContextOptions {
     EmbedContextOptions {
         frozen_lockfile: Some(true),
         lockfile_skip_write: true,
-        node_modules_root: Some(cwd.join("node_modules")),
-        ..Default::default()
+        ..local_install_options(cwd)
     }
 }
 
@@ -1029,7 +1047,7 @@ build = "vite build"
 "#,
         )
         .unwrap();
-        fs::write(temp_dir.path().join("deno.lock"), "{\"version\":\"5\"}\n").unwrap();
+        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
         fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
 
         let (env, command) =
@@ -1082,7 +1100,7 @@ build = "vite build"
             "[belgie.dependencies]\nreact = \"^19\"\n",
         )
         .unwrap();
-        fs::write(temp_dir.path().join("deno.lock"), "{\"version\":\"5\"}\n").unwrap();
+        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
 
         let error =
             ProjectPackageEnvironment::from_folder(temp_dir.path().to_path_buf(), None, false)
@@ -1100,7 +1118,7 @@ build = "vite build"
             "[belgie.dependencies]\nstd_path = \"jsr:@std/path@^1\"\n",
         )
         .unwrap();
-        fs::write(temp_dir.path().join("deno.lock"), "{\"version\":\"5\"}\n").unwrap();
+        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
 
         let environment =
             ProjectPackageEnvironment::from_folder(temp_dir.path().to_path_buf(), None, false)
@@ -1167,7 +1185,7 @@ build = "vite build"
 "#,
         )
         .unwrap();
-        fs::write(temp_dir.path().join("deno.lock"), "{\"version\":\"5\"}\n").unwrap();
+        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
         fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
 
         let (env, command) =

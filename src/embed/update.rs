@@ -80,15 +80,9 @@ pub(crate) async fn update_packages(
     )
     .with_context(|| format!("Writing {}", config_file.display()))?;
 
-    install_packages_with_options(
-        cwd,
-        config_file,
-        lockfile,
-        lockfile_only,
-        options,
-    )
-    .await?;
-    Ok(())
+    install_packages_with_options(cwd, config_file, lockfile, lockfile_only, options)
+        .await
+        .map(|_| ())
 }
 
 fn parse_filters(filters: &[String]) -> Vec<FilterEntry> {

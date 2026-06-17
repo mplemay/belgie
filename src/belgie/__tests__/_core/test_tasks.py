@@ -48,7 +48,7 @@ class TestRunTaskOptions:
         assert options.install is True
         expected_repr = (
             f"RunTaskOptions(task_cwd={dumps(str(tmp_path))}, "
-            f"script={dumps('build')}, argv=[{dumps('--mode')}, {dumps('test')}])"
+            f"script={dumps('build')}, argv=[{dumps('--mode')}, {dumps('test')}], install=true)"
         )
         assert repr(options) == expected_repr
 
@@ -196,6 +196,7 @@ class TestTaskRunner:
     async def test_task_runs_from_nested_task_cwd(
         self,
         tmp_path: Path,
+        write_belgie_pyproject,
     ) -> None:
         project = tmp_path / "project"
         nested = project / "apps" / "web"
@@ -206,12 +207,11 @@ class TestTaskRunner:
             "pathlib.Path(os.environ['BELGIE_CWD_OUT']).write_text("
             "str(pathlib.Path.cwd().resolve()), encoding='utf-8')\""
         )
-        (project / "pyproject.toml").write_text(
-            '[belgie]\n\n[belgie.dependencies]\nstub = "jsr:@std/assert@^1"\n\n'
-            f"[belgie.scripts]\ncheck = {dumps(check_script)}\n",
-            encoding="utf-8",
+        write_belgie_pyproject(
+            root=project,
+            dependencies={"stub": "jsr:@std/assert@^1"},
+            scripts={"check": check_script},
         )
-        (project / "deno.lock").write_text('{"version":"5"}\n', encoding="utf-8")
         options = RunTaskOptions(
             str(nested),
             "check",

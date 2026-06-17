@@ -60,8 +60,8 @@ impl PyRunTaskOptions {
 
     fn __repr__(&self) -> String {
         format!(
-            "RunTaskOptions(task_cwd={:?}, script={:?}, argv={:?})",
-            self.task_cwd, self.script, self.argv
+            "RunTaskOptions(task_cwd={:?}, script={:?}, argv={:?}, install={})",
+            self.task_cwd, self.script, self.argv, self.install
         )
     }
 }

@@ -1,8 +1,5 @@
 use pyo3::{
-    Bound, PyAny, PyResult, Python,
-    exceptions::PyValueError,
-    prelude::*,
-    types::PyAnyMethods,
+    Bound, PyAny, PyResult, Python, exceptions::PyValueError, prelude::*, types::PyAnyMethods,
 };
 
 use crate::{

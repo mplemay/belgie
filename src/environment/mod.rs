@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use deno_core::anyhow::{Context, anyhow};
@@ -6,7 +7,9 @@ use deno_core::error::AnyError;
 use tempfile::TempDir;
 
 use crate::embed::{EmbedContext, EmbedContextOptions, install_packages_with_options};
-use crate::packages::{PackageDependency, dependencies_from_mapping, write_synthetic_config};
+use crate::packages::{
+    EMPTY_DENO_LOCK, PackageDependency, dependencies_from_mapping, write_synthetic_config,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct EnvironmentDefinition {
@@ -194,7 +197,7 @@ impl ActiveEnvironment {
             true
         } else {
             if definition.dependencies.is_empty() {
-                std::fs::write(&lockfile, "{\"version\":\"5\"}\n")
+                std::fs::write(&lockfile, EMPTY_DENO_LOCK)
                     .with_context(|| format!("Writing {}", lockfile.display()))?;
             }
             false
@@ -207,7 +210,7 @@ impl ActiveEnvironment {
             node_modules_root: None,
         };
         if !definition.dependencies.is_empty() {
-            let _embed_context = install_packages_with_options(
+            install_packages_with_options(
                 definition.cwd.clone(),
                 config_file.clone(),
                 lockfile.clone(),
@@ -226,18 +229,18 @@ impl ActiveEnvironment {
         })
     }
 
-    pub(crate) fn embed_context(&self) -> Result<EmbedContext, AnyError> {
+    pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
         debug_assert!(self.temp_dir.path().is_dir());
         let options = self
             .embed_options
             .clone()
             .ok_or_else(|| anyhow!("Environment has no package dependencies"))?;
-        EmbedContext::new_with_options(
+        Ok(Rc::new(EmbedContext::new_with_options(
             self.cwd.clone(),
             self.config_file.clone(),
             self.lockfile.clone(),
             options,
-        )
+        )?))
     }
 
     pub(crate) fn uses_package_loader(&self) -> bool {

@@ -346,21 +346,18 @@ fn abort_runtime_enter(context_state: &Arc<Mutex<RuntimeContextState>>) {
 
 fn prepare_bound_runtime(bound: BoundRuntime) -> Result<BoundRuntime, deno_core::error::AnyError> {
     let environment = match bound.runtime_environment() {
-        Some(environment) if environment.isolated().is_some() => {
-            let active = environment
-                .isolated()
-                .expect("isolated runtime environment should be available")
-                .acquire_active()?;
-            active
-                .uses_package_loader()
-                .then_some(BoundPackageEnvironment::Isolated(active))
+        Some(environment) => {
+            if let Some(isolated) = environment.isolated() {
+                let active = isolated.acquire_active()?;
+                active
+                    .uses_package_loader()
+                    .then_some(BoundPackageEnvironment::Isolated(active))
+            } else {
+                environment
+                    .project()
+                    .map(|project| BoundPackageEnvironment::Project(project.clone()))
+            }
         }
-        Some(environment) => Some(BoundPackageEnvironment::Project(
-            environment
-                .project()
-                .expect("project runtime environment should be available")
-                .clone(),
-        )),
         None => None,
     };
     Ok(bound.with_package_environment(environment))
@@ -381,13 +378,14 @@ mod tests {
 
     fn isolated_bound_runtime(
         folder: &tempfile::TempDir,
-    ) -> (SharedEnvironment, BoundRuntime, Arc<Mutex<RuntimeContextState>>) {
-        let definition = EnvironmentDefinition::from_mapping(
-            folder.path().to_path_buf(),
-            BTreeMap::new(),
-            None,
-        )
-        .unwrap();
+    ) -> (
+        SharedEnvironment,
+        BoundRuntime,
+        Arc<Mutex<RuntimeContextState>>,
+    ) {
+        let definition =
+            EnvironmentDefinition::from_mapping(folder.path().to_path_buf(), BTreeMap::new(), None)
+                .unwrap();
         let shared = SharedEnvironment::new(definition);
         let runtime = DenoRuntime::new(RuntimeOptions::new_with_js_runtime_options(
             folder.path().to_path_buf(),

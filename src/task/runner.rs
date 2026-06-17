@@ -129,17 +129,18 @@ impl TaskRunner {
     }
 
     pub(crate) fn start_blocking(&self, options: RunTaskOptions) -> Result<TaskProcess, AnyError> {
-        PackageEnvironment::validate_task(&options.task_cwd, &options.script, options.install)?;
+        let (pyproject_dir, dependencies, command) =
+            PackageEnvironment::validate_task(&options.task_cwd, &options.script, options.install)?;
         let origin = task_origin(&options);
         let (stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
         let join_handle = thread::spawn(move || {
-            let (package_env, command) =
-                PackageEnvironment::resolve_task(
-                    &options.task_cwd,
-                    &options.script,
-                    options.install,
-                )?;
+            let (package_env, command) = PackageEnvironment::resolve_task_from_parts(
+                pyproject_dir,
+                dependencies,
+                command,
+                options.install,
+            )?;
             let runtime = build_task_runtime("background")?;
 
             runtime.block_on(async move {
@@ -298,6 +299,8 @@ mod tests {
     fn background_stop_escalates_after_grace_period() {
         use std::fs;
 
+        use crate::packages::EMPTY_DENO_LOCK;
+
         let root = tempfile::tempdir().unwrap();
         let project = root.path().join("project");
         fs::create_dir_all(&project).unwrap();
@@ -314,7 +317,7 @@ mod tests {
             ),
         )
         .unwrap();
-        fs::write(project.join("deno.lock"), "{\"version\":\"5\"}\n").unwrap();
+        fs::write(project.join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
 
         let options = RunTaskOptions {
             task_cwd: project.canonicalize().unwrap(),
