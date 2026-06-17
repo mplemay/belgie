@@ -4,20 +4,9 @@ A minimal, secure JavaScript runtime for Python.
 
 ## Examples
 
-Each example is a standalone uv project under [`examples/`](examples/) with its own `pyproject.toml`. They are exercised
-by integration tests in [`examples/__tests__/integration/`](examples/__tests__/integration/).
-
 - **[simple](examples/simple):** Async `Runtime` with a TypeScript script loaded from disk.
 - **[jsr-deps](examples/jsr-deps):** `[belgie.dependencies]` locking and JSR imports through `Runtime`.
 - **[task-scripts](examples/task-scripts):** `[belgie.scripts]` tasks run through `TaskRunner`.
-
-Run an example:
-
-```bash
-cd examples/simple
-uv sync
-uv run main
-```
 
 ## Package dependencies
 

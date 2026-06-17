@@ -8,7 +8,7 @@ from types import ModuleType
 
 import pytest
 
-EXAMPLES_ROOT = Path(__file__).resolve().parents[2]
+EXAMPLES_ROOT = Path(__file__).resolve().parents[5] / "examples"
 
 
 def example_dir(name: str) -> Path:
@@ -40,15 +40,15 @@ def _load_example_main(example_dir: Path, package: str) -> Iterator[ModuleType]:
 
 
 @pytest.fixture
-def simple_module(simple_example_dir: Path) -> ModuleType:
+def simple_module(simple_example_dir: Path) -> Iterator[ModuleType]:
     yield from _load_example_main(simple_example_dir, "simple")
 
 
 @pytest.fixture
-def jsr_deps_module(jsr_deps_example_dir: Path) -> ModuleType:
+def jsr_deps_module(jsr_deps_example_dir: Path) -> Iterator[ModuleType]:
     yield from _load_example_main(jsr_deps_example_dir, "jsr_deps")
 
 
 @pytest.fixture
-def task_scripts_module(task_scripts_example_dir: Path) -> ModuleType:
+def task_scripts_module(task_scripts_example_dir: Path) -> Iterator[ModuleType]:
     yield from _load_example_main(task_scripts_example_dir, "task_scripts")
