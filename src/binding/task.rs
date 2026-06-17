@@ -67,6 +67,7 @@ fn normalized_options_from_py(
         options.env.clone(),
         options.host.clone(),
         options.port,
+        options.install,
     )
     .map_err(py_error::from_binding_error)
 }

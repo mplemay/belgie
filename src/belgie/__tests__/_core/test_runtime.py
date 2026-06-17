@@ -99,8 +99,9 @@ class TestScript:
 
 
 class TestRuntimeLifecycle:
-    def test_accepts_environment_and_reports_repr(self, tmp_path: Path) -> None:
-        env = Environment.from_folder(StringPath(str(tmp_path)))
+    def test_accepts_environment_and_reports_repr(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        env = Environment()
         runtime = Runtime(env=env)
         bound = runtime(Script("export default function run() { return 42; }"))
 
@@ -114,9 +115,36 @@ class TestRuntimeLifecycle:
         file_path.write_text("", encoding="utf-8")
 
         with pytest.raises(FileNotFoundError, match="path does not exist"):
-            Environment.from_folder(tmp_path / "missing")
+            Runtime.from_folder(tmp_path / "missing")
         with pytest.raises(OSError, match="path is not a directory"):
             Runtime.from_folder(file_path)
+
+    def test_environment_has_no_folder_constructor(self) -> None:
+        assert not hasattr(Environment, "from_folder")
+
+    def test_project_runtime_requires_lockfile(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(dependencies={"react": "^19"})
+        (pyproject.parent / "deno.lock").unlink()
+
+        with pytest.raises(_core.BelgieRuntimeError, match="belgie.dependencies.install"):
+            Runtime.from_folder(pyproject.parent)
+
+    def test_project_runtime_requires_npm_install_by_default(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(dependencies={"react": "^19"})
+
+        with pytest.raises(_core.BelgieRuntimeError, match=r"node_modules.*install=True"):
+            Runtime.from_folder(pyproject.parent)
+
+    def test_project_runtime_does_not_require_node_modules_for_jsr_only_dependencies(
+        self,
+        write_belgie_pyproject,
+    ) -> None:
+        pyproject = write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
+
+        runtime = Runtime.from_folder(pyproject.parent)
+
+        assert repr(runtime) == f"Runtime.from_folder({pyproject.parent})"
+        assert not (pyproject.parent / "node_modules").exists()
 
     def test_runtime_rejects_removed_cwd_argument(self, tmp_path: Path) -> None:
         runtime_type = cast("Any", Runtime)
@@ -200,21 +228,15 @@ class TestEnvironmentLifecycle:
             Runtime(env=env)(Script("export default () => 'new';")).__enter__()
         bound.__exit__(None, None, None)
 
-    @pytest.mark.parametrize("setup", ["external", "from_folder"])
-    def test_multiple_runtimes_share_one_environment(
-        self,
-        tmp_path: Path,
-        setup: str,
-    ) -> None:
-        if setup == "external":
-            env = Environment()
-            first = Runtime(env=env)(Script("export default () => 'first';"))
-            second = Runtime(env=env)(Script("export default () => 'second';"))
-            with env, first as run_first, second as run_second:
-                assert run_first() == "first"
-                assert run_second() == "second"
-            return
+    def test_multiple_runtimes_share_one_environment(self) -> None:
+        env = Environment()
+        first = Runtime(env=env)(Script("export default () => 'first';"))
+        second = Runtime(env=env)(Script("export default () => 'second';"))
+        with env, first as run_first, second as run_second:
+            assert run_first() == "first"
+            assert run_second() == "second"
 
+    def test_multiple_runtimes_share_one_project_context(self, tmp_path: Path) -> None:
         runtime = Runtime.from_folder(tmp_path)
         first = runtime(Script("export default () => 'first';"))
         second = runtime(Script("export default () => 'second';"))
@@ -222,7 +244,7 @@ class TestEnvironmentLifecycle:
             assert run_first() == "first"
             assert run_second() == "second"
 
-    def test_from_folder_runtimes_release_environment_on_last_exit(self, tmp_path: Path) -> None:
+    def test_from_folder_runtime_can_be_reused_after_bound_runtimes_exit(self, tmp_path: Path) -> None:
         runtime = Runtime.from_folder(tmp_path)
         first = runtime(Script("export default () => 'first';"))
         second = runtime(Script("export default () => 'second';"))
@@ -244,13 +266,7 @@ class TestEnvironmentLifecycle:
 
         assert sorted(path.name for path in tmp_path.iterdir()) == ["value.ts"]
 
-    async def test_async_environment_and_runtime_from_folder(self, tmp_path: Path) -> None:
-        async with (
-            Environment.from_folder(tmp_path) as env,
-            Runtime(env=env)(Script("export default async () => 42;")) as run,
-        ):
-            assert await run() == 42
-
+    async def test_async_runtime_from_folder(self, tmp_path: Path) -> None:
         async with Runtime.from_folder(tmp_path)(Script("export default async () => 43;")) as run:
             assert await run() == 43
 

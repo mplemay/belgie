@@ -6,9 +6,7 @@ use deno_core::error::AnyError;
 use tempfile::TempDir;
 
 use crate::embed::{EmbedContext, EmbedContextOptions, install_packages_with_options};
-use crate::packages::{
-    PackageDependency, dependencies_from_folder, dependencies_from_mapping, write_synthetic_config,
-};
+use crate::packages::{PackageDependency, dependencies_from_mapping, write_synthetic_config};
 
 #[derive(Clone, Debug)]
 pub(crate) struct EnvironmentDefinition {
@@ -27,10 +25,7 @@ pub(crate) struct SharedEnvironment {
 enum EnvironmentState {
     Inactive,
     Activating,
-    Active {
-        environment: Arc<ActiveEnvironment>,
-        owned_runtime_refs: usize,
-    },
+    Active(Arc<ActiveEnvironment>),
 }
 
 #[derive(Debug)]
@@ -39,7 +34,7 @@ pub(crate) struct ActiveEnvironment {
     config_file: PathBuf,
     lockfile: PathBuf,
     embed_options: Option<EmbedContextOptions>,
-    _temp_dir: TempDir,
+    temp_dir: TempDir,
 }
 
 impl std::fmt::Debug for SharedEnvironment {
@@ -63,16 +58,6 @@ impl EnvironmentDefinition {
             cwd,
             dependencies: dependencies_from_mapping(dependencies)?,
             lockfile_source,
-        })
-    }
-
-    pub(crate) fn from_folder(cwd: PathBuf, groups: Option<Vec<String>>) -> Result<Self, AnyError> {
-        let dependencies = dependencies_from_folder(&cwd, groups)?;
-        let lockfile = cwd.join("deno.lock");
-        Ok(Self {
-            cwd,
-            dependencies,
-            lockfile_source: lockfile.is_file().then_some(lockfile),
         })
     }
 
@@ -107,40 +92,15 @@ impl SharedEnvironment {
                 .state
                 .lock()
                 .expect("environment state lock should not be poisoned"),
-            EnvironmentState::Active { .. }
+            EnvironmentState::Active(_)
         )
     }
 
     pub(crate) fn activate_blocking(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {
-        pyo3_async_runtimes::tokio::get_runtime().block_on(self.activate_with_owned_refs(0))
+        pyo3_async_runtimes::tokio::get_runtime().block_on(self.activate())
     }
 
-    pub(crate) fn activate_for_owned_runtime(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {
-        {
-            let mut state = self
-                .state
-                .lock()
-                .expect("environment state lock should not be poisoned");
-            if let EnvironmentState::Active {
-                environment,
-                owned_runtime_refs,
-            } = &mut *state
-            {
-                if *owned_runtime_refs == 0 {
-                    return Err(anyhow!("Environment context is already active"));
-                }
-                *owned_runtime_refs += 1;
-                return Ok(environment.clone());
-            }
-        }
-
-        pyo3_async_runtimes::tokio::get_runtime().block_on(self.activate_with_owned_refs(1))
-    }
-
-    async fn activate_with_owned_refs(
-        &self,
-        owned_runtime_refs: usize,
-    ) -> Result<Arc<ActiveEnvironment>, AnyError> {
+    async fn activate(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {
         {
             let mut state = self
                 .state
@@ -151,7 +111,7 @@ impl SharedEnvironment {
                 EnvironmentState::Activating => {
                     return Err(anyhow!("Environment context is already being entered"));
                 }
-                EnvironmentState::Active { .. } => {
+                EnvironmentState::Active(_) => {
                     return Err(anyhow!("Environment context is already active"));
                 }
             }
@@ -165,10 +125,7 @@ impl SharedEnvironment {
         match active {
             Ok(active) => {
                 let active = Arc::new(active);
-                *state = EnvironmentState::Active {
-                    environment: active.clone(),
-                    owned_runtime_refs,
-                };
+                *state = EnvironmentState::Active(active.clone());
                 Ok(active)
             }
             Err(error) => {
@@ -184,7 +141,7 @@ impl SharedEnvironment {
             .lock()
             .expect("environment state lock should not be poisoned");
         match &*state {
-            EnvironmentState::Active { environment, .. } => Ok(environment.clone()),
+            EnvironmentState::Active(environment) => Ok(environment.clone()),
             EnvironmentState::Activating => Err(anyhow!("Environment is still being activated")),
             EnvironmentState::Inactive => Err(anyhow!(
                 "Environment must be entered before it can be used by Runtime"
@@ -197,57 +154,19 @@ impl SharedEnvironment {
             .state
             .lock()
             .expect("environment state lock should not be poisoned");
-        exit_error_if_not_active(&state)?;
         match &*state {
-            EnvironmentState::Active {
-                owned_runtime_refs: 0,
-                ..
-            } => {
-                *state = EnvironmentState::Inactive;
-                Ok(())
+            EnvironmentState::Activating => {
+                return Err(anyhow!(
+                    "Environment cannot exit while it is being activated"
+                ));
             }
-            EnvironmentState::Active {
-                owned_runtime_refs: 1..,
-                ..
-            } => Err(anyhow!(
-                "Environment cannot exit while owned runtimes are still active"
-            )),
-            EnvironmentState::Activating | EnvironmentState::Inactive => unreachable!(),
-        }
-    }
-
-    pub(crate) fn release_owned_runtime(&self) -> Result<(), AnyError> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("environment state lock should not be poisoned");
-        exit_error_if_not_active(&state)?;
-        match &mut *state {
-            EnvironmentState::Active {
-                owned_runtime_refs: 0,
-                ..
-            } => Err(anyhow!("Environment has no owned runtime holders")),
-            EnvironmentState::Active {
-                owned_runtime_refs, ..
-            } => {
-                *owned_runtime_refs -= 1;
-                if *owned_runtime_refs == 0 {
-                    *state = EnvironmentState::Inactive;
-                }
-                Ok(())
+            EnvironmentState::Inactive => {
+                return Err(anyhow!("Environment context is not active"));
             }
-            EnvironmentState::Activating | EnvironmentState::Inactive => unreachable!(),
+            EnvironmentState::Active(_) => {}
         }
-    }
-}
-
-fn exit_error_if_not_active(state: &EnvironmentState) -> Result<(), AnyError> {
-    match state {
-        EnvironmentState::Activating => Err(anyhow!(
-            "Environment cannot exit while it is being activated"
-        )),
-        EnvironmentState::Inactive => Err(anyhow!("Environment context is not active")),
-        EnvironmentState::Active { .. } => Ok(()),
+        *state = EnvironmentState::Inactive;
+        Ok(())
     }
 }
 
@@ -285,6 +204,7 @@ impl ActiveEnvironment {
             cache_root: Some(cache_root.clone()),
             frozen_lockfile: Some(frozen_lockfile),
             lockfile_skip_write: false,
+            node_modules_root: None,
         };
         if !definition.dependencies.is_empty() {
             let _embed_context = install_packages_with_options(
@@ -302,15 +222,12 @@ impl ActiveEnvironment {
             config_file,
             lockfile,
             embed_options: (!definition.dependencies.is_empty()).then_some(embed_options),
-            _temp_dir: temp_dir,
+            temp_dir,
         })
     }
 
-    pub(crate) fn uses_package_loader(&self) -> bool {
-        self.embed_options.is_some()
-    }
-
     pub(crate) fn embed_context(&self) -> Result<EmbedContext, AnyError> {
+        debug_assert!(self.temp_dir.path().is_dir());
         let options = self
             .embed_options
             .clone()
@@ -323,31 +240,33 @@ impl ActiveEnvironment {
         )
     }
 
+    pub(crate) fn uses_package_loader(&self) -> bool {
+        self.embed_options.is_some()
+    }
+
     #[cfg(test)]
     pub(crate) fn root(&self) -> &Path {
-        self._temp_dir.path()
+        self.temp_dir.path()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::fs;
-    use std::sync::Arc;
 
     use super::{EnvironmentDefinition, SharedEnvironment};
 
-    fn folder_environment() -> (tempfile::TempDir, SharedEnvironment) {
+    fn empty_environment() -> (tempfile::TempDir, SharedEnvironment) {
         let folder = tempfile::tempdir().unwrap();
-        let environment = SharedEnvironment::new(
-            EnvironmentDefinition::from_folder(folder.path().to_path_buf(), None).unwrap(),
-        );
-        (folder, environment)
+        let definition =
+            EnvironmentDefinition::from_mapping(folder.path().to_path_buf(), BTreeMap::new(), None)
+                .unwrap();
+        (folder, SharedEnvironment::new(definition))
     }
 
     #[test]
     fn empty_environment_uses_an_isolated_temporary_root() {
-        let (_folder, environment) = folder_environment();
+        let (_folder, environment) = empty_environment();
 
         let active = environment.activate_blocking().unwrap();
         let root = active.root().to_path_buf();
@@ -375,30 +294,8 @@ mod tests {
     }
 
     #[test]
-    fn folder_environment_does_not_modify_source_lockfile() {
-        let folder = tempfile::tempdir().unwrap();
-        fs::write(
-            folder.path().join("pyproject.toml"),
-            "[project]\nname = \"example\"\n",
-        )
-        .unwrap();
-        fs::write(folder.path().join("deno.lock"), "{\"version\":\"5\"}\n").unwrap();
-        let environment = SharedEnvironment::new(
-            EnvironmentDefinition::from_folder(folder.path().to_path_buf(), None).unwrap(),
-        );
-
-        let active = environment.activate_blocking().unwrap();
-
-        assert_eq!(
-            fs::read_to_string(folder.path().join("deno.lock")).unwrap(),
-            "{\"version\":\"5\"}\n"
-        );
-        assert_ne!(active.root(), folder.path());
-    }
-
-    #[test]
     fn nested_activation_is_rejected() {
-        let (_folder, environment) = folder_environment();
+        let (_folder, environment) = empty_environment();
 
         let _active = environment.activate_blocking().unwrap();
         let error = environment.activate_blocking().unwrap_err();
@@ -407,63 +304,16 @@ mod tests {
     }
 
     #[test]
-    fn owned_runtime_activation_can_be_shared() {
-        let (_folder, environment) = folder_environment();
+    fn active_reference_survives_environment_exit() {
+        let (_folder, environment) = empty_environment();
+        let active = environment.activate_blocking().unwrap();
+        let root = active.root().to_path_buf();
 
-        let first = environment.activate_for_owned_runtime().unwrap();
-        let second = environment.activate_for_owned_runtime().unwrap();
+        environment.deactivate().unwrap();
 
-        assert!(Arc::ptr_eq(&first, &second));
-        assert!(environment.is_active());
-
-        environment.release_owned_runtime().unwrap();
-        assert!(environment.is_active());
-
-        environment.release_owned_runtime().unwrap();
         assert!(!environment.is_active());
-    }
-
-    #[test]
-    fn activate_blocking_rejects_active_owned_runtime() {
-        let (_folder, environment) = folder_environment();
-
-        let _active = environment.activate_for_owned_runtime().unwrap();
-        let error = environment.activate_blocking().unwrap_err();
-
-        assert!(error.to_string().contains("already active"));
-    }
-
-    #[test]
-    fn activate_for_owned_runtime_rejects_blocking_active() {
-        let (_folder, environment) = folder_environment();
-
-        let _active = environment.activate_blocking().unwrap();
-        let error = environment.activate_for_owned_runtime().unwrap_err();
-
-        assert!(error.to_string().contains("already active"));
-    }
-
-    #[test]
-    fn deactivate_rejects_active_owned_runtime() {
-        let (_folder, environment) = folder_environment();
-
-        let _active = environment.activate_for_owned_runtime().unwrap();
-        let error = environment.deactivate().unwrap_err();
-
-        assert!(
-            error
-                .to_string()
-                .contains("owned runtimes are still active")
-        );
-    }
-
-    #[test]
-    fn release_owned_runtime_rejects_blocking_active() {
-        let (_folder, environment) = folder_environment();
-
-        let _active = environment.activate_blocking().unwrap();
-        let error = environment.release_owned_runtime().unwrap_err();
-
-        assert!(error.to_string().contains("no owned runtime holders"));
+        assert!(root.exists());
+        drop(active);
+        assert!(!root.exists());
     }
 }

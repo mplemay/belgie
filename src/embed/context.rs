@@ -201,6 +201,7 @@ pub(crate) struct EmbedContextOptions {
     pub cache_root: Option<PathBuf>,
     pub frozen_lockfile: Option<bool>,
     pub lockfile_skip_write: bool,
+    pub node_modules_root: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for EmbedContext {
@@ -214,6 +215,7 @@ impl std::fmt::Debug for EmbedContext {
 }
 
 impl EmbedContext {
+    #[cfg(test)]
     pub fn new(cwd: PathBuf, config_file: PathBuf, lockfile: PathBuf) -> Result<Self, AnyError> {
         Self::new_with_options(cwd, config_file, lockfile, EmbedContextOptions::default())
     }
@@ -243,7 +245,12 @@ impl EmbedContext {
                 frozen_lockfile: options.frozen_lockfile,
                 lockfile_skip_write: options.lockfile_skip_write,
                 maybe_custom_deno_dir_root: options.cache_root,
-                node_modules_dir: Some(NodeModulesDirMode::None),
+                node_modules_dir: Some(if options.node_modules_root.is_some() {
+                    NodeModulesDirMode::Auto
+                } else {
+                    NodeModulesDirMode::None
+                }),
+                root_node_modules_dir_override: options.node_modules_root,
                 ..Default::default()
             },
         ));

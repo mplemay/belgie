@@ -37,7 +37,7 @@ class TestTaskExports:
 class TestRunTaskOptions:
     def test_stores_task_cwd_script_and_copied_argv(self, tmp_path: Path) -> None:
         argv = ["--mode", "test"]
-        options = RunTaskOptions(str(tmp_path), "build", argv=argv, env={"BELGIE_TEST": "1"})
+        options = RunTaskOptions(str(tmp_path), "build", argv=argv, env={"BELGIE_TEST": "1"}, install=True)
         argv.append("mutated")
         returned_argv = options.argv
         returned_argv.append("mutated-again")
@@ -45,6 +45,7 @@ class TestRunTaskOptions:
         assert options.task_cwd == str(tmp_path)
         assert options.script == "build"
         assert options.argv == ["--mode", "test"]
+        assert options.install is True
         expected_repr = (
             f"RunTaskOptions(task_cwd={dumps(str(tmp_path))}, "
             f"script={dumps('build')}, argv=[{dumps('--mode')}, {dumps('test')}])"
@@ -55,6 +56,7 @@ class TestRunTaskOptions:
         options = RunTaskOptions(str(tmp_path), "build")
 
         assert options.argv == []
+        assert options.install is False
 
     def test_validates_constructor_argument_types(self, tmp_path: Path) -> None:
         with pytest.raises(TypeError):
@@ -121,6 +123,21 @@ class TestTaskRunner:
 
         with pytest.raises(BelgieRuntimeError, match=r"No \[belgie\.scripts\] entry 'missing'"):
             await TaskRunner().start(options)
+
+    async def test_requires_project_lockfile(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(scripts={"build": "echo ok"})
+        (pyproject.parent / "deno.lock").unlink()
+        options = RunTaskOptions(str(pyproject.parent), "build")
+
+        with pytest.raises(BelgieRuntimeError, match="belgie.dependencies.install"):
+            await TaskRunner().run(options)
+
+    async def test_requires_npm_install_by_default(self, write_belgie_pyproject) -> None:
+        pyproject = write_belgie_pyproject(dependencies={"vite": "^8"}, scripts={"build": "vite build"})
+        options = RunTaskOptions(str(pyproject.parent), "build")
+
+        with pytest.raises(BelgieRuntimeError, match=r"node_modules.*install=True"):
+            await TaskRunner().run(options)
 
     async def test_failed_task_includes_captured_stderr(self, write_belgie_pyproject) -> None:
         pyproject = write_belgie_pyproject(scripts={"fail": "sh -c 'echo task exploded >&2; exit 7'"})
@@ -194,6 +211,7 @@ class TestTaskRunner:
             f"[belgie.scripts]\ncheck = {dumps(check_script)}\n",
             encoding="utf-8",
         )
+        (project / "deno.lock").write_text('{"version":"5"}\n', encoding="utf-8")
         options = RunTaskOptions(
             str(nested),
             "check",

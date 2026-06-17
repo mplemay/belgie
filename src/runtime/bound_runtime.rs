@@ -2,6 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use crate::environment::ActiveEnvironment;
 use crate::options::{JsRuntimeOptions, RuntimeEnvironment};
+use crate::packages::ProjectPackageEnvironment;
 use crate::script::ScriptSource;
 
 use super::DenoRuntime;
@@ -10,7 +11,13 @@ use super::DenoRuntime;
 pub(crate) struct BoundRuntime {
     runtime: DenoRuntime,
     script: ScriptSource,
-    active_environment: Option<Arc<ActiveEnvironment>>,
+    package_environment: Option<BoundPackageEnvironment>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum BoundPackageEnvironment {
+    Isolated(Arc<ActiveEnvironment>),
+    Project(ProjectPackageEnvironment),
 }
 
 impl BoundRuntime {
@@ -18,7 +25,7 @@ impl BoundRuntime {
         Self {
             runtime,
             script,
-            active_environment: None,
+            package_environment: None,
         }
     }
 
@@ -30,16 +37,19 @@ impl BoundRuntime {
         self.runtime.js_runtime_options()
     }
 
-    pub(crate) fn environment(&self) -> Option<&Arc<ActiveEnvironment>> {
-        self.active_environment.as_ref()
+    pub(crate) fn package_environment(&self) -> Option<&BoundPackageEnvironment> {
+        self.package_environment.as_ref()
     }
 
     pub(crate) fn runtime_environment(&self) -> Option<&RuntimeEnvironment> {
         self.runtime.environment()
     }
 
-    pub(crate) fn with_environment(mut self, environment: Option<Arc<ActiveEnvironment>>) -> Self {
-        self.active_environment = environment;
+    pub(crate) fn with_package_environment(
+        mut self,
+        environment: Option<BoundPackageEnvironment>,
+    ) -> Self {
+        self.package_environment = environment;
         self
     }
 

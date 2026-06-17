@@ -7,23 +7,6 @@ use deno_npm_installer::PackageCaching;
 use crate::embed::context::{EmbedContext, EmbedContextOptions};
 use crate::embed::graph::build_module_graph;
 
-pub(crate) async fn install_packages(
-    cwd: PathBuf,
-    config_file: PathBuf,
-    lockfile: PathBuf,
-    lockfile_only: bool,
-) -> Result<(), AnyError> {
-    install_packages_with_options(
-        cwd,
-        config_file,
-        lockfile,
-        lockfile_only,
-        EmbedContextOptions::default(),
-    )
-    .await?;
-    Ok(())
-}
-
 pub(crate) async fn install_packages_with_options(
     cwd: PathBuf,
     config_file: PathBuf,

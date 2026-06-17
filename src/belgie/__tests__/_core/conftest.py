@@ -40,6 +40,8 @@ def write_belgie_pyproject(tmp_path: Path):
         append_table(lines, "belgie.scripts", scripts or {})
         path = tmp_path / "pyproject.toml"
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        if deps or groups:
+            (tmp_path / "deno.lock").write_text('{"version":"5"}\n', encoding="utf-8")
         return path
 
     return write_pyproject

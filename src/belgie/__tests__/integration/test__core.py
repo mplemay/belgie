@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from shutil import rmtree
 from typing import TYPE_CHECKING
 
 import pytest
 
 from belgie import Environment, Runtime, RuntimeOptions, Script
-from belgie.dependencies import lock
+from belgie.dependencies import install, lock
 from belgie.errors import BelgieRuntimeError
 
 if TYPE_CHECKING:
@@ -262,6 +263,7 @@ std_path = "jsr:@std/path@^1"
     result = lock(cwd=tmp_path)
 
     assert (tmp_path / "deno.lock").exists()
+    assert not (tmp_path / "node_modules").exists()
     assert result.groups == {"default": 1}
 
 
@@ -283,6 +285,36 @@ std_asserts = "jsr:@std/assert@^1"
     assert result.groups == {"default": 1, "dev": 1}
 
 
+def test_install_populates_project_node_modules_and_runtime_reuses_it(
+    tmp_path: Path,
+    write_belgie_pyproject,
+):
+    write_belgie_pyproject(dependencies={"pkg_json": "npm:is-number@7.0.0/package.json"})
+
+    install(cwd=tmp_path)
+    original_lock = (tmp_path / "deno.lock").read_text(encoding="utf-8")
+
+    source = """
+import packageJson from "pkg_json" with { type: "json" };
+
+export default function run() {
+  return packageJson.version;
+}
+"""
+    with Runtime.from_folder(tmp_path)(Script(source)) as run:
+        assert run() == "7.0.0"
+
+    assert (tmp_path / "node_modules").is_dir()
+    rmtree(tmp_path / "node_modules")
+
+    with Runtime.from_folder(tmp_path, install=True)(Script(source)) as run:
+        assert run() == "7.0.0"
+
+    assert (tmp_path / "node_modules").is_dir()
+    assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == original_lock
+    assert not (tmp_path / "deno.json").exists()
+
+
 def test_runtime_resolves_dev_group_dependencies(tmp_path: Path, write_belgie_pyproject):
     write_belgie_pyproject(dependency_groups={"dev": {"std_path": "jsr:@std/path@^1"}})
     lock(cwd=tmp_path, groups=["dev"])
@@ -295,7 +327,7 @@ export default function run() {
 }
 """
 
-    with Environment.from_folder(tmp_path) as env, Runtime(env=env)(Script(source)) as run:
+    with Runtime.from_folder(tmp_path)(Script(source)) as run:
         assert run() == "join"
 
 

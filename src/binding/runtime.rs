@@ -3,10 +3,13 @@ use std::sync::{Arc, Mutex};
 use pyo3::{Bound, PyAny, PyResult, Python, exceptions::PyValueError, prelude::*, types::PyType};
 
 use crate::{
-    binding::{PyAsyncRunner, PyEnvironment, PyScript, PySyncRunner, blocking, environment},
-    environment::SharedEnvironment,
+    binding::{
+        PyAsyncRunner, PyEnvironment, PyScript, PySyncRunner, blocking,
+        coerce::{self, GroupsDefault},
+    },
     options::{JsRuntimeOptions, RuntimeEnvironment, RuntimeOptions as InternalRuntimeOptions},
-    runtime::{BoundRuntime, DenoExecutionHandle, DenoRuntime},
+    packages::ProjectPackageEnvironment,
+    runtime::{BoundPackageEnvironment, BoundRuntime, DenoExecutionHandle, DenoRuntime},
     utils::{normalize_path, py_error},
 };
 
@@ -66,6 +69,7 @@ pub struct PyRuntime {
     inner: DenoRuntime,
     bound: Option<BoundRuntime>,
     context_state: Arc<Mutex<RuntimeContextState>>,
+    project: bool,
 }
 
 #[pymethods]
@@ -80,30 +84,47 @@ impl PyRuntime {
         let environment = env
             .as_deref()
             .map(PyEnvironment::environment)
-            .map(RuntimeEnvironment::External);
+            .map(RuntimeEnvironment::Isolated);
         let cwd = environment.as_ref().map_or_else(
             || normalize_path::normalize_cwd(py, None),
-            |environment| Ok(environment.environment().cwd().to_path_buf()),
+            |environment| {
+                Ok(environment
+                    .isolated()
+                    .expect("isolated runtime environment should contain Environment")
+                    .cwd()
+                    .to_path_buf())
+            },
         )?;
-        Ok(Self::from_parts(cwd, environment, options.as_deref()))
+        Ok(Self::from_parts(
+            cwd,
+            environment,
+            options.as_deref(),
+            false,
+        ))
     }
 
     #[classmethod]
-    #[pyo3(signature = (path, *, groups = None, options = None))]
+    #[pyo3(signature = (path, *, groups = None, install = false, options = None))]
     fn from_folder(
         _cls: &Bound<'_, PyType>,
         path: &Bound<'_, PyAny>,
         groups: Option<&Bound<'_, PyAny>>,
+        install: bool,
         options: Option<PyRef<'_, PyRuntimeOptions>>,
     ) -> PyResult<Self> {
         let py = path.py();
-        let (path, definition) =
-            environment::environment_definition_from_py_folder(py, path, groups)?;
-        let environment = RuntimeEnvironment::Owned(SharedEnvironment::new(definition));
+        let path = normalize_path::path_from_py(path, "path")?;
+        let path = normalize_path::normalize_directory(py, path, "path")?;
+        let groups = coerce::normalize_groups(groups, GroupsDefault::All)?;
+        let environment = py
+            .detach(|| ProjectPackageEnvironment::from_folder(path.clone(), groups, install))
+            .map_err(blocking::any_error_to_py)?
+            .map(RuntimeEnvironment::Project);
         Ok(Self::from_parts(
             path,
-            Some(environment),
+            environment,
             options.as_deref(),
+            true,
         ))
     }
 
@@ -113,13 +134,14 @@ impl PyRuntime {
             inner: self.inner.clone(),
             bound: Some(bound),
             context_state: Arc::new(Mutex::new(RuntimeContextState::Inactive)),
+            project: self.project,
         }
     }
 
     fn __enter__(&self, py: Python<'_>) -> PyResult<PySyncRunner> {
         let bound = self.bound_runtime()?;
         self.start_enter()?;
-        let mut guard = RuntimeEnterGuard::new(&self.inner, &self.context_state);
+        let mut guard = RuntimeEnterGuard::new(&self.context_state);
         let prepared = py
             .detach(|| prepare_bound_runtime(bound))
             .map_err(blocking::any_error_to_py)?;
@@ -139,9 +161,7 @@ impl PyRuntime {
         let close_result = py
             .detach(|| handle.close_blocking())
             .map_err(py_error::from_binding_error);
-        let environment_result = release_owned_environment(&self.inner);
         close_result?;
-        environment_result.map_err(blocking::any_error_to_py)?;
         Ok(false)
     }
 
@@ -149,9 +169,8 @@ impl PyRuntime {
         let bound = self.bound_runtime()?;
         self.start_enter()?;
         let context_state = self.context_state.clone();
-        let runtime = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut guard = RuntimeEnterGuard::new(&runtime, &context_state);
+            let mut guard = RuntimeEnterGuard::new(&context_state);
             let prepared = blocking::run_on_blocking_thread(
                 move || prepare_bound_runtime(bound),
                 "Belgie runtime environment activation failed",
@@ -171,16 +190,11 @@ impl PyRuntime {
         _traceback: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let handle = self.take_active()?;
-        let runtime = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let close_result = handle
+            handle
                 .close_async()
                 .await
-                .map_err(py_error::from_binding_error);
-            let environment_result =
-                release_owned_environment(&runtime).map_err(blocking::any_error_to_py);
-            close_result?;
-            environment_result?;
+                .map_err(py_error::from_binding_error)?;
             Ok(false)
         })
     }
@@ -188,10 +202,8 @@ impl PyRuntime {
     fn __repr__(&self) -> String {
         match &self.bound {
             Some(bound) => format!("Runtime({})", bound.description()),
+            None if self.project => format!("Runtime.from_folder({})", self.inner.cwd().display()),
             None => match self.inner.environment() {
-                Some(environment) if environment.is_owned() => {
-                    format!("Runtime.from_folder({})", self.inner.cwd().display())
-                }
                 Some(_) => format!(
                     "Runtime(env=Environment(cwd={}))",
                     self.inner.cwd().display()
@@ -217,6 +229,7 @@ impl PyRuntime {
         cwd: std::path::PathBuf,
         environment: Option<RuntimeEnvironment>,
         options: Option<&PyRuntimeOptions>,
+        project: bool,
     ) -> Self {
         let js_runtime_options = options
             .map(PyRuntimeOptions::js_runtime_options)
@@ -229,6 +242,7 @@ impl PyRuntime {
             )),
             bound: None,
             context_state: Arc::new(Mutex::new(RuntimeContextState::Inactive)),
+            project,
         }
     }
 
@@ -290,15 +304,13 @@ fn activate_prepared_runtime(
 }
 
 struct RuntimeEnterGuard {
-    runtime: DenoRuntime,
     context_state: Arc<Mutex<RuntimeContextState>>,
     armed: bool,
 }
 
 impl RuntimeEnterGuard {
-    fn new(runtime: &DenoRuntime, context_state: &Arc<Mutex<RuntimeContextState>>) -> Self {
+    fn new(context_state: &Arc<Mutex<RuntimeContextState>>) -> Self {
         Self {
-            runtime: runtime.clone(),
             context_state: Arc::clone(context_state),
             armed: true,
         }
@@ -312,12 +324,12 @@ impl RuntimeEnterGuard {
 impl Drop for RuntimeEnterGuard {
     fn drop(&mut self) {
         if self.armed {
-            abort_runtime_enter(&self.runtime, &self.context_state);
+            abort_runtime_enter(&self.context_state);
         }
     }
 }
 
-fn abort_runtime_enter(runtime: &DenoRuntime, context_state: &Arc<Mutex<RuntimeContextState>>) {
+fn abort_runtime_enter(context_state: &Arc<Mutex<RuntimeContextState>>) {
     let handle = {
         let mut state = context_state
             .lock()
@@ -330,37 +342,36 @@ fn abort_runtime_enter(runtime: &DenoRuntime, context_state: &Arc<Mutex<RuntimeC
     if let Some(handle) = handle {
         let _ = handle.close_blocking();
     }
-    let _ = release_owned_environment(runtime);
 }
 
 fn prepare_bound_runtime(bound: BoundRuntime) -> Result<BoundRuntime, deno_core::error::AnyError> {
     let environment = match bound.runtime_environment() {
-        Some(environment) if environment.is_owned() => {
-            Some(environment.environment().activate_for_owned_runtime()?)
+        Some(environment) if environment.isolated().is_some() => {
+            let active = environment
+                .isolated()
+                .expect("isolated runtime environment should be available")
+                .acquire_active()?;
+            active
+                .uses_package_loader()
+                .then_some(BoundPackageEnvironment::Isolated(active))
         }
-        Some(environment) => Some(environment.environment().acquire_active()?),
+        Some(environment) => Some(BoundPackageEnvironment::Project(
+            environment
+                .project()
+                .expect("project runtime environment should be available")
+                .clone(),
+        )),
         None => None,
     };
-    Ok(bound.with_environment(environment))
-}
-
-fn release_owned_environment(runtime: &DenoRuntime) -> Result<(), deno_core::error::AnyError> {
-    let Some(environment) = runtime
-        .environment()
-        .filter(|environment| environment.is_owned())
-    else {
-        return Ok(());
-    };
-    environment.environment().release_owned_runtime()
+    Ok(bound.with_package_environment(environment))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
 
-    use super::{
-        RuntimeContextState, abort_runtime_enter, activate_prepared_runtime, prepare_bound_runtime,
-    };
+    use super::{RuntimeContextState, abort_runtime_enter, activate_prepared_runtime};
     use crate::{
         environment::{EnvironmentDefinition, SharedEnvironment},
         options::{RuntimeEnvironment, RuntimeOptions, ScriptOptions},
@@ -368,62 +379,43 @@ mod tests {
         script::ScriptSource,
     };
 
-    fn owned_bound_runtime(
+    fn isolated_bound_runtime(
         folder: &tempfile::TempDir,
-    ) -> (
-        SharedEnvironment,
-        DenoRuntime,
-        BoundRuntime,
-        Arc<Mutex<RuntimeContextState>>,
-    ) {
-        let definition =
-            EnvironmentDefinition::from_folder(folder.path().to_path_buf(), None).unwrap();
+    ) -> (SharedEnvironment, BoundRuntime, Arc<Mutex<RuntimeContextState>>) {
+        let definition = EnvironmentDefinition::from_mapping(
+            folder.path().to_path_buf(),
+            BTreeMap::new(),
+            None,
+        )
+        .unwrap();
         let shared = SharedEnvironment::new(definition);
         let runtime = DenoRuntime::new(RuntimeOptions::new_with_js_runtime_options(
             folder.path().to_path_buf(),
             Default::default(),
-            Some(RuntimeEnvironment::Owned(shared.clone())),
+            Some(RuntimeEnvironment::Isolated(shared.clone())),
         ));
         let script = ScriptSource::from_options(ScriptOptions::inline(
             "export default () => 42;".to_string(),
         ));
-        let bound = BoundRuntime::new(runtime.clone(), script);
+        let bound = BoundRuntime::new(runtime, script);
         let context_state = Arc::new(Mutex::new(RuntimeContextState::Entering));
-        (shared, runtime, bound, context_state)
+        (shared, bound, context_state)
     }
 
     #[test]
-    fn abort_runtime_enter_releases_owned_activation() {
+    fn abort_runtime_enter_closes_active_handle_without_exiting_environment() {
         let folder = tempfile::tempdir().unwrap();
-        let (environment, runtime, bound, context_state) = owned_bound_runtime(&folder);
-        let _prepared = prepare_bound_runtime(bound).unwrap();
-        assert!(environment.is_active());
-
-        abort_runtime_enter(&runtime, &context_state);
-
-        assert!(!environment.is_active());
-        assert!(matches!(
-            *context_state.lock().unwrap(),
-            RuntimeContextState::Inactive
-        ));
-
-        let _active = environment.activate_for_owned_runtime().unwrap();
-        environment.release_owned_runtime().unwrap();
-        assert!(!environment.is_active());
-    }
-
-    #[test]
-    fn abort_runtime_enter_closes_active_handle_and_releases_owned_environment() {
-        let folder = tempfile::tempdir().unwrap();
-        let (environment, runtime, bound, context_state) = owned_bound_runtime(&folder);
-        let prepared = prepare_bound_runtime(bound).unwrap();
+        let (environment, bound, context_state) = isolated_bound_runtime(&folder);
+        environment.activate_blocking().unwrap();
+        let prepared = super::prepare_bound_runtime(bound).unwrap();
         let (handle, _description) = activate_prepared_runtime(prepared, &context_state);
         assert!(environment.is_active());
         assert!(!handle.is_closed());
 
-        abort_runtime_enter(&runtime, &context_state);
+        abort_runtime_enter(&context_state);
 
         assert!(handle.is_closed());
-        assert!(!environment.is_active());
+        assert!(environment.is_active());
+        environment.deactivate().unwrap();
     }
 }

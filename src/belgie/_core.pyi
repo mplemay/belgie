@@ -44,6 +44,7 @@ class RunTaskOptions:
         env: dict[str, str] | None = None,
         host: str | None = None,
         port: int | None = None,
+        install: bool = False,
     ) -> None: ...
     @property
     def task_cwd(self) -> str: ...
@@ -51,6 +52,8 @@ class RunTaskOptions:
     def script(self) -> str: ...
     @property
     def argv(self) -> list[str]: ...
+    @property
+    def install(self) -> bool: ...
 
 class TaskProcess:
     @property
@@ -91,13 +94,6 @@ class Environment:
         *,
         lockfile: str | PathLike[str] | None = None,
     ) -> None: ...
-    @classmethod
-    def from_folder(
-        cls: type[Self],
-        path: str | PathLike[str],
-        *,
-        groups: Iterable[str] | None = None,
-    ) -> Self: ...
     def __enter__(self) -> Self: ...
     def __exit__(
         self,
@@ -126,6 +122,7 @@ class Runtime[**BoundP, BoundR]:
         path: str | PathLike[str],
         *,
         groups: Iterable[str] | None = None,
+        install: bool = False,
         options: RuntimeOptions | None = None,
     ) -> Self: ...
     def __call__[**P, R](self, script: Script[P, R]) -> Runtime[P, R]: ...
