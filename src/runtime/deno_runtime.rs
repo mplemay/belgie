@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::{
-    options::{JsRuntimeOptions, RuntimeOptions},
+    options::{JsRuntimeOptions, RuntimeEnvironment, RuntimeOptions},
     script::ScriptSource,
 };
 
@@ -23,6 +23,10 @@ impl DenoRuntime {
 
     pub(crate) fn js_runtime_options(&self) -> &JsRuntimeOptions {
         self.options.js_runtime()
+    }
+
+    pub(crate) fn environment(&self) -> Option<&RuntimeEnvironment> {
+        self.options.environment()
     }
 
     pub(crate) fn bind(&self, script: ScriptSource) -> BoundRuntime {

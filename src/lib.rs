@@ -1,5 +1,6 @@
 mod binding;
 mod embed;
+mod environment;
 mod exceptions;
 mod options;
 mod packages;
@@ -17,6 +18,7 @@ use pyo3::prelude::*;
 #[pymodule]
 fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> {
     m.add_class::<binding::PyScript>()?;
+    m.add_class::<binding::PyEnvironment>()?;
     m.add_class::<binding::PyRuntime>()?;
     m.add_class::<binding::PyRuntimeOptions>()?;
     m.add_class::<binding::PySyncRunner>()?;

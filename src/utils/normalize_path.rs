@@ -24,17 +24,41 @@ pub fn normalize_cwd(py: Python<'_>, cwd: Option<&Bound<'_, PyAny>>) -> PyResult
         Some(value) if !value.is_none() => path_from_py(value, "cwd")?,
         _ => std::env::current_dir().map_err(io_error_to_py)?,
     };
+    normalize_directory(py, path, "cwd")
+}
 
+pub fn normalize_directory(
+    py: Python<'_>,
+    path: PathBuf,
+    argument_name: &str,
+) -> PyResult<PathBuf> {
     let path = absolutize(py, path)?;
     if !path.exists() {
         return Err(PyFileNotFoundError::new_err(format!(
-            "cwd does not exist: {}",
+            "{argument_name} does not exist: {}",
             path.display()
         )));
     }
     if !path.is_dir() {
         return Err(PyOSError::new_err(format!(
-            "cwd is not a directory: {}",
+            "{argument_name} is not a directory: {}",
+            path.display()
+        )));
+    }
+    Ok(path)
+}
+
+pub fn normalize_file(py: Python<'_>, path: PathBuf, argument_name: &str) -> PyResult<PathBuf> {
+    let path = absolutize(py, path)?;
+    if !path.exists() {
+        return Err(PyFileNotFoundError::new_err(format!(
+            "{argument_name} does not exist: {}",
+            path.display()
+        )));
+    }
+    if !path.is_file() {
+        return Err(PyOSError::new_err(format!(
+            "{argument_name} is not a file: {}",
             path.display()
         )));
     }

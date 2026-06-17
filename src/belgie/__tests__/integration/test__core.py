@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from belgie import Runtime, RuntimeOptions, Script
+from belgie import Environment, Runtime, RuntimeOptions, Script
 from belgie.dependencies import lock
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ def write_script(tmp_path: Path):
 
 
 def run_script(tmp_path: Path, source: str, input_value: object | None = None) -> object:
-    with Runtime(cwd=tmp_path)(Script(source)) as run:
+    with Runtime()(Script(source)) as run:
         if input_value is None:
             return run()
         return run(input_value)
@@ -73,7 +73,7 @@ export default function run() {
 }
 """
 
-    with Runtime(cwd=tmp_path)(Script(source)) as run:
+    with Runtime()(Script(source)) as run:
         assert run() == 1
         assert run() == 2
         assert run() == 3
@@ -82,7 +82,7 @@ export default function run() {
 def test_executes_with_runtime_options(tmp_path: Path):
     options = RuntimeOptions(max_old_generation_size_mb=64)
 
-    with Runtime(cwd=tmp_path, options=options)(Script("export default () => 'configured'")) as run:
+    with Runtime(options=options)(Script("export default () => 'configured'")) as run:
         assert run() == "configured"
 
 
@@ -96,7 +96,7 @@ export default function run(input) {
         "main.js",
     )
 
-    with Runtime(cwd=tmp_path)(Script.from_file(path)) as run:
+    with Runtime()(Script.from_file(path)) as run:
         assert run({"name": "belgie"}) == "BELGIE"
 
 
@@ -120,7 +120,7 @@ export default function run(input: { value: number }): number {
         "main.ts",
     )
 
-    with Runtime(cwd=tmp_path)(Script.from_file(path)) as run:
+    with Runtime()(Script.from_file(path)) as run:
         assert run({"value": 21}) == 42
 
 
@@ -137,7 +137,7 @@ export default function run() {
         "main.js",
     )
 
-    with Runtime(cwd=tmp_path)(Script.from_file(path)) as run:
+    with Runtime()(Script.from_file(path)) as run:
         assert run() == 42
 
 
@@ -149,7 +149,7 @@ export default async function run(input) {
 }
 """
 
-    async with Runtime(cwd=tmp_path)(Script(source)) as run:
+    async with Runtime()(Script(source)) as run:
         assert await run({"value": 41}) == {"value": 42}
 
 
@@ -180,7 +180,7 @@ export default function run(input, options) {
 }
 """
 
-    with Runtime(cwd=tmp_path)(Script(source)) as run:
+    with Runtime()(Script(source)) as run:
         assert run({"value": 1}, z=True, a=False) == {
             "input": {"value": 1},
             "optionKeys": ["z", "a"],
@@ -300,4 +300,92 @@ export default function run() {
 }
 """
 
-    assert run_script(tmp_path, source) == "join"
+    with Environment.from_folder(tmp_path) as env, Runtime(env=env)(Script(source)) as run:
+        assert run() == "join"
+
+
+def test_direct_environment_installs_jsr_dependency_without_project_files(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import { join } from "std_path";
+
+export default function run() {
+  return join.name;
+}
+"""
+
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env)(Script(source)) as run:
+        assert run() == "join"
+
+    assert list(tmp_path.iterdir()) == []
+
+
+async def test_direct_environment_installs_dependency_for_async_runtime(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import { basename } from "std_path";
+
+export default async function run() {
+  return await Promise.resolve(basename.name);
+}
+"""
+
+    async with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env)(Script(source)) as run:
+        assert await run() == "basename"
+
+
+def test_environment_uses_supplied_lockfile_as_frozen_input(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[belgie.dependencies]
+std_path = "jsr:@std/path@^1"
+""",
+        encoding="utf-8",
+    )
+    lock(cwd=tmp_path)
+    original_lock = (tmp_path / "deno.lock").read_text(encoding="utf-8")
+
+    with (
+        Environment({"std_path": "jsr:@std/path@^1"}, lockfile=tmp_path / "deno.lock") as env,
+        Runtime(env=env)(Script('import { join } from "std_path"; export default () => join.name;')) as run,
+    ):
+        assert run() == "join"
+
+    assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == original_lock
+    assert not (tmp_path / "deno.json").exists()
+    assert not (tmp_path / "node_modules").exists()
+
+
+def test_environment_rejects_stale_supplied_lockfile(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[belgie.dependencies]
+std_path = "jsr:@std/path@^1"
+""",
+        encoding="utf-8",
+    )
+    lock(cwd=tmp_path)
+
+    with pytest.raises(Exception, match="lockfile is out of date"):
+        Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile=tmp_path / "deno.lock").__enter__()
+
+
+def test_two_isolated_environments_can_resolve_different_versions(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import packageJson from "pkg_json" with { type: "json" };
+
+export default function run() {
+  return packageJson.version;
+}
+"""
+    first = Environment({"pkg_json": "npm:is-number@6.0.0/package.json"})
+    second = Environment({"pkg_json": "npm:is-number@7.0.0/package.json"})
+
+    with first, second:
+        with Runtime(env=first)(Script(source)) as run_first:
+            assert run_first() == "6.0.0"
+        with Runtime(env=second)(Script(source)) as run_second:
+            assert run_second() == "7.0.0"

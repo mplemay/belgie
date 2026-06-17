@@ -1,4 +1,4 @@
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Iterable, Mapping
 from os import PathLike
 from types import TracebackType
 from typing import Self
@@ -84,13 +84,50 @@ class RuntimeOptions:
         code_range_size_mb: int | None = None,
     ) -> None: ...
 
+class Environment:
+    def __init__(
+        self,
+        dependencies: Mapping[str, str] | None = None,
+        *,
+        lockfile: str | PathLike[str] | None = None,
+    ) -> None: ...
+    @classmethod
+    def from_folder(
+        cls: type[Self],
+        path: str | PathLike[str],
+        *,
+        groups: Iterable[str] | None = None,
+    ) -> Self: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None: ...
+    async def __aenter__(self) -> Self: ...
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None: ...
+
 class Runtime[**BoundP, BoundR]:
     def __init__(
         self,
-        cwd: str | PathLike[str] | None = None,
         *,
+        env: Environment | None = None,
         options: RuntimeOptions | None = None,
     ) -> None: ...
+    @classmethod
+    def from_folder(
+        cls: type[Self],
+        path: str | PathLike[str],
+        *,
+        groups: Iterable[str] | None = None,
+        options: RuntimeOptions | None = None,
+    ) -> Self: ...
     def __call__[**P, R](self, script: Script[P, R]) -> Runtime[P, R]: ...
     def __enter__(self) -> SyncRunner[BoundP, BoundR]: ...
     def __exit__(
