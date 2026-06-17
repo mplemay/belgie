@@ -44,14 +44,24 @@ impl BelgieDenoCommand {
     }
 
     fn prepend_config_args(&self, args: Vec<OsString>) -> Vec<OsString> {
-        let mut prefixed = vec![
+        let config_args = [
             OsString::from("--config"),
             self.config_file.as_os_str().to_os_string(),
             OsString::from("--lock"),
             self.lockfile.as_os_str().to_os_string(),
         ];
-        prefixed.extend(args);
-        prefixed
+
+        if args.first().is_some_and(|arg| arg == "run") {
+            let mut prefixed = Vec::with_capacity(args.len() + config_args.len());
+            prefixed.push(args[0].clone());
+            prefixed.extend(config_args);
+            prefixed.extend(args.into_iter().skip(1));
+            prefixed
+        } else {
+            let mut prefixed = config_args.to_vec();
+            prefixed.extend(args);
+            prefixed
+        }
     }
 }
 
@@ -211,4 +221,57 @@ fn resolve_managed_npm_commands(
         }
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_deno_command() -> BelgieDenoCommand {
+        BelgieDenoCommand {
+            deno_path: PathBuf::from("/deno"),
+            config_file: PathBuf::from("/embed/deno.json"),
+            lockfile: PathBuf::from("/embed/deno.lock"),
+        }
+    }
+
+    fn os_strings(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(|value| OsString::from(*value)).collect()
+    }
+
+    #[test]
+    fn prepend_config_args_inserts_after_run() {
+        let command = sample_deno_command();
+        let result =
+            command.prepend_config_args(os_strings(&["run", "--ext=js", "-A", "script.js"]));
+        assert_eq!(
+            result,
+            os_strings(&[
+                "run",
+                "--config",
+                "/embed/deno.json",
+                "--lock",
+                "/embed/deno.lock",
+                "--ext=js",
+                "-A",
+                "script.js",
+            ])
+        );
+    }
+
+    #[test]
+    fn prepend_config_args_prepends_for_non_run_commands() {
+        let command = sample_deno_command();
+        let result = command.prepend_config_args(os_strings(&["--version"]));
+        assert_eq!(
+            result,
+            os_strings(&[
+                "--config",
+                "/embed/deno.json",
+                "--lock",
+                "/embed/deno.lock",
+                "--version",
+            ])
+        );
+    }
 }
