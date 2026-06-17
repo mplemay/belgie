@@ -239,8 +239,12 @@ where
     T: Send + 'static,
 {
     let cwd = normalize_path::normalize_cwd(py, cwd)?;
-    py.detach(|| pyo3_async_runtimes::tokio::get_runtime().block_on(operation(cwd)))
-        .map_err(blocking::any_error_to_py)
+    py.detach(|| {
+        crate::utils::tokio::run_outside_runtime(|| {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(operation(cwd))
+        })
+    })
+    .map_err(blocking::any_error_to_py)
 }
 
 async fn run_packages_on_blocking_thread<T, F>(operation: F) -> PyResult<T>

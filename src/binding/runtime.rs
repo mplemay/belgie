@@ -117,7 +117,11 @@ impl PyRuntime {
         let path = normalize_path::normalize_directory(py, path, "path")?;
         let groups = coerce::normalize_groups(groups, GroupsDefault::All)?;
         let environment = py
-            .detach(|| ProjectPackageEnvironment::from_folder(path.clone(), groups, install))
+            .detach(|| {
+                crate::utils::tokio::run_outside_runtime(|| {
+                    ProjectPackageEnvironment::from_folder(path.clone(), groups.clone(), install)
+                })
+            })
             .map_err(blocking::any_error_to_py)?
             .map(RuntimeEnvironment::Project);
         Ok(Self::from_parts(

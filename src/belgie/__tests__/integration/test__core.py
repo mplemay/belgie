@@ -361,6 +361,38 @@ export default async function run() {
         assert await run() == "basename"
 
 
+async def test_sync_environment_enter_inside_async_coroutine(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import { join } from "std_path";
+
+export default function run() {
+  return join.name;
+}
+"""
+
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env)(Script(source)) as run:
+        assert run() == "join"
+
+
+async def test_sync_runtime_from_folder_install_inside_async_coroutine(
+    tmp_path: Path,
+    write_belgie_pyproject,
+):
+    write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
+    lock(cwd=tmp_path)
+    source = """
+import { join } from "std_path";
+
+export default function run() {
+  return join.name;
+}
+"""
+
+    with Runtime.from_folder(tmp_path, install=True)(Script(source)) as run:
+        assert run() == "join"
+
+
 def test_environment_uses_supplied_lockfile_as_frozen_input(
     tmp_path: Path,
     monkeypatch,
