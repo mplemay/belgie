@@ -1,17 +1,12 @@
-use std::path::PathBuf;
-
 use pyo3::{
     Bound, PyAny, PyResult, Python,
     exceptions::PyValueError,
     prelude::*,
-    types::{PyAnyMethods, PyType},
+    types::PyAnyMethods,
 };
 
 use crate::{
-    binding::{
-        blocking,
-        coerce::{self, GroupsDefault},
-    },
+    binding::{blocking, coerce},
     environment::{EnvironmentDefinition, SharedEnvironment},
     utils::normalize_path,
 };
@@ -41,20 +36,6 @@ impl PyEnvironment {
         let cwd = normalize_path::normalize_cwd(py, None)?;
         let definition = EnvironmentDefinition::from_mapping(cwd, dependencies, lockfile)
             .map_err(blocking::any_error_to_py)?;
-        Ok(Self {
-            inner: SharedEnvironment::new(definition),
-        })
-    }
-
-    #[classmethod]
-    #[pyo3(signature = (path, *, groups = None))]
-    fn from_folder(
-        _cls: &Bound<'_, PyType>,
-        path: &Bound<'_, PyAny>,
-        groups: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Self> {
-        let py = path.py();
-        let (_, definition) = environment_definition_from_py_folder(py, path, groups)?;
         Ok(Self {
             inner: SharedEnvironment::new(definition),
         })
@@ -124,19 +105,6 @@ impl PyEnvironment {
     pub(crate) fn environment(&self) -> SharedEnvironment {
         self.inner.clone()
     }
-}
-
-pub(crate) fn environment_definition_from_py_folder(
-    py: Python<'_>,
-    path: &Bound<'_, PyAny>,
-    groups: Option<&Bound<'_, PyAny>>,
-) -> PyResult<(PathBuf, EnvironmentDefinition)> {
-    let path = normalize_path::path_from_py(path, "path")?;
-    let path = normalize_path::normalize_directory(py, path, "path")?;
-    let groups = coerce::normalize_groups(groups, GroupsDefault::All)?;
-    let definition = EnvironmentDefinition::from_folder(path.clone(), groups)
-        .map_err(blocking::any_error_to_py)?;
-    Ok((path, definition))
 }
 
 fn normalize_lockfile(

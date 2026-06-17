@@ -12,8 +12,8 @@ use tokio::sync::oneshot;
 
 use crate::{
     embed::prepare_package_runtime,
-    environment::ActiveEnvironment,
-    runtime::{BoundRuntime, module_loader},
+    packages::project_state_error,
+    runtime::{BoundPackageEnvironment, BoundRuntime, module_loader},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
 };
 
@@ -179,16 +179,13 @@ struct DenoExecutionContext {
     js_runtime: JsRuntime,
     main_module: ModuleSpecifier,
     run_function: Option<v8::Global<v8::Function>>,
-    package_environment: Option<Arc<ActiveEnvironment>>,
+    package_environment: Option<BoundPackageEnvironment>,
 }
 
 impl DenoExecutionContext {
     fn new(bound: BoundRuntime, tokio_runtime: &tokio::runtime::Runtime) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
-        let package_environment = bound
-            .environment()
-            .filter(|environment| environment.uses_package_loader())
-            .cloned();
+        let package_environment = bound.package_environment().cloned();
         let js_runtime = if let Some(package_environment) = package_environment.clone() {
             tokio_runtime.block_on(create_js_runtime_with_packages(
                 &bound,
@@ -304,18 +301,33 @@ fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
 
 async fn create_js_runtime_with_packages(
     bound: &BoundRuntime,
-    package_environment: Arc<ActiveEnvironment>,
+    package_environment: BoundPackageEnvironment,
     main_module: ModuleSpecifier,
 ) -> ExecutionResult<JsRuntime> {
-    let context = Rc::new(
-        package_environment
-            .embed_context()
-            .map_err(|error| BindingError::runtime(error.to_string()))?,
-    );
+    let is_project = matches!(package_environment, BoundPackageEnvironment::Project(_));
+    let context = match package_environment {
+        BoundPackageEnvironment::Isolated(environment) => Rc::new(
+            environment
+                .embed_context()
+                .map_err(|error| BindingError::runtime(error.to_string()))?,
+        ),
+        BoundPackageEnvironment::Project(environment) => Rc::new(
+            environment
+                .embed_context()
+                .map_err(|error| BindingError::runtime(error.to_string()))?,
+        ),
+    };
     let state = Rc::new(
         prepare_package_runtime(context, main_module, bound.script().content().to_string())
             .await
-            .map_err(|error| BindingError::runtime(error.to_string()))?,
+            .map_err(|error| {
+                let error = if is_project {
+                    project_state_error(error)
+                } else {
+                    error
+                };
+                BindingError::runtime(error.to_string())
+            })?,
     );
     Ok(JsRuntime::new(RuntimeOptions {
         module_loader: Some(Rc::new(module_loader::PackageAwareModuleLoader::new(

@@ -9,6 +9,7 @@ pub(crate) struct RunTaskOptions {
     pub env: BTreeMap<String, String>,
     pub host: Option<String>,
     pub port: Option<u16>,
+    pub install: bool,
 }
 
 #[derive(Clone, Debug)]

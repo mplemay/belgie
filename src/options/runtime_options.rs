@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::environment::SharedEnvironment;
+use crate::packages::ProjectPackageEnvironment;
 
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeOptions {
@@ -11,8 +12,8 @@ pub(crate) struct RuntimeOptions {
 
 #[derive(Clone, Debug)]
 pub(crate) enum RuntimeEnvironment {
-    External(SharedEnvironment),
-    Owned(SharedEnvironment),
+    Isolated(SharedEnvironment),
+    Project(ProjectPackageEnvironment),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -54,14 +55,18 @@ impl RuntimeOptions {
 }
 
 impl RuntimeEnvironment {
-    pub(crate) fn environment(&self) -> &SharedEnvironment {
+    pub(crate) fn isolated(&self) -> Option<&SharedEnvironment> {
         match self {
-            Self::External(environment) | Self::Owned(environment) => environment,
+            Self::Isolated(environment) => Some(environment),
+            Self::Project(_) => None,
         }
     }
 
-    pub(crate) fn is_owned(&self) -> bool {
-        matches!(self, Self::Owned(_))
+    pub(crate) fn project(&self) -> Option<&ProjectPackageEnvironment> {
+        match self {
+            Self::Isolated(_) => None,
+            Self::Project(environment) => Some(environment),
+        }
     }
 }
 

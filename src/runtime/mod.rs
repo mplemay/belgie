@@ -5,6 +5,6 @@ mod bound_runtime;
 mod deno_runtime;
 mod execution;
 
-pub(crate) use bound_runtime::BoundRuntime;
+pub(crate) use bound_runtime::{BoundPackageEnvironment, BoundRuntime};
 pub(crate) use deno_runtime::DenoRuntime;
 pub(crate) use execution::DenoExecutionHandle;

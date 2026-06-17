@@ -1,13 +1,19 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use deno_config::deno_json::NodeModulesLinkerMode;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
+use deno_npm_installer::process_state::{
+    NpmProcessState, NpmProcessStateKind, NpmProcessStateLinkerMode,
+};
 use deno_resolver::npm::ManagedNpmResolver;
 use deno_resolver::npm::NpmResolver;
+use deno_runtime::deno_process::NPM_RESOLUTION_STATE_FD_ENV_VAR_NAME;
 use deno_task_shell::ExecutableCommand;
 use deno_task_shell::ExecuteResult;
 use deno_task_shell::ShellCommand;
@@ -16,7 +22,7 @@ use node_resolver::DenoIsBuiltInNodeModuleChecker;
 use node_resolver::NodeResolver;
 
 use crate::embed::sys::EmbedSys;
-use crate::packages::PackageEnvironment;
+use crate::packages::{PackageEnvironment, project_state_error};
 use crate::task::deno_exe::resolve_deno_exe;
 
 type EmbedNodeResolver = NodeResolver<
@@ -38,14 +44,20 @@ struct BelgieDenoCommand {
     deno_path: PathBuf,
     config_file: PathBuf,
     lockfile: PathBuf,
+    process_state_file: Option<PathBuf>,
 }
 
 impl BelgieDenoCommand {
-    fn new(package_env: &PackageEnvironment) -> Result<Self, AnyError> {
+    fn new(
+        package_env: &PackageEnvironment,
+        npm_resolver: &NpmResolver<EmbedSys>,
+    ) -> Result<Self, AnyError> {
+        let process_state_file = write_process_state(package_env, npm_resolver)?;
         Ok(Self {
             deno_path: resolve_deno_exe()?,
             config_file: package_env.config_file().to_path_buf(),
             lockfile: package_env.lockfile().to_path_buf(),
+            process_state_file,
         })
     }
 
@@ -70,9 +82,15 @@ impl BelgieDenoCommand {
 }
 
 impl ShellCommand for BelgieDenoCommand {
-    fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+    fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
         let deno_path = self.deno_path.clone();
         let args = self.with_config_args(context.args);
+        if let Some(process_state_file) = &self.process_state_file {
+            context.state.apply_env_var(
+                OsStr::new(NPM_RESOLUTION_STATE_FD_ENV_VAR_NAME),
+                process_state_file.as_os_str(),
+            );
+        }
         ExecutableCommand::new("deno".to_string(), deno_path)
             .execute(ShellCommandContext { args, ..context })
     }
@@ -128,16 +146,23 @@ pub(crate) async fn prepare_custom_commands(
     package_env: &PackageEnvironment,
     cwd: &Path,
 ) -> Result<(HashMap<String, Rc<dyn ShellCommand>>, Vec<PathBuf>), AnyError> {
-    let context = package_env.embed_context()?;
+    let context = package_env.embed_context().map_err(project_state_error)?;
     context
         .npm_installer_factory()
         .initialize_npm_resolution_if_managed()
-        .await?;
+        .await
+        .map_err(project_state_error)?;
 
-    let node_resolver = context.resolver_factory().node_resolver()?;
-    let npm_resolver = context.resolver_factory().npm_resolver()?;
+    let node_resolver = context
+        .resolver_factory()
+        .node_resolver()
+        .map_err(project_state_error)?;
+    let npm_resolver = context
+        .resolver_factory()
+        .npm_resolver()
+        .map_err(project_state_error)?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
-    let resolved_deno = BelgieDenoCommand::new(package_env).map(Rc::new);
+    let resolved_deno = BelgieDenoCommand::new(package_env, npm_resolver).map(Rc::new);
 
     let mut commands = match npm_resolver {
         NpmResolver::Byonm(_) => {
@@ -155,6 +180,33 @@ pub(crate) async fn prepare_custom_commands(
         );
     }
     Ok((commands, bin_dirs))
+}
+
+fn write_process_state(
+    package_env: &PackageEnvironment,
+    npm_resolver: &NpmResolver<EmbedSys>,
+) -> Result<Option<PathBuf>, AnyError> {
+    let state = match npm_resolver {
+        NpmResolver::Managed(managed) => NpmProcessState::new_managed(
+            managed.resolution().serialized_valid_snapshot(),
+            managed.root_node_modules_path(),
+            match managed.linker_mode() {
+                NodeModulesLinkerMode::Isolated => NpmProcessStateLinkerMode::Isolated,
+                NodeModulesLinkerMode::Hoisted => NpmProcessStateLinkerMode::Hoisted,
+            },
+        ),
+        NpmResolver::Byonm(byonm) => NpmProcessState {
+            kind: NpmProcessStateKind::Byonm,
+            local_node_modules_path: byonm
+                .root_node_modules_path()
+                .map(|path| path.to_string_lossy().into_owned()),
+            linker_mode: NpmProcessStateLinkerMode::default(),
+        },
+    };
+    let path = package_env.process_state_file();
+    fs::write(&path, state.as_serialized())
+        .with_context(|| format!("Writing {}", path.display()))?;
+    Ok(Some(path))
 }
 
 fn resolve_byonm_npm_commands(
@@ -264,6 +316,7 @@ mod tests {
             deno_path: PathBuf::from("/deno"),
             config_file: PathBuf::from("/embed/deno.json"),
             lockfile: PathBuf::from("/embed/deno.lock"),
+            process_state_file: None,
         }
     }
 

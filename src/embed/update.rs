@@ -13,8 +13,8 @@ use deno_semver::npm::NpmPackageReqReference;
 use deno_semver::package::PackageReq;
 use deno_semver::{Version, VersionReq};
 
-use crate::embed::context::EmbedContext;
-use crate::embed::install::install_packages;
+use crate::embed::context::{EmbedContext, EmbedContextOptions};
+use crate::embed::install::install_packages_with_options;
 
 struct FilterEntry {
     alias: String,
@@ -28,8 +28,14 @@ pub(crate) async fn update_packages(
     filters: Vec<String>,
     latest: bool,
     lockfile_only: bool,
+    options: EmbedContextOptions,
 ) -> Result<(), AnyError> {
-    let context = EmbedContext::new(cwd.clone(), config_file.clone(), lockfile.clone())?;
+    let context = EmbedContext::new_with_options(
+        cwd.clone(),
+        config_file.clone(),
+        lockfile.clone(),
+        options.clone(),
+    )?;
     let filter_entries = parse_filters(&filters);
     let text = std::fs::read_to_string(&config_file)
         .with_context(|| format!("Reading {}", config_file.display()))?;
@@ -74,7 +80,15 @@ pub(crate) async fn update_packages(
     )
     .with_context(|| format!("Writing {}", config_file.display()))?;
 
-    install_packages(cwd, config_file, lockfile, lockfile_only).await
+    install_packages_with_options(
+        cwd,
+        config_file,
+        lockfile,
+        lockfile_only,
+        options,
+    )
+    .await?;
+    Ok(())
 }
 
 fn parse_filters(filters: &[String]) -> Vec<FilterEntry> {

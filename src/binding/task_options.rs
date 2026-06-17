@@ -11,12 +11,13 @@ pub struct PyRunTaskOptions {
     pub(crate) env: BTreeMap<String, String>,
     pub(crate) host: Option<String>,
     pub(crate) port: Option<u16>,
+    pub(crate) install: bool,
 }
 
 #[pymethods]
 impl PyRunTaskOptions {
     #[new]
-    #[pyo3(signature = (task_cwd, script, *, argv=None, env=None, host=None, port=None))]
+    #[pyo3(signature = (task_cwd, script, *, argv=None, env=None, host=None, port=None, install=false))]
     pub fn new(
         task_cwd: String,
         script: String,
@@ -24,6 +25,7 @@ impl PyRunTaskOptions {
         env: Option<BTreeMap<String, String>>,
         host: Option<String>,
         port: Option<u16>,
+        install: bool,
     ) -> Self {
         Self {
             task_cwd,
@@ -32,6 +34,7 @@ impl PyRunTaskOptions {
             env: env.unwrap_or_default(),
             host,
             port,
+            install,
         }
     }
 
@@ -48,6 +51,11 @@ impl PyRunTaskOptions {
     #[getter]
     fn argv(&self) -> Vec<String> {
         self.argv.clone()
+    }
+
+    #[getter]
+    fn install(&self) -> bool {
+        self.install
     }
 
     fn __repr__(&self) -> String {
