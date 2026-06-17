@@ -1,10 +1,11 @@
 import asyncio
 from pathlib import Path
+from typing import Final
 
 from belgie.dependencies import ainstall
 from belgie.tasks import RunTaskOptions, TaskRunner
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 
 async def run_version_task() -> None:

@@ -1,9 +1,10 @@
 from pathlib import Path
+from typing import Final
 
 from belgie import Runtime, Script
 
-PACKAGE_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PACKAGE_DIR: Final[Path] = Path(__file__).resolve().parent
+PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 
 async def greet(name: str) -> str:

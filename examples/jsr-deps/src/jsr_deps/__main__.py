@@ -1,11 +1,12 @@
 from pathlib import Path
+from typing import Final
 
 from belgie import Runtime, Script
 from belgie.dependencies import lock
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
-SOURCE = """
+SOURCE: Final[str] = """
 import { join } from "std_path";
 
 export default function run() {

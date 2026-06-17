@@ -72,8 +72,12 @@
 - For type aliases, prefer Python's modern syntax: `type MyAlias = SomeType` (PEP 695 style), especially in new code.
 - Constants:
   - Module-level runtime constants must be public (no leading underscore), `SCREAMING_SNAKE_CASE`, and annotated with
-    `Final[T]` from `typing`.
-  - Example: `DEFAULT_HOST: Final[str] = "127.0.0.1"`
+    `Final[T]` from `typing`. This includes path-derived constants and multiline string literals, not just simple
+    literals.
+  - Examples:
+    - `DEFAULT_HOST: Final[str] = "127.0.0.1"`
+    - `PACKAGE_DIR: Final[Path] = Path(__file__).resolve().parent`
+    - `PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]`
   - Does not apply to type aliases (`type Foo = ...`), TypedDict assignments, class instance attributes (including those
     annotated with `Final` in `__init__`), application wiring globals (`ship`, `mcp`, etc.), or special dunders
     (`__all__`, etc.).
