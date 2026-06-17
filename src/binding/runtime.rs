@@ -119,17 +119,13 @@ impl PyRuntime {
     fn __enter__(&self, py: Python<'_>) -> PyResult<PySyncRunner> {
         let bound = self.bound_runtime()?;
         self.start_enter()?;
-        match py.detach(|| prepare_bound_runtime(bound)) {
-            Ok(prepared) => {
-                let (handle, description) =
-                    activate_prepared_runtime(prepared, &self.context_state);
-                Ok(PySyncRunner::from_handle(handle, description))
-            }
-            Err(error) => {
-                reset_runtime_context_state(&self.context_state);
-                Err(blocking::any_error_to_py(error))
-            }
-        }
+        let mut guard = RuntimeEnterGuard::new(&self.inner, &self.context_state);
+        let prepared = py
+            .detach(|| prepare_bound_runtime(bound))
+            .map_err(blocking::any_error_to_py)?;
+        let (handle, description) = activate_prepared_runtime(prepared, &self.context_state);
+        guard.disarm();
+        Ok(PySyncRunner::from_handle(handle, description))
     }
 
     fn __exit__(
@@ -153,20 +149,16 @@ impl PyRuntime {
         let bound = self.bound_runtime()?;
         self.start_enter()?;
         let context_state = self.context_state.clone();
+        let runtime = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let prepared = match blocking::run_on_blocking_thread(
+            let mut guard = RuntimeEnterGuard::new(&runtime, &context_state);
+            let prepared = blocking::run_on_blocking_thread(
                 move || prepare_bound_runtime(bound),
                 "Belgie runtime environment activation failed",
             )
-            .await
-            {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    reset_runtime_context_state(&context_state);
-                    return Err(error);
-                }
-            };
+            .await?;
             let (handle, description) = activate_prepared_runtime(prepared, &context_state);
+            guard.disarm();
             Ok(PyAsyncRunner::from_handle(handle, description))
         })
     }
@@ -297,11 +289,48 @@ fn activate_prepared_runtime(
     (handle, description)
 }
 
-fn reset_runtime_context_state(context_state: &Arc<Mutex<RuntimeContextState>>) {
-    *context_state
-        .lock()
-        .expect("runtime context state lock should not be poisoned") =
-        RuntimeContextState::Inactive;
+struct RuntimeEnterGuard {
+    runtime: DenoRuntime,
+    context_state: Arc<Mutex<RuntimeContextState>>,
+    armed: bool,
+}
+
+impl RuntimeEnterGuard {
+    fn new(runtime: &DenoRuntime, context_state: &Arc<Mutex<RuntimeContextState>>) -> Self {
+        Self {
+            runtime: runtime.clone(),
+            context_state: Arc::clone(context_state),
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RuntimeEnterGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            abort_runtime_enter(&self.runtime, &self.context_state);
+        }
+    }
+}
+
+fn abort_runtime_enter(runtime: &DenoRuntime, context_state: &Arc<Mutex<RuntimeContextState>>) {
+    let handle = {
+        let mut state = context_state
+            .lock()
+            .expect("runtime context state lock should not be poisoned");
+        match std::mem::replace(&mut *state, RuntimeContextState::Inactive) {
+            RuntimeContextState::Active(handle) => Some(handle),
+            RuntimeContextState::Entering | RuntimeContextState::Inactive => None,
+        }
+    };
+    if let Some(handle) = handle {
+        let _ = handle.close_blocking();
+    }
+    let _ = release_owned_environment(runtime);
 }
 
 fn prepare_bound_runtime(bound: BoundRuntime) -> Result<BoundRuntime, deno_core::error::AnyError> {
@@ -323,4 +352,78 @@ fn release_owned_environment(runtime: &DenoRuntime) -> Result<(), deno_core::err
         return Ok(());
     };
     environment.environment().release_owned_runtime()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::{
+        RuntimeContextState, abort_runtime_enter, activate_prepared_runtime, prepare_bound_runtime,
+    };
+    use crate::{
+        environment::{EnvironmentDefinition, SharedEnvironment},
+        options::{RuntimeEnvironment, RuntimeOptions, ScriptOptions},
+        runtime::{BoundRuntime, DenoRuntime},
+        script::ScriptSource,
+    };
+
+    fn owned_bound_runtime(
+        folder: &tempfile::TempDir,
+    ) -> (
+        SharedEnvironment,
+        DenoRuntime,
+        BoundRuntime,
+        Arc<Mutex<RuntimeContextState>>,
+    ) {
+        let definition =
+            EnvironmentDefinition::from_folder(folder.path().to_path_buf(), None).unwrap();
+        let shared = SharedEnvironment::new(definition);
+        let runtime = DenoRuntime::new(RuntimeOptions::new_with_js_runtime_options(
+            folder.path().to_path_buf(),
+            Default::default(),
+            Some(RuntimeEnvironment::Owned(shared.clone())),
+        ));
+        let script = ScriptSource::from_options(ScriptOptions::inline(
+            "export default () => 42;".to_string(),
+        ));
+        let bound = BoundRuntime::new(runtime.clone(), script);
+        let context_state = Arc::new(Mutex::new(RuntimeContextState::Entering));
+        (shared, runtime, bound, context_state)
+    }
+
+    #[test]
+    fn abort_runtime_enter_releases_owned_activation() {
+        let folder = tempfile::tempdir().unwrap();
+        let (environment, runtime, bound, context_state) = owned_bound_runtime(&folder);
+        let _prepared = prepare_bound_runtime(bound).unwrap();
+        assert!(environment.is_active());
+
+        abort_runtime_enter(&runtime, &context_state);
+
+        assert!(!environment.is_active());
+        assert!(matches!(
+            *context_state.lock().unwrap(),
+            RuntimeContextState::Inactive
+        ));
+
+        let _active = environment.activate_for_owned_runtime().unwrap();
+        environment.release_owned_runtime().unwrap();
+        assert!(!environment.is_active());
+    }
+
+    #[test]
+    fn abort_runtime_enter_closes_active_handle_and_releases_owned_environment() {
+        let folder = tempfile::tempdir().unwrap();
+        let (environment, runtime, bound, context_state) = owned_bound_runtime(&folder);
+        let prepared = prepare_bound_runtime(bound).unwrap();
+        let (handle, _description) = activate_prepared_runtime(prepared, &context_state);
+        assert!(environment.is_active());
+        assert!(!handle.is_closed());
+
+        abort_runtime_enter(&runtime, &context_state);
+
+        assert!(handle.is_closed());
+        assert!(!environment.is_active());
+    }
 }
