@@ -28,6 +28,11 @@ type EmbedNodeResolver = NodeResolver<
 
 const RUN_SUBCOMMAND: &str = "run";
 
+fn first_subcommand_index(args: &[OsString]) -> Option<usize> {
+    args.iter()
+        .position(|arg| arg.to_str().is_none_or(|value| !value.starts_with('-')))
+}
+
 #[derive(Clone)]
 struct BelgieDenoCommand {
     deno_path: PathBuf,
@@ -52,9 +57,8 @@ impl BelgieDenoCommand {
             OsString::from("--lock"),
             self.lockfile.as_os_str().to_os_string(),
         ];
-        let insert_at = args
-            .iter()
-            .position(|arg| arg == RUN_SUBCOMMAND)
+        let insert_at = first_subcommand_index(&args)
+            .filter(|&index| args[index] == RUN_SUBCOMMAND)
             .map(|index| index + 1)
             .unwrap_or(0);
 
@@ -294,6 +298,62 @@ mod tests {
                 OsString::from("--lock"),
                 OsString::from("/embed/deno.lock"),
                 OsString::from("main.ts"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_prepends_for_task_run() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec!["task".into(), "run".into()]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("task"),
+                OsString::from("run"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_prepends_for_install_run() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec!["install".into(), "run".into()]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("install"),
+                OsString::from("run"),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_config_args_prepends_for_task_run_with_global_flags() {
+        let command = sample_deno_command();
+        let result = command.with_config_args(vec![
+            "--log-level=debug".into(),
+            "task".into(),
+            "run".into(),
+        ]);
+        assert_eq!(
+            result,
+            vec![
+                OsString::from("--config"),
+                OsString::from("/embed/deno.json"),
+                OsString::from("--lock"),
+                OsString::from("/embed/deno.lock"),
+                OsString::from("--log-level=debug"),
+                OsString::from("task"),
+                OsString::from("run"),
             ]
         );
     }
