@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use deno_core::anyhow::{Context, anyhow};
+use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_resolver::npm::ManagedNpmResolver;
@@ -42,11 +42,10 @@ struct BelgieDenoCommand {
 
 impl BelgieDenoCommand {
     fn new(package_env: &PackageEnvironment) -> Result<Self, AnyError> {
-        let (_, config_file, lockfile) = package_env.embed_paths();
         Ok(Self {
             deno_path: resolve_deno_exe()?,
-            config_file,
-            lockfile,
+            config_file: package_env.config_file().to_path_buf(),
+            lockfile: package_env.lockfile().to_path_buf(),
         })
     }
 
@@ -79,11 +78,19 @@ impl ShellCommand for BelgieDenoCommand {
     }
 }
 
+struct BelgieDenoShellCommand(Rc<BelgieDenoCommand>);
+
+impl ShellCommand for BelgieDenoShellCommand {
+    fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+        self.0.as_ref().execute(context)
+    }
+}
+
 #[derive(Clone)]
 struct NodeModulesFileRunCommand {
     command_name: String,
     path: PathBuf,
-    deno_command: BelgieDenoCommand,
+    deno_command: Rc<BelgieDenoCommand>,
 }
 
 impl ShellCommand for NodeModulesFileRunCommand {
@@ -100,19 +107,20 @@ impl ShellCommand for NodeModulesFileRunCommand {
             OsStr::new(&self.command_name),
         );
         self.deno_command
+            .as_ref()
             .execute(ShellCommandContext { args, ..context })
     }
 }
 
-fn npm_bin_command(
+fn npm_bin_shell_command(
     command_name: String,
     path: PathBuf,
-    deno_command: &BelgieDenoCommand,
+    deno_command: Rc<BelgieDenoCommand>,
 ) -> Rc<dyn ShellCommand> {
     Rc::new(NodeModulesFileRunCommand {
         command_name,
         path,
-        deno_command: deno_command.clone(),
+        deno_command,
     })
 }
 
@@ -129,7 +137,7 @@ pub(crate) async fn prepare_custom_commands(
     let node_resolver = context.resolver_factory().node_resolver()?;
     let npm_resolver = context.resolver_factory().npm_resolver()?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
-    let resolved_deno = BelgieDenoCommand::new(package_env);
+    let resolved_deno = BelgieDenoCommand::new(package_env).map(Rc::new);
 
     let mut commands = match npm_resolver {
         NpmResolver::Byonm(_) => {
@@ -140,8 +148,11 @@ pub(crate) async fn prepare_custom_commands(
         }
     };
 
-    if let Ok(deno_command) = resolved_deno {
-        commands.insert("deno".to_string(), Rc::new(deno_command));
+    if let Ok(deno_command) = &resolved_deno {
+        commands.insert(
+            "deno".to_string(),
+            Rc::new(BelgieDenoShellCommand(Rc::clone(deno_command))),
+        );
     }
     Ok((commands, bin_dirs))
 }
@@ -149,22 +160,33 @@ pub(crate) async fn prepare_custom_commands(
 fn resolve_byonm_npm_commands(
     node_resolver: &EmbedNodeResolver,
     bin_dirs: &[PathBuf],
-    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
+    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut commands = HashMap::new();
+    let mut deno_command: Option<Rc<BelgieDenoCommand>> = None;
     for bin_dir in bin_dirs {
+        if !bin_dir.is_dir() {
+            continue;
+        }
         let bins = node_resolver.resolve_npm_commands_from_bin_dir(bin_dir);
         if bins.is_empty() {
             continue;
         }
-        let deno_command = require_deno_command(resolved_deno)?;
+        let deno_command = match &deno_command {
+            Some(command) => Rc::clone(command),
+            None => {
+                let command = require_deno_command(resolved_deno)?;
+                deno_command = Some(Rc::clone(&command));
+                command
+            }
+        };
         for (command_name, path) in bins {
             commands
                 .entry(command_name.clone())
-                .or_insert(npm_bin_command(
+                .or_insert(npm_bin_shell_command(
                     command_name,
                     path.path().to_path_buf(),
-                    deno_command,
+                    Rc::clone(&deno_command),
                 ));
         }
     }
@@ -188,25 +210,26 @@ fn resolve_task_node_modules_bin_dirs(
 }
 
 fn require_deno_command(
-    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
-) -> Result<&BelgieDenoCommand, AnyError> {
+    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
+) -> Result<Rc<BelgieDenoCommand>, AnyError> {
     match resolved_deno {
-        Ok(deno_command) => Ok(deno_command),
-        Err(error) => Err(anyhow!("{error}")),
+        Ok(deno_command) => Ok(Rc::clone(deno_command)),
+        Err(error) => Err(deno_core::anyhow::anyhow!("{error}")),
     }
 }
 
 fn resolve_managed_npm_commands(
     node_resolver: &EmbedNodeResolver,
     npm_resolver: &ManagedNpmResolver<EmbedSys>,
-    resolved_deno: &Result<BelgieDenoCommand, AnyError>,
+    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
-    if npm_resolver.resolution().top_level_packages().is_empty() {
+    let packages = npm_resolver.resolution().top_level_packages();
+    if packages.is_empty() {
         return Ok(HashMap::new());
     }
     let deno_command = require_deno_command(resolved_deno)?;
     let mut result = HashMap::new();
-    for id in npm_resolver.resolution().top_level_packages() {
+    for id in packages {
         let package_folder = npm_resolver
             .resolve_pkg_folder_from_pkg_id(&id)
             .with_context(|| format!("Failed resolving npm package folder for '{id}'"))?;
@@ -221,7 +244,11 @@ fn resolve_managed_npm_commands(
         for (command_name, path) in bins {
             result.insert(
                 command_name.clone(),
-                npm_bin_command(command_name, path.path().to_path_buf(), deno_command),
+                npm_bin_shell_command(
+                    command_name,
+                    path.path().to_path_buf(),
+                    Rc::clone(&deno_command),
+                ),
             );
         }
     }
