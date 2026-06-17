@@ -1,4 +1,5 @@
 from belgie._core import (
+    Environment,
     Runtime,
     RuntimeOptions,
     Script,
@@ -11,6 +12,7 @@ type JsonObject = dict[str, JsonOutput]
 type JsonArray = list[JsonOutput]
 
 __all__: tuple[str, ...] = (
+    "Environment",
     "JsonArray",
     "JsonInput",
     "JsonObject",

@@ -196,6 +196,13 @@ pub(crate) struct EmbedContext {
     graph_loader: Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct EmbedContextOptions {
+    pub cache_root: Option<PathBuf>,
+    pub frozen_lockfile: Option<bool>,
+    pub lockfile_skip_write: bool,
+}
+
 impl std::fmt::Debug for EmbedContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EmbedContext")
@@ -208,6 +215,15 @@ impl std::fmt::Debug for EmbedContext {
 
 impl EmbedContext {
     pub fn new(cwd: PathBuf, config_file: PathBuf, lockfile: PathBuf) -> Result<Self, AnyError> {
+        Self::new_with_options(cwd, config_file, lockfile, EmbedContextOptions::default())
+    }
+
+    pub fn new_with_options(
+        cwd: PathBuf,
+        config_file: PathBuf,
+        lockfile: PathBuf,
+        options: EmbedContextOptions,
+    ) -> Result<Self, AnyError> {
         ensure_initialized();
         let sys = EmbedSys::default();
         let config_file = config_file.canonicalize().unwrap_or(config_file);
@@ -224,6 +240,9 @@ impl EmbedContext {
                 config_discovery: ConfigDiscoveryOption::Path(config_file.clone()),
                 lock_arg: Some(lockfile.clone()),
                 is_package_manager_subcommand: true,
+                frozen_lockfile: options.frozen_lockfile,
+                lockfile_skip_write: options.lockfile_skip_write,
+                maybe_custom_deno_dir_root: options.cache_root,
                 node_modules_dir: Some(NodeModulesDirMode::None),
                 ..Default::default()
             },

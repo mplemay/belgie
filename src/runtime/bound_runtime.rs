@@ -1,6 +1,7 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
-use crate::options::JsRuntimeOptions;
+use crate::environment::ActiveEnvironment;
+use crate::options::{JsRuntimeOptions, RuntimeEnvironment};
 use crate::script::ScriptSource;
 
 use super::DenoRuntime;
@@ -9,11 +10,16 @@ use super::DenoRuntime;
 pub(crate) struct BoundRuntime {
     runtime: DenoRuntime,
     script: ScriptSource,
+    active_environment: Option<Arc<ActiveEnvironment>>,
 }
 
 impl BoundRuntime {
     pub(crate) fn new(runtime: DenoRuntime, script: ScriptSource) -> Self {
-        Self { runtime, script }
+        Self {
+            runtime,
+            script,
+            active_environment: None,
+        }
     }
 
     pub(crate) fn cwd(&self) -> &Path {
@@ -22,6 +28,19 @@ impl BoundRuntime {
 
     pub(crate) fn js_runtime_options(&self) -> &JsRuntimeOptions {
         self.runtime.js_runtime_options()
+    }
+
+    pub(crate) fn environment(&self) -> Option<&Arc<ActiveEnvironment>> {
+        self.active_environment.as_ref()
+    }
+
+    pub(crate) fn runtime_environment(&self) -> Option<&RuntimeEnvironment> {
+        self.runtime.environment()
+    }
+
+    pub(crate) fn with_environment(mut self, environment: Option<Arc<ActiveEnvironment>>) -> Self {
+        self.active_environment = environment;
+        self
     }
 
     pub(crate) fn script(&self) -> &ScriptSource {

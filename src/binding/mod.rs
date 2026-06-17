@@ -1,4 +1,5 @@
 pub(crate) mod blocking;
+pub(crate) mod environment;
 pub(crate) mod packages;
 pub(crate) mod runner;
 pub(crate) mod runtime;
@@ -7,6 +8,7 @@ pub(crate) mod task;
 pub(crate) mod task_options;
 pub(crate) mod task_process;
 
+pub(crate) use environment::PyEnvironment;
 pub(crate) use packages::{
     PyPackageInstallResult, PyPackageUpdateChange, PyPackageUpdateResult, py_ainstall, py_alock,
     py_aupdate, py_install, py_lock, py_update,

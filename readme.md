@@ -39,10 +39,51 @@ lock(groups=["dev"])  # dev group only
 
 Async helpers (`alock`, `ainstall`, `aupdate`) accept the same arguments.
 
-### Runtime and tasks
+## Isolated runtime environments
 
-When running JavaScript through `Runtime` or `[belgie.scripts]` tasks, belgie loads
-dependencies from **all groups** so dev-only tooling remains available at runtime.
+Use `Environment` to install dependencies into a temporary, isolated Deno cache and inject them
+into one or more runtimes:
+
+```python
+from belgie import Environment, Runtime, Script
+
+script = Script(
+    """
+import { join } from "std_path";
+
+export default function run() {
+  return join.name;
+}
+"""
+)
+
+with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+    with Runtime(env=env)(script) as run:
+        assert run() == "join"
+```
+
+The temporary config, lockfile, and complete Deno cache are removed after the environment exits
+and any runtimes that were already using it have closed.
+
+Use a project folder to load `[belgie.dependencies]`, a folder-local `deno.lock`, and relative
+modules without changing files in that folder:
+
+```python
+with Runtime.from_folder(".")(Script.from_file("main.ts")) as run:
+    result = run()
+```
+
+`Environment.from_folder()` includes every dependency group by default. Pass `groups` to select
+specific groups. A supplied or folder-local lockfile is copied into the isolated environment and
+treated as frozen.
+
+Plain `Runtime()` supports dependency-free inline and file scripts and snapshots the process
+working directory when it is constructed.
+
+### Tasks
+
+When running `[belgie.scripts]` tasks, belgie loads dependencies from **all groups** so dev-only
+tooling remains available.
 
 ### Notes
 

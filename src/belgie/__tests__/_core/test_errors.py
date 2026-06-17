@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 def run_source(tmp_path: Path, source: str) -> object:
-    with Runtime(cwd=tmp_path)(Script(source)) as run:
+    with Runtime()(Script(source)) as run:
         return run()
 
 
@@ -64,8 +64,8 @@ class TestCoreErrorMapping:
         with pytest.raises(BelgieJavaScriptError, match="vanilla js failed"):
             run_source(tmp_path, source)
 
-    def test_closed_runner_raises_runtime_error(self, tmp_path: Path) -> None:
-        with Runtime(cwd=tmp_path)(Script("export default function run() { return 'ok'; }")) as run:
+    def test_closed_runner_raises_runtime_error(self) -> None:
+        with Runtime()(Script("export default function run() { return 'ok'; }")) as run:
             assert run() == "ok"
 
         with pytest.raises(BelgieRuntimeError, match="closed"):
@@ -79,9 +79,9 @@ class TestCoreErrorMapping:
         with pytest.raises(ValueError, match="finite"):
             run_source(tmp_path, "export default function run() { return Number.NaN; }")
 
-    def test_unsupported_python_input_raises_type_error(self, tmp_path: Path) -> None:
+    def test_unsupported_python_input_raises_type_error(self) -> None:
         with (
-            Runtime(cwd=tmp_path)(Script("export default function run(input) { return input; }")) as run,
+            Runtime()(Script("export default function run(input) { return input; }")) as run,
             pytest.raises(TypeError, match="Only JSON-serializable"),
         ):
             run({"value": object()})

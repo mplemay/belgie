@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use deno_core::error::AnyError;
 use deno_npm_installer::PackageCaching;
 
-use crate::embed::context::EmbedContext;
+use crate::embed::context::{EmbedContext, EmbedContextOptions};
 use crate::embed::graph::build_module_graph;
 
 pub(crate) async fn install_packages(
@@ -12,7 +12,24 @@ pub(crate) async fn install_packages(
     lockfile: PathBuf,
     lockfile_only: bool,
 ) -> Result<(), AnyError> {
-    let context = EmbedContext::new(cwd, config_file, lockfile)?;
+    install_packages_with_options(
+        cwd,
+        config_file,
+        lockfile,
+        lockfile_only,
+        EmbedContextOptions::default(),
+    )
+    .await
+}
+
+pub(crate) async fn install_packages_with_options(
+    cwd: PathBuf,
+    config_file: PathBuf,
+    lockfile: PathBuf,
+    lockfile_only: bool,
+    options: EmbedContextOptions,
+) -> Result<(), AnyError> {
+    let context = EmbedContext::new_with_options(cwd, config_file, lockfile, options)?;
     let npm_installer_factory = context.npm_installer_factory();
     npm_installer_factory
         .initialize_npm_resolution_if_managed()

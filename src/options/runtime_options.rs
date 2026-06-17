@@ -1,9 +1,18 @@
 use std::path::{Path, PathBuf};
 
+use crate::environment::SharedEnvironment;
+
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeOptions {
     cwd: PathBuf,
     js_runtime: JsRuntimeOptions,
+    environment: Option<RuntimeEnvironment>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum RuntimeEnvironment {
+    External(SharedEnvironment),
+    Owned(SharedEnvironment),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -16,11 +25,19 @@ pub(crate) struct JsRuntimeOptions {
 impl RuntimeOptions {
     #[cfg(test)]
     pub(crate) fn new(cwd: PathBuf) -> Self {
-        Self::new_with_js_runtime_options(cwd, JsRuntimeOptions::default())
+        Self::new_with_js_runtime_options(cwd, JsRuntimeOptions::default(), None)
     }
 
-    pub(crate) fn new_with_js_runtime_options(cwd: PathBuf, js_runtime: JsRuntimeOptions) -> Self {
-        Self { cwd, js_runtime }
+    pub(crate) fn new_with_js_runtime_options(
+        cwd: PathBuf,
+        js_runtime: JsRuntimeOptions,
+        environment: Option<RuntimeEnvironment>,
+    ) -> Self {
+        Self {
+            cwd,
+            js_runtime,
+            environment,
+        }
     }
 
     pub(crate) fn cwd(&self) -> &Path {
@@ -29,6 +46,22 @@ impl RuntimeOptions {
 
     pub(crate) fn js_runtime(&self) -> &JsRuntimeOptions {
         &self.js_runtime
+    }
+
+    pub(crate) fn environment(&self) -> Option<&RuntimeEnvironment> {
+        self.environment.as_ref()
+    }
+}
+
+impl RuntimeEnvironment {
+    pub(crate) fn environment(&self) -> &SharedEnvironment {
+        match self {
+            Self::External(environment) | Self::Owned(environment) => environment,
+        }
+    }
+
+    pub(crate) fn is_owned(&self) -> bool {
+        matches!(self, Self::Owned(_))
     }
 }
 

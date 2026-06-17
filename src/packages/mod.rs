@@ -70,19 +70,6 @@ struct PyprojectManifest {
 }
 
 impl PackageEnvironment {
-    pub(crate) fn discover(
-        cwd: PathBuf,
-        groups: Option<Vec<String>>,
-    ) -> Result<Option<Self>, AnyError> {
-        let Some(manifest) = read_manifest(&cwd, groups)? else {
-            return Ok(None);
-        };
-        if manifest.dependencies.is_empty() {
-            return Ok(None);
-        }
-        Self::from_dependencies(cwd, manifest.dependencies).map(Some)
-    }
-
     fn required(cwd: PathBuf, groups: Option<Vec<String>>) -> Result<Self, AnyError> {
         let Some(manifest) = read_manifest(&cwd, groups.clone())? else {
             return Err(no_dependencies_error(&cwd, groups));
@@ -93,6 +80,7 @@ impl PackageEnvironment {
         Self::from_manifest_parts(cwd, manifest.dependencies)
     }
 
+    #[cfg(test)]
     fn from_dependencies(
         cwd: PathBuf,
         dependencies: Vec<PackageDependency>,
@@ -298,6 +286,31 @@ fn read_manifest(
     }))
 }
 
+pub(crate) fn dependencies_from_folder(
+    cwd: &Path,
+    groups: Option<Vec<String>>,
+) -> Result<Vec<PackageDependency>, AnyError> {
+    let Some(manifest) = read_manifest(cwd, groups.clone())? else {
+        return Ok(Vec::new());
+    };
+    if manifest.dependencies.is_empty()
+        && groups.is_some()
+        && dependency_tables_have_any_entries(&manifest.document)
+    {
+        return Err(no_dependencies_error(cwd, groups));
+    }
+    Ok(manifest.dependencies)
+}
+
+pub(crate) fn dependencies_from_mapping(
+    dependencies: BTreeMap<String, String>,
+) -> Result<Vec<PackageDependency>, AnyError> {
+    dependencies
+        .into_iter()
+        .map(|(alias, specifier)| normalize_dependency(&alias, &specifier, DEFAULT_GROUP))
+        .collect()
+}
+
 pub(crate) fn find_pyproject_dir(start: &Path) -> Result<PathBuf, AnyError> {
     let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
     let mut searched = Vec::new();
@@ -466,7 +479,10 @@ fn normalize_dependency(
     })
 }
 
-fn write_synthetic_config(path: &Path, dependencies: &[PackageDependency]) -> Result<(), AnyError> {
+pub(crate) fn write_synthetic_config(
+    path: &Path,
+    dependencies: &[PackageDependency],
+) -> Result<(), AnyError> {
     let imports = dependencies
         .iter()
         .map(|dep| (dep.alias.clone(), dep.specifier.clone()))
