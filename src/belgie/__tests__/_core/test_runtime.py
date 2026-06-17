@@ -200,23 +200,24 @@ class TestEnvironmentLifecycle:
             Runtime(env=env)(Script("export default () => 'new';")).__enter__()
         bound.__exit__(None, None, None)
 
-    def test_multiple_runtimes_share_one_active_environment(self) -> None:
-        env = Environment()
-        first = Runtime(env=env)(Script("export default () => 'first';"))
-        second = Runtime(env=env)(Script("export default () => 'second';"))
-
-        with env, first as run_first, second as run_second:
-            assert run_first() == "first"
-            assert run_second() == "second"
-
-    def test_multiple_from_folder_runtimes_share_one_owned_environment(
+    @pytest.mark.parametrize("setup", ["external", "from_folder"])
+    def test_multiple_runtimes_share_one_environment(
         self,
         tmp_path: Path,
+        setup: str,
     ) -> None:
+        if setup == "external":
+            env = Environment()
+            first = Runtime(env=env)(Script("export default () => 'first';"))
+            second = Runtime(env=env)(Script("export default () => 'second';"))
+            with env, first as run_first, second as run_second:
+                assert run_first() == "first"
+                assert run_second() == "second"
+            return
+
         runtime = Runtime.from_folder(tmp_path)
         first = runtime(Script("export default () => 'first';"))
         second = runtime(Script("export default () => 'second';"))
-
         with first as run_first, second as run_second:
             assert run_first() == "first"
             assert run_second() == "second"
