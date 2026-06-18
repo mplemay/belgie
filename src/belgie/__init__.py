@@ -1,11 +1,16 @@
 import os
 import sys
 from importlib import import_module
+from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from belgie._core import Environment, Runtime, RuntimeOptions, Script
+
+TASK_RUNTIME_NAME: Final[str] = "belgie-task-runtime.exe" if sys.platform == "win32" else "belgie-task-runtime"
+TASK_RUNTIME_PATH: Final[Path] = Path(__file__).resolve().parent / "_bin" / TASK_RUNTIME_NAME
+TASK_RUNTIME_CONFIGURE_METHOD: Final[str] = "_configure_task_runtime"
 
 
 def _load_core_module() -> ModuleType:
@@ -25,6 +30,8 @@ def _load_core_module() -> ModuleType:
 
 if not TYPE_CHECKING:
     CORE_MODULE: Final[ModuleType] = _load_core_module()
+    configure_task_runtime = getattr(CORE_MODULE, TASK_RUNTIME_CONFIGURE_METHOD)
+    configure_task_runtime(str(TASK_RUNTIME_PATH))
     Environment = CORE_MODULE.Environment
     Runtime = CORE_MODULE.Runtime
     RuntimeOptions = CORE_MODULE.RuntimeOptions

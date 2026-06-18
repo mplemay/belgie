@@ -7,6 +7,7 @@ mod packages;
 mod runtime;
 mod script;
 mod task;
+pub mod task_runtime;
 mod types;
 mod utils;
 
@@ -35,6 +36,7 @@ fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::Py
     m.add_function(wrap_pyfunction!(binding::py_ainstall, m)?)?;
     m.add_function(wrap_pyfunction!(binding::py_alock, m)?)?;
     m.add_function(wrap_pyfunction!(binding::py_aupdate, m)?)?;
+    m.add_function(wrap_pyfunction!(binding::py_configure_task_runtime, m)?)?;
     m.add("BelgieError", py.get_type::<exceptions::BelgieError>())?;
     m.add(
         "BelgieRuntimeError",

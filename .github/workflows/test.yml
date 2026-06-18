@@ -78,8 +78,15 @@ jobs:
         shell: bash
         run: echo "PYO3_PYTHON=$(uv python find ${{ matrix.python-version }})" >> "$GITHUB_ENV"
 
+      - name: Build packaged task runtime helper
+        if: runner.os == 'Windows'
+        run: |
+          cargo build --locked --bin belgie-task-runtime
+          New-Item -ItemType Directory -Force src/belgie/_bin | Out-Null
+          Copy-Item target/debug/belgie-task-runtime.exe src/belgie/_bin/belgie-task-runtime.exe
+
       - name: Run tests
-        run: uv run pytest
+        run: uv run --python ${{ matrix.python-version }} pytest
 
   test-rust:
     name: test (rust, ${{ matrix.os }})

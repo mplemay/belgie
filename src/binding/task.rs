@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use pyo3::prelude::*;
 
 use crate::{
@@ -54,6 +56,11 @@ impl PyTaskRunner {
     fn __repr__(&self) -> &'static str {
         "TaskRunner()"
     }
+}
+
+#[pyfunction(name = "_configure_task_runtime")]
+pub(crate) fn py_configure_task_runtime(path: String) {
+    crate::task::configure_task_runtime_path(PathBuf::from(path));
 }
 
 fn normalized_options_from_py(
