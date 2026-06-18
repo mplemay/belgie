@@ -73,7 +73,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Find Python for PyO3
+        shell: bash
+        run: echo "PYO3_PYTHON=$(uv python find ${{ matrix.python-version }})" >> "$GITHUB_ENV"
+
+      - name: Build task runtime helper
+        run: cargo build --locked --bin belgie-task-runtime
+
       - name: Run tests
+        env:
+          BELGIE_TASK_RUNTIME: ${{ github.workspace }}/target/debug/belgie-task-runtime${{ runner.os == 'Windows' && '.exe' || '' }}
         run: uv run pytest
 
   test-rust:
