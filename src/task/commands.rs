@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -16,7 +17,6 @@ use node_resolver::NodeResolver;
 
 use crate::embed::sys::EmbedSys;
 use crate::packages::{PackageEnvironment, project_state_error};
-use crate::task::node_exe::resolve_node_exe;
 
 type EmbedNodeResolver = NodeResolver<
     deno_resolver::npm::DenoInNpmPackageChecker,
@@ -27,25 +27,86 @@ type EmbedNodeResolver = NodeResolver<
 
 #[derive(Clone)]
 struct NodeModulesFileRunCommand {
+    command_name: String,
+    project_cwd: PathBuf,
     path: PathBuf,
-    node_path: PathBuf,
 }
 
 impl ShellCommand for NodeModulesFileRunCommand {
     fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
-        let mut args = vec![self.path.as_os_str().to_os_string()];
-        args.extend(context.args);
-        ExecutableCommand::new("node".to_string(), self.node_path.clone())
+        let current_exe = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(error) => {
+                let mut stderr = context.stderr;
+                let _ = stderr.write_line(&format!(
+                    "Could not resolve current Python executable for Belgie task runtime: {error}"
+                ));
+                return Box::pin(std::future::ready(ExecuteResult::from_exit_code(1)));
+            }
+        };
+        let task_cwd = context.state.cwd().clone();
+        let args = task_bin_helper_args(
+            &self.project_cwd,
+            &task_cwd,
+            &self.command_name,
+            &self.path,
+            context.args,
+        );
+        ExecutableCommand::new("python".to_string(), current_exe)
             .execute(ShellCommandContext { args, ..context })
     }
 }
 
+fn task_bin_helper_args(
+    project_cwd: &Path,
+    task_cwd: &Path,
+    command_name: &str,
+    path: &Path,
+    forwarded_args: Vec<OsString>,
+) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("-m"),
+        OsString::from("belgie._task_runtime"),
+        OsString::from("npm-bin"),
+        OsString::from("--project-cwd"),
+        project_cwd.as_os_str().to_os_string(),
+        OsString::from("--cwd"),
+        task_cwd.as_os_str().to_os_string(),
+        OsString::from("--command-name"),
+        OsString::from(command_name),
+        OsString::from("--"),
+        path.as_os_str().to_os_string(),
+    ];
+    args.extend(forwarded_args);
+    args
+}
+
 impl NodeModulesFileRunCommand {
-    fn new(path: PathBuf, node_path: &Path) -> Self {
+    fn new(command_name: String, path: PathBuf, project_cwd: &Path) -> Self {
         Self {
+            command_name,
+            project_cwd: project_cwd.to_path_buf(),
             path,
-            node_path: node_path.to_path_buf(),
         }
+    }
+}
+
+struct NodeCommand;
+
+impl ShellCommand for NodeCommand {
+    fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+        let node_path = match context.state.resolve_command_path("node".as_ref()) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = context.stderr.write_line(&format!("{error}"));
+                return Box::pin(std::future::ready(ExecuteResult::from_exit_code(
+                    error.exit_code(),
+                )));
+            }
+        };
+        let args = context.args;
+        ExecutableCommand::new("node".to_string(), node_path)
+            .execute(ShellCommandContext { args, ..context })
     }
 }
 
@@ -58,13 +119,6 @@ impl ShellCommand for UnsupportedDenoCommand {
         );
         Box::pin(std::future::ready(ExecuteResult::from_exit_code(1)))
     }
-}
-
-fn ensure_node_path(node_path: &mut Option<PathBuf>) -> Result<&Path, AnyError> {
-    if node_path.is_none() {
-        *node_path = Some(resolve_node_exe()?);
-    }
-    Ok(node_path.as_deref().expect("node path should be resolved"))
 }
 
 pub(crate) async fn prepare_custom_commands(
@@ -89,29 +143,36 @@ pub(crate) async fn prepare_custom_commands(
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
 
     let mut commands = match npm_resolver {
-        NpmResolver::Byonm(_) => resolve_byonm_npm_commands(node_resolver, &bin_dirs)?,
-        NpmResolver::Managed(managed) => resolve_managed_npm_commands(node_resolver, managed)?,
+        NpmResolver::Byonm(_) => {
+            resolve_byonm_npm_commands(node_resolver, &bin_dirs, package_env.cwd())?
+        }
+        NpmResolver::Managed(managed) => {
+            resolve_managed_npm_commands(node_resolver, managed, package_env.cwd())?
+        }
     };
     commands.insert("deno".to_string(), Rc::new(UnsupportedDenoCommand));
+    commands
+        .entry("node".to_string())
+        .or_insert_with(|| Rc::new(NodeCommand) as Rc<dyn ShellCommand>);
     Ok((commands, bin_dirs))
 }
 
 fn resolve_byonm_npm_commands(
     node_resolver: &EmbedNodeResolver,
     bin_dirs: &[PathBuf],
+    project_cwd: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut commands = HashMap::new();
-    let mut node_path: Option<PathBuf> = None;
     for bin_dir in bin_dirs {
         if !bin_dir.is_dir() {
             continue;
         }
         for (command_name, path) in node_resolver.resolve_npm_commands_from_bin_dir(bin_dir) {
-            let node_path = ensure_node_path(&mut node_path)?;
             commands.entry(command_name.clone()).or_insert_with(|| {
                 Rc::new(NodeModulesFileRunCommand::new(
+                    command_name,
                     path.path().to_path_buf(),
-                    node_path,
+                    project_cwd,
                 )) as Rc<dyn ShellCommand>
             });
         }
@@ -138,9 +199,9 @@ fn resolve_task_node_modules_bin_dirs(
 fn resolve_managed_npm_commands(
     node_resolver: &EmbedNodeResolver,
     npm_resolver: &ManagedNpmResolver<EmbedSys>,
+    project_cwd: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut result = HashMap::new();
-    let mut node_path: Option<PathBuf> = None;
     for id in npm_resolver.resolution().top_level_packages() {
         let package_folder = npm_resolver
             .resolve_pkg_folder_from_pkg_id(&id)
@@ -154,12 +215,12 @@ fn resolve_managed_npm_commands(
                 )
             })?;
         for (command_name, path) in bins {
-            let node_path = ensure_node_path(&mut node_path)?;
             result.insert(
                 command_name.clone(),
                 Rc::new(NodeModulesFileRunCommand::new(
+                    command_name,
                     path.path().to_path_buf(),
-                    node_path,
+                    project_cwd,
                 )) as Rc<dyn ShellCommand>,
             );
         }
@@ -174,14 +235,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn node_command_args_include_binary_path_and_forwarded_arguments() {
+    fn task_bin_helper_args_include_private_runtime_and_forwarded_arguments() {
+        let project_cwd = Path::new("/project");
+        let task_cwd = Path::new("/project/app");
         let path = Path::new("/project/node_modules/vite/bin/vite.js");
-        let mut result = vec![path.as_os_str().to_os_string()];
-        result.extend(["build".into(), "--emptyOutDir".into()]);
+        let result = task_bin_helper_args(
+            project_cwd,
+            task_cwd,
+            "vite",
+            path,
+            vec!["build".into(), "--emptyOutDir".into()],
+        );
 
         assert_eq!(
             result,
             vec![
+                OsString::from("-m"),
+                OsString::from("belgie._task_runtime"),
+                OsString::from("npm-bin"),
+                OsString::from("--project-cwd"),
+                OsString::from("/project"),
+                OsString::from("--cwd"),
+                OsString::from("/project/app"),
+                OsString::from("--command-name"),
+                OsString::from("vite"),
+                OsString::from("--"),
                 OsString::from("/project/node_modules/vite/bin/vite.js"),
                 OsString::from("build"),
                 OsString::from("--emptyOutDir"),

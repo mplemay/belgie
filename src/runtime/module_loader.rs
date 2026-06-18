@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -54,6 +55,14 @@ fn load_module_source(
     module_specifier: &ModuleSpecifier,
     requested_module_type: RequestedModuleType,
 ) -> Result<ModuleSource, ModuleLoaderError> {
+    load_module_source_with_media_type(module_specifier, requested_module_type, None)
+}
+
+fn load_module_source_with_media_type(
+    module_specifier: &ModuleSpecifier,
+    requested_module_type: RequestedModuleType,
+    media_type_override: Option<MediaType>,
+) -> Result<ModuleSource, ModuleLoaderError> {
     let path = module_specifier
         .to_file_path()
         .map_err(|_| JsErrorBox::generic("Only file:// URLs are supported."))?;
@@ -76,7 +85,7 @@ fn load_module_source(
         ));
     }
 
-    let media_type = MediaType::from_path(&path);
+    let media_type = media_type_override.unwrap_or_else(|| MediaType::from_path(&path));
     let (module_type, should_transpile) = module_type_for_media_type(media_type, &path)?;
     if module_type == ModuleType::Json && requested_module_type != RequestedModuleType::Json {
         return Err(JsErrorBox::generic(
@@ -198,11 +207,28 @@ fn transpile_source(
 pub(crate) struct PackageAwareModuleLoader {
     state: Arc<PackageRuntimeState>,
     initial_cwd: PathBuf,
+    js_media_type_overrides: HashSet<ModuleSpecifier>,
 }
 
 impl PackageAwareModuleLoader {
     pub(crate) fn new(state: Arc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
-        Self { state, initial_cwd }
+        Self {
+            state,
+            initial_cwd,
+            js_media_type_overrides: HashSet::new(),
+        }
+    }
+
+    pub(crate) fn new_with_js_media_type_override(
+        state: Arc<PackageRuntimeState>,
+        initial_cwd: PathBuf,
+        module_specifier: ModuleSpecifier,
+    ) -> Self {
+        Self {
+            state,
+            initial_cwd,
+            js_media_type_overrides: HashSet::from([module_specifier]),
+        }
     }
 
     fn resolve_referrer(&self, referrer: &str) -> Result<ModuleSpecifier, ModuleLoaderError> {
@@ -377,9 +403,14 @@ impl ModuleLoader for PackageAwareModuleLoader {
                 .ok()
                 .is_some_and(|path| path.exists())
         {
-            return ModuleLoadResponse::Sync(load_module_source(
+            let media_type_override = self
+                .js_media_type_overrides
+                .contains(module_specifier)
+                .then_some(MediaType::JavaScript);
+            return ModuleLoadResponse::Sync(load_module_source_with_media_type(
                 module_specifier,
                 options.requested_module_type,
+                media_type_override,
             ));
         }
 
@@ -393,6 +424,7 @@ impl ModuleLoader for PackageAwareModuleLoader {
                 let loader = PackageAwareModuleLoader {
                     state,
                     initial_cwd: PathBuf::new(), // unused in load path
+                    js_media_type_overrides: HashSet::new(),
                 };
                 loader
                     .load_package_module(

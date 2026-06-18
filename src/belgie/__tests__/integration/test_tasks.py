@@ -40,6 +40,21 @@ async def test_task_runs_npm_bin_command(
     assert (pyproject.parent / "node_modules").is_dir()
 
 
+async def test_task_runs_npm_bin_without_system_node(
+    write_belgie_pyproject,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pyproject = write_belgie_pyproject(
+        dependencies={"vite": "^6"},
+        scripts={"version": "vite --version"},
+    )
+    install(cwd=pyproject.parent)
+    monkeypatch.setenv("BELGIE_NODE", "/missing/belgie-node")
+    monkeypatch.setenv("PATH", "")
+
+    await TaskRunner().run(RunTaskOptions(str(pyproject.parent), "version"))
+
+
 async def test_task_rejects_explicit_deno_command(
     write_belgie_pyproject,
 ) -> None:

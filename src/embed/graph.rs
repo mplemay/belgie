@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 use deno_core::error::AnyError;
@@ -65,6 +66,14 @@ pub(crate) async fn build_module_graph(
     context: &EmbedContext,
     extra_roots: Vec<ModuleSpecifier>,
 ) -> Result<ModuleGraph, AnyError> {
+    build_module_graph_with_header_overrides(context, extra_roots, HashMap::new()).await
+}
+
+pub(crate) async fn build_module_graph_with_header_overrides(
+    context: &EmbedContext,
+    extra_roots: Vec<ModuleSpecifier>,
+    file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+) -> Result<ModuleGraph, AnyError> {
     let resolver_factory = context.resolver_factory();
     let npm_installer_factory = context.npm_installer_factory();
     let mut roots = collect_import_map_roots(resolver_factory).await?;
@@ -101,7 +110,10 @@ pub(crate) async fn build_module_graph(
     let jsr_version_resolver = resolver_factory.jsr_version_resolver()?;
     let jsr_url_provider = deno_graph::source::DefaultJsrUrlProvider;
     let graph_loader = context.graph_loader();
-    let graph_loader = graph_loader.lock().await;
+    let mut graph_loader = graph_loader.lock().await;
+    for (specifier, headers) in file_header_overrides {
+        graph_loader.insert_file_header_override(specifier, headers);
+    }
     graph
         .build(
             roots,
