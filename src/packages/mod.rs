@@ -174,6 +174,7 @@ impl PackageEnvironment {
     }
 
     pub(crate) fn config_file(&self) -> &Path {
+        debug_assert!(self.inner.temp_dir.path().is_dir());
         &self.inner.config_file
     }
 
@@ -224,10 +225,6 @@ impl PackageEnvironment {
             .lock()
             .expect("package embed context lock should not be poisoned") = Some(context);
         Ok(())
-    }
-
-    pub(crate) fn process_state_file(&self) -> PathBuf {
-        self.inner.temp_dir.path().join("npm-process-state.json")
     }
 }
 
@@ -373,7 +370,7 @@ fn local_install_options(cwd: &Path) -> EmbedContextOptions {
     }
 }
 
-fn project_embed_options(cwd: &Path) -> EmbedContextOptions {
+pub(crate) fn project_embed_options(cwd: &Path) -> EmbedContextOptions {
     EmbedContextOptions {
         frozen_lockfile: Some(true),
         lockfile_skip_write: true,
@@ -687,7 +684,6 @@ pub(crate) fn write_synthetic_config(
         .collect::<BTreeMap<_, _>>();
     let config = serde_json::json!({
       "imports": imports,
-      "nodeModulesDir": "none",
     });
     let text = serde_json::to_string_pretty(&config)?;
     std::fs::write(path, format!("{text}\n"))
@@ -928,7 +924,7 @@ react = ["^19"]
     }
 
     #[test]
-    fn synthetic_config_contains_imports_and_disables_node_modules_dir() {
+    fn synthetic_config_contains_only_imports() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config_path = temp_dir.path().join("deno.json");
         let dependencies = vec![normalize_dependency("react", "^19", DEFAULT_GROUP).unwrap()];
@@ -938,7 +934,7 @@ react = ["^19"]
         let text = fs::read_to_string(config_path).unwrap();
         let config: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(config["imports"]["react"], "npm:react@^19");
-        assert_eq!(config["nodeModulesDir"], "none");
+        assert!(config.get("nodeModulesDir").is_none());
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use deno_core::anyhow::{Context, anyhow};
+use deno_core::anyhow::anyhow;
 use deno_core::error::AnyError;
 use deno_task_shell::KillSignal;
 use deno_task_shell::SignalKind;
@@ -122,7 +122,7 @@ impl TaskRunner {
     fn run_blocking_impl(&self, options: RunTaskOptions) -> Result<TaskResult, AnyError> {
         let (package_env, command) =
             PackageEnvironment::resolve_task(&options.task_cwd, &options.script, options.install)?;
-        let runtime = build_task_runtime("foreground")?;
+        let runtime = crate::utils::tokio::build_task_runtime("foreground")?;
 
         runtime.block_on(run_shell_task(shell_options(
             &options,
@@ -149,7 +149,7 @@ impl TaskRunner {
                 command,
                 options.install,
             )?;
-            let runtime = build_task_runtime("background")?;
+            let runtime = crate::utils::tokio::build_task_runtime("background")?;
 
             runtime.block_on(async move {
                 use tokio::time::{Instant as TokioInstant, sleep};
@@ -233,13 +233,6 @@ fn join_worker_handle(
         Ok(result) => result,
         Err(_) => Err(anyhow!("Background task thread panicked")),
     }
-}
-
-fn build_task_runtime(context: &str) -> Result<tokio::runtime::Runtime, AnyError> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .with_context(|| format!("Failed to create {context} task runtime"))
 }
 
 fn shell_options(

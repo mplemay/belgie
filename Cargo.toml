@@ -7,6 +7,11 @@ edition = "2024"
 name = "_core"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "belgie-task-runtime"
+path = "src/task_runtime_main.rs"
+doc = false
+
 [features]
 default = []
 extension-module = ["pyo3/extension-module"]
@@ -34,7 +39,6 @@ deno_resolver = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", 
 deno_runtime = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", default-features = false, features = ["transpile"] }
 deno_semver = "=0.10.0"
 deno_task_shell = "=0.33.0"
-which = "7"
 deno_terminal = { version = "=0.2.3", default-features = false }
 ed448-goldilocks = "=0.14.0-pre.10"
 elliptic-curve = "=0.14.0-rc.28"

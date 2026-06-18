@@ -118,6 +118,11 @@ jobs:
           python-version: "3.12"
           enable-cache: false
 
+      - name: Find Python for PyO3
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "PYO3_PYTHON=$(uv python find 3.12)" >> "$GITHUB_ENV"
+
       - name: Set release version
         shell: bash
         run: |
@@ -206,6 +211,13 @@ jobs:
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         with:
           platforms: arm64
+
+      - name: Build packaged task runtime helper
+        if: runner.os == 'Windows'
+        run: |
+          cargo build --release --locked --bin belgie-task-runtime --target ${{ matrix.target }}
+          New-Item -ItemType Directory -Force src/belgie/_bin | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/belgie-task-runtime.exe src/belgie/_bin/belgie-task-runtime.exe
 
       - name: Build wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0

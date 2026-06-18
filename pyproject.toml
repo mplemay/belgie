@@ -29,6 +29,7 @@ module-name = "belgie._core"
 python-packages = ["belgie"]
 python-source = "src"
 exclude = ["**/__tests__/**"]
+include = [{ path = "src/belgie/_bin/*", format = "wheel" }]
 features = ["extension-module"]
 
 [tool.uv]

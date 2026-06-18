@@ -1,19 +1,15 @@
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
-use std::fs;
+use std::ffi::OsStr;
+#[cfg(windows)]
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use deno_config::deno_json::NodeModulesLinkerMode;
 use deno_core::anyhow::Context;
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
-use deno_npm_installer::process_state::{
-    NpmProcessState, NpmProcessStateKind, NpmProcessStateLinkerMode,
-};
 use deno_resolver::npm::ManagedNpmResolver;
 use deno_resolver::npm::NpmResolver;
-use deno_runtime::deno_process::NPM_RESOLUTION_STATE_FD_ENV_VAR_NAME;
 use deno_task_shell::ExecutableCommand;
 use deno_task_shell::ExecuteResult;
 use deno_task_shell::ShellCommand;
@@ -23,7 +19,8 @@ use node_resolver::NodeResolver;
 
 use crate::embed::sys::EmbedSys;
 use crate::packages::{PackageEnvironment, project_state_error};
-use crate::task::deno_exe::resolve_deno_exe;
+#[cfg(not(windows))]
+use crate::task::{TaskNpmBinOptions, run_task_npm_bin};
 
 type EmbedNodeResolver = NodeResolver<
     deno_resolver::npm::DenoInNpmPackageChecker,
@@ -32,112 +29,186 @@ type EmbedNodeResolver = NodeResolver<
     EmbedSys,
 >;
 
-const RUN_SUBCOMMAND: &str = "run";
-
-fn first_subcommand_index(args: &[OsString]) -> Option<usize> {
-    args.iter()
-        .position(|arg| arg.to_str().is_none_or(|value| !value.starts_with('-')))
-}
-
-#[derive(Clone)]
-struct BelgieDenoCommand {
-    deno_path: PathBuf,
-    config_file: PathBuf,
-    lockfile: PathBuf,
-    process_state_file: PathBuf,
-}
-
-impl BelgieDenoCommand {
-    fn new(
-        package_env: &PackageEnvironment,
-        npm_resolver: &NpmResolver<EmbedSys>,
-    ) -> Result<Self, AnyError> {
-        let process_state_file = write_process_state(package_env, npm_resolver)?;
-        Ok(Self {
-            deno_path: resolve_deno_exe()?,
-            config_file: package_env.config_file().to_path_buf(),
-            lockfile: package_env.lockfile().to_path_buf(),
-            process_state_file,
-        })
-    }
-
-    fn with_config_args(&self, args: Vec<OsString>) -> Vec<OsString> {
-        let config_args = [
-            OsString::from("--config"),
-            self.config_file.as_os_str().to_os_string(),
-            OsString::from("--lock"),
-            self.lockfile.as_os_str().to_os_string(),
-        ];
-        let insert_at = first_subcommand_index(&args)
-            .filter(|&index| args[index] == RUN_SUBCOMMAND)
-            .map(|index| index + 1)
-            .unwrap_or(0);
-
-        let mut result = Vec::with_capacity(args.len() + config_args.len());
-        result.extend(args.iter().take(insert_at).cloned());
-        result.extend(config_args);
-        result.extend(args.into_iter().skip(insert_at));
-        result
-    }
-}
-
-impl ShellCommand for BelgieDenoCommand {
-    fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
-        let deno_path = self.deno_path.clone();
-        let args = self.with_config_args(context.args);
-        context.state.apply_env_var(
-            OsStr::new(NPM_RESOLUTION_STATE_FD_ENV_VAR_NAME),
-            self.process_state_file.as_os_str(),
-        );
-        ExecutableCommand::new("deno".to_string(), deno_path)
-            .execute(ShellCommandContext { args, ..context })
-    }
-}
-
-struct BelgieDenoShellCommand(Rc<BelgieDenoCommand>);
-
-impl ShellCommand for BelgieDenoShellCommand {
-    fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
-        self.0.as_ref().execute(context)
-    }
-}
+const NPM_COMMAND_NAME_ENV_VAR: &str = "DENO_INTERNAL_NPM_CMD_NAME";
 
 #[derive(Clone)]
 struct NodeModulesFileRunCommand {
     command_name: String,
+    project_cwd: PathBuf,
+    #[cfg(windows)]
+    task_runtime: PathBuf,
     path: PathBuf,
-    deno_command: Rc<BelgieDenoCommand>,
 }
 
 impl ShellCommand for NodeModulesFileRunCommand {
     fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
-        let mut args: Vec<OsString> = vec![
-            RUN_SUBCOMMAND.into(),
-            "--ext=js".into(),
-            "-A".into(),
-            self.path.clone().into_os_string(),
-        ];
-        args.extend(context.args);
-        context.state.apply_env_var(
-            OsStr::new("DENO_INTERNAL_NPM_CMD_NAME"),
-            OsStr::new(&self.command_name),
-        );
-        self.deno_command
-            .as_ref()
+        if let Some(exit_code) = context.state.kill_signal().aborted_code() {
+            return Box::pin(std::future::ready(ExecuteResult::from_exit_code(exit_code)));
+        }
+
+        #[cfg(windows)]
+        {
+            let mut args = vec![
+                OsString::from("npm-bin"),
+                OsString::from("--project-cwd"),
+                self.project_cwd.clone().into_os_string(),
+                OsString::from("--task-cwd"),
+                context.state.cwd().clone().into_os_string(),
+                OsString::from("--command-name"),
+                OsString::from(&self.command_name),
+                OsString::from("--script-path"),
+                self.path.clone().into_os_string(),
+                OsString::from("--"),
+            ];
+            args.extend(context.args);
+            context.state.apply_env_var(
+                OsStr::new(NPM_COMMAND_NAME_ENV_VAR),
+                OsStr::new(&self.command_name),
+            );
+            return ExecutableCommand::new(
+                "belgie-task-runtime".to_string(),
+                self.task_runtime.clone(),
+            )
+            .execute(ShellCommandContext { args, ..context });
+        }
+
+        #[cfg(not(windows))]
+        {
+            let argv = match context
+                .args
+                .into_iter()
+                .map(|arg| {
+                    arg.into_string().map_err(|arg| {
+                        format!(
+                            "npm binary arguments must be valid Unicode: {}",
+                            arg.to_string_lossy()
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(argv) => argv,
+                Err(error) => {
+                    let _ = context.stderr.write_line(&error);
+                    return Box::pin(std::future::ready(ExecuteResult::from_exit_code(1)));
+                }
+            };
+            context.state.apply_env_var(
+                OsStr::new(NPM_COMMAND_NAME_ENV_VAR),
+                OsStr::new(&self.command_name),
+            );
+            let kill_signal = context.state.kill_signal().clone();
+            let options = TaskNpmBinOptions {
+                project_cwd: self.project_cwd.clone(),
+                task_cwd: context.state.cwd().clone(),
+                command_name: self.command_name.clone(),
+                script_path: self.path.clone(),
+                argv,
+                env_vars: context.state.env_vars().clone(),
+                stdout: context.stdout,
+                stderr: context.stderr,
+            };
+            Box::pin(async move {
+                tokio::select! {
+                    exit_code = run_task_npm_bin(options) => ExecuteResult::from_exit_code(exit_code),
+                    signal = kill_signal.wait_aborted() => ExecuteResult::from_exit_code(signal.aborted_code()),
+                }
+            })
+        }
+    }
+}
+
+impl NodeModulesFileRunCommand {
+    #[cfg(windows)]
+    fn new(command_name: String, path: PathBuf, project_cwd: &Path, task_runtime: PathBuf) -> Self {
+        Self {
+            command_name,
+            project_cwd: project_cwd.to_path_buf(),
+            task_runtime,
+            path,
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn new(command_name: String, path: PathBuf, project_cwd: &Path) -> Self {
+        Self {
+            command_name,
+            project_cwd: project_cwd.to_path_buf(),
+            path,
+        }
+    }
+}
+
+#[derive(Default)]
+struct NodeModulesCommandFactory {
+    #[cfg(windows)]
+    task_runtime: Option<PathBuf>,
+}
+
+impl NodeModulesCommandFactory {
+    fn command(
+        &mut self,
+        command_name: String,
+        path: PathBuf,
+        project_cwd: &Path,
+    ) -> Result<Rc<dyn ShellCommand>, AnyError> {
+        #[cfg(windows)]
+        {
+            let task_runtime = match &self.task_runtime {
+                Some(path) => path.clone(),
+                None => {
+                    let path = crate::task::resolve_task_runtime_exe()?;
+                    self.task_runtime = Some(path.clone());
+                    path
+                }
+            };
+            Ok(Rc::new(NodeModulesFileRunCommand::new(
+                command_name,
+                path,
+                project_cwd,
+                task_runtime,
+            )) as Rc<dyn ShellCommand>)
+        }
+
+        #[cfg(not(windows))]
+        {
+            Ok(Rc::new(NodeModulesFileRunCommand::new(
+                command_name,
+                path,
+                project_cwd,
+            )) as Rc<dyn ShellCommand>)
+        }
+    }
+}
+
+struct NodeCommand;
+
+impl ShellCommand for NodeCommand {
+    fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+        let node_path = match context.state.resolve_command_path("node".as_ref()) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = context.stderr.write_line(&format!("{error}"));
+                return Box::pin(std::future::ready(ExecuteResult::from_exit_code(
+                    error.exit_code(),
+                )));
+            }
+        };
+        let args = context.args;
+        ExecutableCommand::new("node".to_string(), node_path)
             .execute(ShellCommandContext { args, ..context })
     }
 }
 
-fn npm_bin_shell_command(
-    command_name: String,
-    path: PathBuf,
-    deno_command: Rc<BelgieDenoCommand>,
-) -> Rc<dyn ShellCommand> {
-    Rc::new(NodeModulesFileRunCommand {
-        command_name,
-        path,
-        deno_command,
-    })
+struct UnsupportedDenoCommand;
+
+impl ShellCommand for UnsupportedDenoCommand {
+    fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+        let _ = context.stderr.write_line(
+            "The 'deno' command is not supported in Belgie tasks. Use an installed npm package binary or an ordinary shell command.",
+        );
+        Box::pin(std::future::ready(ExecuteResult::from_exit_code(1)))
+    }
 }
 
 pub(crate) async fn prepare_custom_commands(
@@ -160,84 +231,41 @@ pub(crate) async fn prepare_custom_commands(
         .npm_resolver()
         .map_err(project_state_error)?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
-    let resolved_deno = BelgieDenoCommand::new(package_env, npm_resolver).map(Rc::new);
 
     let mut commands = match npm_resolver {
         NpmResolver::Byonm(_) => {
-            resolve_byonm_npm_commands(node_resolver, &bin_dirs, &resolved_deno)?
+            resolve_byonm_npm_commands(node_resolver, &bin_dirs, package_env.cwd())?
         }
         NpmResolver::Managed(managed) => {
-            resolve_managed_npm_commands(node_resolver, managed, &resolved_deno)?
+            resolve_managed_npm_commands(node_resolver, managed, package_env.cwd())?
         }
     };
-
-    if let Ok(deno_command) = &resolved_deno {
-        commands.insert(
-            "deno".to_string(),
-            Rc::new(BelgieDenoShellCommand(Rc::clone(deno_command))),
-        );
-    }
+    commands.insert("deno".to_string(), Rc::new(UnsupportedDenoCommand));
+    commands
+        .entry("node".to_string())
+        .or_insert_with(|| Rc::new(NodeCommand) as Rc<dyn ShellCommand>);
     Ok((commands, bin_dirs))
-}
-
-fn write_process_state(
-    package_env: &PackageEnvironment,
-    npm_resolver: &NpmResolver<EmbedSys>,
-) -> Result<PathBuf, AnyError> {
-    let state = match npm_resolver {
-        NpmResolver::Managed(managed) => NpmProcessState::new_managed(
-            managed.resolution().serialized_valid_snapshot(),
-            managed.root_node_modules_path(),
-            match managed.linker_mode() {
-                NodeModulesLinkerMode::Isolated => NpmProcessStateLinkerMode::Isolated,
-                NodeModulesLinkerMode::Hoisted => NpmProcessStateLinkerMode::Hoisted,
-            },
-        ),
-        NpmResolver::Byonm(byonm) => NpmProcessState {
-            kind: NpmProcessStateKind::Byonm,
-            local_node_modules_path: byonm
-                .root_node_modules_path()
-                .map(|path| path.to_string_lossy().into_owned()),
-            linker_mode: NpmProcessStateLinkerMode::default(),
-        },
-    };
-    let path = package_env.process_state_file();
-    fs::write(&path, state.as_serialized())
-        .with_context(|| format!("Writing {}", path.display()))?;
-    Ok(path)
 }
 
 fn resolve_byonm_npm_commands(
     node_resolver: &EmbedNodeResolver,
     bin_dirs: &[PathBuf],
-    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
+    project_cwd: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut commands = HashMap::new();
-    let mut deno_command: Option<Rc<BelgieDenoCommand>> = None;
+    let mut command_factory = NodeModulesCommandFactory::default();
     for bin_dir in bin_dirs {
         if !bin_dir.is_dir() {
             continue;
         }
-        let bins = node_resolver.resolve_npm_commands_from_bin_dir(bin_dir);
-        if bins.is_empty() {
-            continue;
-        }
-        let deno_command = match &deno_command {
-            Some(command) => Rc::clone(command),
-            None => {
-                let command = require_deno_command(resolved_deno)?;
-                deno_command = Some(Rc::clone(&command));
-                command
+        for (command_name, path) in node_resolver.resolve_npm_commands_from_bin_dir(bin_dir) {
+            if commands.contains_key(&command_name) {
+                continue;
             }
-        };
-        for (command_name, path) in bins {
-            commands
-                .entry(command_name.clone())
-                .or_insert(npm_bin_shell_command(
-                    command_name,
-                    path.path().to_path_buf(),
-                    Rc::clone(&deno_command),
-                ));
+            let command_key = command_name.clone();
+            let command =
+                command_factory.command(command_name, path.path().to_path_buf(), project_cwd)?;
+            commands.insert(command_key, command);
         }
     }
     Ok(commands)
@@ -259,27 +287,14 @@ fn resolve_task_node_modules_bin_dirs(
     }
 }
 
-fn require_deno_command(
-    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
-) -> Result<Rc<BelgieDenoCommand>, AnyError> {
-    match resolved_deno {
-        Ok(deno_command) => Ok(Rc::clone(deno_command)),
-        Err(error) => Err(deno_core::anyhow::anyhow!("{error}")),
-    }
-}
-
 fn resolve_managed_npm_commands(
     node_resolver: &EmbedNodeResolver,
     npm_resolver: &ManagedNpmResolver<EmbedSys>,
-    resolved_deno: &Result<Rc<BelgieDenoCommand>, AnyError>,
+    project_cwd: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
-    let packages = npm_resolver.resolution().top_level_packages();
-    if packages.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let deno_command = require_deno_command(resolved_deno)?;
     let mut result = HashMap::new();
-    for id in packages {
+    let mut command_factory = NodeModulesCommandFactory::default();
+    for id in npm_resolver.resolution().top_level_packages() {
         let package_folder = npm_resolver
             .resolve_pkg_folder_from_pkg_id(&id)
             .with_context(|| format!("Failed resolving npm package folder for '{id}'"))?;
@@ -291,148 +306,15 @@ fn resolve_managed_npm_commands(
                     package_folder.display()
                 )
             })?;
+        if bins.is_empty() {
+            continue;
+        }
         for (command_name, path) in bins {
-            result.insert(
-                command_name.clone(),
-                npm_bin_shell_command(
-                    command_name,
-                    path.path().to_path_buf(),
-                    Rc::clone(&deno_command),
-                ),
-            );
+            let command_key = command_name.clone();
+            let command =
+                command_factory.command(command_name, path.path().to_path_buf(), project_cwd)?;
+            result.insert(command_key, command);
         }
     }
     Ok(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample_deno_command() -> BelgieDenoCommand {
-        BelgieDenoCommand {
-            deno_path: PathBuf::from("/deno"),
-            config_file: PathBuf::from("/embed/deno.json"),
-            lockfile: PathBuf::from("/embed/deno.lock"),
-            process_state_file: PathBuf::from("/embed/npm-process-state.json"),
-        }
-    }
-
-    #[test]
-    fn with_config_args_inserts_after_run() {
-        let command = sample_deno_command();
-        let result = command.with_config_args(vec![
-            "run".into(),
-            "--ext=js".into(),
-            "-A".into(),
-            "script.js".into(),
-        ]);
-        assert_eq!(
-            result,
-            vec![
-                OsString::from("run"),
-                OsString::from("--config"),
-                OsString::from("/embed/deno.json"),
-                OsString::from("--lock"),
-                OsString::from("/embed/deno.lock"),
-                OsString::from("--ext=js"),
-                OsString::from("-A"),
-                OsString::from("script.js"),
-            ]
-        );
-    }
-
-    #[test]
-    fn with_config_args_prepends_for_non_run_commands() {
-        let command = sample_deno_command();
-        let result = command.with_config_args(vec!["--version".into()]);
-        assert_eq!(
-            result,
-            vec![
-                OsString::from("--config"),
-                OsString::from("/embed/deno.json"),
-                OsString::from("--lock"),
-                OsString::from("/embed/deno.lock"),
-                OsString::from("--version"),
-            ]
-        );
-    }
-
-    #[test]
-    fn with_config_args_inserts_after_run_with_global_flags() {
-        let command = sample_deno_command();
-        let result = command.with_config_args(vec![
-            "--log-level=debug".into(),
-            "run".into(),
-            "main.ts".into(),
-        ]);
-        assert_eq!(
-            result,
-            vec![
-                OsString::from("--log-level=debug"),
-                OsString::from("run"),
-                OsString::from("--config"),
-                OsString::from("/embed/deno.json"),
-                OsString::from("--lock"),
-                OsString::from("/embed/deno.lock"),
-                OsString::from("main.ts"),
-            ]
-        );
-    }
-
-    #[test]
-    fn with_config_args_prepends_for_task_run() {
-        let command = sample_deno_command();
-        let result = command.with_config_args(vec!["task".into(), "run".into()]);
-        assert_eq!(
-            result,
-            vec![
-                OsString::from("--config"),
-                OsString::from("/embed/deno.json"),
-                OsString::from("--lock"),
-                OsString::from("/embed/deno.lock"),
-                OsString::from("task"),
-                OsString::from("run"),
-            ]
-        );
-    }
-
-    #[test]
-    fn with_config_args_prepends_for_install_run() {
-        let command = sample_deno_command();
-        let result = command.with_config_args(vec!["install".into(), "run".into()]);
-        assert_eq!(
-            result,
-            vec![
-                OsString::from("--config"),
-                OsString::from("/embed/deno.json"),
-                OsString::from("--lock"),
-                OsString::from("/embed/deno.lock"),
-                OsString::from("install"),
-                OsString::from("run"),
-            ]
-        );
-    }
-
-    #[test]
-    fn with_config_args_prepends_for_task_run_with_global_flags() {
-        let command = sample_deno_command();
-        let result = command.with_config_args(vec![
-            "--log-level=debug".into(),
-            "task".into(),
-            "run".into(),
-        ]);
-        assert_eq!(
-            result,
-            vec![
-                OsString::from("--config"),
-                OsString::from("/embed/deno.json"),
-                OsString::from("--lock"),
-                OsString::from("/embed/deno.lock"),
-                OsString::from("--log-level=debug"),
-                OsString::from("task"),
-                OsString::from("run"),
-            ]
-        );
-    }
 }

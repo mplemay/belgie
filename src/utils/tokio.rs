@@ -1,5 +1,13 @@
+use deno_core::anyhow::Context;
 use deno_core::anyhow::anyhow;
 use deno_core::error::AnyError;
+
+pub(crate) fn build_task_runtime(context: &str) -> Result<tokio::runtime::Runtime, AnyError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .with_context(|| format!("Failed to create {context} task runtime"))
+}
 
 pub(crate) fn run_outside_runtime<F, T>(operation: F) -> Result<T, AnyError>
 where

@@ -1,28 +1,20 @@
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-
 use crate::task::RunTaskOptions;
 use crate::types::error::BindingError;
 
 pub(crate) fn normalize_run_task_options(
-    task_cwd: PathBuf,
-    script: String,
-    argv: Vec<String>,
-    env: BTreeMap<String, String>,
-    host: Option<String>,
-    port: Option<u16>,
-    install: bool,
+    mut options: RunTaskOptions,
 ) -> Result<RunTaskOptions, BindingError> {
-    let script = script.trim().to_string();
-    if script.is_empty() {
+    options.script = options.script.trim().to_string();
+    if options.script.is_empty() {
         return Err(BindingError::runtime("Task script name must not be empty"));
     }
 
-    let host = host
+    options.host = options
+        .host
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    if let Some(port) = port
+    if let Some(port) = options.port
         && !(1..=65_535).contains(&port)
     {
         return Err(BindingError::runtime(
@@ -30,32 +22,25 @@ pub(crate) fn normalize_run_task_options(
         ));
     }
 
-    if host.is_some() ^ port.is_some() {
+    if options.host.is_some() ^ options.port.is_some() {
         return Err(BindingError::runtime(
             "Long-running tasks require both host and port",
         ));
     }
 
-    let task_cwd = task_cwd
+    options.task_cwd = options
+        .task_cwd
         .canonicalize()
         .map_err(|error| BindingError::runtime(format!("Invalid task cwd: {error}")))?;
 
-    if !task_cwd.is_dir() {
+    if !options.task_cwd.is_dir() {
         return Err(BindingError::runtime(format!(
             "Task cwd must be a directory: {}",
-            task_cwd.display()
+            options.task_cwd.display()
         )));
     }
 
-    Ok(RunTaskOptions {
-        task_cwd,
-        script,
-        argv,
-        env,
-        host,
-        port,
-        install,
-    })
+    Ok(options)
 }
 
 pub(crate) fn ensure_task_success(result: crate::task::TaskResult) -> Result<(), BindingError> {
@@ -69,19 +54,20 @@ pub(crate) fn ensure_task_success(result: crate::task::TaskResult) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     #[test]
     fn accepts_missing_host_and_port() {
-        let options = normalize_run_task_options(
-            PathBuf::from("."),
-            "idle".to_string(),
-            vec![],
-            BTreeMap::new(),
-            None,
-            None,
-            false,
-        )
+        let options = normalize_run_task_options(RunTaskOptions {
+            task_cwd: PathBuf::from("."),
+            script: "idle".to_string(),
+            argv: vec![],
+            env: BTreeMap::new(),
+            host: None,
+            port: None,
+            install: false,
+        })
         .expect("options should normalize");
 
         assert!(options.host.is_none());
@@ -90,15 +76,15 @@ mod tests {
 
     #[test]
     fn rejects_partial_host_and_port() {
-        let error = normalize_run_task_options(
-            PathBuf::from("."),
-            "idle".to_string(),
-            vec![],
-            BTreeMap::new(),
-            Some("127.0.0.1".to_string()),
-            None,
-            false,
-        )
+        let error = normalize_run_task_options(RunTaskOptions {
+            task_cwd: PathBuf::from("."),
+            script: "idle".to_string(),
+            argv: vec![],
+            env: BTreeMap::new(),
+            host: Some("127.0.0.1".to_string()),
+            port: None,
+            install: false,
+        })
         .expect_err("partial host/port should fail");
 
         assert!(error.message().contains("both host and port"));

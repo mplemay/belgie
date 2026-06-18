@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use pyo3::prelude::*;
 
 use crate::{
@@ -56,18 +58,23 @@ impl PyTaskRunner {
     }
 }
 
+#[pyfunction(name = "_configure_task_runtime")]
+pub(crate) fn py_configure_task_runtime(path: String) {
+    crate::task::configure_task_runtime_path(PathBuf::from(path));
+}
+
 fn normalized_options_from_py(
     options: PyRef<'_, PyRunTaskOptions>,
 ) -> PyResult<crate::task::RunTaskOptions> {
     let task_cwd = std::path::PathBuf::from(&options.task_cwd);
-    normalize_run_task_options(
+    normalize_run_task_options(crate::task::RunTaskOptions {
         task_cwd,
-        options.script.clone(),
-        options.argv.clone(),
-        options.env.clone(),
-        options.host.clone(),
-        options.port,
-        options.install,
-    )
+        script: options.script.clone(),
+        argv: options.argv.clone(),
+        env: options.env.clone(),
+        host: options.host.clone(),
+        port: options.port,
+        install: options.install,
+    })
     .map_err(py_error::from_binding_error)
 }
