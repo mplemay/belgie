@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::PathBuf,
     rc::Rc,
     sync::{Arc, Mutex, mpsc},
@@ -27,6 +28,7 @@ pub(crate) struct DenoExecutionHandle {
 #[derive(Debug)]
 struct DenoExecutionHandleInner {
     sender: mpsc::Sender<ExecutionCommand>,
+    isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
     join_handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -42,10 +44,14 @@ enum ExecutionCommand {
 impl DenoExecutionHandle {
     pub(crate) fn new(bound: BoundRuntime) -> Self {
         let (sender, receiver) = mpsc::channel();
-        let join_handle = thread::spawn(move || run_worker_thread(bound, receiver));
+        let isolate_handle = Arc::new(Mutex::new(None));
+        let worker_isolate_handle = isolate_handle.clone();
+        let join_handle =
+            thread::spawn(move || run_worker_thread(bound, receiver, worker_isolate_handle));
         Self {
             inner: Arc::new(DenoExecutionHandleInner {
                 sender,
+                isolate_handle,
                 join_handle: Mutex::new(Some(join_handle)),
             }),
         }
@@ -70,20 +76,24 @@ impl DenoExecutionHandle {
             return Ok(());
         };
 
-        let _ = self.inner.sender.send(ExecutionCommand::Shutdown);
+        self.cancel();
         join_handle
             .join()
             .map_err(|_| BindingError::runtime("Deno execution worker panicked"))?;
         Ok(())
     }
 
-    pub(crate) async fn close_async(&self) -> ExecutionResult<()> {
-        let handle = self.clone();
-        tokio::task::spawn_blocking(move || handle.close_blocking())
-            .await
-            .map_err(|error| {
-                BindingError::runtime(format!("Deno execution worker close task failed: {error}"))
-            })?
+    pub(crate) fn cancel(&self) {
+        if let Some(handle) = self
+            .inner
+            .isolate_handle
+            .lock()
+            .expect("execution isolate handle lock should not be poisoned")
+            .as_ref()
+        {
+            handle.terminate_execution();
+        }
+        let _ = self.inner.sender.send(ExecutionCommand::Shutdown);
     }
 
     pub(crate) fn invoke_blocking(&self, arguments: RunnerArguments) -> ExecutionResult<PyJsValue> {
@@ -126,6 +136,14 @@ impl DenoExecutionHandle {
 
 impl Drop for DenoExecutionHandleInner {
     fn drop(&mut self) {
+        if let Some(handle) = self
+            .isolate_handle
+            .lock()
+            .expect("execution isolate handle lock should not be poisoned")
+            .as_ref()
+        {
+            handle.terminate_execution();
+        }
         let _ = self.sender.send(ExecutionCommand::Shutdown);
         if let Some(join_handle) = self
             .join_handle
@@ -138,7 +156,11 @@ impl Drop for DenoExecutionHandleInner {
     }
 }
 
-fn run_worker_thread(bound: BoundRuntime, receiver: mpsc::Receiver<ExecutionCommand>) {
+fn run_worker_thread(
+    bound: BoundRuntime,
+    receiver: mpsc::Receiver<ExecutionCommand>,
+    isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
+) {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -157,6 +179,10 @@ fn run_worker_thread(bound: BoundRuntime, receiver: mpsc::Receiver<ExecutionComm
             return;
         }
     };
+    *isolate_handle
+        .lock()
+        .expect("execution isolate handle lock should not be poisoned") =
+        Some(context.js_runtime.v8_isolate().thread_safe_handle());
 
     while let Ok(command) = receiver.recv() {
         match command {
@@ -306,17 +332,22 @@ async fn create_js_runtime_with_packages(
 ) -> ExecutionResult<JsRuntime> {
     let is_project = matches!(package_environment, BoundPackageEnvironment::Project(_));
     let context = embed_context_rc(package_environment)?;
-    let state = Rc::new(
-        prepare_package_runtime(context, main_module, bound.script().content().to_string())
-            .await
-            .map_err(|error| {
-                let error = if is_project {
-                    project_state_error(error)
-                } else {
-                    error
-                };
-                BindingError::runtime(error.to_string())
-            })?,
+    let state = Arc::new(
+        prepare_package_runtime(
+            context,
+            main_module,
+            Some(bound.script().content().to_string()),
+            HashMap::new(),
+        )
+        .await
+        .map_err(|error| {
+            let error = if is_project {
+                project_state_error(error)
+            } else {
+                error
+            };
+            BindingError::runtime(error.to_string())
+        })?,
     );
     Ok(JsRuntime::new(RuntimeOptions {
         module_loader: Some(Rc::new(module_loader::PackageAwareModuleLoader::new(

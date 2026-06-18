@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 import belgie
-from belgie import Environment, Runtime, RuntimeOptions, Script
+from belgie import Command, Environment, Runtime, RuntimeOptions, Script
 from belgie.errors import BelgieJavaScriptError, BelgieModuleError, BelgieRuntimeError
 
 if TYPE_CHECKING:
@@ -19,6 +19,7 @@ def test_runtime_api_is_exported_from_top_level_belgie() -> None:
     assert belgie.Environment is Environment
     assert belgie.RuntimeOptions is RuntimeOptions
     assert belgie.Script is Script
+    assert belgie.Command is Command
 
 
 @pytest.mark.parametrize(
@@ -79,18 +80,18 @@ def test_script_loads_from_file(write_script: Callable[[str, str], Path], named_
 
 
 def test_runtime_executes_sync_script() -> None:
-    runtime = Runtime()
     script = Script("export default function run(input) { return { value: input.value + 1 }; }")
 
-    with runtime(script) as run:
-        assert run({"value": 41}) == {"value": 42}
+    with Runtime() as runtime:
+        assert runtime(script)({"value": 41}) == {"value": 42}
 
 
 async def test_runtime_executes_async_script() -> None:
     runtime = Runtime()
     script = Script("export default async function run(input) { return await Promise.resolve(input.items); }")
 
-    async with runtime(script) as run:
+    async with runtime as active:
+        run = active(script)
         result = run({"items": [1, 2, 3]})
         assert inspect.isawaitable(result)
         assert await result == [1, 2, 3]
@@ -108,29 +109,28 @@ def test_runtime_round_trips_json_values(tmp_path: Path) -> None:
         "tuple": (1, 2),
     }
 
-    with Runtime()(Script("export default function run(input) { return input; }")) as run:
-        assert run(value) == {**value, "tuple": [1, 2]}
+    with Runtime() as runtime:
+        assert runtime(Script("export default function run(input) { return input; }"))(value) == {
+            **value,
+            "tuple": [1, 2],
+        }
 
 
 def test_missing_run_export_raises_belgie_module_error(tmp_path: Path) -> None:
-    with (
-        pytest.raises(BelgieModuleError, match="run"),
-        Runtime()(
-            Script("export const answer = 42;"),
-        ) as run,
-    ):
-        run()
+    with Runtime() as runtime, pytest.raises(BelgieModuleError, match="run"):
+        runtime(Script("export const answer = 42;"))()
 
 
 def test_javascript_error_raises_belgie_javascript_error(tmp_path: Path) -> None:
     script = Script('export default function run() { throw new Error("boom"); }')
 
-    with pytest.raises(BelgieJavaScriptError, match="boom"), Runtime()(script) as run:
-        run()
+    with Runtime() as runtime, pytest.raises(BelgieJavaScriptError, match="boom"):
+        runtime(script)()
 
 
 def test_closed_runner_raises_belgie_runtime_error(tmp_path: Path) -> None:
-    with Runtime()(Script("export default function run() { return 'ok'; }")) as run:
+    with Runtime() as runtime:
+        run = runtime(Script("export default function run() { return 'ok'; }"))
         assert run() == "ok"
 
     with pytest.raises(BelgieRuntimeError, match="closed"):

@@ -17,8 +17,8 @@ export default function run() {
 
 def resolve_join_export() -> str:
     lock(cwd=PROJECT_ROOT)
-    with Runtime.from_folder(PROJECT_ROOT)(Script(SOURCE)) as run:
-        return str(run())
+    with Runtime.from_folder(PROJECT_ROOT) as runtime:
+        return str(runtime(Script(SOURCE))())
 
 
 def main() -> None:

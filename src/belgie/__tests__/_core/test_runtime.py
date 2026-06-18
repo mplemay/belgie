@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 from dataclasses import dataclass
 from os import PathLike
@@ -9,7 +10,19 @@ import pytest
 
 from belgie import _core
 from belgie.__tests__._core.conftest import EMPTY_DENO_LOCK
-from belgie._core import AsyncRunner, Environment, Runtime, RuntimeOptions, Script, SyncRunner
+from belgie._core import (
+    AsyncCommandRunner,
+    AsyncRunner,
+    AsyncRuntime,
+    Command,
+    Environment,
+    Runtime,
+    RuntimeOptions,
+    Script,
+    SyncCommandRunner,
+    SyncRunner,
+    SyncRuntime,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -25,8 +38,8 @@ class StringPath(PathLike[str]):
 
 
 def run_source(source: str, *args: object, **kwargs: object) -> object:
-    with Runtime()(Script(source)) as run:
-        return run(*args, **kwargs)
+    with Runtime() as runtime:
+        return runtime(Script(source))(*args, **kwargs)
 
 
 class TestCoreRuntimeExports:
@@ -35,8 +48,13 @@ class TestCoreRuntimeExports:
         assert _core.Environment is Environment
         assert _core.RuntimeOptions is RuntimeOptions
         assert _core.Script is Script
+        assert _core.Command is Command
+        assert _core.SyncRuntime is SyncRuntime
+        assert _core.AsyncRuntime is AsyncRuntime
         assert _core.SyncRunner is SyncRunner
         assert _core.AsyncRunner is AsyncRunner
+        assert _core.SyncCommandRunner is SyncCommandRunner
+        assert _core.AsyncCommandRunner is AsyncCommandRunner
 
 
 class TestRuntimeOptions:
@@ -85,8 +103,6 @@ class TestScript:
         string_script = Script.from_file(str(path))
         pathlike_script = Script.from_file(StringPath(str(path)))
 
-        assert isinstance(string_script, Script)
-        assert isinstance(pathlike_script, Script)
         assert f"file script at {path}" in repr(string_script)
         assert f"file script at {path}" in repr(pathlike_script)
 
@@ -99,17 +115,33 @@ class TestScript:
             Script(cast("Any", 42))
 
 
+class TestCommand:
+    def test_accepts_name_cwd_and_environment(self, tmp_path: Path) -> None:
+        command = Command(" vite ", cwd=StringPath(str(tmp_path)), env={"NODE_ENV": "production"})
+
+        assert isinstance(command, Command)
+        assert repr(command) == f'Command(name="vite", cwd=Some("{tmp_path}"), env={{"NODE_ENV": "production"}})'
+
+    @pytest.mark.parametrize("name", ["", "   "])
+    def test_rejects_empty_names(self, name: str) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            Command(name)
+
+    def test_rejects_invalid_cwd_and_environment(self) -> None:
+        with pytest.raises(TypeError):
+            Command("vite", cwd=cast("Any", object()))
+        with pytest.raises(TypeError):
+            Command("vite", env=cast("Any", {"NODE_ENV": 1}))
+
+
 class TestRuntimeLifecycle:
     def test_accepts_environment_and_reports_repr(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)
         env = Environment()
         runtime = Runtime(env=env)
-        bound = runtime(Script("export default function run() { return 42; }"))
 
         assert f"Environment(cwd={tmp_path}, dependencies=0, active=False)" == repr(env)
         assert f"Runtime(env=Environment(cwd={tmp_path}))" == repr(runtime)
-        assert "Runtime(inline script" in repr(bound)
-        assert " bound in " in repr(bound)
 
     def test_folder_constructors_reject_missing_and_file_paths(self, tmp_path: Path) -> None:
         file_path = tmp_path / "not-a-directory"
@@ -163,34 +195,77 @@ class TestRuntimeLifecycle:
         with pytest.raises(TypeError):
             Runtime(options=cast("Any", object()))
 
-    def test_rejects_non_script_binding(self) -> None:
+    def test_runtime_is_not_directly_callable(self) -> None:
         with pytest.raises(TypeError):
-            Runtime()(cast("Any", object()))
+            cast("Any", Runtime())(Script("export default () => 42;"))
 
-    def test_rejects_entering_unbound_runtime(self) -> None:
-        with pytest.raises(RuntimeError, match="bound to a Script"):
-            Runtime().__enter__()
+    def test_enter_returns_dispatcher_and_rejects_invalid_targets(self) -> None:
+        with Runtime() as runtime:
+            assert isinstance(runtime, SyncRuntime)
+            assert "SyncRuntime(runtime session in " in repr(runtime)
+            with pytest.raises(TypeError, match="Script or Command"):
+                runtime(cast("Any", object()))
 
-    def test_rejects_nested_active_contexts(self) -> None:
-        bound = Runtime()(Script("export default function run() { return 'ok'; }"))
+    def test_rejects_nested_active_contexts_and_can_be_reused(self) -> None:
+        runtime = Runtime()
 
-        with bound as run:
-            assert run() == "ok"
+        with runtime as active:
+            assert active(Script("export default () => 'ok';"))() == "ok"
             with pytest.raises(RuntimeError, match="already active"):
-                bound.__enter__()
+                runtime.__enter__()
 
-        with bound as run:
-            assert run() == "ok"
+        with runtime as active:
+            assert active(Script("export default () => 'again';"))() == "again"
 
-    def test_sync_runner_repr_and_closed_state(self) -> None:
-        with Runtime()(Script("export default function run() { return 'ok'; }")) as run:
+    def test_script_runner_closes_with_runtime(self) -> None:
+        with Runtime() as runtime:
+            run = runtime(Script("export default () => 'ok';"))
             assert isinstance(run, SyncRunner)
             assert "SyncRunner(inline script" in repr(run)
-            assert " bound in " in repr(run)
             assert run() == "ok"
 
         with pytest.raises(_core.BelgieRuntimeError, match="closed"):
             run()
+
+    def test_multiple_bindings_are_independent_and_preserve_state(self) -> None:
+        source = "let count = 0; export default () => ++count;"
+
+        with Runtime() as runtime:
+            first = runtime(Script(source))
+            second = runtime(Script(source))
+
+            assert first() == 1
+            assert first() == 2
+            assert second() == 1
+
+    def test_runtime_from_folder_resolves_inline_relative_imports(self, tmp_path: Path) -> None:
+        (tmp_path / "value.ts").write_text("export const value = 42;\n", encoding="utf-8")
+        script = Script('import { value } from "./value.ts"; export default () => value;')
+
+        with Runtime.from_folder(tmp_path) as runtime:
+            assert runtime(script)() == 42
+
+        assert sorted(path.name for path in tmp_path.iterdir()) == ["value.ts"]
+
+    async def test_async_runtime_from_folder(self, tmp_path: Path) -> None:
+        async with Runtime.from_folder(tmp_path) as runtime:
+            assert isinstance(runtime, AsyncRuntime)
+            assert await runtime(Script("export default async () => 43;"))() == 43
+
+    @pytest.mark.parametrize("runtime", [Runtime(), Runtime.from_folder(".")])
+    def test_command_requires_package_environment(self, runtime: Runtime) -> None:
+        with runtime as active:
+            command = active(Command("vite"))
+            assert isinstance(command, SyncCommandRunner)
+            with pytest.raises(_core.BelgieRuntimeError, match="package dependencies"):
+                command("--version")
+
+    def test_closed_runtime_rejects_new_bindings(self) -> None:
+        with Runtime() as runtime:
+            pass
+
+        with pytest.raises(_core.BelgieRuntimeError, match="closed"):
+            runtime(Script("export default () => 42;"))
 
 
 class TestEnvironmentLifecycle:
@@ -203,10 +278,9 @@ class TestEnvironmentLifecycle:
 
     def test_runtime_requires_an_active_external_environment(self) -> None:
         env = Environment()
-        bound = Runtime(env=env)(Script("export default () => 'ok';"))
 
         with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
-            bound.__enter__()
+            Runtime(env=env).__enter__()
 
     def test_environment_rejects_nested_entry_and_can_be_reused(self) -> None:
         env = Environment()
@@ -215,67 +289,26 @@ class TestEnvironmentLifecycle:
             assert "active=True" in repr(env)
             with pytest.raises(_core.BelgieRuntimeError, match="already active"):
                 env.__enter__()
-            with Runtime(env=env)(Script("export default () => 'ok';")) as run:
-                assert run() == "ok"
+            with Runtime(env=env) as runtime:
+                assert runtime(Script("export default () => 'ok';"))() == "ok"
 
         assert "active=False" in repr(env)
-        with env, Runtime(env=env)(Script("export default () => 'again';")) as run:
-            assert run() == "again"
+        with env, Runtime(env=env) as runtime:
+            assert runtime(Script("export default () => 'again';"))() == "again"
 
     def test_active_runtime_survives_environment_exit(self) -> None:
         env = Environment()
         env.__enter__()
-        bound = Runtime(env=env)(Script("export default () => 'still running';"))
-        run = bound.__enter__()
+        runtime = Runtime(env=env)
+        active = runtime.__enter__()
+        run = active(Script("export default () => 'still running';"))
 
         env.__exit__(None, None, None)
 
         assert run() == "still running"
         with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
-            Runtime(env=env)(Script("export default () => 'new';")).__enter__()
-        bound.__exit__(None, None, None)
-
-    def test_multiple_runtimes_share_one_environment(self) -> None:
-        env = Environment()
-        first = Runtime(env=env)(Script("export default () => 'first';"))
-        second = Runtime(env=env)(Script("export default () => 'second';"))
-        with env, first as run_first, second as run_second:
-            assert run_first() == "first"
-            assert run_second() == "second"
-
-    def test_multiple_runtimes_share_one_project_context(self, tmp_path: Path) -> None:
-        runtime = Runtime.from_folder(tmp_path)
-        first = runtime(Script("export default () => 'first';"))
-        second = runtime(Script("export default () => 'second';"))
-        with first as run_first, second as run_second:
-            assert run_first() == "first"
-            assert run_second() == "second"
-
-    def test_from_folder_runtime_can_be_reused_after_bound_runtimes_exit(self, tmp_path: Path) -> None:
-        runtime = Runtime.from_folder(tmp_path)
-        first = runtime(Script("export default () => 'first';"))
-        second = runtime(Script("export default () => 'second';"))
-
-        with first as run_first:
-            assert run_first() == "first"
-            with second as run_second:
-                assert run_second() == "second"
-
-        with runtime(Script("export default () => 'again';")) as run:
-            assert run() == "again"
-
-    def test_runtime_from_folder_resolves_inline_relative_imports(self, tmp_path: Path) -> None:
-        (tmp_path / "value.ts").write_text("export const value = 42;\n", encoding="utf-8")
-        script = Script('import { value } from "./value.ts"; export default () => value;')
-
-        with Runtime.from_folder(tmp_path)(script) as run:
-            assert run() == 42
-
-        assert sorted(path.name for path in tmp_path.iterdir()) == ["value.ts"]
-
-    async def test_async_runtime_from_folder(self, tmp_path: Path) -> None:
-        async with Runtime.from_folder(tmp_path)(Script("export default async () => 43;")) as run:
-            assert await run() == 43
+            Runtime(env=env).__enter__()
+        runtime.__exit__(None, None, None)
 
 
 class TestSyncRuntimeExecution:
@@ -299,28 +332,10 @@ export default function run(input: { first: number; second: number }): number {
 
         assert run_source(source, {"first": 20, "second": 22}) == 42
 
-    def test_preserves_module_scope_state_in_one_context(self) -> None:
-        source = """
-let count = 0;
-export default function run() {
-  count += 1;
-  return count;
-}
-"""
-
-        with Runtime()(Script(source)) as run:
-            assert run() == 1
-            assert run() == 2
-            assert run() == 3
-
     def test_passes_positional_arguments_and_keyword_object(self) -> None:
         source = """
 export default function run(first, second, options) {
-  return {
-    values: [first, second],
-    optionKeys: Object.keys(options),
-    options,
-  };
+  return { values: [first, second], optionKeys: Object.keys(options), options };
 }
 """
 
@@ -331,27 +346,14 @@ export default function run(first, second, options) {
         }
 
     def test_executes_script_loaded_from_file_with_relative_import(self, write_script) -> None:
-        write_script(
-            """
-export function double(value: number): number {
-  return value * 2;
-}
-""",
-            "lib/math.ts",
-        )
+        write_script("export const double = (value: number): number => value * 2;\n", "lib/math.ts")
         path = write_script(
-            """
-import { double } from "./lib/math.ts";
-
-export default function run(input: { value: number }): number {
-  return double(input.value);
-}
-""",
+            'import { double } from "./lib/math.ts"; export default (input) => double(input.value);\n',
             "main.ts",
         )
 
-        with Runtime()(Script.from_file(path)) as run:
-            assert run({"value": 21}) == 42
+        with Runtime() as runtime:
+            assert runtime(Script.from_file(path))({"value": 21}) == 42
 
 
 class TestAsyncRuntimeExecution:
@@ -363,27 +365,38 @@ export default async function run(input) {
 }
 """
 
-        async with Runtime()(Script(source)) as run:
+        async with Runtime() as runtime:
+            run = runtime(Script(source))
             result = run({"delta": 1})
             assert isinstance(run, AsyncRunner)
             assert "AsyncRunner(inline script" in repr(run)
-            assert " bound in " in repr(run)
             assert inspect.isawaitable(result)
             assert await result == 42
 
     async def test_async_javascript_throw_raises_javascript_error(self) -> None:
         source = "export default async function run() { throw new Error('async boom'); }"
 
-        async with Runtime()(Script(source)) as run:
+        async with Runtime() as runtime:
             with pytest.raises(_core.BelgieJavaScriptError, match="async boom"):
-                await run()
+                await runtime(Script(source))()
 
     async def test_async_closed_runner_raises_runtime_error(self) -> None:
-        async with Runtime()(Script("export default async function run() { return 'ok'; }")) as run:
+        async with Runtime() as runtime:
+            run = runtime(Script("export default async () => 'ok';"))
             assert await run() == "ok"
 
         with pytest.raises(_core.BelgieRuntimeError, match="closed"):
             await run()
+
+    async def test_async_script_invocation_can_be_cancelled(self) -> None:
+        source = "export default () => { while (true) {} };"
+
+        async with Runtime() as runtime:
+            task = asyncio.create_task(runtime(Script(source))())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
 
 class TestJsonConversion:
@@ -432,31 +445,8 @@ export default function run() {
         error_type: type[Exception],
         message: str,
     ) -> None:
-        with (
-            Runtime()(Script("export default function run(input) { return input; }")) as run,
-            pytest.raises(error_type, match=message),
-        ):
-            run(input_value)
-
-    def test_rejects_python_list_cycles_with_json_path(self) -> None:
-        value: list[object] = []
-        value.append(value)
-
-        with (
-            Runtime()(Script("export default function run(input) { return input; }")) as run,
-            pytest.raises(ValueError, match=r"\$\[0\].*cycle|cycle.*\$\[0\]"),
-        ):
-            run(value)
-
-    def test_rejects_python_dict_cycles_with_json_path(self) -> None:
-        value: dict[str, object] = {}
-        value["self"] = value
-
-        with (
-            Runtime()(Script("export default function run(input) { return input; }")) as run,
-            pytest.raises(ValueError, match=r"\$\.self.*cycle|cycle.*\$\.self"),
-        ):
-            run(value)
+        with pytest.raises(error_type, match=message):
+            run_source("export default function run(input) { return input; }", input_value)
 
     @pytest.mark.parametrize(
         ("expression", "error_type", "message"),

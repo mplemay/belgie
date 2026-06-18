@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 import socket
 from collections.abc import Mapping
-from os import environ
 from pathlib import Path
-from shutil import which
 
 import pytest
 
@@ -30,18 +28,14 @@ def write_belgie_pyproject(tmp_path: Path):
         root: Path | None = None,
         dependencies: dict[str, object] | None = None,
         dependency_groups: dict[str, dict[str, object]] | None = None,
-        scripts: dict[str, str] | None = None,
     ) -> Path:
         project_root = root or tmp_path
         lines = ["[belgie]"]
         deps = dict(dependencies or {})
         groups = dict(dependency_groups or {})
-        if scripts and not deps and not groups:
-            deps = {"@std/assert": "jsr:@std/assert@^1"}
         append_table(lines, "belgie.dependencies", deps)
         for group_name, group_deps in groups.items():
             append_table(lines, f"belgie.dependencies.{group_name}", group_deps)
-        append_table(lines, "belgie.scripts", scripts or {})
         path = project_root / "pyproject.toml"
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         if deps or groups:
@@ -49,15 +43,6 @@ def write_belgie_pyproject(tmp_path: Path):
         return path
 
     return write_pyproject
-
-
-@pytest.fixture
-def deno_executable() -> str:
-    if (env_path := environ.get("BELGIE_DENO")) and Path(env_path).is_file():
-        return env_path
-    if path := which("deno"):
-        return path
-    pytest.skip("deno executable is not available for task subprocess tests")
 
 
 @pytest.fixture

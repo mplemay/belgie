@@ -1,7 +1,7 @@
 use std::{path::Path, sync::Arc};
 
 use crate::environment::ActiveEnvironment;
-use crate::options::{JsRuntimeOptions, RuntimeEnvironment};
+use crate::options::JsRuntimeOptions;
 use crate::packages::ProjectPackageEnvironment;
 use crate::script::ScriptSource;
 
@@ -39,10 +39,6 @@ impl BoundRuntime {
 
     pub(crate) fn package_environment(&self) -> Option<&BoundPackageEnvironment> {
         self.package_environment.as_ref()
-    }
-
-    pub(crate) fn runtime_environment(&self) -> Option<&RuntimeEnvironment> {
-        self.runtime.environment()
     }
 
     pub(crate) fn with_package_environment(

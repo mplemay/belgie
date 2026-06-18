@@ -1,4 +1,5 @@
 mod binding;
+mod command;
 mod embed;
 mod environment;
 mod exceptions;
@@ -6,7 +7,6 @@ mod options;
 mod packages;
 mod runtime;
 mod script;
-mod task;
 mod types;
 mod utils;
 
@@ -17,18 +17,20 @@ use pyo3::prelude::*;
 /// import the module.
 #[pymodule]
 fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> {
+    m.add_class::<binding::PyCommand>()?;
     m.add_class::<binding::PyScript>()?;
     m.add_class::<binding::PyEnvironment>()?;
     m.add_class::<binding::PyRuntime>()?;
     m.add_class::<binding::PyRuntimeOptions>()?;
+    m.add_class::<binding::PySyncRuntime>()?;
+    m.add_class::<binding::PyAsyncRuntime>()?;
     m.add_class::<binding::PySyncRunner>()?;
     m.add_class::<binding::PyAsyncRunner>()?;
+    m.add_class::<binding::PySyncCommandRunner>()?;
+    m.add_class::<binding::PyAsyncCommandRunner>()?;
     m.add_class::<binding::PyPackageInstallResult>()?;
     m.add_class::<binding::PyPackageUpdateChange>()?;
     m.add_class::<binding::PyPackageUpdateResult>()?;
-    m.add_class::<binding::PyTaskRunner>()?;
-    m.add_class::<binding::PyRunTaskOptions>()?;
-    m.add_class::<binding::PyTaskProcess>()?;
     m.add_function(wrap_pyfunction!(binding::py_install, m)?)?;
     m.add_function(wrap_pyfunction!(binding::py_lock, m)?)?;
     m.add_function(wrap_pyfunction!(binding::py_update, m)?)?;

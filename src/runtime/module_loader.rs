@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use deno_ast::{MediaType, ParseParams, SourceMapOption};
 use deno_cache_dir::file_fetcher::MemoryFiles;
@@ -54,6 +54,14 @@ fn load_module_source(
     module_specifier: &ModuleSpecifier,
     requested_module_type: RequestedModuleType,
 ) -> Result<ModuleSource, ModuleLoaderError> {
+    load_module_source_with_media_type(module_specifier, requested_module_type, None)
+}
+
+fn load_module_source_with_media_type(
+    module_specifier: &ModuleSpecifier,
+    requested_module_type: RequestedModuleType,
+    media_type_override: Option<MediaType>,
+) -> Result<ModuleSource, ModuleLoaderError> {
     let path = module_specifier
         .to_file_path()
         .map_err(|_| JsErrorBox::generic("Only file:// URLs are supported."))?;
@@ -76,7 +84,7 @@ fn load_module_source(
         ));
     }
 
-    let media_type = MediaType::from_path(&path);
+    let media_type = media_type_override.unwrap_or_else(|| MediaType::from_path(&path));
     let (module_type, should_transpile) = module_type_for_media_type(media_type, &path)?;
     if module_type == ModuleType::Json && requested_module_type != RequestedModuleType::Json {
         return Err(JsErrorBox::generic(
@@ -196,12 +204,12 @@ fn transpile_source(
 
 #[derive(Debug)]
 pub(crate) struct PackageAwareModuleLoader {
-    state: Rc<PackageRuntimeState>,
+    state: Arc<PackageRuntimeState>,
     initial_cwd: PathBuf,
 }
 
 impl PackageAwareModuleLoader {
-    pub(crate) fn new(state: Rc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
+    pub(crate) fn new(state: Arc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
         Self { state, initial_cwd }
     }
 
@@ -255,7 +263,7 @@ impl PackageAwareModuleLoader {
         requested_module_type: RequestedModuleType,
     ) -> Result<ModuleSource, ModuleLoaderError> {
         let url = Url::parse(module_specifier.as_str()).map_err(JsErrorBox::from_err)?;
-        let file = self.state.context.memory_files().get(&url).ok_or_else(|| {
+        let file = self.state.memory_files.get(&url).ok_or_else(|| {
             JsErrorBox::generic(format!("Memory module not found: {module_specifier}"))
         })?;
         let source = String::from_utf8(file.source.to_vec()).map_err(|err| {
@@ -353,8 +361,7 @@ impl ModuleLoader for PackageAwareModuleLoader {
     ) -> ModuleLoadResponse {
         if self
             .state
-            .context
-            .memory_files()
+            .memory_files
             .get(
                 &Url::parse(module_specifier.as_str())
                     .expect("module specifier should be a valid URL"),
@@ -368,10 +375,8 @@ impl ModuleLoader for PackageAwareModuleLoader {
 
         let is_npm_package = self
             .state
-            .context
-            .resolver_factory()
-            .in_npm_package_checker()
-            .is_ok_and(|checker| checker.in_npm_package(module_specifier));
+            .in_npm_package_checker
+            .in_npm_package(module_specifier);
 
         if !is_npm_package
             && module_specifier.scheme() == "file"

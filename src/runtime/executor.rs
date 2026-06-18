@@ -20,11 +20,39 @@ pub(crate) async fn execute_async(
     handle: DenoExecutionHandle,
     arguments: RunnerArguments,
 ) -> AsyncRunnerResult {
+    let mut guard = ExecutionCancellationGuard::new(handle.clone());
     let value = handle
         .invoke_async(arguments)
         .await
         .map_err(py_error::from_binding_error)?;
+    guard.disarm();
     Python::attach(|py| value.to_py(py))
+}
+
+struct ExecutionCancellationGuard {
+    handle: DenoExecutionHandle,
+    armed: bool,
+}
+
+impl ExecutionCancellationGuard {
+    fn new(handle: DenoExecutionHandle) -> Self {
+        Self {
+            handle,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ExecutionCancellationGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.handle.cancel();
+        }
+    }
 }
 
 #[cfg(test)]
