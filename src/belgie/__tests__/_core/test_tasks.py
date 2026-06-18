@@ -144,9 +144,7 @@ class TestTaskRunner:
     async def test_install_true_synchronizes_from_async_runner(
         self,
         write_belgie_pyproject,
-        deno_executable: str,
     ) -> None:
-        del deno_executable
         pyproject = write_belgie_pyproject(
             dependencies={"vite": "^6"},
             scripts={"version": "vite --version"},

@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use deno_ast::{MediaType, ParseParams, SourceMapOption};
 use deno_cache_dir::file_fetcher::MemoryFiles;
@@ -196,12 +196,12 @@ fn transpile_source(
 
 #[derive(Debug)]
 pub(crate) struct PackageAwareModuleLoader {
-    state: Rc<PackageRuntimeState>,
+    state: Arc<PackageRuntimeState>,
     initial_cwd: PathBuf,
 }
 
 impl PackageAwareModuleLoader {
-    pub(crate) fn new(state: Rc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
+    pub(crate) fn new(state: Arc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
         Self { state, initial_cwd }
     }
 
@@ -255,7 +255,7 @@ impl PackageAwareModuleLoader {
         requested_module_type: RequestedModuleType,
     ) -> Result<ModuleSource, ModuleLoaderError> {
         let url = Url::parse(module_specifier.as_str()).map_err(JsErrorBox::from_err)?;
-        let file = self.state.context.memory_files().get(&url).ok_or_else(|| {
+        let file = self.state.memory_files.get(&url).ok_or_else(|| {
             JsErrorBox::generic(format!("Memory module not found: {module_specifier}"))
         })?;
         let source = String::from_utf8(file.source.to_vec()).map_err(|err| {
@@ -353,8 +353,7 @@ impl ModuleLoader for PackageAwareModuleLoader {
     ) -> ModuleLoadResponse {
         if self
             .state
-            .context
-            .memory_files()
+            .memory_files
             .get(
                 &Url::parse(module_specifier.as_str())
                     .expect("module specifier should be a valid URL"),
@@ -368,10 +367,8 @@ impl ModuleLoader for PackageAwareModuleLoader {
 
         let is_npm_package = self
             .state
-            .context
-            .resolver_factory()
-            .in_npm_package_checker()
-            .is_ok_and(|checker| checker.in_npm_package(module_specifier));
+            .in_npm_package_checker
+            .in_npm_package(module_specifier);
 
         if !is_npm_package
             && module_specifier.scheme() == "file"

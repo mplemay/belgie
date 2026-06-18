@@ -306,7 +306,7 @@ async fn create_js_runtime_with_packages(
 ) -> ExecutionResult<JsRuntime> {
     let is_project = matches!(package_environment, BoundPackageEnvironment::Project(_));
     let context = embed_context_rc(package_environment)?;
-    let state = Rc::new(
+    let state = Arc::new(
         prepare_package_runtime(context, main_module, bound.script().content().to_string())
             .await
             .map_err(|error| {

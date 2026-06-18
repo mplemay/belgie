@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 import socket
 from collections.abc import Mapping
-from os import environ
 from pathlib import Path
-from shutil import which
 
 import pytest
 
@@ -49,15 +47,6 @@ def write_belgie_pyproject(tmp_path: Path):
         return path
 
     return write_pyproject
-
-
-@pytest.fixture
-def deno_executable() -> str:
-    if (env_path := environ.get("BELGIE_DENO")) and Path(env_path).is_file():
-        return env_path
-    if path := which("deno"):
-        return path
-    pytest.skip("deno executable is not available for task subprocess tests")
 
 
 @pytest.fixture
