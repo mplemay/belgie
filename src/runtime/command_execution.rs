@@ -11,13 +11,13 @@ use std::thread;
 use std::time::Duration;
 
 use deno_cache_dir::file_fetcher::MemoryFiles;
-use deno_core::{FastString, ModuleSpecifier};
+use deno_core::{FastString, ModuleSpecifier, PollEventLoopOptions};
 use deno_error::JsErrorBox;
 use deno_lib::args::{get_root_cert_store, npm_pkg_req_ref_to_binary_command};
 use deno_lib::npm::create_npm_process_state_provider;
 use deno_lib::worker::{
-    CreateModuleLoaderResult, LibMainWorkerFactory, LibMainWorkerOptions, LibWorkerFactoryRoots,
-    ModuleLoaderFactory, StorageKeyResolver,
+    CreateModuleLoaderResult, LibMainWorker, LibMainWorkerFactory, LibMainWorkerOptions,
+    LibWorkerFactoryRoots, ModuleLoaderFactory, StorageKeyResolver,
 };
 use deno_media_type::MediaType;
 use deno_resolver::cjs::CjsTrackerRc;
@@ -359,7 +359,7 @@ async fn run_js_command(
             unsafely_ignore_certificate_errors: None,
             skip_op_registration: false,
             node_ipc_init: None,
-            no_legacy_abort: false,
+            no_legacy_abort: true,
             startup_snapshot: None,
             residual_lazy_js_sources: &[],
             residual_lazy_esm_sources: &[],
@@ -410,25 +410,42 @@ async fn run_js_command(
                 .borrow()
                 .has::<WatcherExited>();
             if exited {
-                worker
-                    .js_runtime()
-                    .v8_isolate()
-                    .cancel_terminate_execution();
+                finish_worker_after_termination(&mut worker).await;
                 command_exit_result(worker.exit_code())
             } else {
-                command_exit_result(
-                    result.map_err(|error| BindingError::runtime(error.to_string()))?,
-                )
+                match result {
+                    Ok(code) => command_exit_result(code),
+                    Err(error) => {
+                        finish_worker_after_termination(&mut worker).await;
+                        Err(BindingError::runtime(error.to_string()))
+                    }
+                }
             }
         }
         WorkerOutcome::Cancelled => {
-            worker
-                .js_runtime()
-                .v8_isolate()
-                .cancel_terminate_execution();
+            finish_worker_after_termination(&mut worker).await;
             Err(command_cancelled())
         }
     }
+}
+
+fn clear_worker_termination(worker: &mut LibMainWorker) {
+    worker
+        .js_runtime()
+        .v8_isolate()
+        .cancel_terminate_execution();
+}
+
+async fn drain_worker_event_loop(worker: &mut LibMainWorker) {
+    let _ = worker
+        .js_runtime()
+        .run_event_loop(PollEventLoopOptions::default())
+        .await;
+}
+
+async fn finish_worker_after_termination(worker: &mut LibMainWorker) {
+    clear_worker_termination(worker);
+    drain_worker_event_loop(worker).await;
 }
 
 async fn run_native_command(

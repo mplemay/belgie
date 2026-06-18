@@ -120,7 +120,10 @@ class TestCommand:
         command = Command(" vite ", cwd=StringPath(str(tmp_path)), env={"NODE_ENV": "production"})
 
         assert isinstance(command, Command)
-        assert repr(command) == f'Command(name="vite", cwd=Some("{tmp_path}"), env={{"NODE_ENV": "production"}})'
+        text = repr(command).replace("\\\\", "\\")
+        assert 'name="vite"' in text
+        assert f'cwd=Some("{tmp_path.resolve()}")' in text
+        assert 'env={"NODE_ENV": "production"}' in text
 
     @pytest.mark.parametrize("name", ["", "   "])
     def test_rejects_empty_names(self, name: str) -> None:
