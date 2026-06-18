@@ -1,5 +1,4 @@
 use pyo3::prelude::*;
-use std::path::PathBuf;
 
 use crate::{
     binding::task_process::PyTaskProcess,
@@ -57,41 +56,11 @@ impl PyTaskRunner {
     }
 }
 
-#[pyfunction(name = "_run_task_module")]
-pub(crate) fn py_run_task_module(
-    py: Python<'_>,
-    project_dir: String,
-    config_file: String,
-    lockfile: String,
-    command_name: String,
-    module_path: String,
-    argv: Vec<String>,
-) -> PyResult<i32> {
-    py.detach(|| {
-        crate::utils::tokio::run_outside_runtime(|| {
-            crate::task::run_npm_binary_blocking(
-                PathBuf::from(project_dir),
-                PathBuf::from(config_file),
-                PathBuf::from(lockfile),
-                command_name,
-                PathBuf::from(module_path),
-                argv,
-            )
-        })
-    })
-    .map_err(blocking::any_error_to_py)
-}
-
 fn normalized_options_from_py(
-    py: Python<'_>,
+    _py: Python<'_>,
     options: PyRef<'_, PyRunTaskOptions>,
 ) -> PyResult<crate::task::RunTaskOptions> {
     let task_cwd = std::path::PathBuf::from(&options.task_cwd);
-    let python_path = PathBuf::from(
-        py.import("sys")?
-            .getattr("executable")?
-            .extract::<String>()?,
-    );
     normalize_run_task_options(crate::task::RunTaskOptions {
         task_cwd,
         script: options.script.clone(),
@@ -100,7 +69,6 @@ fn normalized_options_from_py(
         host: options.host.clone(),
         port: options.port,
         install: options.install,
-        python_path,
     })
     .map_err(py_error::from_binding_error)
 }

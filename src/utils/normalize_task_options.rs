@@ -67,7 +67,6 @@ mod tests {
             host: None,
             port: None,
             install: false,
-            python_path: PathBuf::from("/venv/bin/python"),
         })
         .expect("options should normalize");
 
@@ -85,7 +84,6 @@ mod tests {
             host: Some("127.0.0.1".to_string()),
             port: None,
             install: false,
-            python_path: PathBuf::from("/venv/bin/python"),
         })
         .expect_err("partial host/port should fail");
 

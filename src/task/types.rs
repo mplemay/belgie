@@ -10,7 +10,6 @@ pub(crate) struct RunTaskOptions {
     pub host: Option<String>,
     pub port: Option<u16>,
     pub install: bool,
-    pub python_path: PathBuf,
 }
 
 #[derive(Clone, Debug)]

@@ -35,7 +35,6 @@ fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::Py
     m.add_function(wrap_pyfunction!(binding::py_ainstall, m)?)?;
     m.add_function(wrap_pyfunction!(binding::py_alock, m)?)?;
     m.add_function(wrap_pyfunction!(binding::py_aupdate, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_run_task_module, m)?)?;
     m.add("BelgieError", py.get_type::<exceptions::BelgieError>())?;
     m.add(
         "BelgieRuntimeError",

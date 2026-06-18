@@ -57,7 +57,6 @@ pub(crate) struct ShellTaskOptions {
     pub(crate) extra_env: BTreeMap<String, String>,
     pub(crate) argv: Vec<String>,
     pub(crate) package_env: PackageEnvironment,
-    pub(crate) python_path: PathBuf,
     pub(crate) stdio: TaskIo,
     pub(crate) kill_signal: KillSignal,
 }
@@ -147,7 +146,7 @@ pub(crate) async fn run_shell_task(options: ShellTaskOptions) -> Result<TaskResu
         .with_context(|| format!("Error parsing script '{}'.", &options.command))?;
 
     let (custom_commands, node_modules_bin_dirs) =
-        prepare_custom_commands(&options.package_env, &options.cwd, &options.python_path).await?;
+        prepare_custom_commands(&options.package_env, &options.cwd).await?;
 
     let mut env_vars = real_env_vars();
     prepare_env_vars(

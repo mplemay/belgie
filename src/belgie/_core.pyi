@@ -67,15 +67,6 @@ class TaskRunner:
     def run(self, options: RunTaskOptions) -> Awaitable[None]: ...
     def start(self, options: RunTaskOptions) -> Awaitable[TaskProcess]: ...
 
-def _run_task_module(
-    project_dir: str,
-    config_file: str,
-    lockfile: str,
-    command_name: str,
-    module_path: str,
-    argv: list[str],
-) -> int: ...
-
 class Script[**P, R]:
     def __init__(self, content: str) -> None: ...
     @classmethod

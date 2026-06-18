@@ -17,6 +17,6 @@ pub(crate) use packages::{
 pub(crate) use runner::{PyAsyncRunner, PySyncRunner};
 pub(crate) use runtime::{PyRuntime, PyRuntimeOptions};
 pub(crate) use script::PyScript;
-pub(crate) use task::{PyTaskRunner, py_run_task_module};
+pub(crate) use task::PyTaskRunner;
 pub(crate) use task_options::PyRunTaskOptions;
 pub(crate) use task_process::PyTaskProcess;
