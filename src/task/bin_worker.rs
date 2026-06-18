@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -17,6 +18,7 @@ use deno_media_type::MediaType;
 use deno_resolver::cjs::CjsTrackerRc;
 use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
 use deno_runtime::deno_fs::RealFs;
+use deno_runtime::deno_io::{PipeRead, Stdio, StdioPipe, pipe};
 use deno_runtime::deno_node::NodeRequireLoader;
 use deno_runtime::deno_permissions::{Permissions, PermissionsContainer};
 use deno_runtime::deno_tls::RootCertStoreProvider;
@@ -24,8 +26,10 @@ use deno_runtime::deno_tls::rustls::RootCertStore;
 use deno_runtime::deno_web::{BlobStore, BlobStoreTrait};
 use deno_runtime::permissions::RuntimePermissionDescriptorParser;
 use deno_runtime::{FeatureChecker, WorkerExecutionMode, WorkerLogLevel};
+use deno_task_shell::ShellPipeWriter;
 use node_resolver::errors::PackageJsonLoadError;
 use once_cell::sync::OnceCell;
+use tokio::task::JoinHandle;
 
 use crate::embed::sys::EmbedSys;
 use crate::embed::{
@@ -34,13 +38,43 @@ use crate::embed::{
 use crate::packages::ProjectPackageEnvironment;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 
-pub(crate) async fn run_task_npm_bin(
-    project_cwd: PathBuf,
-    task_cwd: PathBuf,
-    command_name: String,
-    script_path: PathBuf,
-    argv: Vec<String>,
-) -> Result<i32, AnyError> {
+type StdioForwarder = JoinHandle<Result<(), AnyError>>;
+type WorkerStdio = (Stdio, Vec<StdioForwarder>);
+
+static TASK_NPM_BIN_CWD_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub(crate) struct TaskNpmBinOptions {
+    pub(crate) project_cwd: PathBuf,
+    pub(crate) task_cwd: PathBuf,
+    pub(crate) command_name: String,
+    pub(crate) script_path: PathBuf,
+    pub(crate) argv: Vec<String>,
+    pub(crate) stdout: ShellPipeWriter,
+    pub(crate) stderr: ShellPipeWriter,
+}
+
+pub(crate) async fn run_task_npm_bin(options: TaskNpmBinOptions) -> i32 {
+    let mut error_stderr = options.stderr.clone();
+    match run_task_npm_bin_inner(options).await {
+        Ok(exit_code) => exit_code,
+        Err(error) => {
+            let _ = error_stderr.write_line(&format!("{error}"));
+            1
+        }
+    }
+}
+
+async fn run_task_npm_bin_inner(options: TaskNpmBinOptions) -> Result<i32, AnyError> {
+    let TaskNpmBinOptions {
+        project_cwd,
+        task_cwd,
+        command_name,
+        script_path,
+        argv,
+        stdout,
+        stderr,
+    } = options;
+    let _cwd_lock = TASK_NPM_BIN_CWD_LOCK.lock().await;
     let _cwd_guard = CurrentDirGuard::change_to(&task_cwd)?;
     let project_env = ProjectPackageEnvironment::from_folder(project_cwd.clone(), None, false)?
         .ok_or_else(|| {
@@ -80,6 +114,7 @@ pub(crate) async fn run_task_npm_bin(
         Permissions::allow_all(),
     );
     let root_cert_store_provider = Arc::new(BelgieRootCertStoreProvider::default());
+    let (stdio, stdio_forwarders) = worker_stdio(stdout, stderr)?;
     let mut worker = LibMainWorkerFactory::new(
         BlobStore::default_arc() as Arc<dyn BlobStoreTrait>,
         None,
@@ -129,15 +164,59 @@ pub(crate) async fn run_task_npm_bin(
         LibWorkerFactoryRoots::default(),
         None,
     )
-    .create_main_worker(
+    .create_custom_worker(
         WorkerExecutionMode::Run,
-        permissions,
         main_module,
         Vec::new(),
         Vec::new(),
+        permissions,
+        Vec::new(),
+        stdio,
+        None,
     )?;
 
-    worker.run().await.map_err(AnyError::from)
+    let result = worker.run().await.map_err(AnyError::from);
+    drop(worker);
+    wait_stdio_forwarders(stdio_forwarders).await?;
+    result
+}
+
+fn worker_stdio(stdout: ShellPipeWriter, stderr: ShellPipeWriter) -> Result<WorkerStdio, AnyError> {
+    let (stdout_read, stdout_write) = pipe()?;
+    let (stderr_read, stderr_write) = pipe()?;
+    let stdio = Stdio {
+        stdin: StdioPipe::inherit(),
+        stdout: StdioPipe::file(std::fs::File::from(stdout_write)),
+        stderr: StdioPipe::file(std::fs::File::from(stderr_write)),
+    };
+    Ok((
+        stdio,
+        vec![
+            forward_stdio_pipe(stdout_read, stdout),
+            forward_stdio_pipe(stderr_read, stderr),
+        ],
+    ))
+}
+
+fn forward_stdio_pipe(mut reader: PipeRead, mut writer: ShellPipeWriter) -> StdioForwarder {
+    tokio::task::spawn_blocking(move || {
+        let mut buffer = [0; 8192];
+        loop {
+            let read = reader.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            writer.write_all(&buffer[..read])?;
+        }
+        Ok(())
+    })
+}
+
+async fn wait_stdio_forwarders(forwarders: Vec<StdioForwarder>) -> Result<(), AnyError> {
+    for forwarder in forwarders {
+        forwarder.await??;
+    }
+    Ok(())
 }
 
 #[derive(Debug)]

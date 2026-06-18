@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use deno_core::anyhow::Context;
+use deno_core::anyhow::anyhow;
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_resolver::npm::ManagedNpmResolver;
@@ -17,6 +18,7 @@ use node_resolver::NodeResolver;
 
 use crate::embed::sys::EmbedSys;
 use crate::packages::{PackageEnvironment, project_state_error};
+use crate::task::{TaskNpmBinOptions, run_task_npm_bin};
 
 type EmbedNodeResolver = NodeResolver<
     deno_resolver::npm::DenoInNpmPackageChecker,
@@ -30,57 +32,53 @@ struct NodeModulesFileRunCommand {
     command_name: String,
     project_cwd: PathBuf,
     path: PathBuf,
-    python_exe: PathBuf,
 }
 
 impl ShellCommand for NodeModulesFileRunCommand {
-    fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
+    fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
         let task_cwd = context.state.cwd().clone();
-        let args = task_bin_helper_args(
-            &self.project_cwd,
-            &task_cwd,
-            &self.command_name,
-            &self.path,
-            context.args,
-        );
-        ExecutableCommand::new("python".to_string(), self.python_exe.clone())
-            .execute(ShellCommandContext { args, ..context })
+        let argv = match task_bin_args(context.args) {
+            Ok(args) => args,
+            Err(error) => {
+                let _ = context.stderr.write_line(&format!("{error}"));
+                return Box::pin(std::future::ready(ExecuteResult::from_exit_code(1)));
+            }
+        };
+        let options = TaskNpmBinOptions {
+            project_cwd: self.project_cwd.clone(),
+            task_cwd,
+            command_name: self.command_name.clone(),
+            script_path: self.path.clone(),
+            argv,
+            stdout: context.stdout,
+            stderr: context.stderr,
+        };
+        Box::pin(async move { ExecuteResult::from_exit_code(run_task_npm_bin(options).await) })
     }
 }
 
-fn task_bin_helper_args(
-    project_cwd: &Path,
-    task_cwd: &Path,
-    command_name: &str,
-    path: &Path,
-    forwarded_args: Vec<OsString>,
-) -> Vec<OsString> {
-    let mut args = vec![
-        OsString::from("-m"),
-        OsString::from("belgie._task_runtime"),
-        OsString::from("npm-bin"),
-        OsString::from("--project-cwd"),
-        project_cwd.as_os_str().to_os_string(),
-        OsString::from("--cwd"),
-        task_cwd.as_os_str().to_os_string(),
-        OsString::from("--command-name"),
-        OsString::from(command_name),
-        OsString::from("--"),
-        path.as_os_str().to_os_string(),
-    ];
-    args.extend(forwarded_args);
-    args
-}
-
 impl NodeModulesFileRunCommand {
-    fn new(command_name: String, path: PathBuf, project_cwd: &Path, python_exe: PathBuf) -> Self {
+    fn new(command_name: String, path: PathBuf, project_cwd: &Path) -> Self {
         Self {
             command_name,
             project_cwd: project_cwd.to_path_buf(),
             path,
-            python_exe,
         }
     }
+}
+
+fn task_bin_args(forwarded_args: Vec<OsString>) -> Result<Vec<String>, AnyError> {
+    forwarded_args
+        .into_iter()
+        .map(|argument| {
+            argument.into_string().map_err(|value| {
+                anyhow!(
+                    "npm binary arguments must be valid Unicode: {}",
+                    value.to_string_lossy()
+                )
+            })
+        })
+        .collect()
 }
 
 struct NodeCommand;
@@ -133,15 +131,13 @@ pub(crate) async fn prepare_custom_commands(
         .npm_resolver()
         .map_err(project_state_error)?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
-    let python_exe = std::env::current_exe()
-        .with_context(|| "Could not resolve current Python executable for Belgie task runtime")?;
 
     let mut commands = match npm_resolver {
         NpmResolver::Byonm(_) => {
-            resolve_byonm_npm_commands(node_resolver, &bin_dirs, package_env.cwd(), &python_exe)?
+            resolve_byonm_npm_commands(node_resolver, &bin_dirs, package_env.cwd())?
         }
         NpmResolver::Managed(managed) => {
-            resolve_managed_npm_commands(node_resolver, managed, package_env.cwd(), &python_exe)?
+            resolve_managed_npm_commands(node_resolver, managed, package_env.cwd())?
         }
     };
     commands.insert("deno".to_string(), Rc::new(UnsupportedDenoCommand));
@@ -155,7 +151,6 @@ fn resolve_byonm_npm_commands(
     node_resolver: &EmbedNodeResolver,
     bin_dirs: &[PathBuf],
     project_cwd: &Path,
-    python_exe: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut commands = HashMap::new();
     for bin_dir in bin_dirs {
@@ -168,7 +163,6 @@ fn resolve_byonm_npm_commands(
                     command_name,
                     path.path().to_path_buf(),
                     project_cwd,
-                    python_exe.to_path_buf(),
                 )) as Rc<dyn ShellCommand>
             });
         }
@@ -196,7 +190,6 @@ fn resolve_managed_npm_commands(
     node_resolver: &EmbedNodeResolver,
     npm_resolver: &ManagedNpmResolver<EmbedSys>,
     project_cwd: &Path,
-    python_exe: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut result = HashMap::new();
     for id in npm_resolver.resolution().top_level_packages() {
@@ -218,7 +211,6 @@ fn resolve_managed_npm_commands(
                     command_name,
                     path.path().to_path_buf(),
                     project_cwd,
-                    python_exe.to_path_buf(),
                 )) as Rc<dyn ShellCommand>,
             );
         }
@@ -233,35 +225,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn task_bin_helper_args_include_private_runtime_and_forwarded_arguments() {
-        let project_cwd = Path::new("/project");
-        let task_cwd = Path::new("/project/app");
-        let path = Path::new("/project/node_modules/vite/bin/vite.js");
-        let result = task_bin_helper_args(
-            project_cwd,
-            task_cwd,
-            "vite",
-            path,
-            vec!["build".into(), "--emptyOutDir".into()],
-        );
+    fn task_bin_args_preserve_forwarded_arguments() {
+        let result = task_bin_args(vec![
+            OsString::from("build"),
+            OsString::from("--emptyOutDir"),
+        ])
+        .unwrap();
 
-        assert_eq!(
-            result,
-            vec![
-                OsString::from("-m"),
-                OsString::from("belgie._task_runtime"),
-                OsString::from("npm-bin"),
-                OsString::from("--project-cwd"),
-                OsString::from("/project"),
-                OsString::from("--cwd"),
-                OsString::from("/project/app"),
-                OsString::from("--command-name"),
-                OsString::from("vite"),
-                OsString::from("--"),
-                OsString::from("/project/node_modules/vite/bin/vite.js"),
-                OsString::from("build"),
-                OsString::from("--emptyOutDir"),
-            ]
-        );
+        assert_eq!(result, vec!["build", "--emptyOutDir"]);
     }
 }

@@ -1,5 +1,4 @@
 use pyo3::prelude::*;
-use std::path::PathBuf;
 
 use crate::{
     binding::task_process::PyTaskProcess,
@@ -71,25 +70,4 @@ fn normalized_options_from_py(
         install: options.install,
     })
     .map_err(py_error::from_binding_error)
-}
-
-#[pyfunction(name = "_run_task_npm_bin")]
-pub(crate) fn py_run_task_npm_bin(
-    project_cwd: PathBuf,
-    task_cwd: PathBuf,
-    command_name: String,
-    script_path: PathBuf,
-    argv: Vec<String>,
-) -> PyResult<i32> {
-    crate::utils::tokio::run_outside_runtime(|| {
-        let runtime = crate::utils::tokio::build_task_runtime("npm bin task")?;
-        runtime.block_on(crate::task::run_task_npm_bin(
-            project_cwd,
-            task_cwd,
-            command_name,
-            script_path,
-            argv,
-        ))
-    })
-    .map_err(blocking::any_error_to_py)
 }
