@@ -11,7 +11,7 @@ use deno_resolver::loader::ModuleLoaderRc;
 use deno_resolver::npm::DenoInNpmPackageChecker;
 
 use crate::embed::context::EmbedContext;
-use crate::embed::graph::{build_module_graph, build_module_graph_with_header_overrides};
+use crate::embed::graph::build_module_graph_with_header_overrides;
 use crate::embed::sys::EmbedSys;
 
 pub(crate) struct PackageRuntimeState {
@@ -29,29 +29,25 @@ impl std::fmt::Debug for PackageRuntimeState {
     }
 }
 
+pub(crate) fn js_content_type_header_overrides(
+    main_module: ModuleSpecifier,
+) -> HashMap<ModuleSpecifier, HashMap<String, String>> {
+    HashMap::from([(
+        main_module,
+        HashMap::from([("content-type".to_string(), "text/javascript".to_string())]),
+    )])
+}
+
 pub(crate) async fn prepare_package_runtime(
     context: Rc<EmbedContext>,
     main_module: ModuleSpecifier,
     main_source: Option<String>,
+    file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
 ) -> Result<PackageRuntimeState, AnyError> {
     if let Some(main_source) = main_source {
         context.insert_memory_file(Url::parse(main_module.as_str())?, main_source);
     }
-    prepare_package_runtime_inner(context, main_module, HashMap::new()).await
-}
-
-pub(crate) async fn prepare_task_bin_runtime(
-    context: Rc<EmbedContext>,
-    main_module: ModuleSpecifier,
-) -> Result<PackageRuntimeState, AnyError> {
-    let mut headers = HashMap::new();
-    headers.insert("content-type".to_string(), "text/javascript".to_string());
-    prepare_package_runtime_inner(
-        context,
-        main_module.clone(),
-        HashMap::from([(main_module, headers)]),
-    )
-    .await
+    prepare_package_runtime_inner(context, main_module, file_header_overrides).await
 }
 
 async fn prepare_package_runtime_inner(
@@ -64,12 +60,12 @@ async fn prepare_package_runtime_inner(
         .initialize_npm_resolution_if_managed()
         .await?;
 
-    let graph = if file_header_overrides.is_empty() {
-        build_module_graph(&context, vec![main_module]).await?
-    } else {
-        build_module_graph_with_header_overrides(&context, vec![main_module], file_header_overrides)
-            .await?
-    };
+    let graph = build_module_graph_with_header_overrides(
+        &context,
+        vec![main_module],
+        file_header_overrides,
+    )
+    .await?;
     if let Some(lockfile) = npm_installer_factory.maybe_lockfile().await? {
         lockfile.error_if_changed()?;
     }

@@ -24,12 +24,13 @@ use deno_runtime::deno_tls::rustls::RootCertStore;
 use deno_runtime::deno_web::{BlobStore, BlobStoreTrait};
 use deno_runtime::permissions::RuntimePermissionDescriptorParser;
 use deno_runtime::{FeatureChecker, WorkerExecutionMode, WorkerLogLevel};
-use node_resolver::InNpmPackageChecker;
 use node_resolver::errors::PackageJsonLoadError;
 use once_cell::sync::OnceCell;
 
 use crate::embed::sys::EmbedSys;
-use crate::embed::{PackageRuntimeState, prepare_task_bin_runtime};
+use crate::embed::{
+    PackageRuntimeState, js_content_type_header_overrides, prepare_package_runtime,
+};
 use crate::packages::ProjectPackageEnvironment;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 
@@ -52,22 +53,27 @@ pub(crate) async fn run_task_npm_bin(
     let main_module = ModuleSpecifier::from_file_path(&script_path).map_err(|()| {
         deno_core::anyhow::anyhow!("Could not convert {} to file URL", script_path.display())
     })?;
-    let state = Arc::new(prepare_task_bin_runtime(context.clone(), main_module.clone()).await?);
     let resolver_factory = context.resolver_factory();
     let npm_resolver = resolver_factory.npm_resolver()?;
     let node_resolver = resolver_factory.node_resolver()?.clone();
     let pkg_json_resolver = resolver_factory.pkg_json_resolver().clone();
     let cjs_tracker = resolver_factory.cjs_tracker()?.clone();
-    let in_npm_package_checker = resolver_factory.in_npm_package_checker()?.clone();
     let memory_files = context.memory_files().clone();
+    let state = Arc::new(
+        prepare_package_runtime(
+            context.clone(),
+            main_module.clone(),
+            None,
+            js_content_type_header_overrides(main_module.clone()),
+        )
+        .await?,
+    );
     let module_loader_factory = Box::new(BelgieModuleLoaderFactory {
         state,
         initial_cwd: task_cwd.clone(),
-        main_module: main_module.clone(),
         cjs_tracker,
         npm_resolver: npm_resolver.clone(),
         memory_files,
-        in_npm_package_checker,
     });
     let permissions = PermissionsContainer::new(
         Arc::new(RuntimePermissionDescriptorParser::new(EmbedSys::default())),
@@ -138,11 +144,9 @@ pub(crate) async fn run_task_npm_bin(
 struct BelgieModuleLoaderFactory {
     state: Arc<PackageRuntimeState>,
     initial_cwd: PathBuf,
-    main_module: ModuleSpecifier,
     cjs_tracker: CjsTrackerRc<DenoInNpmPackageChecker, EmbedSys>,
     npm_resolver: NpmResolver<EmbedSys>,
     memory_files: deno_resolver::loader::MemoryFilesRc,
-    in_npm_package_checker: DenoInNpmPackageChecker,
 }
 
 impl ModuleLoaderFactory for BelgieModuleLoaderFactory {
@@ -162,16 +166,14 @@ impl ModuleLoaderFactory for BelgieModuleLoaderFactory {
 impl BelgieModuleLoaderFactory {
     fn create(&self) -> CreateModuleLoaderResult {
         CreateModuleLoaderResult {
-            module_loader: Rc::new(PackageAwareModuleLoader::new_with_js_media_type_override(
+            module_loader: Rc::new(PackageAwareModuleLoader::new(
                 self.state.clone(),
                 self.initial_cwd.clone(),
-                self.main_module.clone(),
             )),
             node_require_loader: Rc::new(BelgieNodeRequireLoader {
                 cjs_tracker: self.cjs_tracker.clone(),
                 npm_resolver: self.npm_resolver.clone(),
                 memory_files: self.memory_files.clone(),
-                in_npm_package_checker: self.in_npm_package_checker.clone(),
             }),
             hook_registry: None,
         }
@@ -183,7 +185,6 @@ struct BelgieNodeRequireLoader {
     cjs_tracker: CjsTrackerRc<DenoInNpmPackageChecker, EmbedSys>,
     npm_resolver: NpmResolver<EmbedSys>,
     memory_files: deno_resolver::loader::MemoryFilesRc,
-    in_npm_package_checker: DenoInNpmPackageChecker,
 }
 
 impl NodeRequireLoader for BelgieNodeRequireLoader {
@@ -197,10 +198,6 @@ impl NodeRequireLoader for BelgieNodeRequireLoader {
 
     fn load_text_file_lossy(&self, path: &Path) -> Result<FastString, JsErrorBox> {
         let specifier = deno_path_util::url_from_file_path(path).map_err(JsErrorBox::from_err)?;
-        if self.in_npm_package_checker.in_npm_package(&specifier) {
-            let bytes = std::fs::read(path).map_err(JsErrorBox::from_err)?;
-            return Ok(String::from_utf8_lossy(&bytes).into_owned().into());
-        }
         if let Some(file) = self.memory_files.get(&specifier) {
             return Ok(String::from_utf8_lossy(&file.source).into_owned().into());
         }

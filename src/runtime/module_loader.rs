@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -207,28 +206,11 @@ fn transpile_source(
 pub(crate) struct PackageAwareModuleLoader {
     state: Arc<PackageRuntimeState>,
     initial_cwd: PathBuf,
-    js_media_type_overrides: HashSet<ModuleSpecifier>,
 }
 
 impl PackageAwareModuleLoader {
     pub(crate) fn new(state: Arc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
-        Self {
-            state,
-            initial_cwd,
-            js_media_type_overrides: HashSet::new(),
-        }
-    }
-
-    pub(crate) fn new_with_js_media_type_override(
-        state: Arc<PackageRuntimeState>,
-        initial_cwd: PathBuf,
-        module_specifier: ModuleSpecifier,
-    ) -> Self {
-        Self {
-            state,
-            initial_cwd,
-            js_media_type_overrides: HashSet::from([module_specifier]),
-        }
+        Self { state, initial_cwd }
     }
 
     fn resolve_referrer(&self, referrer: &str) -> Result<ModuleSpecifier, ModuleLoaderError> {
@@ -403,14 +385,9 @@ impl ModuleLoader for PackageAwareModuleLoader {
                 .ok()
                 .is_some_and(|path| path.exists())
         {
-            let media_type_override = self
-                .js_media_type_overrides
-                .contains(module_specifier)
-                .then_some(MediaType::JavaScript);
-            return ModuleLoadResponse::Sync(load_module_source_with_media_type(
+            return ModuleLoadResponse::Sync(load_module_source(
                 module_specifier,
                 options.requested_module_type,
-                media_type_override,
             ));
         }
 
@@ -424,7 +401,6 @@ impl ModuleLoader for PackageAwareModuleLoader {
                 let loader = PackageAwareModuleLoader {
                     state,
                     initial_cwd: PathBuf::new(), // unused in load path
-                    js_media_type_overrides: HashSet::new(),
                 };
                 loader
                     .load_package_module(

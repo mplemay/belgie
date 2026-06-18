@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 from pathlib import Path
 from sys import stderr
 from typing import TYPE_CHECKING
@@ -21,17 +21,13 @@ def main(args: Sequence[str] | None = None) -> int:
     npm_bin.add_argument("script_path")
     npm_bin.add_argument("argv", nargs="*")
     namespace = parser.parse_args(args)
-    return run_npm_bin(namespace)
-
-
-def run_npm_bin(namespace: Namespace) -> int:
     try:
         return _run_task_npm_bin(
             Path(namespace.project_cwd),
             Path(namespace.cwd),
             namespace.command_name,
             Path(namespace.script_path),
-            list(namespace.argv),
+            namespace.argv,
         )
     except BelgieError as error:
         stderr.write(f"{error}\n")

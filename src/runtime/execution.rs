@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::PathBuf,
     rc::Rc,
     sync::{Arc, Mutex, mpsc},
@@ -311,6 +312,7 @@ async fn create_js_runtime_with_packages(
             context,
             main_module,
             Some(bound.script().content().to_string()),
+            HashMap::new(),
         )
         .await
         .map_err(|error| {

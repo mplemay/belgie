@@ -30,20 +30,11 @@ struct NodeModulesFileRunCommand {
     command_name: String,
     project_cwd: PathBuf,
     path: PathBuf,
+    python_exe: PathBuf,
 }
 
 impl ShellCommand for NodeModulesFileRunCommand {
     fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
-        let current_exe = match std::env::current_exe() {
-            Ok(path) => path,
-            Err(error) => {
-                let mut stderr = context.stderr;
-                let _ = stderr.write_line(&format!(
-                    "Could not resolve current Python executable for Belgie task runtime: {error}"
-                ));
-                return Box::pin(std::future::ready(ExecuteResult::from_exit_code(1)));
-            }
-        };
         let task_cwd = context.state.cwd().clone();
         let args = task_bin_helper_args(
             &self.project_cwd,
@@ -52,7 +43,7 @@ impl ShellCommand for NodeModulesFileRunCommand {
             &self.path,
             context.args,
         );
-        ExecutableCommand::new("python".to_string(), current_exe)
+        ExecutableCommand::new("python".to_string(), self.python_exe.clone())
             .execute(ShellCommandContext { args, ..context })
     }
 }
@@ -82,11 +73,12 @@ fn task_bin_helper_args(
 }
 
 impl NodeModulesFileRunCommand {
-    fn new(command_name: String, path: PathBuf, project_cwd: &Path) -> Self {
+    fn new(command_name: String, path: PathBuf, project_cwd: &Path, python_exe: PathBuf) -> Self {
         Self {
             command_name,
             project_cwd: project_cwd.to_path_buf(),
             path,
+            python_exe,
         }
     }
 }
@@ -141,13 +133,15 @@ pub(crate) async fn prepare_custom_commands(
         .npm_resolver()
         .map_err(project_state_error)?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
+    let python_exe = std::env::current_exe()
+        .with_context(|| "Could not resolve current Python executable for Belgie task runtime")?;
 
     let mut commands = match npm_resolver {
         NpmResolver::Byonm(_) => {
-            resolve_byonm_npm_commands(node_resolver, &bin_dirs, package_env.cwd())?
+            resolve_byonm_npm_commands(node_resolver, &bin_dirs, package_env.cwd(), &python_exe)?
         }
         NpmResolver::Managed(managed) => {
-            resolve_managed_npm_commands(node_resolver, managed, package_env.cwd())?
+            resolve_managed_npm_commands(node_resolver, managed, package_env.cwd(), &python_exe)?
         }
     };
     commands.insert("deno".to_string(), Rc::new(UnsupportedDenoCommand));
@@ -161,6 +155,7 @@ fn resolve_byonm_npm_commands(
     node_resolver: &EmbedNodeResolver,
     bin_dirs: &[PathBuf],
     project_cwd: &Path,
+    python_exe: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut commands = HashMap::new();
     for bin_dir in bin_dirs {
@@ -173,6 +168,7 @@ fn resolve_byonm_npm_commands(
                     command_name,
                     path.path().to_path_buf(),
                     project_cwd,
+                    python_exe.to_path_buf(),
                 )) as Rc<dyn ShellCommand>
             });
         }
@@ -200,6 +196,7 @@ fn resolve_managed_npm_commands(
     node_resolver: &EmbedNodeResolver,
     npm_resolver: &ManagedNpmResolver<EmbedSys>,
     project_cwd: &Path,
+    python_exe: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut result = HashMap::new();
     for id in npm_resolver.resolution().top_level_packages() {
@@ -221,6 +218,7 @@ fn resolve_managed_npm_commands(
                     command_name,
                     path.path().to_path_buf(),
                     project_cwd,
+                    python_exe.to_path_buf(),
                 )) as Rc<dyn ShellCommand>,
             );
         }
