@@ -1,11 +1,9 @@
 use std::collections::HashMap;
-use std::env;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use deno_core::anyhow::Context;
-use deno_core::anyhow::anyhow;
 use deno_core::error::AnyError;
 use deno_core::futures::future::LocalBoxFuture;
 use deno_resolver::npm::ManagedNpmResolver;
@@ -19,6 +17,7 @@ use node_resolver::NodeResolver;
 
 use crate::embed::sys::EmbedSys;
 use crate::packages::{PackageEnvironment, project_state_error};
+use crate::task::{TaskNpmBinOptions, run_task_npm_bin};
 
 type EmbedNodeResolver = NodeResolver<
     deno_resolver::npm::DenoInNpmPackageChecker,
@@ -27,47 +26,68 @@ type EmbedNodeResolver = NodeResolver<
     EmbedSys,
 >;
 
-const TASK_RUNTIME_ENV_VAR: &str = "BELGIE_TASK_RUNTIME";
 const NPM_COMMAND_NAME_ENV_VAR: &str = "DENO_INTERNAL_NPM_CMD_NAME";
 
 #[derive(Clone)]
 struct NodeModulesFileRunCommand {
     command_name: String,
     project_cwd: PathBuf,
-    task_runtime: PathBuf,
     path: PathBuf,
 }
 
 impl ShellCommand for NodeModulesFileRunCommand {
     fn execute(&self, mut context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
-        let mut args = vec![
-            OsString::from("npm-bin"),
-            OsString::from("--project-cwd"),
-            self.project_cwd.clone().into_os_string(),
-            OsString::from("--task-cwd"),
-            context.state.cwd().clone().into_os_string(),
-            OsString::from("--command-name"),
-            OsString::from(&self.command_name),
-            OsString::from("--script-path"),
-            self.path.clone().into_os_string(),
-            OsString::from("--"),
-        ];
-        args.extend(context.args);
+        if let Some(exit_code) = context.state.kill_signal().aborted_code() {
+            return Box::pin(std::future::ready(ExecuteResult::from_exit_code(exit_code)));
+        }
+        let argv = match context
+            .args
+            .into_iter()
+            .map(|arg| {
+                arg.into_string().map_err(|arg| {
+                    format!(
+                        "npm binary arguments must be valid Unicode: {}",
+                        arg.to_string_lossy()
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(argv) => argv,
+            Err(error) => {
+                let _ = context.stderr.write_line(&error);
+                return Box::pin(std::future::ready(ExecuteResult::from_exit_code(1)));
+            }
+        };
         context.state.apply_env_var(
             OsStr::new(NPM_COMMAND_NAME_ENV_VAR),
             OsStr::new(&self.command_name),
         );
-        ExecutableCommand::new("belgie-task-runtime".to_string(), self.task_runtime.clone())
-            .execute(ShellCommandContext { args, ..context })
+        let kill_signal = context.state.kill_signal().clone();
+        let options = TaskNpmBinOptions {
+            project_cwd: self.project_cwd.clone(),
+            task_cwd: context.state.cwd().clone(),
+            command_name: self.command_name.clone(),
+            script_path: self.path.clone(),
+            argv,
+            env_vars: context.state.env_vars().clone(),
+            stdout: context.stdout,
+            stderr: context.stderr,
+        };
+        Box::pin(async move {
+            tokio::select! {
+                exit_code = run_task_npm_bin(options) => ExecuteResult::from_exit_code(exit_code),
+                signal = kill_signal.wait_aborted() => ExecuteResult::from_exit_code(signal.aborted_code()),
+            }
+        })
     }
 }
 
 impl NodeModulesFileRunCommand {
-    fn new(command_name: String, path: PathBuf, project_cwd: &Path, task_runtime: &Path) -> Self {
+    fn new(command_name: String, path: PathBuf, project_cwd: &Path) -> Self {
         Self {
             command_name,
             project_cwd: project_cwd.to_path_buf(),
-            task_runtime: task_runtime.to_path_buf(),
             path,
         }
     }
@@ -145,21 +165,18 @@ fn resolve_byonm_npm_commands(
     project_cwd: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut commands = HashMap::new();
-    let mut task_runtime = None;
     for bin_dir in bin_dirs {
         if !bin_dir.is_dir() {
             continue;
         }
         for (command_name, path) in node_resolver.resolve_npm_commands_from_bin_dir(bin_dir) {
             if !commands.contains_key(&command_name) {
-                let task_runtime = require_task_runtime(&mut task_runtime)?.to_path_buf();
                 commands.insert(
                     command_name.clone(),
                     Rc::new(NodeModulesFileRunCommand::new(
                         command_name,
                         path.path().to_path_buf(),
                         project_cwd,
-                        &task_runtime,
                     )) as Rc<dyn ShellCommand>,
                 );
             }
@@ -190,7 +207,6 @@ fn resolve_managed_npm_commands(
     project_cwd: &Path,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut result = HashMap::new();
-    let mut task_runtime = None;
     for id in npm_resolver.resolution().top_level_packages() {
         let package_folder = npm_resolver
             .resolve_pkg_folder_from_pkg_id(&id)
@@ -206,7 +222,6 @@ fn resolve_managed_npm_commands(
         if bins.is_empty() {
             continue;
         }
-        let task_runtime = require_task_runtime(&mut task_runtime)?.to_path_buf();
         for (command_name, path) in bins {
             result.insert(
                 command_name.clone(),
@@ -214,78 +229,9 @@ fn resolve_managed_npm_commands(
                     command_name,
                     path.path().to_path_buf(),
                     project_cwd,
-                    &task_runtime,
                 )) as Rc<dyn ShellCommand>,
             );
         }
     }
     Ok(result)
-}
-
-fn require_task_runtime(cache: &mut Option<PathBuf>) -> Result<&Path, AnyError> {
-    if cache.is_none() {
-        *cache = Some(resolve_task_runtime_exe()?);
-    }
-    Ok(cache
-        .as_deref()
-        .expect("task runtime cache should be populated"))
-}
-
-fn resolve_task_runtime_exe() -> Result<PathBuf, AnyError> {
-    if let Some(path) = env::var_os(TASK_RUNTIME_ENV_VAR) {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return Ok(path);
-        }
-        return Err(anyhow!(
-            "{TASK_RUNTIME_ENV_VAR} points to a missing executable: {}",
-            path.display()
-        ));
-    }
-
-    if let Some(path) = env::var_os("CARGO_BIN_EXE_belgie-task-runtime") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return Ok(path);
-        }
-    }
-
-    let current_exe = env::current_exe().context("Failed resolving current Python executable")?;
-    let Some(scripts_dir) = current_exe.parent() else {
-        return Err(anyhow!(
-            "Could not find belgie-task-runtime next to {}",
-            current_exe.display()
-        ));
-    };
-    let task_runtime = scripts_dir.join(task_runtime_exe_name());
-    if task_runtime.is_file() {
-        return Ok(task_runtime);
-    }
-    Err(anyhow!(
-        "Could not find belgie-task-runtime. Set {TASK_RUNTIME_ENV_VAR} to the helper executable path."
-    ))
-}
-
-fn task_runtime_exe_name() -> &'static str {
-    if cfg!(windows) {
-        "belgie-task-runtime.exe"
-    } else {
-        "belgie-task-runtime"
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn task_runtime_exe_name_matches_platform() {
-        let expected = if cfg!(windows) {
-            "belgie-task-runtime.exe"
-        } else {
-            "belgie-task-runtime"
-        };
-
-        assert_eq!(task_runtime_exe_name(), expected);
-    }
 }

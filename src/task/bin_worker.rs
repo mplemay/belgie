@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -49,6 +51,7 @@ pub(crate) struct TaskNpmBinOptions {
     pub(crate) command_name: String,
     pub(crate) script_path: PathBuf,
     pub(crate) argv: Vec<String>,
+    pub(crate) env_vars: HashMap<OsString, OsString>,
     pub(crate) stdout: ShellPipeWriter,
     pub(crate) stderr: ShellPipeWriter,
 }
@@ -71,6 +74,7 @@ async fn run_task_npm_bin_inner(options: TaskNpmBinOptions) -> Result<i32, AnyEr
         command_name,
         script_path,
         argv,
+        env_vars,
         stdout,
         stderr,
     } = options;
@@ -144,9 +148,9 @@ async fn run_task_npm_bin_inner(options: TaskNpmBinOptions) -> Result<i32, AnyEr
             auto_serve: false,
             location: None,
             argv0: Some(command_name),
-            node_debug: std::env::var("NODE_DEBUG").ok(),
-            node_cluster_unique_id: std::env::var("NODE_UNIQUE_ID").ok(),
-            node_cluster_sched_policy: std::env::var("NODE_CLUSTER_SCHED_POLICY").ok(),
+            node_debug: env_var_string(&env_vars, "NODE_DEBUG"),
+            node_cluster_unique_id: env_var_string(&env_vars, "NODE_UNIQUE_ID"),
+            node_cluster_sched_policy: env_var_string(&env_vars, "NODE_CLUSTER_SCHED_POLICY"),
             otel_config: Default::default(),
             origin_data_folder_path: None,
             seed: None,
@@ -179,6 +183,17 @@ async fn run_task_npm_bin_inner(options: TaskNpmBinOptions) -> Result<i32, AnyEr
     drop(worker);
     wait_stdio_forwarders(stdio_forwarders).await?;
     result
+}
+
+fn env_var_string(env_vars: &HashMap<OsString, OsString>, name: &str) -> Option<String> {
+    let name = if cfg!(windows) {
+        OsStr::new(name).to_ascii_uppercase()
+    } else {
+        OsString::from(name)
+    };
+    env_vars
+        .get(&name)
+        .and_then(|value| value.clone().into_string().ok())
 }
 
 fn worker_stdio(stdout: ShellPipeWriter, stderr: ShellPipeWriter) -> Result<WorkerStdio, AnyError> {

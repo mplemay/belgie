@@ -28,12 +28,14 @@ GET_TIME_DEV_DEPENDENCIES: Final[dict[str, str]] = {
 
 async def test_task_runs_npm_bin_command(
     write_belgie_pyproject,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pyproject = write_belgie_pyproject(
         dependencies={"vite": "^6"},
         scripts={"version": "vite --version"},
     )
     install(cwd=pyproject.parent)
+    monkeypatch.setenv("BELGIE_TASK_RUNTIME", str(pyproject.parent / "missing-helper"))
     await TaskRunner().run(RunTaskOptions(str(pyproject.parent), "version"))
     rmtree(pyproject.parent / "node_modules")
     await TaskRunner().run(RunTaskOptions(str(pyproject.parent), "version", install=True))

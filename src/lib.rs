@@ -10,8 +10,6 @@ mod task;
 mod types;
 mod utils;
 
-pub mod task_runtime;
-
 use pyo3::prelude::*;
 
 /// A Python module implemented in Rust. The name of this module must match
