@@ -3,12 +3,14 @@ from __future__ import annotations
 import sys
 from json import dumps
 from pathlib import Path
+from shutil import rmtree
 from typing import Any, cast
 
 import pytest
 
 from belgie import _core, tasks as public_tasks
 from belgie._core import BelgieRuntimeError, RunTaskOptions, TaskProcess, TaskRunner
+from belgie.dependencies import install
 
 
 class TestTaskExports:
@@ -138,6 +140,21 @@ class TestTaskRunner:
 
         with pytest.raises(BelgieRuntimeError, match=r"node_modules.*install=True"):
             await TaskRunner().run(options)
+
+    async def test_install_true_synchronizes_from_async_runner(
+        self,
+        write_belgie_pyproject,
+        deno_executable: str,
+    ) -> None:
+        del deno_executable
+        pyproject = write_belgie_pyproject(
+            dependencies={"vite": "^6"},
+            scripts={"version": "vite --version"},
+        )
+        install(cwd=pyproject.parent)
+        rmtree(pyproject.parent / "node_modules")
+        await TaskRunner().run(RunTaskOptions(str(pyproject.parent), "version", install=True))
+        assert (pyproject.parent / "node_modules").is_dir()
 
     async def test_failed_task_includes_captured_stderr(self, write_belgie_pyproject) -> None:
         pyproject = write_belgie_pyproject(scripts={"fail": "sh -c 'echo task exploded >&2; exit 7'"})

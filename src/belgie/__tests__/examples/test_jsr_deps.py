@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from belgie.__tests__.integration.examples.conftest import EXAMPLES_ROOT
+from belgie.__tests__.examples.conftest import EXAMPLES_ROOT
 from belgie.dependencies import lock
 
 pytestmark = pytest.mark.integration

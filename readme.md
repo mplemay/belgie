@@ -6,6 +6,8 @@ A minimal, secure JavaScript runtime for Python.
 
 - **[simple](examples/simple):** Async `Runtime` with a TypeScript script loaded from disk.
 - **[jsr-deps](examples/jsr-deps):** `[belgie.dependencies]` locking and JSR imports through `Runtime`.
+- **[environment](examples/environment):** inline `Environment` deps with sync and async `Runtime` (no project
+  lock/install).
 - **[task-scripts](examples/task-scripts):** `[belgie.scripts]` tasks run through `TaskRunner`.
 
 ## Package dependencies
