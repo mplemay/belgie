@@ -61,17 +61,23 @@ impl PyTaskRunner {
 pub(crate) fn py_run_task_module(
     py: Python<'_>,
     project_dir: String,
+    config_file: String,
+    lockfile: String,
     command_name: String,
     module_path: String,
     argv: Vec<String>,
 ) -> PyResult<i32> {
     py.detach(|| {
-        crate::task::run_npm_binary_blocking(
-            PathBuf::from(project_dir),
-            command_name,
-            PathBuf::from(module_path),
-            argv,
-        )
+        crate::utils::tokio::run_outside_runtime(|| {
+            crate::task::run_npm_binary_blocking(
+                PathBuf::from(project_dir),
+                PathBuf::from(config_file),
+                PathBuf::from(lockfile),
+                command_name,
+                PathBuf::from(module_path),
+                argv,
+            )
+        })
     })
     .map_err(blocking::any_error_to_py)
 }

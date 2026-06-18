@@ -31,16 +31,11 @@ impl std::fmt::Debug for PackageRuntimeState {
 pub(crate) async fn prepare_package_runtime(
     context: Rc<EmbedContext>,
     main_module: ModuleSpecifier,
-    main_source: String,
+    main_source: Option<String>,
 ) -> Result<PackageRuntimeState, AnyError> {
-    context.insert_memory_file(Url::parse(main_module.as_str())?, main_source);
-    prepare_package_runtime_inner(context, main_module).await
-}
-
-pub(crate) async fn prepare_package_entrypoint_runtime(
-    context: Rc<EmbedContext>,
-    main_module: ModuleSpecifier,
-) -> Result<PackageRuntimeState, AnyError> {
+    if let Some(main_source) = main_source {
+        context.insert_memory_file(Url::parse(main_module.as_str())?, main_source);
+    }
     prepare_package_runtime_inner(context, main_module).await
 }
 

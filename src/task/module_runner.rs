@@ -25,9 +25,10 @@ use deno_runtime::{FeatureChecker, WorkerExecutionMode, WorkerLogLevel};
 use node_resolver::errors::PackageJsonLoadError;
 use url::Url;
 
+use crate::embed::EmbedContext;
 use crate::embed::sys::EmbedSys;
-use crate::embed::{PackageRuntimeState, prepare_package_entrypoint_runtime};
-use crate::packages::ProjectPackageEnvironment;
+use crate::embed::{PackageRuntimeState, prepare_package_runtime};
+use crate::packages::{project_embed_options, project_state_error};
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 
 #[derive(Clone)]
@@ -107,45 +108,61 @@ impl RootCertStoreProvider for TaskRootCertStoreProvider {
 
 pub(crate) fn run_npm_binary_blocking(
     project_dir: PathBuf,
+    config_file: PathBuf,
+    lockfile: PathBuf,
     command_name: String,
     module_path: PathBuf,
     argv: Vec<String>,
 ) -> Result<i32, AnyError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    runtime.block_on(run_npm_binary(project_dir, command_name, module_path, argv))
+    let runtime = crate::utils::tokio::build_task_runtime("npm binary")?;
+    runtime.block_on(run_npm_binary(
+        project_dir,
+        config_file,
+        lockfile,
+        command_name,
+        module_path,
+        argv,
+    ))
 }
 
 async fn run_npm_binary(
     project_dir: PathBuf,
+    config_file: PathBuf,
+    lockfile: PathBuf,
     command_name: String,
     module_path: PathBuf,
     argv: Vec<String>,
 ) -> Result<i32, AnyError> {
-    let project_dir = project_dir.canonicalize()?;
-    let module_path = module_path.canonicalize()?;
+    let project_dir = project_dir.canonicalize().map_err(project_state_error)?;
+    let module_path = module_path.canonicalize().map_err(project_state_error)?;
     let main_module = Url::from_file_path(&module_path).map_err(|()| {
-        deno_core::anyhow::anyhow!(
+        project_state_error(deno_core::anyhow::anyhow!(
             "Could not convert npm binary path to file URL: {}",
             module_path.display()
-        )
+        ))
     })?;
-    let environment = ProjectPackageEnvironment::from_folder(project_dir, None, false)?
-        .ok_or_else(|| deno_core::anyhow::anyhow!("No Belgie dependencies found for npm task"))?;
-    let context = environment.embed_context()?;
+    let context = Rc::new(
+        EmbedContext::new_with_options(
+            project_dir.clone(),
+            config_file,
+            lockfile,
+            project_embed_options(&project_dir),
+        )
+        .map_err(project_state_error)?,
+    );
     let state = Arc::new(
-        prepare_package_entrypoint_runtime(Rc::clone(&context), main_module.clone()).await?,
+        prepare_package_runtime(Rc::clone(&context), main_module.clone(), None)
+            .await
+            .map_err(project_state_error)?,
     );
     let resolver_factory = context.resolver_factory();
     let npm_resolver = resolver_factory.npm_resolver()?.clone();
     let sys = EmbedSys::default();
-    let initial_cwd = std::env::current_dir()?;
     let root_cert_store = get_root_cert_store(&sys, None, None, None)?;
     let module_loader_factory = TaskModuleLoaderFactory {
         state,
         cjs_tracker: resolver_factory.cjs_tracker()?.clone(),
-        initial_cwd: initial_cwd.clone(),
+        initial_cwd: project_dir.clone(),
     };
     let options = LibMainWorkerOptions {
         argv,
@@ -176,7 +193,7 @@ async fn run_npm_binary(
         residual_lazy_esm_sources: &[],
         serve_port: None,
         serve_host: None,
-        maybe_initial_cwd: Url::from_directory_path(initial_cwd).ok(),
+        maybe_initial_cwd: Url::from_directory_path(&project_dir).ok(),
     };
     let factory = LibMainWorkerFactory::new(
         Arc::new(deno_runtime::deno_web::BlobStore::default()),

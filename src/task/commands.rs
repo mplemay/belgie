@@ -32,18 +32,23 @@ struct NodeModulesFileRunCommand {
     command_name: String,
     path: PathBuf,
     project_dir: PathBuf,
+    config_file: PathBuf,
+    lockfile: PathBuf,
     python_path: PathBuf,
+    executable_name: String,
 }
 
 impl ShellCommand for NodeModulesFileRunCommand {
     fn execute(&self, context: ShellCommandContext) -> LocalBoxFuture<'static, ExecuteResult> {
         let args = task_runtime_args(
             &self.project_dir,
+            &self.config_file,
+            &self.lockfile,
             &self.command_name,
             &self.path,
             context.args,
         );
-        ExecutableCommand::new("python".to_string(), self.python_path.clone())
+        ExecutableCommand::new(self.executable_name.clone(), self.python_path.clone())
             .execute(ShellCommandContext { args, ..context })
     }
 }
@@ -61,6 +66,8 @@ impl ShellCommand for UnsupportedDenoCommand {
 
 fn task_runtime_args(
     project_dir: &Path,
+    config_file: &Path,
+    lockfile: &Path,
     command_name: &str,
     path: &Path,
     args: Vec<OsString>,
@@ -69,6 +76,8 @@ fn task_runtime_args(
         OsString::from("-m"),
         OsString::from(TASK_RUNTIME_MODULE),
         project_dir.as_os_str().to_os_string(),
+        config_file.as_os_str().to_os_string(),
+        lockfile.as_os_str().to_os_string(),
         OsString::from(command_name),
         path.as_os_str().to_os_string(),
     ];
@@ -80,13 +89,19 @@ fn npm_bin_shell_command(
     command_name: String,
     path: PathBuf,
     project_dir: &Path,
+    config_file: &Path,
+    lockfile: &Path,
     python_path: &Path,
+    executable_name: &str,
 ) -> Rc<dyn ShellCommand> {
     Rc::new(NodeModulesFileRunCommand {
         command_name,
         path,
         project_dir: project_dir.to_path_buf(),
+        config_file: config_file.to_path_buf(),
+        lockfile: lockfile.to_path_buf(),
         python_path: python_path.to_path_buf(),
+        executable_name: executable_name.to_string(),
     })
 }
 
@@ -112,14 +127,34 @@ pub(crate) async fn prepare_custom_commands(
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
     let python_path =
         std::env::current_exe().context("Failed to resolve the current Python executable")?;
+    let executable_name = python_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("belgie")
+        .to_string();
+    let project_dir = package_env.cwd();
+    let config_file = package_env.config_file();
+    let lockfile = package_env.lockfile();
 
     let mut commands = match npm_resolver {
-        NpmResolver::Byonm(_) => {
-            resolve_byonm_npm_commands(node_resolver, &bin_dirs, package_env.cwd(), &python_path)
-        }
-        NpmResolver::Managed(managed) => {
-            resolve_managed_npm_commands(node_resolver, managed, package_env.cwd(), &python_path)?
-        }
+        NpmResolver::Byonm(_) => resolve_byonm_npm_commands(
+            node_resolver,
+            &bin_dirs,
+            project_dir,
+            config_file,
+            lockfile,
+            &python_path,
+            &executable_name,
+        ),
+        NpmResolver::Managed(managed) => resolve_managed_npm_commands(
+            node_resolver,
+            managed,
+            project_dir,
+            config_file,
+            lockfile,
+            &python_path,
+            &executable_name,
+        )?,
     };
     commands.insert("deno".to_string(), Rc::new(UnsupportedDenoCommand));
     Ok((commands, bin_dirs))
@@ -129,7 +164,10 @@ fn resolve_byonm_npm_commands(
     node_resolver: &EmbedNodeResolver,
     bin_dirs: &[PathBuf],
     project_dir: &Path,
+    config_file: &Path,
+    lockfile: &Path,
     python_path: &Path,
+    executable_name: &str,
 ) -> HashMap<String, Rc<dyn ShellCommand>> {
     let mut commands = HashMap::new();
     for bin_dir in bin_dirs {
@@ -142,7 +180,10 @@ fn resolve_byonm_npm_commands(
                     command_name,
                     path.path().to_path_buf(),
                     project_dir,
+                    config_file,
+                    lockfile,
                     python_path,
+                    executable_name,
                 )
             });
         }
@@ -170,7 +211,10 @@ fn resolve_managed_npm_commands(
     node_resolver: &EmbedNodeResolver,
     npm_resolver: &ManagedNpmResolver<EmbedSys>,
     project_dir: &Path,
+    config_file: &Path,
+    lockfile: &Path,
     python_path: &Path,
+    executable_name: &str,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut result = HashMap::new();
     for id in npm_resolver.resolution().top_level_packages() {
@@ -192,7 +236,10 @@ fn resolve_managed_npm_commands(
                     command_name,
                     path.path().to_path_buf(),
                     project_dir,
+                    config_file,
+                    lockfile,
                     python_path,
+                    executable_name,
                 ),
             );
         }
@@ -208,6 +255,8 @@ mod tests {
     fn task_runtime_args_include_private_module_and_forwarded_arguments() {
         let result = task_runtime_args(
             Path::new("/project"),
+            Path::new("/project/deno.json"),
+            Path::new("/project/deno.lock"),
             "vite",
             Path::new("/project/node_modules/vite/bin/vite.js"),
             vec!["build".into(), "--emptyOutDir".into()],
@@ -219,6 +268,8 @@ mod tests {
                 OsString::from("-m"),
                 OsString::from("belgie._task_runtime"),
                 OsString::from("/project"),
+                OsString::from("/project/deno.json"),
+                OsString::from("/project/deno.lock"),
                 OsString::from("vite"),
                 OsString::from("/project/node_modules/vite/bin/vite.js"),
                 OsString::from("build"),

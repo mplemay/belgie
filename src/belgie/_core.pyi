@@ -69,6 +69,8 @@ class TaskRunner:
 
 def _run_task_module(
     project_dir: str,
+    config_file: str,
+    lockfile: str,
     command_name: str,
     module_path: str,
     argv: list[str],

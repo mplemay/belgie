@@ -370,7 +370,7 @@ fn local_install_options(cwd: &Path) -> EmbedContextOptions {
     }
 }
 
-fn project_embed_options(cwd: &Path) -> EmbedContextOptions {
+pub(crate) fn project_embed_options(cwd: &Path) -> EmbedContextOptions {
     EmbedContextOptions {
         frozen_lockfile: Some(true),
         lockfile_skip_write: true,
