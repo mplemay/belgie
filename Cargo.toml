@@ -7,6 +7,11 @@ edition = "2024"
 name = "_core"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "belgie-task-runtime"
+path = "src/bin/belgie-task-runtime.rs"
+doc = false
+
 [features]
 default = []
 extension-module = ["pyo3/extension-module"]
@@ -40,7 +45,6 @@ elliptic-curve = "=0.14.0-rc.28"
 futures = "0.3.31"
 http = "1.0"
 http-body-util = "0.1.2"
-libc = "0.2"
 locked-tripwire = "=0.1.1"
 log = "0.4.28"
 node_resolver = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", features = ["sync"] }
@@ -59,3 +63,6 @@ tokio = { version = "1.47.1", features = ["rt", "sync", "macros", "rt-multi-thre
 toml_edit = "0.23"
 url = "2.5.7"
 yaml_parser = "=0.2.1"
+
+[build-dependencies]
+deno_runtime = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", default-features = false, features = ["transpile"] }
