@@ -74,6 +74,7 @@ async fn run_task_npm_bin_inner(options: TaskNpmBinOptions) -> Result<i32, AnyEr
         stdout,
         stderr,
     } = options;
+    native_addon_host::ensure_symbols_visible()?;
     let _cwd_lock = TASK_NPM_BIN_CWD_LOCK.lock().await;
     let _cwd_guard = CurrentDirGuard::change_to(&task_cwd)?;
     let project_env = ProjectPackageEnvironment::from_folder(project_cwd.clone(), None, false)?
@@ -341,5 +342,80 @@ impl CurrentDirGuard {
 impl Drop for CurrentDirGuard {
     fn drop(&mut self) {
         let _ = std::env::set_current_dir(&self.previous);
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod native_addon_host {
+    use std::ffi::CStr;
+    use std::mem::MaybeUninit;
+    use std::os::raw::c_void;
+    use std::sync::OnceLock;
+
+    use deno_core::error::AnyError;
+
+    static PROMOTION_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
+
+    pub(super) fn ensure_symbols_visible() -> Result<(), AnyError> {
+        match PROMOTION_RESULT.get_or_init(promote_current_library) {
+            Ok(()) => Ok(()),
+            Err(message) => Err(deno_core::anyhow::anyhow!("{message}")),
+        }
+    }
+
+    fn promote_current_library() -> Result<(), String> {
+        let mut info = MaybeUninit::<libc::Dl_info>::zeroed();
+        let symbol = promote_current_library as *const () as *const c_void;
+        // Native npm addons resolve Node-API symbols from the global loader
+        // scope. Python imports extension modules locally, so promote this
+        // already-loaded library before Deno opens any `.node` files.
+        let found = unsafe { libc::dladdr(symbol, info.as_mut_ptr()) };
+        if found == 0 {
+            return Err(dlerror_or(
+                "Could not locate the loaded Belgie runtime library",
+            ));
+        }
+
+        let info = unsafe { info.assume_init() };
+        if info.dli_fname.is_null() {
+            return Err("Could not locate the loaded Belgie runtime library path".to_string());
+        }
+
+        unsafe {
+            libc::dlerror();
+            let handle = libc::dlopen(
+                info.dli_fname,
+                libc::RTLD_LAZY | libc::RTLD_NOLOAD | libc::RTLD_GLOBAL,
+            );
+            if handle.is_null() {
+                let path = CStr::from_ptr(info.dli_fname).to_string_lossy();
+                return Err(format!(
+                    "Could not make Belgie runtime symbols visible for native npm addons at {path}: {}",
+                    dlerror_or("dlopen failed"),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn dlerror_or(default: &str) -> String {
+        let error = unsafe { libc::dlerror() };
+        if error.is_null() {
+            default.to_string()
+        } else {
+            unsafe { CStr::from_ptr(error) }
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod native_addon_host {
+    use deno_core::error::AnyError;
+
+    pub(super) fn ensure_symbols_visible() -> Result<(), AnyError> {
+        Ok(())
     }
 }

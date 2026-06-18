@@ -16,6 +16,7 @@ use crate::task::commands::prepare_custom_commands;
 use crate::task::types::TaskResult;
 
 pub(crate) const STDERR_CAPTURE_LIMIT: usize = 8 * 1024;
+const NPM_CONFIG_USER_AGENT_ENV_VAR: &str = "npm_config_user_agent";
 
 pub(crate) struct TaskStdio(
     pub(crate) Option<ShellPipeReader>,
@@ -94,6 +95,13 @@ fn prepare_env_vars(
         env_vars.insert(INIT_CWD_NAME.into(), cwd.to_path_buf().into_os_string());
     }
 
+    if !env_vars.contains_key(OsStr::new(NPM_CONFIG_USER_AGENT_ENV_VAR)) {
+        env_vars.insert(
+            NPM_CONFIG_USER_AGENT_ENV_VAR.into(),
+            npm_config_user_agent().into(),
+        );
+    }
+
     for (key, value) in extra_env {
         env_vars.insert(key.clone().into(), value.clone().into());
     }
@@ -119,6 +127,16 @@ fn prepend_to_path(env_vars: &mut HashMap<OsString, OsString>, value: OsString) 
             env_vars.insert("PATH".into(), value);
         }
     }
+}
+
+fn npm_config_user_agent() -> String {
+    format!(
+        "belgie/{} npm/? belgie/{} {} {}",
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
 }
 
 fn read_capped_stderr(reader: ShellPipeReader) -> JoinHandle<Result<Vec<u8>, AnyError>> {
@@ -253,6 +271,41 @@ mod tests {
         assert_eq!(
             failure_stderr(1, bytes).unwrap().len(),
             STDERR_CAPTURE_LIMIT
+        );
+    }
+
+    #[test]
+    fn prepare_env_vars_sets_npm_user_agent_when_absent() {
+        let mut env_vars = HashMap::new();
+        prepare_env_vars(&mut env_vars, Path::new("/project"), &[], &BTreeMap::new());
+
+        let user_agent = env_vars
+            .get(OsStr::new(NPM_CONFIG_USER_AGENT_ENV_VAR))
+            .expect("npm user agent should be set");
+
+        assert!(
+            user_agent
+                .to_string_lossy()
+                .starts_with(&format!("belgie/{}", env!("CARGO_PKG_VERSION")))
+        );
+    }
+
+    #[test]
+    fn prepare_env_vars_allows_extra_env_to_override_npm_user_agent() {
+        let mut env_vars = HashMap::new();
+        let mut extra_env = BTreeMap::new();
+        extra_env.insert(
+            NPM_CONFIG_USER_AGENT_ENV_VAR.to_string(),
+            "custom-agent".to_string(),
+        );
+
+        prepare_env_vars(&mut env_vars, Path::new("/project"), &[], &extra_env);
+
+        assert_eq!(
+            env_vars
+                .get(OsStr::new(NPM_CONFIG_USER_AGENT_ENV_VAR))
+                .and_then(|value| value.to_str()),
+            Some("custom-agent")
         );
     }
 }
