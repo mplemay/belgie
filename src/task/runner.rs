@@ -112,6 +112,14 @@ pub(crate) struct TaskRunner;
 
 impl TaskRunner {
     pub(crate) fn run_blocking(&self, options: RunTaskOptions) -> Result<TaskResult, AnyError> {
+        if options.install {
+            crate::utils::tokio::run_outside_runtime(|| self.run_blocking_impl(options))
+        } else {
+            self.run_blocking_impl(options)
+        }
+    }
+
+    fn run_blocking_impl(&self, options: RunTaskOptions) -> Result<TaskResult, AnyError> {
         let (package_env, command) =
             PackageEnvironment::resolve_task(&options.task_cwd, &options.script, options.install)?;
         let runtime = build_task_runtime("foreground")?;

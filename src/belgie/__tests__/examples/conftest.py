@@ -9,7 +9,7 @@ from typing import Final
 
 import pytest
 
-EXAMPLES_ROOT: Final[Path] = Path(__file__).resolve().parents[5] / "examples"
+EXAMPLES_ROOT: Final[Path] = Path(__file__).resolve().parents[4] / "examples"
 
 
 def _load_example_main(example_dir: Path, package: str) -> Iterator[ModuleType]:
@@ -34,3 +34,8 @@ def jsr_deps_module() -> Iterator[ModuleType]:
 @pytest.fixture
 def task_scripts_module() -> Iterator[ModuleType]:
     yield from _load_example_main(EXAMPLES_ROOT / "task-scripts", "task_scripts")
+
+
+@pytest.fixture
+def environment_module() -> Iterator[ModuleType]:
+    yield from _load_example_main(EXAMPLES_ROOT / "environment", "environment")
