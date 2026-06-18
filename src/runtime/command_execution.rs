@@ -421,7 +421,13 @@ async fn run_js_command(
                 )
             }
         }
-        WorkerOutcome::Cancelled => Err(command_cancelled()),
+        WorkerOutcome::Cancelled => {
+            worker
+                .js_runtime()
+                .v8_isolate()
+                .cancel_terminate_execution();
+            Err(command_cancelled())
+        }
     }
 }
 
