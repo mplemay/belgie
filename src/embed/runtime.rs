@@ -40,6 +40,9 @@ pub(crate) async fn prepare_package_runtime(
     context.insert_memory_file(main_url, main_source);
 
     let graph = build_module_graph(&context, vec![main_module]).await?;
+    if let Some(lockfile) = npm_installer_factory.maybe_lockfile().await? {
+        lockfile.error_if_changed()?;
+    }
     let resolver_factory = context.resolver_factory();
     let deno_resolver = resolver_factory.deno_resolver().await?.clone();
     let module_loader = resolver_factory.module_loader()?.clone();

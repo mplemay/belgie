@@ -11,9 +11,9 @@ use deno_core::{
 use tokio::sync::oneshot;
 
 use crate::{
-    embed::prepare_package_runtime,
-    packages::PackageEnvironment,
-    runtime::{BoundRuntime, module_loader},
+    embed::{EmbedContext, prepare_package_runtime},
+    packages::project_state_error,
+    runtime::{BoundPackageEnvironment, BoundRuntime, module_loader},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
 };
 
@@ -179,16 +179,14 @@ struct DenoExecutionContext {
     js_runtime: JsRuntime,
     main_module: ModuleSpecifier,
     run_function: Option<v8::Global<v8::Function>>,
-    uses_package_loader: bool,
+    package_environment: Option<BoundPackageEnvironment>,
 }
 
 impl DenoExecutionContext {
     fn new(bound: BoundRuntime, tokio_runtime: &tokio::runtime::Runtime) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
-        let package_environment = PackageEnvironment::discover(bound.cwd().to_path_buf(), None)
-            .map_err(|error| BindingError::runtime(error.to_string()))?;
-        let uses_package_loader = package_environment.is_some();
-        let js_runtime = if let Some(package_environment) = package_environment {
+        let package_environment = bound.package_environment().cloned();
+        let js_runtime = if let Some(package_environment) = &package_environment {
             tokio_runtime.block_on(create_js_runtime_with_packages(
                 &bound,
                 package_environment,
@@ -202,7 +200,7 @@ impl DenoExecutionContext {
             js_runtime,
             main_module,
             run_function: None,
-            uses_package_loader,
+            package_environment,
         })
     }
 
@@ -232,7 +230,7 @@ impl DenoExecutionContext {
             return Ok(());
         }
 
-        let module_id = if self.uses_package_loader {
+        let module_id = if self.package_environment.is_some() {
             self.js_runtime
                 .load_main_es_module(&self.main_module)
                 .await
@@ -303,16 +301,22 @@ fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
 
 async fn create_js_runtime_with_packages(
     bound: &BoundRuntime,
-    package_environment: PackageEnvironment,
+    package_environment: &BoundPackageEnvironment,
     main_module: ModuleSpecifier,
 ) -> ExecutionResult<JsRuntime> {
-    let context = package_environment
-        .embed_context()
-        .map_err(|error| BindingError::runtime(error.to_string()))?;
+    let is_project = matches!(package_environment, BoundPackageEnvironment::Project(_));
+    let context = embed_context_rc(package_environment)?;
     let state = Rc::new(
         prepare_package_runtime(context, main_module, bound.script().content().to_string())
             .await
-            .map_err(|error| BindingError::runtime(error.to_string()))?,
+            .map_err(|error| {
+                let error = if is_project {
+                    project_state_error(error)
+                } else {
+                    error
+                };
+                BindingError::runtime(error.to_string())
+            })?,
     );
     Ok(JsRuntime::new(RuntimeOptions {
         module_loader: Some(Rc::new(module_loader::PackageAwareModuleLoader::new(
@@ -325,6 +329,19 @@ async fn create_js_runtime_with_packages(
             .map_err(BindingError::runtime)?,
         ..Default::default()
     }))
+}
+
+fn embed_context_rc(
+    package_environment: &BoundPackageEnvironment,
+) -> ExecutionResult<Rc<EmbedContext>> {
+    match package_environment {
+        BoundPackageEnvironment::Isolated(environment) => environment
+            .embed_context()
+            .map_err(|error| BindingError::runtime(error.to_string())),
+        BoundPackageEnvironment::Project(environment) => environment
+            .embed_context()
+            .map_err(|error| BindingError::runtime(error.to_string())),
+    }
 }
 
 fn resolve_run_function(

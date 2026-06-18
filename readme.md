@@ -45,14 +45,63 @@ lock(groups=["dev"])  # dev group only
 
 Async helpers (`alock`, `ainstall`, `aupdate`) accept the same arguments.
 
-### Runtime and tasks
+## Runtime environments
 
-When running JavaScript through `Runtime` or `[belgie.scripts]` tasks, belgie loads
-dependencies from **all groups** so dev-only tooling remains available at runtime.
+Use `Environment` for temporary dependencies that must remain isolated from the current project:
+
+```python
+from belgie import Environment, Runtime, Script
+
+script = Script(
+    """
+import { join } from "std_path";
+
+export default function run() {
+  return join.name;
+}
+"""
+)
+
+with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+    with Runtime(env=env)(script) as run:
+        assert run() == "join"
+```
+
+The temporary config, lockfile, and complete Deno cache are removed after the environment exits
+and any runtimes that were already using it have closed.
+
+Use `install()` to create a reusable project-local `node_modules` directory, then use
+`Runtime.from_folder()` to load `[belgie.dependencies]`, the project `deno.lock`, and relative
+modules:
+
+```python
+from belgie.dependencies import install
+
+install(groups=["default", "dev"])
+
+with Runtime.from_folder(".")(Script.from_file("main.ts")) as run:
+    result = run()
+```
+
+`Runtime.from_folder()` includes every dependency group by default. Pass `groups` to select
+specific groups. By default it assumes the lockfile and local install are current. Pass
+`install=True` to synchronize `node_modules` from the existing frozen lockfile before execution;
+runtime execution never rewrites `pyproject.toml` or `deno.lock`.
+
+Plain `Runtime()` supports dependency-free inline and file scripts and snapshots the process
+working directory when it is constructed.
+
+### Tasks
+
+When running `[belgie.scripts]` tasks, belgie loads dependencies from **all groups** so dev-only
+tooling remains available. `RunTaskOptions(..., install=True)` synchronizes the project install
+before running a task; the default assumes it is already installed.
 
 ### Notes
 
 - Duplicate import aliases are not allowed across included groups.
+- `lock()` writes `deno.lock` without creating `node_modules`; `install()` and non-lockfile-only
+  updates synchronize the project-local install.
 - Top-level string entries under `[belgie.dependencies]` map to the `default` group. A nested
   table whose key is literally `default` is treated as a separate named group.
 - The legacy `[belgie.dev-dependencies]` table is not supported; use

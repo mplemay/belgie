@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
@@ -9,9 +9,10 @@ use deno_core::serde_json;
 use tempfile::TempDir;
 use toml_edit::{DocumentMut, value};
 
-use crate::embed::EmbedContext;
+use crate::embed::{EmbedContext, EmbedContextOptions};
 
 const DEFAULT_GROUP: &str = "default";
+pub(crate) const EMPTY_DENO_LOCK: &str = "{\"version\":\"5\"}\n";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PyprojectValueKind {
@@ -38,8 +39,23 @@ struct PackageEnvironmentInner {
     config_file: PathBuf,
     lockfile: PathBuf,
     dependencies: Vec<PackageDependency>,
+    embed_options: EmbedContextOptions,
     embed_context: Mutex<Option<Rc<EmbedContext>>>,
-    _temp_dir: TempDir,
+    temp_dir: TempDir,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ProjectPackageEnvironment {
+    inner: Arc<ProjectPackageEnvironmentInner>,
+}
+
+#[derive(Debug)]
+struct ProjectPackageEnvironmentInner {
+    cwd: PathBuf,
+    config_file: PathBuf,
+    lockfile: PathBuf,
+    embed_options: EmbedContextOptions,
+    temp_dir: TempDir,
 }
 
 #[derive(Clone, Debug)]
@@ -70,39 +86,32 @@ struct PyprojectManifest {
 }
 
 impl PackageEnvironment {
-    pub(crate) fn discover(
+    fn required(
         cwd: PathBuf,
         groups: Option<Vec<String>>,
-    ) -> Result<Option<Self>, AnyError> {
-        let Some(manifest) = read_manifest(&cwd, groups)? else {
-            return Ok(None);
-        };
-        if manifest.dependencies.is_empty() {
-            return Ok(None);
-        }
-        Self::from_dependencies(cwd, manifest.dependencies).map(Some)
-    }
-
-    fn required(cwd: PathBuf, groups: Option<Vec<String>>) -> Result<Self, AnyError> {
+        embed_options: EmbedContextOptions,
+    ) -> Result<Self, AnyError> {
         let Some(manifest) = read_manifest(&cwd, groups.clone())? else {
             return Err(no_dependencies_error(&cwd, groups));
         };
         if manifest.dependencies.is_empty() {
             return Err(no_dependencies_error(&cwd, groups));
         }
-        Self::from_manifest_parts(cwd, manifest.dependencies)
+        Self::from_manifest_parts(cwd, manifest.dependencies, embed_options)
     }
 
+    #[cfg(test)]
     fn from_dependencies(
         cwd: PathBuf,
         dependencies: Vec<PackageDependency>,
     ) -> Result<Self, AnyError> {
-        Self::from_manifest_parts(cwd, dependencies)
+        Self::from_manifest_parts(cwd, dependencies, EmbedContextOptions::default())
     }
 
     fn from_manifest_parts(
         cwd: PathBuf,
         dependencies: Vec<PackageDependency>,
+        embed_options: EmbedContextOptions,
     ) -> Result<Self, AnyError> {
         let temp_dir = tempfile::Builder::new()
             .prefix("belgie-packages-")
@@ -117,22 +126,46 @@ impl PackageEnvironment {
                 config_file,
                 lockfile,
                 dependencies,
+                embed_options,
                 embed_context: Mutex::new(None),
-                _temp_dir: temp_dir,
+                temp_dir,
             }),
         })
     }
 
-    pub(crate) fn validate_task(task_cwd: &Path, script_name: &str) -> Result<(), AnyError> {
-        resolve_task_manifest(task_cwd, script_name).map(|_| ())
+    pub(crate) fn validate_task(
+        task_cwd: &Path,
+        script_name: &str,
+        install: bool,
+    ) -> Result<(PathBuf, Vec<PackageDependency>, String), AnyError> {
+        let (project_dir, dependencies, command) = resolve_task_manifest(task_cwd, script_name)?;
+        validate_project_artifacts(&project_dir, &dependencies, install)?;
+        Ok((project_dir, dependencies, command))
     }
 
     pub(crate) fn resolve_task(
         task_cwd: &Path,
         script_name: &str,
+        install: bool,
     ) -> Result<(Self, String), AnyError> {
-        let (pyproject_dir, dependencies, command) = resolve_task_manifest(task_cwd, script_name)?;
-        let env = Self::from_manifest_parts(pyproject_dir, dependencies)?;
+        let (pyproject_dir, dependencies, command) =
+            Self::validate_task(task_cwd, script_name, install)?;
+        Self::resolve_task_from_parts(pyproject_dir, dependencies, command, install)
+    }
+
+    pub(crate) fn resolve_task_from_parts(
+        pyproject_dir: PathBuf,
+        dependencies: Vec<PackageDependency>,
+        command: String,
+        install: bool,
+    ) -> Result<(Self, String), AnyError> {
+        let options = project_embed_options(&pyproject_dir);
+        let env = Self::from_manifest_parts(pyproject_dir, dependencies, options)?;
+        if install {
+            pyo3_async_runtimes::tokio::get_runtime()
+                .block_on(env.synchronize())
+                .map_err(project_state_error)?;
+        }
         Ok((env, command))
     }
 
@@ -168,12 +201,93 @@ impl PackageEnvironment {
             .expect("package embed context lock should not be poisoned");
         if guard.is_none() {
             let (cwd, config_file, lockfile) = self.embed_paths();
-            *guard = Some(Rc::new(EmbedContext::new(cwd, config_file, lockfile)?));
+            *guard = Some(Rc::new(EmbedContext::new_with_options(
+                cwd,
+                config_file,
+                lockfile,
+                self.inner.embed_options.clone(),
+            )?));
         }
         Ok(guard
             .as_ref()
             .expect("embed context should be initialized")
             .clone())
+    }
+
+    pub(crate) async fn synchronize(&self) -> Result<(), AnyError> {
+        let (cwd, config_file, lockfile) = self.embed_paths();
+        let context =
+            synchronize_embed(cwd, config_file, lockfile, self.inner.embed_options.clone()).await?;
+        *self
+            .inner
+            .embed_context
+            .lock()
+            .expect("package embed context lock should not be poisoned") = Some(context);
+        Ok(())
+    }
+
+    pub(crate) fn process_state_file(&self) -> PathBuf {
+        self.inner.temp_dir.path().join("npm-process-state.json")
+    }
+}
+
+impl ProjectPackageEnvironment {
+    pub(crate) fn from_folder(
+        cwd: PathBuf,
+        groups: Option<Vec<String>>,
+        install: bool,
+    ) -> Result<Option<Self>, AnyError> {
+        let dependencies = dependencies_from_folder(&cwd, groups)?;
+        if dependencies.is_empty() {
+            return Ok(None);
+        }
+        validate_project_artifacts(&cwd, &dependencies, install)?;
+        let temp_dir = tempfile::Builder::new()
+            .prefix("belgie-project-")
+            .tempdir()
+            .context("Failed to create temporary Deno project config directory")?;
+        let config_file = temp_dir.path().join("deno.json");
+        write_synthetic_config(&config_file, &dependencies)?;
+        let lockfile = cwd.join("deno.lock");
+        let environment = Self {
+            inner: Arc::new(ProjectPackageEnvironmentInner {
+                embed_options: project_embed_options(&cwd),
+                cwd,
+                config_file,
+                lockfile,
+                temp_dir,
+            }),
+        };
+        if install {
+            pyo3_async_runtimes::tokio::get_runtime()
+                .block_on(environment.synchronize())
+                .map_err(project_state_error)?;
+        }
+        Ok(Some(environment))
+    }
+
+    pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
+        debug_assert!(self.inner.temp_dir.path().is_dir());
+        Ok(Rc::new(
+            EmbedContext::new_with_options(
+                self.inner.cwd.clone(),
+                self.inner.config_file.clone(),
+                self.inner.lockfile.clone(),
+                self.inner.embed_options.clone(),
+            )
+            .map_err(project_state_error)?,
+        ))
+    }
+
+    async fn synchronize(&self) -> Result<(), AnyError> {
+        synchronize_embed(
+            self.inner.cwd.clone(),
+            self.inner.config_file.clone(),
+            self.inner.lockfile.clone(),
+            self.inner.embed_options.clone(),
+        )
+        .await?;
+        Ok(())
     }
 }
 
@@ -182,9 +296,17 @@ pub(crate) async fn install_packages(
     groups: Option<Vec<String>>,
     lockfile_only: bool,
 ) -> Result<PackageInstallResult, AnyError> {
-    let env = PackageEnvironment::required(cwd, groups)?;
+    let embed_options = embed_options_for_install(&cwd, lockfile_only);
+    let env = PackageEnvironment::required(cwd, groups, embed_options)?;
     let (cwd, config_file, lockfile) = env.embed_paths();
-    crate::embed::install_packages(cwd, config_file, lockfile, lockfile_only).await?;
+    crate::embed::install_packages_with_options(
+        cwd,
+        config_file,
+        lockfile,
+        lockfile_only,
+        env.inner.embed_options.clone(),
+    )
+    .await?;
     Ok(install_result_from_env(&env))
 }
 
@@ -202,7 +324,8 @@ pub(crate) async fn update_packages(
     latest: bool,
     lockfile_only: bool,
 ) -> Result<PackageUpdateResult, AnyError> {
-    let env = PackageEnvironment::required(cwd.clone(), groups)?;
+    let embed_options = embed_options_for_install(&cwd, lockfile_only);
+    let env = PackageEnvironment::required(cwd.clone(), groups, embed_options.clone())?;
     let (project_cwd, config_file, lockfile) = env.embed_paths();
     crate::embed::update_packages(
         project_cwd,
@@ -211,6 +334,7 @@ pub(crate) async fn update_packages(
         packages,
         latest,
         lockfile_only,
+        embed_options,
     )
     .await?;
 
@@ -223,6 +347,68 @@ pub(crate) async fn update_packages(
         lockfile: env.lockfile().to_path_buf(),
         changes,
     })
+}
+
+async fn synchronize_embed(
+    cwd: PathBuf,
+    config_file: PathBuf,
+    lockfile: PathBuf,
+    options: EmbedContextOptions,
+) -> Result<Rc<EmbedContext>, AnyError> {
+    crate::embed::install_packages_with_options(cwd, config_file, lockfile, false, options).await
+}
+
+fn embed_options_for_install(cwd: &Path, lockfile_only: bool) -> EmbedContextOptions {
+    if lockfile_only {
+        EmbedContextOptions::default()
+    } else {
+        local_install_options(cwd)
+    }
+}
+
+fn local_install_options(cwd: &Path) -> EmbedContextOptions {
+    EmbedContextOptions {
+        node_modules_root: Some(cwd.join("node_modules")),
+        ..Default::default()
+    }
+}
+
+fn project_embed_options(cwd: &Path) -> EmbedContextOptions {
+    EmbedContextOptions {
+        frozen_lockfile: Some(true),
+        lockfile_skip_write: true,
+        ..local_install_options(cwd)
+    }
+}
+
+fn validate_project_artifacts(
+    cwd: &Path,
+    dependencies: &[PackageDependency],
+    install: bool,
+) -> Result<(), AnyError> {
+    let lockfile = cwd.join("deno.lock");
+    if !lockfile.is_file() {
+        bail!(
+            "Project dependencies are not installed: missing {}. Run belgie.dependencies.install() before execution.",
+            lockfile.display()
+        );
+    }
+    if dependencies.iter().any(PackageDependency::is_npm) && !install {
+        let node_modules = cwd.join("node_modules");
+        if !node_modules.is_dir() {
+            bail!(
+                "Project dependencies are not installed: missing {}. Run belgie.dependencies.install() or pass install=True.",
+                node_modules.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn project_state_error(error: impl std::fmt::Display) -> AnyError {
+    anyhow!(
+        "Project dependencies are missing or out of date. Run belgie.dependencies.install() or pass install=True: {error}"
+    )
 }
 
 fn dependency_tables_have_any_entries(document: &DocumentMut) -> bool {
@@ -296,6 +482,31 @@ fn read_manifest(
         dependencies,
         scripts,
     }))
+}
+
+pub(crate) fn dependencies_from_folder(
+    cwd: &Path,
+    groups: Option<Vec<String>>,
+) -> Result<Vec<PackageDependency>, AnyError> {
+    let Some(manifest) = read_manifest(cwd, groups.clone())? else {
+        if groups.is_some() {
+            return Err(no_dependencies_error(cwd, groups));
+        }
+        return Ok(Vec::new());
+    };
+    if manifest.dependencies.is_empty() && groups.is_some() {
+        return Err(no_dependencies_error(cwd, groups));
+    }
+    Ok(manifest.dependencies)
+}
+
+pub(crate) fn dependencies_from_mapping(
+    dependencies: BTreeMap<String, String>,
+) -> Result<Vec<PackageDependency>, AnyError> {
+    dependencies
+        .into_iter()
+        .map(|(alias, specifier)| normalize_dependency(&alias, &specifier, DEFAULT_GROUP))
+        .collect()
 }
 
 pub(crate) fn find_pyproject_dir(start: &Path) -> Result<PathBuf, AnyError> {
@@ -466,7 +677,10 @@ fn normalize_dependency(
     })
 }
 
-fn write_synthetic_config(path: &Path, dependencies: &[PackageDependency]) -> Result<(), AnyError> {
+pub(crate) fn write_synthetic_config(
+    path: &Path,
+    dependencies: &[PackageDependency],
+) -> Result<(), AnyError> {
     let imports = dependencies
         .iter()
         .map(|dep| (dep.alias.clone(), dep.specifier.clone()))
@@ -556,6 +770,10 @@ fn write_pyproject_dependency_value(
 }
 
 impl PackageDependency {
+    fn is_npm(&self) -> bool {
+        self.specifier.starts_with("npm:")
+    }
+
     fn pyproject_value_for(&self, specifier: &str) -> Result<String, AnyError> {
         match self.value_kind {
             PyprojectValueKind::FullSpecifier => Ok(specifier.to_string()),
@@ -829,8 +1047,11 @@ build = "vite build"
 "#,
         )
         .unwrap();
+        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
+        fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
 
-        let (env, command) = PackageEnvironment::resolve_task(temp_dir.path(), "build").unwrap();
+        let (env, command) =
+            PackageEnvironment::resolve_task(temp_dir.path(), "build", false).unwrap();
 
         assert_eq!(command, "vite build");
         assert!(
@@ -842,6 +1063,70 @@ build = "vite build"
         let config: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(env.config_file()).unwrap()).unwrap();
         assert!(config.get("tasks").is_none());
+        let node_modules = temp_dir.path().join("node_modules").canonicalize().unwrap();
+        assert_eq!(
+            env.embed_context()
+                .unwrap()
+                .resolver_factory()
+                .workspace_factory()
+                .node_modules_dir_path()
+                .unwrap(),
+            Some(node_modules.as_path())
+        );
+    }
+
+    #[test]
+    fn project_environment_requires_lockfile() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            "[belgie.dependencies]\nreact = \"^19\"\n",
+        )
+        .unwrap();
+
+        let error =
+            ProjectPackageEnvironment::from_folder(temp_dir.path().to_path_buf(), None, false)
+                .unwrap_err();
+
+        assert!(error.to_string().contains("missing"));
+        assert!(error.to_string().contains("deno.lock"));
+    }
+
+    #[test]
+    fn project_environment_requires_node_modules_for_npm_dependencies() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            "[belgie.dependencies]\nreact = \"^19\"\n",
+        )
+        .unwrap();
+        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
+
+        let error =
+            ProjectPackageEnvironment::from_folder(temp_dir.path().to_path_buf(), None, false)
+                .unwrap_err();
+
+        assert!(error.to_string().contains("node_modules"));
+        assert!(error.to_string().contains("install=True"));
+    }
+
+    #[test]
+    fn project_environment_allows_jsr_dependencies_without_node_modules() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            "[belgie.dependencies]\nstd_path = \"jsr:@std/path@^1\"\n",
+        )
+        .unwrap();
+        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
+
+        let environment =
+            ProjectPackageEnvironment::from_folder(temp_dir.path().to_path_buf(), None, false)
+                .unwrap();
+
+        assert!(environment.is_some());
+        assert!(!temp_dir.path().join("node_modules").exists());
+        assert!(!temp_dir.path().join("deno.json").exists());
     }
 
     #[test]
@@ -877,6 +1162,7 @@ react = "^19"
         let err = PackageEnvironment::required(
             temp_dir.path().to_path_buf(),
             Some(vec!["typo".to_string()]),
+            EmbedContextOptions::default(),
         )
         .unwrap_err();
 
@@ -884,6 +1170,56 @@ react = "^19"
             err.to_string()
                 .contains("No dependencies matched groups: [typo]")
         );
+    }
+
+    #[test]
+    fn from_folder_reports_unmatched_groups_when_filter_excludes_dependencies() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("pyproject.toml"),
+            "[belgie.dependencies]\nreact = \"^19\"\n",
+        )
+        .unwrap();
+
+        let err = ProjectPackageEnvironment::from_folder(
+            temp_dir.path().to_path_buf(),
+            Some(vec!["typo".to_string()]),
+            false,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("No dependencies matched groups: [typo]")
+        );
+    }
+
+    #[test]
+    fn from_folder_reports_missing_dependencies_when_groups_are_explicit() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let err = ProjectPackageEnvironment::from_folder(
+            temp_dir.path().to_path_buf(),
+            Some(vec!["default".to_string()]),
+            false,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("No belgie package dependencies found")
+        );
+    }
+
+    #[test]
+    fn from_folder_allows_missing_manifest_without_explicit_groups() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let environment =
+            ProjectPackageEnvironment::from_folder(temp_dir.path().to_path_buf(), None, false)
+                .unwrap();
+
+        assert!(environment.is_none());
     }
 
     #[test]
@@ -899,8 +1235,11 @@ build = "vite build"
 "#,
         )
         .unwrap();
+        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
+        fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
 
-        let (env, command) = PackageEnvironment::resolve_task(temp_dir.path(), "build").unwrap();
+        let (env, command) =
+            PackageEnvironment::resolve_task(temp_dir.path(), "build", false).unwrap();
 
         assert_eq!(command, "vite build");
         assert_eq!(env.dependencies().len(), 1);
@@ -919,7 +1258,7 @@ build = "echo ok"
         )
         .unwrap();
 
-        let err = PackageEnvironment::resolve_task(temp_dir.path(), "build").unwrap_err();
+        let err = PackageEnvironment::resolve_task(temp_dir.path(), "build", false).unwrap_err();
 
         assert!(
             err.to_string()

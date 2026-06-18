@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shutil import rmtree
+
 import pytest
 
 from belgie.dependencies import install
@@ -19,6 +21,9 @@ async def test_task_runs_npm_bin_command(
     )
     install(cwd=pyproject.parent)
     await TaskRunner().run(RunTaskOptions(str(pyproject.parent), "version"))
+    rmtree(pyproject.parent / "node_modules")
+    await TaskRunner().run(RunTaskOptions(str(pyproject.parent), "version", install=True))
+    assert (pyproject.parent / "node_modules").is_dir()
 
 
 async def test_task_runs_deno_custom_command(

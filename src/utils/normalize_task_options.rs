@@ -11,6 +11,7 @@ pub(crate) fn normalize_run_task_options(
     env: BTreeMap<String, String>,
     host: Option<String>,
     port: Option<u16>,
+    install: bool,
 ) -> Result<RunTaskOptions, BindingError> {
     let script = script.trim().to_string();
     if script.is_empty() {
@@ -53,6 +54,7 @@ pub(crate) fn normalize_run_task_options(
         env,
         host,
         port,
+        install,
     })
 }
 
@@ -78,6 +80,7 @@ mod tests {
             BTreeMap::new(),
             None,
             None,
+            false,
         )
         .expect("options should normalize");
 
@@ -94,6 +97,7 @@ mod tests {
             BTreeMap::new(),
             Some("127.0.0.1".to_string()),
             None,
+            false,
         )
         .expect_err("partial host/port should fail");
 

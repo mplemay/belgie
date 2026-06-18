@@ -9,6 +9,8 @@ from shutil import which
 
 import pytest
 
+EMPTY_DENO_LOCK = '{"version":"5"}\n'
+
 
 @pytest.fixture
 def write_script(tmp_path: Path):
@@ -25,10 +27,12 @@ def write_script(tmp_path: Path):
 def write_belgie_pyproject(tmp_path: Path):
     def write_pyproject(
         *,
+        root: Path | None = None,
         dependencies: dict[str, object] | None = None,
         dependency_groups: dict[str, dict[str, object]] | None = None,
         scripts: dict[str, str] | None = None,
     ) -> Path:
+        project_root = root or tmp_path
         lines = ["[belgie]"]
         deps = dict(dependencies or {})
         groups = dict(dependency_groups or {})
@@ -38,8 +42,10 @@ def write_belgie_pyproject(tmp_path: Path):
         for group_name, group_deps in groups.items():
             append_table(lines, f"belgie.dependencies.{group_name}", group_deps)
         append_table(lines, "belgie.scripts", scripts or {})
-        path = tmp_path / "pyproject.toml"
+        path = project_root / "pyproject.toml"
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        if deps or groups:
+            (project_root / "deno.lock").write_text(EMPTY_DENO_LOCK, encoding="utf-8")
         return path
 
     return write_pyproject

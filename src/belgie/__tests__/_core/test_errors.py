@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 
 from belgie import _core, errors as public_errors
 from belgie._core import BelgieError, BelgieJavaScriptError, BelgieModuleError, BelgieRuntimeError, Runtime, Script
 
-if TYPE_CHECKING:
-    from pathlib import Path
 
-
-def run_source(tmp_path: Path, source: str) -> object:
-    with Runtime(cwd=tmp_path)(Script(source)) as run:
+def run_source(source: str) -> object:
+    with Runtime()(Script(source)) as run:
         return run()
 
 
@@ -42,46 +37,46 @@ class TestBelgieErrors:
 
 
 class TestCoreErrorMapping:
-    def test_missing_run_export_raises_module_error(self, tmp_path: Path) -> None:
+    def test_missing_run_export_raises_module_error(self) -> None:
         with pytest.raises(BelgieModuleError, match="callable run function"):
-            run_source(tmp_path, "export const answer = 42;")
+            run_source("export const answer = 42;")
 
-    def test_non_function_run_export_raises_module_error(self, tmp_path: Path) -> None:
+    def test_non_function_run_export_raises_module_error(self) -> None:
         with pytest.raises(BelgieModuleError, match="not callable"):
-            run_source(tmp_path, "export const run = 42;")
+            run_source("export const run = 42;")
 
-    def test_module_load_failure_raises_module_error(self, tmp_path: Path) -> None:
+    def test_module_load_failure_raises_module_error(self) -> None:
         source = "import './missing.js'; export default function run() { return 42; }"
 
         with pytest.raises(BelgieModuleError) as exc_info:
-            run_source(tmp_path, source)
+            run_source(source)
 
         assert "missing.js" in str(exc_info.value)
 
-    def test_javascript_throw_raises_javascript_error(self, tmp_path: Path) -> None:
+    def test_javascript_throw_raises_javascript_error(self) -> None:
         source = "export default function run() { throw new TypeError('vanilla js failed'); }"
 
         with pytest.raises(BelgieJavaScriptError, match="vanilla js failed"):
-            run_source(tmp_path, source)
+            run_source(source)
 
-    def test_closed_runner_raises_runtime_error(self, tmp_path: Path) -> None:
-        with Runtime(cwd=tmp_path)(Script("export default function run() { return 'ok'; }")) as run:
+    def test_closed_runner_raises_runtime_error(self) -> None:
+        with Runtime()(Script("export default function run() { return 'ok'; }")) as run:
             assert run() == "ok"
 
         with pytest.raises(BelgieRuntimeError, match="closed"):
             run()
 
-    def test_javascript_bigint_return_raises_type_error(self, tmp_path: Path) -> None:
+    def test_javascript_bigint_return_raises_type_error(self) -> None:
         with pytest.raises(TypeError, match="BigInt"):
-            run_source(tmp_path, "export default function run() { return 42n; }")
+            run_source("export default function run() { return 42n; }")
 
-    def test_non_finite_javascript_number_return_raises_value_error(self, tmp_path: Path) -> None:
+    def test_non_finite_javascript_number_return_raises_value_error(self) -> None:
         with pytest.raises(ValueError, match="finite"):
-            run_source(tmp_path, "export default function run() { return Number.NaN; }")
+            run_source("export default function run() { return Number.NaN; }")
 
-    def test_unsupported_python_input_raises_type_error(self, tmp_path: Path) -> None:
+    def test_unsupported_python_input_raises_type_error(self) -> None:
         with (
-            Runtime(cwd=tmp_path)(Script("export default function run(input) { return input; }")) as run,
+            Runtime()(Script("export default function run(input) { return input; }")) as run,
             pytest.raises(TypeError, match="Only JSON-serializable"),
         ):
             run({"value": object()})
