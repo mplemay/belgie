@@ -25,7 +25,7 @@ impl PyTaskRunner {
         py: Python<'py>,
         options: PyRef<'_, PyRunTaskOptions>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let normalized = normalized_options_from_py(options)?;
+        let normalized = normalized_options_from_py(py, options)?;
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = blocking::run_on_blocking_thread(
                 move || TaskRunner.run_blocking(normalized),
@@ -41,7 +41,7 @@ impl PyTaskRunner {
         py: Python<'py>,
         options: PyRef<'_, PyRunTaskOptions>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let normalized = normalized_options_from_py(options)?;
+        let normalized = normalized_options_from_py(py, options)?;
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             blocking::run_on_blocking_thread(
                 move || TaskRunner.start_blocking(normalized),
@@ -83,17 +83,24 @@ pub(crate) fn py_run_task_module(
 }
 
 fn normalized_options_from_py(
+    py: Python<'_>,
     options: PyRef<'_, PyRunTaskOptions>,
 ) -> PyResult<crate::task::RunTaskOptions> {
     let task_cwd = std::path::PathBuf::from(&options.task_cwd);
-    normalize_run_task_options(
+    let python_path = PathBuf::from(
+        py.import("sys")?
+            .getattr("executable")?
+            .extract::<String>()?,
+    );
+    normalize_run_task_options(crate::task::RunTaskOptions {
         task_cwd,
-        options.script.clone(),
-        options.argv.clone(),
-        options.env.clone(),
-        options.host.clone(),
-        options.port,
-        options.install,
-    )
+        script: options.script.clone(),
+        argv: options.argv.clone(),
+        env: options.env.clone(),
+        host: options.host.clone(),
+        port: options.port,
+        install: options.install,
+        python_path,
+    })
     .map_err(py_error::from_binding_error)
 }

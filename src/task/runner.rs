@@ -248,6 +248,7 @@ fn shell_options(
         extra_env: options.env.clone(),
         argv: options.argv.clone(),
         package_env,
+        python_path: options.python_path.clone(),
         stdio,
         kill_signal,
     }
@@ -275,6 +276,7 @@ mod tests {
             host: None,
             port: None,
             install: false,
+            python_path: PathBuf::from("/venv/bin/python"),
         }
     }
 
@@ -328,6 +330,7 @@ mod tests {
             host: None,
             port: None,
             install: false,
+            python_path: PathBuf::from("/venv/bin/python"),
         };
 
         let process = TaskRunner.start_blocking(options).unwrap();

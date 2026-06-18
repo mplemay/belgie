@@ -53,6 +53,32 @@ impl ShellCommand for NodeModulesFileRunCommand {
     }
 }
 
+impl NodeModulesFileRunCommand {
+    fn new(
+        command_name: String,
+        path: PathBuf,
+        project_dir: &Path,
+        config_file: &Path,
+        lockfile: &Path,
+        python_path: &Path,
+    ) -> Self {
+        let executable_name = python_path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("python")
+            .to_string();
+        Self {
+            command_name,
+            path,
+            project_dir: project_dir.to_path_buf(),
+            config_file: config_file.to_path_buf(),
+            lockfile: lockfile.to_path_buf(),
+            python_path: python_path.to_path_buf(),
+            executable_name,
+        }
+    }
+}
+
 struct UnsupportedDenoCommand;
 
 impl ShellCommand for UnsupportedDenoCommand {
@@ -92,22 +118,21 @@ fn npm_bin_shell_command(
     config_file: &Path,
     lockfile: &Path,
     python_path: &Path,
-    executable_name: &str,
 ) -> Rc<dyn ShellCommand> {
-    Rc::new(NodeModulesFileRunCommand {
+    Rc::new(NodeModulesFileRunCommand::new(
         command_name,
         path,
-        project_dir: project_dir.to_path_buf(),
-        config_file: config_file.to_path_buf(),
-        lockfile: lockfile.to_path_buf(),
-        python_path: python_path.to_path_buf(),
-        executable_name: executable_name.to_string(),
-    })
+        project_dir,
+        config_file,
+        lockfile,
+        python_path,
+    ))
 }
 
 pub(crate) async fn prepare_custom_commands(
     package_env: &PackageEnvironment,
     cwd: &Path,
+    python_path: &Path,
 ) -> Result<(HashMap<String, Rc<dyn ShellCommand>>, Vec<PathBuf>), AnyError> {
     let context = package_env.embed_context().map_err(project_state_error)?;
     context
@@ -125,13 +150,6 @@ pub(crate) async fn prepare_custom_commands(
         .npm_resolver()
         .map_err(project_state_error)?;
     let bin_dirs = resolve_task_node_modules_bin_dirs(npm_resolver, cwd);
-    let python_path =
-        std::env::current_exe().context("Failed to resolve the current Python executable")?;
-    let executable_name = python_path
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or("belgie")
-        .to_string();
     let project_dir = package_env.cwd();
     let config_file = package_env.config_file();
     let lockfile = package_env.lockfile();
@@ -143,8 +161,7 @@ pub(crate) async fn prepare_custom_commands(
             project_dir,
             config_file,
             lockfile,
-            &python_path,
-            &executable_name,
+            python_path,
         ),
         NpmResolver::Managed(managed) => resolve_managed_npm_commands(
             node_resolver,
@@ -152,8 +169,7 @@ pub(crate) async fn prepare_custom_commands(
             project_dir,
             config_file,
             lockfile,
-            &python_path,
-            &executable_name,
+            python_path,
         )?,
     };
     commands.insert("deno".to_string(), Rc::new(UnsupportedDenoCommand));
@@ -167,7 +183,6 @@ fn resolve_byonm_npm_commands(
     config_file: &Path,
     lockfile: &Path,
     python_path: &Path,
-    executable_name: &str,
 ) -> HashMap<String, Rc<dyn ShellCommand>> {
     let mut commands = HashMap::new();
     for bin_dir in bin_dirs {
@@ -183,7 +198,6 @@ fn resolve_byonm_npm_commands(
                     config_file,
                     lockfile,
                     python_path,
-                    executable_name,
                 )
             });
         }
@@ -214,7 +228,6 @@ fn resolve_managed_npm_commands(
     config_file: &Path,
     lockfile: &Path,
     python_path: &Path,
-    executable_name: &str,
 ) -> Result<HashMap<String, Rc<dyn ShellCommand>>, AnyError> {
     let mut result = HashMap::new();
     for id in npm_resolver.resolution().top_level_packages() {
@@ -239,7 +252,6 @@ fn resolve_managed_npm_commands(
                     config_file,
                     lockfile,
                     python_path,
-                    executable_name,
                 ),
             );
         }
@@ -250,6 +262,22 @@ fn resolve_managed_npm_commands(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn npm_bin_command_preserves_virtualenv_python_path() {
+        let python_path = PathBuf::from("/project/.venv/bin/python");
+        let command = NodeModulesFileRunCommand::new(
+            "vite".to_string(),
+            PathBuf::from("/project/node_modules/vite/bin/vite.js"),
+            Path::new("/project"),
+            Path::new("/project/deno.json"),
+            Path::new("/project/deno.lock"),
+            &python_path,
+        );
+
+        assert_eq!(command.python_path, python_path);
+        assert_eq!(command.executable_name, "python");
+    }
 
     #[test]
     fn task_runtime_args_include_private_module_and_forwarded_arguments() {
