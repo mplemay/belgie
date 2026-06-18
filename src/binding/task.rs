@@ -24,7 +24,7 @@ impl PyTaskRunner {
         py: Python<'py>,
         options: PyRef<'_, PyRunTaskOptions>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let normalized = normalized_options_from_py(py, options)?;
+        let normalized = normalized_options_from_py(options)?;
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = blocking::run_on_blocking_thread(
                 move || TaskRunner.run_blocking(normalized),
@@ -40,7 +40,7 @@ impl PyTaskRunner {
         py: Python<'py>,
         options: PyRef<'_, PyRunTaskOptions>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let normalized = normalized_options_from_py(py, options)?;
+        let normalized = normalized_options_from_py(options)?;
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             blocking::run_on_blocking_thread(
                 move || TaskRunner.start_blocking(normalized),
@@ -57,7 +57,6 @@ impl PyTaskRunner {
 }
 
 fn normalized_options_from_py(
-    _py: Python<'_>,
     options: PyRef<'_, PyRunTaskOptions>,
 ) -> PyResult<crate::task::RunTaskOptions> {
     let task_cwd = std::path::PathBuf::from(&options.task_cwd);
