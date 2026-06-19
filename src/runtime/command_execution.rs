@@ -186,16 +186,15 @@ fn run_command_thread(
         .map_err(|error| {
             BindingError::runtime(format!("Creating command runtime failed: {error}"))
         })?;
-    runtime.block_on(run_command(options, cancel_rx))
+    let result = runtime.block_on(run_command(options, cancel_rx));
+    runtime.shutdown_background();
+    result
 }
 
 async fn run_command(
     options: CommandExecutionOptions,
     mut cancel_rx: watch::Receiver<bool>,
 ) -> CommandResult {
-    if *cancel_rx.borrow() {
-        return Err(process_context::command_cancelled());
-    }
     let _context_lock = process_context::acquire_guard(&mut cancel_rx).await?;
 
     let command_cwd = resolve_command_cwd(&options.runtime_root, options.command.cwd())?;
@@ -204,9 +203,9 @@ async fn run_command(
     native_addon_host::ensure_symbols_visible()?;
 
     let context = options.package_environment.embed_context_rc()?;
-    let resolved = resolve_command(context.clone(), &command_cwd, options.command.name()).await?;
-    let command_name = resolved.command_name;
-    let result = match resolved.bin {
+    let (command_name, bin) =
+        resolve_command(context.clone(), &command_cwd, options.command.name()).await?;
+    let result = match bin {
         BinValue::Executable(path) if is_native_binary(&path) => {
             run_native_command(path, command_cwd, options.argv, &mut cancel_rx).await
         }
@@ -226,16 +225,11 @@ async fn run_command(
     result.map_err(map_windows_native_addon_error)
 }
 
-struct ResolvedCommand {
-    command_name: String,
-    bin: BinValue,
-}
-
 async fn resolve_command(
     context: Rc<EmbedContext>,
     cwd: &Path,
     command: &str,
-) -> CommandResult<ResolvedCommand> {
+) -> CommandResult<(String, BinValue)> {
     context
         .npm_installer_factory()
         .initialize_npm_resolution_if_managed()
@@ -275,14 +269,14 @@ async fn resolve_command(
     let bin = node_resolver
         .resolve_binary_export(&package_folder, package_ref.sub_path())
         .map_err(package_error)?;
-    Ok(ResolvedCommand {
-        command_name: if explicit_npm_specifier {
+    Ok((
+        if explicit_npm_specifier {
             npm_pkg_req_ref_to_binary_command(&package_ref).to_string()
         } else {
             command.to_string()
         },
         bin,
-    })
+    ))
 }
 
 async fn run_js_command(
@@ -306,15 +300,11 @@ async fn run_js_command(
         .node_resolver()
         .map_err(package_error)?
         .clone();
+    let header_overrides = js_content_type_header_overrides(main_module.clone());
     let state = Arc::new(
-        prepare_package_runtime(
-            context.clone(),
-            main_module.clone(),
-            None,
-            js_content_type_header_overrides(main_module.clone()),
-        )
-        .await
-        .map_err(package_error)?,
+        prepare_package_runtime(context.clone(), main_module.clone(), None, header_overrides)
+            .await
+            .map_err(package_error)?,
     );
     let module_loader_factory = Box::new(BelgieModuleLoaderFactory {
         state,
@@ -395,48 +385,41 @@ async fn run_js_command(
         .op_state()
         .borrow_mut()
         .put(WatcherExitHandle(isolate.clone()));
-    enum WorkerOutcome {
-        Completed(Result<i32, deno_core::error::CoreError>),
-        Cancelled,
-    }
-    let outcome = {
+    let (result, cancelled) = loop {
         let mut run = std::pin::pin!(worker.run());
         tokio::select! {
-            result = &mut run => WorkerOutcome::Completed(result),
+            result = &mut run => break (Some(result), false),
             changed = cancel_rx.changed() => {
                 if process_context::watch_cancelled(changed, cancel_rx) {
                     isolate.terminate_execution();
+                    break (None, true);
                 }
-                WorkerOutcome::Cancelled
             }
         }
     };
-    match outcome {
-        WorkerOutcome::Completed(result) => {
-            let exited = worker
-                .js_runtime()
-                .op_state()
-                .borrow()
-                .has::<WatcherExited>();
-            if exited {
-                worker
-                    .js_runtime()
-                    .v8_isolate()
-                    .cancel_terminate_execution();
-                command_exit_result(worker.exit_code())
-            } else {
-                match result {
-                    Ok(code) => command_exit_result(code),
-                    Err(error) => Err(BindingError::runtime(error.to_string())),
-                }
-            }
-        }
-        WorkerOutcome::Cancelled => {
-            worker
-                .js_runtime()
-                .v8_isolate()
-                .cancel_terminate_execution();
-            Err(process_context::command_cancelled())
+    if cancelled {
+        worker
+            .js_runtime()
+            .v8_isolate()
+            .cancel_terminate_execution();
+        return Err(process_context::command_cancelled());
+    }
+    let result = result.expect("worker run future should complete");
+    let exited = worker
+        .js_runtime()
+        .op_state()
+        .borrow()
+        .has::<WatcherExited>();
+    if exited {
+        worker
+            .js_runtime()
+            .v8_isolate()
+            .cancel_terminate_execution();
+        command_exit_result(worker.exit_code())
+    } else {
+        match result {
+            Ok(code) => command_exit_result(code),
+            Err(error) => Err(BindingError::runtime(error.to_string())),
         }
     }
 }
