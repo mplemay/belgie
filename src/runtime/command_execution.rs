@@ -67,13 +67,14 @@ pub(crate) struct CommandExecutionOptions {
     pub(crate) runtime_root: PathBuf,
     pub(crate) command: CommandSource,
     pub(crate) argv: Vec<String>,
-    pub(crate) use_cli_snapshot: bool,
+    pub(crate) cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 struct CommandSnapshotOptions {
     startup_snapshot: Option<&'static [u8]>,
     residual_lazy_js_sources: &'static [(&'static str, &'static str)],
     residual_lazy_esm_sources: &'static [(&'static str, &'static str)],
+    skip_op_registration: bool,
 }
 
 fn command_snapshot_options(use_cli_snapshot: bool) -> CommandSnapshotOptions {
@@ -82,12 +83,14 @@ fn command_snapshot_options(use_cli_snapshot: bool) -> CommandSnapshotOptions {
             startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
             residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
             residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
+            skip_op_registration: true,
         }
     } else {
         CommandSnapshotOptions {
             startup_snapshot: None,
             residual_lazy_js_sources: &[],
             residual_lazy_esm_sources: &[],
+            skip_op_registration: false,
         }
     }
 }
@@ -214,7 +217,7 @@ async fn run_command(
                 command_name,
                 path,
                 options.argv,
-                options.use_cli_snapshot,
+                (options.cli_snapshot_eligible)(),
                 &mut cancel_rx,
             )
             .await
@@ -364,7 +367,7 @@ async fn run_js_command(
             origin_data_folder_path: None,
             seed: None,
             unsafely_ignore_certificate_errors: None,
-            skip_op_registration: false,
+            skip_op_registration: snapshot_options.skip_op_registration,
             node_ipc_init: None,
             no_legacy_abort: true,
             startup_snapshot: snapshot_options.startup_snapshot,
@@ -820,7 +823,25 @@ mod native_addon_host {
 mod tests {
     use std::fs;
 
-    use super::resolve_command_cwd;
+    use super::{command_snapshot_options, resolve_command_cwd};
+
+    #[test]
+    fn cli_snapshot_options_enable_snapshot_and_skip_op_registration() {
+        let options = command_snapshot_options(true);
+        assert!(options.startup_snapshot.is_some());
+        assert!(!options.residual_lazy_js_sources.is_empty());
+        assert!(!options.residual_lazy_esm_sources.is_empty());
+        assert!(options.skip_op_registration);
+    }
+
+    #[test]
+    fn cli_snapshot_options_disable_snapshot_and_op_skip_when_unavailable() {
+        let options = command_snapshot_options(false);
+        assert!(options.startup_snapshot.is_none());
+        assert!(options.residual_lazy_js_sources.is_empty());
+        assert!(options.residual_lazy_esm_sources.is_empty());
+        assert!(!options.skip_op_registration);
+    }
 
     #[test]
     fn resolves_relative_command_cwd_against_runtime_root() {

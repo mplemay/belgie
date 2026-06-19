@@ -339,3 +339,47 @@ writeFileSync("output/probe.txt", process.cwd() + "\\n", "utf-8");
     assert (tmp_path / "override" / "output" / "probe.txt").read_text(encoding="utf-8") == (
         str(tmp_path / "override") + "\n"
     )
+
+
+async def test_concurrent_script_and_command_reversed_gather_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BELGIE_PROBE", "baseline")
+
+    for directory, expected in (("baseline", "baseline"), ("override", "command")):
+        root = tmp_path / directory
+        root.mkdir()
+        (root / "probe.mjs").write_text(
+            f"""
+import {{ mkdirSync, writeFileSync }} from "node:fs";
+
+if (process.env.BELGIE_PROBE !== "{expected}") {{
+  throw new Error("saw " + process.env.BELGIE_PROBE);
+}}
+mkdirSync("output", {{ recursive: true }});
+writeFileSync("output/probe.txt", process.cwd() + "\\n", "utf-8");
+""",
+            encoding="utf-8",
+        )
+
+    script = Script("export default async () => 'ok';")
+    baseline_command = Command("zx", cwd="baseline")
+    override_command = Command("zx", cwd="override", env={"BELGIE_PROBE": "command"})
+
+    async with installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}) as env, Runtime(env=env) as runtime:
+        _baseline_result, _override_result, script_result = await asyncio.gather(
+            runtime(baseline_command)("probe.mjs"),
+            runtime(override_command)("probe.mjs"),
+            runtime(script)(),
+        )
+        assert script_result == "ok"
+
+    assert environ["BELGIE_PROBE"] == "baseline"
+    assert (tmp_path / "baseline" / "output" / "probe.txt").read_text(encoding="utf-8") == (
+        str(tmp_path / "baseline") + "\n"
+    )
+    assert (tmp_path / "override" / "output" / "probe.txt").read_text(encoding="utf-8") == (
+        str(tmp_path / "override") + "\n"
+    )

@@ -156,10 +156,9 @@ impl PySyncCommandRunner {
     #[pyo3(signature = (*args))]
     fn __call__(&self, py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<Py<PyAny>> {
         let argv = command_arguments(args)?;
-        let handle = self
-            .session
-            .start_command(self.command.clone(), argv)
-            .map_err(py_error::from_binding_error)?;
+        let handle =
+            RuntimeSession::start_command(self.session.clone(), self.command.clone(), argv)
+                .map_err(py_error::from_binding_error)?;
         py.detach(|| handle.wait_blocking())
             .map_err(py_error::from_binding_error)?;
         Ok(py.None())
@@ -179,10 +178,9 @@ impl PyAsyncCommandRunner {
         args: &Bound<'py, PyTuple>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let argv = command_arguments(args)?;
-        let handle = self
-            .session
-            .start_command(self.command.clone(), argv)
-            .map_err(py_error::from_binding_error)?;
+        let handle =
+            RuntimeSession::start_command(self.session.clone(), self.command.clone(), argv)
+                .map_err(py_error::from_binding_error)?;
         let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut guard = CancelGuard::new(handle);
             guard
