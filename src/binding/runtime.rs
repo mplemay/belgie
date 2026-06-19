@@ -162,10 +162,7 @@ impl PyRuntime {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let session =
                 RuntimeSession::activate(runtime).map_err(py_error::from_binding_error)?;
-            *context_state
-                .lock()
-                .expect("runtime context state lock should not be poisoned") =
-                RuntimeContextState::Active(session.clone());
+            set_active(&context_state, session.clone());
             enter_guard.disarm();
             Ok(PyAsyncRuntime::new(session))
         })
@@ -255,11 +252,7 @@ impl PyRuntime {
     }
 
     fn activate(&self, session: Arc<RuntimeSession>) {
-        *self
-            .context_state
-            .lock()
-            .expect("runtime context state lock should not be poisoned") =
-            RuntimeContextState::Active(session);
+        set_active(&self.context_state, session);
     }
 
     fn take_active(&self) -> PyResult<Arc<RuntimeSession>> {
@@ -280,6 +273,13 @@ impl PyRuntime {
             )),
         }
     }
+}
+
+fn set_active(context_state: &Arc<Mutex<RuntimeContextState>>, session: Arc<RuntimeSession>) {
+    *context_state
+        .lock()
+        .expect("runtime context state lock should not be poisoned") =
+        RuntimeContextState::Active(session);
 }
 
 struct RuntimeEnterGuard {

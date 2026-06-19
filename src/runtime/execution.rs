@@ -12,7 +12,7 @@ use deno_core::{
 use tokio::sync::oneshot;
 
 use crate::{
-    embed::{EmbedContext, prepare_package_runtime},
+    embed::prepare_package_runtime,
     packages::project_state_error,
     runtime::{BoundPackageEnvironment, BoundRuntime, module_loader, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
@@ -84,16 +84,7 @@ impl DenoExecutionHandle {
     }
 
     pub(crate) fn cancel(&self) {
-        if let Some(handle) = self
-            .inner
-            .isolate_handle
-            .lock()
-            .expect("execution isolate handle lock should not be poisoned")
-            .as_ref()
-        {
-            handle.terminate_execution();
-        }
-        let _ = self.inner.sender.send(ExecutionCommand::Shutdown);
+        self.inner.signal_shutdown();
     }
 
     pub(crate) fn invoke_blocking(&self, arguments: RunnerArguments) -> ExecutionResult<PyJsValue> {
@@ -134,8 +125,8 @@ impl DenoExecutionHandle {
     }
 }
 
-impl Drop for DenoExecutionHandleInner {
-    fn drop(&mut self) {
+impl DenoExecutionHandleInner {
+    fn signal_shutdown(&self) {
         if let Some(handle) = self
             .isolate_handle
             .lock()
@@ -145,6 +136,12 @@ impl Drop for DenoExecutionHandleInner {
             handle.terminate_execution();
         }
         let _ = self.sender.send(ExecutionCommand::Shutdown);
+    }
+}
+
+impl Drop for DenoExecutionHandleInner {
+    fn drop(&mut self) {
+        self.signal_shutdown();
         if let Some(join_handle) = self
             .join_handle
             .lock()
@@ -161,10 +158,25 @@ fn run_worker_thread(
     receiver: mpsc::Receiver<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
 ) {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("failed to create Deno execution runtime");
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            let init_error =
+                BindingError::runtime(format!("Creating Deno execution runtime failed: {error}"));
+            while let Ok(command) = receiver.recv() {
+                match command {
+                    ExecutionCommand::Invoke { respond_to, .. } => {
+                        let _ = respond_to.send(Err(init_error.clone()));
+                    }
+                    ExecutionCommand::Shutdown => break,
+                }
+            }
+            return;
+        }
+    };
     let mut context = {
         let _process_context = process_context::blocking_guard();
         match DenoExecutionContext::new(bound, &runtime) {
@@ -209,14 +221,12 @@ struct DenoExecutionContext {
     js_runtime: JsRuntime,
     main_module: ModuleSpecifier,
     run_function: Option<v8::Global<v8::Function>>,
-    package_environment: Option<BoundPackageEnvironment>,
 }
 
 impl DenoExecutionContext {
     fn new(bound: BoundRuntime, tokio_runtime: &tokio::runtime::Runtime) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
-        let package_environment = bound.package_environment().cloned();
-        let js_runtime = if let Some(package_environment) = &package_environment {
+        let js_runtime = if let Some(package_environment) = bound.package_environment() {
             tokio_runtime.block_on(create_js_runtime_with_packages(
                 &bound,
                 package_environment,
@@ -230,7 +240,6 @@ impl DenoExecutionContext {
             js_runtime,
             main_module,
             run_function: None,
-            package_environment,
         })
     }
 
@@ -260,7 +269,7 @@ impl DenoExecutionContext {
             return Ok(());
         }
 
-        let module_id = if self.package_environment.is_some() {
+        let module_id = if self.bound.package_environment().is_some() {
             self.js_runtime
                 .load_main_es_module(&self.main_module)
                 .await
@@ -335,7 +344,7 @@ async fn create_js_runtime_with_packages(
     main_module: ModuleSpecifier,
 ) -> ExecutionResult<JsRuntime> {
     let is_project = matches!(package_environment, BoundPackageEnvironment::Project(_));
-    let context = embed_context_rc(package_environment)?;
+    let context = package_environment.embed_context_rc()?;
     let state = Arc::new(
         prepare_package_runtime(
             context,
@@ -364,19 +373,6 @@ async fn create_js_runtime_with_packages(
             .map_err(BindingError::runtime)?,
         ..Default::default()
     }))
-}
-
-fn embed_context_rc(
-    package_environment: &BoundPackageEnvironment,
-) -> ExecutionResult<Rc<EmbedContext>> {
-    match package_environment {
-        BoundPackageEnvironment::Isolated(environment) => environment
-            .embed_context()
-            .map_err(|error| BindingError::runtime(error.to_string())),
-        BoundPackageEnvironment::Project(environment) => environment
-            .embed_context()
-            .map_err(|error| BindingError::runtime(error.to_string())),
-    }
 }
 
 fn resolve_run_function(

@@ -162,37 +162,23 @@ async fn run_command(
     mut cancel_rx: watch::Receiver<bool>,
 ) -> CommandResult {
     if *cancel_rx.borrow() {
-        return Err(command_cancelled());
+        return Err(process_context::command_cancelled());
     }
     let _context_lock = process_context::acquire_guard(&mut cancel_rx).await?;
-    if *cancel_rx.borrow() {
-        return Err(command_cancelled());
-    }
 
     let command_cwd = resolve_command_cwd(&options.runtime_root, options.command.cwd())?;
     let _cwd_guard = CurrentDirGuard::change_to(&command_cwd)?;
     let _env_guard = EnvironmentGuard::apply(options.command.env());
     native_addon_host::ensure_symbols_visible()?;
 
-    let context = embed_context_rc(&options.package_environment)?;
+    let context = options.package_environment.embed_context_rc()?;
     let resolved = resolve_command(context.clone(), &command_cwd, options.command.name()).await?;
     let command_name = resolved.command_name;
     let result = match resolved.bin {
-        BinValue::JsFile(path) => {
-            run_js_command(
-                context,
-                command_cwd,
-                command_name,
-                path,
-                options.argv,
-                &mut cancel_rx,
-            )
-            .await
-        }
         BinValue::Executable(path) if is_native_binary(&path) => {
             run_native_command(path, command_cwd, options.argv, &mut cancel_rx).await
         }
-        BinValue::Executable(path) => {
+        BinValue::JsFile(path) | BinValue::Executable(path) => {
             run_js_command(
                 context,
                 command_cwd,
@@ -383,7 +369,7 @@ async fn run_js_command(
         tokio::select! {
             result = &mut run => WorkerOutcome::Completed(result),
             changed = cancel_rx.changed() => {
-                if changed.is_err() || *cancel_rx.borrow() {
+                if process_context::watch_cancelled(changed, cancel_rx) {
                     isolate.terminate_execution();
                 }
                 WorkerOutcome::Cancelled
@@ -412,7 +398,7 @@ async fn run_js_command(
         }
         WorkerOutcome::Cancelled => {
             cleanup_interrupted_worker(&mut worker).await;
-            Err(command_cancelled())
+            Err(process_context::command_cancelled())
         }
     }
 }
@@ -464,9 +450,9 @@ async fn run_native_command(
         }
         tokio::select! {
             changed = cancel_rx.changed() => {
-                if changed.is_err() || *cancel_rx.borrow() {
+                if process_context::watch_cancelled(changed, cancel_rx) {
                     terminate_native_command(&mut child).await;
-                    return Err(command_cancelled());
+                    return Err(process_context::command_cancelled());
                 }
             }
             () = tokio::time::sleep(Duration::from_millis(25)) => {}
@@ -529,10 +515,6 @@ fn command_exit_result(exit_code: i32) -> CommandResult {
     }
 }
 
-fn command_cancelled() -> BindingError {
-    BindingError::runtime("Command was cancelled")
-}
-
 fn package_error(error: impl std::fmt::Display) -> BindingError {
     BindingError::runtime(project_state_error(error).to_string())
 }
@@ -561,19 +543,6 @@ fn is_native_binary(path: &Path) -> bool {
     };
     let mut bytes = [0; 4];
     file.read_exact(&mut bytes).is_ok() && node_resolver::is_binary(&bytes)
-}
-
-fn embed_context_rc(
-    package_environment: &BoundPackageEnvironment,
-) -> Result<Rc<EmbedContext>, BindingError> {
-    match package_environment {
-        BoundPackageEnvironment::Isolated(environment) => environment
-            .embed_context()
-            .map_err(|error| BindingError::runtime(error.to_string())),
-        BoundPackageEnvironment::Project(environment) => environment
-            .embed_context()
-            .map_err(|error| BindingError::runtime(error.to_string())),
-    }
 }
 
 fn map_windows_native_addon_error(error: BindingError) -> BindingError {

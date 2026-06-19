@@ -85,10 +85,6 @@ export default {};
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific native addon host behavior")
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="Node-API load failures surface as exit status 1 in Windows CI",
-)
 async def test_windows_reports_native_node_api_commands_as_unsupported(
     tmp_path: Path,
     write_belgie_pyproject,

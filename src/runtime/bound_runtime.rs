@@ -1,9 +1,11 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, rc::Rc, sync::Arc};
 
+use crate::embed::EmbedContext;
 use crate::environment::ActiveEnvironment;
 use crate::options::JsRuntimeOptions;
 use crate::packages::ProjectPackageEnvironment;
 use crate::script::ScriptSource;
+use crate::types::error::BindingError;
 
 use super::DenoRuntime;
 
@@ -18,6 +20,19 @@ pub(crate) struct BoundRuntime {
 pub(crate) enum BoundPackageEnvironment {
     Isolated(Arc<ActiveEnvironment>),
     Project(ProjectPackageEnvironment),
+}
+
+impl BoundPackageEnvironment {
+    pub(crate) fn embed_context_rc(&self) -> Result<Rc<EmbedContext>, BindingError> {
+        match self {
+            Self::Isolated(environment) => environment
+                .embed_context()
+                .map_err(|error| BindingError::runtime(error.to_string())),
+            Self::Project(environment) => environment
+                .embed_context()
+                .map_err(|error| BindingError::runtime(error.to_string())),
+        }
+    }
 }
 
 impl BoundRuntime {
