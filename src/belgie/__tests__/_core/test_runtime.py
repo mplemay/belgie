@@ -14,6 +14,7 @@ from belgie import _core
 from belgie.__tests__._core.conftest import EMPTY_DENO_LOCK
 from belgie._core import (
     AsyncCommandRunner,
+    AsyncEnvironment,
     AsyncRunner,
     AsyncRuntime,
     Command,
@@ -25,6 +26,7 @@ from belgie._core import (
     RuntimeOptions,
     Script,
     SyncCommandRunner,
+    SyncEnvironment,
     SyncRunner,
     SyncRuntime,
 )
@@ -53,6 +55,8 @@ class TestCoreRuntimeExports:
         assert _core.EnvironmentInstallResult is EnvironmentInstallResult
         assert _core.EnvironmentUpdateChange is EnvironmentUpdateChange
         assert _core.EnvironmentUpdateResult is EnvironmentUpdateResult
+        assert _core.SyncEnvironment is SyncEnvironment
+        assert _core.AsyncEnvironment is AsyncEnvironment
         assert _core.RuntimeOptions is RuntimeOptions
         assert _core.Script is Script
         assert _core.Command is Command
@@ -288,21 +292,30 @@ class TestEnvironmentLifecycle:
     def test_environment_rejects_nested_entry_and_can_be_reused(self) -> None:
         env = Environment()
 
-        with env:
+        with env as active_env:
+            assert isinstance(active_env, SyncEnvironment)
             assert "active=True" in repr(env)
+            assert "SyncEnvironment" in repr(active_env)
             with pytest.raises(_core.BelgieRuntimeError, match="already active"):
                 env.__enter__()
-            with Runtime(env=env) as runtime:
+            with Runtime(env=active_env) as runtime:
                 assert runtime(Script("export default () => 'ok';"))() == "ok"
 
         assert "active=False" in repr(env)
-        with env, Runtime(env=env) as runtime:
+        with env as active_env, Runtime(env=active_env) as runtime:
             assert runtime(Script("export default () => 'again';"))() == "again"
+
+    async def test_async_environment_entry_returns_async_environment(self) -> None:
+        async with Environment() as env:
+            assert isinstance(env, AsyncEnvironment)
+            assert "AsyncEnvironment" in repr(env)
+            async with Runtime(env=env) as runtime:
+                assert await runtime(Script("export default async () => 'ok';"))() == "ok"
 
     def test_active_runtime_survives_environment_exit(self) -> None:
         env = Environment()
-        env.__enter__()
-        runtime = Runtime(env=env)
+        active_env = env.__enter__()
+        runtime = Runtime(env=active_env)
         active = runtime.__enter__()
         run = active(Script("export default () => 'still running';"))
 
@@ -316,25 +329,39 @@ class TestEnvironmentLifecycle:
     def test_environment_package_operations_require_active_context(self) -> None:
         env = Environment({"std_path": "jsr:@std/path@^1"})
 
-        with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
-            env.lock_blocking()
-        with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
-            env.install_blocking()
-        with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
-            env.update_blocking()
+        assert not hasattr(env, "lock")
+        assert not hasattr(env, "install")
+        assert not hasattr(env, "update")
+        assert not hasattr(env, "lock_blocking")
+        assert not hasattr(env, "install_blocking")
+        assert not hasattr(env, "update_blocking")
 
-    def test_environment_lock_blocking_returns_result_without_project_files(
+    def test_environment_lock_returns_result_without_project_files(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.chdir(tmp_path)
         with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-            result = env.lock_blocking()
+            result = env.lock()
 
         assert isinstance(result, EnvironmentInstallResult)
         assert result.dependencies == 1
         assert not list(tmp_path.iterdir())
+
+    def test_environment_lock_writes_requested_lockfile(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        lockfile = tmp_path / "deno.lock"
+        with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+            result = env.lock(lockfile=lockfile)
+
+        assert Path(result.lockfile) == lockfile
+        assert lockfile.is_file()
+        assert sorted(path.name for path in tmp_path.iterdir()) == ["deno.lock"]
 
     async def test_environment_async_install_returns_result_without_project_files(
         self,
@@ -349,6 +376,20 @@ class TestEnvironmentLifecycle:
         assert result.dependencies == 1
         assert [entry async for entry in AsyncPath(tmp_path).iterdir()] == []
 
+    async def test_environment_async_lock_writes_requested_lockfile(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        lockfile = tmp_path / "deno.lock"
+        async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+            result = await env.lock(lockfile=lockfile)
+
+        assert Path(result.lockfile) == lockfile
+        assert lockfile.is_file()
+        assert [entry.name async for entry in AsyncPath(tmp_path).iterdir()] == ["deno.lock"]
+
     def test_frozen_lockfile_environment_rejects_update(
         self,
         tmp_path: Path,
@@ -357,19 +398,19 @@ class TestEnvironmentLifecycle:
         monkeypatch.chdir(tmp_path)
         lockfile = tmp_path / "deno.lock"
         with Environment({"std_path": "jsr:@std/path@^1"}) as source:
-            source_lock = source.lock_blocking()
+            source_lock = source.lock()
             lockfile.write_text(Path(source_lock.lockfile).read_text(encoding="utf-8"), encoding="utf-8")
 
         with (
             Environment({"std_path": "jsr:@std/path@^1"}, lockfile=lockfile) as env,
             pytest.raises(_core.BelgieRuntimeError, match="frozen lockfile"),
         ):
-            env.update_blocking()
+            env.update()
 
     def test_environment_update_validates_filter_types(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)
         with Environment({"is_number": "npm:is-number@6.0.0"}) as env, pytest.raises(TypeError):
-            env.update_blocking(cast("Any", [object()]))
+            env.update(cast("Any", [object()]))
 
 
 class TestSyncRuntimeExecution:

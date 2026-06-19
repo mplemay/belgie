@@ -8,7 +8,7 @@ pub(crate) mod runtime;
 pub(crate) mod script;
 
 pub(crate) use command::PyCommand;
-pub(crate) use environment::PyEnvironment;
+pub(crate) use environment::{PyAsyncEnvironment, PyEnvironment, PySyncEnvironment};
 pub(crate) use packages::{
     PyEnvironmentInstallResult, PyEnvironmentUpdateChange, PyEnvironmentUpdateResult,
 };

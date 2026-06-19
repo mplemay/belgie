@@ -13,7 +13,7 @@ export default function run() {
 
 def resolve_join_export() -> str:
     with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-        env.install_blocking()
+        env.install()
         with Runtime(env=env) as runtime:
             return str(runtime(Script(SOURCE))())
 

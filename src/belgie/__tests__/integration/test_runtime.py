@@ -16,6 +16,8 @@ from belgie.errors import BelgieRuntimeError
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from belgie._core import AsyncEnvironment
+
 pytestmark = pytest.mark.integration
 
 VITE_VERSION: Final[str] = "6.1.0"
@@ -23,7 +25,7 @@ ZX_VERSION: Final[str] = "8.5.5"
 
 
 @asynccontextmanager
-async def installed_environment(dependencies: dict[str, str]) -> AsyncIterator[Environment]:
+async def installed_environment(dependencies: dict[str, str]) -> AsyncIterator[AsyncEnvironment]:
     async with Environment(dependencies) as env:
         await env.install()
         yield env

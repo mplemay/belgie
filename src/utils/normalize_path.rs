@@ -65,6 +65,21 @@ pub fn normalize_file(py: Python<'_>, path: PathBuf, argument_name: &str) -> PyR
     Ok(path)
 }
 
+pub fn normalize_output_file(
+    py: Python<'_>,
+    path: PathBuf,
+    argument_name: &str,
+) -> PyResult<PathBuf> {
+    let path = absolutize(py, path)?;
+    if path.exists() && !path.is_file() {
+        return Err(PyOSError::new_err(format!(
+            "{argument_name} is not a file: {}",
+            path.display()
+        )));
+    }
+    Ok(path)
+}
+
 pub fn read_script_file(py: Python<'_>, path: PathBuf) -> PyResult<(PathBuf, String)> {
     let path = absolutize(py, path)?;
     let content = fs::read_to_string(&path).map_err(io_error_to_py)?;

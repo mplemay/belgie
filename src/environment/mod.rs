@@ -179,17 +179,42 @@ impl SharedEnvironment {
         Ok(())
     }
 
-    pub(crate) fn lock_blocking(&self) -> Result<EnvironmentInstallResult, AnyError> {
-        let active = self.acquire_active()?;
+    pub(crate) async fn lock(
+        &self,
+        output_lockfile: Option<PathBuf>,
+    ) -> Result<EnvironmentInstallResult, AnyError> {
+        self.acquire_active()?.lock(output_lockfile).await
+    }
+
+    pub(crate) async fn install(&self) -> Result<EnvironmentInstallResult, AnyError> {
+        self.acquire_active()?.install().await
+    }
+
+    pub(crate) async fn update(
+        &self,
+        packages: Vec<String>,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> Result<EnvironmentUpdateResult, AnyError> {
+        self.acquire_active()?
+            .update(packages, latest, lockfile_only)
+            .await
+    }
+
+    pub(crate) fn lock_blocking(
+        &self,
+        output_lockfile: Option<PathBuf>,
+    ) -> Result<EnvironmentInstallResult, AnyError> {
+        let environment = self.clone();
         crate::utils::tokio::run_outside_runtime(move || {
-            pyo3_async_runtimes::tokio::get_runtime().block_on(active.lock())
+            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.lock(output_lockfile))
         })
     }
 
     pub(crate) fn install_blocking(&self) -> Result<EnvironmentInstallResult, AnyError> {
-        let active = self.acquire_active()?;
+        let environment = self.clone();
         crate::utils::tokio::run_outside_runtime(move || {
-            pyo3_async_runtimes::tokio::get_runtime().block_on(active.install())
+            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.install())
         })
     }
 
@@ -199,9 +224,9 @@ impl SharedEnvironment {
         latest: bool,
         lockfile_only: bool,
     ) -> Result<EnvironmentUpdateResult, AnyError> {
-        let active = self.acquire_active()?;
+        let environment = self.clone();
         crate::utils::tokio::run_outside_runtime(move || {
-            pyo3_async_runtimes::tokio::get_runtime().block_on(active.update(
+            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.update(
                 packages,
                 latest,
                 lockfile_only,
@@ -282,8 +307,22 @@ impl ActiveEnvironment {
         self.embed_options.is_some()
     }
 
-    async fn lock(&self) -> Result<EnvironmentInstallResult, AnyError> {
-        self.install_with_lockfile_only(true).await
+    async fn lock(
+        &self,
+        output_lockfile: Option<PathBuf>,
+    ) -> Result<EnvironmentInstallResult, AnyError> {
+        let mut result = self.install_with_lockfile_only(true).await?;
+        if let Some(output_lockfile) = output_lockfile {
+            std::fs::copy(&result.lockfile, &output_lockfile).with_context(|| {
+                format!(
+                    "Copying lockfile from {} to {}",
+                    result.lockfile.display(),
+                    output_lockfile.display()
+                )
+            })?;
+            result.lockfile = output_lockfile;
+        }
+        Ok(result)
     }
 
     async fn install(&self) -> Result<EnvironmentInstallResult, AnyError> {

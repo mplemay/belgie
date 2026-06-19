@@ -34,6 +34,28 @@ class EnvironmentUpdateResult:
     @property
     def changes(self) -> list[EnvironmentUpdateChange]: ...
 
+class SyncEnvironment:
+    def lock(self, *, lockfile: str | PathLike[str] | None = None) -> EnvironmentInstallResult: ...
+    def install(self) -> EnvironmentInstallResult: ...
+    def update(
+        self,
+        packages: Iterable[str] | None = None,
+        *,
+        latest: bool = False,
+        lockfile_only: bool = False,
+    ) -> EnvironmentUpdateResult: ...
+
+class AsyncEnvironment:
+    def lock(self, *, lockfile: str | PathLike[str] | None = None) -> Awaitable[EnvironmentInstallResult]: ...
+    def install(self) -> Awaitable[EnvironmentInstallResult]: ...
+    def update(
+        self,
+        packages: Iterable[str] | None = None,
+        *,
+        latest: bool = False,
+        lockfile_only: bool = False,
+    ) -> Awaitable[EnvironmentUpdateResult]: ...
+
 class Script[**P, R]:
     def __init__(self, content: str) -> None: ...
     @classmethod
@@ -88,44 +110,26 @@ class Environment:
         *,
         lockfile: str | PathLike[str] | None = None,
     ) -> None: ...
-    def __enter__(self) -> Self: ...
+    def __enter__(self) -> SyncEnvironment: ...
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None: ...
-    async def __aenter__(self) -> Self: ...
+    async def __aenter__(self) -> AsyncEnvironment: ...
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None: ...
-    def lock_blocking(self) -> EnvironmentInstallResult: ...
-    def install_blocking(self) -> EnvironmentInstallResult: ...
-    def update_blocking(
-        self,
-        packages: Iterable[str] | None = None,
-        *,
-        latest: bool = False,
-        lockfile_only: bool = False,
-    ) -> EnvironmentUpdateResult: ...
-    def lock(self) -> Awaitable[EnvironmentInstallResult]: ...
-    def install(self) -> Awaitable[EnvironmentInstallResult]: ...
-    def update(
-        self,
-        packages: Iterable[str] | None = None,
-        *,
-        latest: bool = False,
-        lockfile_only: bool = False,
-    ) -> Awaitable[EnvironmentUpdateResult]: ...
 
 class Runtime:
     def __init__(
         self,
         *,
-        env: Environment | None = None,
+        env: Environment | SyncEnvironment | AsyncEnvironment | None = None,
         options: RuntimeOptions | None = None,
     ) -> None: ...
     @classmethod

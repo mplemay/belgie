@@ -251,7 +251,7 @@ export default function run() {
 def test_environment_lock_resolves_dependency_without_project_files(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-        result = env.lock_blocking()
+        result = env.lock()
         assert result.dependencies == 1
 
     assert list(tmp_path.iterdir()) == []
@@ -267,7 +267,7 @@ export default function run() {
 }
 """
     with Environment({"pkg_json": "npm:is-number@7.0.0/package.json"}) as env:
-        result = env.install_blocking()
+        result = env.install()
         with Runtime(env=env) as runtime:
             assert runtime(Script(source))() == "7.0.0"
 
@@ -278,7 +278,7 @@ export default function run() {
 def test_environment_update_changes_synthetic_dependency(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with Environment({"is_number": "npm:is-number@6.0.0"}) as env:
-        result = env.update_blocking(["is_number@7.0.0"], lockfile_only=True)
+        result = env.update(["is_number@7.0.0"], lockfile_only=True)
 
     assert len(result.changes) == 1
     assert result.changes[0].name == "is_number"
@@ -298,7 +298,7 @@ export default function run() {
 """
 
     with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-        env.install_blocking()
+        env.install()
         with Runtime(env=env) as runtime:
             assert runtime(Script(source))() == "join"
 
@@ -332,7 +332,7 @@ export default function run() {
 """
 
     with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-        env.install_blocking()
+        env.install()
         with Runtime(env=env) as runtime:
             assert runtime(Script(source))() == "join"
 
@@ -358,12 +358,12 @@ def test_environment_uses_supplied_lockfile_as_frozen_input(
     monkeypatch.chdir(tmp_path)
     lockfile = tmp_path / "deno.lock"
     with Environment({"std_path": "jsr:@std/path@^1"}) as source_env:
-        source_lock = source_env.lock_blocking()
+        source_lock = source_env.lock()
         lockfile.write_text(Path(source_lock.lockfile).read_text(encoding="utf-8"), encoding="utf-8")
 
     original_lock = lockfile.read_text(encoding="utf-8")
     with Environment({"std_path": "jsr:@std/path@^1"}, lockfile=lockfile) as env:
-        env.install_blocking()
+        env.install()
         with Runtime(env=env) as runtime:
             assert runtime(Script('import { join } from "std_path"; export default () => join.name;'))() == "join"
 
@@ -379,14 +379,14 @@ def test_environment_rejects_stale_supplied_lockfile(
     monkeypatch.chdir(tmp_path)
     lockfile = tmp_path / "deno.lock"
     with Environment({"std_path": "jsr:@std/path@^1"}) as source_env:
-        source_lock = source_env.lock_blocking()
+        source_lock = source_env.lock()
         lockfile.write_text(Path(source_lock.lockfile).read_text(encoding="utf-8"), encoding="utf-8")
 
     with (
         pytest.raises(BelgieRuntimeError, match="lockfile is out of date"),
         Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile=lockfile) as env,
     ):
-        env.install_blocking()
+        env.install()
 
 
 def test_two_isolated_environments_can_resolve_different_versions(tmp_path: Path, monkeypatch):
@@ -401,12 +401,12 @@ export default function run() {
     first = Environment({"pkg_json": "npm:is-number@6.0.0/package.json"})
     second = Environment({"pkg_json": "npm:is-number@7.0.0/package.json"})
 
-    with first, second:
-        first.install_blocking()
-        second.install_blocking()
-        with Runtime(env=first) as runtime:
+    with first as first_env, second as second_env:
+        first_env.install()
+        second_env.install()
+        with Runtime(env=first_env) as runtime:
             assert runtime(Script(source))() == "6.0.0"
-        with Runtime(env=second) as runtime:
+        with Runtime(env=second_env) as runtime:
             assert runtime(Script(source))() == "7.0.0"
 
     assert list(tmp_path.iterdir()) == []

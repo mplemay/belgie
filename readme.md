@@ -12,8 +12,8 @@ A minimal, secure JavaScript runtime for Python.
 ## Runtime Environments
 
 Use `Environment` for JavaScript dependencies that should remain isolated from the current Python
-project. Entering an environment creates temporary Deno config/cache state; call `install()` or
-`install_blocking()` to resolve and cache those dependencies explicitly:
+project. Entering an environment creates temporary Deno config/cache state; call `install()` on the
+active sync or async environment to resolve and cache those dependencies explicitly:
 
 ```python
 from belgie import Environment, Runtime, Script
@@ -29,7 +29,7 @@ export default function run() {
 )
 
 with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-    env.install_blocking()
+    env.install()
     with Runtime(env=env) as runtime:
         assert runtime(script)() == "join"
 ```
@@ -50,9 +50,10 @@ runtimes that were already using it have closed.
 
 Environment package operations are explicit:
 
-- `env.lock_blocking()` / `await env.lock()` resolves dependencies and writes the environment lockfile.
-- `env.install_blocking()` / `await env.install()` resolves dependencies and installs cache state.
-- `env.update_blocking(packages=None, latest=False, lockfile_only=False)` /
+- `env.lock(lockfile=None)` / `await env.lock(...)` resolves dependencies and writes the
+  environment lockfile, optionally copying it to a supplied path.
+- `env.install()` / `await env.install()` resolves dependencies and installs cache state.
+- `env.update(packages=None, latest=False, lockfile_only=False)` /
   `await env.update(...)` updates dependency specifiers in the environment's synthetic Deno config.
 
 The package mapping key is the JavaScript import alias. Values are either a full `npm:` / `jsr:`
