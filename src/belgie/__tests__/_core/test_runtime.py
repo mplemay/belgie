@@ -397,6 +397,21 @@ export default async function run(input) {
             with pytest.raises(_core.BelgieJavaScriptError, match="async boom"):
                 await runtime(Script(source))()
 
+    async def test_async_runner_remains_usable_after_javascript_error(self) -> None:
+        source = """
+let count = 0;
+export default function run() {
+  if (count++ === 0) throw new Error('async boom');
+  return 'ok';
+}
+"""
+
+        async with Runtime() as runtime:
+            run = runtime(Script(source))
+            with pytest.raises(_core.BelgieJavaScriptError, match="async boom"):
+                await run()
+            assert await run() == "ok"
+
     async def test_async_closed_runner_raises_runtime_error(self) -> None:
         async with Runtime() as runtime:
             run = runtime(Script("export default async () => 'ok';"))

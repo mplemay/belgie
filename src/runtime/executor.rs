@@ -21,12 +21,11 @@ pub(crate) async fn execute_async(
     arguments: RunnerArguments,
 ) -> AsyncRunnerResult {
     let mut guard = ExecutionCancellationGuard::new(handle.clone());
-    let value = handle
-        .invoke_async(arguments)
-        .await
-        .map_err(py_error::from_binding_error)?;
+    let result = handle.invoke_async(arguments).await;
     guard.disarm();
-    Python::attach(|py| value.to_py(py))
+    result
+        .map_err(py_error::from_binding_error)
+        .and_then(|value| Python::attach(|py| value.to_py(py)))
 }
 
 struct ExecutionCancellationGuard {
@@ -276,6 +275,42 @@ mod tests {
         assert!(
             result.is_ok(),
             "async executor should await module evaluation and async run exports: {result:?}"
+        );
+    }
+
+    #[test]
+    fn async_executor_reports_javascript_errors() {
+        let bound = bound_inline(
+            "export default function run() { throw new TypeError('async js failed'); }",
+        );
+        let handle = handle(bound);
+
+        let error = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(execute_async(handle, empty_arguments()))
+            .expect_err("throwing JS should surface as a Python error");
+
+        assert!(
+            error.to_string().contains("async js failed"),
+            "JS exception messages should be preserved, got {error}"
+        );
+    }
+
+    #[test]
+    fn async_executor_preserves_runner_after_javascript_errors() {
+        let bound = bound_inline("export default function run() { throw new TypeError('boom'); }");
+        let handle = handle(bound);
+        let runtime = pyo3_async_runtimes::tokio::get_runtime();
+
+        let first = runtime.block_on(execute_async(handle.clone(), empty_arguments()));
+        assert!(
+            first.is_err() && first.as_ref().unwrap_err().to_string().contains("boom"),
+            "first call should surface the JS error: {first:?}"
+        );
+
+        let second = runtime.block_on(execute_async(handle, empty_arguments()));
+        assert!(
+            second.is_err() && second.as_ref().unwrap_err().to_string().contains("boom"),
+            "second call should still surface the JS error, not shut down the worker: {second:?}"
         );
     }
 }
