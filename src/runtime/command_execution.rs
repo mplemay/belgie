@@ -11,13 +11,13 @@ use std::thread;
 use std::time::Duration;
 
 use deno_cache_dir::file_fetcher::MemoryFiles;
-use deno_core::{FastString, ModuleSpecifier, PollEventLoopOptions};
+use deno_core::{FastString, ModuleSpecifier};
 use deno_error::JsErrorBox;
 use deno_lib::args::{get_root_cert_store, npm_pkg_req_ref_to_binary_command};
 use deno_lib::npm::create_npm_process_state_provider;
 use deno_lib::worker::{
-    CreateModuleLoaderResult, LibMainWorker, LibMainWorkerFactory, LibMainWorkerOptions,
-    LibWorkerFactoryRoots, ModuleLoaderFactory, StorageKeyResolver,
+    CreateModuleLoaderResult, LibMainWorkerFactory, LibMainWorkerOptions, LibWorkerFactoryRoots,
+    ModuleLoaderFactory, StorageKeyResolver,
 };
 use deno_media_type::MediaType;
 use deno_resolver::cjs::CjsTrackerRc;
@@ -391,45 +391,26 @@ async fn run_js_command(
                 .borrow()
                 .has::<WatcherExited>();
             if exited {
-                cleanup_interrupted_worker(&mut worker).await;
+                worker
+                    .js_runtime()
+                    .v8_isolate()
+                    .cancel_terminate_execution();
                 command_exit_result(worker.exit_code())
             } else {
                 match result {
                     Ok(code) => command_exit_result(code),
-                    Err(error) => {
-                        cleanup_interrupted_worker(&mut worker).await;
-                        Err(BindingError::runtime(error.to_string()))
-                    }
+                    Err(error) => Err(BindingError::runtime(error.to_string())),
                 }
             }
         }
         WorkerOutcome::Cancelled => {
-            cleanup_interrupted_worker(&mut worker).await;
+            worker
+                .js_runtime()
+                .v8_isolate()
+                .cancel_terminate_execution();
             Err(process_context::command_cancelled())
         }
     }
-}
-
-async fn cleanup_interrupted_worker(worker: &mut LibMainWorker) {
-    worker
-        .js_runtime()
-        .v8_isolate()
-        .cancel_terminate_execution();
-    let _ = worker.dispatch_unload_event();
-    let _ = worker.dispatch_process_exit_event();
-    worker.run_napi_ref_finalizers();
-    drain_worker_event_loop(worker).await;
-}
-
-async fn drain_worker_event_loop(worker: &mut LibMainWorker) {
-    const DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
-    let _ = tokio::time::timeout(
-        DRAIN_TIMEOUT,
-        worker
-            .js_runtime()
-            .run_event_loop(PollEventLoopOptions::default()),
-    )
-    .await;
 }
 
 async fn run_native_command(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from json import dumps
 from os import environ
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -133,6 +134,50 @@ async def test_command_arguments_must_be_strings(
         command = runtime(Command("vite"))
         with pytest.raises(TypeError, match="argument 0 must be str"):
             command(cast("Any", 42))
+
+
+async def test_cancelled_command_skips_exit_hooks(
+    tmp_path: Path,
+    write_belgie_pyproject,
+) -> None:
+    install_zx(tmp_path, write_belgie_pyproject)
+    started = tmp_path / "started.txt"
+    process_exit = tmp_path / "process-exit.txt"
+    unload = tmp_path / "unload.txt"
+    started_path = dumps(str(started))
+    process_exit_path = dumps(str(process_exit))
+    unload_path = dumps(str(unload))
+    (tmp_path / "cancel.mjs").write_text(
+        f"""
+import {{ writeFileSync }} from "node:fs";
+
+process.on(
+  "exit",
+  () => writeFileSync({process_exit_path}, "exit", "utf-8"),
+);
+globalThis.addEventListener(
+  "unload",
+  () => writeFileSync({unload_path}, "unload", "utf-8"),
+);
+writeFileSync({started_path}, "started", "utf-8");
+setInterval(() => {{}}, 1000);
+""",
+        encoding="utf-8",
+    )
+
+    async with Runtime.from_folder(tmp_path) as runtime:
+        task = asyncio.create_task(runtime(Command("zx"))("cancel.mjs"))
+        for _ in range(50):
+            if started.is_file():
+                break
+            await asyncio.sleep(0.05)
+        assert started.is_file()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert not process_exit.exists()
+    assert not unload.exists()
 
 
 async def test_cancelling_vite_dev_stops_command(
