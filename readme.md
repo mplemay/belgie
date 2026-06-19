@@ -34,6 +34,19 @@ with Environment({"std_path": "jsr:@std/path@^1"}) as env:
         assert runtime(script)() == "join"
 ```
 
+Pass `cwd=` to use a specific existing directory as the environment's working directory:
+
+```python
+with Environment({"std_path": "jsr:@std/path@^1"}, cwd="workspace") as env:
+    env.install()
+    with Runtime(env=env) as runtime:
+        result = runtime(script)()
+```
+
+Relative imports and command working directories resolve from `cwd`. Files written beneath that
+directory remain on disk after the environment and process exit. When omitted, `cwd` defaults to
+the current working directory at construction time.
+
 Async callers can use the matching async methods:
 
 ```python
@@ -43,8 +56,9 @@ async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
         assert await runtime(script)() == "join"
 ```
 
-The temporary config, lockfile, and Deno cache are removed after the environment exits and any
-runtimes that were already using it have closed.
+Belgie's synthetic config, lockfile, Deno cache, and `node_modules` remain isolated in temporary
+storage. They are removed after the environment exits and any runtimes that were already using it
+have closed, including when `cwd` is supplied.
 
 ### Package Operations
 

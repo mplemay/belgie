@@ -248,6 +248,24 @@ export default function run() {
         run_script(tmp_path, source)
 
 
+def test_environment_cwd_resolves_inline_relative_imports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    process_root = tmp_path / "process"
+    process_root.mkdir()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / "value.ts").write_text("export const value = 42;\n", encoding="utf-8")
+    monkeypatch.chdir(process_root)
+
+    source = 'import { value } from "./value.ts"; export default () => value;'
+    with Environment(cwd=project_root) as env, Runtime(env=env) as runtime:
+        assert runtime(Script(source))() == 42
+
+    assert sorted(path.name for path in project_root.iterdir()) == ["value.ts"]
+
+
 def test_environment_lock_resolves_dependency_without_project_files(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with Environment({"std_path": "jsr:@std/path@^1"}) as env:

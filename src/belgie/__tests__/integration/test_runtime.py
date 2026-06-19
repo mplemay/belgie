@@ -61,6 +61,38 @@ async def test_runs_command_from_isolated_environment(tmp_path: Path, monkeypatc
         await runtime(Command("semver"))("--help")
 
 
+async def test_environment_cwd_persists_command_files_across_recreation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process_root = tmp_path / "process"
+    process_root.mkdir()
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / "persist.mjs").write_text(
+        """
+import { writeFileSync } from "node:fs";
+
+writeFileSync("persisted.ts", "export const persisted = 42;\\n", "utf-8");
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(process_root)
+
+    async with Environment({"zx": f"npm:zx@{ZX_VERSION}"}, cwd=project_root) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            await runtime(Command("zx"))("persist.mjs")
+
+    assert (project_root / "persisted.ts").is_file()
+
+    source = 'import { persisted } from "./persisted.ts"; export default () => persisted;'
+    async with Environment(cwd=project_root) as env, Runtime(env=env) as runtime:
+        assert await runtime(Script(source))() == 42
+
+    assert sorted(path.name for path in project_root.iterdir()) == ["persist.mjs", "persisted.ts"]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")
 async def test_vite_build_forwards_arguments_and_uses_nested_cwd_and_environment(
     tmp_path: Path,
