@@ -5,10 +5,11 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from json import dumps
-from os import environ
+from os import PathLike, environ
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import pytest
+from anyio import Path as AsyncPath
 
 from belgie import Command, Environment, Runtime, Script
 from belgie.errors import BelgieRuntimeError
@@ -25,8 +26,12 @@ ZX_VERSION: Final[str] = "8.5.5"
 
 
 @asynccontextmanager
-async def installed_environment(dependencies: dict[str, str]) -> AsyncIterator[AsyncEnvironment]:
-    async with Environment(dependencies) as env:
+async def installed_environment(
+    dependencies: dict[str, str],
+    *,
+    cwd: str | PathLike[str] | None = None,
+) -> AsyncIterator[AsyncEnvironment]:
+    async with Environment(dependencies, cwd=cwd) as env:
         await env.install()
         yield env
 
@@ -59,6 +64,38 @@ async def test_runs_command_from_isolated_environment(tmp_path: Path, monkeypatc
 
     async with installed_environment({"semver": "7.7.2"}) as env, Runtime(env=env) as runtime:
         await runtime(Command("semver"))("--help")
+
+
+async def test_environment_cwd_persists_command_files_across_recreation(
+    isolated_project_cwd: Path,
+) -> None:
+    (isolated_project_cwd / "persist.mjs").write_text(
+        """
+import { writeFileSync } from "node:fs";
+
+writeFileSync("persisted.ts", "export const persisted = 42;\\n", "utf-8");
+""",
+        encoding="utf-8",
+    )
+
+    async with (
+        installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}, cwd=isolated_project_cwd) as env,
+        Runtime(
+            env=env,
+        ) as runtime,
+    ):
+        await runtime(Command("zx"))("persist.mjs")
+
+    assert await AsyncPath(isolated_project_cwd / "persisted.ts").is_file()
+
+    source = 'import { persisted } from "./persisted.ts"; export default () => persisted;'
+    async with Environment(cwd=isolated_project_cwd) as env, Runtime(env=env) as runtime:
+        assert await runtime(Script(source))() == 42
+
+    assert sorted([entry.name async for entry in AsyncPath(isolated_project_cwd).iterdir()]) == [
+        "persist.mjs",
+        "persisted.ts",
+    ]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")

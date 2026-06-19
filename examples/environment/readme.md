@@ -1,8 +1,8 @@
 # environment example
 
-Demonstrates declaring temporary JavaScript dependencies inline with `Environment`. Dependencies
-are installed into an isolated temporary Deno config and cache that are removed when the environment
-exits.
+Demonstrates declaring temporary JavaScript dependencies inline with `Environment` and selecting an
+existing persistent working directory with `cwd`. Dependencies are installed into isolated temporary
+Deno state that is removed when the environment exits; files created in `cwd` remain on disk.
 
 ## Run
 

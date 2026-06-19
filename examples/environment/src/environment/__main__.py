@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Final
 
 from belgie import Environment, Runtime, Script
@@ -26,7 +27,10 @@ async def resolve_join_export_async() -> str:
 
 
 async def main() -> None:
-    print(await resolve_join_export_async())  # noqa: T201
+    async with Environment({"std_path": "jsr:@std/path@^1"}, cwd=Path.cwd()) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            print(str(await runtime(Script(SOURCE))()))  # noqa: T201
 
 
 if __name__ == "__main__":

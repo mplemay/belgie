@@ -276,6 +276,28 @@ class TestRuntimeLifecycle:
 
 
 class TestEnvironmentLifecycle:
+    @pytest.mark.parametrize("cwd", ["project", StringPath("project")])
+    def test_environment_accepts_string_and_pathlike_cwd(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        cwd: str | StringPath,
+    ) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        env = Environment(cwd=cwd)
+
+        assert repr(env) == f"Environment(cwd={project}, dependencies=0, active=False)"
+        assert repr(Runtime(env=env)) == f"Runtime(env=Environment(cwd={project}))"
+
+    def test_environment_cwd_is_keyword_only(self) -> None:
+        environment_type = cast("Any", Environment)
+
+        with pytest.raises(TypeError):
+            environment_type(None, "project")
+
     def test_lockfile_requires_dependencies(self, tmp_path: Path) -> None:
         lockfile = tmp_path / "deno.lock"
         lockfile.write_text(EMPTY_DENO_LOCK, encoding="utf-8")

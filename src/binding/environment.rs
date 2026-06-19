@@ -33,10 +33,11 @@ pub struct PyAsyncEnvironment {
 #[pymethods]
 impl PyEnvironment {
     #[new]
-    #[pyo3(signature = (dependencies = None, *, lockfile = None))]
+    #[pyo3(signature = (dependencies = None, *, cwd = None, lockfile = None))]
     fn new(
         py: Python<'_>,
         dependencies: Option<&Bound<'_, PyAny>>,
+        cwd: Option<&Bound<'_, PyAny>>,
         lockfile: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let dependencies = coerce::normalize_dependencies(dependencies)?;
@@ -46,7 +47,7 @@ impl PyEnvironment {
             ));
         }
         let lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Input)?;
-        let cwd = normalize_path::normalize_cwd(py, None)?;
+        let cwd = normalize_path::normalize_cwd(py, cwd)?;
         let definition = EnvironmentDefinition::from_mapping(cwd, dependencies, lockfile)
             .map_err(blocking::any_error_to_py)?;
         Ok(Self {
