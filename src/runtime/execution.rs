@@ -14,7 +14,7 @@ use tokio::sync::oneshot;
 use crate::{
     embed::{EmbedContext, prepare_package_runtime},
     packages::project_state_error,
-    runtime::{BoundPackageEnvironment, BoundRuntime, module_loader},
+    runtime::{BoundPackageEnvironment, BoundRuntime, module_loader, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
 };
 
@@ -165,18 +165,21 @@ fn run_worker_thread(
         .enable_all()
         .build()
         .expect("failed to create Deno execution runtime");
-    let mut context = match DenoExecutionContext::new(bound, &runtime) {
-        Ok(context) => context,
-        Err(error) => {
-            while let Ok(command) = receiver.recv() {
-                match command {
-                    ExecutionCommand::Invoke { respond_to, .. } => {
-                        let _ = respond_to.send(Err(error.clone()));
+    let mut context = {
+        let _process_context = process_context::blocking_guard();
+        match DenoExecutionContext::new(bound, &runtime) {
+            Ok(context) => context,
+            Err(error) => {
+                while let Ok(command) = receiver.recv() {
+                    match command {
+                        ExecutionCommand::Invoke { respond_to, .. } => {
+                            let _ = respond_to.send(Err(error.clone()));
+                        }
+                        ExecutionCommand::Shutdown => break,
                     }
-                    ExecutionCommand::Shutdown => break,
                 }
+                return;
             }
-            return;
         }
     };
     *isolate_handle
@@ -190,6 +193,7 @@ fn run_worker_thread(
                 arguments,
                 respond_to,
             } => {
+                let _process_context = process_context::blocking_guard();
                 let result = runtime.block_on(context.invoke(arguments));
                 let _ = respond_to.send(result);
             }

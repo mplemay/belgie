@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from belgie import Command, Environment, Runtime
+from belgie import Command, Environment, Runtime, Script
 from belgie.dependencies import install
 from belgie.errors import BelgieRuntimeError
 
@@ -185,3 +185,25 @@ async def test_command_waiting_for_global_context_is_cancellable(
         server.cancel()
         with pytest.raises(asyncio.CancelledError):
             await server
+
+
+async def test_concurrent_script_and_command_with_env_override(
+    tmp_path: Path,
+    write_belgie_pyproject,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_vite(tmp_path, write_belgie_pyproject)
+    monkeypatch.setenv("BELGIE_PROBE", "baseline")
+
+    script = Script("export default async () => 'ok';")
+    command = Command("vite", env={"BELGIE_PROBE": "command"})
+
+    async with Runtime.from_folder(tmp_path) as runtime:
+        for _ in range(5):
+            script_result, _command_result = await asyncio.gather(
+                runtime(script)(),
+                runtime(command)("--version"),
+            )
+            assert script_result == "ok"
+
+    assert environ["BELGIE_PROBE"] == "baseline"

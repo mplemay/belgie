@@ -158,15 +158,15 @@ impl PyRuntime {
         self.start_enter()?;
         let runtime = self.inner.clone();
         let context_state = self.context_state.clone();
+        let mut enter_guard = RuntimeEnterGuard::new(&self.context_state);
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut guard = RuntimeEnterGuard::new(&context_state);
             let session =
                 RuntimeSession::activate(runtime).map_err(py_error::from_binding_error)?;
             *context_state
                 .lock()
                 .expect("runtime context state lock should not be poisoned") =
                 RuntimeContextState::Active(session.clone());
-            guard.disarm();
+            enter_guard.disarm();
             Ok(PyAsyncRuntime::new(session))
         })
     }

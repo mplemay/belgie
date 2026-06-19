@@ -360,6 +360,20 @@ export default function run(first, second, options) {
 
 
 class TestAsyncRuntimeExecution:
+    async def test_cancelled_async_enter_can_be_retried(self) -> None:
+        runtime = Runtime()
+
+        async def enter_runtime() -> AsyncRuntime:
+            return await runtime.__aenter__()
+
+        enter_task = asyncio.create_task(enter_runtime())
+        enter_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await enter_task
+
+        async with runtime as active:
+            assert await active(Script("export default async () => 'ok';"))() == "ok"
+
     async def test_async_runner_returns_awaitable_and_awaits_export(self) -> None:
         source = """
 const resolved = await Promise.resolve(41);

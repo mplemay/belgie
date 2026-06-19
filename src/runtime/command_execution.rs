@@ -44,13 +44,11 @@ use crate::embed::{
     EmbedContext, PackageRuntimeState, js_content_type_header_overrides, prepare_package_runtime,
 };
 use crate::packages::project_state_error;
-use crate::runtime::BoundPackageEnvironment;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
+use crate::runtime::{BoundPackageEnvironment, process_context};
 use crate::types::error::BindingError;
 
 type CommandResult<T = ()> = Result<T, BindingError>;
-
-static COMMAND_CONTEXT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Clone, Debug)]
 pub(crate) struct CommandExecutionHandle {
@@ -166,16 +164,7 @@ async fn run_command(
     if *cancel_rx.borrow() {
         return Err(command_cancelled());
     }
-    let _context_lock = loop {
-        tokio::select! {
-            guard = COMMAND_CONTEXT_LOCK.lock() => break guard,
-            changed = cancel_rx.changed() => {
-                if changed.is_err() || *cancel_rx.borrow() {
-                    return Err(command_cancelled());
-                }
-            }
-        }
-    };
+    let _context_lock = process_context::acquire_guard(&mut cancel_rx).await?;
     if *cancel_rx.borrow() {
         return Err(command_cancelled());
     }
@@ -747,7 +736,7 @@ impl EnvironmentGuard {
             .map(|(key, value)| {
                 let key = OsString::from(key);
                 let previous = std::env::var_os(&key);
-                // SAFETY: command execution is serialized by COMMAND_CONTEXT_LOCK.
+                // SAFETY: command execution is serialized by PROCESS_CONTEXT_LOCK.
                 unsafe { std::env::set_var(&key, value) };
                 (key, previous)
             })

@@ -5,6 +5,7 @@ mod bound_runtime;
 mod command_execution;
 mod deno_runtime;
 mod execution;
+mod process_context;
 mod session;
 
 pub(crate) use bound_runtime::{BoundPackageEnvironment, BoundRuntime};
