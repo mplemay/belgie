@@ -429,23 +429,19 @@ async fn run_js_command(
     }
 }
 
-fn clear_worker_termination(worker: &mut LibMainWorker) {
+async fn finish_worker_after_termination(worker: &mut LibMainWorker) {
     worker
         .js_runtime()
         .v8_isolate()
         .cancel_terminate_execution();
-}
-
-async fn drain_worker_event_loop(worker: &mut LibMainWorker) {
-    let _ = worker
-        .js_runtime()
-        .run_event_loop(PollEventLoopOptions::default())
-        .await;
-}
-
-async fn finish_worker_after_termination(worker: &mut LibMainWorker) {
-    clear_worker_termination(worker);
-    drain_worker_event_loop(worker).await;
+    const DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
+    let _ = tokio::time::timeout(
+        DRAIN_TIMEOUT,
+        worker
+            .js_runtime()
+            .run_event_loop(PollEventLoopOptions::default()),
+    )
+    .await;
 }
 
 async fn run_native_command(
