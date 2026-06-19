@@ -397,7 +397,6 @@ async fn run_js_command(
                 if changed.is_err() || *cancel_rx.borrow() {
                     isolate.terminate_execution();
                 }
-                let _ = run.await;
                 WorkerOutcome::Cancelled
             }
         }
@@ -410,30 +409,37 @@ async fn run_js_command(
                 .borrow()
                 .has::<WatcherExited>();
             if exited {
-                finish_worker_after_termination(&mut worker).await;
+                cleanup_interrupted_worker(&mut worker).await;
                 command_exit_result(worker.exit_code())
             } else {
                 match result {
                     Ok(code) => command_exit_result(code),
                     Err(error) => {
-                        finish_worker_after_termination(&mut worker).await;
+                        cleanup_interrupted_worker(&mut worker).await;
                         Err(BindingError::runtime(error.to_string()))
                     }
                 }
             }
         }
         WorkerOutcome::Cancelled => {
-            finish_worker_after_termination(&mut worker).await;
+            cleanup_interrupted_worker(&mut worker).await;
             Err(command_cancelled())
         }
     }
 }
 
-async fn finish_worker_after_termination(worker: &mut LibMainWorker) {
+async fn cleanup_interrupted_worker(worker: &mut LibMainWorker) {
     worker
         .js_runtime()
         .v8_isolate()
         .cancel_terminate_execution();
+    let _ = worker.dispatch_unload_event();
+    let _ = worker.dispatch_process_exit_event();
+    worker.run_napi_ref_finalizers();
+    drain_worker_event_loop(worker).await;
+}
+
+async fn drain_worker_event_loop(worker: &mut LibMainWorker) {
     const DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
     let _ = tokio::time::timeout(
         DRAIN_TIMEOUT,
