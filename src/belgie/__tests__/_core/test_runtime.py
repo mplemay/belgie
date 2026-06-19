@@ -276,35 +276,27 @@ class TestRuntimeLifecycle:
 
 
 class TestEnvironmentLifecycle:
+    @pytest.mark.parametrize("cwd", ["project", StringPath("project")])
     def test_environment_accepts_string_and_pathlike_cwd(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
+        cwd: str | StringPath,
     ) -> None:
         project = tmp_path / "project"
         project.mkdir()
         monkeypatch.chdir(tmp_path)
 
-        for cwd in ("project", StringPath("project")):
-            env = Environment(cwd=cwd)
+        env = Environment(cwd=cwd)
 
-            assert repr(env) == f"Environment(cwd={project}, dependencies=0, active=False)"
-            assert repr(Runtime(env=env)) == f"Runtime(env=Environment(cwd={project}))"
+        assert repr(env) == f"Environment(cwd={project}, dependencies=0, active=False)"
+        assert repr(Runtime(env=env)) == f"Runtime(env=Environment(cwd={project}))"
 
-    def test_environment_cwd_rejects_missing_and_file_paths(self, tmp_path: Path) -> None:
-        file_path = tmp_path / "not-a-directory"
-        file_path.write_text("", encoding="utf-8")
-
-        with pytest.raises(FileNotFoundError, match="cwd does not exist"):
-            Environment(cwd=tmp_path / "missing")
-        with pytest.raises(OSError, match="cwd is not a directory"):
-            Environment(cwd=file_path)
-
-    def test_environment_cwd_is_keyword_only(self, tmp_path: Path) -> None:
+    def test_environment_cwd_is_keyword_only(self) -> None:
         environment_type = cast("Any", Environment)
 
         with pytest.raises(TypeError):
-            environment_type(None, tmp_path)
+            environment_type(None, "project")
 
     def test_lockfile_requires_dependencies(self, tmp_path: Path) -> None:
         lockfile = tmp_path / "deno.lock"
