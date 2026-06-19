@@ -16,6 +16,7 @@ use crate::{
     packages::project_state_error,
     runtime::{BoundPackageEnvironment, BoundRuntime, module_loader, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
+    utils::cancel_guard::Cancel,
 };
 
 type ExecutionResult<T> = Result<T, BindingError>;
@@ -122,6 +123,12 @@ impl DenoExecutionHandle {
         response
             .await
             .map_err(|_| BindingError::runtime("Deno execution worker stopped unexpectedly"))?
+    }
+}
+
+impl Cancel for DenoExecutionHandle {
+    fn cancel(&self) {
+        DenoExecutionHandle::cancel(self);
     }
 }
 

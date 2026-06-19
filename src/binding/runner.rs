@@ -9,9 +9,9 @@ use pyo3::{
 use crate::{
     binding::{PyCommand, PyScript},
     command::CommandSource,
-    runtime::{CommandExecutionHandle, DenoExecutionHandle, RuntimeSession, executor},
+    runtime::{DenoExecutionHandle, RuntimeSession, executor},
     types::runner::RunnerArguments,
-    utils::py_error,
+    utils::{cancel_guard::CancelGuard, py_error},
 };
 
 #[pyclass(name = "SyncRuntime", module = "belgie._core")]
@@ -184,8 +184,9 @@ impl PyAsyncCommandRunner {
             .start_command(self.command.clone(), argv)
             .map_err(py_error::from_binding_error)?;
         let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut guard = CommandCancellationGuard::new(handle.clone());
-            handle
+            let mut guard = CancelGuard::new(handle);
+            guard
+                .get()
                 .wait_async()
                 .await
                 .map_err(py_error::from_binding_error)?;
@@ -259,30 +260,4 @@ fn as_coroutine<'py>(py: Python<'py>, awaitable: Bound<'py, PyAny>) -> PyResult<
     py.import("belgie._awaitable")?
         .getattr("as_coroutine")?
         .call1((awaitable,))
-}
-
-struct CommandCancellationGuard {
-    handle: CommandExecutionHandle,
-    armed: bool,
-}
-
-impl CommandCancellationGuard {
-    fn new(handle: CommandExecutionHandle) -> Self {
-        Self {
-            handle,
-            armed: true,
-        }
-    }
-
-    fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for CommandCancellationGuard {
-    fn drop(&mut self) {
-        if self.armed {
-            self.handle.cancel();
-        }
-    }
 }

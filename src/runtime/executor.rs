@@ -1,7 +1,7 @@
 use crate::{
     runtime::DenoExecutionHandle,
     types::runner::{AsyncRunnerResult, RunnerArguments, SyncRunnerResult},
-    utils::py_error,
+    utils::{cancel_guard::CancelGuard, py_error},
 };
 use pyo3::Python;
 
@@ -20,38 +20,12 @@ pub(crate) async fn execute_async(
     handle: DenoExecutionHandle,
     arguments: RunnerArguments,
 ) -> AsyncRunnerResult {
-    let mut guard = ExecutionCancellationGuard::new(handle.clone());
-    let result = handle.invoke_async(arguments).await;
+    let mut guard = CancelGuard::new(handle);
+    let result = guard.get().invoke_async(arguments).await;
     guard.disarm();
     result
         .map_err(py_error::from_binding_error)
         .and_then(|value| Python::attach(|py| value.to_py(py)))
-}
-
-struct ExecutionCancellationGuard {
-    handle: DenoExecutionHandle,
-    armed: bool,
-}
-
-impl ExecutionCancellationGuard {
-    fn new(handle: DenoExecutionHandle) -> Self {
-        Self {
-            handle,
-            armed: true,
-        }
-    }
-
-    fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for ExecutionCancellationGuard {
-    fn drop(&mut self) {
-        if self.armed {
-            self.handle.cancel();
-        }
-    }
 }
 
 #[cfg(test)]
@@ -279,38 +253,28 @@ mod tests {
     }
 
     #[test]
-    fn async_executor_reports_javascript_errors() {
-        let bound = bound_inline(
-            "export default function run() { throw new TypeError('async js failed'); }",
-        );
-        let handle = handle(bound);
-
-        let error = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(execute_async(handle, empty_arguments()))
-            .expect_err("throwing JS should surface as a Python error");
-
-        assert!(
-            error.to_string().contains("async js failed"),
-            "JS exception messages should be preserved, got {error}"
-        );
-    }
-
-    #[test]
     fn async_executor_preserves_runner_after_javascript_errors() {
-        let bound = bound_inline("export default function run() { throw new TypeError('boom'); }");
+        let bound = bound_inline(
+            "let count = 0; export default function run() { if (count++ === 0) throw new Error('async boom'); return 'ok'; }",
+        );
         let handle = handle(bound);
         let runtime = pyo3_async_runtimes::tokio::get_runtime();
 
         let first = runtime.block_on(execute_async(handle.clone(), empty_arguments()));
         assert!(
-            first.is_err() && first.as_ref().unwrap_err().to_string().contains("boom"),
+            first.is_err()
+                && first
+                    .as_ref()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("async boom"),
             "first call should surface the JS error: {first:?}"
         );
 
         let second = runtime.block_on(execute_async(handle, empty_arguments()));
         assert!(
-            second.is_err() && second.as_ref().unwrap_err().to_string().contains("boom"),
-            "second call should still surface the JS error, not shut down the worker: {second:?}"
+            second.is_ok(),
+            "second call should succeed after disarming the cancellation guard: {second:?}"
         );
     }
 }

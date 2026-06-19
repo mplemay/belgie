@@ -47,6 +47,7 @@ use crate::packages::project_state_error;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 use crate::runtime::{BoundPackageEnvironment, process_context};
 use crate::types::error::BindingError;
+use crate::utils::cancel_guard::Cancel;
 
 type CommandResult<T = ()> = Result<T, BindingError>;
 
@@ -127,6 +128,12 @@ impl CommandExecutionHandle {
             .expect("command response lock should not be poisoned")
             .take()
             .ok_or_else(|| BindingError::runtime("Command runner may only be invoked once"))
+    }
+}
+
+impl Cancel for CommandExecutionHandle {
+    fn cancel(&self) {
+        CommandExecutionHandle::cancel(self);
     }
 }
 
