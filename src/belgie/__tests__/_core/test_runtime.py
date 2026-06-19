@@ -4,9 +4,11 @@ import asyncio
 import inspect
 from dataclasses import dataclass
 from os import PathLike
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from anyio import Path as AsyncPath
 
 from belgie import _core
 from belgie.__tests__._core.conftest import EMPTY_DENO_LOCK
@@ -16,6 +18,9 @@ from belgie._core import (
     AsyncRuntime,
     Command,
     Environment,
+    EnvironmentInstallResult,
+    EnvironmentUpdateChange,
+    EnvironmentUpdateResult,
     Runtime,
     RuntimeOptions,
     Script,
@@ -26,7 +31,6 @@ from belgie._core import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 
 @dataclass(slots=True, frozen=True)
@@ -46,6 +50,9 @@ class TestCoreRuntimeExports:
     def test_runtime_exports_are_available_from_core_module(self) -> None:
         assert _core.Runtime is Runtime
         assert _core.Environment is Environment
+        assert _core.EnvironmentInstallResult is EnvironmentInstallResult
+        assert _core.EnvironmentUpdateChange is EnvironmentUpdateChange
+        assert _core.EnvironmentUpdateResult is EnvironmentUpdateResult
         assert _core.RuntimeOptions is RuntimeOptions
         assert _core.Script is Script
         assert _core.Command is Command
@@ -158,35 +165,28 @@ class TestRuntimeLifecycle:
     def test_environment_has_no_folder_constructor(self) -> None:
         assert not hasattr(Environment, "from_folder")
 
-    def test_project_runtime_requires_lockfile(self, write_belgie_pyproject) -> None:
-        pyproject = write_belgie_pyproject(dependencies={"react": "^19"})
-        (pyproject.parent / "deno.lock").unlink()
+    def test_runtime_from_folder_ignores_pyproject_dependency_tables(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[belgie.dependencies]\nreact = "^19"\n',
+            encoding="utf-8",
+        )
 
-        with pytest.raises(_core.BelgieRuntimeError, match="belgie.dependencies.install"):
-            Runtime.from_folder(pyproject.parent)
+        runtime = Runtime.from_folder(tmp_path)
 
-    def test_project_runtime_requires_npm_install_by_default(self, write_belgie_pyproject) -> None:
-        pyproject = write_belgie_pyproject(dependencies={"react": "^19"})
+        assert repr(runtime) == f"Runtime.from_folder({tmp_path})"
+        assert not (tmp_path / "deno.lock").exists()
+        assert not (tmp_path / "node_modules").exists()
 
-        with pytest.raises(_core.BelgieRuntimeError, match=r"node_modules.*install=True"):
-            Runtime.from_folder(pyproject.parent)
-
-    def test_project_runtime_rejects_unknown_groups(self, write_belgie_pyproject) -> None:
-        pyproject = write_belgie_pyproject(dependencies={"react": "^19"})
-
-        with pytest.raises(_core.BelgieRuntimeError, match="No dependencies matched groups: \\[typo\\]"):
-            Runtime.from_folder(pyproject.parent, groups=["typo"])
-
-    def test_project_runtime_does_not_require_node_modules_for_jsr_only_dependencies(
+    @pytest.mark.parametrize("kwargs", [{"groups": ["default"]}, {"install": True}])
+    def test_runtime_from_folder_rejects_removed_dependency_options(
         self,
-        write_belgie_pyproject,
+        tmp_path: Path,
+        kwargs: dict[str, object],
     ) -> None:
-        pyproject = write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
+        runtime_type = cast("Any", Runtime)
 
-        runtime = Runtime.from_folder(pyproject.parent)
-
-        assert repr(runtime) == f"Runtime.from_folder({pyproject.parent})"
-        assert not (pyproject.parent / "node_modules").exists()
+        with pytest.raises(TypeError):
+            runtime_type.from_folder(tmp_path, **kwargs)
 
     def test_runtime_rejects_removed_cwd_argument(self, tmp_path: Path) -> None:
         runtime_type = cast("Any", Runtime)
@@ -312,6 +312,64 @@ class TestEnvironmentLifecycle:
         with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
             Runtime(env=env).__enter__()
         runtime.__exit__(None, None, None)
+
+    def test_environment_package_operations_require_active_context(self) -> None:
+        env = Environment({"std_path": "jsr:@std/path@^1"})
+
+        with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
+            env.lock_blocking()
+        with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
+            env.install_blocking()
+        with pytest.raises(_core.BelgieRuntimeError, match="must be entered"):
+            env.update_blocking()
+
+    def test_environment_lock_blocking_returns_result_without_project_files(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+            result = env.lock_blocking()
+
+        assert isinstance(result, EnvironmentInstallResult)
+        assert result.dependencies == 1
+        assert not list(tmp_path.iterdir())
+
+    async def test_environment_async_install_returns_result_without_project_files(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+            result = await env.install()
+
+        assert isinstance(result, EnvironmentInstallResult)
+        assert result.dependencies == 1
+        assert [entry async for entry in AsyncPath(tmp_path).iterdir()] == []
+
+    def test_frozen_lockfile_environment_rejects_update(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        lockfile = tmp_path / "deno.lock"
+        with Environment({"std_path": "jsr:@std/path@^1"}) as source:
+            source_lock = source.lock_blocking()
+            lockfile.write_text(Path(source_lock.lockfile).read_text(encoding="utf-8"), encoding="utf-8")
+
+        with (
+            Environment({"std_path": "jsr:@std/path@^1"}, lockfile=lockfile) as env,
+            pytest.raises(_core.BelgieRuntimeError, match="frozen lockfile"),
+        ):
+            env.update_blocking()
+
+    def test_environment_update_validates_filter_types(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        with Environment({"is_number": "npm:is-number@6.0.0"}) as env, pytest.raises(TypeError):
+            env.update_blocking(cast("Any", [object()]))
 
 
 class TestSyncRuntimeExecution:

@@ -1,6 +1,4 @@
-use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{borrow::Cow, fs, path::PathBuf, sync::Arc};
 
 use deno_ast::{MediaType, ParseParams, SourceMapOption};
 use deno_cache_dir::file_fetcher::MemoryFiles;
@@ -17,7 +15,6 @@ use deno_lib::loader::module_type_from_media_and_requested_type;
 use deno_resolver::graph::ResolveWithGraphOptions;
 use deno_resolver::loader::LoadedModuleOrAsset;
 use futures::FutureExt;
-use node_resolver::InNpmPackageChecker;
 use node_resolver::NodeResolutionKind;
 use node_resolver::ResolutionMode;
 use url::Url;
@@ -233,6 +230,41 @@ impl PackageAwareModuleLoader {
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
         let referrer = self.resolve_referrer(referrer)?;
         let referrer_url = Url::parse(referrer.as_str()).map_err(JsErrorBox::from_err)?;
+        let node_resolver = self
+            .state
+            .resolver_factory
+            .node_resolver()
+            .map_err(|error| JsErrorBox::generic(error.to_string()))?;
+        let is_npm_referrer = node_resolver.in_npm_package(&referrer);
+        let resolution_mode = if is_npm_referrer {
+            let cjs_tracker = self
+                .state
+                .resolver_factory
+                .cjs_tracker()
+                .map_err(|error| JsErrorBox::generic(error.to_string()))?;
+            if cjs_tracker
+                .is_maybe_cjs(&referrer, MediaType::from_specifier(&referrer))
+                .map_err(JsErrorBox::from_err)?
+            {
+                ResolutionMode::Require
+            } else {
+                ResolutionMode::Import
+            }
+        } else {
+            ResolutionMode::Import
+        };
+        if is_npm_referrer {
+            let specifier = node_resolver
+                .resolve(
+                    raw_specifier,
+                    &referrer_url,
+                    resolution_mode,
+                    NodeResolutionKind::Execution,
+                )
+                .and_then(|resolution| resolution.into_url())
+                .map_err(JsErrorBox::from_err)?;
+            return Ok(specifier);
+        }
         let graph = self
             .state
             .graph
@@ -248,7 +280,7 @@ impl PackageAwareModuleLoader {
                 &referrer_url,
                 Position::zeroed(),
                 ResolveWithGraphOptions {
-                    mode: ResolutionMode::Import,
+                    mode: resolution_mode,
                     kind: NodeResolutionKind::Execution,
                     maintain_npm_specifiers,
                 },
@@ -313,6 +345,39 @@ impl PackageAwareModuleLoader {
         let maybe_referrer_url = maybe_referrer
             .map(|referrer| Url::parse(referrer.as_str()).map_err(JsErrorBox::from_err))
             .transpose()?;
+        let is_npm_package = self
+            .state
+            .resolver_factory
+            .node_resolver()
+            .map_err(|error| JsErrorBox::generic(error.to_string()))?
+            .in_npm_package(module_specifier);
+        if is_npm_package {
+            let npm_module_loader = self
+                .state
+                .resolver_factory
+                .npm_module_loader()
+                .map(Clone::clone)
+                .map_err(|error| JsErrorBox::generic(error.to_string()))?;
+            let loaded_module = npm_module_loader
+                .load(
+                    Cow::Borrowed(&specifier_url),
+                    maybe_referrer_url.as_ref(),
+                    &deno_requested,
+                )
+                .await
+                .map_err(JsErrorBox::from_err)?;
+            return Ok(ModuleSource::new_with_redirect(
+                module_type_from_media_and_requested_type(
+                    loaded_module.media_type,
+                    &requested_module_type,
+                ),
+                loaded_module_source_to_module_source_code(loaded_module.source),
+                module_specifier,
+                &ModuleSpecifier::parse(loaded_module.specifier.as_str())
+                    .map_err(JsErrorBox::from_err)?,
+                None,
+            ));
+        }
         let loaded = self
             .state
             .module_loader
@@ -373,10 +438,12 @@ impl ModuleLoader for PackageAwareModuleLoader {
             );
         }
 
-        let is_npm_package = self
-            .state
-            .in_npm_package_checker
-            .in_npm_package(module_specifier);
+        let is_npm_package = match self.state.resolver_factory.node_resolver() {
+            Ok(node_resolver) => node_resolver.in_npm_package(module_specifier),
+            Err(error) => {
+                return ModuleLoadResponse::Sync(Err(JsErrorBox::generic(error.to_string())));
+            }
+        };
 
         if !is_npm_package
             && module_specifier.scheme() == "file"

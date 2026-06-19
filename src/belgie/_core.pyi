@@ -14,13 +14,13 @@ class BelgieRuntimeError(BelgieError): ...
 class BelgieModuleError(BelgieError): ...
 class BelgieJavaScriptError(BelgieError): ...
 
-class PackageInstallResult:
+class EnvironmentInstallResult:
     @property
     def lockfile(self) -> str: ...
     @property
-    def groups(self) -> dict[str, int]: ...
+    def dependencies(self) -> int: ...
 
-class PackageUpdateChange:
+class EnvironmentUpdateChange:
     @property
     def name(self) -> str: ...
     @property
@@ -28,11 +28,11 @@ class PackageUpdateChange:
     @property
     def updated(self) -> str: ...
 
-class PackageUpdateResult:
+class EnvironmentUpdateResult:
     @property
     def lockfile(self) -> str: ...
     @property
-    def changes(self) -> list[PackageUpdateChange]: ...
+    def changes(self) -> list[EnvironmentUpdateChange]: ...
 
 class Script[**P, R]:
     def __init__(self, content: str) -> None: ...
@@ -102,6 +102,24 @@ class Environment:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None: ...
+    def lock_blocking(self) -> EnvironmentInstallResult: ...
+    def install_blocking(self) -> EnvironmentInstallResult: ...
+    def update_blocking(
+        self,
+        packages: Iterable[str] | None = None,
+        *,
+        latest: bool = False,
+        lockfile_only: bool = False,
+    ) -> EnvironmentUpdateResult: ...
+    def lock(self) -> Awaitable[EnvironmentInstallResult]: ...
+    def install(self) -> Awaitable[EnvironmentInstallResult]: ...
+    def update(
+        self,
+        packages: Iterable[str] | None = None,
+        *,
+        latest: bool = False,
+        lockfile_only: bool = False,
+    ) -> Awaitable[EnvironmentUpdateResult]: ...
 
 class Runtime:
     def __init__(
@@ -115,8 +133,6 @@ class Runtime:
         cls: type[Self],
         path: str | PathLike[str],
         *,
-        groups: Iterable[str] | None = None,
-        install: bool = False,
         options: RuntimeOptions | None = None,
     ) -> Self: ...
     def __enter__(self) -> SyncRuntime: ...
@@ -133,42 +149,3 @@ class Runtime:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None: ...
-
-def install(
-    cwd: str | PathLike[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-    lockfile_only: bool = False,
-) -> PackageInstallResult: ...
-def lock(
-    cwd: str | PathLike[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-) -> PackageInstallResult: ...
-def update(
-    cwd: str | PathLike[str] | None = None,
-    packages: list[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-    latest: bool = False,
-    lockfile_only: bool = False,
-) -> PackageUpdateResult: ...
-def ainstall(
-    cwd: str | PathLike[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-    lockfile_only: bool = False,
-) -> Awaitable[PackageInstallResult]: ...
-def alock(
-    cwd: str | PathLike[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-) -> Awaitable[PackageInstallResult]: ...
-def aupdate(
-    cwd: str | PathLike[str] | None = None,
-    packages: list[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-    latest: bool = False,
-    lockfile_only: bool = False,
-) -> Awaitable[PackageUpdateResult]: ...

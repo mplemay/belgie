@@ -3,7 +3,7 @@ use pyo3::{
 };
 
 use crate::{
-    binding::{blocking, coerce},
+    binding::{blocking, coerce, packages},
     environment::{EnvironmentDefinition, SharedEnvironment},
     utils::normalize_path,
 };
@@ -81,6 +81,79 @@ impl PyEnvironment {
                 .deactivate()
                 .map_err(blocking::any_error_to_py)?;
             Ok(false)
+        })
+    }
+
+    fn lock_blocking(&self, py: Python<'_>) -> PyResult<packages::PyEnvironmentInstallResult> {
+        let environment = self.inner.clone();
+        py.detach(|| environment.lock_blocking())
+            .map(Into::into)
+            .map_err(blocking::any_error_to_py)
+    }
+
+    fn install_blocking(&self, py: Python<'_>) -> PyResult<packages::PyEnvironmentInstallResult> {
+        let environment = self.inner.clone();
+        py.detach(|| environment.install_blocking())
+            .map(Into::into)
+            .map_err(blocking::any_error_to_py)
+    }
+
+    #[pyo3(signature = (packages = None, *, latest = false, lockfile_only = false))]
+    fn update_blocking(
+        &self,
+        py: Python<'_>,
+        packages: Option<&Bound<'_, PyAny>>,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> PyResult<packages::PyEnvironmentUpdateResult> {
+        let filters = packages::normalize_package_filters(packages)?;
+        let environment = self.inner.clone();
+        py.detach(|| environment.update_blocking(filters, latest, lockfile_only))
+            .map(Into::into)
+            .map_err(blocking::any_error_to_py)
+    }
+
+    fn lock<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let environment = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = blocking::run_on_blocking_thread(
+                move || environment.lock_blocking(),
+                "Belgie environment lock failed",
+            )
+            .await?;
+            Ok(packages::PyEnvironmentInstallResult::from(result))
+        })
+    }
+
+    fn install<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let environment = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = blocking::run_on_blocking_thread(
+                move || environment.install_blocking(),
+                "Belgie environment install failed",
+            )
+            .await?;
+            Ok(packages::PyEnvironmentInstallResult::from(result))
+        })
+    }
+
+    #[pyo3(signature = (packages = None, *, latest = false, lockfile_only = false))]
+    fn update<'py>(
+        &self,
+        py: Python<'py>,
+        packages: Option<&Bound<'_, PyAny>>,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let filters = packages::normalize_package_filters(packages)?;
+        let environment = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = blocking::run_on_blocking_thread(
+                move || environment.update_blocking(filters, latest, lockfile_only),
+                "Belgie environment update failed",
+            )
+            .await?;
+            Ok(packages::PyEnvironmentUpdateResult::from(result))
         })
     }
 

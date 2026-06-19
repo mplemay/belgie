@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use crate::environment::SharedEnvironment;
-use crate::packages::ProjectPackageEnvironment;
 
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeOptions {
@@ -13,7 +12,6 @@ pub(crate) struct RuntimeOptions {
 #[derive(Clone, Debug)]
 pub(crate) enum RuntimeEnvironment {
     Isolated(SharedEnvironment),
-    Project(ProjectPackageEnvironment),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -58,14 +56,6 @@ impl RuntimeEnvironment {
     pub(crate) fn isolated(&self) -> Option<&SharedEnvironment> {
         match self {
             Self::Isolated(environment) => Some(environment),
-            Self::Project(_) => None,
-        }
-    }
-
-    pub(crate) fn project(&self) -> Option<&ProjectPackageEnvironment> {
-        match self {
-            Self::Isolated(_) => None,
-            Self::Project(environment) => Some(environment),
         }
     }
 }

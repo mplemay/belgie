@@ -30,9 +30,7 @@ impl RuntimeSession {
                         .uses_package_loader()
                         .then_some(BoundPackageEnvironment::Isolated(active))
                 } else {
-                    environment
-                        .project()
-                        .map(|project| BoundPackageEnvironment::Project(project.clone()))
+                    None
                 }
             }
             None => None,
@@ -71,7 +69,7 @@ impl RuntimeSession {
         self.ensure_active()?;
         let package_environment = self.package_environment.clone().ok_or_else(|| {
             BindingError::runtime(
-                "Commands require Runtime.from_folder(...) or an active Environment with package dependencies",
+                "Commands require an active Environment with package dependencies",
             )
         })?;
         let handle = CommandExecutionHandle::spawn(CommandExecutionOptions {

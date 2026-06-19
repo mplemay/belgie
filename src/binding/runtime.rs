@@ -3,12 +3,8 @@ use std::sync::{Arc, Mutex};
 use pyo3::{Bound, PyAny, PyResult, Python, exceptions::PyValueError, prelude::*, types::PyType};
 
 use crate::{
-    binding::{
-        PyAsyncRuntime, PyEnvironment, PySyncRuntime, blocking,
-        coerce::{self, GroupsDefault},
-    },
+    binding::{PyAsyncRuntime, PyEnvironment, PySyncRuntime},
     options::{JsRuntimeOptions, RuntimeEnvironment, RuntimeOptions as InternalRuntimeOptions},
-    packages::ProjectPackageEnvironment,
     runtime::{DenoRuntime, RuntimeSession},
     utils::{normalize_path, py_error},
 };
@@ -103,32 +99,16 @@ impl PyRuntime {
     }
 
     #[classmethod]
-    #[pyo3(signature = (path, *, groups = None, install = false, options = None))]
+    #[pyo3(signature = (path, *, options = None))]
     fn from_folder(
         _cls: &Bound<'_, PyType>,
         path: &Bound<'_, PyAny>,
-        groups: Option<&Bound<'_, PyAny>>,
-        install: bool,
         options: Option<PyRef<'_, PyRuntimeOptions>>,
     ) -> PyResult<Self> {
         let py = path.py();
         let path = normalize_path::path_from_py(path, "path")?;
         let path = normalize_path::normalize_directory(py, path, "path")?;
-        let groups = coerce::normalize_groups(groups, GroupsDefault::All)?;
-        let environment = py
-            .detach(|| {
-                crate::utils::tokio::run_outside_runtime(|| {
-                    ProjectPackageEnvironment::from_folder(path.clone(), groups.clone(), install)
-                })
-            })
-            .map_err(blocking::any_error_to_py)?
-            .map(RuntimeEnvironment::Project);
-        Ok(Self::from_parts(
-            path,
-            environment,
-            options.as_deref(),
-            true,
-        ))
+        Ok(Self::from_parts(path, None, options.as_deref(), true))
     }
 
     fn __enter__(&self) -> PyResult<PySyncRuntime> {

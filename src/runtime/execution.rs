@@ -13,7 +13,6 @@ use tokio::sync::oneshot;
 
 use crate::{
     embed::prepare_package_runtime,
-    packages::project_state_error,
     runtime::{BoundPackageEnvironment, BoundRuntime, module_loader, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
@@ -350,7 +349,6 @@ async fn create_js_runtime_with_packages(
     package_environment: &BoundPackageEnvironment,
     main_module: ModuleSpecifier,
 ) -> ExecutionResult<JsRuntime> {
-    let is_project = matches!(package_environment, BoundPackageEnvironment::Project(_));
     let context = package_environment.embed_context_rc()?;
     let state = Arc::new(
         prepare_package_runtime(
@@ -360,14 +358,7 @@ async fn create_js_runtime_with_packages(
             HashMap::new(),
         )
         .await
-        .map_err(|error| {
-            let error = if is_project {
-                project_state_error(error)
-            } else {
-                error
-            };
-            BindingError::runtime(error.to_string())
-        })?,
+        .map_err(|error| BindingError::runtime(error.to_string()))?,
     );
     Ok(JsRuntime::new(RuntimeOptions {
         module_loader: Some(Rc::new(module_loader::PackageAwareModuleLoader::new(

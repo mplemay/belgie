@@ -10,8 +10,7 @@ pub(crate) mod script;
 pub(crate) use command::PyCommand;
 pub(crate) use environment::PyEnvironment;
 pub(crate) use packages::{
-    PyPackageInstallResult, PyPackageUpdateChange, PyPackageUpdateResult, py_ainstall, py_alock,
-    py_aupdate, py_install, py_lock, py_update,
+    PyEnvironmentInstallResult, PyEnvironmentUpdateChange, PyEnvironmentUpdateResult,
 };
 pub(crate) use runner::{
     PyAsyncCommandRunner, PyAsyncRunner, PyAsyncRuntime, PySyncCommandRunner, PySyncRunner,

@@ -5,52 +5,15 @@ A minimal, secure JavaScript runtime for Python.
 ## Examples
 
 - **[simple](examples/simple):** Async `Runtime` with a TypeScript script loaded from disk.
-- **[jsr-deps](examples/jsr-deps):** `[belgie.dependencies]` locking and JSR imports through `Runtime`.
-- **[environment](examples/environment):** inline `Environment` deps with sync and async `Runtime` (no project
-  lock/install).
+- **[jsr-deps](examples/jsr-deps):** inline JSR dependency installation through `Environment`.
+- **[environment](examples/environment):** sync and async `Environment` package setup.
 - **[commands](examples/commands):** npm package binaries run through `Runtime` and `Command`.
 
-## Package dependencies
+## Runtime Environments
 
-Declare npm and JSR packages in `pyproject.toml` under `[belgie.dependencies]`. Top-level
-entries belong to the `default` group. Additional groups use nested tables:
-
-```toml
-[belgie.dependencies]
-react = "^19"
-std_path = "jsr:@std/path@^1"
-
-[belgie.dependencies.dev]
-"@types/react" = "^19"
-vite = "^6"
-
-[belgie.dependencies.test]
-vitest = "^1"
-```
-
-Each key is an import alias. Values are either a version requirement (for npm packages) or a
-full `npm:` / `jsr:` specifier.
-
-### Locking and installing
-
-Use `belgie.dependencies.lock()` or `install()` to resolve packages and write `deno.lock`.
-By default, only the `default` group is included. Pass `groups` to select one or more groups:
-
-```python
-from belgie.dependencies import lock
-
-lock()  # default group only
-lock(groups=["default", "dev"])  # default and dev groups
-lock(groups=["dev"])  # dev group only
-```
-
-`PackageInstallResult.groups` reports how many dependencies were resolved per group.
-
-Async helpers (`alock`, `ainstall`, `aupdate`) accept the same arguments.
-
-## Runtime environments
-
-Use `Environment` for temporary dependencies that must remain isolated from the current project:
+Use `Environment` for JavaScript dependencies that should remain isolated from the current Python
+project. Entering an environment creates temporary Deno config/cache state; call `install()` or
+`install_blocking()` to resolve and cache those dependencies explicitly:
 
 ```python
 from belgie import Environment, Runtime, Script
@@ -66,47 +29,82 @@ export default function run() {
 )
 
 with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+    env.install_blocking()
     with Runtime(env=env) as runtime:
         assert runtime(script)() == "join"
 ```
 
-The temporary config, lockfile, and complete Deno cache are removed after the environment exits
-and any runtimes that were already using it have closed.
-
-Use `install()` to create a reusable project-local `node_modules` directory, then use
-`Runtime.from_folder()` to load `[belgie.dependencies]`, the project `deno.lock`, and relative
-modules:
+Async callers can use the matching async methods:
 
 ```python
-from belgie import Command, Runtime, Script
-from belgie.dependencies import install
-
-install(groups=["default", "dev"])
-
-with Runtime.from_folder(".") as runtime:
-    runtime(Command("vite", cwd="frontend", env={"NODE_ENV": "production"}))(
-        "build",
-        "--outDir",
-        "dist",
-    )
-    result = runtime(Script.from_file("main.ts"))()
+async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+    await env.install()
+    async with Runtime(env=env) as runtime:
+        assert await runtime(script)() == "join"
 ```
 
-`Runtime.from_folder()` includes every dependency group by default. Pass `groups` to select
-specific groups. By default it assumes the lockfile and local install are current. Pass
-`install=True` to synchronize `node_modules` from the existing frozen lockfile before execution;
-runtime execution never rewrites `pyproject.toml` or `deno.lock`.
+The temporary config, lockfile, and Deno cache are removed after the environment exits and any
+runtimes that were already using it have closed.
 
-Plain `Runtime()` supports dependency-free inline and file scripts and snapshots the process
-working directory when it is constructed.
+### Package Operations
 
-### Commands
+Environment package operations are explicit:
 
-`Command` resolves npm package binaries from the runtime dependency environment. The command name
-may be a dependency alias such as `"vite"` or an explicit npm specifier. Arguments are forwarded
-directly without shell parsing, and commands inherit the current process stdio.
+- `env.lock_blocking()` / `await env.lock()` resolves dependencies and writes the environment lockfile.
+- `env.install_blocking()` / `await env.install()` resolves dependencies and installs cache state.
+- `env.update_blocking(packages=None, latest=False, lockfile_only=False)` /
+  `await env.update(...)` updates dependency specifiers in the environment's synthetic Deno config.
 
-Relative command working directories resolve from the runtime root. Command environments overlay
+The package mapping key is the JavaScript import alias. Values are either a full `npm:` / `jsr:`
+specifier or an npm version requirement:
+
+```python
+Environment(
+    {
+        "react": "^19",
+        "std_path": "jsr:@std/path@^1",
+        "pkg_json": "npm:is-number@7.0.0/package.json",
+    }
+)
+```
+
+A supplied `lockfile=` is treated as frozen input. `install()` installs from it, and `update()`
+rejects frozen-lockfile environments.
+
+## Runtime Roots
+
+Plain `Runtime()` supports dependency-free inline and file scripts and snapshots the process working
+directory when it is constructed.
+
+Use `Runtime.from_folder(path)` only when scripts need a specific root for relative imports:
+
+```python
+from belgie import Runtime, Script
+
+script = Script('import { value } from "./value.ts"; export default () => value;')
+
+with Runtime.from_folder("frontend") as runtime:
+    result = runtime(script)()
+```
+
+`Runtime.from_folder()` does not read `pyproject.toml`, install packages, or manage lockfiles.
+
+## Commands
+
+`Command` resolves npm package binaries from an active dependency environment. The command name may
+be a dependency alias such as `"vite"` or an explicit npm specifier. Arguments are forwarded directly
+without shell parsing, and commands inherit the current process stdio.
+
+```python
+from belgie import Command, Environment, Runtime
+
+async with Environment({"vite": "^6"}) as env:
+    await env.install()
+    async with Runtime(env=env) as runtime:
+        await runtime(Command("vite"))("--version")
+```
+
+Relative command working directories resolve from the environment root. Command environments overlay
 the process environment for that execution. A nonzero exit raises `BelgieRuntimeError`; successful
 commands return `None`.
 
@@ -115,13 +113,3 @@ runtime context terminates any commands or script invocations that are still act
 
 Commands are trusted project tooling and execute with unrestricted Deno permissions. Shell
 pipelines, redirection, arbitrary PATH commands, and output capture are not supported.
-
-### Notes
-
-- Duplicate import aliases are not allowed across included groups.
-- `lock()` writes `deno.lock` without creating `node_modules`; `install()` and non-lockfile-only
-  updates synchronize the project-local install.
-- Top-level string entries under `[belgie.dependencies]` map to the `default` group. A nested
-  table whose key is literally `default` is treated as a separate named group.
-- The legacy `[belgie.dev-dependencies]` table is not supported; use
-  `[belgie.dependencies.dev]` instead.

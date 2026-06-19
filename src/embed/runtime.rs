@@ -6,9 +6,9 @@ use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleSpecifier;
+use deno_resolver::factory::ResolverFactory;
 use deno_resolver::graph::DefaultDenoResolverRc;
 use deno_resolver::loader::ModuleLoaderRc;
-use deno_resolver::npm::DenoInNpmPackageChecker;
 
 use crate::embed::context::EmbedContext;
 use crate::embed::graph::build_module_graph_with_header_overrides;
@@ -16,8 +16,8 @@ use crate::embed::sys::EmbedSys;
 
 pub(crate) struct PackageRuntimeState {
     pub graph: Arc<Mutex<ModuleGraph>>,
+    pub resolver_factory: Arc<ResolverFactory<EmbedSys>>,
     pub deno_resolver: DefaultDenoResolverRc<EmbedSys>,
-    pub in_npm_package_checker: DenoInNpmPackageChecker,
     pub memory_files: deno_resolver::loader::MemoryFilesRc,
     pub module_loader: ModuleLoaderRc<EmbedSys>,
 }
@@ -55,14 +55,13 @@ pub(crate) async fn prepare_package_runtime(
     }
     let resolver_factory = context.resolver_factory();
     let deno_resolver = resolver_factory.deno_resolver().await?.clone();
-    let in_npm_package_checker = resolver_factory.in_npm_package_checker()?.clone();
     let memory_files = context.memory_files().clone();
     let module_loader = resolver_factory.module_loader()?.clone();
 
     Ok(PackageRuntimeState {
         graph: Arc::new(Mutex::new(graph)),
+        resolver_factory: resolver_factory.clone(),
         deno_resolver,
-        in_npm_package_checker,
         memory_files,
         module_loader,
     })
