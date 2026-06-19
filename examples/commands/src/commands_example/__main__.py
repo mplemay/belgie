@@ -1,21 +1,20 @@
-import asyncio
-from pathlib import Path
+from asyncio import run as asyncio_run
 from typing import Final
 
-from belgie import Command, Runtime
-from belgie.dependencies import ainstall
+from belgie import Command, Environment, Runtime
 
-PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
+VITE_VERSION: Final[str] = "6"
 
 
 async def run_version_command() -> None:
-    await ainstall(cwd=PROJECT_ROOT)
-    async with Runtime.from_folder(PROJECT_ROOT) as runtime:
-        await runtime(Command("vite"))("--version")
+    async with Environment({"vite": VITE_VERSION}) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            await runtime(Command("vite"))("--version")
 
 
 def main() -> None:
-    asyncio.run(run_version_command())
+    asyncio_run(run_version_command())
 
 
 if __name__ == "__main__":

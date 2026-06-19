@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import inspect
+from importlib import import_module
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 import belgie
-from belgie import Command, Environment, Runtime, RuntimeOptions, Script
+from belgie import (
+    Command,
+    Environment,
+    EnvironmentInstallResult,
+    EnvironmentUpdateChange,
+    EnvironmentUpdateResult,
+    Runtime,
+    RuntimeOptions,
+    Script,
+)
 from belgie.errors import BelgieJavaScriptError, BelgieModuleError, BelgieRuntimeError
 
 if TYPE_CHECKING:
@@ -17,6 +27,9 @@ if TYPE_CHECKING:
 def test_runtime_api_is_exported_from_top_level_belgie() -> None:
     assert belgie.Runtime is Runtime
     assert belgie.Environment is Environment
+    assert belgie.EnvironmentInstallResult is EnvironmentInstallResult
+    assert belgie.EnvironmentUpdateChange is EnvironmentUpdateChange
+    assert belgie.EnvironmentUpdateResult is EnvironmentUpdateResult
     assert belgie.RuntimeOptions is RuntimeOptions
     assert belgie.Script is Script
     assert belgie.Command is Command
@@ -42,6 +55,11 @@ def test_runtime_api_is_exported_from_top_level_belgie() -> None:
 )
 def test_moved_names_are_not_exported_from_top_level_belgie(name: str) -> None:
     assert not hasattr(belgie, name)
+
+
+def test_dependencies_module_is_not_available() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        import_module("belgie.dependencies")
 
 
 def test_runtime_options_accept_memory_limits() -> None:

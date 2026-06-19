@@ -20,6 +20,8 @@ fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::Py
     m.add_class::<binding::PyCommand>()?;
     m.add_class::<binding::PyScript>()?;
     m.add_class::<binding::PyEnvironment>()?;
+    m.add_class::<binding::PySyncEnvironment>()?;
+    m.add_class::<binding::PyAsyncEnvironment>()?;
     m.add_class::<binding::PyRuntime>()?;
     m.add_class::<binding::PyRuntimeOptions>()?;
     m.add_class::<binding::PySyncRuntime>()?;
@@ -28,15 +30,9 @@ fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::Py
     m.add_class::<binding::PyAsyncRunner>()?;
     m.add_class::<binding::PySyncCommandRunner>()?;
     m.add_class::<binding::PyAsyncCommandRunner>()?;
-    m.add_class::<binding::PyPackageInstallResult>()?;
-    m.add_class::<binding::PyPackageUpdateChange>()?;
-    m.add_class::<binding::PyPackageUpdateResult>()?;
-    m.add_function(wrap_pyfunction!(binding::py_install, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_lock, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_update, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_ainstall, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_alock, m)?)?;
-    m.add_function(wrap_pyfunction!(binding::py_aupdate, m)?)?;
+    m.add_class::<binding::PyEnvironmentInstallResult>()?;
+    m.add_class::<binding::PyEnvironmentUpdateChange>()?;
+    m.add_class::<binding::PyEnvironmentUpdateResult>()?;
     m.add("BelgieError", py.get_type::<exceptions::BelgieError>())?;
     m.add(
         "BelgieRuntimeError",

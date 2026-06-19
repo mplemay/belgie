@@ -43,7 +43,6 @@ use crate::embed::sys::EmbedSys;
 use crate::embed::{
     EmbedContext, PackageRuntimeState, js_content_type_header_overrides, prepare_package_runtime,
 };
-use crate::packages::project_state_error;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 use crate::runtime::{BoundPackageEnvironment, process_context};
 use crate::types::error::BindingError;
@@ -504,7 +503,9 @@ fn command_exit_result(exit_code: i32) -> CommandResult {
 }
 
 fn package_error(error: impl std::fmt::Display) -> BindingError {
-    BindingError::runtime(project_state_error(error).to_string())
+    BindingError::runtime(format!(
+        "Environment dependencies are missing or out of date: {error}"
+    ))
 }
 
 fn resolve_command_cwd(runtime_root: &Path, configured: Option<&Path>) -> CommandResult<PathBuf> {

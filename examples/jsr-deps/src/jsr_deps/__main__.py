@@ -1,10 +1,6 @@
-from pathlib import Path
 from typing import Final
 
-from belgie import Runtime, Script
-from belgie.dependencies import lock
-
-PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
+from belgie import Environment, Runtime, Script
 
 SOURCE: Final[str] = """
 import { join } from "std_path";
@@ -16,9 +12,10 @@ export default function run() {
 
 
 def resolve_join_export() -> str:
-    lock(cwd=PROJECT_ROOT)
-    with Runtime.from_folder(PROJECT_ROOT) as runtime:
-        return str(runtime(Script(SOURCE))())
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            return str(runtime(Script(SOURCE))())
 
 
 def main() -> None:

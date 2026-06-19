@@ -5,7 +5,16 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from belgie._core import Command, Environment, Runtime, RuntimeOptions, Script
+    from belgie._core import (
+        Command,
+        Environment,
+        EnvironmentInstallResult,
+        EnvironmentUpdateChange,
+        EnvironmentUpdateResult,
+        Runtime,
+        RuntimeOptions,
+        Script,
+    )
 
 
 def _load_core_module() -> ModuleType:
@@ -27,6 +36,9 @@ if not TYPE_CHECKING:
     CORE_MODULE: Final[ModuleType] = _load_core_module()
     Command = CORE_MODULE.Command
     Environment = CORE_MODULE.Environment
+    EnvironmentInstallResult = CORE_MODULE.EnvironmentInstallResult
+    EnvironmentUpdateChange = CORE_MODULE.EnvironmentUpdateChange
+    EnvironmentUpdateResult = CORE_MODULE.EnvironmentUpdateResult
     Runtime = CORE_MODULE.Runtime
     RuntimeOptions = CORE_MODULE.RuntimeOptions
     Script = CORE_MODULE.Script
@@ -40,6 +52,9 @@ type JsonArray = list[JsonOutput]
 __all__: tuple[str, ...] = (
     "Command",
     "Environment",
+    "EnvironmentInstallResult",
+    "EnvironmentUpdateChange",
+    "EnvironmentUpdateResult",
     "JsonArray",
     "JsonInput",
     "JsonObject",

@@ -14,13 +14,13 @@ class BelgieRuntimeError(BelgieError): ...
 class BelgieModuleError(BelgieError): ...
 class BelgieJavaScriptError(BelgieError): ...
 
-class PackageInstallResult:
+class EnvironmentInstallResult:
     @property
     def lockfile(self) -> str: ...
     @property
-    def groups(self) -> dict[str, int]: ...
+    def dependencies(self) -> int: ...
 
-class PackageUpdateChange:
+class EnvironmentUpdateChange:
     @property
     def name(self) -> str: ...
     @property
@@ -28,11 +28,33 @@ class PackageUpdateChange:
     @property
     def updated(self) -> str: ...
 
-class PackageUpdateResult:
+class EnvironmentUpdateResult:
     @property
     def lockfile(self) -> str: ...
     @property
-    def changes(self) -> list[PackageUpdateChange]: ...
+    def changes(self) -> list[EnvironmentUpdateChange]: ...
+
+class SyncEnvironment:
+    def lock(self, *, lockfile: str | PathLike[str] | None = None) -> EnvironmentInstallResult: ...
+    def install(self) -> EnvironmentInstallResult: ...
+    def update(
+        self,
+        packages: Iterable[str] | None = None,
+        *,
+        latest: bool = False,
+        lockfile_only: bool = False,
+    ) -> EnvironmentUpdateResult: ...
+
+class AsyncEnvironment:
+    def lock(self, *, lockfile: str | PathLike[str] | None = None) -> Awaitable[EnvironmentInstallResult]: ...
+    def install(self) -> Awaitable[EnvironmentInstallResult]: ...
+    def update(
+        self,
+        packages: Iterable[str] | None = None,
+        *,
+        latest: bool = False,
+        lockfile_only: bool = False,
+    ) -> Awaitable[EnvironmentUpdateResult]: ...
 
 class Script[**P, R]:
     def __init__(self, content: str) -> None: ...
@@ -88,14 +110,14 @@ class Environment:
         *,
         lockfile: str | PathLike[str] | None = None,
     ) -> None: ...
-    def __enter__(self) -> Self: ...
+    def __enter__(self) -> SyncEnvironment: ...
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None: ...
-    async def __aenter__(self) -> Self: ...
+    async def __aenter__(self) -> AsyncEnvironment: ...
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
@@ -107,7 +129,7 @@ class Runtime:
     def __init__(
         self,
         *,
-        env: Environment | None = None,
+        env: Environment | SyncEnvironment | AsyncEnvironment | None = None,
         options: RuntimeOptions | None = None,
     ) -> None: ...
     @classmethod
@@ -115,8 +137,6 @@ class Runtime:
         cls: type[Self],
         path: str | PathLike[str],
         *,
-        groups: Iterable[str] | None = None,
-        install: bool = False,
         options: RuntimeOptions | None = None,
     ) -> Self: ...
     def __enter__(self) -> SyncRuntime: ...
@@ -133,42 +153,3 @@ class Runtime:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None: ...
-
-def install(
-    cwd: str | PathLike[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-    lockfile_only: bool = False,
-) -> PackageInstallResult: ...
-def lock(
-    cwd: str | PathLike[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-) -> PackageInstallResult: ...
-def update(
-    cwd: str | PathLike[str] | None = None,
-    packages: list[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-    latest: bool = False,
-    lockfile_only: bool = False,
-) -> PackageUpdateResult: ...
-def ainstall(
-    cwd: str | PathLike[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-    lockfile_only: bool = False,
-) -> Awaitable[PackageInstallResult]: ...
-def alock(
-    cwd: str | PathLike[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-) -> Awaitable[PackageInstallResult]: ...
-def aupdate(
-    cwd: str | PathLike[str] | None = None,
-    packages: list[str] | None = None,
-    *,
-    groups: list[str] | None = None,
-    latest: bool = False,
-    lockfile_only: bool = False,
-) -> Awaitable[PackageUpdateResult]: ...

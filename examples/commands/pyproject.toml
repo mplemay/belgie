@@ -24,6 +24,3 @@ exclude-newer-package = { belgie = false }
 
 [tool.uv.sources]
 belgie = { path = "../../", editable = true }
-
-[belgie.dependencies]
-vite = "^6"

@@ -3,7 +3,7 @@ use pyo3::{
 };
 
 use crate::{
-    binding::{blocking, coerce},
+    binding::{blocking, coerce, packages},
     environment::{EnvironmentDefinition, SharedEnvironment},
     utils::normalize_path,
 };
@@ -11,6 +11,22 @@ use crate::{
 #[pyclass(name = "Environment", module = "belgie._core", skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyEnvironment {
+    inner: SharedEnvironment,
+}
+
+#[pyclass(name = "SyncEnvironment", module = "belgie._core", skip_from_py_object)]
+#[derive(Clone, Debug)]
+pub struct PySyncEnvironment {
+    inner: SharedEnvironment,
+}
+
+#[pyclass(
+    name = "AsyncEnvironment",
+    module = "belgie._core",
+    skip_from_py_object
+)]
+#[derive(Clone, Debug)]
+pub struct PyAsyncEnvironment {
     inner: SharedEnvironment,
 }
 
@@ -29,7 +45,7 @@ impl PyEnvironment {
                 "lockfile requires at least one dependency mapping",
             ));
         }
-        let lockfile = normalize_lockfile(py, lockfile)?;
+        let lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Input)?;
         let cwd = normalize_path::normalize_cwd(py, None)?;
         let definition = EnvironmentDefinition::from_mapping(cwd, dependencies, lockfile)
             .map_err(blocking::any_error_to_py)?;
@@ -38,11 +54,11 @@ impl PyEnvironment {
         })
     }
 
-    fn __enter__(&self, py: Python<'_>) -> PyResult<Self> {
+    fn __enter__(&self, py: Python<'_>) -> PyResult<PySyncEnvironment> {
         let environment = self.inner.clone();
         py.detach(|| environment.activate_blocking())
             .map_err(blocking::any_error_to_py)?;
-        Ok(self.clone())
+        Ok(PySyncEnvironment::new(environment))
     }
 
     fn __exit__(
@@ -57,7 +73,7 @@ impl PyEnvironment {
 
     fn __aenter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let environment = self.inner.clone();
-        let result = self.clone();
+        let result = PyAsyncEnvironment::new(environment.clone());
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             blocking::run_on_blocking_thread(
                 move || environment.activate_blocking().map(|_| ()),
@@ -85,16 +101,106 @@ impl PyEnvironment {
     }
 
     fn __repr__(&self) -> String {
-        let active = if self.inner.is_active() {
-            "True"
-        } else {
-            "False"
-        };
-        format!(
-            "Environment(cwd={}, dependencies={}, active={active})",
-            self.inner.cwd().display(),
-            self.inner.dependency_count(),
-        )
+        environment_repr(&self.inner, "Environment")
+    }
+}
+
+#[pymethods]
+impl PySyncEnvironment {
+    #[pyo3(signature = (*, lockfile = None))]
+    fn lock(
+        &self,
+        py: Python<'_>,
+        lockfile: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<packages::PyEnvironmentInstallResult> {
+        let output_lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Output)?;
+        let environment = self.inner.clone();
+        py.detach(|| environment.lock_blocking(output_lockfile))
+            .map(Into::into)
+            .map_err(blocking::any_error_to_py)
+    }
+
+    fn install(&self, py: Python<'_>) -> PyResult<packages::PyEnvironmentInstallResult> {
+        let environment = self.inner.clone();
+        py.detach(|| environment.install_blocking())
+            .map(Into::into)
+            .map_err(blocking::any_error_to_py)
+    }
+
+    #[pyo3(signature = (packages = None, *, latest = false, lockfile_only = false))]
+    fn update(
+        &self,
+        py: Python<'_>,
+        packages: Option<&Bound<'_, PyAny>>,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> PyResult<packages::PyEnvironmentUpdateResult> {
+        let filters = packages::normalize_package_filters(packages)?;
+        let environment = self.inner.clone();
+        py.detach(|| environment.update_blocking(filters, latest, lockfile_only))
+            .map(Into::into)
+            .map_err(blocking::any_error_to_py)
+    }
+
+    fn __repr__(&self) -> String {
+        environment_repr(&self.inner, "SyncEnvironment")
+    }
+}
+
+#[pymethods]
+impl PyAsyncEnvironment {
+    #[pyo3(signature = (*, lockfile = None))]
+    fn lock<'py>(
+        &self,
+        py: Python<'py>,
+        lockfile: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let output_lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Output)?;
+        let environment = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = blocking::run_on_blocking_thread(
+                move || environment.lock_blocking(output_lockfile),
+                "Belgie environment lock failed",
+            )
+            .await?;
+            Ok(packages::PyEnvironmentInstallResult::from(result))
+        })
+    }
+
+    fn install<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let environment = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = blocking::run_on_blocking_thread(
+                move || environment.install_blocking(),
+                "Belgie environment install failed",
+            )
+            .await?;
+            Ok(packages::PyEnvironmentInstallResult::from(result))
+        })
+    }
+
+    #[pyo3(signature = (packages = None, *, latest = false, lockfile_only = false))]
+    fn update<'py>(
+        &self,
+        py: Python<'py>,
+        packages: Option<&Bound<'_, PyAny>>,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let filters = packages::normalize_package_filters(packages)?;
+        let environment = self.inner.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = blocking::run_on_blocking_thread(
+                move || environment.update_blocking(filters, latest, lockfile_only),
+                "Belgie environment update failed",
+            )
+            .await?;
+            Ok(packages::PyEnvironmentUpdateResult::from(result))
+        })
+    }
+
+    fn __repr__(&self) -> String {
+        environment_repr(&self.inner, "AsyncEnvironment")
     }
 }
 
@@ -104,13 +210,57 @@ impl PyEnvironment {
     }
 }
 
-fn normalize_lockfile(
+impl PySyncEnvironment {
+    fn new(environment: SharedEnvironment) -> Self {
+        Self { inner: environment }
+    }
+
+    pub(crate) fn environment(&self) -> SharedEnvironment {
+        self.inner.clone()
+    }
+}
+
+impl PyAsyncEnvironment {
+    fn new(environment: SharedEnvironment) -> Self {
+        Self { inner: environment }
+    }
+
+    pub(crate) fn environment(&self) -> SharedEnvironment {
+        self.inner.clone()
+    }
+}
+
+enum LockfilePathMode {
+    Input,
+    Output,
+}
+
+fn normalize_lockfile_arg(
     py: Python<'_>,
     lockfile: Option<&Bound<'_, PyAny>>,
+    mode: LockfilePathMode,
 ) -> PyResult<Option<std::path::PathBuf>> {
     let Some(lockfile) = lockfile.filter(|value| !value.is_none()) else {
         return Ok(None);
     };
     let path = normalize_path::path_from_py(lockfile, "lockfile")?;
-    normalize_path::normalize_file(py, path, "lockfile").map(Some)
+    match mode {
+        LockfilePathMode::Input => normalize_path::normalize_file(py, path, "lockfile").map(Some),
+        LockfilePathMode::Output => {
+            normalize_path::normalize_output_file(py, path, "lockfile").map(Some)
+        }
+    }
+}
+
+fn environment_repr(environment: &SharedEnvironment, class_name: &str) -> String {
+    let active = if environment.is_active() {
+        "True"
+    } else {
+        "False"
+    };
+    format!(
+        "{class_name}(cwd={}, dependencies={}, active={active})",
+        environment.cwd().display(),
+        environment.dependency_count(),
+    )
 }

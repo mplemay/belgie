@@ -2,13 +2,15 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use deno_core::anyhow::{Context, anyhow};
+use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
 use tempfile::TempDir;
 
-use crate::embed::{EmbedContext, EmbedContextOptions, install_packages_with_options};
+use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
-    EMPTY_DENO_LOCK, PackageDependency, dependencies_from_mapping, write_synthetic_config,
+    EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest, EnvironmentUpdateResult,
+    PackageDependency, dependencies_from_mapping, install_environment_packages,
+    update_environment_packages, write_synthetic_config,
 };
 
 #[derive(Clone, Debug)]
@@ -36,6 +38,8 @@ pub(crate) struct ActiveEnvironment {
     cwd: PathBuf,
     config_file: PathBuf,
     lockfile: PathBuf,
+    dependency_count: usize,
+    frozen_lockfile: bool,
     embed_options: Option<EmbedContextOptions>,
     temp_dir: TempDir,
 }
@@ -174,6 +178,75 @@ impl SharedEnvironment {
         *state = EnvironmentState::Inactive;
         Ok(())
     }
+
+    pub(crate) async fn lock(
+        &self,
+        output_lockfile: Option<PathBuf>,
+    ) -> Result<EnvironmentInstallResult, AnyError> {
+        self.acquire_active()?.lock(output_lockfile).await
+    }
+
+    pub(crate) async fn install(&self) -> Result<EnvironmentInstallResult, AnyError> {
+        self.acquire_active()?.install().await
+    }
+
+    pub(crate) async fn update(
+        &self,
+        packages: Vec<String>,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> Result<EnvironmentUpdateResult, AnyError> {
+        self.acquire_active()?
+            .update(packages, latest, lockfile_only)
+            .await
+    }
+
+    pub(crate) fn lock_blocking(
+        &self,
+        output_lockfile: Option<PathBuf>,
+    ) -> Result<EnvironmentInstallResult, AnyError> {
+        let _active = self.acquire_active()?;
+        let environment = self.clone();
+        crate::utils::tokio::run_outside_runtime(move || {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.lock(output_lockfile))
+        })
+    }
+
+    pub(crate) fn install_blocking(&self) -> Result<EnvironmentInstallResult, AnyError> {
+        let _active = self.acquire_active()?;
+        let environment = self.clone();
+        crate::utils::tokio::run_outside_runtime(move || {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.install())
+        })
+    }
+
+    pub(crate) fn update_blocking(
+        &self,
+        packages: Vec<String>,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> Result<EnvironmentUpdateResult, AnyError> {
+        let _active = self.acquire_active()?;
+        let environment = self.clone();
+        crate::utils::tokio::run_outside_runtime(move || {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.update(
+                packages,
+                latest,
+                lockfile_only,
+            ))
+        })
+    }
+}
+
+fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
+    std::fs::copy(from, to).with_context(|| {
+        format!(
+            "Copying lockfile from {} to {}",
+            from.display(),
+            to.display()
+        )
+    })?;
+    Ok(())
 }
 
 impl ActiveEnvironment {
@@ -182,21 +255,22 @@ impl ActiveEnvironment {
             .prefix("belgie-environment-")
             .tempdir()
             .context("Failed to create isolated Belgie environment")?;
-        let config_file = temp_dir.path().join("deno.json");
-        let lockfile = temp_dir.path().join("deno.lock");
-        let cache_root = temp_dir.path().join("deno_dir");
+        let temp_root = deno_path_util::strip_unc_prefix(
+            temp_dir
+                .path()
+                .canonicalize()
+                .context("Failed to canonicalize isolated Belgie environment")?,
+        );
+        let config_file = temp_root.join("deno.json");
+        let lockfile = temp_root.join("deno.lock");
+        let cache_root = temp_root.join("deno_dir");
+        let node_modules_root = temp_root.join("node_modules");
         write_synthetic_config(&config_file, &definition.dependencies)?;
         std::fs::create_dir_all(&cache_root)
             .with_context(|| format!("Creating {}", cache_root.display()))?;
 
         let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
-            std::fs::copy(source, &lockfile).with_context(|| {
-                format!(
-                    "Copying lockfile from {} to {}",
-                    source.display(),
-                    lockfile.display()
-                )
-            })?;
+            copy_lockfile(source, &lockfile)?;
             true
         } else {
             if definition.dependencies.is_empty() {
@@ -210,23 +284,14 @@ impl ActiveEnvironment {
             cache_root: Some(cache_root.clone()),
             frozen_lockfile: Some(frozen_lockfile),
             lockfile_skip_write: false,
-            node_modules_root: None,
+            node_modules_root: Some(node_modules_root),
         };
-        if !definition.dependencies.is_empty() {
-            install_packages_with_options(
-                definition.cwd.clone(),
-                config_file.clone(),
-                lockfile.clone(),
-                false,
-                embed_options.clone(),
-            )
-            .await?;
-        }
-
         Ok(Self {
             cwd: definition.cwd.clone(),
             config_file,
             lockfile,
+            dependency_count: definition.dependencies.len(),
+            frozen_lockfile,
             embed_options: (!definition.dependencies.is_empty()).then_some(embed_options),
             temp_dir,
         })
@@ -248,6 +313,71 @@ impl ActiveEnvironment {
 
     pub(crate) fn uses_package_loader(&self) -> bool {
         self.embed_options.is_some()
+    }
+
+    async fn lock(
+        &self,
+        output_lockfile: Option<PathBuf>,
+    ) -> Result<EnvironmentInstallResult, AnyError> {
+        let mut result = self.install_with_lockfile_only(true).await?;
+        if let Some(output_lockfile) = output_lockfile {
+            copy_lockfile(&result.lockfile, &output_lockfile)?;
+            result.lockfile = output_lockfile;
+        }
+        Ok(result)
+    }
+
+    async fn install(&self) -> Result<EnvironmentInstallResult, AnyError> {
+        self.install_with_lockfile_only(false).await
+    }
+
+    async fn install_with_lockfile_only(
+        &self,
+        lockfile_only: bool,
+    ) -> Result<EnvironmentInstallResult, AnyError> {
+        let Some(options) = self.embed_options.clone() else {
+            return Ok(EnvironmentInstallResult {
+                lockfile: self.lockfile.clone(),
+                dependencies: 0,
+            });
+        };
+        install_environment_packages(
+            self.cwd.clone(),
+            self.config_file.clone(),
+            self.lockfile.clone(),
+            self.dependency_count,
+            lockfile_only,
+            options,
+        )
+        .await
+    }
+
+    async fn update(
+        &self,
+        packages: Vec<String>,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> Result<EnvironmentUpdateResult, AnyError> {
+        if self.frozen_lockfile {
+            bail!("Cannot update an Environment created with a frozen lockfile");
+        }
+        let Some(options) = self.embed_options.clone() else {
+            return Ok(EnvironmentUpdateResult {
+                lockfile: self.lockfile.clone(),
+                changes: Vec::new(),
+            });
+        };
+        update_environment_packages(EnvironmentUpdateRequest {
+            cwd: self.cwd.clone(),
+            config_file: self.config_file.clone(),
+            lockfile: self.lockfile.clone(),
+            dependencies: self.dependency_count,
+            packages,
+            latest,
+            lockfile_only,
+            options,
+        })
+        .await
     }
 
     #[cfg(test)]
@@ -297,6 +427,24 @@ mod tests {
         .unwrap();
 
         assert_eq!(definition.dependency_count(), 1);
+    }
+
+    #[test]
+    fn entering_dependency_environment_does_not_install_packages() {
+        let folder = tempfile::tempdir().unwrap();
+        let definition = EnvironmentDefinition::from_mapping(
+            folder.path().to_path_buf(),
+            BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+            None,
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+
+        let active = environment.activate_blocking().unwrap();
+        let root = active.root().to_path_buf();
+
+        assert!(root.join("deno.json").is_file());
+        assert!(!root.join("deno.lock").exists());
     }
 
     #[test]

@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-from shutil import rmtree
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from belgie import Environment, Runtime, RuntimeOptions, Script
-from belgie.dependencies import install, lock
 from belgie.errors import BelgieRuntimeError
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 pytestmark = pytest.mark.integration
 
@@ -253,49 +248,17 @@ export default function run() {
         run_script(tmp_path, source)
 
 
-def test_lock_packages_resolves_pyproject_belgie_dependency(tmp_path: Path):
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[belgie.dependencies]
-std_path = "jsr:@std/path@^1"
-""",
-        encoding="utf-8",
-    )
+def test_environment_lock_resolves_dependency_without_project_files(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+        result = env.lock()
+        assert result.dependencies == 1
 
-    result = lock(cwd=tmp_path)
-
-    assert (tmp_path / "deno.lock").exists()
-    assert not (tmp_path / "node_modules").exists()
-    assert result.groups == {"default": 1}
+    assert list(tmp_path.iterdir()) == []
 
 
-def test_lock_reports_group_counts_for_multiple_groups(tmp_path: Path):
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[belgie.dependencies]
-std_path = "jsr:@std/path@^1"
-
-[belgie.dependencies.dev]
-std_asserts = "jsr:@std/assert@^1"
-""",
-        encoding="utf-8",
-    )
-
-    result = lock(cwd=tmp_path, groups=["default", "dev"])
-
-    assert (tmp_path / "deno.lock").exists()
-    assert result.groups == {"default": 1, "dev": 1}
-
-
-def test_install_populates_project_node_modules_and_runtime_reuses_it(
-    tmp_path: Path,
-    write_belgie_pyproject,
-):
-    write_belgie_pyproject(dependencies={"pkg_json": "npm:is-number@7.0.0/package.json"})
-
-    install(cwd=tmp_path)
-    original_lock = (tmp_path / "deno.lock").read_text(encoding="utf-8")
-
+def test_environment_install_resolves_npm_dependency_for_runtime(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     source = """
 import packageJson from "pkg_json" with { type: "json" };
 
@@ -303,34 +266,25 @@ export default function run() {
   return packageJson.version;
 }
 """
-    with Runtime.from_folder(tmp_path) as runtime:
-        assert runtime(Script(source))() == "7.0.0"
+    with Environment({"pkg_json": "npm:is-number@7.0.0/package.json"}) as env:
+        result = env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == "7.0.0"
 
-    assert (tmp_path / "node_modules").is_dir()
-    rmtree(tmp_path / "node_modules")
-
-    with Runtime.from_folder(tmp_path, install=True) as runtime:
-        assert runtime(Script(source))() == "7.0.0"
-
-    assert (tmp_path / "node_modules").is_dir()
-    assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == original_lock
-    assert not (tmp_path / "deno.json").exists()
+    assert result.dependencies == 1
+    assert list(tmp_path.iterdir()) == []
 
 
-def test_runtime_resolves_dev_group_dependencies(tmp_path: Path, write_belgie_pyproject):
-    write_belgie_pyproject(dependency_groups={"dev": {"std_path": "jsr:@std/path@^1"}})
-    lock(cwd=tmp_path, groups=["dev"])
+def test_environment_update_changes_synthetic_dependency(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with Environment({"is_number": "npm:is-number@6.0.0"}) as env:
+        result = env.update(["is_number@7.0.0"], lockfile_only=True)
 
-    source = """
-import { join } from "std_path";
-
-export default function run() {
-  return join.name;
-}
-"""
-
-    with Runtime.from_folder(tmp_path) as runtime:
-        assert runtime(Script(source))() == "join"
+    assert len(result.changes) == 1
+    assert result.changes[0].name == "is_number"
+    assert result.changes[0].previous == "npm:is-number@6.0.0"
+    assert result.changes[0].updated == "npm:is-number@7.0.0"
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_direct_environment_installs_jsr_dependency_without_project_files(tmp_path: Path, monkeypatch):
@@ -343,8 +297,10 @@ export default function run() {
 }
 """
 
-    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env) as runtime:
-        assert runtime(Script(source))() == "join"
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == "join"
 
     assert list(tmp_path.iterdir()) == []
 
@@ -359,11 +315,13 @@ export default async function run() {
 }
 """
 
-    async with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env) as runtime:
-        assert await runtime(Script(source))() == "basename"
+    async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            assert await runtime(Script(source))() == "basename"
 
 
-async def test_sync_environment_enter_inside_async_coroutine(tmp_path: Path, monkeypatch):
+async def test_sync_environment_install_inside_async_coroutine(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = """
 import { join } from "std_path";
@@ -373,45 +331,43 @@ export default function run() {
 }
 """
 
-    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env) as runtime:
-        assert runtime(Script(source))() == "join"
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == "join"
 
 
-async def test_sync_runtime_from_folder_install_inside_async_coroutine(
-    tmp_path: Path,
-    write_belgie_pyproject,
-):
-    write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
-    lock(cwd=tmp_path)
+async def test_sync_runtime_from_folder_inside_async_coroutine(tmp_path: Path):
+    (tmp_path / "value.ts").write_text("export const value = 42;\n", encoding="utf-8")
     source = """
-import { join } from "std_path";
+import { value } from "./value.ts";
 
 export default function run() {
-  return join.name;
+  return value;
 }
 """
 
-    with Runtime.from_folder(tmp_path, install=True) as runtime:
-        assert runtime(Script(source))() == "join"
+    with Runtime.from_folder(tmp_path) as runtime:
+        assert runtime(Script(source))() == 42
 
 
 def test_environment_uses_supplied_lockfile_as_frozen_input(
     tmp_path: Path,
     monkeypatch,
-    write_belgie_pyproject,
 ):
     monkeypatch.chdir(tmp_path)
-    write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
-    lock(cwd=tmp_path)
-    original_lock = (tmp_path / "deno.lock").read_text(encoding="utf-8")
+    lockfile = tmp_path / "deno.lock"
+    with Environment({"std_path": "jsr:@std/path@^1"}) as source_env:
+        source_lock = source_env.lock()
+        lockfile.write_text(Path(source_lock.lockfile).read_text(encoding="utf-8"), encoding="utf-8")
 
-    with (
-        Environment({"std_path": "jsr:@std/path@^1"}, lockfile=tmp_path / "deno.lock") as env,
-        Runtime(env=env) as runtime,
-    ):
-        assert runtime(Script('import { join } from "std_path"; export default () => join.name;'))() == "join"
+    original_lock = lockfile.read_text(encoding="utf-8")
+    with Environment({"std_path": "jsr:@std/path@^1"}, lockfile=lockfile) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script('import { join } from "std_path"; export default () => join.name;'))() == "join"
 
-    assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == original_lock
+    assert lockfile.read_text(encoding="utf-8") == original_lock
     assert not (tmp_path / "deno.json").exists()
     assert not (tmp_path / "node_modules").exists()
 
@@ -419,14 +375,18 @@ def test_environment_uses_supplied_lockfile_as_frozen_input(
 def test_environment_rejects_stale_supplied_lockfile(
     tmp_path: Path,
     monkeypatch,
-    write_belgie_pyproject,
 ):
     monkeypatch.chdir(tmp_path)
-    write_belgie_pyproject(dependencies={"std_path": "jsr:@std/path@^1"})
-    lock(cwd=tmp_path)
+    lockfile = tmp_path / "deno.lock"
+    with Environment({"std_path": "jsr:@std/path@^1"}) as source_env:
+        source_lock = source_env.lock()
+        lockfile.write_text(Path(source_lock.lockfile).read_text(encoding="utf-8"), encoding="utf-8")
 
-    with pytest.raises(BelgieRuntimeError, match="lockfile is out of date"):
-        Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile=tmp_path / "deno.lock").__enter__()
+    with (
+        pytest.raises(BelgieRuntimeError, match="lockfile is out of date"),
+        Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile=lockfile) as env,
+    ):
+        env.install()
 
 
 def test_two_isolated_environments_can_resolve_different_versions(tmp_path: Path, monkeypatch):
@@ -441,8 +401,12 @@ export default function run() {
     first = Environment({"pkg_json": "npm:is-number@6.0.0/package.json"})
     second = Environment({"pkg_json": "npm:is-number@7.0.0/package.json"})
 
-    with first, second:
-        with Runtime(env=first) as runtime:
+    with first as first_env, second as second_env:
+        first_env.install()
+        second_env.install()
+        with Runtime(env=first_env) as runtime:
             assert runtime(Script(source))() == "6.0.0"
-        with Runtime(env=second) as runtime:
+        with Runtime(env=second_env) as runtime:
             assert runtime(Script(source))() == "7.0.0"
+
+    assert list(tmp_path.iterdir()) == []

@@ -1,14 +1,18 @@
 use std::sync::{Arc, Mutex};
 
-use pyo3::{Bound, PyAny, PyResult, Python, exceptions::PyValueError, prelude::*, types::PyType};
+use pyo3::{
+    Bound, PyAny, PyResult, Python,
+    exceptions::{PyTypeError, PyValueError},
+    prelude::*,
+    types::{PyAnyMethods, PyType},
+};
 
 use crate::{
     binding::{
-        PyAsyncRuntime, PyEnvironment, PySyncRuntime, blocking,
-        coerce::{self, GroupsDefault},
+        PyAsyncEnvironment, PyAsyncRuntime, PyEnvironment, PySyncEnvironment, PySyncRuntime,
     },
+    environment::SharedEnvironment,
     options::{JsRuntimeOptions, RuntimeEnvironment, RuntimeOptions as InternalRuntimeOptions},
-    packages::ProjectPackageEnvironment,
     runtime::{DenoRuntime, RuntimeSession},
     utils::{normalize_path, py_error},
 };
@@ -77,13 +81,10 @@ impl PyRuntime {
     #[pyo3(signature = (*, env = None, options = None))]
     pub fn new(
         py: Python<'_>,
-        env: Option<PyRef<'_, PyEnvironment>>,
+        env: Option<&Bound<'_, PyAny>>,
         options: Option<PyRef<'_, PyRuntimeOptions>>,
     ) -> PyResult<Self> {
-        let environment = env
-            .as_deref()
-            .map(PyEnvironment::environment)
-            .map(RuntimeEnvironment::Isolated);
+        let environment = normalize_runtime_environment(env)?.map(RuntimeEnvironment::Isolated);
         let cwd = environment.as_ref().map_or_else(
             || normalize_path::normalize_cwd(py, None),
             |environment| {
@@ -103,32 +104,16 @@ impl PyRuntime {
     }
 
     #[classmethod]
-    #[pyo3(signature = (path, *, groups = None, install = false, options = None))]
+    #[pyo3(signature = (path, *, options = None))]
     fn from_folder(
         _cls: &Bound<'_, PyType>,
         path: &Bound<'_, PyAny>,
-        groups: Option<&Bound<'_, PyAny>>,
-        install: bool,
         options: Option<PyRef<'_, PyRuntimeOptions>>,
     ) -> PyResult<Self> {
         let py = path.py();
         let path = normalize_path::path_from_py(path, "path")?;
         let path = normalize_path::normalize_directory(py, path, "path")?;
-        let groups = coerce::normalize_groups(groups, GroupsDefault::All)?;
-        let environment = py
-            .detach(|| {
-                crate::utils::tokio::run_outside_runtime(|| {
-                    ProjectPackageEnvironment::from_folder(path.clone(), groups.clone(), install)
-                })
-            })
-            .map_err(blocking::any_error_to_py)?
-            .map(RuntimeEnvironment::Project);
-        Ok(Self::from_parts(
-            path,
-            environment,
-            options.as_deref(),
-            true,
-        ))
+        Ok(Self::from_parts(path, None, options.as_deref(), true))
     }
 
     fn __enter__(&self) -> PyResult<PySyncRuntime> {
@@ -202,6 +187,26 @@ impl PyRuntime {
             }
         }
     }
+}
+
+fn normalize_runtime_environment(
+    env: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<SharedEnvironment>> {
+    let Some(env) = env.filter(|value| !value.is_none()) else {
+        return Ok(None);
+    };
+    if let Ok(environment) = env.extract::<PyRef<'_, PyEnvironment>>() {
+        return Ok(Some(environment.environment()));
+    }
+    if let Ok(environment) = env.extract::<PyRef<'_, PySyncEnvironment>>() {
+        return Ok(Some(environment.environment()));
+    }
+    if let Ok(environment) = env.extract::<PyRef<'_, PyAsyncEnvironment>>() {
+        return Ok(Some(environment.environment()));
+    }
+    Err(PyTypeError::new_err(
+        "env must be Environment, SyncEnvironment, or AsyncEnvironment",
+    ))
 }
 
 fn normalize_memory_size(field_name: &str, value: Option<i64>) -> PyResult<Option<u64>> {
