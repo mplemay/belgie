@@ -27,7 +27,8 @@ def write_script(tmp_path: Path):
 
 
 def run_script(tmp_path: Path, source: str, input_value: object | None = None) -> object:
-    with Runtime()(Script(source)) as run:
+    with Runtime() as runtime:
+        run = runtime(Script(source))
         if input_value is None:
             return run()
         return run(input_value)
@@ -75,7 +76,8 @@ export default function run() {
 }
 """
 
-    with Runtime()(Script(source)) as run:
+    with Runtime() as runtime:
+        run = runtime(Script(source))
         assert run() == 1
         assert run() == 2
         assert run() == 3
@@ -84,8 +86,8 @@ export default function run() {
 def test_executes_with_runtime_options(tmp_path: Path):
     options = RuntimeOptions(max_old_generation_size_mb=64)
 
-    with Runtime(options=options)(Script("export default () => 'configured'")) as run:
-        assert run() == "configured"
+    with Runtime(options=options) as runtime:
+        assert runtime(Script("export default () => 'configured'"))() == "configured"
 
 
 def test_executes_script_loaded_from_file(tmp_path: Path, write_script):
@@ -98,8 +100,8 @@ export default function run(input) {
         "main.js",
     )
 
-    with Runtime()(Script.from_file(path)) as run:
-        assert run({"name": "belgie"}) == "BELGIE"
+    with Runtime() as runtime:
+        assert runtime(Script.from_file(path))({"name": "belgie"}) == "BELGIE"
 
 
 def test_transpiles_relative_typescript_imports_from_script_file(tmp_path: Path, write_script):
@@ -122,8 +124,8 @@ export default function run(input: { value: number }): number {
         "main.ts",
     )
 
-    with Runtime()(Script.from_file(path)) as run:
-        assert run({"value": 21}) == 42
+    with Runtime() as runtime:
+        assert runtime(Script.from_file(path))({"value": 21}) == 42
 
 
 def test_resolves_json_imports_for_vanilla_js_modules(tmp_path: Path, write_script):
@@ -139,8 +141,8 @@ export default function run() {
         "main.js",
     )
 
-    with Runtime()(Script.from_file(path)) as run:
-        assert run() == 42
+    with Runtime() as runtime:
+        assert runtime(Script.from_file(path))() == 42
 
 
 async def test_awaits_async_default_export(tmp_path: Path):
@@ -151,8 +153,8 @@ export default async function run(input) {
 }
 """
 
-    async with Runtime()(Script(source)) as run:
-        assert await run({"value": 41}) == {"value": 42}
+    async with Runtime() as runtime:
+        assert await runtime(Script(source))({"value": 41}) == {"value": 42}
 
 
 @pytest.mark.parametrize(
@@ -182,8 +184,8 @@ export default function run(input, options) {
 }
 """
 
-    with Runtime()(Script(source)) as run:
-        assert run({"value": 1}, z=True, a=False) == {
+    with Runtime() as runtime:
+        assert runtime(Script(source))({"value": 1}, z=True, a=False) == {
             "input": {"value": 1},
             "optionKeys": ["z", "a"],
             "options": {"z": True, "a": False},
@@ -301,14 +303,14 @@ export default function run() {
   return packageJson.version;
 }
 """
-    with Runtime.from_folder(tmp_path)(Script(source)) as run:
-        assert run() == "7.0.0"
+    with Runtime.from_folder(tmp_path) as runtime:
+        assert runtime(Script(source))() == "7.0.0"
 
     assert (tmp_path / "node_modules").is_dir()
     rmtree(tmp_path / "node_modules")
 
-    with Runtime.from_folder(tmp_path, install=True)(Script(source)) as run:
-        assert run() == "7.0.0"
+    with Runtime.from_folder(tmp_path, install=True) as runtime:
+        assert runtime(Script(source))() == "7.0.0"
 
     assert (tmp_path / "node_modules").is_dir()
     assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == original_lock
@@ -327,8 +329,8 @@ export default function run() {
 }
 """
 
-    with Runtime.from_folder(tmp_path)(Script(source)) as run:
-        assert run() == "join"
+    with Runtime.from_folder(tmp_path) as runtime:
+        assert runtime(Script(source))() == "join"
 
 
 def test_direct_environment_installs_jsr_dependency_without_project_files(tmp_path: Path, monkeypatch):
@@ -341,8 +343,8 @@ export default function run() {
 }
 """
 
-    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env)(Script(source)) as run:
-        assert run() == "join"
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env) as runtime:
+        assert runtime(Script(source))() == "join"
 
     assert list(tmp_path.iterdir()) == []
 
@@ -357,8 +359,8 @@ export default async function run() {
 }
 """
 
-    async with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env)(Script(source)) as run:
-        assert await run() == "basename"
+    async with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env) as runtime:
+        assert await runtime(Script(source))() == "basename"
 
 
 async def test_sync_environment_enter_inside_async_coroutine(tmp_path: Path, monkeypatch):
@@ -371,8 +373,8 @@ export default function run() {
 }
 """
 
-    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env)(Script(source)) as run:
-        assert run() == "join"
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env) as runtime:
+        assert runtime(Script(source))() == "join"
 
 
 async def test_sync_runtime_from_folder_install_inside_async_coroutine(
@@ -389,8 +391,8 @@ export default function run() {
 }
 """
 
-    with Runtime.from_folder(tmp_path, install=True)(Script(source)) as run:
-        assert run() == "join"
+    with Runtime.from_folder(tmp_path, install=True) as runtime:
+        assert runtime(Script(source))() == "join"
 
 
 def test_environment_uses_supplied_lockfile_as_frozen_input(
@@ -405,9 +407,9 @@ def test_environment_uses_supplied_lockfile_as_frozen_input(
 
     with (
         Environment({"std_path": "jsr:@std/path@^1"}, lockfile=tmp_path / "deno.lock") as env,
-        Runtime(env=env)(Script('import { join } from "std_path"; export default () => join.name;')) as run,
+        Runtime(env=env) as runtime,
     ):
-        assert run() == "join"
+        assert runtime(Script('import { join } from "std_path"; export default () => join.name;'))() == "join"
 
     assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == original_lock
     assert not (tmp_path / "deno.json").exists()
@@ -440,7 +442,7 @@ export default function run() {
     second = Environment({"pkg_json": "npm:is-number@7.0.0/package.json"})
 
     with first, second:
-        with Runtime(env=first)(Script(source)) as run_first:
-            assert run_first() == "6.0.0"
-        with Runtime(env=second)(Script(source)) as run_second:
-            assert run_second() == "7.0.0"
+        with Runtime(env=first) as runtime:
+            assert runtime(Script(source))() == "6.0.0"
+        with Runtime(env=second) as runtime:
+            assert runtime(Script(source))() == "7.0.0"

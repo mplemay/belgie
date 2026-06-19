@@ -1,7 +1,7 @@
-from collections.abc import Awaitable, Iterable, Mapping
+from collections.abc import Awaitable, Coroutine, Iterable, Mapping
 from os import PathLike
 from types import TracebackType
-from typing import Self
+from typing import Any, Self, overload
 
 type JsonPrimitive = None | bool | int | float | str
 type JsonInput = JsonPrimitive | list[JsonInput] | tuple[JsonInput, ...] | dict[str, JsonInput]
@@ -34,39 +34,6 @@ class PackageUpdateResult:
     @property
     def changes(self) -> list[PackageUpdateChange]: ...
 
-class RunTaskOptions:
-    def __init__(
-        self,
-        task_cwd: str,
-        script: str,
-        *,
-        argv: list[str] | None = None,
-        env: dict[str, str] | None = None,
-        host: str | None = None,
-        port: int | None = None,
-        install: bool = False,
-    ) -> None: ...
-    @property
-    def task_cwd(self) -> str: ...
-    @property
-    def script(self) -> str: ...
-    @property
-    def argv(self) -> list[str]: ...
-    @property
-    def install(self) -> bool: ...
-
-class TaskProcess:
-    @property
-    def origin(self) -> str: ...
-    @property
-    def is_running(self) -> bool: ...
-    def stop(self) -> Awaitable[None]: ...
-
-class TaskRunner:
-    def __init__(self) -> None: ...
-    def run(self, options: RunTaskOptions) -> Awaitable[None]: ...
-    def start(self, options: RunTaskOptions) -> Awaitable[TaskProcess]: ...
-
 class Script[**P, R]:
     def __init__(self, content: str) -> None: ...
     @classmethod
@@ -76,7 +43,34 @@ class SyncRunner[**P, R]:
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R: ...
 
 class AsyncRunner[**P, R]:
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Awaitable[R]: ...
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Coroutine[Any, Any, R]: ...
+
+class Command:
+    def __init__(
+        self,
+        name: str,
+        *,
+        cwd: str | PathLike[str] | None = None,
+        env: dict[str, str] | None = None,
+    ) -> None: ...
+
+class SyncCommandRunner:
+    def __call__(self, *args: str) -> None: ...
+
+class AsyncCommandRunner:
+    def __call__(self, *args: str) -> Coroutine[Any, Any, None]: ...
+
+class SyncRuntime:
+    @overload
+    def __call__[**P, R](self, target: Script[P, R]) -> SyncRunner[P, R]: ...
+    @overload
+    def __call__(self, target: Command) -> SyncCommandRunner: ...
+
+class AsyncRuntime:
+    @overload
+    def __call__[**P, R](self, target: Script[P, R]) -> AsyncRunner[P, R]: ...
+    @overload
+    def __call__(self, target: Command) -> AsyncCommandRunner: ...
 
 class RuntimeOptions:
     def __init__(
@@ -109,7 +103,7 @@ class Environment:
         traceback: TracebackType | None,
     ) -> bool | None: ...
 
-class Runtime[**BoundP, BoundR]:
+class Runtime:
     def __init__(
         self,
         *,
@@ -125,15 +119,14 @@ class Runtime[**BoundP, BoundR]:
         install: bool = False,
         options: RuntimeOptions | None = None,
     ) -> Self: ...
-    def __call__[**P, R](self, script: Script[P, R]) -> Runtime[P, R]: ...
-    def __enter__(self) -> SyncRunner[BoundP, BoundR]: ...
+    def __enter__(self) -> SyncRuntime: ...
     def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool | None: ...
-    async def __aenter__(self) -> AsyncRunner[BoundP, BoundR]: ...
+    async def __aenter__(self) -> AsyncRuntime: ...
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,

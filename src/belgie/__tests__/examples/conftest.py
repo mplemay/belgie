@@ -32,8 +32,8 @@ def jsr_deps_module() -> Iterator[ModuleType]:
 
 
 @pytest.fixture
-def task_scripts_module() -> Iterator[ModuleType]:
-    yield from _load_example_main(EXAMPLES_ROOT / "task-scripts", "task_scripts")
+def command_module() -> Iterator[ModuleType]:
+    yield from _load_example_main(EXAMPLES_ROOT / "commands", "commands_example")
 
 
 @pytest.fixture

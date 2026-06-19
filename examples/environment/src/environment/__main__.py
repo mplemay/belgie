@@ -12,13 +12,13 @@ export default function run() {
 
 
 def resolve_join_export() -> str:
-    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env)(Script(SOURCE)) as run:
-        return str(run())
+    with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env) as runtime:
+        return str(runtime(Script(SOURCE))())
 
 
 async def resolve_join_export_async() -> str:
-    async with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env)(Script(SOURCE)) as run:
-        return str(await run())
+    async with Environment({"std_path": "jsr:@std/path@^1"}) as env, Runtime(env=env) as runtime:
+        return str(await runtime(Script(SOURCE))())
 
 
 async def main() -> None:

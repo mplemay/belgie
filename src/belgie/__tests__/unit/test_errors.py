@@ -36,24 +36,20 @@ def test_belgie_exceptions_live_in_errors_module(error_type: type[BelgieError]) 
 
 
 def test_missing_run_export_raises_public_belgie_module_error(tmp_path: Path) -> None:
-    with (
-        pytest.raises(BelgieModuleError, match="run"),
-        Runtime()(
-            Script("export const answer = 42;"),
-        ) as run,
-    ):
-        run()
+    with Runtime() as runtime, pytest.raises(BelgieModuleError, match="run"):
+        runtime(Script("export const answer = 42;"))()
 
 
 def test_javascript_error_raises_public_belgie_javascript_error(tmp_path: Path) -> None:
     script = Script('export default function run() { throw new Error("boom"); }')
 
-    with pytest.raises(BelgieJavaScriptError, match="boom"), Runtime()(script) as run:
-        run()
+    with Runtime() as runtime, pytest.raises(BelgieJavaScriptError, match="boom"):
+        runtime(script)()
 
 
 def test_closed_runner_raises_public_belgie_runtime_error(tmp_path: Path) -> None:
-    with Runtime()(Script("export default function run() { return 'ok'; }")) as run:
+    with Runtime() as runtime:
+        run = runtime(Script("export default function run() { return 'ok'; }"))
         assert run() == "ok"
 
     with pytest.raises(BelgieRuntimeError, match="closed"):

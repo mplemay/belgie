@@ -8,7 +8,7 @@ A minimal, secure JavaScript runtime for Python.
 - **[jsr-deps](examples/jsr-deps):** `[belgie.dependencies]` locking and JSR imports through `Runtime`.
 - **[environment](examples/environment):** inline `Environment` deps with sync and async `Runtime` (no project
   lock/install).
-- **[task-scripts](examples/task-scripts):** `[belgie.scripts]` tasks run through `TaskRunner`.
+- **[commands](examples/commands):** npm package binaries run through `Runtime` and `Command`.
 
 ## Package dependencies
 
@@ -22,6 +22,7 @@ std_path = "jsr:@std/path@^1"
 
 [belgie.dependencies.dev]
 "@types/react" = "^19"
+vite = "^6"
 
 [belgie.dependencies.test]
 vitest = "^1"
@@ -65,8 +66,8 @@ export default function run() {
 )
 
 with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-    with Runtime(env=env)(script) as run:
-        assert run() == "join"
+    with Runtime(env=env) as runtime:
+        assert runtime(script)() == "join"
 ```
 
 The temporary config, lockfile, and complete Deno cache are removed after the environment exits
@@ -77,12 +78,18 @@ Use `install()` to create a reusable project-local `node_modules` directory, the
 modules:
 
 ```python
+from belgie import Command, Runtime, Script
 from belgie.dependencies import install
 
 install(groups=["default", "dev"])
 
-with Runtime.from_folder(".")(Script.from_file("main.ts")) as run:
-    result = run()
+with Runtime.from_folder(".") as runtime:
+    runtime(Command("vite", cwd="frontend", env={"NODE_ENV": "production"}))(
+        "build",
+        "--outDir",
+        "dist",
+    )
+    result = runtime(Script.from_file("main.ts"))()
 ```
 
 `Runtime.from_folder()` includes every dependency group by default. Pass `groups` to select
@@ -93,11 +100,21 @@ runtime execution never rewrites `pyproject.toml` or `deno.lock`.
 Plain `Runtime()` supports dependency-free inline and file scripts and snapshots the process
 working directory when it is constructed.
 
-### Tasks
+### Commands
 
-When running `[belgie.scripts]` tasks, belgie loads dependencies from **all groups** so dev-only
-tooling remains available. `RunTaskOptions(..., install=True)` synchronizes the project install
-before running a task; the default assumes it is already installed.
+`Command` resolves npm package binaries from the runtime dependency environment. The command name
+may be a dependency alias such as `"vite"` or an explicit npm specifier. Arguments are forwarded
+directly without shell parsing, and commands inherit the current process stdio.
+
+Relative command working directories resolve from the runtime root. Command environments overlay
+the process environment for that execution. A nonzero exit raises `BelgieRuntimeError`; successful
+commands return `None`.
+
+Async commands run until completion and can be cancelled with `asyncio.create_task()`. Leaving the
+runtime context terminates any commands or script invocations that are still active.
+
+Commands are trusted project tooling and execute with unrestricted Deno permissions. Shell
+pipelines, redirection, arbitrary PATH commands, and output capture are not supported.
 
 ### Notes
 

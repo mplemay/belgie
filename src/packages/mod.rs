@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
@@ -40,8 +40,7 @@ struct PackageEnvironmentInner {
     lockfile: PathBuf,
     dependencies: Vec<PackageDependency>,
     embed_options: EmbedContextOptions,
-    embed_context: Mutex<Option<Rc<EmbedContext>>>,
-    temp_dir: TempDir,
+    _temp_dir: TempDir,
 }
 
 #[derive(Clone, Debug)]
@@ -82,7 +81,6 @@ struct PyprojectManifest {
     path: PathBuf,
     document: DocumentMut,
     dependencies: Vec<PackageDependency>,
-    scripts: BTreeMap<String, String>,
 }
 
 impl PackageEnvironment {
@@ -127,46 +125,9 @@ impl PackageEnvironment {
                 lockfile,
                 dependencies,
                 embed_options,
-                embed_context: Mutex::new(None),
-                temp_dir,
+                _temp_dir: temp_dir,
             }),
         })
-    }
-
-    pub(crate) fn validate_task(
-        task_cwd: &Path,
-        script_name: &str,
-        install: bool,
-    ) -> Result<(PathBuf, Vec<PackageDependency>, String), AnyError> {
-        let (project_dir, dependencies, command) = resolve_task_manifest(task_cwd, script_name)?;
-        validate_project_artifacts(&project_dir, &dependencies, install)?;
-        Ok((project_dir, dependencies, command))
-    }
-
-    pub(crate) fn resolve_task(
-        task_cwd: &Path,
-        script_name: &str,
-        install: bool,
-    ) -> Result<(Self, String), AnyError> {
-        let (pyproject_dir, dependencies, command) =
-            Self::validate_task(task_cwd, script_name, install)?;
-        Self::resolve_task_from_parts(pyproject_dir, dependencies, command, install)
-    }
-
-    pub(crate) fn resolve_task_from_parts(
-        pyproject_dir: PathBuf,
-        dependencies: Vec<PackageDependency>,
-        command: String,
-        install: bool,
-    ) -> Result<(Self, String), AnyError> {
-        let options = project_embed_options(&pyproject_dir);
-        let env = Self::from_manifest_parts(pyproject_dir, dependencies, options)?;
-        if install {
-            pyo3_async_runtimes::tokio::get_runtime()
-                .block_on(env.synchronize())
-                .map_err(project_state_error)?;
-        }
-        Ok((env, command))
     }
 
     pub(crate) fn cwd(&self) -> &Path {
@@ -191,43 +152,6 @@ impl PackageEnvironment {
             self.config_file().to_path_buf(),
             self.lockfile().to_path_buf(),
         )
-    }
-
-    pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
-        let mut guard = self
-            .inner
-            .embed_context
-            .lock()
-            .expect("package embed context lock should not be poisoned");
-        if guard.is_none() {
-            let (cwd, config_file, lockfile) = self.embed_paths();
-            *guard = Some(Rc::new(EmbedContext::new_with_options(
-                cwd,
-                config_file,
-                lockfile,
-                self.inner.embed_options.clone(),
-            )?));
-        }
-        Ok(guard
-            .as_ref()
-            .expect("embed context should be initialized")
-            .clone())
-    }
-
-    pub(crate) async fn synchronize(&self) -> Result<(), AnyError> {
-        let (cwd, config_file, lockfile) = self.embed_paths();
-        let context =
-            synchronize_embed(cwd, config_file, lockfile, self.inner.embed_options.clone()).await?;
-        *self
-            .inner
-            .embed_context
-            .lock()
-            .expect("package embed context lock should not be poisoned") = Some(context);
-        Ok(())
-    }
-
-    pub(crate) fn process_state_file(&self) -> PathBuf {
-        self.inner.temp_dir.path().join("npm-process-state.json")
     }
 }
 
@@ -474,13 +398,10 @@ fn read_manifest(
     let group_filter = groups.map(|names| names.into_iter().collect::<BTreeSet<_>>());
     let mut dependencies = Vec::new();
     collect_dependency_groups(&document, group_filter.as_ref(), &mut dependencies)?;
-    let mut scripts = BTreeMap::new();
-    collect_scripts(&document, &mut scripts)?;
     Ok(Some(PyprojectManifest {
         path,
         document,
         dependencies,
-        scripts,
     }))
 }
 
@@ -507,77 +428,6 @@ pub(crate) fn dependencies_from_mapping(
         .into_iter()
         .map(|(alias, specifier)| normalize_dependency(&alias, &specifier, DEFAULT_GROUP))
         .collect()
-}
-
-pub(crate) fn find_pyproject_dir(start: &Path) -> Result<PathBuf, AnyError> {
-    let start = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
-    let mut searched = Vec::new();
-    for dir in start.ancestors() {
-        let path = dir.join("pyproject.toml");
-        searched.push(path.display().to_string());
-        if !path.is_file() {
-            continue;
-        }
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("Reading {}", path.display()))?;
-        let document = text
-            .parse::<DocumentMut>()
-            .with_context(|| format!("Parsing {}", path.display()))?;
-        if document.get("belgie").is_some() {
-            return Ok(dir.to_path_buf());
-        }
-    }
-    bail!(
-        "Could not find pyproject.toml with a [belgie] table. Searched: {}",
-        searched.join(", ")
-    )
-}
-
-fn resolve_task_manifest(
-    task_cwd: &Path,
-    script_name: &str,
-) -> Result<(PathBuf, Vec<PackageDependency>, String), AnyError> {
-    let pyproject_dir = find_pyproject_dir(task_cwd)?;
-    let manifest = read_manifest(&pyproject_dir, None)?.ok_or_else(|| {
-        anyhow!(
-            "No pyproject.toml with [belgie] configuration found near {}",
-            task_cwd.display()
-        )
-    })?;
-    let command = manifest.scripts.get(script_name).ok_or_else(|| {
-        anyhow!(
-            "No [belgie.scripts] entry '{script_name}' in {}",
-            manifest.path.display()
-        )
-    })?;
-    if manifest.dependencies.is_empty() {
-        bail!(
-            "No belgie package dependencies found in {}",
-            manifest.path.display()
-        );
-    }
-    Ok((pyproject_dir, manifest.dependencies, command.to_owned()))
-}
-
-fn collect_scripts(
-    document: &DocumentMut,
-    scripts: &mut BTreeMap<String, String>,
-) -> Result<(), AnyError> {
-    let Some(table) = document
-        .get("belgie")
-        .and_then(|belgie| belgie.get("scripts"))
-        .and_then(|scripts| scripts.as_table())
-    else {
-        return Ok(());
-    };
-
-    for (name, item) in table.iter() {
-        let command = item.as_str().ok_or_else(|| {
-            anyhow!("[belgie.scripts] entry '{name}' must be a string shell command")
-        })?;
-        scripts.insert(name.to_string(), command.to_string());
-    }
-    Ok(())
 }
 
 fn group_is_included(group: &str, groups: Option<&BTreeSet<String>>) -> bool {
@@ -1012,70 +862,6 @@ std_path = "jsr:@std/path@^1"
     }
 
     #[test]
-    fn reads_pyproject_script_table() {
-        let manifest = parse_manifest(
-            r#"[project]
-name = "example"
-
-[belgie.dependencies]
-vite = "^8"
-
-[belgie.scripts]
-build = "vite build"
-dev = "vite"
-"#,
-            None,
-        );
-
-        assert_eq!(
-            manifest.scripts.get("build"),
-            Some(&"vite build".to_string())
-        );
-        assert_eq!(manifest.scripts.get("dev"), Some(&"vite".to_string()));
-    }
-
-    #[test]
-    fn resolve_task_returns_command_string() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        fs::write(
-            temp_dir.path().join("pyproject.toml"),
-            r#"[belgie.dependencies]
-vite = "^8"
-
-[belgie.scripts]
-build = "vite build"
-"#,
-        )
-        .unwrap();
-        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
-        fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
-
-        let (env, command) =
-            PackageEnvironment::resolve_task(temp_dir.path(), "build", false).unwrap();
-
-        assert_eq!(command, "vite build");
-        assert!(
-            env.config_file()
-                .to_string_lossy()
-                .contains("belgie-packages-")
-        );
-        assert!(!temp_dir.path().join(".belgie").exists());
-        let config: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(env.config_file()).unwrap()).unwrap();
-        assert!(config.get("tasks").is_none());
-        let node_modules = temp_dir.path().join("node_modules").canonicalize().unwrap();
-        assert_eq!(
-            env.embed_context()
-                .unwrap()
-                .resolver_factory()
-                .workspace_factory()
-                .node_modules_dir_path()
-                .unwrap(),
-            Some(node_modules.as_path())
-        );
-    }
-
-    #[test]
     fn project_environment_requires_lockfile() {
         let temp_dir = tempfile::tempdir().unwrap();
         fs::write(
@@ -1127,22 +913,6 @@ build = "vite build"
         assert!(environment.is_some());
         assert!(!temp_dir.path().join("node_modules").exists());
         assert!(!temp_dir.path().join("deno.json").exists());
-    }
-
-    #[test]
-    fn find_pyproject_dir_walks_ancestors() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let nested = temp_dir.path().join("src").join("app").join("views");
-        fs::create_dir_all(&nested).unwrap();
-        fs::write(
-            temp_dir.path().join("pyproject.toml"),
-            "[belgie.dependencies]\nvite = \"^8\"\n",
-        )
-        .unwrap();
-
-        let found = find_pyproject_dir(&nested).unwrap();
-
-        assert_eq!(found, temp_dir.path().canonicalize().unwrap());
     }
 
     #[test]
@@ -1220,49 +990,5 @@ react = "^19"
                 .unwrap();
 
         assert!(environment.is_none());
-    }
-
-    #[test]
-    fn resolve_task_loads_dependencies_from_all_groups() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        fs::write(
-            temp_dir.path().join("pyproject.toml"),
-            r#"[belgie.dependencies.dev]
-vite = "^8"
-
-[belgie.scripts]
-build = "vite build"
-"#,
-        )
-        .unwrap();
-        fs::write(temp_dir.path().join("deno.lock"), EMPTY_DENO_LOCK).unwrap();
-        fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
-
-        let (env, command) =
-            PackageEnvironment::resolve_task(temp_dir.path(), "build", false).unwrap();
-
-        assert_eq!(command, "vite build");
-        assert_eq!(env.dependencies().len(), 1);
-        assert_eq!(env.dependencies()[0].alias, "vite");
-        assert_eq!(env.dependencies()[0].group, "dev");
-    }
-
-    #[test]
-    fn resolve_task_rejects_projects_without_dependencies() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        fs::write(
-            temp_dir.path().join("pyproject.toml"),
-            r#"[belgie.scripts]
-build = "echo ok"
-"#,
-        )
-        .unwrap();
-
-        let err = PackageEnvironment::resolve_task(temp_dir.path(), "build", false).unwrap_err();
-
-        assert!(
-            err.to_string()
-                .contains("No belgie package dependencies found")
-        );
     }
 }

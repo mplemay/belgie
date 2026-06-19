@@ -7,8 +7,8 @@ from belgie._core import BelgieError, BelgieJavaScriptError, BelgieModuleError, 
 
 
 def run_source(source: str) -> object:
-    with Runtime()(Script(source)) as run:
-        return run()
+    with Runtime() as runtime:
+        return runtime(Script(source))()
 
 
 class TestBelgieErrors:
@@ -60,7 +60,8 @@ class TestCoreErrorMapping:
             run_source(source)
 
     def test_closed_runner_raises_runtime_error(self) -> None:
-        with Runtime()(Script("export default function run() { return 'ok'; }")) as run:
+        with Runtime() as runtime:
+            run = runtime(Script("export default function run() { return 'ok'; }"))
             assert run() == "ok"
 
         with pytest.raises(BelgieRuntimeError, match="closed"):
@@ -75,8 +76,5 @@ class TestCoreErrorMapping:
             run_source("export default function run() { return Number.NaN; }")
 
     def test_unsupported_python_input_raises_type_error(self) -> None:
-        with (
-            Runtime()(Script("export default function run(input) { return input; }")) as run,
-            pytest.raises(TypeError, match="Only JSON-serializable"),
-        ):
-            run({"value": object()})
+        with Runtime() as runtime, pytest.raises(TypeError, match="Only JSON-serializable"):
+            runtime(Script("export default function run(input) { return input; }"))({"value": object()})

@@ -33,8 +33,6 @@ deno_permissions = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3
 deno_resolver = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", features = ["sync", "graph", "deno_ast"] }
 deno_runtime = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", default-features = false, features = ["transpile"] }
 deno_semver = "=0.10.0"
-deno_task_shell = "=0.33.0"
-which = "7"
 deno_terminal = { version = "=0.2.3", default-features = false }
 ed448-goldilocks = "=0.14.0-pre.10"
 elliptic-curve = "=0.14.0-rc.28"
@@ -42,6 +40,7 @@ futures = "0.3.31"
 http = "1.0"
 http-body-util = "0.1.2"
 locked-tripwire = "=0.1.1"
+libc = "0.2"
 log = "0.4.28"
 node_resolver = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", features = ["sync"] }
 once_cell = "1.21.3"
