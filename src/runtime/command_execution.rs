@@ -217,7 +217,7 @@ async fn run_command(
                 command_name,
                 path,
                 options.argv,
-                (options.cli_snapshot_eligible)(),
+                options.cli_snapshot_eligible.clone(),
                 &mut cancel_rx,
             )
             .await
@@ -291,7 +291,7 @@ async fn run_js_command(
     command_name: String,
     script_path: PathBuf,
     argv: Vec<String>,
-    use_cli_snapshot: bool,
+    cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
     cancel_rx: &mut watch::Receiver<bool>,
 ) -> CommandResult {
     let main_module = ModuleSpecifier::from_file_path(&script_path).map_err(|()| {
@@ -330,7 +330,7 @@ async fn run_js_command(
         Arc::new(RuntimePermissionDescriptorParser::new(EmbedSys::default())),
         Permissions::allow_all(),
     );
-    let snapshot_options = command_snapshot_options(use_cli_snapshot);
+    let snapshot_options = command_snapshot_options((cli_snapshot_eligible)());
     let mut worker = LibMainWorkerFactory::new(
         BlobStore::default_arc() as Arc<dyn BlobStoreTrait>,
         None,
