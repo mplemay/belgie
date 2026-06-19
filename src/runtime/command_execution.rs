@@ -525,9 +525,9 @@ fn resolve_command_cwd(runtime_root: &Path, configured: Option<&Path>) -> Comman
         Some(path) => runtime_root.join(path),
         None => runtime_root.to_path_buf(),
     };
-    let path = path.canonicalize().map_err(|error| {
+    let path = deno_path_util::strip_unc_prefix(path.canonicalize().map_err(|error| {
         BindingError::runtime(format!("Invalid command cwd {}: {error}", path.display()))
-    })?;
+    })?);
     if !path.is_dir() {
         return Err(BindingError::runtime(format!(
             "Command cwd is not a directory: {}",
@@ -798,5 +798,41 @@ mod native_addon_host {
 
     pub(super) fn ensure_symbols_visible() -> Result<(), BindingError> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::resolve_command_cwd;
+
+    #[test]
+    fn resolves_relative_command_cwd_against_runtime_root() {
+        let root = tempfile::tempdir().expect("temp dir should be created");
+        let frontend = root.path().join("frontend");
+        fs::create_dir(&frontend).expect("frontend dir should be created");
+
+        let resolved = resolve_command_cwd(root.path(), Some("frontend".as_ref()))
+            .expect("command cwd should resolve");
+
+        let expected = deno_path_util::strip_unc_prefix(
+            frontend
+                .canonicalize()
+                .expect("frontend should canonicalize"),
+        );
+
+        assert_eq!(resolved, expected);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn strips_windows_verbatim_prefix_from_resolved_command_cwd() {
+        let root = tempfile::tempdir().expect("temp dir should be created");
+
+        let resolved = resolve_command_cwd(root.path(), None).expect("command cwd should resolve");
+        let resolved = resolved.to_string_lossy();
+
+        assert!(!resolved.starts_with(r"\\?\"));
     }
 }

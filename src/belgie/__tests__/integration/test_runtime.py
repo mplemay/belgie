@@ -84,8 +84,8 @@ export default {};
     assert environ["BELGIE_COMMAND_TEST"] == "original"
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific native addon host behavior")
-async def test_windows_reports_native_node_api_commands_as_unsupported(
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific command cwd normalization")
+async def test_windows_vite_build_uses_normalized_command_cwd(
     tmp_path: Path,
     write_belgie_pyproject,
 ) -> None:
@@ -93,8 +93,9 @@ async def test_windows_reports_native_node_api_commands_as_unsupported(
     (tmp_path / "index.html").write_text("<main>belgie</main>\n", encoding="utf-8")
 
     async with Runtime.from_folder(tmp_path) as runtime:
-        with pytest.raises(BelgieRuntimeError, match="Native Node-API package commands are not supported"):
-            await runtime(Command("vite"))("build")
+        await runtime(Command("vite"))("build")
+
+    assert (tmp_path / "dist" / "index.html").is_file()
 
 
 async def test_missing_command_and_nonzero_exit_raise_runtime_errors(
