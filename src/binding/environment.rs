@@ -45,7 +45,7 @@ impl PyEnvironment {
                 "lockfile requires at least one dependency mapping",
             ));
         }
-        let lockfile = normalize_lockfile(py, lockfile)?;
+        let lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Input)?;
         let cwd = normalize_path::normalize_cwd(py, None)?;
         let definition = EnvironmentDefinition::from_mapping(cwd, dependencies, lockfile)
             .map_err(blocking::any_error_to_py)?;
@@ -58,7 +58,7 @@ impl PyEnvironment {
         let environment = self.inner.clone();
         py.detach(|| environment.activate_blocking())
             .map_err(blocking::any_error_to_py)?;
-        Ok(PySyncEnvironment::new(self.inner.clone()))
+        Ok(PySyncEnvironment::new(environment))
     }
 
     fn __exit__(
@@ -73,7 +73,7 @@ impl PyEnvironment {
 
     fn __aenter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let environment = self.inner.clone();
-        let result = PyAsyncEnvironment::new(self.inner.clone());
+        let result = PyAsyncEnvironment::new(environment.clone());
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             blocking::run_on_blocking_thread(
                 move || environment.activate_blocking().map(|_| ()),
@@ -113,7 +113,7 @@ impl PySyncEnvironment {
         py: Python<'_>,
         lockfile: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<packages::PyEnvironmentInstallResult> {
-        let output_lockfile = normalize_output_lockfile(py, lockfile)?;
+        let output_lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Output)?;
         let environment = self.inner.clone();
         py.detach(|| environment.lock_blocking(output_lockfile))
             .map(Into::into)
@@ -155,7 +155,7 @@ impl PyAsyncEnvironment {
         py: Python<'py>,
         lockfile: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let output_lockfile = normalize_output_lockfile(py, lockfile)?;
+        let output_lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Output)?;
         let environment = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = blocking::run_on_blocking_thread(
@@ -230,26 +230,26 @@ impl PyAsyncEnvironment {
     }
 }
 
-fn normalize_lockfile(
-    py: Python<'_>,
-    lockfile: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Option<std::path::PathBuf>> {
-    let Some(lockfile) = lockfile.filter(|value| !value.is_none()) else {
-        return Ok(None);
-    };
-    let path = normalize_path::path_from_py(lockfile, "lockfile")?;
-    normalize_path::normalize_file(py, path, "lockfile").map(Some)
+enum LockfilePathMode {
+    Input,
+    Output,
 }
 
-fn normalize_output_lockfile(
+fn normalize_lockfile_arg(
     py: Python<'_>,
     lockfile: Option<&Bound<'_, PyAny>>,
+    mode: LockfilePathMode,
 ) -> PyResult<Option<std::path::PathBuf>> {
     let Some(lockfile) = lockfile.filter(|value| !value.is_none()) else {
         return Ok(None);
     };
     let path = normalize_path::path_from_py(lockfile, "lockfile")?;
-    normalize_path::normalize_output_file(py, path, "lockfile").map(Some)
+    match mode {
+        LockfilePathMode::Input => normalize_path::normalize_file(py, path, "lockfile").map(Some),
+        LockfilePathMode::Output => {
+            normalize_path::normalize_output_file(py, path, "lockfile").map(Some)
+        }
+    }
 }
 
 fn environment_repr(environment: &SharedEnvironment, class_name: &str) -> String {

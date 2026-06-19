@@ -205,6 +205,7 @@ impl SharedEnvironment {
         &self,
         output_lockfile: Option<PathBuf>,
     ) -> Result<EnvironmentInstallResult, AnyError> {
+        let _active = self.acquire_active()?;
         let environment = self.clone();
         crate::utils::tokio::run_outside_runtime(move || {
             pyo3_async_runtimes::tokio::get_runtime().block_on(environment.lock(output_lockfile))
@@ -212,6 +213,7 @@ impl SharedEnvironment {
     }
 
     pub(crate) fn install_blocking(&self) -> Result<EnvironmentInstallResult, AnyError> {
+        let _active = self.acquire_active()?;
         let environment = self.clone();
         crate::utils::tokio::run_outside_runtime(move || {
             pyo3_async_runtimes::tokio::get_runtime().block_on(environment.install())
@@ -224,6 +226,7 @@ impl SharedEnvironment {
         latest: bool,
         lockfile_only: bool,
     ) -> Result<EnvironmentUpdateResult, AnyError> {
+        let _active = self.acquire_active()?;
         let environment = self.clone();
         crate::utils::tokio::run_outside_runtime(move || {
             pyo3_async_runtimes::tokio::get_runtime().block_on(environment.update(
@@ -233,6 +236,17 @@ impl SharedEnvironment {
             ))
         })
     }
+}
+
+fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
+    std::fs::copy(from, to).with_context(|| {
+        format!(
+            "Copying lockfile from {} to {}",
+            from.display(),
+            to.display()
+        )
+    })?;
+    Ok(())
 }
 
 impl ActiveEnvironment {
@@ -256,13 +270,7 @@ impl ActiveEnvironment {
             .with_context(|| format!("Creating {}", cache_root.display()))?;
 
         let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
-            std::fs::copy(source, &lockfile).with_context(|| {
-                format!(
-                    "Copying lockfile from {} to {}",
-                    source.display(),
-                    lockfile.display()
-                )
-            })?;
+            copy_lockfile(source, &lockfile)?;
             true
         } else {
             if definition.dependencies.is_empty() {
@@ -313,13 +321,7 @@ impl ActiveEnvironment {
     ) -> Result<EnvironmentInstallResult, AnyError> {
         let mut result = self.install_with_lockfile_only(true).await?;
         if let Some(output_lockfile) = output_lockfile {
-            std::fs::copy(&result.lockfile, &output_lockfile).with_context(|| {
-                format!(
-                    "Copying lockfile from {} to {}",
-                    result.lockfile.display(),
-                    output_lockfile.display()
-                )
-            })?;
+            copy_lockfile(&result.lockfile, &output_lockfile)?;
             result.lockfile = output_lockfile;
         }
         Ok(result)
