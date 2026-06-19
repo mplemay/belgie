@@ -390,6 +390,7 @@ dependencies = [
  "deno_resolver",
  "deno_runtime",
  "deno_semver",
+ "deno_snapshots",
  "deno_terminal",
  "ed448-goldilocks",
  "elliptic-curve 0.14.0-rc.28",
@@ -2491,6 +2492,14 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "deno_snapshots"
+version = "0.66.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.8.3#ba699088698c7b4a2fbea33acc4dcd6571789452"
+dependencies = [
+ "deno_runtime",
 ]
 
 [[package]]

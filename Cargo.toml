@@ -33,6 +33,7 @@ deno_permissions = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3
 deno_resolver = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", features = ["sync", "graph", "deno_ast"] }
 deno_runtime = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", default-features = false, features = ["transpile"] }
 deno_semver = "=0.10.0"
+deno_snapshots = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_terminal = { version = "=0.2.3", default-features = false }
 ed448-goldilocks = "=0.14.0-pre.10"
 elliptic-curve = "=0.14.0-rc.28"

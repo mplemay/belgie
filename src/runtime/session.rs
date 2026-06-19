@@ -72,11 +72,17 @@ impl RuntimeSession {
                 "Commands require an active Environment with package dependencies",
             )
         })?;
+        let use_cli_snapshot = self
+            .scripts
+            .lock()
+            .expect("runtime script handle lock should not be poisoned")
+            .is_empty();
         let handle = CommandExecutionHandle::spawn(CommandExecutionOptions {
             package_environment,
             runtime_root: self.runtime.cwd().to_path_buf(),
             command,
             argv,
+            use_cli_snapshot,
         });
         self.commands
             .lock()

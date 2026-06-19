@@ -67,6 +67,29 @@ pub(crate) struct CommandExecutionOptions {
     pub(crate) runtime_root: PathBuf,
     pub(crate) command: CommandSource,
     pub(crate) argv: Vec<String>,
+    pub(crate) use_cli_snapshot: bool,
+}
+
+struct CommandSnapshotOptions {
+    startup_snapshot: Option<&'static [u8]>,
+    residual_lazy_js_sources: &'static [(&'static str, &'static str)],
+    residual_lazy_esm_sources: &'static [(&'static str, &'static str)],
+}
+
+fn command_snapshot_options(use_cli_snapshot: bool) -> CommandSnapshotOptions {
+    if use_cli_snapshot {
+        CommandSnapshotOptions {
+            startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+            residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+            residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
+        }
+    } else {
+        CommandSnapshotOptions {
+            startup_snapshot: None,
+            residual_lazy_js_sources: &[],
+            residual_lazy_esm_sources: &[],
+        }
+    }
 }
 
 impl CommandExecutionHandle {
@@ -191,6 +214,7 @@ async fn run_command(
                 command_name,
                 path,
                 options.argv,
+                options.use_cli_snapshot,
                 &mut cancel_rx,
             )
             .await
@@ -264,6 +288,7 @@ async fn run_js_command(
     command_name: String,
     script_path: PathBuf,
     argv: Vec<String>,
+    use_cli_snapshot: bool,
     cancel_rx: &mut watch::Receiver<bool>,
 ) -> CommandResult {
     let main_module = ModuleSpecifier::from_file_path(&script_path).map_err(|()| {
@@ -302,6 +327,7 @@ async fn run_js_command(
         Arc::new(RuntimePermissionDescriptorParser::new(EmbedSys::default())),
         Permissions::allow_all(),
     );
+    let snapshot_options = command_snapshot_options(use_cli_snapshot);
     let mut worker = LibMainWorkerFactory::new(
         BlobStore::default_arc() as Arc<dyn BlobStoreTrait>,
         None,
@@ -341,9 +367,9 @@ async fn run_js_command(
             skip_op_registration: false,
             node_ipc_init: None,
             no_legacy_abort: true,
-            startup_snapshot: None,
-            residual_lazy_js_sources: &[],
-            residual_lazy_esm_sources: &[],
+            startup_snapshot: snapshot_options.startup_snapshot,
+            residual_lazy_js_sources: snapshot_options.residual_lazy_js_sources,
+            residual_lazy_esm_sources: snapshot_options.residual_lazy_esm_sources,
             serve_port: None,
             serve_host: None,
             maybe_initial_cwd: ModuleSpecifier::from_directory_path(&cwd).ok(),

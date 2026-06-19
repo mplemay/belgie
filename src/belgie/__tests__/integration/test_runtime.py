@@ -66,6 +66,26 @@ async def test_runs_command_from_isolated_environment(tmp_path: Path, monkeypatc
         await runtime(Command("semver"))("--help")
 
 
+async def test_runs_command_from_frozen_lockfile_environment_without_external_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    lockfile = tmp_path / "deno.lock"
+    dependencies = {"semver": "7.7.2"}
+    async with Environment(dependencies) as env:
+        await env.lock(lockfile=lockfile)
+
+    original_lock = lockfile.read_text(encoding="utf-8")
+    monkeypatch.setenv("PATH", "")
+    async with Environment(dependencies, lockfile=lockfile) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            await runtime(Command("semver"))("--help")
+
+    assert lockfile.read_text(encoding="utf-8") == original_lock
+
+
 async def test_environment_cwd_persists_command_files_across_recreation(
     isolated_project_cwd: Path,
 ) -> None:
