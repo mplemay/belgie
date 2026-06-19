@@ -191,15 +191,32 @@ async def test_concurrent_script_and_command_with_env_override(
     install_vite(tmp_path, write_belgie_pyproject)
     monkeypatch.setenv("BELGIE_PROBE", "baseline")
 
+    for directory, expected in (("baseline", "baseline"), ("override", "command")):
+        root = tmp_path / directory
+        root.mkdir()
+        (root / "index.html").write_text("<main>belgie</main>\n", encoding="utf-8")
+        (root / "vite.config.js").write_text(
+            f"""
+if (process.env.BELGIE_PROBE !== "{expected}") {{
+  throw new Error("saw " + process.env.BELGIE_PROBE);
+}}
+export default {{}};
+""",
+            encoding="utf-8",
+        )
+
     script = Script("export default async () => 'ok';")
-    command = Command("vite", env={"BELGIE_PROBE": "command"})
+    baseline_command = Command("vite", cwd="baseline")
+    override_command = Command("vite", cwd="override", env={"BELGIE_PROBE": "command"})
 
     async with Runtime.from_folder(tmp_path) as runtime:
-        for _ in range(5):
-            script_result, _command_result = await asyncio.gather(
-                runtime(script)(),
-                runtime(command)("--version"),
-            )
-            assert script_result == "ok"
+        script_result, _baseline_result, _override_result = await asyncio.gather(
+            runtime(script)(),
+            runtime(baseline_command)("build", "--outDir", "output", "--logLevel", "silent"),
+            runtime(override_command)("build", "--outDir", "output", "--logLevel", "silent"),
+        )
+        assert script_result == "ok"
 
     assert environ["BELGIE_PROBE"] == "baseline"
+    assert (tmp_path / "baseline" / "output" / "index.html").is_file()
+    assert (tmp_path / "override" / "output" / "index.html").is_file()
