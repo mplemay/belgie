@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from os import environ
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import pytest
 
@@ -16,11 +16,17 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.integration
 
-VITE_VERSION = "6.1.0"
+VITE_VERSION: Final[str] = "6.1.0"
+ZX_VERSION: Final[str] = "8.5.5"
 
 
 def install_vite(tmp_path: Path, write_belgie_pyproject) -> None:
     write_belgie_pyproject(dependencies={"vite": VITE_VERSION})
+    install(cwd=tmp_path)
+
+
+def install_zx(tmp_path: Path, write_belgie_pyproject) -> None:
+    write_belgie_pyproject(dependencies={"zx": f"npm:zx@{ZX_VERSION}"})
     install(cwd=tmp_path)
 
 
@@ -85,17 +91,23 @@ export default {};
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific command cwd normalization")
-async def test_windows_vite_build_uses_normalized_command_cwd(
+async def test_windows_vite_build_reaches_rollup_with_normalized_cwd_before_node_api_host_limit(
     tmp_path: Path,
     write_belgie_pyproject,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
     install_vite(tmp_path, write_belgie_pyproject)
     (tmp_path / "index.html").write_text("<main>belgie</main>\n", encoding="utf-8")
+    capfd.readouterr()
 
     async with Runtime.from_folder(tmp_path) as runtime:
-        await runtime(Command("vite"))("build")
+        with pytest.raises(BelgieRuntimeError):
+            await runtime(Command("vite"))("build")
 
-    assert (tmp_path / "dist" / "index.html").is_file()
+    stderr = capfd.readouterr().err.replace("\\", "/")
+    assert "Node-API symbol" in stderr
+    assert "parseAsync is not a function" in stderr
+    assert "/?/C:/" not in stderr
 
 
 async def test_missing_command_and_nonzero_exit_raise_runtime_errors(
@@ -189,35 +201,41 @@ async def test_concurrent_script_and_command_with_env_override(
     write_belgie_pyproject,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    install_vite(tmp_path, write_belgie_pyproject)
+    install_zx(tmp_path, write_belgie_pyproject)
     monkeypatch.setenv("BELGIE_PROBE", "baseline")
 
     for directory, expected in (("baseline", "baseline"), ("override", "command")):
         root = tmp_path / directory
         root.mkdir()
-        (root / "index.html").write_text("<main>belgie</main>\n", encoding="utf-8")
-        (root / "vite.config.js").write_text(
+        (root / "probe.mjs").write_text(
             f"""
+import {{ mkdirSync, writeFileSync }} from "node:fs";
+
 if (process.env.BELGIE_PROBE !== "{expected}") {{
   throw new Error("saw " + process.env.BELGIE_PROBE);
 }}
-export default {{}};
+mkdirSync("output", {{ recursive: true }});
+writeFileSync("output/probe.txt", process.cwd() + "\\n", "utf-8");
 """,
             encoding="utf-8",
         )
 
     script = Script("export default async () => 'ok';")
-    baseline_command = Command("vite", cwd="baseline")
-    override_command = Command("vite", cwd="override", env={"BELGIE_PROBE": "command"})
+    baseline_command = Command("zx", cwd="baseline")
+    override_command = Command("zx", cwd="override", env={"BELGIE_PROBE": "command"})
 
     async with Runtime.from_folder(tmp_path) as runtime:
         script_result, _baseline_result, _override_result = await asyncio.gather(
             runtime(script)(),
-            runtime(baseline_command)("build", "--outDir", "output", "--logLevel", "silent"),
-            runtime(override_command)("build", "--outDir", "output", "--logLevel", "silent"),
+            runtime(baseline_command)("probe.mjs"),
+            runtime(override_command)("probe.mjs"),
         )
         assert script_result == "ok"
 
     assert environ["BELGIE_PROBE"] == "baseline"
-    assert (tmp_path / "baseline" / "output" / "index.html").is_file()
-    assert (tmp_path / "override" / "output" / "index.html").is_file()
+    assert (tmp_path / "baseline" / "output" / "probe.txt").read_text(encoding="utf-8") == (
+        str(tmp_path / "baseline") + "\n"
+    )
+    assert (tmp_path / "override" / "output" / "probe.txt").read_text(encoding="utf-8") == (
+        str(tmp_path / "override") + "\n"
+    )
