@@ -73,27 +73,37 @@ export default () => 42;
 
 ## File scripts vs inline scripts
 
-Use `Script.from_file()` for disk scripts. Use `Runtime.from_folder()` only when relative `./` imports need a project
-root.
+`Script.from_file()` resolves `./` imports relative to the script file's directory. Inline `Script("...")` source
+resolves `./` imports from the runtime cwd — use `Runtime.from_folder(path)` to set that root.
 
-**Incorrect:**
+**Incorrect (inline script without `from_folder`):**
 
 ```python
 from belgie import Runtime, Script
 
-script = Script.from_file("greet.ts")
+script = Script('import { value } from "./value.ts"; export default () => value;')
 with Runtime() as runtime:
-    runtime(script)({"name": "belgie"})
+    runtime(script)()
 ```
 
-**Correct:**
+**Correct (inline script — set runtime cwd):**
+
+```python
+from belgie import Runtime, Script
+
+script = Script('import { value } from "./value.ts"; export default () => value;')
+with Runtime.from_folder("frontend") as runtime:
+    runtime(script)()
+```
+
+**Correct (file on disk — relatives resolve from script directory):**
 
 ```python
 from pathlib import Path
 from belgie import Runtime, Script
 
 script = Script.from_file(Path("frontend/greet.ts"))
-with Runtime.from_folder("frontend") as runtime:
+with Runtime() as runtime:
     runtime(script)({"name": "belgie"})
 ```
 

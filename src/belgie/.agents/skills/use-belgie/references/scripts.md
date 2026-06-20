@@ -59,18 +59,40 @@ with Runtime() as runtime:
 
 ## File scripts and relative imports
 
-Use `Runtime.from_folder(path)` when scripts import relative files:
+Relative import resolution depends on how the script is loaded:
+
+### `Script.from_file` — relatives resolve from the script directory
+
+Plain `Runtime()` is sufficient. Belgie uses the real file path as the module URL.
 
 ```python
+from pathlib import Path
+from belgie import Runtime, Script
+
+# main.ts contains: import { double } from "./lib/math.ts";
+script = Script.from_file(Path("main.ts"))
+
+with Runtime() as runtime:
+    result = runtime(script)({"value": 21})
+```
+
+### Inline `Script("...")` — relatives resolve from runtime cwd
+
+Use `Runtime.from_folder(path)` to set the directory that `./` imports resolve against:
+
+```python
+from belgie import Runtime, Script
+
 script = Script('import { value } from "./value.ts"; export default () => value;')
 
 with Runtime.from_folder("frontend") as runtime:
     result = runtime(script)()
 ```
 
-`Runtime.from_folder()` sets the import root only. It does not install npm or JSR packages.
+`Runtime.from_folder()` sets the runtime cwd only. It does not install npm or JSR packages.
 
-See [examples/simple](../../../../../../examples/simple) for `Script.from_file` with `Runtime.from_folder`.
+See [examples/simple](../../../../../../examples/simple) for `Script.from_file` with `Runtime.from_folder` (optional
+when the script has no relative imports but a fixed project cwd is desired).
 
 ## Module state
 

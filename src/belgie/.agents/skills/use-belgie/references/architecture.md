@@ -34,15 +34,18 @@ with unrestricted Deno permissions.
 ```text
 Need npm or JSR package imports?
 ├── Yes → Environment(...) + install() + Runtime(env=env)
-└── No → Need relative ./ imports from a folder?
+└── No → Need inline ./ imports or a fixed project cwd?
     ├── Yes → Runtime.from_folder(path)
     └── No → Runtime()
 ```
 
+Plain `Runtime()` snapshots the process working directory when it is constructed. `Script.from_file()` resolves `./`
+imports from the script file's directory without `from_folder()`.
+
 | Constructor | Installs packages | Relative imports | npm/JSR imports |
 | --- | --- | --- | --- |
-| `Runtime()` | No | No (unless inline) | No |
-| `Runtime.from_folder(path)` | No | Yes, from `path` | No |
+| `Runtime()` | No | `Script.from_file` only (from script dir) | No |
+| `Runtime.from_folder(path)` | No | Inline `./` from `path`; sets runtime cwd | No |
 | `Runtime(env=env)` | Uses env state | From env `cwd` | Yes, after `install()` |
 
 `Runtime.from_folder()` does not read `pyproject.toml`, install packages, or manage lockfiles.
@@ -93,6 +96,8 @@ Use async when integrating with `asyncio`, FastAPI, or other async Python apps.
 | `Runtime` | Context manager; binds scripts and commands |
 | `RuntimeOptions` | Optional V8 memory limits |
 | `Environment` | Isolated npm/JSR dependency sandbox |
+| `EnvironmentInstallResult` | Return type of `lock()` / `install()` (`.lockfile`, `.dependencies`) |
+| `EnvironmentUpdateResult` | Return type of `update()` (`.lockfile`, `.changes`) |
 | `Command` | npm package binary resolved from an environment |
 | `JsonInput` / `JsonOutput` | JSON-serializable Python ↔ JS boundary types |
 

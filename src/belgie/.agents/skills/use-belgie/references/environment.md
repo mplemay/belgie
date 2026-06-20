@@ -15,6 +15,9 @@ persist on disk.
 
 JavaScript dependencies stay isolated from the Python project's `pyproject.toml`.
 
+`Environment()` with no dependency map is valid for dependency-free scripts in an isolated temporary root. Calling
+`install()` on a dependency-less environment raises `Environment has no package dependencies`.
+
 ## Basic usage
 
 ```python
@@ -96,9 +99,13 @@ Call these on the **entered** sync or async environment object:
 
 ```python
 with Environment({"react": "^19"}) as env:
-    result = env.lock(lockfile="deno.lock")
-    env.install()
-    changes = env.update(packages=["react"], latest=True)
+    lock_result = env.lock(lockfile="deno.lock")
+    print(lock_result.lockfile, lock_result.dependencies)
+    install_result = env.install()
+    print(install_result.dependencies)
+    update_result = env.update(packages=["react"], latest=True)
+    for change in update_result.changes:
+        print(change.name, change.previous, change.updated)
 ```
 
 Async variants: `await env.lock()`, `await env.install()`, `await env.update(...)`.
@@ -115,12 +122,25 @@ with Environment({"react": "^19"}, lockfile="deno.lock") as env:
 - `install()` installs from the frozen lockfile.
 - `update()` rejects frozen-lockfile environments (`frozen lockfile`).
 
+Reusing a lockfile whose dependency map no longer matches raises `lockfile is out of date`:
+
+```python
+from belgie.errors import BelgieRuntimeError
+
+# lockfile was created for std_path, but Environment now declares std_assert
+with Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile="deno.lock") as env:
+    try:
+        env.install()
+    except BelgieRuntimeError as error:
+        assert "lockfile is out of date" in str(error)
+```
+
 ## Lifecycle rules
 
 - Enter `Environment` before calling `install()`, `lock()`, or `update()`.
 - Pass the entered environment (or the `Environment` instance while entered) to `Runtime(env=...)`.
 - Call `install()` before scripts or commands that need resolved packages.
-- Environment requires at least one dependency when a dependency map is supplied.
+- `Environment({...})` requires at least one dependency entry; `lockfile=` at construction also requires dependencies.
 
 For context-manager guardrails, see [rules/context-lifecycle.md](../rules/context-lifecycle.md).
 For runtime selection, see [rules/runtime-selection.md](../rules/runtime-selection.md).

@@ -6,7 +6,8 @@ See [references/architecture.md](../references/architecture.md) for the full dec
 
 - Dependency-free inline scripts
 - npm and JSR imports
-- Relative file imports
+- Inline relative imports
+- File scripts with relative imports
 - npm package binaries
 
 ---
@@ -58,7 +59,9 @@ with Environment({"react": "^19"}) as env:
 
 ---
 
-## Relative file imports
+## Inline relative imports
+
+Inline `Script("...")` source resolves `./` imports from the runtime cwd.
 
 **Incorrect:**
 
@@ -78,6 +81,34 @@ from belgie import Runtime, Script
 script = Script('import { value } from "./value.ts"; export default () => value;')
 with Runtime.from_folder("frontend") as runtime:
     runtime(script)()
+```
+
+---
+
+## File scripts with relative imports
+
+`Script.from_file(path)` resolves `./` imports relative to the script file's directory. Plain `Runtime()` is sufficient.
+
+**Incorrect:**
+
+```python
+from belgie import Runtime, Script
+
+script = Script('import { value } from "./value.ts"; export default () => value;')
+with Runtime() as runtime:
+    runtime(script)()
+```
+
+**Correct:**
+
+```python
+from pathlib import Path
+from belgie import Runtime, Script
+
+# main.ts imports from "./lib/math.ts" on disk
+script = Script.from_file(Path("main.ts"))
+with Runtime() as runtime:
+    runtime(script)({"value": 21})
 ```
 
 ---

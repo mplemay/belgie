@@ -94,7 +94,11 @@ Leaving the `Runtime` context also terminates in-flight commands.
 
 ## Sync usage
 
+Sync `Command` follows the same lifecycle. Integration tests exercise the async path most heavily.
+
 ```python
+from belgie import Command, Environment, Runtime
+
 with Environment({"vite": "^6"}) as env:
     env.install()
     with Runtime(env=env) as runtime:

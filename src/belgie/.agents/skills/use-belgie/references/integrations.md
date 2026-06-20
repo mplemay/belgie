@@ -42,6 +42,11 @@ Common tools: vite, esbuild, semver, zx, and other npm binaries declared in `Env
 Use `Environment` when JS packages should not appear in Python's `pyproject.toml`:
 
 ```python
+from belgie import Environment, Runtime, Script
+
+script = Script('import react from "react"; export default () => react.version;')
+payload = {"items": [1, 2, 3]}
+
 with Environment({"react": "^19", "std_path": "jsr:@std/path@^1"}) as env:
     env.install()
     with Runtime(env=env) as runtime:
@@ -60,9 +65,12 @@ from belgie import Runtime, Script
 
 script = Script.from_file(Path("logic/transform.ts"))
 
-with Runtime.from_folder("logic") as runtime:
+with Runtime() as runtime:
     result = runtime(script)({"items": [1, 2, 3]})
 ```
+
+Use `Runtime.from_folder("logic")` when inline `Script("...")` has `./` imports or when the runtime cwd must match a
+project root. `Script.from_file()` resolves `./` imports from the script file's directory.
 
 Design the JS `run` function to accept and return JSON-friendly dicts and lists.
 
@@ -88,7 +96,8 @@ the direct integration surface.
 | Need | Approach |
 | --- | --- |
 | Inline JS snippet | `Runtime()` + `Script("...")` |
-| TS files with relative imports | `Runtime.from_folder()` + `Script.from_file()` |
+| TS file on disk | `Runtime()` + `Script.from_file()` (relatives from script dir) |
+| Inline `./` imports | `Runtime.from_folder()` + `Script("...")` |
 | npm/JSR imports in scripts | `Environment` + `Runtime(env=)` |
 | npm CLI binary | `Environment` + `Runtime(env=)` + `Command` |
 | Async service integration | `async with Runtime` / `await runner(...)` |

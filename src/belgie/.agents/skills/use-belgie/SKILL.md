@@ -55,7 +55,9 @@ These rules are **always enforced**. Each links to Incorrect/Correct pairs.
 ### Script export contract → [rules/script-export.md](rules/script-export.md)
 
 - JS modules must export a callable (`export default function run(...)` or `export default () => ...`).
-- Use `Script.from_file()` for disk scripts; use `Runtime.from_folder()` only for relative import roots.
+- Use `Script.from_file()` for disk scripts; `./` imports resolve from the script file's directory.
+- Use `Runtime.from_folder(path)` for **inline** scripts with `./` imports or when the runtime cwd must be a project
+  root.
 
 ### JSON bridge → [rules/json-bridge.md](rules/json-bridge.md)
 
@@ -67,7 +69,7 @@ These rules are **always enforced**. Each links to Incorrect/Correct pairs.
 
 - `Runtime()` for dependency-free inline scripts.
 - `Runtime(env=env)` after `Environment(...).install()` for npm/JSR imports.
-- `Runtime.from_folder(path)` for relative `./` file imports (no package management).
+- `Runtime.from_folder(path)` for inline `./` imports or a fixed project cwd (no package management).
 - `Runtime(env=env)` + `Command(...)` for npm package binaries.
 
 ## Quick-Start Patterns
@@ -165,7 +167,8 @@ Load only the most relevant reference first. Read additional references only if 
 - Declare JavaScript packages in `Environment({...})`, not in Python `pyproject.toml`.
 - Export a callable from every JS module (`export default function run(...)` or `export default () => ...`).
 - Call `env.install()` before scripts or commands that resolve npm/JSR packages.
-- Use `Runtime.from_folder()` only for relative import roots; it does not install packages.
+- Use `Runtime.from_folder()` for inline `./` imports or a fixed project cwd; `Script.from_file()` resolves
+  relatives from the script directory. `from_folder()` does not install packages.
 - Pass `Command` args as separate `str` values; belgie does not parse shell strings.
 - Import exceptions from `belgie.errors`.
 - Point to in-repo examples: `examples/simple`, `examples/jsr-deps`, `examples/environment`, `examples/commands`.
@@ -178,6 +181,7 @@ Agents commonly make these mistakes with belgie:
 - Running package-backed scripts without `env.install()` (`package dependencies`).
 - Using plain `Runtime()` when scripts import npm or JSR packages.
 - Expecting `Runtime.from_folder()` to install packages or read `pyproject.toml`.
+- Using `Runtime.from_folder()` for `Script.from_file()` when only the script directory matters for `./` imports.
 - Exporting non-callable values from JS modules (`callable run function`, `not callable`).
 - Passing shell command strings to `Command` instead of separate argv (`argument 0 must be str`).
 - Putting JavaScript dependencies in Python `pyproject.toml` instead of `Environment`.

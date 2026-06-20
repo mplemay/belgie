@@ -6,6 +6,7 @@ See [references/environment.md](../references/environment.md) and
 ## Contents
 
 - Enter Environment and Runtime before use
+- Pass an entered environment to Runtime
 - Install before scripts or commands that need packages
 - Nest Runtime inside an active Environment
 - One active Runtime context at a time
@@ -39,6 +40,35 @@ with Environment({"std_path": "jsr:@std/path@^1"}) as env:
 
 ---
 
+## Pass an entered environment to Runtime
+
+`Runtime(env=...)` requires the environment to be inside its context manager first.
+
+**Incorrect:**
+
+```python
+from belgie import Environment, Runtime, Script
+
+env = Environment()
+runtime = Runtime(env=env)
+with env:
+    with runtime:
+        runtime(Script("export default () => 42;"))()
+```
+
+**Correct:**
+
+```python
+from belgie import Environment, Runtime, Script
+
+env = Environment()
+with env:
+    with Runtime(env=env) as runtime:
+        runtime(Script("export default () => 42;"))()
+```
+
+---
+
 ## Install before scripts or commands that need packages
 
 **Incorrect:**
@@ -65,6 +95,8 @@ with Environment({"std_path": "jsr:@std/path@^1"}) as env:
 **Incorrect:**
 
 ```python
+from belgie import Command, Environment, Runtime
+
 env = Environment({"vite": "^6"})
 with Runtime(env=env) as runtime:
     with env:
@@ -75,6 +107,8 @@ with Runtime(env=env) as runtime:
 **Correct:**
 
 ```python
+from belgie import Command, Environment, Runtime
+
 with Environment({"vite": "^6"}) as env:
     env.install()
     with Runtime(env=env) as runtime:

@@ -29,7 +29,7 @@ with Runtime() as runtime:
 assert result == 42
 ```
 
-## Path B: TypeScript file with relative imports
+## Path B: TypeScript file from disk
 
 Directory layout:
 
@@ -47,7 +47,7 @@ export default function run(input: { name: string }): { greeting: string } {
 }
 ```
 
-`main.py`:
+`main.py` (no relative imports — plain `Runtime()` is enough):
 
 ```python
 from pathlib import Path
@@ -55,7 +55,7 @@ from belgie import Runtime, Script
 
 async def main() -> None:
     script = Script.from_file(Path("greet.ts"))
-    async with Runtime.from_folder(".") as runtime:
+    async with Runtime() as runtime:
         result = await runtime(script)({"name": "belgie"})
     print(result["greeting"])
 
@@ -65,7 +65,11 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-See [examples/simple](../../../../../../examples/simple) for the packaged version.
+Use `Runtime.from_folder(path)` when inline `Script("...")` source has `./` imports or when the runtime cwd must be a
+fixed project root. `Script.from_file()` resolves `./` imports from the script file's directory.
+
+See [examples/simple](../../../../../../examples/simple) for the packaged version (uses `from_folder` for project-root
+cwd).
 
 ## Path C: JSR dependency through Environment
 

@@ -5,6 +5,7 @@ See [references/scripts.md](../references/scripts.md) for argument passing patte
 ## Contents
 
 - JSON-serializable values only
+- Safe integer range
 - Positional args and keyword options object
 - Import errors from `belgie.errors`
 
@@ -32,6 +33,30 @@ with Runtime() as runtime:
 
 Reject cycles, sets, bytes, arbitrary Python objects, NaN/Inf, ints outside JS safe integer range, and JS
 BigInt/Symbol/Date/Map/Set on return.
+
+---
+
+## Safe integer range
+
+Python `int` values must fit JavaScript's safe integer range (±2⁵³).
+
+**Incorrect:**
+
+```python
+from belgie import Runtime, Script
+
+with Runtime() as runtime:
+    runtime(Script("export default function run(input) { return input; }"))({"value": 2**53})
+```
+
+**Correct:**
+
+```python
+from belgie import Runtime, Script
+
+with Runtime() as runtime:
+    runtime(Script("export default function run(input) { return input; }"))({"value": "9007199254740992"})
+```
 
 ---
 

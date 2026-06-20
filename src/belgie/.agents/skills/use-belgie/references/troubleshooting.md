@@ -13,7 +13,7 @@ Classify the issue before editing:
    - Runner called after context exit.
 2. **Script export or load failure**
    - Missing or non-callable `run` export.
-   - Relative import without `Runtime.from_folder()`.
+   - Inline `./` import without `Runtime.from_folder()` (file scripts via `Script.from_file` resolve from script dir).
    - npm/JSR import without `Environment`.
 3. **JSON bridge failure**
    - Non-serializable Python or JS values across the boundary.
@@ -31,13 +31,59 @@ Before changing behavior:
 - Confirm `Environment` and `Runtime` are entered with `with` or `async with`.
 - Confirm `env.install()` ran when scripts import npm/JSR packages.
 - Confirm JS modules export a callable default or named `run`.
-- Confirm `Runtime.from_folder()` is set when scripts use relative `./` imports.
+- Confirm inline `Script("...")` with `./` imports uses `Runtime.from_folder()`; `Script.from_file` resolves from script
+  dir.
 - Confirm `Command` args are separate `str` values.
 - Confirm errors are imported from `belgie.errors`.
 
 Use [rules/context-lifecycle.md](../rules/context-lifecycle.md), [rules/script-export.md](../rules/script-export.md),
 [rules/json-bridge.md](../rules/json-bridge.md), and [rules/runtime-selection.md](../rules/runtime-selection.md) for
 Incorrect/Correct pairs.
+
+## Fix snippets by boundary
+
+### Context lifecycle (`must be entered`)
+
+```python
+from belgie import Environment, Runtime, Script
+
+with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+    env.install()
+    with Runtime(env=env) as runtime:
+        runtime(Script('import { join } from "std_path"; export default () => join.name;'))()
+```
+
+### Script export (`callable run function`)
+
+```javascript
+export default function run(input) {
+  return { greeting: `Hello, ${input.name}!` };
+}
+```
+
+### JSON bridge (`Only JSON-serializable` / `safe integer range`)
+
+```python
+from belgie import Runtime, Script
+
+with Runtime() as runtime:
+    runtime(Script("export default function run(input) { return input; }"))({"value": 42})
+```
+
+### Command (`argument 0 must be str`)
+
+```python
+import asyncio
+from belgie import Command, Environment, Runtime
+
+async def main() -> None:
+    async with Environment({"vite": "^6"}) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            await runtime(Command("vite"))("build", "--minify")
+
+asyncio.run(main())
+```
 
 ## Error map
 
@@ -48,11 +94,13 @@ Incorrect/Correct pairs.
 | `must be entered` | Environment or runtime used outside context | Wrap in `with` / `async with` | Inspect context manager usage |
 | `closed` | Runner called after context exit | Bind and call inside the context | Move `run()` inside `with` block |
 | `already active` | Nested runtime context on same instance | Use a single `with Runtime()` block | Remove nested `with runtime` |
-| `package dependencies` | Script imports npm/jsr without environment | `Environment` + `install()` + `Runtime(env=)` | Inspect JS imports |
+| `package dependencies` | Script/command needs env without packages | `Environment` + `install()` + `Runtime(env=)` | Inspect JS imports |
+| `Environment has no package dependencies` | `install()` on dep-less `Environment()` | Add deps to map or use plain `Runtime()` | Inspect `Environment({...})` |
 | `frozen lockfile` | `update()` on environment with `lockfile=` | Remove `lockfile=` or create a new `Environment` | Inspect constructor args |
 | `lockfile is out of date` | Stale lock relative to dependency map | `env.lock()` or `env.update()` | Re-resolve dependencies |
-| `requires at least one dependency` | Empty dependency map where deps are required | Add at least one entry to `Environment({...})` | Inspect dependency dict |
+| `requires at least one dependency` | Empty dependency map or lockfile without deps | Add at least one entry to `Environment({...})` | Inspect dependency dict |
 | `Only JSON-serializable` | Non-JSON Python arg or return | Use dict/list/primitives only | Inspect call args and return value |
+| `safe integer range` | Python `int` outside ±2⁵³ | Use `str` or stay within JS safe integers | Inspect numeric values |
 | `cycle` | Circular reference in bridged value | Flatten or copy data structures | Inspect nested dicts/lists |
 | `BigInt` | JS returned BigInt | Return number or string instead | Inspect JS return type |
 | `finite` | NaN or Infinity in bridged value | Use finite numbers only | Inspect numeric values |
@@ -60,9 +108,10 @@ Incorrect/Correct pairs.
 | Command exit / `failed` / `status` | npm binary returned nonzero | Read stderr; fix command args or env | Run command with same argv manually |
 | `path does not exist` | `Runtime.from_folder()` path missing | Create directory or fix path | Confirm folder exists |
 | `path is not a directory` | `from_folder` points at a file | Pass a directory path | Inspect `from_folder` argument |
-| `Script or Command` | Wrong type passed to `runtime()` | Pass `Script` or `Command` only | Inspect `runtime(...)` argument |
+| `Runtime target must be a Script or Command` | Wrong type passed to `runtime()` | Pass `Script` or `Command` only | Inspect `runtime(...)` argument |
+| `Commands require an active Environment with package dependencies` | `Command` without env/install | `Environment` + `install()` + `Runtime(env=)` | Inspect command setup |
 | JS error message (e.g. `boom`) | Thrown JavaScript exception | Fix JS logic | Inspect `BelgieJavaScriptError` message |
-| Import/load error in JS | Missing module or bad relative path | Fix imports; add `Environment` or `from_folder` | Inspect `BelgieModuleError` message |
+| Import/load error in JS | Missing module or bad relative path | Fix imports; add `Environment` or `from_folder` for inline | Inspect `BelgieModuleError` message |
 
 ## Structured diagnosis flow
 
