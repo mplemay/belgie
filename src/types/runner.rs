@@ -156,8 +156,10 @@ impl RunnerArguments {
     ) -> Result<Vec<v8::Global<v8::Value>>, BindingError> {
         let call_arguments = self.values_for_call(signature)?;
         let expanded = match signature {
-            Some(signature) => expand_call_arguments_for_v8(&call_arguments, signature),
-            None => call_arguments,
+            Some(signature) if let Some(rest_index) = variadic_rest_param_index(signature) => {
+                expand_call_arguments_for_v8(call_arguments, rest_index)
+            }
+            _ => call_arguments,
         };
 
         expanded
@@ -384,31 +386,48 @@ fn finalize_slots(
     Ok(arguments)
 }
 
+fn variadic_rest_param_index(signature: &RunSignature) -> Option<usize> {
+    let last = signature.params.len().checked_sub(1)?;
+    match &signature.params[last] {
+        ParamPattern::Rest(_) => Some(last),
+        _ => None,
+    }
+}
+
 fn expand_call_arguments_for_v8(
-    call_arguments: &[CallArgument],
-    signature: &RunSignature,
+    call_arguments: Vec<CallArgument>,
+    rest_index: usize,
 ) -> Vec<CallArgument> {
-    let mut expanded = Vec::with_capacity(call_arguments.len());
+    let extra_capacity = call_arguments
+        .get(rest_index)
+        .and_then(|argument| match argument {
+            CallArgument::Value(value) => match value.as_json() {
+                Value::Array(elements) => Some(elements.len().saturating_sub(1)),
+                _ => None,
+            },
+            CallArgument::Undefined => None,
+        })
+        .unwrap_or(0);
+    let mut expanded = Vec::with_capacity(call_arguments.len() + extra_capacity);
 
-    for (index, argument) in call_arguments.iter().enumerate() {
-        let is_rest_param = signature
-            .params
-            .get(index)
-            .is_some_and(|param| matches!(param, ParamPattern::Rest(_)));
-
-        if is_rest_param
+    for (index, argument) in call_arguments.into_iter().enumerate() {
+        if index == rest_index
             && let CallArgument::Value(value) = argument
-            && let Value::Array(elements) = value.as_json()
         {
-            expanded.extend(
-                elements
-                    .iter()
-                    .map(|element| CallArgument::Value(PyJsValue::from_json(element.clone()))),
-            );
+            match value.into_json() {
+                Value::Array(elements) => {
+                    expanded.extend(
+                        elements
+                            .into_iter()
+                            .map(|element| CallArgument::Value(PyJsValue::from_json(element))),
+                    );
+                }
+                other => expanded.push(CallArgument::Value(PyJsValue::from_json(other))),
+            }
             continue;
         }
 
-        expanded.push(argument.clone());
+        expanded.push(argument);
     }
 
     expanded
@@ -416,7 +435,9 @@ fn expand_call_arguments_for_v8(
 
 #[cfg(test)]
 mod tests {
-    use super::{CallArgument, RunnerArguments, expand_call_arguments_for_v8};
+    use super::{
+        CallArgument, RunnerArguments, expand_call_arguments_for_v8, variadic_rest_param_index,
+    };
     use crate::script::{ParamPattern, RunSignature};
     use crate::types::value::PyJsValue;
     use deno_core::serde_json::{Map, Value};
@@ -434,18 +455,20 @@ mod tests {
         RunSignature { params }
     }
 
-    fn values_from(
+    fn runner_arguments_from(
         positional: Vec<Value>,
         keywords: Map<String, Value>,
-        signature: Option<&RunSignature>,
-    ) -> Vec<Value> {
-        let arguments = RunnerArguments {
+    ) -> RunnerArguments {
+        RunnerArguments {
             positional: positional.into_iter().map(PyJsValue::from_json).collect(),
             keyword: keywords,
-        };
-        arguments
-            .values_for_call(signature)
-            .expect("values should map")
+        }
+    }
+
+    fn json_values_from_call_arguments(
+        call_arguments: impl IntoIterator<Item = CallArgument>,
+    ) -> Vec<Value> {
+        call_arguments
             .into_iter()
             .map(|argument| match argument {
                 CallArgument::Value(value) => value.as_json().clone(),
@@ -454,25 +477,27 @@ mod tests {
             .collect()
     }
 
+    fn values_from(
+        positional: Vec<Value>,
+        keywords: Map<String, Value>,
+        signature: Option<&RunSignature>,
+    ) -> Vec<Value> {
+        runner_arguments_from(positional, keywords)
+            .values_for_call(signature)
+            .map(json_values_from_call_arguments)
+            .expect("values should map")
+    }
+
     fn v8_values_from(
         positional: Vec<Value>,
         keywords: Map<String, Value>,
         signature: &RunSignature,
     ) -> Vec<Value> {
-        let arguments = RunnerArguments {
-            positional: positional.into_iter().map(PyJsValue::from_json).collect(),
-            keyword: keywords,
-        };
-        let call_arguments = arguments
+        let call_arguments = runner_arguments_from(positional, keywords)
             .values_for_call(Some(signature))
             .expect("values should map");
-        expand_call_arguments_for_v8(&call_arguments, signature)
-            .into_iter()
-            .map(|argument| match argument {
-                CallArgument::Value(value) => value.as_json().clone(),
-                CallArgument::Undefined => Value::Null,
-            })
-            .collect()
+        let rest_index = variadic_rest_param_index(signature).expect("signature should have rest");
+        json_values_from_call_arguments(expand_call_arguments_for_v8(call_arguments, rest_index))
     }
 
     #[test]
@@ -659,26 +684,32 @@ mod tests {
     }
 
     #[test]
-    fn maps_rest_positional_overflow() {
+    fn maps_and_expands_rest_positional_overflow() {
         let sig = signature(vec![
             ident_param("first", false),
             ParamPattern::Rest("rest".to_string()),
         ]);
-        let values = values_from(
+        let positional = vec![
+            Value::Number(1.into()),
+            Value::Number(2.into()),
+            Value::Number(3.into()),
+        ];
+        let mapped = values_from(positional.clone(), Map::new(), Some(&sig));
+        let v8 = v8_values_from(positional, Map::new(), &sig);
+
+        assert_eq!(mapped.len(), 2);
+        assert_eq!(mapped[0], Value::Number(1.into()));
+        assert_eq!(
+            mapped[1],
+            Value::Array(vec![Value::Number(2.into()), Value::Number(3.into()),])
+        );
+        assert_eq!(
+            v8,
             vec![
                 Value::Number(1.into()),
                 Value::Number(2.into()),
                 Value::Number(3.into()),
-            ],
-            Map::new(),
-            Some(&sig),
-        );
-
-        assert_eq!(values.len(), 2);
-        assert_eq!(values[0], Value::Number(1.into()));
-        assert_eq!(
-            values[1],
-            Value::Array(vec![Value::Number(2.into()), Value::Number(3.into()),])
+            ]
         );
     }
 
@@ -700,53 +731,19 @@ mod tests {
     }
 
     #[test]
-    fn empty_rest_defaults_to_array() {
+    fn empty_rest_defaults_to_array_and_expands_for_v8() {
         let sig = signature(vec![
             ident_param("first", false),
             ParamPattern::Rest("rest".to_string()),
         ]);
-        let values = values_from(vec![Value::Number(1.into())], Map::new(), Some(&sig));
+        let positional = vec![Value::Number(1.into())];
+        let mapped = values_from(positional.clone(), Map::new(), Some(&sig));
+        let v8 = v8_values_from(positional, Map::new(), &sig);
 
-        assert_eq!(values.len(), 2);
-        assert_eq!(values[0], Value::Number(1.into()));
-        assert_eq!(values[1], Value::Array(vec![]));
-    }
-
-    #[test]
-    fn expands_rest_positional_overflow_for_v8() {
-        let sig = signature(vec![
-            ident_param("first", false),
-            ParamPattern::Rest("rest".to_string()),
-        ]);
-        let values = v8_values_from(
-            vec![
-                Value::Number(1.into()),
-                Value::Number(2.into()),
-                Value::Number(3.into()),
-            ],
-            Map::new(),
-            &sig,
-        );
-
-        assert_eq!(
-            values,
-            vec![
-                Value::Number(1.into()),
-                Value::Number(2.into()),
-                Value::Number(3.into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn expands_empty_rest_for_v8() {
-        let sig = signature(vec![
-            ident_param("first", false),
-            ParamPattern::Rest("rest".to_string()),
-        ]);
-        let values = v8_values_from(vec![Value::Number(1.into())], Map::new(), &sig);
-
-        assert_eq!(values, vec![Value::Number(1.into())]);
+        assert_eq!(mapped.len(), 2);
+        assert_eq!(mapped[0], Value::Number(1.into()));
+        assert_eq!(mapped[1], Value::Array(vec![]));
+        assert_eq!(v8, vec![Value::Number(1.into())]);
     }
 
     #[test]

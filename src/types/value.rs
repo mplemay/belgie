@@ -32,6 +32,10 @@ impl PyJsValue {
         &self.inner
     }
 
+    pub(crate) fn into_json(self) -> Value {
+        self.inner
+    }
+
     pub(crate) fn from_py(value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let mut seen = HashSet::new();
         Ok(Self::from_json(Self::value_from_py(value, "$", &mut seen)?))
