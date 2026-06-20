@@ -154,7 +154,13 @@ impl RunnerArguments {
         scope: &mut v8::PinScope<'_, '_>,
         signature: Option<&RunSignature>,
     ) -> Result<Vec<v8::Global<v8::Value>>, BindingError> {
-        self.values_for_call(signature)?
+        let call_arguments = self.values_for_call(signature)?;
+        let expanded = match signature {
+            Some(signature) => expand_call_arguments_for_v8(&call_arguments, signature),
+            None => call_arguments,
+        };
+
+        expanded
             .iter()
             .map(|argument| match argument {
                 CallArgument::Value(value) => {
@@ -378,9 +384,39 @@ fn finalize_slots(
     Ok(arguments)
 }
 
+fn expand_call_arguments_for_v8(
+    call_arguments: &[CallArgument],
+    signature: &RunSignature,
+) -> Vec<CallArgument> {
+    let mut expanded = Vec::with_capacity(call_arguments.len());
+
+    for (index, argument) in call_arguments.iter().enumerate() {
+        let is_rest_param = signature
+            .params
+            .get(index)
+            .is_some_and(|param| matches!(param, ParamPattern::Rest(_)));
+
+        if is_rest_param
+            && let CallArgument::Value(value) = argument
+            && let Value::Array(elements) = value.as_json()
+        {
+            expanded.extend(
+                elements
+                    .iter()
+                    .map(|element| CallArgument::Value(PyJsValue::from_json(element.clone()))),
+            );
+            continue;
+        }
+
+        expanded.push(argument.clone());
+    }
+
+    expanded
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CallArgument, RunnerArguments};
+    use super::{CallArgument, RunnerArguments, expand_call_arguments_for_v8};
     use crate::script::{ParamPattern, RunSignature};
     use crate::types::value::PyJsValue;
     use deno_core::serde_json::{Map, Value};
@@ -410,6 +446,27 @@ mod tests {
         arguments
             .values_for_call(signature)
             .expect("values should map")
+            .into_iter()
+            .map(|argument| match argument {
+                CallArgument::Value(value) => value.as_json().clone(),
+                CallArgument::Undefined => Value::Null,
+            })
+            .collect()
+    }
+
+    fn v8_values_from(
+        positional: Vec<Value>,
+        keywords: Map<String, Value>,
+        signature: &RunSignature,
+    ) -> Vec<Value> {
+        let arguments = RunnerArguments {
+            positional: positional.into_iter().map(PyJsValue::from_json).collect(),
+            keyword: keywords,
+        };
+        let call_arguments = arguments
+            .values_for_call(Some(signature))
+            .expect("values should map");
+        expand_call_arguments_for_v8(&call_arguments, signature)
             .into_iter()
             .map(|argument| match argument {
                 CallArgument::Value(value) => value.as_json().clone(),
@@ -653,6 +710,63 @@ mod tests {
         assert_eq!(values.len(), 2);
         assert_eq!(values[0], Value::Number(1.into()));
         assert_eq!(values[1], Value::Array(vec![]));
+    }
+
+    #[test]
+    fn expands_rest_positional_overflow_for_v8() {
+        let sig = signature(vec![
+            ident_param("first", false),
+            ParamPattern::Rest("rest".to_string()),
+        ]);
+        let values = v8_values_from(
+            vec![
+                Value::Number(1.into()),
+                Value::Number(2.into()),
+                Value::Number(3.into()),
+            ],
+            Map::new(),
+            &sig,
+        );
+
+        assert_eq!(
+            values,
+            vec![
+                Value::Number(1.into()),
+                Value::Number(2.into()),
+                Value::Number(3.into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn expands_empty_rest_for_v8() {
+        let sig = signature(vec![
+            ident_param("first", false),
+            ParamPattern::Rest("rest".to_string()),
+        ]);
+        let values = v8_values_from(vec![Value::Number(1.into())], Map::new(), &sig);
+
+        assert_eq!(values, vec![Value::Number(1.into())]);
+    }
+
+    #[test]
+    fn keeps_rest_keyword_overflow_as_single_v8_argument() {
+        let sig = signature(vec![
+            ident_param("first", false),
+            ParamPattern::Rest("rest".to_string()),
+        ]);
+        let values = v8_values_from(
+            vec![Value::Number(1.into())],
+            Map::from_iter([("z".to_string(), Value::Bool(true))]),
+            &sig,
+        );
+
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], Value::Number(1.into()));
+        assert_eq!(
+            values[1],
+            Value::Object(Map::from_iter([("z".to_string(), Value::Bool(true))]))
+        );
     }
 
     #[test]

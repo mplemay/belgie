@@ -487,6 +487,24 @@ export default function run(first, second) {
 
         assert run_source(source, 1, second=2) == {"first": 1, "second": 2}
 
+    def test_spreads_rest_positional_arguments(self) -> None:
+        source = """
+export default function run(first, ...rest) {
+  return { first, rest };
+}
+"""
+
+        assert run_source(source, 1, 2, 3) == {"first": 1, "rest": [2, 3]}
+
+    def test_empty_rest_defaults_to_empty_array(self) -> None:
+        source = """
+export default function run(first, ...rest) {
+  return { first, rest };
+}
+"""
+
+        assert run_source(source, 1) == {"first": 1, "rest": []}
+
     @pytest.mark.parametrize(
         "source",
         [
