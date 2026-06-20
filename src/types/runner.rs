@@ -67,12 +67,15 @@ impl RunnerArguments {
     ) -> Result<Vec<CallArgument>, BindingError> {
         match signature {
             Some(signature) => self.map_to_signature(signature),
-            None => Ok(self
-                .legacy_values_for_call()
-                .into_iter()
-                .map(CallArgument::Value)
-                .collect()),
+            None => Ok(self.legacy_call_arguments()),
         }
+    }
+
+    fn legacy_call_arguments(&self) -> Vec<CallArgument> {
+        self.legacy_values_for_call()
+            .into_iter()
+            .map(CallArgument::Value)
+            .collect()
     }
 
     fn legacy_values_for_call(&self) -> Vec<PyJsValue> {
@@ -88,11 +91,7 @@ impl RunnerArguments {
         signature: &RunSignature,
     ) -> Result<Vec<CallArgument>, BindingError> {
         if signature.params.is_empty() {
-            return Ok(self
-                .legacy_values_for_call()
-                .into_iter()
-                .map(CallArgument::Value)
-                .collect());
+            return Ok(self.legacy_call_arguments());
         }
 
         let param_count = signature.params.len();
@@ -101,15 +100,16 @@ impl RunnerArguments {
         assign_positional_args(&self.positional, signature, &mut slots)?;
 
         let overflow_index = signature.overflow_param();
-        let keywords = self.keyword.clone();
 
-        for (name, value) in keywords {
-            if let Some(index) = find_unfilled_ident_slot(&slots, signature, &name) {
-                assign_slot_value(&mut slots[index], PyJsValue::from_json(value))?;
+        for (name, value) in &self.keyword {
+            if let Some(index) = find_ident_param_index(&slots, signature, name, |slot| {
+                matches!(slot, SlotState::Empty)
+            }) {
+                assign_slot_value(&mut slots[index], PyJsValue::from_json(value.clone()))?;
                 continue;
             }
 
-            if let Some(index) = find_ident_param_index(signature, &name)
+            if let Some(index) = find_ident_param_index(&slots, signature, name, |_| true)
                 && !matches!(slots[index], SlotState::Empty)
             {
                 return Err(BindingError::argument(format!(
@@ -119,20 +119,25 @@ impl RunnerArguments {
 
             if param_count == 1 {
                 if overflow_index == Some(0) {
-                    merge_overflow_keyword(&mut slots[0], &name, value)?;
+                    merge_overflow_keyword(&mut slots[0], name, value.clone())?;
                 } else {
-                    apply_single_param_keyword(&mut slots[0], &signature.params[0], &name, value)?;
+                    apply_single_param_keyword(
+                        &mut slots[0],
+                        &signature.params[0],
+                        name,
+                        value.clone(),
+                    )?;
                 }
                 continue;
             }
 
-            if let Some(index) = find_object_key_slot(&slots, signature, &name) {
-                merge_object_field(&mut slots[index], &name, value)?;
+            if let Some(index) = find_object_key_slot(&slots, signature, name) {
+                merge_object_field(&mut slots[index], name, value.clone())?;
                 continue;
             }
 
             if let Some(index) = overflow_index {
-                merge_overflow_keyword(&mut slots[index], &name, value)?;
+                merge_overflow_keyword(&mut slots[index], name, value.clone())?;
                 continue;
             }
 
@@ -219,12 +224,23 @@ fn apply_single_param_keyword(
                 )))
             }
         }
-        ParamPattern::Object { keys, .. } if keys.iter().any(|key| key == name) => {
-            merge_into_slot_object(slot, name, value)
-        }
         ParamPattern::Object { .. } => merge_into_slot_object(slot, name, value),
         ParamPattern::Rest(_) => merge_overflow_keyword(slot, name, value),
     }
+}
+
+fn insert_unique_field(
+    object: &mut Map<String, Value>,
+    name: &str,
+    value: Value,
+) -> Result<(), BindingError> {
+    if object.contains_key(name) {
+        return Err(BindingError::argument(format!(
+            "run() got multiple values for argument '{name}'"
+        )));
+    }
+    object.insert(name.to_string(), value);
+    Ok(())
 }
 
 fn merge_into_slot_object(
@@ -235,12 +251,7 @@ fn merge_into_slot_object(
     match slot {
         SlotState::Value(existing) => {
             if let Value::Object(mut object) = existing.as_json().clone() {
-                if object.contains_key(name) {
-                    return Err(BindingError::argument(format!(
-                        "run() got multiple values for argument '{name}'"
-                    )));
-                }
-                object.insert(name.to_string(), value);
+                insert_unique_field(&mut object, name, value)?;
                 *slot = SlotState::Object(object);
                 Ok(())
             } else {
@@ -263,23 +274,15 @@ fn assign_slot_value(slot: &mut SlotState, value: PyJsValue) -> Result<(), Bindi
     }
 }
 
-fn find_ident_param_index(signature: &RunSignature, name: &str) -> Option<usize> {
-    for (index, param) in signature.params.iter().enumerate() {
-        if matches!(param, ParamPattern::Ident { name: ident, .. } if ident == name) {
-            return Some(index);
-        }
-    }
-    None
-}
-
-fn find_unfilled_ident_slot(
+fn find_ident_param_index(
     slots: &[SlotState],
     signature: &RunSignature,
     name: &str,
+    slot_ok: impl Fn(&SlotState) -> bool,
 ) -> Option<usize> {
     for (index, param) in signature.params.iter().enumerate() {
         if matches!(param, ParamPattern::Ident { name: ident, .. } if ident == name)
-            && matches!(slots[index], SlotState::Empty)
+            && slot_ok(&slots[index])
         {
             return Some(index);
         }
@@ -307,19 +310,11 @@ fn merge_object_field(slot: &mut SlotState, name: &str, value: Value) -> Result<
     match slot {
         SlotState::Empty => {
             let mut object = Map::new();
-            object.insert(name.to_string(), value);
+            insert_unique_field(&mut object, name, value)?;
             *slot = SlotState::Object(object);
             Ok(())
         }
-        SlotState::Object(object) => {
-            if object.contains_key(name) {
-                return Err(BindingError::argument(format!(
-                    "run() got multiple values for argument '{name}'"
-                )));
-            }
-            object.insert(name.to_string(), value);
-            Ok(())
-        }
+        SlotState::Object(object) => insert_unique_field(object, name, value),
         SlotState::Value(_) => Err(BindingError::argument(format!(
             "run() got multiple values for argument '{name}'"
         ))),
@@ -342,12 +337,7 @@ fn merge_overflow_keyword(
                     ));
                 }
             };
-            if object.contains_key(name) {
-                return Err(BindingError::argument(format!(
-                    "run() got multiple values for argument '{name}'"
-                )));
-            }
-            object.insert(name.to_string(), value);
+            insert_unique_field(&mut object, name, value)?;
             *slot = SlotState::Object(object);
             Ok(())
         }
