@@ -304,11 +304,11 @@ fn find_object_key_slot(
     name: &str,
 ) -> Option<usize> {
     for (index, param) in signature.params.iter().enumerate() {
-        if let ParamPattern::Object { keys, .. } = param
-            && keys.iter().any(|key| key == name)
-            && matches!(slots[index], SlotState::Empty | SlotState::Object(_))
-        {
-            return Some(index);
+        if let ParamPattern::Object { keys, rest } = param {
+            let matches = keys.iter().any(|key| key == name) || rest.is_some();
+            if matches && matches!(slots[index], SlotState::Empty | SlotState::Object(_)) {
+                return Some(index);
+            }
         }
     }
     None
@@ -632,6 +632,37 @@ mod tests {
                 "name".to_string(),
                 Value::String("belgie".into())
             )]))]
+        );
+    }
+
+    #[test]
+    fn maps_destructured_object_rest_from_kwargs() {
+        let sig = signature(vec![
+            ParamPattern::Object {
+                keys: vec!["name".to_string()],
+                rest: Some("rest".to_string()),
+            },
+            ident_param("mode", false),
+        ]);
+        let values = values_from(
+            vec![],
+            Map::from_iter([
+                ("name".to_string(), Value::String("a".into())),
+                ("age".to_string(), Value::Number(1.into())),
+                ("mode".to_string(), Value::String("x".into())),
+            ]),
+            Some(&sig),
+        );
+
+        assert_eq!(
+            values,
+            vec![
+                Value::Object(Map::from_iter([
+                    ("name".to_string(), Value::String("a".into())),
+                    ("age".to_string(), Value::Number(1.into())),
+                ])),
+                Value::String("x".into()),
+            ]
         );
     }
 
