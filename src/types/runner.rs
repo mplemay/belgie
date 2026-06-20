@@ -98,15 +98,7 @@ impl RunnerArguments {
         let param_count = signature.params.len();
         let mut slots = vec![SlotState::Empty; param_count];
 
-        for (index, value) in self.positional.iter().enumerate() {
-            if index >= param_count {
-                return Err(BindingError::argument(format!(
-                    "run() takes {param_count} positional arguments but {} were given",
-                    self.positional.len()
-                )));
-            }
-            assign_slot_value(&mut slots[index], value.clone())?;
-        }
+        assign_positional_args(&self.positional, signature, &mut slots)?;
 
         let overflow_index = signature.overflow_param();
         let keywords = self.keyword.clone();
@@ -117,8 +109,20 @@ impl RunnerArguments {
                 continue;
             }
 
+            if let Some(index) = find_ident_param_index(signature, &name)
+                && !matches!(slots[index], SlotState::Empty)
+            {
+                return Err(BindingError::argument(format!(
+                    "run() got multiple values for argument '{name}'"
+                )));
+            }
+
             if param_count == 1 {
-                apply_single_param_keyword(&mut slots[0], &signature.params[0], &name, value)?;
+                if overflow_index == Some(0) {
+                    merge_overflow_keyword(&mut slots[0], &name, value)?;
+                } else {
+                    apply_single_param_keyword(&mut slots[0], &signature.params[0], &name, value)?;
+                }
                 continue;
             }
 
@@ -137,7 +141,7 @@ impl RunnerArguments {
             )));
         }
 
-        finalize_slots(&slots)
+        finalize_slots(&slots, signature)
     }
 
     pub(crate) fn to_v8_globals(
@@ -159,6 +163,39 @@ impl RunnerArguments {
             })
             .collect()
     }
+}
+
+fn assign_positional_args(
+    positional: &[PyJsValue],
+    signature: &RunSignature,
+    slots: &mut [SlotState],
+) -> Result<(), BindingError> {
+    let param_count = signature.params.len();
+    let positional_len = positional.len();
+    let mut index = 0;
+
+    while index < positional_len {
+        if index >= param_count {
+            return Err(BindingError::argument(format!(
+                "run() takes {param_count} positional arguments but {positional_len} were given"
+            )));
+        }
+        if matches!(signature.params[index], ParamPattern::Rest(_)) {
+            let rest_values: Vec<Value> = positional[index..]
+                .iter()
+                .map(|value| value.as_json().clone())
+                .collect();
+            assign_slot_value(
+                &mut slots[index],
+                PyJsValue::from_json(Value::Array(rest_values)),
+            )?;
+            return Ok(());
+        }
+        assign_slot_value(&mut slots[index], positional[index].clone())?;
+        index += 1;
+    }
+
+    Ok(())
 }
 
 fn apply_single_param_keyword(
@@ -224,6 +261,15 @@ fn assign_slot_value(slot: &mut SlotState, value: PyJsValue) -> Result<(), Bindi
             "multiple values for the same script argument",
         )),
     }
+}
+
+fn find_ident_param_index(signature: &RunSignature, name: &str) -> Option<usize> {
+    for (index, param) in signature.params.iter().enumerate() {
+        if matches!(param, ParamPattern::Ident { name: ident, .. } if ident == name) {
+            return Some(index);
+        }
+    }
+    None
 }
 
 fn find_unfilled_ident_slot(
@@ -308,18 +354,30 @@ fn merge_overflow_keyword(
     }
 }
 
-fn finalize_slots(slots: &[SlotState]) -> Result<Vec<CallArgument>, BindingError> {
+fn finalize_slots(
+    slots: &[SlotState],
+    signature: &RunSignature,
+) -> Result<Vec<CallArgument>, BindingError> {
     let last_filled = slots
         .iter()
         .rposition(|slot| !matches!(slot, SlotState::Empty));
 
-    let Some(last_filled) = last_filled else {
+    let Some(mut last_index) = last_filled else {
         return Ok(Vec::new());
     };
 
-    let mut arguments = Vec::with_capacity(last_filled + 1);
-    for slot in &slots[..=last_filled] {
+    if last_index + 1 < slots.len()
+        && matches!(signature.params[last_index + 1], ParamPattern::Rest(_))
+    {
+        last_index += 1;
+    }
+
+    let mut arguments = Vec::with_capacity(last_index + 1);
+    for (index, slot) in slots[..=last_index].iter().enumerate() {
         arguments.push(match slot {
+            SlotState::Empty if matches!(signature.params[index], ParamPattern::Rest(_)) => {
+                CallArgument::Value(PyJsValue::from_json(Value::Array(vec![])))
+            }
             SlotState::Empty => CallArgument::Undefined,
             SlotState::Value(value) => CallArgument::Value(value.clone()),
             SlotState::Object(object) => {
@@ -550,6 +608,98 @@ mod tests {
         assert_eq!(
             values[1],
             Value::Object(Map::from_iter([("z".to_string(), Value::Bool(true))]))
+        );
+    }
+
+    #[test]
+    fn maps_rest_positional_overflow() {
+        let sig = signature(vec![
+            ident_param("first", false),
+            ParamPattern::Rest("rest".to_string()),
+        ]);
+        let values = values_from(
+            vec![
+                Value::Number(1.into()),
+                Value::Number(2.into()),
+                Value::Number(3.into()),
+            ],
+            Map::new(),
+            Some(&sig),
+        );
+
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], Value::Number(1.into()));
+        assert_eq!(
+            values[1],
+            Value::Array(vec![Value::Number(2.into()), Value::Number(3.into()),])
+        );
+    }
+
+    #[test]
+    fn maps_rest_positional_single_extra() {
+        let sig = signature(vec![
+            ident_param("first", false),
+            ParamPattern::Rest("rest".to_string()),
+        ]);
+        let values = values_from(
+            vec![Value::Number(1.into()), Value::Number(2.into())],
+            Map::new(),
+            Some(&sig),
+        );
+
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], Value::Number(1.into()));
+        assert_eq!(values[1], Value::Array(vec![Value::Number(2.into())]));
+    }
+
+    #[test]
+    fn empty_rest_defaults_to_array() {
+        let sig = signature(vec![
+            ident_param("first", false),
+            ParamPattern::Rest("rest".to_string()),
+        ]);
+        let values = values_from(vec![Value::Number(1.into())], Map::new(), Some(&sig));
+
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], Value::Number(1.into()));
+        assert_eq!(values[1], Value::Array(vec![]));
+    }
+
+    #[test]
+    fn rejects_duplicate_keyword_for_filled_param() {
+        let sig = signature(vec![
+            ident_param("first", false),
+            ident_param("options", false),
+        ]);
+        let arguments = RunnerArguments {
+            positional: vec![PyJsValue::from_json(Value::Number(1.into()))],
+            keyword: Map::from_iter([("first".to_string(), Value::Number(2.into()))]),
+        };
+        let error = arguments
+            .values_for_call(Some(&sig))
+            .expect_err("duplicate keyword should fail");
+        assert!(
+            error
+                .message()
+                .contains("multiple values for argument 'first'")
+        );
+    }
+
+    #[test]
+    fn maps_single_options_param_from_kwargs() {
+        let sig = signature(vec![ident_param("options", false)]);
+        let values = values_from(
+            vec![],
+            Map::from_iter([("flag".to_string(), Value::Bool(true))]),
+            Some(&sig),
+        );
+
+        assert_eq!(
+            values,
+            vec![Value::Object(Map::from_iter([(
+                "flag".to_string(),
+                Value::Bool(true)
+            )]))]
         );
     }
 
