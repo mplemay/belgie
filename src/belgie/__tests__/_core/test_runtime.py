@@ -469,6 +469,53 @@ export default function run(first, second, options) {
             "options": {"z": True, "a": False},
         }
 
+    def test_maps_kwargs_to_named_parameters(self) -> None:
+        source = """
+export default function run(first, second) {
+  return { first, second };
+}
+"""
+
+        assert run_source(source, first=1, second=2) == {"first": 1, "second": 2}
+
+    def test_maps_mixed_positional_and_kwargs(self) -> None:
+        source = """
+export default function run(first, second) {
+  return { first, second };
+}
+"""
+
+        assert run_source(source, 1, second=2) == {"first": 1, "second": 2}
+
+    def test_maps_single_input_param_from_kwargs(self) -> None:
+        source = """
+export default function run(input: { name: string }): { greeting: string } {
+  return { greeting: `Hello, ${input.name}!` };
+}
+"""
+
+        assert run_source(source, name="belgie") == {"greeting": "Hello, belgie!"}
+
+    def test_maps_destructured_object_param_from_kwargs(self) -> None:
+        source = """
+export default function run({ name }: { name: string }) {
+  return { name };
+}
+"""
+
+        assert run_source(source, name="belgie") == {"name": "belgie"}
+
+    def test_rejects_unknown_keyword_arguments(self) -> None:
+        source = "export default function run(first) { return first; }"
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'missing'"):
+            run_source(source, missing=True)
+
+    def test_falls_back_to_legacy_kwargs_when_signature_is_unparseable(self) -> None:
+        source = "export default () => 'no-params';"
+
+        assert run_source(source, flag=True) == "no-params"
+
     def test_executes_script_loaded_from_file_with_relative_import(self, write_script) -> None:
         write_script("export const double = (value: number): number => value * 2;\n", "lib/math.ts")
         path = write_script(

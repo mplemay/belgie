@@ -3,7 +3,7 @@ use std::{path::Path, rc::Rc, sync::Arc};
 use crate::embed::EmbedContext;
 use crate::environment::ActiveEnvironment;
 use crate::options::JsRuntimeOptions;
-use crate::script::ScriptSource;
+use crate::script::{RunSignature, ScriptSource, media_type_for_script, parse_run_signature};
 use crate::types::error::BindingError;
 
 use super::DenoRuntime;
@@ -13,6 +13,7 @@ pub(crate) struct BoundRuntime {
     runtime: DenoRuntime,
     script: ScriptSource,
     package_environment: Option<BoundPackageEnvironment>,
+    run_signature: Option<RunSignature>,
 }
 
 #[derive(Clone, Debug)]
@@ -32,10 +33,13 @@ impl BoundPackageEnvironment {
 
 impl BoundRuntime {
     pub(crate) fn new(runtime: DenoRuntime, script: ScriptSource) -> Self {
+        let media_type = media_type_for_script(script.path());
+        let run_signature = parse_run_signature(script.content(), media_type);
         Self {
             runtime,
             script,
             package_environment: None,
+            run_signature,
         }
     }
 
@@ -61,6 +65,10 @@ impl BoundRuntime {
 
     pub(crate) fn script(&self) -> &ScriptSource {
         &self.script
+    }
+
+    pub(crate) fn run_signature(&self) -> Option<&RunSignature> {
+        self.run_signature.as_ref()
     }
 
     pub(crate) fn description(&self) -> String {

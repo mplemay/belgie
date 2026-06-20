@@ -6,6 +6,7 @@ pub(crate) enum BindingError {
     NonFunctionRunExport { context: String },
     JavaScript { message: String },
     ValueConversion { message: String },
+    Argument { message: String },
 }
 
 impl BindingError {
@@ -45,6 +46,12 @@ impl BindingError {
         }
     }
 
+    pub(crate) fn argument(message: impl Into<String>) -> Self {
+        Self::Argument {
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn message(&self) -> String {
         match self {
             Self::Runtime { message } => message.clone(),
@@ -57,6 +64,7 @@ impl BindingError {
             }
             Self::JavaScript { message } => message.clone(),
             Self::ValueConversion { message } => message.clone(),
+            Self::Argument { message } => message.clone(),
         }
     }
 }

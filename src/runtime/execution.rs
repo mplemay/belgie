@@ -257,7 +257,7 @@ impl DenoExecutionContext {
             .ok_or_else(|| BindingError::missing_run_export(self.bound.description()))?;
         let args = {
             deno_core::scope!(scope, &mut self.js_runtime);
-            arguments.to_v8_globals(scope)?
+            arguments.to_v8_globals(scope, self.bound.run_signature())?
         };
         let call = self.js_runtime.call_with_args(run_function, &args);
         let result = self
