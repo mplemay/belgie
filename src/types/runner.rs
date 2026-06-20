@@ -204,6 +204,13 @@ fn assign_positional_args(
             )?;
             return Ok(());
         }
+        if matches!(signature.params[index], ParamPattern::Object { .. })
+            && let Value::Object(object) = positional[index].as_json().clone()
+        {
+            slots[index] = SlotState::Object(object);
+            index += 1;
+            continue;
+        }
         assign_slot_value(&mut slots[index], positional[index].clone())?;
         index += 1;
     }
@@ -305,7 +312,8 @@ fn find_object_key_slot(
 ) -> Option<usize> {
     for (index, param) in signature.params.iter().enumerate() {
         if let ParamPattern::Object { keys, rest } = param {
-            let matches = keys.iter().any(|key| key == name) || rest.is_some();
+            let is_explicit_key = keys.iter().any(|key| key == name);
+            let matches = is_explicit_key || rest.is_some() && signature.overflow_param().is_none();
             if matches && matches!(slots[index], SlotState::Empty | SlotState::Object(_)) {
                 return Some(index);
             }
@@ -662,6 +670,69 @@ mod tests {
                     ("age".to_string(), Value::Number(1.into())),
                 ])),
                 Value::String("x".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn maps_destructured_object_from_positional_dict_and_kwargs() {
+        let sig = signature(vec![
+            ParamPattern::Object {
+                keys: vec!["name".to_string()],
+                rest: Some("rest".to_string()),
+            },
+            ident_param("mode", false),
+        ]);
+        let values = values_from(
+            vec![Value::Object(Map::from_iter([(
+                "name".to_string(),
+                Value::String("a".into()),
+            )]))],
+            Map::from_iter([
+                ("age".to_string(), Value::Number(1.into())),
+                ("mode".to_string(), Value::String("x".into())),
+            ]),
+            Some(&sig),
+        );
+
+        assert_eq!(
+            values,
+            vec![
+                Value::Object(Map::from_iter([
+                    ("name".to_string(), Value::String("a".into())),
+                    ("age".to_string(), Value::Number(1.into())),
+                ])),
+                Value::String("x".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn maps_destructured_object_options_overflow() {
+        let sig = signature(vec![
+            ParamPattern::Object {
+                keys: vec!["name".to_string()],
+                rest: Some("rest".to_string()),
+            },
+            ident_param("options", false),
+        ]);
+        let values = values_from(
+            vec![],
+            Map::from_iter([
+                ("name".to_string(), Value::String("a".into())),
+                ("z".to_string(), Value::Bool(true)),
+            ]),
+            Some(&sig),
+        );
+
+        assert_eq!(
+            values,
+            vec![
+                Value::Object(Map::from_iter([(
+                    "name".to_string(),
+                    Value::String("a".into()),
+                )])),
+                Value::Object(Map::from_iter([("z".to_string(), Value::Bool(true))])),
             ]
         );
     }

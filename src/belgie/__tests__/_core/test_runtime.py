@@ -552,6 +552,30 @@ export default function run({ name, ...rest }, mode) {
             "mode": "x",
         }
 
+    def test_maps_destructured_object_from_positional_dict_and_kwargs(self) -> None:
+        source = """
+export default function run({ name, ...rest }, mode) {
+  return { input: { name, ...rest }, mode };
+}
+"""
+
+        assert run_source(source, {"name": "a"}, age=1, mode="x") == {
+            "input": {"name": "a", "age": 1},
+            "mode": "x",
+        }
+
+    def test_maps_destructured_object_options_overflow(self) -> None:
+        source = """
+export default function run({ name, ...rest }, options) {
+  return { input: { name, ...rest }, options };
+}
+"""
+
+        assert run_source(source, name="a", z=True) == {
+            "input": {"name": "a"},
+            "options": {"z": True},
+        }
+
     def test_rejects_unknown_keyword_arguments(self) -> None:
         source = "export default function run(first) { return first; }"
 
