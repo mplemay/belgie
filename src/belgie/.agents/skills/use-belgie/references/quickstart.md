@@ -8,14 +8,6 @@ Use this file for a minimal, working belgie setup before adding complexity.
 uv add belgie
 ```
 
-From source (requires Rust):
-
-```bash
-git clone https://github.com/mplemay/belgie
-cd belgie
-uv sync
-```
-
 Python: `>=3.12,<3.15`. Belgie has no runtime Python dependencies.
 
 ## Path A: inline script (no dependencies)

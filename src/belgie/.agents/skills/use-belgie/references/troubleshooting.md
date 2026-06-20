@@ -134,9 +134,3 @@ asyncio.run(main())
 uv add belgie
 uv run python -c "from belgie import Runtime, Script; print(Runtime)"
 ```
-
-In the belgie repo:
-
-```bash
-uv run pytest
-```

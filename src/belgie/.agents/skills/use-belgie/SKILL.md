@@ -163,7 +163,7 @@ Load only the most relevant reference first. Read additional references only if 
 ## Key Practices
 
 - Use the public integration surface: `Runtime`, `Script`, `Environment`, `Command`, `RuntimeOptions`.
-- Prefer `uv add belgie` for consumer projects; source builds require Rust and `uv sync`.
+- Install with `uv add belgie`.
 - Declare JavaScript packages in `Environment({...})`, not in Python `pyproject.toml`.
 - Export a callable from every JS module (`export default function run(...)` or `export default () => ...`).
 - Call `env.install()` before scripts or commands that resolve npm/JSR packages.
