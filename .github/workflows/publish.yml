@@ -229,6 +229,12 @@ jobs:
             export LIBCLANG_PATH="$(llvm-config --libdir)"
 
             if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+              # deno_snapshots build.rs build-depends on deno_runtime for the HOST
+              # during cross-compilation, which pulls in aws-lc-sys. The manylinux
+              # cross image sets TARGET_CC to the aarch64 cross compiler; aws-lc-sys
+              # incorrectly applies that to CC_x86_64_unknown_linux_gnu for host tests.
+              unset TARGET_CC TARGET_CXX
+
               sysroot="$(aarch64-unknown-linux-gnu-gcc -print-sysroot)"
               export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include -I$sysroot/usr/include/aarch64-linux-gnu"
             fi
