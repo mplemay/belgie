@@ -496,6 +496,26 @@ export default function run(input: { name: string }): { greeting: string } {
 
         assert run_source(source, name="belgie") == {"greeting": "Hello, belgie!"}
 
+    def test_maps_single_input_param_from_kwargs_with_interface(self) -> None:
+        source = """
+interface Input { name: string }
+export default function run(input: Input): { greeting: string } {
+  return { greeting: `Hello, ${input.name}!` };
+}
+"""
+
+        assert run_source(source, name="belgie") == {"greeting": "Hello, belgie!"}
+
+    def test_maps_single_input_param_from_kwargs_with_type_alias(self) -> None:
+        source = """
+type Input = { name: string }
+export default function run(input: Input): { greeting: string } {
+  return { greeting: `Hello, ${input.name}!` };
+}
+"""
+
+        assert run_source(source, name="belgie") == {"greeting": "Hello, belgie!"}
+
     def test_maps_destructured_object_param_from_kwargs(self) -> None:
         source = """
 export default function run({ name }: { name: string }) {

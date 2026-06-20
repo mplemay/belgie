@@ -1,6 +1,9 @@
+use std::collections::{HashMap, HashSet};
+
 use deno_ast::swc::ast::{
     ArrowExpr, Decl, DefaultDecl, Expr, Function, KeyValuePatProp, Module, ModuleDecl, ModuleItem,
-    ObjectPatProp, Param, Pat, TsType,
+    ObjectPatProp, Param, Pat, Stmt, TsEntityName, TsType, TsTypeOperatorOp,
+    TsUnionOrIntersectionType,
 };
 use deno_ast::{MediaType, ModuleSpecifier, ParseParams, parse_module};
 
@@ -36,6 +39,49 @@ impl RunSignature {
     }
 }
 
+#[derive(Clone, Debug)]
+enum TypeDef {
+    Interface,
+    Alias(TsType),
+}
+
+#[derive(Clone, Debug, Default)]
+struct TypeIndex {
+    types: HashMap<String, TypeDef>,
+}
+
+impl TypeIndex {
+    fn collect(module: &Module) -> Self {
+        let mut index = Self::default();
+        for item in &module.body {
+            match item {
+                ModuleItem::Stmt(Stmt::Decl(decl)) => index.insert_decl(decl),
+                ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) => {
+                    index.insert_decl(&export.decl);
+                }
+                _ => {}
+            }
+        }
+        index
+    }
+
+    fn insert_decl(&mut self, decl: &Decl) {
+        match decl {
+            Decl::TsInterface(interface) => {
+                self.types
+                    .insert(interface.id.sym.to_string(), TypeDef::Interface);
+            }
+            Decl::TsTypeAlias(alias) => {
+                self.types.insert(
+                    alias.id.sym.to_string(),
+                    TypeDef::Alias((*alias.type_ann).clone()),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
 pub(crate) fn media_type_for_script(content_path: Option<&std::path::Path>) -> MediaType {
     match content_path {
         Some(path) => MediaType::from_path(path),
@@ -64,6 +110,7 @@ pub(crate) fn parse_run_signature(content: &str, media_type: MediaType) -> Optio
 }
 
 fn extract_run_signature(module: &Module) -> Option<RunSignature> {
+    let type_index = TypeIndex::collect(module);
     let mut default_signature = None;
     let mut named_run_signature = None;
 
@@ -73,19 +120,19 @@ fn extract_run_signature(module: &Module) -> Option<RunSignature> {
         };
         match decl {
             ModuleDecl::ExportDefaultDecl(export) => {
-                if let Some(signature) = signature_from_default_decl(&export.decl) {
+                if let Some(signature) = signature_from_default_decl(&export.decl, &type_index) {
                     default_signature = Some(signature);
                 }
             }
             ModuleDecl::ExportDefaultExpr(export) => {
-                if let Some(signature) = signature_from_expr(&export.expr) {
+                if let Some(signature) = signature_from_expr(&export.expr, &type_index) {
                     default_signature = Some(signature);
                 }
             }
             ModuleDecl::ExportDecl(export) => {
                 if let Decl::Fn(fn_decl) = &export.decl
                     && fn_decl.ident.sym == "run"
-                    && let Some(signature) = signature_from_function(&fn_decl.function)
+                    && let Some(signature) = signature_from_function(&fn_decl.function, &type_index)
                 {
                     named_run_signature = Some(signature);
                 }
@@ -97,50 +144,50 @@ fn extract_run_signature(module: &Module) -> Option<RunSignature> {
     default_signature.or(named_run_signature)
 }
 
-fn signature_from_default_decl(decl: &DefaultDecl) -> Option<RunSignature> {
+fn signature_from_default_decl(decl: &DefaultDecl, type_index: &TypeIndex) -> Option<RunSignature> {
     match decl {
-        DefaultDecl::Fn(fn_expr) => signature_from_function(&fn_expr.function),
+        DefaultDecl::Fn(fn_expr) => signature_from_function(&fn_expr.function, type_index),
         _ => None,
     }
 }
 
-fn signature_from_expr(expr: &Expr) -> Option<RunSignature> {
+fn signature_from_expr(expr: &Expr, type_index: &TypeIndex) -> Option<RunSignature> {
     match expr {
-        Expr::Fn(fn_expr) => signature_from_function(&fn_expr.function),
-        Expr::Arrow(arrow) => signature_from_arrow(arrow),
+        Expr::Fn(fn_expr) => signature_from_function(&fn_expr.function, type_index),
+        Expr::Arrow(arrow) => signature_from_arrow(arrow, type_index),
         _ => None,
     }
 }
 
-fn signature_from_function(function: &Function) -> Option<RunSignature> {
-    params_from_list(&function.params)
+fn signature_from_function(function: &Function, type_index: &TypeIndex) -> Option<RunSignature> {
+    params_from_list(&function.params, type_index)
 }
 
-fn signature_from_arrow(arrow: &ArrowExpr) -> Option<RunSignature> {
+fn signature_from_arrow(arrow: &ArrowExpr, type_index: &TypeIndex) -> Option<RunSignature> {
     let params = arrow
         .params
         .iter()
-        .map(parse_pat)
+        .map(|param| parse_pat(param, type_index))
         .collect::<Option<Vec<_>>>()?;
     Some(RunSignature { params })
 }
 
-fn params_from_list(params: &[Param]) -> Option<RunSignature> {
+fn params_from_list(params: &[Param], type_index: &TypeIndex) -> Option<RunSignature> {
     let patterns = params
         .iter()
-        .map(|param| parse_pat(&param.pat))
+        .map(|param| parse_pat(&param.pat, type_index))
         .collect::<Option<Vec<_>>>()?;
     Some(RunSignature { params: patterns })
 }
 
-fn parse_pat(pat: &Pat) -> Option<ParamPattern> {
+fn parse_pat(pat: &Pat, type_index: &TypeIndex) -> Option<ParamPattern> {
     match pat {
         Pat::Ident(binding) => Some(ParamPattern::Ident {
             name: binding.id.sym.to_string(),
             accepts_object_fields: binding
                 .type_ann
                 .as_ref()
-                .is_some_and(|annotation| is_object_like_type(&annotation.type_ann)),
+                .is_some_and(|annotation| is_object_like_type(&annotation.type_ann, type_index)),
         }),
         Pat::Object(object) => {
             let mut keys = Vec::new();
@@ -161,7 +208,7 @@ fn parse_pat(pat: &Pat) -> Option<ParamPattern> {
             Some(ParamPattern::Object { keys, rest })
         }
         Pat::Rest(rest_pat) => pat_ident_name(&rest_pat.arg).map(ParamPattern::Rest),
-        Pat::Assign(assign) => parse_pat(&assign.left),
+        Pat::Assign(assign) => parse_pat(&assign.left, type_index),
         _ => None,
     }
 }
@@ -183,8 +230,65 @@ fn pat_ident_name(pat: &Pat) -> Option<String> {
     }
 }
 
-fn is_object_like_type(type_ann: &TsType) -> bool {
-    matches!(type_ann, TsType::TsTypeLit(_))
+fn is_object_like_type(type_ann: &TsType, type_index: &TypeIndex) -> bool {
+    let mut visiting = HashSet::new();
+    is_object_like_type_inner(type_ann, type_index, &mut visiting)
+}
+
+fn is_object_like_type_inner(
+    type_ann: &TsType,
+    type_index: &TypeIndex,
+    visiting: &mut HashSet<String>,
+) -> bool {
+    match type_ann {
+        TsType::TsTypeLit(_) => true,
+        TsType::TsTypeRef(type_ref) => {
+            let Some(name) = entity_name_ident(&type_ref.type_name) else {
+                return false;
+            };
+            resolve_named_type(&name, type_index, visiting)
+        }
+        TsType::TsParenthesizedType(parenthesized) => {
+            is_object_like_type_inner(&parenthesized.type_ann, type_index, visiting)
+        }
+        TsType::TsOptionalType(optional) => {
+            is_object_like_type_inner(&optional.type_ann, type_index, visiting)
+        }
+        TsType::TsTypeOperator(operator) if operator.op == TsTypeOperatorOp::ReadOnly => {
+            is_object_like_type_inner(&operator.type_ann, type_index, visiting)
+        }
+        TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(union)) => union
+            .types
+            .iter()
+            .any(|member| is_object_like_type_inner(member, type_index, visiting)),
+        TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsIntersectionType(
+            intersection,
+        )) => intersection
+            .types
+            .iter()
+            .all(|member| is_object_like_type_inner(member, type_index, visiting)),
+        _ => false,
+    }
+}
+
+fn resolve_named_type(name: &str, type_index: &TypeIndex, visiting: &mut HashSet<String>) -> bool {
+    if !visiting.insert(name.to_string()) {
+        return false;
+    }
+    let object_like = match type_index.types.get(name) {
+        Some(TypeDef::Interface) => true,
+        Some(TypeDef::Alias(type_ann)) => is_object_like_type_inner(type_ann, type_index, visiting),
+        None => false,
+    };
+    visiting.remove(name);
+    object_like
+}
+
+fn entity_name_ident(name: &TsEntityName) -> Option<String> {
+    match name {
+        TsEntityName::Ident(ident) => Some(ident.sym.to_string()),
+        TsEntityName::TsQualifiedName(_) => None,
+    }
 }
 
 #[cfg(test)]
@@ -194,6 +298,13 @@ mod tests {
 
     fn parse_ts(source: &str) -> Option<RunSignature> {
         parse_run_signature(source, MediaType::TypeScript)
+    }
+
+    fn ident_param(name: &str, accepts_object_fields: bool) -> ParamPattern {
+        ParamPattern::Ident {
+            name: name.to_string(),
+            accepts_object_fields,
+        }
     }
 
     #[test]
@@ -206,18 +317,9 @@ mod tests {
             signature,
             RunSignature {
                 params: vec![
-                    ParamPattern::Ident {
-                        name: "first".to_string(),
-                        accepts_object_fields: false,
-                    },
-                    ParamPattern::Ident {
-                        name: "second".to_string(),
-                        accepts_object_fields: false,
-                    },
-                    ParamPattern::Ident {
-                        name: "options".to_string(),
-                        accepts_object_fields: false,
-                    },
+                    ident_param("first", false),
+                    ident_param("second", false),
+                    ident_param("options", false),
                 ],
             }
         );
@@ -231,16 +333,7 @@ mod tests {
 
         assert_eq!(
             signature.params,
-            vec![
-                ParamPattern::Ident {
-                    name: "first".to_string(),
-                    accepts_object_fields: false,
-                },
-                ParamPattern::Ident {
-                    name: "second".to_string(),
-                    accepts_object_fields: false,
-                },
-            ]
+            vec![ident_param("first", false), ident_param("second", false)]
         );
     }
 
@@ -249,13 +342,7 @@ mod tests {
         let signature =
             parse_ts("export function run(name) { return name; }").expect("should parse");
 
-        assert_eq!(
-            signature.params,
-            vec![ParamPattern::Ident {
-                name: "name".to_string(),
-                accepts_object_fields: false,
-            }]
-        );
+        assert_eq!(signature.params, vec![ident_param("name", false)]);
     }
 
     #[test]
@@ -265,13 +352,7 @@ mod tests {
         )
         .expect("should parse");
 
-        assert_eq!(
-            signature.params,
-            vec![ParamPattern::Ident {
-                name: "first".to_string(),
-                accepts_object_fields: false,
-            }]
-        );
+        assert_eq!(signature.params, vec![ident_param("first", false)]);
     }
 
     #[test]
@@ -296,11 +377,8 @@ mod tests {
         assert_eq!(
             signature.params,
             vec![
-                ParamPattern::Ident {
-                    name: "first".to_string(),
-                    accepts_object_fields: false,
-                },
-                ParamPattern::Rest("options".to_string()),
+                ident_param("first", false),
+                ParamPattern::Rest("options".to_string())
             ]
         );
         assert_eq!(signature.overflow_param(), Some(1));
@@ -313,13 +391,65 @@ mod tests {
         )
         .expect("should parse");
 
-        assert_eq!(
-            signature.params,
-            vec![ParamPattern::Ident {
-                name: "input".to_string(),
-                accepts_object_fields: true,
-            }]
-        );
+        assert_eq!(signature.params, vec![ident_param("input", true)]);
+    }
+
+    #[test]
+    fn parses_single_input_parameter_with_interface_type() {
+        let signature = parse_ts(
+            "interface Input { name: string }\nexport default function run(input: Input): { greeting: string } { return { greeting: input.name }; }",
+        )
+        .expect("should parse");
+
+        assert_eq!(signature.params, vec![ident_param("input", true)]);
+    }
+
+    #[test]
+    fn parses_single_input_parameter_with_exported_interface_type() {
+        let signature = parse_ts(
+            "export interface Input { name: string }\nexport default function run(input: Input) { return input; }",
+        )
+        .expect("should parse");
+
+        assert_eq!(signature.params, vec![ident_param("input", true)]);
+    }
+
+    #[test]
+    fn parses_single_input_parameter_with_type_alias() {
+        let signature = parse_ts(
+            "type Input = { name: string }\nexport default function run(input: Input) { return input; }",
+        )
+        .expect("should parse");
+
+        assert_eq!(signature.params, vec![ident_param("input", true)]);
+    }
+
+    #[test]
+    fn parses_single_input_parameter_with_chained_type_alias() {
+        let signature = parse_ts(
+            "interface Other { name: string }\ntype Input = Other\nexport default function run(input: Input) { return input; }",
+        )
+        .expect("should parse");
+
+        assert_eq!(signature.params, vec![ident_param("input", true)]);
+    }
+
+    #[test]
+    fn rejects_non_object_type_alias() {
+        let signature = parse_ts(
+            "type Input = string\nexport default function run(input: Input) { return input; }",
+        )
+        .expect("should parse");
+
+        assert_eq!(signature.params, vec![ident_param("input", false)]);
+    }
+
+    #[test]
+    fn rejects_unresolved_type_reference() {
+        let signature = parse_ts("export default function run(input: Missing) { return input; }")
+            .expect("should parse");
+
+        assert_eq!(signature.params, vec![ident_param("input", false)]);
     }
 
     #[test]
