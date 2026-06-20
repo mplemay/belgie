@@ -26,8 +26,6 @@ asyncio.run(main())
 
 Successful commands return `None`. A nonzero exit raises `BelgieRuntimeError`.
 
-See [examples/commands](../../../../../../examples/commands).
-
 ## Command name resolution
 
 The command name may be a dependency alias or an explicit npm specifier:

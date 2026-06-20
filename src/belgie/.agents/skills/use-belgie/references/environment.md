@@ -48,8 +48,6 @@ async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
         result = await runtime(script)()
 ```
 
-See [examples/environment](../../../../../../examples/environment).
-
 ## Dependency map format
 
 The mapping key is the JavaScript import alias. Values are either a full `npm:` / `jsr:` specifier or an npm version

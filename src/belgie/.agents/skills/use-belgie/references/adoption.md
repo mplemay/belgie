@@ -75,23 +75,6 @@ Before finishing adoption, confirm:
 - [ ] `Runtime.from_folder()` is used only for relative import roots, not package management
 - [ ] `Command` args are separate `str` values, not shell strings
 
-## In-repo examples
-
-| Example | Demonstrates |
-| --- | --- |
-| [examples/simple](../../../../../../examples/simple) | Async `Runtime.from_folder` + `Script.from_file` + TypeScript |
-| [examples/jsr-deps](../../../../../../examples/jsr-deps) | Inline script + JSR via `Environment` |
-| [examples/environment](../../../../../../examples/environment) | Sync/async `Environment`, `cwd` |
-| [examples/commands](../../../../../../examples/commands) | `Command("vite")` with `Environment` |
-
-Run an example:
-
-```bash
-cd examples/simple
-uv sync
-uv run main
-```
-
 ## Verification steps
 
 1. Import succeeds: `from belgie import Runtime, Script`

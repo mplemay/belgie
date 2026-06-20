@@ -68,9 +68,6 @@ if __name__ == "__main__":
 Use `Runtime.from_folder(path)` when inline `Script("...")` source has `./` imports or when the runtime cwd must be a
 fixed project root. `Script.from_file()` resolves `./` imports from the script file's directory.
 
-See [examples/simple](../../../../../../examples/simple) for the packaged version (uses `from_folder` for project-root
-cwd).
-
 ## Path C: JSR dependency through Environment
 
 ```python
@@ -92,8 +89,6 @@ with Environment({"std_path": "jsr:@std/path@^1"}) as env:
         assert runtime(script)() == "join"
 ```
 
-See [examples/jsr-deps](../../../../../../examples/jsr-deps).
-
 ## Path D: npm package binary through Command
 
 ```python
@@ -108,8 +103,6 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
-
-See [examples/commands](../../../../../../examples/commands).
 
 ## Quick checks
 

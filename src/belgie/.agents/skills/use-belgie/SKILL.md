@@ -171,7 +171,6 @@ Load only the most relevant reference first. Read additional references only if 
   relatives from the script directory. `from_folder()` does not install packages.
 - Pass `Command` args as separate `str` values; belgie does not parse shell strings.
 - Import exceptions from `belgie.errors`.
-- Point to in-repo examples: `examples/simple`, `examples/jsr-deps`, `examples/environment`, `examples/commands`.
 
 ## Common Gotchas
 
