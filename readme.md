@@ -29,19 +29,19 @@ from belgie import Environment, Runtime, Script
 
 script = Script(
     """
-import { join } from "std_path";
+import camelcase from "camelcase";
 
-export default function run() {
-  return join("home", "belgie");
+export default function run(input) {
+  return camelcase(input);
 }
 """
 )
 
 async def main() -> None:
-    async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
+    async with Environment({"camelcase": "npm:camelcase@8.0.0"}) as env:
         await env.install()
         async with Runtime(env=env) as run:
-            print(await run(script)())
+            print(await run(script)("foo-bar"))  # prints: fooBar
 
 asyncio.run(main())
 ```
