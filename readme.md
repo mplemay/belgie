@@ -12,11 +12,13 @@ PATH.
 
 ```bash
 uv add belgie
-uvx library-skills
+uvx library-skills install  # optional: install the use-belgie skill for Cursor, Codex, Claude, etc.
 ```
 
-`uv add belgie` adds the library (Python `>=3.12,<3.15`, no runtime Python deps). `uvx library-skills` installs the
-official **`use-belgie`** agent skill into `.agents/skills/`.
+`uv add belgie` adds the library (Python `>=3.12,<3.15`, no runtime Python deps).
+
+`uvx library-skills install` is optional. It links the bundled **`use-belgie`** agent skill into `.agents/skills/` so
+coding agents can follow belgie's public API when you work on integrations. Skip it if you only need the Python library.
 
 ## Quick Start
 
@@ -51,4 +53,4 @@ asyncio.run(main())
 - **[environment](examples/environment):** Sync and async `Environment` setup with `cwd`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
 
-For deeper integration guidance, run `uvx library-skills` to install the **`use-belgie`** skill.
+For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
