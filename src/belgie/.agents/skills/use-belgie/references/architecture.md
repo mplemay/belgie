@@ -15,8 +15,8 @@ Python                          Belgie
 Environment (optional)            └─ synthetic deno.json + temp cache/node_modules
   └─ install() / lock() / update()
 Runtime (context manager)
-  └─ runtime(Script) → runner(*args, **kwargs)
-  └─ runtime(Command) → runner(*argv)
+  └─ run(Script) → runner(*args, **kwargs)
+  └─ run(Command) → runner(*argv)
 ```
 
 ## Script vs Command execution
@@ -53,10 +53,10 @@ imports from the script file's directory without `from_folder()`.
 ## Binding and calling
 
 ```python
-with Runtime() as runtime:
-    run = runtime(Script("export default (x) => x"))
-    run(1)                    # positional args
-    run(1, flag=True)         # kwargs become final options object
+with Runtime() as run:
+    runner = run(Script("export default (x) => x"))
+    runner(1)                    # positional args
+    runner(1, flag=True)         # kwargs become final options object
 ```
 
 Module state persists across repeated calls on the same bound runner within one `Runtime` context.
@@ -69,14 +69,14 @@ Both `Environment` and `Runtime` support sync and async context managers:
 # sync
 with Environment({...}) as env:
     env.install()
-    with Runtime(env=env) as runtime:
-        runtime(script)()
+    with Runtime(env=env) as run:
+        run(script)()
 
 # async
 async with Environment({...}) as env:
     await env.install()
-    async with Runtime(env=env) as runtime:
-        await runtime(script)()
+    async with Runtime(env=env) as run:
+        await run(script)()
 ```
 
 Use async when integrating with `asyncio`, FastAPI, or other async Python apps.

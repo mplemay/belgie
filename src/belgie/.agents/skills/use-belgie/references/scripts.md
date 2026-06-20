@@ -29,16 +29,16 @@ Missing or non-callable exports raise `BelgieModuleError` (`callable run functio
 ```python
 from belgie import Runtime, Script
 
-with Runtime() as runtime:
-    run = runtime(Script("export default function run(input) { return input; }"))
-    result = run({"value": 42})
+with Runtime() as run:
+    runner = run(Script("export default function run(input) { return input; }"))
+    result = runner({"value": 42})
 ```
 
 Async:
 
 ```python
-async with Runtime() as runtime:
-    result = await runtime(script)()
+async with Runtime() as run:
+    result = await run(script)()
 ```
 
 ## Argument passing
@@ -52,8 +52,8 @@ export default function run(first, second, options) {
 }
 """
 
-with Runtime() as runtime:
-    result = runtime(Script(source))(1, "two", z=True, a=False)
+with Runtime() as run:
+    result = run(Script(source))(1, "two", z=True, a=False)
 # {"values": [1, "two"], "optionKeys": ["z", "a"], "options": {"z": True, "a": False}}
 ```
 
@@ -72,8 +72,8 @@ from belgie import Runtime, Script
 # main.ts contains: import { double } from "./lib/math.ts";
 script = Script.from_file(Path("main.ts"))
 
-with Runtime() as runtime:
-    result = runtime(script)({"value": 21})
+with Runtime() as run:
+    result = run(script)({"value": 21})
 ```
 
 ### Inline `Script("...")` — relatives resolve from runtime cwd
@@ -85,8 +85,8 @@ from belgie import Runtime, Script
 
 script = Script('import { value } from "./value.ts"; export default () => value;')
 
-with Runtime.from_folder("frontend") as runtime:
-    result = runtime(script)()
+with Runtime.from_folder("frontend") as run:
+    result = run(script)()
 ```
 
 `Runtime.from_folder()` sets the runtime cwd only. It does not install npm or JSR packages. Use it when a fixed project
@@ -99,10 +99,10 @@ Module state persists across repeated calls on the same bound runner within one 
 ```python
 source = "let count = 0; export default () => ++count;"
 
-with Runtime() as runtime:
-    run = runtime(Script(source))
-    assert run() == 1
-    assert run() == 2
+with Runtime() as run:
+    runner = run(Script(source))
+    assert runner() == 1
+    assert runner() == 2
 ```
 
 ## Top-level await
@@ -115,8 +115,8 @@ const resolved = await Promise.resolve(41);
 export default async function run() { return resolved + 1; }
 """
 
-async with Runtime() as runtime:
-    assert await runtime(Script(source))() == 42
+async with Runtime() as run:
+    assert await run(Script(source))() == 42
 ```
 
 ## RuntimeOptions
@@ -132,8 +132,8 @@ options = RuntimeOptions(
     code_range_size_mb=32,
 )
 
-with Runtime(options=options) as runtime:
-    runtime(Script("export default () => 42;"))()
+with Runtime(options=options) as run:
+    run(Script("export default () => 42;"))()
 ```
 
 Values must be positive integers or `None`.
@@ -151,9 +151,9 @@ from belgie.errors import BelgieJavaScriptError
 
 script = Script('export default function run() { throw new Error("boom"); }')
 
-with Runtime() as runtime:
+with Runtime() as run:
     try:
-        runtime(script)()
+        run(script)()
     except BelgieJavaScriptError as error:
         assert "boom" in str(error)
 ```

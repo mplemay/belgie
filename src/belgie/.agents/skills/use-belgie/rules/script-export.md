@@ -82,8 +82,8 @@ resolves `./` imports from the runtime cwd — use `Runtime.from_folder(path)` t
 from belgie import Runtime, Script
 
 script = Script('import { value } from "./value.ts"; export default () => value;')
-with Runtime() as runtime:
-    runtime(script)()
+with Runtime() as run:
+    run(script)()
 ```
 
 **Correct (inline script — set runtime cwd):**
@@ -92,8 +92,8 @@ with Runtime() as runtime:
 from belgie import Runtime, Script
 
 script = Script('import { value } from "./value.ts"; export default () => value;')
-with Runtime.from_folder("frontend") as runtime:
-    runtime(script)()
+with Runtime.from_folder("frontend") as run:
+    run(script)()
 ```
 
 **Correct (file on disk — relatives resolve from script directory):**
@@ -103,8 +103,8 @@ from pathlib import Path
 from belgie import Runtime, Script
 
 script = Script.from_file(Path("frontend/greet.ts"))
-with Runtime() as runtime:
-    runtime(script)({"name": "belgie"})
+with Runtime() as run:
+    run(script)({"name": "belgie"})
 ```
 
 `Runtime.from_folder()` does not install npm or JSR packages.

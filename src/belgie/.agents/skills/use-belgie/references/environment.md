@@ -35,8 +35,8 @@ export default function run() {
 
 with Environment({"std_path": "jsr:@std/path@^1"}) as env:
     env.install()
-    with Runtime(env=env) as runtime:
-        result = runtime(script)()
+    with Runtime(env=env) as run:
+        result = run(script)()
 ```
 
 Async:
@@ -44,8 +44,8 @@ Async:
 ```python
 async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
     await env.install()
-    async with Runtime(env=env) as runtime:
-        result = await runtime(script)()
+    async with Runtime(env=env) as run:
+        result = await run(script)()
 ```
 
 ## Dependency map format
@@ -78,8 +78,8 @@ from pathlib import Path
 
 with Environment({"std_path": "jsr:@std/path@^1"}, cwd=Path.cwd()) as env:
     env.install()
-    with Runtime(env=env) as runtime:
-        runtime(script)()
+    with Runtime(env=env) as run:
+        run(script)()
 ```
 
 When omitted, `cwd` defaults to the process working directory at construction time. Relative imports and command working

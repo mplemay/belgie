@@ -18,8 +18,8 @@ from belgie import Command, Environment, Runtime
 async def main() -> None:
     async with Environment({"vite": "^6"}) as env:
         await env.install()
-        async with Runtime(env=env) as runtime:
-            await runtime(Command("vite"))("--version")
+        async with Runtime(env=env) as run:
+            await run(Command("vite"))("--version")
 
 asyncio.run(main())
 ```
@@ -31,8 +31,8 @@ Successful commands return `None`. A nonzero exit raises `BelgieRuntimeError`.
 The command name may be a dependency alias or an explicit npm specifier:
 
 ```python
-runtime(Command("vite"))("build")
-runtime(Command("npm:vite@6/vite"))("--version")
+run(Command("vite"))("build")
+run(Command("npm:vite@6/vite"))("--version")
 ```
 
 ## Argument contract
@@ -42,13 +42,13 @@ Arguments are `str` only and are forwarded **without shell parsing**:
 **Incorrect:**
 
 ```python
-await runtime(Command("vite"))("build --minify")
+await run(Command("vite"))("build --minify")
 ```
 
 **Correct:**
 
 ```python
-await runtime(Command("vite"))("build", "--minify")
+await run(Command("vite"))("build", "--minify")
 ```
 
 Shell pipelines, redirection, arbitrary PATH commands, and output capture are not supported.
@@ -56,7 +56,7 @@ Shell pipelines, redirection, arbitrary PATH commands, and output capture are no
 ## Working directory and environment overlay
 
 ```python
-runtime(Command("vite", cwd="frontend", env={"NODE_ENV": "production"}))("build")
+run(Command("vite", cwd="frontend", env={"NODE_ENV": "production"}))("build")
 ```
 
 - `cwd` resolves relative to the environment root when the environment is active.
@@ -77,8 +77,8 @@ from belgie import Command, Environment, Runtime
 async def main() -> None:
     async with Environment({"vite": "^6"}) as env:
         await env.install()
-        async with Runtime(env=env) as runtime:
-            task = asyncio.create_task(runtime(Command("vite"))("--version"))
+        async with Runtime(env=env) as run:
+            task = asyncio.create_task(run(Command("vite"))("--version"))
             task.cancel()
             try:
                 await task
@@ -99,8 +99,8 @@ from belgie import Command, Environment, Runtime
 
 with Environment({"vite": "^6"}) as env:
     env.install()
-    with Runtime(env=env) as runtime:
-        runtime(Command("vite"))("--version")
+    with Runtime(env=env) as run:
+        run(Command("vite"))("--version")
 ```
 
 ## Prerequisites

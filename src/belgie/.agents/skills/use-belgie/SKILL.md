@@ -79,8 +79,8 @@ These rules are **always enforced**. Each links to Incorrect/Correct pairs.
 ```python
 from belgie import Runtime, Script
 
-with Runtime() as runtime:
-    result = runtime(Script("export default (n) => n + 1"))(41)
+with Runtime() as run:
+    result = run(Script("export default (n) => n + 1"))(41)
 ```
 
 ### Environment with JSR dependency
@@ -100,8 +100,8 @@ export default function run() {
 
 with Environment({"std_path": "jsr:@std/path@^1"}) as env:
     env.install()
-    with Runtime(env=env) as runtime:
-        assert runtime(script)() == "join"
+    with Runtime(env=env) as run:
+        assert run(script)() == "join"
 ```
 
 ### Async npm command
@@ -113,8 +113,8 @@ from belgie import Command, Environment, Runtime
 async def main() -> None:
     async with Environment({"vite": "^6"}) as env:
         await env.install()
-        async with Runtime(env=env) as runtime:
-            await runtime(Command("vite"))("--version")
+        async with Runtime(env=env) as run:
+            await run(Command("vite"))("--version")
 
 asyncio.run(main())
 ```
@@ -141,7 +141,7 @@ asyncio.run(main())
 4. **Environment:** if npm/JSR imports or commands are needed, create `Environment({...})`, enter it, and call
    `install()`.
 5. **Enter contexts:** nest `Runtime` inside an active `Environment` when `env=` is used.
-6. **Bind and call:** `runner = runtime(Script(...))` or `runtime(Command(...))`, then call with JSON-safe args.
+6. **Bind and call:** `runner = run(Script(...))` or `run(Command(...))`, then call with JSON-safe args.
 7. **On failure:** match the error text in [references/troubleshooting.md](references/troubleshooting.md).
 8. **After fix:** re-run inside active contexts with `install()` when packages are involved.
 
@@ -176,7 +176,7 @@ Load only the most relevant reference first. Read additional references only if 
 
 Agents commonly make these mistakes with belgie:
 
-- Calling `install()` or `runtime(...)` outside an active `Environment` / `Runtime` context (`must be entered`).
+- Calling `install()` or `run(...)` outside an active `Environment` / `Runtime` context (`must be entered`).
 - Running package-backed scripts without `env.install()` (`package dependencies`).
 - Using plain `Runtime()` when scripts import npm or JSR packages.
 - Expecting `Runtime.from_folder()` to install packages or read `pyproject.toml`.

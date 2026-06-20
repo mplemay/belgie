@@ -15,8 +15,8 @@ Python: `>=3.12,<3.15`. Belgie has no runtime Python dependencies.
 ```python
 from belgie import Runtime, Script
 
-with Runtime() as runtime:
-    result = runtime(Script("export default (n) => n + 1"))(41)
+with Runtime() as run:
+    result = run(Script("export default (n) => n + 1"))(41)
 
 assert result == 42
 ```
@@ -47,8 +47,8 @@ from belgie import Runtime, Script
 
 async def main() -> None:
     script = Script.from_file(Path("greet.ts"))
-    async with Runtime() as runtime:
-        result = await runtime(script)({"name": "belgie"})
+    async with Runtime() as run:
+        result = await run(script)({"name": "belgie"})
     print(result["greeting"])
 
 if __name__ == "__main__":
@@ -77,8 +77,8 @@ export default function run() {
 
 with Environment({"std_path": "jsr:@std/path@^1"}) as env:
     env.install()
-    with Runtime(env=env) as runtime:
-        assert runtime(script)() == "join"
+    with Runtime(env=env) as run:
+        assert run(script)() == "join"
 ```
 
 ## Path D: npm package binary through Command
@@ -90,8 +90,8 @@ from belgie import Command, Environment, Runtime
 async def main() -> None:
     async with Environment({"vite": "^6"}) as env:
         await env.install()
-        async with Runtime(env=env) as runtime:
-            await runtime(Command("vite"))("--version")
+        async with Runtime(env=env) as run:
+            await run(Command("vite"))("--version")
 
 asyncio.run(main())
 ```

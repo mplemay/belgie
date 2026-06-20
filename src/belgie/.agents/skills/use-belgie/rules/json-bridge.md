@@ -18,8 +18,8 @@ See [references/scripts.md](../references/scripts.md) for argument passing patte
 ```python
 from belgie import Runtime, Script
 
-with Runtime() as runtime:
-    runtime(Script("export default function run(input) { return input; }"))({"value": object()})
+with Runtime() as run:
+    run(Script("export default function run(input) { return input; }"))({"value": object()})
 ```
 
 **Correct:**
@@ -27,8 +27,8 @@ with Runtime() as runtime:
 ```python
 from belgie import Runtime, Script
 
-with Runtime() as runtime:
-    runtime(Script("export default function run(input) { return input; }"))({"value": 42})
+with Runtime() as run:
+    run(Script("export default function run(input) { return input; }"))({"value": 42})
 ```
 
 Reject cycles, sets, bytes, arbitrary Python objects, NaN/Inf, ints outside JS safe integer range, and JS
@@ -45,8 +45,8 @@ Python `int` values must fit JavaScript's safe integer range (±2⁵³).
 ```python
 from belgie import Runtime, Script
 
-with Runtime() as runtime:
-    runtime(Script("export default function run(input) { return input; }"))({"value": 2**53})
+with Runtime() as run:
+    run(Script("export default function run(input) { return input; }"))({"value": 2**53})
 ```
 
 **Correct:**
@@ -54,8 +54,8 @@ with Runtime() as runtime:
 ```python
 from belgie import Runtime, Script
 
-with Runtime() as runtime:
-    runtime(Script("export default function run(input) { return input; }"))({"value": "9007199254740992"})
+with Runtime() as run:
+    run(Script("export default function run(input) { return input; }"))({"value": "9007199254740992"})
 ```
 
 ---
@@ -73,7 +73,7 @@ export default function run(options) {
 ```
 
 ```python
-runtime(script)(first=1, second=2)
+run(script)(first=1, second=2)
 ```
 
 **Correct:**
@@ -85,7 +85,7 @@ export default function run(first, second, options) {
 ```
 
 ```python
-runtime(script)(1, "two", z=True, a=False)
+run(script)(1, "two", z=True, a=False)
 ```
 
 ---

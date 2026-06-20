@@ -71,7 +71,7 @@ Before finishing adoption, confirm:
 ## Verification steps
 
 1. Import succeeds: `from belgie import Runtime, Script`
-2. Inline script returns expected value inside `with Runtime() as runtime:`
+2. Inline script returns expected value inside `with Runtime() as run:`
 3. If using `Environment`, `install()` completes without error
 4. If using `Script.from_file`, `Runtime.from_folder` points at the import root
 5. If using `Command`, the binary runs and returns `None` on success

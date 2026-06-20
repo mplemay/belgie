@@ -11,8 +11,8 @@ from belgie import Environment, Runtime, Script
 
 async def run_transform(data: dict) -> dict:
     script = Script("export default function run(input) { return input; }")
-    async with Runtime() as runtime:
-        return await runtime(script)(data)
+    async with Runtime() as run:
+        return await run(script)(data)
 ```
 
 Use this pattern inside FastAPI routes, background workers, or any `asyncio`-based service. Belgie is not a web
@@ -29,8 +29,8 @@ from belgie import Command, Environment, Runtime
 async def build_frontend() -> None:
     async with Environment({"vite": "^6"}) as env:
         await env.install()
-        async with Runtime(env=env) as runtime:
-            await runtime(Command("vite", cwd="frontend"))("build")
+        async with Runtime(env=env) as run:
+            await run(Command("vite", cwd="frontend"))("build")
 
 asyncio.run(build_frontend())
 ```
@@ -49,8 +49,8 @@ payload = {"items": [1, 2, 3]}
 
 with Environment({"react": "^19", "std_path": "jsr:@std/path@^1"}) as env:
     env.install()
-    with Runtime(env=env) as runtime:
-        runtime(script)(payload)
+    with Runtime(env=env) as run:
+        run(script)(payload)
 ```
 
 This keeps Python and JavaScript dependency graphs separate.
@@ -65,8 +65,8 @@ from belgie import Runtime, Script
 
 script = Script.from_file(Path("logic/transform.ts"))
 
-with Runtime() as runtime:
-    result = runtime(script)({"items": [1, 2, 3]})
+with Runtime() as run:
+    result = run(script)({"items": [1, 2, 3]})
 ```
 
 Use `Runtime.from_folder("logic")` when inline `Script("...")` has `./` imports or when the runtime cwd must match a
