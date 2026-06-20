@@ -164,31 +164,35 @@ fn signature_from_function(function: &Function, type_index: &TypeIndex) -> Optio
 }
 
 fn signature_from_arrow(arrow: &ArrowExpr, type_index: &TypeIndex) -> Option<RunSignature> {
-    let params = arrow
-        .params
-        .iter()
-        .map(|param| parse_pat(param, type_index))
+    signature_from_pats(arrow.params.iter(), type_index)
+}
+
+fn params_from_list(params: &[Param], type_index: &TypeIndex) -> Option<RunSignature> {
+    signature_from_pats(params.iter().map(|param| &param.pat), type_index)
+}
+
+fn signature_from_pats<'a>(
+    pats: impl IntoIterator<Item = &'a Pat>,
+    type_index: &TypeIndex,
+) -> Option<RunSignature> {
+    let params = pats
+        .into_iter()
+        .map(|pat| parse_pat(pat, type_index))
         .collect::<Option<Vec<_>>>()?;
     Some(RunSignature { params })
 }
 
-fn params_from_list(params: &[Param], type_index: &TypeIndex) -> Option<RunSignature> {
-    let patterns = params
-        .iter()
-        .map(|param| parse_pat(&param.pat, type_index))
-        .collect::<Option<Vec<_>>>()?;
-    Some(RunSignature { params: patterns })
-}
-
 fn parse_pat(pat: &Pat, type_index: &TypeIndex) -> Option<ParamPattern> {
     match pat {
-        Pat::Ident(binding) => Some(ParamPattern::Ident {
-            name: binding.id.sym.to_string(),
-            accepts_object_fields: binding
-                .type_ann
-                .as_ref()
-                .is_some_and(|annotation| is_object_like_type(&annotation.type_ann, type_index)),
-        }),
+        Pat::Ident(binding) => {
+            let mut visiting = HashSet::new();
+            Some(ParamPattern::Ident {
+                name: binding.id.sym.to_string(),
+                accepts_object_fields: binding.type_ann.as_ref().is_some_and(|annotation| {
+                    is_object_like_type(&annotation.type_ann, type_index, &mut visiting)
+                }),
+            })
+        }
         Pat::Object(object) => {
             let mut keys = Vec::new();
             let mut rest = None;
@@ -217,7 +221,6 @@ fn object_pat_key_name(key: &deno_ast::swc::ast::PropName) -> Option<String> {
     use deno_ast::swc::ast::PropName;
     match key {
         PropName::Ident(ident) => Some(ident.sym.to_string()),
-        PropName::Str(_) => None,
         _ => None,
     }
 }
@@ -230,12 +233,7 @@ fn pat_ident_name(pat: &Pat) -> Option<String> {
     }
 }
 
-fn is_object_like_type(type_ann: &TsType, type_index: &TypeIndex) -> bool {
-    let mut visiting = HashSet::new();
-    is_object_like_type_inner(type_ann, type_index, &mut visiting)
-}
-
-fn is_object_like_type_inner(
+fn is_object_like_type(
     type_ann: &TsType,
     type_index: &TypeIndex,
     visiting: &mut HashSet<String>,
@@ -249,24 +247,24 @@ fn is_object_like_type_inner(
             resolve_named_type(&name, type_index, visiting)
         }
         TsType::TsParenthesizedType(parenthesized) => {
-            is_object_like_type_inner(&parenthesized.type_ann, type_index, visiting)
+            is_object_like_type(&parenthesized.type_ann, type_index, visiting)
         }
         TsType::TsOptionalType(optional) => {
-            is_object_like_type_inner(&optional.type_ann, type_index, visiting)
+            is_object_like_type(&optional.type_ann, type_index, visiting)
         }
         TsType::TsTypeOperator(operator) if operator.op == TsTypeOperatorOp::ReadOnly => {
-            is_object_like_type_inner(&operator.type_ann, type_index, visiting)
+            is_object_like_type(&operator.type_ann, type_index, visiting)
         }
         TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(union)) => union
             .types
             .iter()
-            .any(|member| is_object_like_type_inner(member, type_index, visiting)),
+            .any(|member| is_object_like_type(member, type_index, visiting)),
         TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsIntersectionType(
             intersection,
         )) => intersection
             .types
             .iter()
-            .all(|member| is_object_like_type_inner(member, type_index, visiting)),
+            .all(|member| is_object_like_type(member, type_index, visiting)),
         _ => false,
     }
 }
@@ -277,7 +275,7 @@ fn resolve_named_type(name: &str, type_index: &TypeIndex, visiting: &mut HashSet
     }
     let object_like = match type_index.types.get(name) {
         Some(TypeDef::Interface) => true,
-        Some(TypeDef::Alias(type_ann)) => is_object_like_type_inner(type_ann, type_index, visiting),
+        Some(TypeDef::Alias(type_ann)) => is_object_like_type(type_ann, type_index, visiting),
         None => false,
     };
     visiting.remove(name);
@@ -385,71 +383,46 @@ mod tests {
     }
 
     #[test]
-    fn parses_single_input_parameter_with_type_annotation() {
-        let signature = parse_ts(
-            "export default function run(input: { name: string }): { greeting: string } { return { greeting: input.name }; }",
-        )
-        .expect("should parse");
+    fn parses_object_like_input_parameter_types() {
+        let cases = [
+            (
+                "export default function run(input: { name: string }): { greeting: string } { return { greeting: input.name }; }",
+                true,
+            ),
+            (
+                "interface Input { name: string }\nexport default function run(input: Input): { greeting: string } { return { greeting: input.name }; }",
+                true,
+            ),
+            (
+                "export interface Input { name: string }\nexport default function run(input: Input) { return input; }",
+                true,
+            ),
+            (
+                "type Input = { name: string }\nexport default function run(input: Input) { return input; }",
+                true,
+            ),
+            (
+                "interface Other { name: string }\ntype Input = Other\nexport default function run(input: Input) { return input; }",
+                true,
+            ),
+            (
+                "type Input = string\nexport default function run(input: Input) { return input; }",
+                false,
+            ),
+            (
+                "export default function run(input: Missing) { return input; }",
+                false,
+            ),
+        ];
 
-        assert_eq!(signature.params, vec![ident_param("input", true)]);
-    }
-
-    #[test]
-    fn parses_single_input_parameter_with_interface_type() {
-        let signature = parse_ts(
-            "interface Input { name: string }\nexport default function run(input: Input): { greeting: string } { return { greeting: input.name }; }",
-        )
-        .expect("should parse");
-
-        assert_eq!(signature.params, vec![ident_param("input", true)]);
-    }
-
-    #[test]
-    fn parses_single_input_parameter_with_exported_interface_type() {
-        let signature = parse_ts(
-            "export interface Input { name: string }\nexport default function run(input: Input) { return input; }",
-        )
-        .expect("should parse");
-
-        assert_eq!(signature.params, vec![ident_param("input", true)]);
-    }
-
-    #[test]
-    fn parses_single_input_parameter_with_type_alias() {
-        let signature = parse_ts(
-            "type Input = { name: string }\nexport default function run(input: Input) { return input; }",
-        )
-        .expect("should parse");
-
-        assert_eq!(signature.params, vec![ident_param("input", true)]);
-    }
-
-    #[test]
-    fn parses_single_input_parameter_with_chained_type_alias() {
-        let signature = parse_ts(
-            "interface Other { name: string }\ntype Input = Other\nexport default function run(input: Input) { return input; }",
-        )
-        .expect("should parse");
-
-        assert_eq!(signature.params, vec![ident_param("input", true)]);
-    }
-
-    #[test]
-    fn rejects_non_object_type_alias() {
-        let signature = parse_ts(
-            "type Input = string\nexport default function run(input: Input) { return input; }",
-        )
-        .expect("should parse");
-
-        assert_eq!(signature.params, vec![ident_param("input", false)]);
-    }
-
-    #[test]
-    fn rejects_unresolved_type_reference() {
-        let signature = parse_ts("export default function run(input: Missing) { return input; }")
-            .expect("should parse");
-
-        assert_eq!(signature.params, vec![ident_param("input", false)]);
+        for (source, accepts_object_fields) in cases {
+            let signature = parse_ts(source).expect("should parse");
+            assert_eq!(
+                signature.params,
+                vec![ident_param("input", accepts_object_fields)],
+                "source: {source}",
+            );
+        }
     }
 
     #[test]

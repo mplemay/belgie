@@ -487,33 +487,30 @@ export default function run(first, second) {
 
         assert run_source(source, 1, second=2) == {"first": 1, "second": 2}
 
-    def test_maps_single_input_param_from_kwargs(self) -> None:
-        source = """
+    @pytest.mark.parametrize(
+        "source",
+        [
+            """
 export default function run(input: { name: string }): { greeting: string } {
   return { greeting: `Hello, ${input.name}!` };
 }
-"""
-
-        assert run_source(source, name="belgie") == {"greeting": "Hello, belgie!"}
-
-    def test_maps_single_input_param_from_kwargs_with_interface(self) -> None:
-        source = """
+""",
+            """
 interface Input { name: string }
 export default function run(input: Input): { greeting: string } {
   return { greeting: `Hello, ${input.name}!` };
 }
-"""
-
-        assert run_source(source, name="belgie") == {"greeting": "Hello, belgie!"}
-
-    def test_maps_single_input_param_from_kwargs_with_type_alias(self) -> None:
-        source = """
+""",
+            """
 type Input = { name: string }
 export default function run(input: Input): { greeting: string } {
   return { greeting: `Hello, ${input.name}!` };
 }
-"""
-
+""",
+        ],
+        ids=["inline_object", "interface", "type_alias"],
+    )
+    def test_maps_single_input_param_from_kwargs(self, source: str) -> None:
         assert run_source(source, name="belgie") == {"greeting": "Hello, belgie!"}
 
     def test_maps_destructured_object_param_from_kwargs(self) -> None:
