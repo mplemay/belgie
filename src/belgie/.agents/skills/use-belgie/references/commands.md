@@ -1,0 +1,111 @@
+# Commands
+
+Use this file when running npm package binaries from Python through belgie.
+
+## What Command provides
+
+`Command` resolves npm package binaries from an active `Environment`. Belgie does not require Node.js, Deno, or npm on
+`PATH`.
+
+Commands run in a full Deno worker with unrestricted permissions. Treat them as trusted project tooling only.
+
+## Basic usage
+
+```python
+import asyncio
+from belgie import Command, Environment, Runtime
+
+async def main() -> None:
+    async with Environment({"vite": "^6"}) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            await runtime(Command("vite"))("--version")
+
+asyncio.run(main())
+```
+
+Successful commands return `None`. A nonzero exit raises `BelgieRuntimeError`.
+
+See [examples/commands](../../../../../../examples/commands).
+
+## Command name resolution
+
+The command name may be a dependency alias or an explicit npm specifier:
+
+```python
+runtime(Command("vite"))("build")
+runtime(Command("npm:vite@6/vite"))("--version")
+```
+
+## Argument contract
+
+Arguments are `str` only and are forwarded **without shell parsing**:
+
+**Incorrect:**
+
+```python
+await runtime(Command("vite"))("build --minify")
+```
+
+**Correct:**
+
+```python
+await runtime(Command("vite"))("build", "--minify")
+```
+
+Shell pipelines, redirection, arbitrary PATH commands, and output capture are not supported.
+
+## Working directory and environment overlay
+
+```python
+runtime(Command("vite", cwd="frontend", env={"NODE_ENV": "production"}))("build")
+```
+
+- `cwd` resolves relative to the environment root when the environment is active.
+- `env` overlays the process environment for that execution only.
+
+## Standard I/O
+
+Commands inherit the current process stdio. Belgie does not capture stdout or stderr.
+
+## Async cancellation
+
+Async commands run until completion and can be cancelled:
+
+```python
+import asyncio
+from belgie import Command, Environment, Runtime
+
+async def main() -> None:
+    async with Environment({"vite": "^6"}) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            task = asyncio.create_task(runtime(Command("vite"))("--version"))
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+asyncio.run(main())
+```
+
+Leaving the `Runtime` context also terminates in-flight commands.
+
+## Sync usage
+
+```python
+with Environment({"vite": "^6"}) as env:
+    env.install()
+    with Runtime(env=env) as runtime:
+        runtime(Command("vite"))("--version")
+```
+
+## Prerequisites
+
+1. Active `Environment` with the package in the dependency map.
+2. `env.install()` completed.
+3. Active `Runtime(env=env)` context.
+
+For lifecycle guardrails, see [rules/context-lifecycle.md](../rules/context-lifecycle.md).
+For runtime selection, see [rules/runtime-selection.md](../rules/runtime-selection.md).
