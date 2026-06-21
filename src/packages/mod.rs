@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use deno_core::anyhow::{Context, bail};
@@ -6,6 +6,7 @@ use deno_core::error::AnyError;
 use deno_core::serde_json;
 
 use crate::embed::EmbedContextOptions;
+use crate::utils::symlink::{create_directory_symlink, remove_symlink_if_present};
 
 pub(crate) const EMPTY_DENO_LOCK: &str = "{\"version\":\"5\"}\n";
 const BELGIE_DIR: &str = ".belgie";
@@ -91,7 +92,7 @@ pub(crate) fn write_synthetic_config(
     Ok(())
 }
 
-pub(crate) fn remove_legacy_synthetic_package_json(path: &Path) -> Result<(), AnyError> {
+fn remove_legacy_synthetic_package_json(path: &Path) -> Result<(), AnyError> {
     if !path.is_file() {
         return Ok(());
     }
@@ -114,31 +115,26 @@ pub(crate) fn sync_local_file_dependency_symlinks(
     remove_legacy_synthetic_package_json(&install_root.join("package.json"))?;
 
     let current = local_file_dependencies(dependencies);
-    let current_aliases: HashSet<&str> = current.keys().map(String::as_str).collect();
     let previous = read_tracked_local_file_aliases(install_root)?;
 
     for alias in &previous {
-        if current_aliases.contains(alias.as_str()) {
+        if current.contains_key(alias) {
             continue;
         }
         remove_symlink_if_present(&node_modules_root.join(alias))?;
     }
 
-    if !current.is_empty() {
-        std::fs::create_dir_all(node_modules_root)
-            .with_context(|| format!("Creating {}", node_modules_root.display()))?;
-        for (alias, target_path) in &current {
-            symlink_package_dir(target_path, &node_modules_root.join(alias))?;
-        }
-    }
-
     if current.is_empty() {
         remove_tracked_local_file_aliases(install_root)?;
-    } else {
-        write_tracked_local_file_aliases(install_root, current.keys())?;
+        return Ok(());
     }
 
-    Ok(())
+    std::fs::create_dir_all(node_modules_root)
+        .with_context(|| format!("Creating {}", node_modules_root.display()))?;
+    for (alias, target_path) in &current {
+        symlink_package_dir(target_path, &node_modules_root.join(alias))?;
+    }
+    write_tracked_local_file_aliases(install_root, current.keys())
 }
 
 pub(crate) fn has_local_file_dependencies(dependencies: &[PackageDependency]) -> bool {
@@ -222,11 +218,6 @@ fn normalize_dependency(
     } else {
         format!("npm:{alias}@{raw_value}")
     };
-    if !specifier.starts_with("npm:") && !specifier.starts_with("jsr:") {
-        bail!(
-            "Belgie dependency '{alias}' must use an npm:, jsr:, or file: specifier, got '{raw_value}'"
-        );
-    }
     Ok(PackageDependency {
         alias: alias.to_string(),
         kind: PackageDependencyKind::ImportMap { specifier },
@@ -311,8 +302,8 @@ fn write_tracked_local_file_aliases<'a>(
     aliases: impl IntoIterator<Item = &'a String>,
 ) -> Result<(), AnyError> {
     let path = local_file_deps_state_path(install_root);
-    std::fs::create_dir_all(path.parent().expect("state file path must have a parent"))
-        .with_context(|| format!("Creating {}", path.parent().unwrap().display()))?;
+    let parent = path.parent().expect("state file path must have a parent");
+    std::fs::create_dir_all(parent).with_context(|| format!("Creating {}", parent.display()))?;
     let aliases = aliases.into_iter().cloned().collect::<Vec<_>>();
     let text = serde_json::to_string_pretty(&aliases)?;
     std::fs::write(&path, format!("{text}\n"))
@@ -361,59 +352,13 @@ fn is_legacy_belgie_synthetic_package_json(value: &serde_json::Value) -> bool {
     })
 }
 
-fn remove_symlink_if_present(path: &Path) -> Result<(), AnyError> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            remove_symlink(path)?;
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error).with_context(|| format!("Inspecting {}", path.display()));
-        }
-    }
-    Ok(())
-}
-
 fn symlink_package_dir(source: &Path, link: &Path) -> Result<(), AnyError> {
     let link_parent = link
         .parent()
         .expect("package symlink path must have a parent");
     remove_symlink_if_present(link)?;
-
     let relative_source = relative_path(link_parent, source);
-    let context = format!(
-        "Creating symlink from {} to {}",
-        link.display(),
-        source.display()
-    );
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(&relative_source, link).with_context(|| context)?;
-    }
-    #[cfg(windows)]
-    {
-        std::os::windows::fs::symlink_dir(&relative_source, link).with_context(|| context)?;
-    }
-    Ok(())
-}
-
-fn remove_symlink(path: &Path) -> Result<(), AnyError> {
-    let context = format!("Removing symlink {}", path.display());
-    #[cfg(unix)]
-    {
-        std::fs::remove_file(path).with_context(|| context)
-    }
-    #[cfg(windows)]
-    {
-        match std::fs::remove_dir(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
-                std::fs::remove_file(path).with_context(|| context)
-            }
-            Err(error) => Err(error).with_context(|| context),
-        }
-    }
+    create_directory_symlink(&relative_source, link)
 }
 
 fn read_synthetic_config_imports(

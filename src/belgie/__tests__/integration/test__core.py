@@ -290,21 +290,13 @@ export default function run() {
     assert list(tmp_path.iterdir()) == []
 
 
-def test_environment_install_resolves_file_dependency_for_runtime(tmp_path: Path, monkeypatch):
+def test_environment_install_resolves_file_dependency_for_runtime(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
     monkeypatch.chdir(tmp_path)
-    local_pkg = tmp_path / "local-pkg"
-    local_pkg.mkdir()
-    (local_pkg / "package.json").write_text(
-        """
-{
-  "name": "local-pkg",
-  "type": "module",
-  "exports": "./index.js"
-}
-""",
-        encoding="utf-8",
-    )
-    (local_pkg / "index.js").write_text("export const answer = 42;\n", encoding="utf-8")
+    local_file_package(tmp_path)
     source = """
 import { answer } from "local-pkg";
 
@@ -321,23 +313,15 @@ export default function run() {
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
 
 
-def test_persisted_environment_removes_stale_file_dependency_symlink(tmp_path: Path, monkeypatch):
+def test_persisted_environment_removes_stale_file_dependency_symlink(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
     monkeypatch.chdir(tmp_path)
     project = tmp_path / "project"
     project.mkdir()
-    local_pkg = project / "local-pkg"
-    local_pkg.mkdir()
-    (local_pkg / "package.json").write_text(
-        """
-{
-  "name": "local-pkg",
-  "type": "module",
-  "exports": "./index.js"
-}
-""",
-        encoding="utf-8",
-    )
-    (local_pkg / "index.js").write_text("export const answer = 42;\n", encoding="utf-8")
+    local_file_package(project)
 
     with Environment({"local-pkg": "file:./local-pkg"}, path=project) as env:
         env.install()
