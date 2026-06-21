@@ -6,10 +6,10 @@ use deno_core::error::AnyError;
 pub(crate) fn materialize_node_modules(
     cwd: &Path,
     temp_node_modules: &Path,
-) -> Result<PathBuf, AnyError> {
+) -> Result<Option<PathBuf>, AnyError> {
     let target = cwd.join("node_modules");
     if !temp_node_modules.is_dir() {
-        return Ok(target);
+        return Ok(None);
     }
 
     let canonical_temp = normalize_canonical(temp_node_modules)?;
@@ -23,7 +23,9 @@ pub(crate) fn materialize_node_modules(
             );
         }
         PathEntry::Symlink(resolved) => match normalize_canonical(&resolved) {
-            Ok(canonical_existing) if canonical_existing == canonical_temp => return Ok(target),
+            Ok(canonical_existing) if canonical_existing == canonical_temp => {
+                return Ok(Some(target));
+            }
             Ok(_) => {
                 bail!(
                     "{} already exists; remove it or use a different cwd",
@@ -38,7 +40,7 @@ pub(crate) fn materialize_node_modules(
     }
 
     create_directory_symlink(&canonical_temp, &target)?;
-    Ok(target)
+    Ok(Some(target))
 }
 
 pub(crate) fn cleanup_materialized(path: &Path, expected_target: &Path) -> Result<(), AnyError> {
@@ -76,7 +78,10 @@ fn inspect_path_entry(path: &Path) -> Result<PathEntry, AnyError> {
 fn owned_symlink_should_remove(resolved: &Path, expected: &Path) -> Result<bool, AnyError> {
     match normalize_canonical(resolved) {
         Ok(canonical_existing) => Ok(canonical_existing == normalize_canonical(expected)?),
-        Err(_) => Ok(true),
+        Err(_) => match normalize_canonical(expected) {
+            Ok(canonical_expected) => Ok(resolved == canonical_expected),
+            Err(_) => Ok(false),
+        },
     }
 }
 
@@ -150,8 +155,9 @@ mod tests {
         std::fs::create_dir_all(&temp_node_modules).unwrap();
         std::fs::create_dir_all(&cwd).unwrap();
 
-        let materialized =
-            materialize_node_modules(&cwd, &temp_node_modules).expect("materialize should succeed");
+        let materialized = materialize_node_modules(&cwd, &temp_node_modules)
+            .expect("materialize should succeed")
+            .expect("materialize should create symlink");
 
         assert_eq!(materialized, cwd.join("node_modules"));
         assert!(materialized.is_symlink());
@@ -170,9 +176,12 @@ mod tests {
         std::fs::create_dir_all(&temp_node_modules).unwrap();
         std::fs::create_dir_all(&cwd).unwrap();
 
-        let first = materialize_node_modules(&cwd, &temp_node_modules).expect("first materialize");
-        let second =
-            materialize_node_modules(&cwd, &temp_node_modules).expect("second materialize");
+        let first = materialize_node_modules(&cwd, &temp_node_modules)
+            .expect("first materialize")
+            .expect("first materialize should create symlink");
+        let second = materialize_node_modules(&cwd, &temp_node_modules)
+            .expect("second materialize")
+            .expect("second materialize should return symlink");
 
         assert_eq!(first, second);
         cleanup_materialized(&first, &temp_node_modules).unwrap();
@@ -188,7 +197,9 @@ mod tests {
         std::fs::create_dir_all(&second_temp).unwrap();
         std::fs::create_dir_all(&cwd).unwrap();
 
-        let first = materialize_node_modules(&cwd, &first_temp).expect("first materialize");
+        let first = materialize_node_modules(&cwd, &first_temp)
+            .expect("first materialize")
+            .expect("first materialize should create symlink");
         let error = materialize_node_modules(&cwd, &second_temp).unwrap_err();
 
         assert!(error.to_string().contains("already exists"));
@@ -242,8 +253,8 @@ mod tests {
         let materialized =
             materialize_node_modules(&cwd, &temp_node_modules).expect("materialize should noop");
 
-        assert_eq!(materialized, cwd.join("node_modules"));
-        assert!(!materialized.exists());
+        assert!(materialized.is_none());
+        assert!(!cwd.join("node_modules").exists());
     }
 
     #[test]
@@ -262,8 +273,9 @@ mod tests {
         assert!(symlink.is_symlink());
         assert!(!symlink.exists());
 
-        let materialized =
-            materialize_node_modules(&cwd, &temp_node_modules).expect("materialize should succeed");
+        let materialized = materialize_node_modules(&cwd, &temp_node_modules)
+            .expect("materialize should succeed")
+            .expect("materialize should create symlink");
 
         assert_eq!(materialized, symlink);
         assert!(materialized.is_symlink());
@@ -275,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_removes_dangling_owned_symlink() {
+    fn cleanup_preserves_unrelated_dangling_symlink() {
         let root = tempfile::tempdir().unwrap();
         let cwd = root.path().join("project");
         let expected_target = root.path().join("temp").join("node_modules");
@@ -289,6 +301,6 @@ mod tests {
         assert!(!symlink.exists());
 
         cleanup_materialized(&symlink, &expected_target).unwrap();
-        assert!(!symlink.exists());
+        assert!(symlink.is_symlink());
     }
 }

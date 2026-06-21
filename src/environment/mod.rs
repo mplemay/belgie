@@ -400,11 +400,14 @@ impl ActiveEnvironment {
             return Ok(());
         };
         let temp_node_modules = temp_dir.path().join("node_modules");
-        let materialized =
-            materialize::materialize_node_modules(&self.workspace, &temp_node_modules)?;
-        *materialized_node_modules
-            .lock()
-            .expect("materialized node_modules lock should not be poisoned") = Some(materialized);
+        if let Some(materialized) =
+            materialize::materialize_node_modules(&self.workspace, &temp_node_modules)?
+        {
+            *materialized_node_modules
+                .lock()
+                .expect("materialized node_modules lock should not be poisoned") =
+                Some(materialized);
+        }
         Ok(())
     }
 
@@ -671,6 +674,43 @@ mod tests {
 
         assert!(!symlink.exists());
         assert!(!root.exists());
+    }
+
+    fn create_dangling_dir_symlink(link: &std::path::Path, target: &std::path::Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(target, link).unwrap();
+    }
+
+    #[test]
+    fn preexisting_dangling_symlink_survives_noop_materialization() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("process");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let dangling_target = folder.path().join("missing").join("node_modules");
+        create_dangling_dir_symlink(&workspace.join("node_modules"), &dangling_target);
+
+        let symlink = workspace.join("node_modules");
+        assert!(symlink.is_symlink());
+        assert!(!symlink.exists());
+
+        let definition = EnvironmentDefinition::from_mapping(
+            workspace.clone(),
+            None,
+            BTreeMap::from([("pkg".to_string(), "npm:is-number@7.0.0".to_string())]),
+            None,
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+        let active = environment.activate_blocking().unwrap();
+        active.materialize_cwd_node_modules().unwrap();
+
+        environment.deactivate().unwrap();
+        drop(active);
+
+        assert!(symlink.is_symlink());
+        assert!(!symlink.exists());
     }
 
     #[test]
