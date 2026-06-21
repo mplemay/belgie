@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 use deno_core::anyhow::{Context, bail};
@@ -8,6 +8,8 @@ use deno_core::serde_json;
 use crate::embed::EmbedContextOptions;
 
 pub(crate) const EMPTY_DENO_LOCK: &str = "{\"version\":\"5\"}\n";
+const BELGIE_DIR: &str = ".belgie";
+const LOCAL_FILE_DEPS_STATE: &str = "local-file-deps.json";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PackageDependency {
@@ -89,36 +91,53 @@ pub(crate) fn write_synthetic_config(
     Ok(())
 }
 
-pub(crate) fn write_synthetic_package_json(
-    path: &Path,
-    install_root: &Path,
-    dependencies: &[PackageDependency],
-) -> Result<(), AnyError> {
-    let local_dependencies = dependencies
-        .iter()
-        .filter_map(|dep| {
-            let PackageDependencyKind::LocalFile { target_path } = &dep.kind else {
-                return None;
-            };
-            Some((
-                dep.alias.clone(),
-                format!(
-                    "file:{}",
-                    path_for_package_json(relative_path(install_root, target_path))
-                ),
-            ))
-        })
-        .collect::<BTreeMap<_, _>>();
-    if local_dependencies.is_empty() {
+pub(crate) fn remove_legacy_synthetic_package_json(path: &Path) -> Result<(), AnyError> {
+    if !path.is_file() {
         return Ok(());
     }
-    let package_json = serde_json::json!({
-      "private": true,
-      "dependencies": local_dependencies,
-    });
-    let text = serde_json::to_string_pretty(&package_json)?;
-    std::fs::write(path, format!("{text}\n"))
-        .with_context(|| format!("Writing {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("Reading {}", path.display()))?;
+    let package_json: serde_json::Value =
+        serde_json::from_str(&text).with_context(|| format!("Parsing {}", path.display()))?;
+    if is_legacy_belgie_synthetic_package_json(&package_json) {
+        std::fs::remove_file(path)
+            .with_context(|| format!("Removing legacy synthetic {}", path.display()))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn sync_local_file_dependency_symlinks(
+    install_root: &Path,
+    node_modules_root: &Path,
+    dependencies: &[PackageDependency],
+) -> Result<(), AnyError> {
+    remove_legacy_synthetic_package_json(&install_root.join("package.json"))?;
+
+    let current = local_file_dependencies(dependencies);
+    let current_aliases: HashSet<&str> = current.keys().map(String::as_str).collect();
+    let previous = read_tracked_local_file_aliases(install_root)?;
+
+    for alias in &previous {
+        if current_aliases.contains(alias.as_str()) {
+            continue;
+        }
+        remove_symlink_if_present(&node_modules_root.join(alias))?;
+    }
+
+    if !current.is_empty() {
+        std::fs::create_dir_all(node_modules_root)
+            .with_context(|| format!("Creating {}", node_modules_root.display()))?;
+        for (alias, target_path) in &current {
+            symlink_package_dir(target_path, &node_modules_root.join(alias))?;
+        }
+    }
+
+    if current.is_empty() {
+        remove_tracked_local_file_aliases(install_root)?;
+    } else {
+        write_tracked_local_file_aliases(install_root, current.keys())?;
+    }
+
     Ok(())
 }
 
@@ -261,12 +280,139 @@ fn components_without_cur_dir(path: &Path) -> Vec<Component<'_>> {
         .collect()
 }
 
-fn path_for_package_json(path: PathBuf) -> String {
-    let text = path.to_string_lossy();
-    if std::path::MAIN_SEPARATOR == '/' {
-        text.into_owned()
-    } else {
-        text.replace(std::path::MAIN_SEPARATOR, "/")
+fn local_file_dependencies(dependencies: &[PackageDependency]) -> BTreeMap<String, PathBuf> {
+    dependencies
+        .iter()
+        .filter_map(|dep| {
+            let PackageDependencyKind::LocalFile { target_path } = &dep.kind else {
+                return None;
+            };
+            Some((dep.alias.clone(), target_path.clone()))
+        })
+        .collect()
+}
+
+fn local_file_deps_state_path(install_root: &Path) -> PathBuf {
+    install_root.join(BELGIE_DIR).join(LOCAL_FILE_DEPS_STATE)
+}
+
+fn read_tracked_local_file_aliases(install_root: &Path) -> Result<Vec<String>, AnyError> {
+    let path = local_file_deps_state_path(install_root);
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("Reading {}", path.display()))?;
+    serde_json::from_str(&text).with_context(|| format!("Parsing {}", path.display()))
+}
+
+fn write_tracked_local_file_aliases<'a>(
+    install_root: &Path,
+    aliases: impl IntoIterator<Item = &'a String>,
+) -> Result<(), AnyError> {
+    let path = local_file_deps_state_path(install_root);
+    std::fs::create_dir_all(path.parent().expect("state file path must have a parent"))
+        .with_context(|| format!("Creating {}", path.parent().unwrap().display()))?;
+    let aliases = aliases.into_iter().cloned().collect::<Vec<_>>();
+    let text = serde_json::to_string_pretty(&aliases)?;
+    std::fs::write(&path, format!("{text}\n"))
+        .with_context(|| format!("Writing {}", path.display()))
+}
+
+fn remove_tracked_local_file_aliases(install_root: &Path) -> Result<(), AnyError> {
+    let path = local_file_deps_state_path(install_root);
+    if path.is_file() {
+        std::fs::remove_file(&path).with_context(|| format!("Removing {}", path.display()))?;
+    }
+    let belgie_dir = install_root.join(BELGIE_DIR);
+    if belgie_dir.is_dir()
+        && std::fs::read_dir(&belgie_dir)
+            .with_context(|| format!("Reading {}", belgie_dir.display()))?
+            .next()
+            .transpose()?
+            .is_none()
+    {
+        std::fs::remove_dir(&belgie_dir)
+            .with_context(|| format!("Removing {}", belgie_dir.display()))?;
+    }
+    Ok(())
+}
+
+fn is_legacy_belgie_synthetic_package_json(value: &serde_json::Value) -> bool {
+    let Some(obj) = value.as_object() else {
+        return false;
+    };
+    if obj.get("private") != Some(&serde_json::Value::Bool(true)) {
+        return false;
+    }
+    if !obj
+        .keys()
+        .all(|key| key == "private" || key == "dependencies")
+    {
+        return false;
+    }
+    let Some(deps) = obj.get("dependencies").and_then(|value| value.as_object()) else {
+        return false;
+    };
+    deps.values().all(|value| {
+        value
+            .as_str()
+            .is_some_and(|specifier| specifier.starts_with("file:"))
+    })
+}
+
+fn remove_symlink_if_present(path: &Path) -> Result<(), AnyError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            remove_symlink(path)?;
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| format!("Inspecting {}", path.display()));
+        }
+    }
+    Ok(())
+}
+
+fn symlink_package_dir(source: &Path, link: &Path) -> Result<(), AnyError> {
+    let link_parent = link
+        .parent()
+        .expect("package symlink path must have a parent");
+    remove_symlink_if_present(link)?;
+
+    let relative_source = relative_path(link_parent, source);
+    let context = format!(
+        "Creating symlink from {} to {}",
+        link.display(),
+        source.display()
+    );
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&relative_source, link).with_context(|| context)?;
+    }
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::symlink_dir(&relative_source, link).with_context(|| context)?;
+    }
+    Ok(())
+}
+
+fn remove_symlink(path: &Path) -> Result<(), AnyError> {
+    let context = format!("Removing symlink {}", path.display());
+    #[cfg(unix)]
+    {
+        std::fs::remove_file(path).with_context(|| context)
+    }
+    #[cfg(windows)]
+    {
+        match std::fs::remove_dir(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
+                std::fs::remove_file(path).with_context(|| context)
+            }
+            Err(error) => Err(error).with_context(|| context),
+        }
     }
 }
 
@@ -392,30 +538,90 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_package_json_contains_file_dependencies() {
+    fn sync_local_file_dependency_symlinks_creates_package_link() {
         let temp_dir = tempfile::tempdir().unwrap();
         let workspace = temp_dir.path().join("workspace");
         let install_root = temp_dir.path().join("install");
-        fs::create_dir_all(&workspace).unwrap();
-        fs::create_dir_all(&install_root).unwrap();
-        let package_json_path = install_root.join("package.json");
-        let dependencies = vec![
-            normalize_dependency(&workspace, "react", "^19").unwrap(),
-            normalize_dependency(&workspace, "local-pkg", "file:./local-pkg").unwrap(),
-        ];
+        let local_pkg = workspace.join("local-pkg");
+        fs::create_dir_all(&local_pkg).unwrap();
+        let node_modules = install_root.join("node_modules");
+        let dependencies =
+            vec![normalize_dependency(&workspace, "local-pkg", "file:./local-pkg").unwrap()];
 
-        write_synthetic_package_json(&package_json_path, &install_root, &dependencies).unwrap();
+        sync_local_file_dependency_symlinks(&install_root, &node_modules, &dependencies).unwrap();
 
-        let text = fs::read_to_string(package_json_path).unwrap();
-        let package_json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let link = node_modules.join("local-pkg");
+        assert!(link.is_symlink());
         assert_eq!(
-            package_json["dependencies"]["local-pkg"],
-            format!(
-                "file:{}",
-                path_for_package_json(relative_path(&install_root, &workspace.join("local-pkg")))
-            )
+            fs::canonicalize(&link).unwrap(),
+            fs::canonicalize(&local_pkg).unwrap()
         );
-        assert!(package_json["dependencies"].get("react").is_none());
+        assert!(!install_root.join("package.json").exists());
+        assert!(
+            install_root
+                .join(BELGIE_DIR)
+                .join(LOCAL_FILE_DEPS_STATE)
+                .is_file()
+        );
+    }
+
+    #[test]
+    fn sync_local_file_dependency_symlinks_removes_stale_alias() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let workspace = temp_dir.path().join("workspace");
+        let install_root = temp_dir.path().join("install");
+        let local_pkg = workspace.join("local-pkg");
+        fs::create_dir_all(&local_pkg).unwrap();
+        let node_modules = install_root.join("node_modules");
+        let file_dependencies =
+            vec![normalize_dependency(&workspace, "local-pkg", "file:./local-pkg").unwrap()];
+        sync_local_file_dependency_symlinks(&install_root, &node_modules, &file_dependencies)
+            .unwrap();
+
+        let npm_dependencies = vec![normalize_dependency(&workspace, "react", "^19").unwrap()];
+        sync_local_file_dependency_symlinks(&install_root, &node_modules, &npm_dependencies)
+            .unwrap();
+
+        assert!(!node_modules.join("local-pkg").exists());
+        assert!(
+            !install_root
+                .join(BELGIE_DIR)
+                .join(LOCAL_FILE_DEPS_STATE)
+                .exists()
+        );
+    }
+
+    #[test]
+    fn remove_legacy_synthetic_package_json_deletes_old_belgie_manifest() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let package_json_path = temp_dir.path().join("package.json");
+        fs::write(
+            &package_json_path,
+            r#"{
+  "private": true,
+  "dependencies": {
+    "local-pkg": "file:./local-pkg"
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        remove_legacy_synthetic_package_json(&package_json_path).unwrap();
+
+        assert!(!package_json_path.exists());
+    }
+
+    #[test]
+    fn remove_legacy_synthetic_package_json_preserves_unrelated_manifests() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let package_json_path = temp_dir.path().join("package.json");
+        let contents = r#"{ "name": "project", "scripts": { "test": "node test.js" } }"#;
+        fs::write(&package_json_path, contents).unwrap();
+
+        remove_legacy_synthetic_package_json(&package_json_path).unwrap();
+
+        assert_eq!(fs::read_to_string(package_json_path).unwrap(), contents);
     }
 
     #[test]

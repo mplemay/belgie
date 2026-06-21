@@ -321,6 +321,38 @@ export default function run() {
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
 
 
+def test_persisted_environment_removes_stale_file_dependency_symlink(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    local_pkg = project / "local-pkg"
+    local_pkg.mkdir()
+    (local_pkg / "package.json").write_text(
+        """
+{
+  "name": "local-pkg",
+  "type": "module",
+  "exports": "./index.js"
+}
+""",
+        encoding="utf-8",
+    )
+    (local_pkg / "index.js").write_text("export const answer = 42;\n", encoding="utf-8")
+
+    with Environment({"local-pkg": "file:./local-pkg"}, path=project) as env:
+        env.install()
+
+    assert (project / "node_modules" / "local-pkg").is_symlink()
+    assert not (project / "package.json").exists()
+
+    with Environment({"react": "^19"}, path=project) as env:
+        env.install()
+
+    assert not (project / "node_modules" / "local-pkg").exists()
+    assert not (project / "package.json").exists()
+    assert not (project / ".belgie" / "local-file-deps.json").exists()
+
+
 def test_environment_update_changes_synthetic_dependency(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with Environment({"is_number": "npm:is-number@6.0.0"}) as env:

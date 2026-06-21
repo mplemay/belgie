@@ -13,8 +13,8 @@ use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
     EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest, EnvironmentUpdateResult,
     PackageDependency, dependencies_from_mapping, has_local_file_dependencies,
-    install_environment_packages, update_environment_packages, write_synthetic_config,
-    write_synthetic_package_json,
+    install_environment_packages, sync_local_file_dependency_symlinks, update_environment_packages,
+    write_synthetic_config,
 };
 
 #[derive(Clone, Debug)]
@@ -296,11 +296,14 @@ fn prepare_install_layout(
     let lockfile = install_root.join("deno.lock");
     let cache_root = install_root.join("deno_dir");
     let node_modules_root = install_root.join("node_modules");
-    let package_json = install_root.join("package.json");
     write_synthetic_config(&config_file, &definition.dependencies)?;
-    write_synthetic_package_json(&package_json, install_root, &definition.dependencies)?;
     std::fs::create_dir_all(&cache_root)
         .with_context(|| format!("Creating {}", cache_root.display()))?;
+    sync_local_file_dependency_symlinks(
+        install_root,
+        &node_modules_root,
+        &definition.dependencies,
+    )?;
 
     let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
         copy_lockfile(source, &lockfile)?;
