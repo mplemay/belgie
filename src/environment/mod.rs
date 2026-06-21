@@ -151,9 +151,7 @@ impl SharedEnvironment {
 
     pub(crate) fn activate_blocking(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {
         let environment = self.clone();
-        crate::utils::tokio::run_outside_runtime(move || {
-            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.activate())
-        })
+        crate::utils::tokio::block_on_outside_runtime(|| environment.activate())
     }
 
     async fn activate(&self) -> Result<Arc<ActiveEnvironment>, AnyError> {
@@ -251,19 +249,13 @@ impl SharedEnvironment {
         &self,
         output_lockfile: Option<PathBuf>,
     ) -> Result<EnvironmentInstallResult, AnyError> {
-        let _active = self.acquire_active()?;
         let environment = self.clone();
-        crate::utils::tokio::run_outside_runtime(move || {
-            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.lock(output_lockfile))
-        })
+        crate::utils::tokio::block_on_outside_runtime(|| environment.lock(output_lockfile))
     }
 
     pub(crate) fn install_blocking(&self) -> Result<EnvironmentInstallResult, AnyError> {
-        let _active = self.acquire_active()?;
         let environment = self.clone();
-        crate::utils::tokio::run_outside_runtime(move || {
-            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.install())
-        })
+        crate::utils::tokio::block_on_outside_runtime(|| environment.install())
     }
 
     pub(crate) fn update_blocking(
@@ -272,14 +264,9 @@ impl SharedEnvironment {
         latest: bool,
         lockfile_only: bool,
     ) -> Result<EnvironmentUpdateResult, AnyError> {
-        let _active = self.acquire_active()?;
         let environment = self.clone();
-        crate::utils::tokio::run_outside_runtime(move || {
-            pyo3_async_runtimes::tokio::get_runtime().block_on(environment.update(
-                packages,
-                latest,
-                lockfile_only,
-            ))
+        crate::utils::tokio::block_on_outside_runtime(|| {
+            environment.update(packages, latest, lockfile_only)
         })
     }
 }
@@ -392,7 +379,7 @@ impl ActiveEnvironment {
     }
 
     fn materialize_cwd_node_modules(&self) -> Result<(), AnyError> {
-        if self.is_persisted() || self.dependency_count == 0 {
+        if self.dependency_count == 0 {
             return Ok(());
         }
         let EnvironmentRoot::Ephemeral {
@@ -415,9 +402,6 @@ impl ActiveEnvironment {
     }
 
     pub(crate) fn cleanup_materialized_node_modules(&self) -> Result<(), AnyError> {
-        if self.is_persisted() {
-            return Ok(());
-        }
         let EnvironmentRoot::Ephemeral {
             temp_dir,
             materialized_node_modules,
@@ -533,13 +517,40 @@ impl ActiveEnvironment {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::PathBuf;
+    use std::sync::Arc;
 
-    use super::{EnvironmentDefinition, SharedEnvironment};
+    use crate::environment::materialize::create_dangling_dir_symlink;
+
+    use super::{ActiveEnvironment, EnvironmentDefinition, SharedEnvironment};
 
     fn ephemeral_environment(workspace: std::path::PathBuf) -> SharedEnvironment {
         let definition =
             EnvironmentDefinition::from_mapping(workspace, None, BTreeMap::new(), None).unwrap();
         SharedEnvironment::new(definition)
+    }
+
+    fn setup_materialized_npm_env() -> (
+        tempfile::TempDir,
+        PathBuf,
+        SharedEnvironment,
+        Arc<ActiveEnvironment>,
+    ) {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().to_path_buf();
+        let definition = EnvironmentDefinition::from_mapping(
+            workspace.clone(),
+            None,
+            BTreeMap::from([("pkg".to_string(), "npm:is-number@7.0.0".to_string())]),
+            None,
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+        let active = environment.activate_blocking().unwrap();
+        let root = active.install_root().to_path_buf();
+        std::fs::create_dir_all(root.join("node_modules")).unwrap();
+        active.materialize_cwd_node_modules().unwrap();
+        (folder, workspace, environment, active)
     }
 
     #[test]
@@ -620,22 +631,8 @@ mod tests {
 
     #[test]
     fn materialized_symlink_survives_environment_exit_while_reference_held() {
-        let folder = tempfile::tempdir().unwrap();
-        let workspace = folder.path().to_path_buf();
-        let definition = EnvironmentDefinition::from_mapping(
-            workspace.clone(),
-            None,
-            BTreeMap::from([("pkg".to_string(), "npm:is-number@7.0.0".to_string())]),
-            None,
-        )
-        .unwrap();
-        let environment = SharedEnvironment::new(definition);
-        let active = environment.activate_blocking().unwrap();
+        let (_folder, workspace, environment, active) = setup_materialized_npm_env();
         let root = active.install_root().to_path_buf();
-        let temp_node_modules = root.join("node_modules");
-        std::fs::create_dir_all(&temp_node_modules).unwrap();
-        active.materialize_cwd_node_modules().unwrap();
-
         let symlink = workspace.join("node_modules");
         assert!(symlink.is_symlink());
 
@@ -651,39 +648,18 @@ mod tests {
 
     #[test]
     fn materialized_symlink_is_removed_when_last_reference_drops() {
-        let folder = tempfile::tempdir().unwrap();
-        let workspace = folder.path().to_path_buf();
-        let definition = EnvironmentDefinition::from_mapping(
-            workspace.clone(),
-            None,
-            BTreeMap::from([("pkg".to_string(), "npm:is-number@7.0.0".to_string())]),
-            None,
-        )
-        .unwrap();
-        let environment = SharedEnvironment::new(definition);
-        let active = environment.activate_blocking().unwrap();
+        let (_folder, workspace, environment, active) = setup_materialized_npm_env();
         let root = active.install_root().to_path_buf();
-        let temp_node_modules = root.join("node_modules");
-        std::fs::create_dir_all(&temp_node_modules).unwrap();
-        active.materialize_cwd_node_modules().unwrap();
-
         let symlink = workspace.join("node_modules");
         assert!(symlink.is_symlink());
 
-        let runtime_ref = std::sync::Arc::clone(&active);
+        let runtime_ref = Arc::clone(&active);
         drop(active);
         drop(runtime_ref);
         environment.deactivate().unwrap();
 
         assert!(!symlink.exists());
         assert!(!root.exists());
-    }
-
-    fn create_dangling_dir_symlink(link: &std::path::Path, target: &std::path::Path) {
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(target, link).unwrap();
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(target, link).unwrap();
     }
 
     #[test]

@@ -16,22 +16,12 @@ pub(crate) fn materialize_node_modules(
 
     match inspect_path_entry(&target)? {
         PathEntry::Missing => {}
-        PathEntry::NotSymlink => {
-            bail!(
-                "{} already exists; remove it or use a different cwd",
-                target.display()
-            );
-        }
+        PathEntry::NotSymlink => conflicting_node_modules(&target)?,
         PathEntry::Symlink(resolved) => match normalize_canonical(&resolved) {
             Ok(canonical_existing) if canonical_existing == canonical_temp => {
                 return Ok(Some(target));
             }
-            Ok(_) => {
-                bail!(
-                    "{} already exists; remove it or use a different cwd",
-                    target.display()
-                );
-            }
+            Ok(_) => conflicting_node_modules(&target)?,
             Err(_) => {
                 std::fs::remove_file(&target)
                     .with_context(|| format!("Removing symlink {}", target.display()))?;
@@ -60,6 +50,13 @@ enum PathEntry {
     Missing,
     NotSymlink,
     Symlink(PathBuf),
+}
+
+fn conflicting_node_modules(target: &Path) -> Result<(), AnyError> {
+    bail!(
+        "{} already exists; remove it or use a different cwd",
+        target.display()
+    );
 }
 
 fn inspect_path_entry(path: &Path) -> Result<PathEntry, AnyError> {
@@ -121,29 +118,29 @@ fn create_directory_symlink(source: &Path, target: &Path) -> Result<(), AnyError
 }
 
 #[cfg(test)]
+pub(crate) fn create_dangling_dir_symlink(link: &Path, target: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(target, link).unwrap();
+}
+
+#[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
-    use super::{cleanup_materialized, materialize_node_modules, resolve_symlink_target};
-
-    fn normalized_canonical(path: &Path) -> PathBuf {
-        deno_path_util::strip_unc_prefix(path.canonicalize().unwrap())
-    }
+    use super::{
+        cleanup_materialized, create_dangling_dir_symlink, materialize_node_modules,
+        normalize_canonical, resolve_symlink_target,
+    };
 
     fn symlink_points_to(link: &Path, expected: &Path) {
         let contents = std::fs::read_link(link).unwrap();
         let resolved = resolve_symlink_target(link, &contents);
         assert_eq!(
-            normalized_canonical(&resolved),
-            normalized_canonical(expected)
+            normalize_canonical(&resolved).unwrap(),
+            normalize_canonical(expected).unwrap()
         );
-    }
-
-    fn create_dangling_dir_symlink(link: &Path, target: &Path) {
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(target, link).unwrap();
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(target, link).unwrap();
     }
 
     #[test]
