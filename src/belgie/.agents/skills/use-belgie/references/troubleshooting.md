@@ -95,7 +95,7 @@ asyncio.run(main())
 | `closed` | Runner called after context exit | Bind and call inside the context | Move `run()` inside `with` block |
 | `already active` | Nested runtime context on same instance | Use a single `with Runtime()` block | Remove nested `with run` |
 | `package dependencies` | Script/command needs env without packages | `Environment` + `install()` + `Runtime(env=)` | Inspect JS imports |
-| `Environment has no package dependencies` | `install()` on dep-less `Environment()` | Add deps to map or use plain `Runtime()` | Inspect `Environment({...})` |
+| `Environment has no package dependencies` | Script/command needs packages but `Environment()` has no deps | Add deps to map and call `install()`, or use plain `Runtime()` | Inspect `Environment({...})` |
 | `frozen lockfile` | `update()` on environment with `lockfile=` | Remove `lockfile=` or create a new `Environment` | Inspect constructor args |
 | `lockfile is out of date` | Stale lock relative to dependency map | `env.lock()` or `env.update()` | Re-resolve dependencies |
 | `requires at least one dependency` | Empty dependency map or lockfile without deps | Add at least one entry to `Environment({...})` | Inspect dependency dict |

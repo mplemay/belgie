@@ -6,6 +6,8 @@ use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
 use tempfile::TempDir;
 
+mod materialize;
+
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
     EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest, EnvironmentUpdateResult,
@@ -33,7 +35,6 @@ enum EnvironmentState {
     Active(Arc<ActiveEnvironment>),
 }
 
-#[derive(Debug)]
 pub(crate) struct ActiveEnvironment {
     cwd: PathBuf,
     config_file: PathBuf,
@@ -41,7 +42,26 @@ pub(crate) struct ActiveEnvironment {
     dependency_count: usize,
     frozen_lockfile: bool,
     embed_options: Option<EmbedContextOptions>,
+    materialized_node_modules: Mutex<Option<PathBuf>>,
     temp_dir: TempDir,
+}
+
+impl std::fmt::Debug for ActiveEnvironment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActiveEnvironment")
+            .field("cwd", &self.cwd)
+            .field("dependency_count", &self.dependency_count)
+            .field("frozen_lockfile", &self.frozen_lockfile)
+            .field("materialized_node_modules", &self.materialized_node_modules)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for ActiveEnvironment {
+    fn drop(&mut self) {
+        let _ = self.cleanup_materialized_node_modules();
+    }
 }
 
 impl std::fmt::Debug for SharedEnvironment {
@@ -173,7 +193,9 @@ impl SharedEnvironment {
             EnvironmentState::Inactive => {
                 return Err(anyhow!("Environment context is not active"));
             }
-            EnvironmentState::Active(_) => {}
+            EnvironmentState::Active(environment) => {
+                environment.cleanup_materialized_node_modules()?;
+            }
         }
         *state = EnvironmentState::Inactive;
         Ok(())
@@ -293,8 +315,34 @@ impl ActiveEnvironment {
             dependency_count: definition.dependencies.len(),
             frozen_lockfile,
             embed_options: (!definition.dependencies.is_empty()).then_some(embed_options),
+            materialized_node_modules: Mutex::new(None),
             temp_dir,
         })
+    }
+
+    fn materialize_cwd_node_modules(&self) -> Result<(), AnyError> {
+        if self.dependency_count == 0 {
+            return Ok(());
+        }
+        let temp_node_modules = self.temp_dir.path().join("node_modules");
+        let materialized = materialize::materialize_node_modules(&self.cwd, &temp_node_modules)?;
+        *self
+            .materialized_node_modules
+            .lock()
+            .expect("materialized node_modules lock should not be poisoned") = Some(materialized);
+        Ok(())
+    }
+
+    pub(crate) fn cleanup_materialized_node_modules(&self) -> Result<(), AnyError> {
+        let mut materialized = self
+            .materialized_node_modules
+            .lock()
+            .expect("materialized node_modules lock should not be poisoned");
+        if let Some(path) = materialized.take() {
+            let temp_node_modules = self.temp_dir.path().join("node_modules");
+            materialize::cleanup_materialized(&path, &temp_node_modules)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
@@ -341,7 +389,7 @@ impl ActiveEnvironment {
                 dependencies: 0,
             });
         };
-        install_environment_packages(
+        let result = install_environment_packages(
             self.cwd.clone(),
             self.config_file.clone(),
             self.lockfile.clone(),
@@ -349,7 +397,9 @@ impl ActiveEnvironment {
             lockfile_only,
             options,
         )
-        .await
+        .await?;
+        self.materialize_cwd_node_modules()?;
+        Ok(result)
     }
 
     async fn update(
@@ -367,7 +417,7 @@ impl ActiveEnvironment {
                 changes: Vec::new(),
             });
         };
-        update_environment_packages(EnvironmentUpdateRequest {
+        let result = update_environment_packages(EnvironmentUpdateRequest {
             cwd: self.cwd.clone(),
             config_file: self.config_file.clone(),
             lockfile: self.lockfile.clone(),
@@ -377,7 +427,9 @@ impl ActiveEnvironment {
             lockfile_only,
             options,
         })
-        .await
+        .await?;
+        self.materialize_cwd_node_modules()?;
+        Ok(result)
     }
 
     #[cfg(test)]

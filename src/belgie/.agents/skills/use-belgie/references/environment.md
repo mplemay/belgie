@@ -7,16 +7,17 @@ Use this file when managing isolated JavaScript dependencies from Python.
 `Environment` creates an isolated JS dependency sandbox:
 
 - Synthetic `deno.json` with an `imports` map and `"nodeModulesDir": "auto"`
-- Temporary Deno cache and `node_modules`
-- Temporary lockfile state
+- Temporary Deno cache, lockfile, and install tree
+- A `node_modules` symlink at `cwd` while the environment is active so npm-native tools (Vite, Rollup, etc.) can resolve
+  packages from nested working directories
 
-Belgie state is removed after the environment exits and any runtimes using it have closed. Files written beneath `cwd`
-persist on disk.
+Belgie temporary state is removed after the environment exits and any runtimes using it have closed. The materialized
+`node_modules` symlink at `cwd` is removed on environment exit. Other files written beneath `cwd` persist on disk.
 
 JavaScript dependencies stay isolated from the Python project's `pyproject.toml`.
 
 `Environment()` with no dependency map is valid for dependency-free scripts in an isolated temporary root. Calling
-`install()` on a dependency-less environment raises `Environment has no package dependencies`.
+`install()` on a dependency-less environment succeeds and returns `dependencies=0` without installing packages.
 
 ## Basic usage
 
@@ -138,7 +139,7 @@ with Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile="deno.lock") as 
 - Enter `Environment` before calling `install()`, `lock()`, or `update()`.
 - Pass the entered environment (or the `Environment` instance while entered) to `Runtime(env=...)`.
 - Call `install()` before scripts or commands that need resolved packages.
-- `Environment({...})` requires at least one dependency entry; `lockfile=` at construction also requires dependencies.
+- `lockfile=` at construction requires at least one dependency entry.
 
 For context-manager guardrails, see [rules/context-lifecycle.md](../rules/context-lifecycle.md).
 For runtime selection, see [rules/runtime-selection.md](../rules/runtime-selection.md).
