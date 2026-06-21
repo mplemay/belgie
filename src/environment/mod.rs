@@ -285,6 +285,9 @@ impl SharedEnvironment {
 }
 
 fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
+    if from == to {
+        return Ok(());
+    }
     std::fs::copy(from, to).with_context(|| {
         format!(
             "Copying lockfile from {} to {}",
@@ -711,6 +714,31 @@ mod tests {
 
         assert!(symlink.is_symlink());
         assert!(!symlink.exists());
+    }
+
+    #[test]
+    fn persisted_environment_preserves_lockfile_when_source_matches_install_target() {
+        let folder = tempfile::tempdir().unwrap();
+        let project = folder.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let lockfile = project.join("deno.lock");
+        let lock_content = r#"{"version":"5","specifiers":{"jsr:@std/path":"^1.0.0"}}"#;
+        std::fs::write(&lockfile, lock_content).unwrap();
+
+        let definition = EnvironmentDefinition::from_mapping(
+            project.clone(),
+            Some(project.clone()),
+            BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+            Some(lockfile.clone()),
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+
+        let active = environment.activate_blocking().unwrap();
+        environment.deactivate().unwrap();
+        drop(active);
+
+        assert_eq!(std::fs::read_to_string(&lockfile).unwrap(), lock_content);
     }
 
     #[test]
