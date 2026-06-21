@@ -429,15 +429,19 @@ mod tests {
 
     #[test]
     fn normalizes_file_dependencies_relative_to_workspace() {
-        let workspace = Path::new("/project");
+        let temp_dir = tempfile::tempdir().unwrap();
+        let workspace = temp_dir.path().join("project");
         let dep =
-            normalize_dependency(workspace, "local-pkg", "file:./packages/local-pkg").unwrap();
+            normalize_dependency(&workspace, "local-pkg", "file:./packages/local-pkg").unwrap();
 
         assert_eq!(dep.alias, "local-pkg");
+        let expected = deno_path_util::strip_unc_prefix(
+            std::path::absolute(workspace.join("packages").join("local-pkg")).unwrap(),
+        );
         assert_eq!(
             dep.kind,
             PackageDependencyKind::LocalFile {
-                target_path: PathBuf::from("/project/packages/local-pkg")
+                target_path: expected,
             }
         );
     }
