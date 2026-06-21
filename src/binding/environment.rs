@@ -33,11 +33,11 @@ pub struct PyAsyncEnvironment {
 #[pymethods]
 impl PyEnvironment {
     #[new]
-    #[pyo3(signature = (dependencies = None, *, cwd = None, lockfile = None))]
+    #[pyo3(signature = (dependencies = None, *, dir = None, lockfile = None))]
     fn new(
         py: Python<'_>,
         dependencies: Option<&Bound<'_, PyAny>>,
-        cwd: Option<&Bound<'_, PyAny>>,
+        dir: Option<&Bound<'_, PyAny>>,
         lockfile: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let dependencies = coerce::normalize_dependencies(dependencies)?;
@@ -47,9 +47,14 @@ impl PyEnvironment {
             ));
         }
         let lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Input)?;
-        let cwd = normalize_path::normalize_cwd(py, cwd)?;
-        let definition = EnvironmentDefinition::from_mapping(cwd, dependencies, lockfile)
-            .map_err(blocking::any_error_to_py)?;
+        let persist_dir = normalize_path::normalize_dir(py, dir)?;
+        let workspace = match &persist_dir {
+            Some(dir) => dir.clone(),
+            None => normalize_path::normalize_cwd(py, None)?,
+        };
+        let definition =
+            EnvironmentDefinition::from_mapping(workspace, persist_dir, dependencies, lockfile)
+                .map_err(blocking::any_error_to_py)?;
         Ok(Self {
             inner: SharedEnvironment::new(definition),
         })
@@ -259,9 +264,16 @@ fn environment_repr(environment: &SharedEnvironment, class_name: &str) -> String
     } else {
         "False"
     };
-    format!(
-        "{class_name}(cwd={}, dependencies={}, active={active})",
-        environment.cwd().display(),
-        environment.dependency_count(),
-    )
+    match environment.persist_dir() {
+        Some(dir) => format!(
+            "{class_name}(dir={}, dependencies={}, active={active})",
+            dir.display(),
+            environment.dependency_count(),
+        ),
+        None => format!(
+            "{class_name}(dir=None, workspace={}, dependencies={}, active={active})",
+            environment.workspace().display(),
+            environment.dependency_count(),
+        ),
+    }
 }

@@ -31,9 +31,9 @@ VITE_REACT_PLUGIN_VERSION: Final[str] = "^4"
 async def installed_environment(
     dependencies: dict[str, str],
     *,
-    cwd: str | PathLike[str] | None = None,
+    install_dir: str | PathLike[str] | None = None,
 ) -> AsyncIterator[AsyncEnvironment]:
-    async with Environment(dependencies, cwd=cwd) as env:
+    async with Environment(dependencies, dir=install_dir) as env:
         await env.install()
         yield env
 
@@ -88,7 +88,7 @@ async def test_runs_command_from_frozen_lockfile_environment_without_external_ru
     assert lockfile.read_text(encoding="utf-8") == original_lock
 
 
-async def test_environment_cwd_persists_command_files_across_recreation(
+async def test_environment_dir_persists_command_files_across_recreation(
     isolated_project_cwd: Path,
 ) -> None:
     (isolated_project_cwd / "persist.mjs").write_text(
@@ -101,7 +101,7 @@ writeFileSync("persisted.ts", "export const persisted = 42;\\n", "utf-8");
     )
 
     async with (
-        installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}, cwd=isolated_project_cwd) as env,
+        installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}, install_dir=isolated_project_cwd) as env,
         Runtime(
             env=env,
         ) as runtime,
@@ -111,21 +111,26 @@ writeFileSync("persisted.ts", "export const persisted = 42;\\n", "utf-8");
     assert await AsyncPath(isolated_project_cwd / "persisted.ts").is_file()
 
     source = 'import { persisted } from "./persisted.ts"; export default () => persisted;'
-    async with Environment(cwd=isolated_project_cwd) as env, Runtime(env=env) as runtime:
+    async with Environment(dir=isolated_project_cwd) as env, Runtime(env=env) as runtime:
         assert await runtime(Script(source))() == 42
 
     assert sorted([entry.name async for entry in AsyncPath(isolated_project_cwd).iterdir()]) == [
+        "deno.json",
+        "deno.lock",
+        "deno_dir",
+        "node_modules",
         "persist.mjs",
         "persisted.ts",
     ]
 
 
-async def test_environment_materializes_node_modules_symlink_at_cwd_during_install(
+async def test_environment_materializes_node_modules_symlink_at_workspace_during_install(
     isolated_project_cwd: Path,
 ) -> None:
-    node_modules = isolated_project_cwd / "node_modules"
+    process_root = isolated_project_cwd.parent / "process"
+    node_modules = process_root / "node_modules"
 
-    async with Environment({"semver": "7.7.2"}, cwd=isolated_project_cwd) as env:
+    async with Environment({"semver": "7.7.2"}) as env:
         await env.install()
         assert node_modules.is_symlink()
         assert node_modules.exists()
@@ -134,7 +139,7 @@ async def test_environment_materializes_node_modules_symlink_at_cwd_during_insta
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")
-async def test_vite_nested_cwd_resolves_materialized_node_modules(
+async def test_vite_nested_dir_installs_persisted_node_modules(
     isolated_project_cwd: Path,
 ) -> None:
     frontend = isolated_project_cwd / "frontend"
@@ -171,14 +176,15 @@ export default defineConfig({
         "vite": VITE_VERSION,
         "@vitejs/plugin-react": VITE_REACT_PLUGIN_VERSION,
     }
-    async with Environment(dependencies, cwd=isolated_project_cwd) as env:
+    async with Environment(dependencies, dir=isolated_project_cwd) as env:
         await env.install()
-        assert node_modules.is_symlink()
+        assert node_modules.is_dir()
+        assert not node_modules.is_symlink()
         async with Runtime(env=env) as runtime:
             await runtime(Command("vite", cwd="frontend"))("build", "--outDir", "output")
 
     assert (frontend / "output" / "index.html").is_file()
-    assert not node_modules.exists()
+    assert node_modules.is_dir()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")

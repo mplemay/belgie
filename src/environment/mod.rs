@@ -17,7 +17,8 @@ use crate::packages::{
 
 #[derive(Clone, Debug)]
 pub(crate) struct EnvironmentDefinition {
-    cwd: PathBuf,
+    workspace: PathBuf,
+    persist_dir: Option<PathBuf>,
     dependencies: Vec<PackageDependency>,
     lockfile_source: Option<PathBuf>,
 }
@@ -35,25 +36,39 @@ enum EnvironmentState {
     Active(Arc<ActiveEnvironment>),
 }
 
+enum EnvironmentRoot {
+    Ephemeral {
+        temp_dir: TempDir,
+        materialized_node_modules: Mutex<Option<PathBuf>>,
+    },
+    Persisted,
+}
+
 pub(crate) struct ActiveEnvironment {
-    cwd: PathBuf,
+    workspace: PathBuf,
     config_file: PathBuf,
     lockfile: PathBuf,
     dependency_count: usize,
     frozen_lockfile: bool,
     embed_options: Option<EmbedContextOptions>,
-    materialized_node_modules: Mutex<Option<PathBuf>>,
-    temp_dir: TempDir,
+    root: EnvironmentRoot,
+}
+
+struct InstallLayout {
+    config_file: PathBuf,
+    lockfile: PathBuf,
+    frozen_lockfile: bool,
+    embed_options: Option<EmbedContextOptions>,
 }
 
 impl std::fmt::Debug for ActiveEnvironment {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ActiveEnvironment")
-            .field("cwd", &self.cwd)
+            .field("workspace", &self.workspace)
             .field("dependency_count", &self.dependency_count)
             .field("frozen_lockfile", &self.frozen_lockfile)
-            .field("materialized_node_modules", &self.materialized_node_modules)
+            .field("persisted", &self.is_persisted())
             .finish_non_exhaustive()
     }
 }
@@ -68,7 +83,8 @@ impl std::fmt::Debug for SharedEnvironment {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("SharedEnvironment")
-            .field("cwd", &self.definition.cwd)
+            .field("workspace", &self.definition.workspace)
+            .field("persist_dir", &self.definition.persist_dir)
             .field("dependencies", &self.definition.dependencies.len())
             .field("active", &self.is_active())
             .finish()
@@ -77,19 +93,25 @@ impl std::fmt::Debug for SharedEnvironment {
 
 impl EnvironmentDefinition {
     pub(crate) fn from_mapping(
-        cwd: PathBuf,
+        workspace: PathBuf,
+        persist_dir: Option<PathBuf>,
         dependencies: std::collections::BTreeMap<String, String>,
         lockfile_source: Option<PathBuf>,
     ) -> Result<Self, AnyError> {
         Ok(Self {
-            cwd,
+            workspace,
+            persist_dir,
             dependencies: dependencies_from_mapping(dependencies)?,
             lockfile_source,
         })
     }
 
-    pub(crate) fn cwd(&self) -> &Path {
-        &self.cwd
+    pub(crate) fn workspace(&self) -> &Path {
+        &self.workspace
+    }
+
+    pub(crate) fn persist_dir(&self) -> Option<&Path> {
+        self.persist_dir.as_deref()
     }
 
     pub(crate) fn dependency_count(&self) -> usize {
@@ -105,8 +127,12 @@ impl SharedEnvironment {
         }
     }
 
-    pub(crate) fn cwd(&self) -> &Path {
-        self.definition.cwd()
+    pub(crate) fn workspace(&self) -> &Path {
+        self.definition.workspace()
+    }
+
+    pub(crate) fn persist_dir(&self) -> Option<&Path> {
+        self.definition.persist_dir()
     }
 
     pub(crate) fn dependency_count(&self) -> usize {
@@ -271,8 +297,70 @@ fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
     Ok(())
 }
 
+fn prepare_install_layout(
+    install_root: &Path,
+    definition: &EnvironmentDefinition,
+) -> Result<InstallLayout, AnyError> {
+    let config_file = install_root.join("deno.json");
+    let lockfile = install_root.join("deno.lock");
+    let cache_root = install_root.join("deno_dir");
+    let node_modules_root = install_root.join("node_modules");
+    write_synthetic_config(&config_file, &definition.dependencies)?;
+    std::fs::create_dir_all(&cache_root)
+        .with_context(|| format!("Creating {}", cache_root.display()))?;
+
+    let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
+        copy_lockfile(source, &lockfile)?;
+        true
+    } else {
+        if definition.dependencies.is_empty() {
+            std::fs::write(&lockfile, EMPTY_DENO_LOCK)
+                .with_context(|| format!("Writing {}", lockfile.display()))?;
+        }
+        false
+    };
+
+    let embed_options = EmbedContextOptions {
+        cache_root: Some(cache_root),
+        frozen_lockfile: Some(frozen_lockfile),
+        lockfile_skip_write: false,
+        node_modules_root: Some(node_modules_root),
+    };
+
+    Ok(InstallLayout {
+        config_file,
+        lockfile,
+        frozen_lockfile,
+        embed_options: (!definition.dependencies.is_empty()).then_some(embed_options),
+    })
+}
+
 impl ActiveEnvironment {
     async fn create(definition: &EnvironmentDefinition) -> Result<Self, AnyError> {
+        if let Some(dir) = &definition.persist_dir {
+            Self::create_persisted(definition, dir).await
+        } else {
+            Self::create_ephemeral(definition).await
+        }
+    }
+
+    async fn create_persisted(
+        definition: &EnvironmentDefinition,
+        dir: &Path,
+    ) -> Result<Self, AnyError> {
+        let layout = prepare_install_layout(dir, definition)?;
+        Ok(Self {
+            workspace: definition.workspace.clone(),
+            config_file: layout.config_file,
+            lockfile: layout.lockfile,
+            dependency_count: definition.dependencies.len(),
+            frozen_lockfile: layout.frozen_lockfile,
+            embed_options: layout.embed_options,
+            root: EnvironmentRoot::Persisted,
+        })
+    }
+
+    async fn create_ephemeral(definition: &EnvironmentDefinition) -> Result<Self, AnyError> {
         let temp_dir = tempfile::Builder::new()
             .prefix("belgie-environment-")
             .tempdir()
@@ -283,76 +371,73 @@ impl ActiveEnvironment {
                 .canonicalize()
                 .context("Failed to canonicalize isolated Belgie environment")?,
         );
-        let config_file = temp_root.join("deno.json");
-        let lockfile = temp_root.join("deno.lock");
-        let cache_root = temp_root.join("deno_dir");
-        let node_modules_root = temp_root.join("node_modules");
-        write_synthetic_config(&config_file, &definition.dependencies)?;
-        std::fs::create_dir_all(&cache_root)
-            .with_context(|| format!("Creating {}", cache_root.display()))?;
-
-        let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
-            copy_lockfile(source, &lockfile)?;
-            true
-        } else {
-            if definition.dependencies.is_empty() {
-                std::fs::write(&lockfile, EMPTY_DENO_LOCK)
-                    .with_context(|| format!("Writing {}", lockfile.display()))?;
-            }
-            false
-        };
-
-        let embed_options = EmbedContextOptions {
-            cache_root: Some(cache_root.clone()),
-            frozen_lockfile: Some(frozen_lockfile),
-            lockfile_skip_write: false,
-            node_modules_root: Some(node_modules_root),
-        };
+        let layout = prepare_install_layout(&temp_root, definition)?;
         Ok(Self {
-            cwd: definition.cwd.clone(),
-            config_file,
-            lockfile,
+            workspace: definition.workspace.clone(),
+            config_file: layout.config_file,
+            lockfile: layout.lockfile,
             dependency_count: definition.dependencies.len(),
-            frozen_lockfile,
-            embed_options: (!definition.dependencies.is_empty()).then_some(embed_options),
-            materialized_node_modules: Mutex::new(None),
-            temp_dir,
+            frozen_lockfile: layout.frozen_lockfile,
+            embed_options: layout.embed_options,
+            root: EnvironmentRoot::Ephemeral {
+                temp_dir,
+                materialized_node_modules: Mutex::new(None),
+            },
         })
     }
 
+    fn is_persisted(&self) -> bool {
+        matches!(self.root, EnvironmentRoot::Persisted)
+    }
+
     fn materialize_cwd_node_modules(&self) -> Result<(), AnyError> {
-        if self.dependency_count == 0 {
+        if self.is_persisted() || self.dependency_count == 0 {
             return Ok(());
         }
-        let temp_node_modules = self.temp_dir.path().join("node_modules");
-        let materialized = materialize::materialize_node_modules(&self.cwd, &temp_node_modules)?;
-        *self
-            .materialized_node_modules
+        let EnvironmentRoot::Ephemeral {
+            temp_dir,
+            materialized_node_modules,
+        } = &self.root
+        else {
+            return Ok(());
+        };
+        let temp_node_modules = temp_dir.path().join("node_modules");
+        let materialized =
+            materialize::materialize_node_modules(&self.workspace, &temp_node_modules)?;
+        *materialized_node_modules
             .lock()
             .expect("materialized node_modules lock should not be poisoned") = Some(materialized);
         Ok(())
     }
 
     pub(crate) fn cleanup_materialized_node_modules(&self) -> Result<(), AnyError> {
-        let mut materialized = self
-            .materialized_node_modules
+        if self.is_persisted() {
+            return Ok(());
+        }
+        let EnvironmentRoot::Ephemeral {
+            temp_dir,
+            materialized_node_modules,
+        } = &self.root
+        else {
+            return Ok(());
+        };
+        let mut materialized = materialized_node_modules
             .lock()
             .expect("materialized node_modules lock should not be poisoned");
         if let Some(path) = materialized.take() {
-            let temp_node_modules = self.temp_dir.path().join("node_modules");
+            let temp_node_modules = temp_dir.path().join("node_modules");
             materialize::cleanup_materialized(&path, &temp_node_modules)?;
         }
         Ok(())
     }
 
     pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
-        debug_assert!(self.temp_dir.path().is_dir());
         let options = self
             .embed_options
             .clone()
             .ok_or_else(|| anyhow!("Environment has no package dependencies"))?;
         Ok(Rc::new(EmbedContext::new_with_options(
-            self.cwd.clone(),
+            self.workspace.clone(),
             self.config_file.clone(),
             self.lockfile.clone(),
             options,
@@ -390,7 +475,7 @@ impl ActiveEnvironment {
             });
         };
         let result = install_environment_packages(
-            self.cwd.clone(),
+            self.workspace.clone(),
             self.config_file.clone(),
             self.lockfile.clone(),
             self.dependency_count,
@@ -418,7 +503,7 @@ impl ActiveEnvironment {
             });
         };
         let result = update_environment_packages(EnvironmentUpdateRequest {
-            cwd: self.cwd.clone(),
+            cwd: self.workspace.clone(),
             config_file: self.config_file.clone(),
             lockfile: self.lockfile.clone(),
             dependencies: self.dependency_count,
@@ -433,8 +518,11 @@ impl ActiveEnvironment {
     }
 
     #[cfg(test)]
-    pub(crate) fn root(&self) -> &Path {
-        self.temp_dir.path()
+    pub(crate) fn install_root(&self) -> &Path {
+        match &self.root {
+            EnvironmentRoot::Ephemeral { temp_dir, .. } => temp_dir.path(),
+            EnvironmentRoot::Persisted => &self.workspace,
+        }
     }
 }
 
@@ -444,20 +532,19 @@ mod tests {
 
     use super::{EnvironmentDefinition, SharedEnvironment};
 
-    fn empty_environment() -> (tempfile::TempDir, SharedEnvironment) {
-        let folder = tempfile::tempdir().unwrap();
+    fn ephemeral_environment(workspace: std::path::PathBuf) -> SharedEnvironment {
         let definition =
-            EnvironmentDefinition::from_mapping(folder.path().to_path_buf(), BTreeMap::new(), None)
-                .unwrap();
-        (folder, SharedEnvironment::new(definition))
+            EnvironmentDefinition::from_mapping(workspace, None, BTreeMap::new(), None).unwrap();
+        SharedEnvironment::new(definition)
     }
 
     #[test]
     fn empty_environment_uses_an_isolated_temporary_root() {
-        let (_folder, environment) = empty_environment();
+        let folder = tempfile::tempdir().unwrap();
+        let environment = ephemeral_environment(folder.path().to_path_buf());
 
         let active = environment.activate_blocking().unwrap();
-        let root = active.root().to_path_buf();
+        let root = active.install_root().to_path_buf();
 
         assert!(root.is_dir());
         assert!(root.join("deno.json").is_file());
@@ -473,6 +560,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let definition = EnvironmentDefinition::from_mapping(
             folder.path().to_path_buf(),
+            None,
             BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
             None,
         )
@@ -486,6 +574,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let definition = EnvironmentDefinition::from_mapping(
             folder.path().to_path_buf(),
+            None,
             BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
             None,
         )
@@ -493,7 +582,7 @@ mod tests {
         let environment = SharedEnvironment::new(definition);
 
         let active = environment.activate_blocking().unwrap();
-        let root = active.root().to_path_buf();
+        let root = active.install_root().to_path_buf();
 
         assert!(root.join("deno.json").is_file());
         assert!(!root.join("deno.lock").exists());
@@ -501,7 +590,8 @@ mod tests {
 
     #[test]
     fn nested_activation_is_rejected() {
-        let (_folder, environment) = empty_environment();
+        let folder = tempfile::tempdir().unwrap();
+        let environment = ephemeral_environment(folder.path().to_path_buf());
 
         let _active = environment.activate_blocking().unwrap();
         let error = environment.activate_blocking().unwrap_err();
@@ -511,9 +601,10 @@ mod tests {
 
     #[test]
     fn active_reference_survives_environment_exit() {
-        let (_folder, environment) = empty_environment();
+        let folder = tempfile::tempdir().unwrap();
+        let environment = ephemeral_environment(folder.path().to_path_buf());
         let active = environment.activate_blocking().unwrap();
-        let root = active.root().to_path_buf();
+        let root = active.install_root().to_path_buf();
 
         environment.deactivate().unwrap();
 
@@ -521,5 +612,27 @@ mod tests {
         assert!(root.exists());
         drop(active);
         assert!(!root.exists());
+    }
+
+    #[test]
+    fn persisted_environment_keeps_install_artifacts_after_exit() {
+        let folder = tempfile::tempdir().unwrap();
+        let project = folder.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let definition = EnvironmentDefinition::from_mapping(
+            project.clone(),
+            Some(project.clone()),
+            BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+            None,
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+
+        let active = environment.activate_blocking().unwrap();
+        environment.deactivate().unwrap();
+        drop(active);
+
+        assert!(project.join("deno.json").is_file());
+        assert!(project.join("deno_dir").is_dir());
     }
 }

@@ -248,14 +248,19 @@ export default function run() {
         run_script(tmp_path, source)
 
 
-def test_environment_cwd_resolves_inline_relative_imports(isolated_project_cwd: Path):
+def test_environment_dir_resolves_inline_relative_imports(isolated_project_cwd: Path):
     (isolated_project_cwd / "value.ts").write_text("export const value = 42;\n", encoding="utf-8")
 
     source = 'import { value } from "./value.ts"; export default () => value;'
-    with Environment(cwd=isolated_project_cwd) as env, Runtime(env=env) as runtime:
+    with Environment(dir=isolated_project_cwd) as env, Runtime(env=env) as runtime:
         assert runtime(Script(source))() == 42
 
-    assert sorted(path.name for path in isolated_project_cwd.iterdir()) == ["value.ts"]
+    assert sorted(path.name for path in isolated_project_cwd.iterdir()) == [
+        "deno.json",
+        "deno.lock",
+        "deno_dir",
+        "value.ts",
+    ]
 
 
 def test_environment_lock_resolves_dependency_without_project_files(tmp_path: Path, monkeypatch):

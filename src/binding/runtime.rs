@@ -91,7 +91,7 @@ impl PyRuntime {
                 Ok(environment
                     .isolated()
                     .expect("isolated runtime environment should contain Environment")
-                    .cwd()
+                    .workspace()
                     .to_path_buf())
             },
         )?;
@@ -179,10 +179,23 @@ impl PyRuntime {
             format!("Runtime.from_folder({})", self.inner.cwd().display())
         } else {
             match self.inner.environment() {
-                Some(_) => format!(
-                    "Runtime(env=Environment(cwd={}))",
-                    self.inner.cwd().display()
-                ),
+                Some(environment) => {
+                    let env = environment
+                        .isolated()
+                        .expect("isolated runtime environment should contain Environment");
+                    match env.persist_dir() {
+                        Some(dir) => format!(
+                            "Runtime(env=Environment(dir={}, dependencies={}))",
+                            dir.display(),
+                            env.dependency_count(),
+                        ),
+                        None => format!(
+                            "Runtime(env=Environment(dir=None, workspace={}, dependencies={}))",
+                            self.inner.cwd().display(),
+                            env.dependency_count(),
+                        ),
+                    }
+                }
                 None => "Runtime(env=None)".to_string(),
             }
         }

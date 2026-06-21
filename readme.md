@@ -50,7 +50,7 @@ asyncio.run(main())
 
 - **[simple](examples/simple):** Async `Runtime` with a TypeScript file on disk.
 - **[jsr-deps](examples/jsr-deps):** JSR packages declared inline in `Environment`.
-- **[environment](examples/environment):** Sync and async `Environment` setup with `cwd`.
+- **[environment](examples/environment):** Sync and async `Environment` setup with `dir`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
