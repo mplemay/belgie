@@ -59,6 +59,13 @@ mod tests {
         })
     }
 
+    fn scalar_input_arguments() -> RunnerArguments {
+        with_python(|py| {
+            let args = PyTuple::new(py, [41i32]).expect("tuple should build");
+            RunnerArguments::from_py(&args, None).expect("input args should convert")
+        })
+    }
+
     fn input_arguments() -> RunnerArguments {
         with_python(|py| {
             let args = PyTuple::new(py, [41i32]).expect("tuple should build");
@@ -155,7 +162,7 @@ mod tests {
         );
         let handle = handle(bound);
 
-        let result = with_python(|py| execute_sync(py, &handle, input_arguments()));
+        let result = with_python(|py| execute_sync(py, &handle, scalar_input_arguments()));
 
         assert!(
             result.is_ok(),
@@ -178,7 +185,7 @@ mod tests {
         let bound = bound_file(main, source);
         let handle = handle(bound);
 
-        let result = with_python(|py| execute_sync(py, &handle, input_arguments()));
+        let result = with_python(|py| execute_sync(py, &handle, scalar_input_arguments()));
 
         remove_dir(&root);
         assert!(

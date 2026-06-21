@@ -56,7 +56,8 @@ imports from the script file's directory without `from_folder()`.
 with Runtime() as run:
     runner = run(Script("export default (x) => x"))
     runner(1)                    # positional args
-    runner(1, flag=True)         # kwargs become final options object
+    runner(first=1, second=2)    # kwargs map to named JS parameters
+    runner(1, flag=True)         # overflow kwargs go to options/rest param
 ```
 
 Module state persists across repeated calls on the same bound runner within one `Runtime` context.

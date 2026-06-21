@@ -6,7 +6,7 @@ See [references/scripts.md](../references/scripts.md) for argument passing patte
 
 - JSON-serializable values only
 - Safe integer range
-- Positional args and keyword options object
+- Positional args and named keyword args
 - Import errors from `belgie.errors`
 
 ---
@@ -60,15 +60,16 @@ with Runtime() as run:
 
 ---
 
-## Positional args and keyword options object
+## Positional args and named keyword args
 
-Positional Python args become JS positional args. Keyword args become a final `options` object.
+Belgie maps keyword args to named JavaScript parameters based on the exported `run` signature. Use a final `options`
+parameter or `...options` rest parameter for overflow kwargs.
 
-**Incorrect:**
+**Named parameters:**
 
 ```javascript
-export default function run(options) {
-  return options;
+export default function run(first, second) {
+  return { first, second };
 }
 ```
 
@@ -76,7 +77,19 @@ export default function run(options) {
 run(script)(first=1, second=2)
 ```
 
-**Correct:**
+**Single input object via kwargs:**
+
+```javascript
+export default function run(input: { name: string }) {
+  return input;
+}
+```
+
+```python
+run(script)(name="belgie")
+```
+
+**Overflow options:**
 
 ```javascript
 export default function run(first, second, options) {

@@ -10,7 +10,7 @@ PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 async def greet(name: str) -> str:
     script = Script.from_file(PACKAGE_DIR / "greet.ts")
     async with Runtime.from_folder(PROJECT_ROOT) as runtime:
-        result = await runtime(script)({"name": name})
+        result = await runtime(script)(name=name)
     return str(result["greeting"])
 
 

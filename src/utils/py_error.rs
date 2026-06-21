@@ -21,5 +21,6 @@ pub(crate) fn from_binding_error(error: BindingError) -> PyErr {
             BelgieModuleError::new_err(error.message())
         }
         BindingError::JavaScript { .. } => BelgieJavaScriptError::new_err(error.message()),
+        BindingError::Argument { .. } => PyTypeError::new_err(error.message()),
     }
 }

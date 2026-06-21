@@ -43,7 +43,45 @@ async with Runtime() as run:
 
 ## Argument passing
 
-Positional Python args become JS positional args. Keyword args become a final `options` object:
+Belgie parses the exported `run` function signature at bind time and maps Python arguments to named JavaScript
+parameters.
+
+- Positional Python args fill parameters left-to-right.
+- Keyword args fill unfilled parameters by name.
+- A single-parameter script accepts kwargs as object fields: `runner(name="belgie")` for `run(input: { name })`.
+- Remaining kwargs go to a final `options` parameter or `...options` rest parameter when present.
+- Unknown keyword args raise `TypeError`.
+- When the signature cannot be parsed, keyword args fall back to a final options object (legacy behavior).
+
+Named parameters:
+
+```python
+source = """
+export default function run(first, second) {
+  return { first, second };
+}
+"""
+
+with Runtime() as run:
+    result = run(Script(source))(first=1, second=2)
+# {"first": 1, "second": 2}
+```
+
+Single input object via kwargs:
+
+```python
+source = """
+export default function run(input: { name: string }) {
+  return { greeting: `Hello, ${input.name}!` };
+}
+"""
+
+with Runtime() as run:
+    result = run(Script(source))(name="belgie")
+# {"greeting": "Hello, belgie!"}
+```
+
+Positional args with overflow `options`:
 
 ```python
 source = """
