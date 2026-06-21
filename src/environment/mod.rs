@@ -219,9 +219,7 @@ impl SharedEnvironment {
             EnvironmentState::Inactive => {
                 return Err(anyhow!("Environment context is not active"));
             }
-            EnvironmentState::Active(environment) => {
-                environment.cleanup_materialized_node_modules()?;
-            }
+            EnvironmentState::Active(_) => {}
         }
         *state = EnvironmentState::Inactive;
         Ok(())
@@ -611,6 +609,67 @@ mod tests {
         assert!(!environment.is_active());
         assert!(root.exists());
         drop(active);
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn materialized_symlink_survives_environment_exit_while_reference_held() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().to_path_buf();
+        let definition = EnvironmentDefinition::from_mapping(
+            workspace.clone(),
+            None,
+            BTreeMap::from([("pkg".to_string(), "npm:is-number@7.0.0".to_string())]),
+            None,
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+        let active = environment.activate_blocking().unwrap();
+        let root = active.install_root().to_path_buf();
+        let temp_node_modules = root.join("node_modules");
+        std::fs::create_dir_all(&temp_node_modules).unwrap();
+        active.materialize_cwd_node_modules().unwrap();
+
+        let symlink = workspace.join("node_modules");
+        assert!(symlink.is_symlink());
+
+        environment.deactivate().unwrap();
+
+        assert!(!environment.is_active());
+        assert!(symlink.exists());
+        assert!(root.exists());
+        drop(active);
+        assert!(!symlink.exists());
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn materialized_symlink_is_removed_when_last_reference_drops() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().to_path_buf();
+        let definition = EnvironmentDefinition::from_mapping(
+            workspace.clone(),
+            None,
+            BTreeMap::from([("pkg".to_string(), "npm:is-number@7.0.0".to_string())]),
+            None,
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+        let active = environment.activate_blocking().unwrap();
+        let root = active.install_root().to_path_buf();
+        let temp_node_modules = root.join("node_modules");
+        std::fs::create_dir_all(&temp_node_modules).unwrap();
+        active.materialize_cwd_node_modules().unwrap();
+
+        let symlink = workspace.join("node_modules");
+        assert!(symlink.is_symlink());
+
+        let runtime_ref = std::sync::Arc::clone(&active);
+        drop(active);
+        drop(runtime_ref);
+        environment.deactivate().unwrap();
+
+        assert!(!symlink.exists());
         assert!(!root.exists());
     }
 

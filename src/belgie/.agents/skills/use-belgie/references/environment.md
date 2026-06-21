@@ -20,7 +20,8 @@ JavaScript dependencies stay isolated from the Python project's `pyproject.toml`
 - Workspace defaults to the process working directory at construction time
 - After `install()`, a `node_modules` symlink is created at the workspace so npm-native tools (Vite, Rollup, etc.) can
   resolve packages from nested working directories
-- Temporary state and the workspace symlink are removed when the environment exits
+- Temporary state and the workspace symlink are removed when the last active environment reference is released (after
+  the environment context and any runtime sessions using it have finished)
 
 ### Persisted mode (`path=` set)
 
