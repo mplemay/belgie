@@ -7,39 +7,29 @@ pub(crate) fn materialize_node_modules(
     cwd: &Path,
     temp_node_modules: &Path,
 ) -> Result<PathBuf, AnyError> {
+    let target = cwd.join("node_modules");
     if !temp_node_modules.is_dir() {
-        return Ok(cwd.join("node_modules"));
+        return Ok(target);
     }
 
-    let target = cwd.join("node_modules");
     let canonical_temp = temp_node_modules
         .canonicalize()
         .with_context(|| format!("Canonicalizing {}", temp_node_modules.display()))?;
 
-    match std::fs::symlink_metadata(&target) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            let existing = std::fs::read_link(&target)
-                .with_context(|| format!("Reading symlink {}", target.display()))?;
-            let resolved = resolve_symlink_target(&target, &existing, cwd);
-            if resolved
-                .canonicalize()
-                .ok()
-                .is_some_and(|canonical_existing| canonical_existing == canonical_temp)
-            {
-                return Ok(target);
-            }
-            std::fs::remove_file(&target)
-                .with_context(|| format!("Removing symlink {}", target.display()))?;
-        }
-        Ok(_) => {
+    match inspect_path_entry(&target)? {
+        PathEntry::Missing => {}
+        PathEntry::NotSymlink => {
             bail!(
                 "{} already exists; remove it or use a different cwd",
                 target.display()
             );
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error).with_context(|| format!("Inspecting {}", target.display()));
+        PathEntry::Symlink(resolved) => {
+            if symlink_matches_canonical(&resolved, &canonical_temp) {
+                return Ok(target);
+            }
+            std::fs::remove_file(&target)
+                .with_context(|| format!("Removing symlink {}", target.display()))?;
         }
     }
 
@@ -48,69 +38,96 @@ pub(crate) fn materialize_node_modules(
 }
 
 pub(crate) fn cleanup_materialized(path: &Path, expected_target: &Path) -> Result<(), AnyError> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            let existing = std::fs::read_link(path)
-                .with_context(|| format!("Reading symlink {}", path.display()))?;
-            let resolved = resolve_symlink_target(path, &existing, path.parent().unwrap_or(path));
-            let should_remove = match resolved.canonicalize() {
-                Ok(canonical_existing) => {
-                    let canonical_expected = expected_target
-                        .canonicalize()
-                        .with_context(|| format!("Canonicalizing {}", expected_target.display()))?;
-                    canonical_existing == canonical_expected
-                }
-                Err(_) => true,
-            };
-            if should_remove {
+    match inspect_path_entry(path)? {
+        PathEntry::Missing | PathEntry::NotSymlink => {}
+        PathEntry::Symlink(resolved) => {
+            if owned_symlink_should_remove(&resolved, expected_target)? {
                 std::fs::remove_file(path)
                     .with_context(|| format!("Removing symlink {}", path.display()))?;
             }
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error).with_context(|| format!("Inspecting {}", path.display()));
         }
     }
     Ok(())
 }
 
-fn resolve_symlink_target(link_path: &Path, link_contents: &Path, base: &Path) -> PathBuf {
+enum PathEntry {
+    Missing,
+    NotSymlink,
+    Symlink(PathBuf),
+}
+
+fn inspect_path_entry(path: &Path) -> Result<PathEntry, AnyError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            let existing = std::fs::read_link(path)
+                .with_context(|| format!("Reading symlink {}", path.display()))?;
+            Ok(PathEntry::Symlink(resolve_symlink_target(path, &existing)))
+        }
+        Ok(_) => Ok(PathEntry::NotSymlink),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(PathEntry::Missing),
+        Err(error) => Err(error).with_context(|| format!("Inspecting {}", path.display())),
+    }
+}
+
+fn symlink_matches_canonical(resolved: &Path, canonical_expected: &Path) -> bool {
+    resolved
+        .canonicalize()
+        .ok()
+        .is_some_and(|canonical_existing| canonical_existing == canonical_expected)
+}
+
+fn owned_symlink_should_remove(resolved: &Path, expected: &Path) -> Result<bool, AnyError> {
+    match resolved.canonicalize() {
+        Ok(canonical_existing) => {
+            let canonical_expected = expected
+                .canonicalize()
+                .with_context(|| format!("Canonicalizing {}", expected.display()))?;
+            Ok(canonical_existing == canonical_expected)
+        }
+        Err(_) => Ok(true),
+    }
+}
+
+fn resolve_symlink_target(link_path: &Path, link_contents: &Path) -> PathBuf {
     if link_contents.is_absolute() {
         link_contents.to_path_buf()
     } else {
-        link_path.parent().unwrap_or(base).join(link_contents)
+        link_path
+            .parent()
+            .expect("symlink path must have a parent")
+            .join(link_contents)
     }
 }
 
 fn create_directory_symlink(source: &Path, target: &Path) -> Result<(), AnyError> {
+    let context = format!(
+        "Creating symlink from {} to {}",
+        target.display(),
+        source.display()
+    );
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(source, target).with_context(|| {
-            format!(
-                "Creating symlink from {} to {}",
-                target.display(),
-                source.display()
-            )
-        })?;
+        std::os::unix::fs::symlink(source, target).with_context(|| context.clone())?;
     }
     #[cfg(windows)]
     {
-        std::os::windows::fs::symlink_dir(source, target).with_context(|| {
-            format!(
-                "Creating symlink from {} to {}",
-                target.display(),
-                source.display()
-            )
-        })?;
+        std::os::windows::fs::symlink_dir(source, target).with_context(|| context)?;
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{cleanup_materialized, materialize_node_modules};
+
+    fn create_dangling_dir_symlink(link: &Path, target: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(target, link).unwrap();
+    }
 
     #[test]
     fn materialize_creates_symlink_when_absent() {
@@ -212,10 +229,7 @@ mod tests {
         std::fs::create_dir_all(&temp_node_modules).unwrap();
         std::fs::create_dir_all(&cwd).unwrap();
 
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&dangling_target, cwd.join("node_modules")).unwrap();
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&dangling_target, cwd.join("node_modules")).unwrap();
+        create_dangling_dir_symlink(&cwd.join("node_modules"), &dangling_target);
 
         let symlink = cwd.join("node_modules");
         assert!(symlink.is_symlink());
@@ -244,10 +258,7 @@ mod tests {
         let dangling_target = root.path().join("missing").join("node_modules");
         std::fs::create_dir_all(&cwd).unwrap();
 
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&dangling_target, cwd.join("node_modules")).unwrap();
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&dangling_target, cwd.join("node_modules")).unwrap();
+        create_dangling_dir_symlink(&cwd.join("node_modules"), &dangling_target);
 
         let symlink = cwd.join("node_modules");
         assert!(symlink.is_symlink());
