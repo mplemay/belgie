@@ -18,7 +18,7 @@ use crate::packages::{
 #[derive(Clone, Debug)]
 pub(crate) struct EnvironmentDefinition {
     workspace: PathBuf,
-    persist_dir: Option<PathBuf>,
+    persist_path: Option<PathBuf>,
     dependencies: Vec<PackageDependency>,
     lockfile_source: Option<PathBuf>,
 }
@@ -84,7 +84,7 @@ impl std::fmt::Debug for SharedEnvironment {
         formatter
             .debug_struct("SharedEnvironment")
             .field("workspace", &self.definition.workspace)
-            .field("persist_dir", &self.definition.persist_dir)
+            .field("persist_path", &self.definition.persist_path)
             .field("dependencies", &self.definition.dependencies.len())
             .field("active", &self.is_active())
             .finish()
@@ -94,13 +94,13 @@ impl std::fmt::Debug for SharedEnvironment {
 impl EnvironmentDefinition {
     pub(crate) fn from_mapping(
         workspace: PathBuf,
-        persist_dir: Option<PathBuf>,
+        persist_path: Option<PathBuf>,
         dependencies: std::collections::BTreeMap<String, String>,
         lockfile_source: Option<PathBuf>,
     ) -> Result<Self, AnyError> {
         Ok(Self {
             workspace,
-            persist_dir,
+            persist_path,
             dependencies: dependencies_from_mapping(dependencies)?,
             lockfile_source,
         })
@@ -110,8 +110,8 @@ impl EnvironmentDefinition {
         &self.workspace
     }
 
-    pub(crate) fn persist_dir(&self) -> Option<&Path> {
-        self.persist_dir.as_deref()
+    pub(crate) fn persist_path(&self) -> Option<&Path> {
+        self.persist_path.as_deref()
     }
 
     pub(crate) fn dependency_count(&self) -> usize {
@@ -131,8 +131,8 @@ impl SharedEnvironment {
         self.definition.workspace()
     }
 
-    pub(crate) fn persist_dir(&self) -> Option<&Path> {
-        self.definition.persist_dir()
+    pub(crate) fn persist_path(&self) -> Option<&Path> {
+        self.definition.persist_path()
     }
 
     pub(crate) fn dependency_count(&self) -> usize {
@@ -337,8 +337,8 @@ fn prepare_install_layout(
 
 impl ActiveEnvironment {
     async fn create(definition: &EnvironmentDefinition) -> Result<Self, AnyError> {
-        if let Some(dir) = &definition.persist_dir {
-            Self::create_persisted(definition, dir).await
+        if let Some(path) = &definition.persist_path {
+            Self::create_persisted(definition, path).await
         } else {
             Self::create_ephemeral(definition).await
         }
@@ -346,9 +346,9 @@ impl ActiveEnvironment {
 
     async fn create_persisted(
         definition: &EnvironmentDefinition,
-        dir: &Path,
+        path: &Path,
     ) -> Result<Self, AnyError> {
-        let layout = prepare_install_layout(dir, definition)?;
+        let layout = prepare_install_layout(path, definition)?;
         Ok(Self {
             workspace: definition.workspace.clone(),
             config_file: layout.config_file,

@@ -183,14 +183,14 @@ impl PyRuntime {
                     let env = environment
                         .isolated()
                         .expect("isolated runtime environment should contain Environment");
-                    match env.persist_dir() {
-                        Some(dir) => format!(
-                            "Runtime(env=Environment(dir={}, dependencies={}))",
-                            dir.display(),
+                    match env.persist_path() {
+                        Some(path) => format!(
+                            "Runtime(env=Environment(path={}, dependencies={}))",
+                            path.display(),
                             env.dependency_count(),
                         ),
                         None => format!(
-                            "Runtime(env=Environment(dir=None, workspace={}, dependencies={}))",
+                            "Runtime(env=Environment(path=None, workspace={}, dependencies={}))",
                             self.inner.cwd().display(),
                             env.dependency_count(),
                         ),

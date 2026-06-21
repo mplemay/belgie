@@ -46,7 +46,7 @@ imports from the script file's directory without `from_folder()`.
 | --- | --- | --- | --- |
 | `Runtime()` | No | `Script.from_file` only (from script dir) | No |
 | `Runtime.from_folder(path)` | No | Inline `./` from `path`; sets runtime cwd | No |
-| `Runtime(env=env)` | Uses env state | From env workspace (`dir` or process cwd) | Yes, after `install()` |
+| `Runtime(env=env)` | Uses env state | From env workspace (`path` or process cwd) | Yes, after `install()` |
 
 `Runtime.from_folder()` does not read `pyproject.toml`, install packages, or manage lockfiles.
 

@@ -27,7 +27,7 @@ async def resolve_join_export_async() -> str:
 
 
 async def main() -> None:
-    async with Environment({"std_path": "jsr:@std/path@^1"}, dir=Path.cwd()) as env:
+    async with Environment({"std_path": "jsr:@std/path@^1"}, path=Path.cwd()) as env:
         await env.install()
         async with Runtime(env=env) as runtime:
             print(str(await runtime(Script(SOURCE))()))  # noqa: T201

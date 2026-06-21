@@ -14,7 +14,7 @@ JavaScript dependencies stay isolated from the Python project's `pyproject.toml`
 `Environment()` with no dependency map is valid for dependency-free scripts in an isolated temporary root. Calling
 `install()` on a dependency-less environment succeeds and returns `dependencies=0` without installing packages.
 
-### Ephemeral mode (`dir` omitted)
+### Ephemeral mode (`path` omitted)
 
 - Install tree (`deno.json`, `deno.lock`, `deno_dir`, `node_modules`) lives in a temporary Belgie environment root
 - Workspace defaults to the process working directory at construction time
@@ -22,12 +22,13 @@ JavaScript dependencies stay isolated from the Python project's `pyproject.toml`
   resolve packages from nested working directories
 - Temporary state and the workspace symlink are removed when the environment exits
 
-### Persisted mode (`dir=` set)
+### Persisted mode (`path=` set)
 
-- Install tree is written directly into `dir`
-- Workspace is `dir`; relative imports and command paths resolve from there
-- `node_modules` is a real directory under `dir` — no symlink materialization
-- Belgie does not remove install artifacts from `dir` on environment exit; other files written under `dir` also persist
+- Install tree is written directly into `path`
+- Workspace is `path`; relative imports and command paths resolve from there
+- `node_modules` is a real directory under `path` — no symlink materialization
+- Belgie does not remove install artifacts from `path` on environment exit; other files written under `path` also
+  persist
 
 ## Basic usage
 
@@ -80,20 +81,20 @@ Environment(
 | `"jsr:@std/path@^1"` | JSR package |
 | `"npm:pkg@1.0.0/path"` | Explicit npm subpath |
 
-## Project directory (`dir`)
+## Project directory (`path`)
 
-Pass `dir=` to install dependencies into a persisted project directory:
+Pass `path=` to install dependencies into a persisted project directory:
 
 ```python
 from pathlib import Path
 
-with Environment({"std_path": "jsr:@std/path@^1"}, dir=Path.cwd()) as env:
+with Environment({"std_path": "jsr:@std/path@^1"}, path=Path.cwd()) as env:
     env.install()
     with Runtime(env=env) as run:
         run(script)()
 ```
 
-When `dir` is omitted, Belgie uses ephemeral mode: workspace is the process working directory at construction time, and
+When `path` is omitted, Belgie uses ephemeral mode: workspace is the process working directory at construction time, and
 install state stays in a temporary root. Relative imports and command working directories resolve from the workspace.
 
 ## Package operations

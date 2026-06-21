@@ -154,8 +154,8 @@ class TestRuntimeLifecycle:
         env = Environment()
         runtime = Runtime(env=env)
 
-        assert f"Environment(dir=None, workspace={tmp_path}, dependencies=0, active=False)" == repr(env)
-        assert f"Runtime(env=Environment(dir=None, workspace={tmp_path}, dependencies=0))" == repr(runtime)
+        assert f"Environment(path=None, workspace={tmp_path}, dependencies=0, active=False)" == repr(env)
+        assert f"Runtime(env=Environment(path=None, workspace={tmp_path}, dependencies=0))" == repr(runtime)
 
     def test_folder_constructors_reject_missing_and_file_paths(self, tmp_path: Path) -> None:
         file_path = tmp_path / "not-a-directory"
@@ -276,33 +276,33 @@ class TestRuntimeLifecycle:
 
 
 class TestEnvironmentLifecycle:
-    @pytest.mark.parametrize("project_dir", ["project", StringPath("project")])
-    def test_environment_accepts_string_and_pathlike_dir(
+    @pytest.mark.parametrize("project_path", ["project", StringPath("project")])
+    def test_environment_accepts_string_and_pathlike_path(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
-        project_dir: str | StringPath,
+        project_path: str | StringPath,
     ) -> None:
         project = tmp_path / "project"
         project.mkdir()
         monkeypatch.chdir(tmp_path)
 
-        env = Environment(dir=project_dir)
+        env = Environment(path=project_path)
 
-        assert repr(env) == f"Environment(dir={project}, dependencies=0, active=False)"
-        assert repr(Runtime(env=env)) == f"Runtime(env=Environment(dir={project}, dependencies=0))"
+        assert repr(env) == f"Environment(path={project}, dependencies=0, active=False)"
+        assert repr(Runtime(env=env)) == f"Runtime(env=Environment(path={project}, dependencies=0))"
 
-    def test_environment_dir_is_keyword_only(self) -> None:
+    def test_environment_path_is_keyword_only(self) -> None:
         environment_type = cast("Any", Environment)
 
         with pytest.raises(TypeError):
             environment_type(None, "project")
 
-    def test_environment_rejects_removed_cwd_argument(self) -> None:
+    def test_environment_rejects_removed_dir_argument(self) -> None:
         environment_type = cast("Any", Environment)
 
         with pytest.raises(TypeError):
-            environment_type(cwd="project")
+            environment_type(dir="project")
 
     def test_lockfile_requires_dependencies(self, tmp_path: Path) -> None:
         lockfile = tmp_path / "deno.lock"

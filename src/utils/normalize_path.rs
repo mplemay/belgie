@@ -27,12 +27,15 @@ pub fn normalize_cwd(py: Python<'_>, cwd: Option<&Bound<'_, PyAny>>) -> PyResult
     normalize_directory(py, path, "cwd")
 }
 
-pub fn normalize_dir(py: Python<'_>, dir: Option<&Bound<'_, PyAny>>) -> PyResult<Option<PathBuf>> {
-    let Some(value) = dir.filter(|value| !value.is_none()) else {
+pub fn normalize_optional_directory(
+    py: Python<'_>,
+    path: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<PathBuf>> {
+    let Some(value) = path.filter(|value| !value.is_none()) else {
         return Ok(None);
     };
-    let path = path_from_py(value, "dir")?;
-    normalize_directory(py, path, "dir").map(Some)
+    let path = path_from_py(value, "path")?;
+    normalize_directory(py, path, "path").map(Some)
 }
 
 pub fn normalize_directory(

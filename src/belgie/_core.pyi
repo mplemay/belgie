@@ -108,7 +108,7 @@ class Environment:
         self,
         dependencies: Mapping[str, str] | None = None,
         *,
-        dir: str | PathLike[str] | None = None,  # noqa: A002
+        path: str | PathLike[str] | None = None,
         lockfile: str | PathLike[str] | None = None,
     ) -> None: ...
     def __enter__(self) -> SyncEnvironment: ...

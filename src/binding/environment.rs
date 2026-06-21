@@ -33,11 +33,11 @@ pub struct PyAsyncEnvironment {
 #[pymethods]
 impl PyEnvironment {
     #[new]
-    #[pyo3(signature = (dependencies = None, *, dir = None, lockfile = None))]
+    #[pyo3(signature = (dependencies = None, *, path = None, lockfile = None))]
     fn new(
         py: Python<'_>,
         dependencies: Option<&Bound<'_, PyAny>>,
-        dir: Option<&Bound<'_, PyAny>>,
+        path: Option<&Bound<'_, PyAny>>,
         lockfile: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let dependencies = coerce::normalize_dependencies(dependencies)?;
@@ -47,13 +47,13 @@ impl PyEnvironment {
             ));
         }
         let lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Input)?;
-        let persist_dir = normalize_path::normalize_dir(py, dir)?;
-        let workspace = match &persist_dir {
-            Some(dir) => dir.clone(),
+        let persist_path = normalize_path::normalize_optional_directory(py, path)?;
+        let workspace = match &persist_path {
+            Some(path) => path.clone(),
             None => normalize_path::normalize_cwd(py, None)?,
         };
         let definition =
-            EnvironmentDefinition::from_mapping(workspace, persist_dir, dependencies, lockfile)
+            EnvironmentDefinition::from_mapping(workspace, persist_path, dependencies, lockfile)
                 .map_err(blocking::any_error_to_py)?;
         Ok(Self {
             inner: SharedEnvironment::new(definition),
@@ -264,14 +264,14 @@ fn environment_repr(environment: &SharedEnvironment, class_name: &str) -> String
     } else {
         "False"
     };
-    match environment.persist_dir() {
-        Some(dir) => format!(
-            "{class_name}(dir={}, dependencies={}, active={active})",
-            dir.display(),
+    match environment.persist_path() {
+        Some(path) => format!(
+            "{class_name}(path={}, dependencies={}, active={active})",
+            path.display(),
             environment.dependency_count(),
         ),
         None => format!(
-            "{class_name}(dir=None, workspace={}, dependencies={}, active={active})",
+            "{class_name}(path=None, workspace={}, dependencies={}, active={active})",
             environment.workspace().display(),
             environment.dependency_count(),
         ),
