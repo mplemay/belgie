@@ -24,13 +24,19 @@ pub(crate) fn materialize_node_modules(
                 target.display()
             );
         }
-        PathEntry::Symlink(resolved) => {
-            if symlink_matches_canonical(&resolved, &canonical_temp) {
-                return Ok(target);
+        PathEntry::Symlink(resolved) => match resolved.canonicalize() {
+            Ok(canonical_existing) if canonical_existing == canonical_temp => return Ok(target),
+            Ok(_) => {
+                bail!(
+                    "{} already exists; remove it or use a different cwd",
+                    target.display()
+                );
             }
-            std::fs::remove_file(&target)
-                .with_context(|| format!("Removing symlink {}", target.display()))?;
-        }
+            Err(_) => {
+                std::fs::remove_file(&target)
+                    .with_context(|| format!("Removing symlink {}", target.display()))?;
+            }
+        },
     }
 
     create_directory_symlink(&canonical_temp, &target)?;
@@ -67,13 +73,6 @@ fn inspect_path_entry(path: &Path) -> Result<PathEntry, AnyError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(PathEntry::Missing),
         Err(error) => Err(error).with_context(|| format!("Inspecting {}", path.display())),
     }
-}
-
-fn symlink_matches_canonical(resolved: &Path, canonical_expected: &Path) -> bool {
-    resolved
-        .canonicalize()
-        .ok()
-        .is_some_and(|canonical_existing| canonical_existing == canonical_expected)
 }
 
 fn owned_symlink_should_remove(resolved: &Path, expected: &Path) -> Result<bool, AnyError> {
@@ -170,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn materialize_replaces_symlink_when_target_changes() {
+    fn materialize_rejects_conflicting_symlink_when_target_changes() {
         let root = tempfile::tempdir().unwrap();
         let cwd = root.path().join("project");
         let first_temp = root.path().join("temp-first").join("node_modules");
@@ -180,15 +179,36 @@ mod tests {
         std::fs::create_dir_all(&cwd).unwrap();
 
         let first = materialize_node_modules(&cwd, &first_temp).expect("first materialize");
-        let second = materialize_node_modules(&cwd, &second_temp).expect("second materialize");
+        let error = materialize_node_modules(&cwd, &second_temp).unwrap_err();
 
-        assert_eq!(first, second);
+        assert!(error.to_string().contains("already exists"));
         assert_eq!(
-            std::fs::read_link(&second).unwrap(),
-            second_temp.canonicalize().unwrap()
+            std::fs::read_link(&first).unwrap(),
+            first_temp.canonicalize().unwrap()
         );
 
-        cleanup_materialized(&second, &second_temp).unwrap();
+        cleanup_materialized(&first, &first_temp).unwrap();
+    }
+
+    #[test]
+    fn materialize_rejects_conflicting_symlink() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("project");
+        let external = root.path().join("external").join("node_modules");
+        let temp_node_modules = root.path().join("temp").join("node_modules");
+        std::fs::create_dir_all(&external).unwrap();
+        std::fs::create_dir_all(&temp_node_modules).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        create_dangling_dir_symlink(&cwd.join("node_modules"), &external);
+
+        let symlink = cwd.join("node_modules");
+        let original_link = std::fs::read_link(&symlink).unwrap();
+        assert!(symlink.is_symlink());
+
+        let error = materialize_node_modules(&cwd, &temp_node_modules).unwrap_err();
+        assert!(error.to_string().contains("already exists"));
+        assert_eq!(std::fs::read_link(&symlink).unwrap(), original_link);
     }
 
     #[test]

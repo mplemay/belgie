@@ -416,11 +416,13 @@ export default function run() {
     first = Environment({"pkg_json": "npm:is-number@6.0.0/package.json"})
     second = Environment({"pkg_json": "npm:is-number@7.0.0/package.json"})
 
-    with first as first_env, second as second_env:
+    with first as first_env:
         first_env.install()
-        second_env.install()
         with Runtime(env=first_env) as runtime:
             assert runtime(Script(source))() == "6.0.0"
+
+    with second as second_env:
+        second_env.install()
         with Runtime(env=second_env) as runtime:
             assert runtime(Script(source))() == "7.0.0"
 
