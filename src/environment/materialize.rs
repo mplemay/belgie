@@ -17,16 +17,15 @@ pub(crate) fn materialize_node_modules(
     match inspect_path_entry(&target)? {
         PathEntry::Missing => {}
         PathEntry::NotSymlink => conflicting_node_modules(&target)?,
-        PathEntry::Symlink(resolved) => match normalize_canonical(&resolved) {
-            Ok(canonical_existing) if canonical_existing == canonical_temp => {
+        PathEntry::Symlink(resolved) => {
+            if paths_equal(&resolved, temp_node_modules)? {
                 return Ok(Some(target));
             }
-            Ok(_) => conflicting_node_modules(&target)?,
-            Err(_) => {
-                std::fs::remove_file(&target)
-                    .with_context(|| format!("Removing symlink {}", target.display()))?;
+            if normalize_canonical(&resolved).is_ok() {
+                conflicting_node_modules(&target)?;
             }
-        },
+            remove_symlink(&target)?;
+        }
     }
 
     create_directory_symlink(&canonical_temp, &target)?;
@@ -38,8 +37,7 @@ pub(crate) fn cleanup_materialized(path: &Path, expected_target: &Path) -> Resul
         PathEntry::Missing | PathEntry::NotSymlink => {}
         PathEntry::Symlink(resolved) => {
             if owned_symlink_should_remove(&resolved, expected_target)? {
-                std::fs::remove_file(path)
-                    .with_context(|| format!("Removing symlink {}", path.display()))?;
+                remove_symlink(path)?;
             }
         }
     }
@@ -73,20 +71,42 @@ fn inspect_path_entry(path: &Path) -> Result<PathEntry, AnyError> {
 }
 
 fn owned_symlink_should_remove(resolved: &Path, expected: &Path) -> Result<bool, AnyError> {
-    match normalize_canonical(resolved) {
-        Ok(canonical_existing) => Ok(canonical_existing == normalize_canonical(expected)?),
-        Err(_) => match normalize_canonical(expected) {
-            Ok(canonical_expected) => Ok(resolved == canonical_expected),
-            Err(_) => Ok(false),
-        },
+    paths_equal(resolved, expected)
+}
+
+fn paths_equal(left: &Path, right: &Path) -> Result<bool, AnyError> {
+    match (normalize_canonical(left), normalize_canonical(right)) {
+        (Ok(left), Ok(right)) => Ok(left == right),
+        _ => Ok(false),
     }
 }
 
 fn normalize_canonical(path: &Path) -> Result<PathBuf, AnyError> {
+    let absolute = std::path::absolute(path)
+        .with_context(|| format!("Resolving absolute path for {}", path.display()))?;
     Ok(deno_path_util::strip_unc_prefix(
-        path.canonicalize()
+        absolute
+            .canonicalize()
             .with_context(|| format!("Canonicalizing {}", path.display()))?,
     ))
+}
+
+fn remove_symlink(path: &Path) -> Result<(), AnyError> {
+    let context = format!("Removing symlink {}", path.display());
+    #[cfg(unix)]
+    {
+        std::fs::remove_file(path).with_context(|| context)
+    }
+    #[cfg(windows)]
+    {
+        match std::fs::remove_dir(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
+                std::fs::remove_file(path).with_context(|| context)
+            }
+            Err(error) => Err(error).with_context(|| context),
+        }
+    }
 }
 
 fn resolve_symlink_target(link_path: &Path, link_contents: &Path) -> PathBuf {
