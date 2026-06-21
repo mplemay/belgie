@@ -7,16 +7,29 @@ Use this file when managing isolated JavaScript dependencies from Python.
 `Environment` creates an isolated JS dependency sandbox:
 
 - Synthetic `deno.json` with an `imports` map and `"nodeModulesDir": "auto"`
-- Temporary Deno cache and `node_modules`
-- Temporary lockfile state
-
-Belgie state is removed after the environment exits and any runtimes using it have closed. Files written beneath `cwd`
-persist on disk.
+- Dependency install state in either a temporary root (default) or a persisted project directory
 
 JavaScript dependencies stay isolated from the Python project's `pyproject.toml`.
 
 `Environment()` with no dependency map is valid for dependency-free scripts in an isolated temporary root. Calling
-`install()` on a dependency-less environment raises `Environment has no package dependencies`.
+`install()` on a dependency-less environment succeeds and returns `dependencies=0` without installing packages.
+
+### Ephemeral mode (`path` omitted)
+
+- Install tree (`deno.json`, `deno.lock`, `deno_dir`, `node_modules`) lives in a temporary Belgie environment root
+- Workspace defaults to the process working directory at construction time
+- After `install()`, a `node_modules` symlink is created at the workspace so npm-native tools (Vite, Rollup, etc.) can
+  resolve packages from nested working directories
+- Temporary state and the workspace symlink are removed when the last active environment reference is released (after
+  the environment context and any runtime sessions using it have finished)
+
+### Persisted mode (`path=` set)
+
+- Install tree is written directly into `path`
+- Workspace is `path`; relative imports and command paths resolve from there
+- `node_modules` is a real directory under `path` — no symlink materialization
+- Belgie does not remove install artifacts from `path` on environment exit; other files written under `path` also
+  persist
 
 ## Basic usage
 
@@ -69,21 +82,21 @@ Environment(
 | `"jsr:@std/path@^1"` | JSR package |
 | `"npm:pkg@1.0.0/path"` | Explicit npm subpath |
 
-## Working directory (`cwd`)
+## Project directory (`path`)
 
-Pass `cwd=` to set the environment working directory:
+Pass `path=` to install dependencies into a persisted project directory:
 
 ```python
 from pathlib import Path
 
-with Environment({"std_path": "jsr:@std/path@^1"}, cwd=Path.cwd()) as env:
+with Environment({"std_path": "jsr:@std/path@^1"}, path=Path.cwd()) as env:
     env.install()
     with Runtime(env=env) as run:
         run(script)()
 ```
 
-When omitted, `cwd` defaults to the process working directory at construction time. Relative imports and command working
-directories resolve from `cwd`.
+When `path` is omitted, Belgie uses ephemeral mode: workspace is the process working directory at construction time, and
+install state stays in a temporary root. Relative imports and command working directories resolve from the workspace.
 
 ## Package operations
 
@@ -138,7 +151,7 @@ with Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile="deno.lock") as 
 - Enter `Environment` before calling `install()`, `lock()`, or `update()`.
 - Pass the entered environment (or the `Environment` instance while entered) to `Runtime(env=...)`.
 - Call `install()` before scripts or commands that need resolved packages.
-- `Environment({...})` requires at least one dependency entry; `lockfile=` at construction also requires dependencies.
+- `lockfile=` at construction requires at least one dependency entry.
 
 For context-manager guardrails, see [rules/context-lifecycle.md](../rules/context-lifecycle.md).
 For runtime selection, see [rules/runtime-selection.md](../rules/runtime-selection.md).

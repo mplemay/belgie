@@ -12,7 +12,7 @@ use crate::types::error::BindingError;
 #[derive(Debug)]
 pub(crate) struct RuntimeSession {
     runtime: DenoRuntime,
-    package_environment: Option<BoundPackageEnvironment>,
+    package_environment: Mutex<Option<BoundPackageEnvironment>>,
     active: AtomicBool,
     scripts: Mutex<Vec<DenoExecutionHandle>>,
     commands: Mutex<Vec<CommandExecutionHandle>>,
@@ -38,7 +38,7 @@ impl RuntimeSession {
         };
         Ok(Arc::new(Self {
             runtime,
-            package_environment,
+            package_environment: Mutex::new(package_environment),
             active: AtomicBool::new(true),
             scripts: Mutex::new(Vec::new()),
             commands: Mutex::new(Vec::new()),
@@ -52,10 +52,12 @@ impl RuntimeSession {
     ) -> Result<DenoExecutionHandle, BindingError> {
         self.ensure_active()?;
         self.pending_script_binds.fetch_add(1, Ordering::AcqRel);
-        let bound = self
-            .runtime
-            .bind(script)
-            .with_package_environment(self.package_environment.clone());
+        let bound = self.runtime.bind(script).with_package_environment(
+            self.package_environment
+                .lock()
+                .expect("runtime package environment lock should not be poisoned")
+                .clone(),
+        );
         let handle = DenoExecutionHandle::new(bound);
         self.scripts
             .lock()
@@ -71,11 +73,16 @@ impl RuntimeSession {
         argv: Vec<String>,
     ) -> Result<CommandExecutionHandle, BindingError> {
         session.ensure_active()?;
-        let package_environment = session.package_environment.clone().ok_or_else(|| {
-            BindingError::runtime(
-                "Commands require an active Environment with package dependencies",
-            )
-        })?;
+        let package_environment = session
+            .package_environment
+            .lock()
+            .expect("runtime package environment lock should not be poisoned")
+            .clone()
+            .ok_or_else(|| {
+                BindingError::runtime(
+                    "Commands require an active Environment with package dependencies",
+                )
+            })?;
         let cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync> = {
             let session = Arc::clone(&session);
             Arc::new(move || session.cli_snapshot_eligible())
@@ -126,6 +133,10 @@ impl RuntimeSession {
         for script in scripts {
             script.close_blocking()?;
         }
+        *self
+            .package_environment
+            .lock()
+            .expect("runtime package environment lock should not be poisoned") = None;
         Ok(())
     }
 
