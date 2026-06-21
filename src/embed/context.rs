@@ -200,8 +200,17 @@ pub(crate) struct EmbedContext {
 pub(crate) struct EmbedContextOptions {
     pub cache_root: Option<PathBuf>,
     pub frozen_lockfile: Option<bool>,
+    pub is_package_manager_subcommand: bool,
     pub lockfile_skip_write: bool,
+    pub node_modules_dir_mode: Option<NodeModulesDirMode>,
     pub node_modules_root: Option<PathBuf>,
+}
+
+impl EmbedContextOptions {
+    pub(crate) fn for_package_manager(mut self) -> Self {
+        self.is_package_manager_subcommand = true;
+        self
+    }
 }
 
 impl std::fmt::Debug for EmbedContext {
@@ -234,6 +243,13 @@ impl EmbedContext {
         } else {
             cwd.join(lockfile)
         };
+        let node_modules_dir = options.node_modules_dir_mode.unwrap_or_else(|| {
+            if options.node_modules_root.is_some() {
+                NodeModulesDirMode::Auto
+            } else {
+                NodeModulesDirMode::None
+            }
+        });
 
         let workspace_factory = Arc::new(WorkspaceFactory::new(
             sys.clone(),
@@ -241,15 +257,11 @@ impl EmbedContext {
             WorkspaceFactoryOptions {
                 config_discovery: ConfigDiscoveryOption::Path(config_file.clone()),
                 lock_arg: Some(lockfile.clone()),
-                is_package_manager_subcommand: true,
+                is_package_manager_subcommand: options.is_package_manager_subcommand,
                 frozen_lockfile: options.frozen_lockfile,
                 lockfile_skip_write: options.lockfile_skip_write,
                 maybe_custom_deno_dir_root: options.cache_root,
-                node_modules_dir: Some(if options.node_modules_root.is_some() {
-                    NodeModulesDirMode::Auto
-                } else {
-                    NodeModulesDirMode::None
-                }),
+                node_modules_dir: Some(node_modules_dir),
                 root_node_modules_dir_override: options.node_modules_root,
                 ..Default::default()
             },

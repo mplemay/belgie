@@ -6,7 +6,8 @@ Use this file when managing isolated JavaScript dependencies from Python.
 
 `Environment` creates an isolated JS dependency sandbox:
 
-- Synthetic `deno.json` with an `imports` map and `"nodeModulesDir": "auto"`
+- Synthetic `deno.json` with an `imports` map and a Deno-managed `nodeModulesDir` mode
+- Synthetic `package.json` dependencies when local npm `file:` packages are used
 - Dependency install state in either a temporary root (default) or a persisted project directory
 
 JavaScript dependencies stay isolated from the Python project's `pyproject.toml`.
@@ -63,8 +64,8 @@ async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
 
 ## Dependency map format
 
-The mapping key is the JavaScript import alias. Values are either a full `npm:` / `jsr:` specifier or an npm version
-requirement:
+The mapping key is the JavaScript import alias. Values are a full `npm:` / `jsr:` specifier, a Deno-native npm
+`file:` dependency, or an npm version requirement:
 
 ```python
 Environment(
@@ -72,6 +73,7 @@ Environment(
         "react": "^19",
         "std_path": "jsr:@std/path@^1",
         "pkg_json": "npm:is-number@7.0.0/package.json",
+        "local_pkg": "file:./packages/local-pkg",
     }
 )
 ```
@@ -81,6 +83,11 @@ Environment(
 | `"^19"` | `npm:react@^19` |
 | `"jsr:@std/path@^1"` | JSR package |
 | `"npm:pkg@1.0.0/path"` | Explicit npm subpath |
+| `"file:./packages/local-pkg"` | Local npm package via package.json `file:` dependency |
+
+`file:` dependency paths resolve relative to the environment workspace. In ephemeral mode that is the process working
+directory captured when `Environment` is constructed; in persisted mode it is the `path=` directory. Local file
+dependencies rely on the environment's `node_modules` layout, so call `install()` before importing them.
 
 ## Project directory (`path`)
 

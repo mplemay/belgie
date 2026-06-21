@@ -30,11 +30,12 @@ pub(crate) async fn update_packages(
     lockfile_only: bool,
     options: EmbedContextOptions,
 ) -> Result<(), AnyError> {
+    let context_options = options.clone().for_package_manager();
     let context = EmbedContext::new_with_options(
         cwd.clone(),
         config_file.clone(),
         lockfile.clone(),
-        options.clone(),
+        context_options,
     )?;
     let filter_entries = parse_filters(&filters);
     let text = std::fs::read_to_string(&config_file)

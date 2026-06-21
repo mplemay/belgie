@@ -290,6 +290,37 @@ export default function run() {
     assert list(tmp_path.iterdir()) == []
 
 
+def test_environment_install_resolves_file_dependency_for_runtime(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    local_pkg = tmp_path / "local-pkg"
+    local_pkg.mkdir()
+    (local_pkg / "package.json").write_text(
+        """
+{
+  "name": "local-pkg",
+  "type": "module",
+  "exports": "./index.js"
+}
+""",
+        encoding="utf-8",
+    )
+    (local_pkg / "index.js").write_text("export const answer = 42;\n", encoding="utf-8")
+    source = """
+import { answer } from "local-pkg";
+
+export default function run() {
+  return answer;
+}
+"""
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        result = env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == 42
+
+    assert result.dependencies == 1
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
+
+
 def test_environment_update_changes_synthetic_dependency(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with Environment({"is_number": "npm:is-number@6.0.0"}) as env:

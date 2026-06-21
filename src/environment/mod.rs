@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use deno_config::deno_json::NodeModulesDirMode;
 use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
 use tempfile::TempDir;
@@ -11,8 +12,9 @@ mod materialize;
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
     EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest, EnvironmentUpdateResult,
-    PackageDependency, dependencies_from_mapping, install_environment_packages,
-    update_environment_packages, write_synthetic_config,
+    PackageDependency, dependencies_from_mapping, has_local_file_dependencies,
+    install_environment_packages, update_environment_packages, write_synthetic_config,
+    write_synthetic_package_json,
 };
 
 #[derive(Clone, Debug)]
@@ -98,10 +100,11 @@ impl EnvironmentDefinition {
         dependencies: std::collections::BTreeMap<String, String>,
         lockfile_source: Option<PathBuf>,
     ) -> Result<Self, AnyError> {
+        let dependencies = dependencies_from_mapping(&workspace, dependencies)?;
         Ok(Self {
             workspace,
             persist_path,
-            dependencies: dependencies_from_mapping(dependencies)?,
+            dependencies,
             lockfile_source,
         })
     }
@@ -293,7 +296,9 @@ fn prepare_install_layout(
     let lockfile = install_root.join("deno.lock");
     let cache_root = install_root.join("deno_dir");
     let node_modules_root = install_root.join("node_modules");
+    let package_json = install_root.join("package.json");
     write_synthetic_config(&config_file, &definition.dependencies)?;
+    write_synthetic_package_json(&package_json, install_root, &definition.dependencies)?;
     std::fs::create_dir_all(&cache_root)
         .with_context(|| format!("Creating {}", cache_root.display()))?;
 
@@ -311,7 +316,10 @@ fn prepare_install_layout(
     let embed_options = EmbedContextOptions {
         cache_root: Some(cache_root),
         frozen_lockfile: Some(frozen_lockfile),
+        is_package_manager_subcommand: false,
         lockfile_skip_write: false,
+        node_modules_dir_mode: has_local_file_dependencies(&definition.dependencies)
+            .then_some(NodeModulesDirMode::Manual),
         node_modules_root: Some(node_modules_root),
     };
 
