@@ -12,9 +12,7 @@ pub(crate) fn materialize_node_modules(
         return Ok(target);
     }
 
-    let canonical_temp = temp_node_modules
-        .canonicalize()
-        .with_context(|| format!("Canonicalizing {}", temp_node_modules.display()))?;
+    let canonical_temp = normalize_canonical(temp_node_modules)?;
 
     match inspect_path_entry(&target)? {
         PathEntry::Missing => {}
@@ -24,7 +22,7 @@ pub(crate) fn materialize_node_modules(
                 target.display()
             );
         }
-        PathEntry::Symlink(resolved) => match resolved.canonicalize() {
+        PathEntry::Symlink(resolved) => match normalize_canonical(&resolved) {
             Ok(canonical_existing) if canonical_existing == canonical_temp => return Ok(target),
             Ok(_) => {
                 bail!(
@@ -76,15 +74,17 @@ fn inspect_path_entry(path: &Path) -> Result<PathEntry, AnyError> {
 }
 
 fn owned_symlink_should_remove(resolved: &Path, expected: &Path) -> Result<bool, AnyError> {
-    match resolved.canonicalize() {
-        Ok(canonical_existing) => {
-            let canonical_expected = expected
-                .canonicalize()
-                .with_context(|| format!("Canonicalizing {}", expected.display()))?;
-            Ok(canonical_existing == canonical_expected)
-        }
+    match normalize_canonical(resolved) {
+        Ok(canonical_existing) => Ok(canonical_existing == normalize_canonical(expected)?),
         Err(_) => Ok(true),
     }
+}
+
+fn normalize_canonical(path: &Path) -> Result<PathBuf, AnyError> {
+    Ok(deno_path_util::strip_unc_prefix(
+        path.canonicalize()
+            .with_context(|| format!("Canonicalizing {}", path.display()))?,
+    ))
 }
 
 fn resolve_symlink_target(link_path: &Path, link_contents: &Path) -> PathBuf {
@@ -117,9 +117,22 @@ fn create_directory_symlink(source: &Path, target: &Path) -> Result<(), AnyError
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::{cleanup_materialized, materialize_node_modules};
+    use super::{cleanup_materialized, materialize_node_modules, resolve_symlink_target};
+
+    fn normalized_canonical(path: &Path) -> PathBuf {
+        deno_path_util::strip_unc_prefix(path.canonicalize().unwrap())
+    }
+
+    fn symlink_points_to(link: &Path, expected: &Path) {
+        let contents = std::fs::read_link(link).unwrap();
+        let resolved = resolve_symlink_target(link, &contents);
+        assert_eq!(
+            normalized_canonical(&resolved),
+            normalized_canonical(expected)
+        );
+    }
 
     fn create_dangling_dir_symlink(link: &Path, target: &Path) {
         #[cfg(unix)]
@@ -142,10 +155,7 @@ mod tests {
 
         assert_eq!(materialized, cwd.join("node_modules"));
         assert!(materialized.is_symlink());
-        assert_eq!(
-            std::fs::read_link(&materialized).unwrap(),
-            temp_node_modules.canonicalize().unwrap()
-        );
+        symlink_points_to(&materialized, &temp_node_modules);
 
         cleanup_materialized(&materialized, &temp_node_modules).unwrap();
         assert!(!materialized.exists());
@@ -182,10 +192,7 @@ mod tests {
         let error = materialize_node_modules(&cwd, &second_temp).unwrap_err();
 
         assert!(error.to_string().contains("already exists"));
-        assert_eq!(
-            std::fs::read_link(&first).unwrap(),
-            first_temp.canonicalize().unwrap()
-        );
+        symlink_points_to(&first, &first_temp);
 
         cleanup_materialized(&first, &first_temp).unwrap();
     }
@@ -261,10 +268,7 @@ mod tests {
         assert_eq!(materialized, symlink);
         assert!(materialized.is_symlink());
         assert!(materialized.exists());
-        assert_eq!(
-            std::fs::read_link(&materialized).unwrap(),
-            temp_node_modules.canonicalize().unwrap()
-        );
+        symlink_points_to(&materialized, &temp_node_modules);
 
         cleanup_materialized(&materialized, &temp_node_modules).unwrap();
         assert!(!materialized.exists());
