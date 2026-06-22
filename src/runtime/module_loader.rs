@@ -1,7 +1,7 @@
-use std::{borrow::Cow, fs, path::PathBuf, sync::Arc};
+use std::{borrow::Cow, fs, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 use deno_ast::{MediaType, ParseParams, SourceMapOption};
-use deno_cache_dir::file_fetcher::MemoryFiles;
+use deno_cache_dir::file_fetcher::{File, LoadedFrom, MemoryFiles};
 use deno_core::{
     ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
     ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
@@ -13,7 +13,9 @@ use deno_lib::loader::as_deno_resolver_requested_module_type;
 use deno_lib::loader::loaded_module_source_to_module_source_code;
 use deno_lib::loader::module_type_from_media_and_requested_type;
 use deno_resolver::graph::ResolveWithGraphOptions;
+use deno_resolver::loader::LoadedModule;
 use deno_resolver::loader::LoadedModuleOrAsset;
+use deno_semver::npm::NpmPackageReqReference;
 use futures::FutureExt;
 use node_resolver::NodeResolutionKind;
 use node_resolver::ResolutionMode;
@@ -203,11 +205,20 @@ fn transpile_source(
 pub(crate) struct PackageAwareModuleLoader {
     state: Arc<PackageRuntimeState>,
     initial_cwd: PathBuf,
+    is_worker: bool,
 }
 
 impl PackageAwareModuleLoader {
-    pub(crate) fn new(state: Arc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
-        Self { state, initial_cwd }
+    pub(crate) fn new(
+        state: Arc<PackageRuntimeState>,
+        initial_cwd: PathBuf,
+        is_worker: bool,
+    ) -> Self {
+        Self {
+            state,
+            initial_cwd,
+            is_worker,
+        }
     }
 
     fn resolve_referrer(&self, referrer: &str) -> Result<ModuleSpecifier, ModuleLoaderError> {
@@ -220,6 +231,10 @@ impl PackageAwareModuleLoader {
         }
         deno_core::resolve_import(referrer, &self.initial_cwd.to_string_lossy())
             .map_err(JsErrorBox::from_err)
+    }
+
+    fn default_referrer(&self) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        deno_path_util::url_from_directory_path(&self.initial_cwd).map_err(JsErrorBox::from_err)
     }
 
     fn resolve_inner(
@@ -289,6 +304,25 @@ impl PackageAwareModuleLoader {
         ModuleSpecifier::parse(specifier.as_str()).map_err(JsErrorBox::from_err)
     }
 
+    fn insert_memory_module(
+        &self,
+        module_specifier: &ModuleSpecifier,
+        source: String,
+    ) -> Result<(), ModuleLoaderError> {
+        let url = Url::parse(module_specifier.as_str()).map_err(JsErrorBox::from_err)?;
+        self.state.memory_files.insert(
+            url.clone(),
+            File {
+                url,
+                mtime: None,
+                maybe_headers: None,
+                source: source.into_bytes().into(),
+                loaded_from: LoadedFrom::Local,
+            },
+        );
+        Ok(())
+    }
+
     fn load_memory_module(
         &self,
         module_specifier: &ModuleSpecifier,
@@ -345,6 +379,41 @@ impl PackageAwareModuleLoader {
         let maybe_referrer_url = maybe_referrer
             .map(|referrer| Url::parse(referrer.as_str()).map_err(JsErrorBox::from_err))
             .transpose()?;
+        if let Ok(reference) = NpmPackageReqReference::from_specifier(module_specifier) {
+            let fallback_referrer = self.default_referrer()?;
+            let referrer = maybe_referrer_url.as_ref().unwrap_or(&fallback_referrer);
+            let resolved = self
+                .state
+                .deno_resolver
+                .resolve_non_workspace_npm_req_ref_to_file(
+                    &reference,
+                    referrer,
+                    ResolutionMode::Import,
+                    NodeResolutionKind::Execution,
+                )
+                .map_err(JsErrorBox::from_err)?
+                .into_url()
+                .map_err(JsErrorBox::from_err)?;
+            let npm_module_loader = self
+                .state
+                .resolver_factory
+                .npm_module_loader()
+                .map(Clone::clone)
+                .map_err(|error| JsErrorBox::generic(error.to_string()))?;
+            let loaded_module = npm_module_loader
+                .load(
+                    Cow::Owned(resolved),
+                    maybe_referrer_url.as_ref(),
+                    &deno_requested,
+                )
+                .await
+                .map_err(JsErrorBox::from_err)?;
+            return loaded_module_to_module_source(
+                loaded_module,
+                &requested_module_type,
+                module_specifier,
+            );
+        }
         let is_npm_package = self
             .state
             .resolver_factory
@@ -366,17 +435,11 @@ impl PackageAwareModuleLoader {
                 )
                 .await
                 .map_err(JsErrorBox::from_err)?;
-            return Ok(ModuleSource::new_with_redirect(
-                module_type_from_media_and_requested_type(
-                    loaded_module.media_type,
-                    &requested_module_type,
-                ),
-                loaded_module_source_to_module_source_code(loaded_module.source),
+            return loaded_module_to_module_source(
+                loaded_module,
+                &requested_module_type,
                 module_specifier,
-                &ModuleSpecifier::parse(loaded_module.specifier.as_str())
-                    .map_err(JsErrorBox::from_err)?,
-                None,
-            ));
+            );
         }
         let loaded = self
             .state
@@ -390,17 +453,11 @@ impl PackageAwareModuleLoader {
             .await
             .map_err(JsErrorBox::from_err)?;
         match loaded {
-            LoadedModuleOrAsset::Module(loaded_module) => Ok(ModuleSource::new_with_redirect(
-                module_type_from_media_and_requested_type(
-                    loaded_module.media_type,
-                    &requested_module_type,
-                ),
-                loaded_module_source_to_module_source_code(loaded_module.source),
+            LoadedModuleOrAsset::Module(loaded_module) => loaded_module_to_module_source(
+                loaded_module,
+                &requested_module_type,
                 module_specifier,
-                &ModuleSpecifier::parse(loaded_module.specifier.as_str())
-                    .map_err(JsErrorBox::from_err)?,
-                None,
-            )),
+            ),
             LoadedModuleOrAsset::ExternalAsset { specifier, .. } => Err(JsErrorBox::generic(
                 format!("Unsupported external asset import: {specifier}"),
             )),
@@ -408,14 +465,32 @@ impl PackageAwareModuleLoader {
     }
 }
 
+fn loaded_module_to_module_source(
+    loaded_module: LoadedModule<'_>,
+    requested_module_type: &RequestedModuleType,
+    module_specifier: &ModuleSpecifier,
+) -> Result<ModuleSource, ModuleLoaderError> {
+    Ok(ModuleSource::new_with_redirect(
+        module_type_from_media_and_requested_type(loaded_module.media_type, requested_module_type),
+        loaded_module_source_to_module_source_code(loaded_module.source),
+        module_specifier,
+        &ModuleSpecifier::parse(loaded_module.specifier.as_str()).map_err(JsErrorBox::from_err)?,
+        None,
+    ))
+}
+
 impl ModuleLoader for PackageAwareModuleLoader {
     fn resolve(
         &self,
         specifier: &str,
         referrer: &str,
-        _kind: ResolutionKind,
+        kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-        self.resolve_inner(specifier, referrer, false)
+        self.resolve_inner(
+            specifier,
+            referrer,
+            matches!(kind, ResolutionKind::DynamicImport),
+        )
     }
 
     fn load(
@@ -459,6 +534,8 @@ impl ModuleLoader for PackageAwareModuleLoader {
         }
 
         let state = self.state.clone();
+        let initial_cwd = self.initial_cwd.clone();
+        let is_worker = self.is_worker;
         let module_specifier = module_specifier.clone();
         let maybe_referrer = maybe_referrer.map(|referrer| referrer.specifier.clone());
         let requested_module_type = options.requested_module_type;
@@ -467,7 +544,8 @@ impl ModuleLoader for PackageAwareModuleLoader {
             async move {
                 let loader = PackageAwareModuleLoader {
                     state,
-                    initial_cwd: PathBuf::new(), // unused in load path
+                    initial_cwd,
+                    is_worker,
                 };
                 loader
                     .load_package_module(
@@ -479,6 +557,33 @@ impl ModuleLoader for PackageAwareModuleLoader {
             }
             .boxed_local(),
         )
+    }
+
+    fn prepare_load(
+        &self,
+        module_specifier: &ModuleSpecifier,
+        _maybe_referrer: Option<String>,
+        maybe_content: Option<String>,
+        options: ModuleLoadOptions,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
+        let result = if let Some(source) = maybe_content {
+            self.insert_memory_module(module_specifier, source)
+        } else {
+            Ok(())
+        };
+        if result.is_err()
+            || !(self.is_worker
+                || options.is_dynamic_import
+                || matches!(
+                    options.requested_module_type,
+                    RequestedModuleType::Text
+                        | RequestedModuleType::Bytes
+                        | RequestedModuleType::Other(_)
+                ))
+        {
+            return async move { result }.boxed_local();
+        }
+        async move { result }.boxed_local()
     }
 }
 

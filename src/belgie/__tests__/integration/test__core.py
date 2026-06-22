@@ -291,6 +291,86 @@ export default function run() {
     assert list(tmp_path.iterdir()) == []
 
 
+def test_environment_runtime_resolves_dynamic_npm_import(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+export default async function run() {
+  const isNumber = await import("is_number");
+  return isNumber.default(42);
+}
+"""
+    with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() is True
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_environment_runtime_resolves_npm_require(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const isNumber = require("is-number");
+
+export default function run() {
+  return isNumber(42);
+}
+"""
+    with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() is True
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_environment_runtime_resolves_npm_import_from_web_worker(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "worker.js").write_text(
+        """
+import isNumber from "is_number";
+
+self.postMessage(isNumber(42));
+self.close();
+""",
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.js"
+    main.write_text(
+        """
+export default function run() {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./worker.js", import.meta.url).href, {
+      type: "module",
+    });
+    worker.onmessage = (event) => {
+      worker.terminate();
+      resolve(event.data);
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message));
+    };
+  });
+}
+""",
+        encoding="utf-8",
+    )
+
+    with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script.from_file(main))() is True
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["main.js", "worker.js"]
+
+
 def test_environment_install_resolves_file_dependency_for_runtime(
     tmp_path: Path,
     monkeypatch,
@@ -312,6 +392,56 @@ export default function run() {
 
     assert result.dependencies == 1
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
+
+
+def test_environment_runtime_resolves_file_dependency_from_web_worker(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+    (tmp_path / "worker.js").write_text(
+        """
+import { answer } from "local-pkg";
+
+self.postMessage(answer);
+self.close();
+""",
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.js"
+    main.write_text(
+        """
+export default function run() {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./worker.js", import.meta.url).href, {
+      type: "module",
+    });
+    worker.onmessage = (event) => {
+      worker.terminate();
+      resolve(event.data);
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message));
+    };
+  });
+}
+""",
+        encoding="utf-8",
+    )
+
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script.from_file(main))() == 42
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "local-pkg",
+        "main.js",
+        "worker.js",
+    ]
 
 
 def test_environment_install_does_not_misload_cjs_file_dependency_as_esm(

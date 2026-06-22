@@ -212,7 +212,7 @@ struct BelgieModuleLoaderFactory {
 
 impl ModuleLoaderFactory for BelgieModuleLoaderFactory {
     fn create_for_main(&self, _root_permissions: PermissionsContainer) -> CreateModuleLoaderResult {
-        self.create()
+        self.create(false)
     }
 
     fn create_for_worker(
@@ -220,16 +220,22 @@ impl ModuleLoaderFactory for BelgieModuleLoaderFactory {
         _parent_permissions: PermissionsContainer,
         _permissions: PermissionsContainer,
     ) -> CreateModuleLoaderResult {
-        self.create()
+        self.create(true)
     }
 }
 
 impl BelgieModuleLoaderFactory {
-    fn create(&self) -> CreateModuleLoaderResult {
+    fn create(&self, is_worker: bool) -> CreateModuleLoaderResult {
+        let state = if is_worker {
+            Arc::new(self.state.with_empty_graph())
+        } else {
+            self.state.clone()
+        };
         CreateModuleLoaderResult {
             module_loader: Rc::new(PackageAwareModuleLoader::new(
-                self.state.clone(),
+                state,
                 self.initial_cwd.clone(),
+                is_worker,
             )),
             node_require_loader: Rc::new(BelgieNodeRequireLoader {
                 cjs_tracker: self.cjs_tracker.clone(),

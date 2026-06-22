@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use deno_core::error::AnyError;
 use deno_core::url::Url;
+use deno_graph::GraphKind;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleSpecifier;
 use deno_resolver::factory::ResolverFactory;
@@ -20,6 +21,18 @@ pub(crate) struct PackageRuntimeState {
     pub deno_resolver: DefaultDenoResolverRc<EmbedSys>,
     pub memory_files: deno_resolver::loader::MemoryFilesRc,
     pub module_loader: ModuleLoaderRc<EmbedSys>,
+}
+
+impl PackageRuntimeState {
+    pub(crate) fn with_empty_graph(&self) -> Self {
+        Self {
+            graph: Arc::new(Mutex::new(ModuleGraph::new(GraphKind::All))),
+            resolver_factory: self.resolver_factory.clone(),
+            deno_resolver: self.deno_resolver.clone(),
+            memory_files: self.memory_files.clone(),
+            module_loader: self.module_loader.clone(),
+        }
+    }
 }
 
 impl std::fmt::Debug for PackageRuntimeState {
