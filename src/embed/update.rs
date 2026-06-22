@@ -107,21 +107,35 @@ fn parse_filters(filters: &[String]) -> Vec<FilterEntry> {
         .collect()
 }
 
+fn is_updatable_import_specifier(specifier: &str) -> bool {
+    specifier.starts_with("npm:") || specifier.starts_with("jsr:")
+}
+
 fn resolve_aliases_to_update(
     imports: &serde_json::Map<String, serde_json::Value>,
     filters: &[FilterEntry],
 ) -> Result<Vec<String>, AnyError> {
-    if filters.is_empty() {
-        return Ok(imports.keys().cloned().collect());
-    }
+    let candidate_aliases = if filters.is_empty() {
+        imports.keys().collect::<Vec<_>>()
+    } else {
+        let filter_aliases = filters
+            .iter()
+            .map(|entry| entry.alias.as_str())
+            .collect::<HashSet<_>>();
+        imports
+            .keys()
+            .filter(|alias| filter_aliases.contains(alias.as_str()))
+            .collect()
+    };
 
-    let filter_aliases = filters
-        .iter()
-        .map(|entry| entry.alias.as_str())
-        .collect::<HashSet<_>>();
-    Ok(imports
-        .keys()
-        .filter(|alias| filter_aliases.contains(alias.as_str()))
+    Ok(candidate_aliases
+        .into_iter()
+        .filter(|alias| {
+            imports
+                .get(alias.as_str())
+                .and_then(|value| value.as_str())
+                .is_some_and(is_updatable_import_specifier)
+        })
         .cloned()
         .collect())
 }
@@ -355,6 +369,45 @@ mod tests {
         let aliases = resolve_aliases_to_update(&imports, &filters).unwrap();
 
         assert_eq!(aliases, vec!["@types/react"]);
+    }
+
+    #[test]
+    fn excludes_file_imports_from_bulk_update() {
+        let imports = serde_json::Map::from_iter([
+            (
+                "react".to_string(),
+                serde_json::Value::String("npm:react@^19".to_string()),
+            ),
+            (
+                "std_path".to_string(),
+                serde_json::Value::String("jsr:@std/path@^1".to_string()),
+            ),
+            (
+                "local-pkg".to_string(),
+                serde_json::Value::String("file:///tmp/local-pkg/index.js".to_string()),
+            ),
+            (
+                "local-pkg/".to_string(),
+                serde_json::Value::String("file:///tmp/local-pkg/".to_string()),
+            ),
+        ]);
+
+        let aliases = resolve_aliases_to_update(&imports, &[]).unwrap();
+
+        assert_eq!(aliases, vec!["react", "std_path"]);
+    }
+
+    #[test]
+    fn excludes_file_imports_from_filtered_update() {
+        let imports = serde_json::Map::from_iter([(
+            "local-pkg".to_string(),
+            serde_json::Value::String("file:///tmp/local-pkg/index.js".to_string()),
+        )]);
+        let filters = parse_filters(&["local-pkg".to_string()]);
+
+        let aliases = resolve_aliases_to_update(&imports, &filters).unwrap();
+
+        assert!(aliases.is_empty());
     }
 
     #[test]

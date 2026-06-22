@@ -402,6 +402,43 @@ def test_environment_update_changes_synthetic_dependency(tmp_path: Path, monkeyp
     assert list(tmp_path.iterdir()) == []
 
 
+def test_environment_update_noops_for_file_only_dependencies(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        result = env.update()
+
+    assert result.changes == []
+
+
+def test_environment_update_skips_file_imports_in_mixed_environment(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+
+    with Environment(
+        {
+            "local-pkg": "file:./local-pkg",
+            "is_number": "npm:is-number@6.0.0",
+        },
+    ) as env:
+        env.install()
+        result = env.update(["is_number@7.0.0"], lockfile_only=True)
+
+    assert len(result.changes) == 1
+    assert result.changes[0].name == "is_number"
+    assert result.changes[0].previous == "npm:is-number@6.0.0"
+    assert result.changes[0].updated == "npm:is-number@7.0.0"
+
+
 def test_direct_environment_installs_jsr_dependency_without_project_files(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = """
