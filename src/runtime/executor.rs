@@ -77,8 +77,10 @@ mod tests {
         })
     }
 
+    use std::sync::Arc;
+
     fn handle(bound: BoundRuntime) -> DenoExecutionHandle {
-        DenoExecutionHandle::new(bound)
+        DenoExecutionHandle::new(bound, Arc::new(|| true))
     }
 
     fn bound_inline(source: &str) -> BoundRuntime {

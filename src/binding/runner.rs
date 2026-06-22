@@ -60,9 +60,7 @@ impl PySyncRuntime {
         if let Ok(script) = target.extract::<PyRef<'_, PyScript>>() {
             let source = script.source();
             let description = source.description();
-            let handle = self
-                .session
-                .bind_script(source)
+            let handle = RuntimeSession::bind_script(&self.session, source)
                 .map_err(py_error::from_binding_error)?;
             return Ok(Py::new(py, PySyncRunner::from_handle(handle, description))?.into_any());
         }
@@ -89,9 +87,7 @@ impl PyAsyncRuntime {
         if let Ok(script) = target.extract::<PyRef<'_, PyScript>>() {
             let source = script.source();
             let description = source.description();
-            let handle = self
-                .session
-                .bind_script(source)
+            let handle = RuntimeSession::bind_script(&self.session, source)
                 .map_err(py_error::from_binding_error)?;
             return Ok(Py::new(py, PyAsyncRunner::from_handle(handle, description))?.into_any());
         }

@@ -9,11 +9,14 @@ use std::{
 use deno_core::{
     JsRuntime, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions, error::CoreError, v8,
 };
+use deno_lib::worker::LibMainWorker;
 use tokio::sync::oneshot;
 
 use crate::{
     embed::prepare_package_runtime,
-    runtime::{BoundPackageEnvironment, BoundRuntime, module_loader, process_context},
+    runtime::{
+        BoundPackageEnvironment, BoundRuntime, module_loader, package_worker, process_context,
+    },
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
 };
@@ -42,12 +45,21 @@ enum ExecutionCommand {
 }
 
 impl DenoExecutionHandle {
-    pub(crate) fn new(bound: BoundRuntime) -> Self {
+    pub(crate) fn new(
+        bound: BoundRuntime,
+        cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let isolate_handle = Arc::new(Mutex::new(None));
         let worker_isolate_handle = isolate_handle.clone();
-        let join_handle =
-            thread::spawn(move || run_worker_thread(bound, receiver, worker_isolate_handle));
+        let join_handle = thread::spawn(move || {
+            run_worker_thread(
+                bound,
+                cli_snapshot_eligible,
+                receiver,
+                worker_isolate_handle,
+            )
+        });
         Self {
             inner: Arc::new(DenoExecutionHandleInner {
                 sender,
@@ -161,6 +173,7 @@ impl Drop for DenoExecutionHandleInner {
 
 fn run_worker_thread(
     bound: BoundRuntime,
+    cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
     receiver: mpsc::Receiver<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
 ) {
@@ -185,7 +198,7 @@ fn run_worker_thread(
     };
     let mut context = {
         let _process_context = process_context::blocking_guard();
-        match DenoExecutionContext::new(bound, &runtime) {
+        match DenoExecutionContext::new(bound, cli_snapshot_eligible, &runtime) {
             Ok(context) => context,
             Err(error) => {
                 while let Ok(command) = receiver.recv() {
@@ -203,7 +216,7 @@ fn run_worker_thread(
     *isolate_handle
         .lock()
         .expect("execution isolate handle lock should not be poisoned") =
-        Some(context.js_runtime.v8_isolate().thread_safe_handle());
+        Some(context.js_runtime().v8_isolate().thread_safe_handle());
 
     while let Ok(command) = receiver.recv() {
         match command {
@@ -222,50 +235,68 @@ fn run_worker_thread(
     runtime.shutdown_background();
 }
 
+enum ExecutionBackend {
+    Lightweight(Box<JsRuntime>),
+    Package(Box<LibMainWorker>),
+}
+
 struct DenoExecutionContext {
     bound: BoundRuntime,
-    js_runtime: JsRuntime,
+    backend: ExecutionBackend,
     main_module: ModuleSpecifier,
     run_function: Option<v8::Global<v8::Function>>,
 }
 
 impl DenoExecutionContext {
-    fn new(bound: BoundRuntime, tokio_runtime: &tokio::runtime::Runtime) -> ExecutionResult<Self> {
+    fn new(
+        bound: BoundRuntime,
+        cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
+        tokio_runtime: &tokio::runtime::Runtime,
+    ) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
-        let js_runtime = if let Some(package_environment) = bound.package_environment() {
-            tokio_runtime.block_on(create_js_runtime_with_packages(
+        let backend = if let Some(package_environment) = bound.package_environment() {
+            ExecutionBackend::Package(Box::new(tokio_runtime.block_on(create_package_worker(
                 &bound,
                 package_environment,
                 main_module.clone(),
-            ))?
+                cli_snapshot_eligible,
+            ))?))
         } else {
-            create_js_runtime(&bound)?
+            ExecutionBackend::Lightweight(Box::new(create_js_runtime(&bound)?))
         };
         Ok(Self {
             bound,
-            js_runtime,
+            backend,
             main_module,
             run_function: None,
         })
+    }
+
+    fn js_runtime(&mut self) -> &mut JsRuntime {
+        match &mut self.backend {
+            ExecutionBackend::Lightweight(js_runtime) => js_runtime,
+            ExecutionBackend::Package(worker) => worker.js_runtime(),
+        }
     }
 
     async fn invoke(&mut self, arguments: RunnerArguments) -> ExecutionResult<PyJsValue> {
         self.ensure_loaded().await?;
         let run_function = self
             .run_function
-            .as_ref()
+            .clone()
             .ok_or_else(|| BindingError::missing_run_export(self.bound.description()))?;
+        let run_signature = self.bound.run_signature().cloned();
         let args = {
-            deno_core::scope!(scope, &mut self.js_runtime);
-            arguments.to_v8_globals(scope, self.bound.run_signature())?
+            deno_core::scope!(scope, self.js_runtime());
+            arguments.to_v8_globals(scope, run_signature.as_ref())?
         };
-        let call = self.js_runtime.call_with_args(run_function, &args);
+        let call = self.js_runtime().call_with_args(&run_function, &args);
         let result = self
-            .js_runtime
+            .js_runtime()
             .with_event_loop_promise(call, PollEventLoopOptions::default())
             .await
             .map_err(|error| BindingError::javascript(error.to_string()))?;
-        deno_core::scope!(scope, &mut self.js_runtime);
+        deno_core::scope!(scope, self.js_runtime());
         let result = v8::Local::new(scope, result);
         PyJsValue::from_v8(scope, result)
     }
@@ -275,13 +306,25 @@ impl DenoExecutionContext {
             return Ok(());
         }
 
-        let module_id = if self.bound.package_environment().is_some() {
-            self.js_runtime
-                .load_main_es_module(&self.main_module)
-                .await
-                .map_err(|error| BindingError::module_load(error.to_string()))?
-        } else {
-            self.js_runtime
+        let module_id = match &mut self.backend {
+            ExecutionBackend::Package(worker) => {
+                let module_id = worker
+                    .js_runtime()
+                    .load_main_es_module(&self.main_module)
+                    .await
+                    .map_err(|error| BindingError::module_load(error.to_string()))?;
+                let result = worker.js_runtime().mod_evaluate(module_id);
+                worker
+                    .js_runtime()
+                    .run_event_loop(Default::default())
+                    .await
+                    .map_err(map_core_error)?;
+                result
+                    .await
+                    .map_err(|error| BindingError::javascript(error.to_string()))?;
+                module_id
+            }
+            ExecutionBackend::Lightweight(js_runtime) => js_runtime
                 .load_main_es_module_from_code(
                     &self.main_module,
                     module_loader::maybe_transpile_source(
@@ -291,24 +334,27 @@ impl DenoExecutionContext {
                     .map_err(|error| BindingError::module_load(error.to_string()))?,
                 )
                 .await
-                .map_err(|error| BindingError::module_load(error.to_string()))?
+                .map_err(|error| BindingError::module_load(error.to_string()))?,
         };
 
-        let result = self.js_runtime.mod_evaluate(module_id);
-        self.js_runtime
-            .run_event_loop(Default::default())
-            .await
-            .map_err(map_core_error)?;
-        result
-            .await
-            .map_err(|error| BindingError::javascript(error.to_string()))?;
+        if matches!(self.backend, ExecutionBackend::Lightweight(_)) {
+            let js_runtime = self.js_runtime();
+            let result = js_runtime.mod_evaluate(module_id);
+            js_runtime
+                .run_event_loop(Default::default())
+                .await
+                .map_err(map_core_error)?;
+            result
+                .await
+                .map_err(|error| BindingError::javascript(error.to_string()))?;
+        }
 
         let namespace = self
-            .js_runtime
+            .js_runtime()
             .get_module_namespace(module_id)
             .map_err(|error| BindingError::module_load(error.to_string()))?;
         let description = self.bound.description();
-        let run_function = resolve_run_function(&mut self.js_runtime, namespace, &description)?;
+        let run_function = resolve_run_function(self.js_runtime(), namespace, &description)?;
 
         self.run_function = Some(run_function);
         Ok(())
@@ -344,33 +390,34 @@ fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
     }))
 }
 
-async fn create_js_runtime_with_packages(
+async fn create_package_worker(
     bound: &BoundRuntime,
     package_environment: &BoundPackageEnvironment,
     main_module: ModuleSpecifier,
-) -> ExecutionResult<JsRuntime> {
+    cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
+) -> ExecutionResult<LibMainWorker> {
     let context = package_environment.embed_context_rc()?;
     let state = Arc::new(
         prepare_package_runtime(
-            context,
-            main_module,
+            context.clone(),
+            main_module.clone(),
             Some(bound.script().content().to_string()),
             HashMap::new(),
         )
         .await
         .map_err(|error| BindingError::runtime(error.to_string()))?,
     );
-    Ok(JsRuntime::new(RuntimeOptions {
-        module_loader: Some(Rc::new(module_loader::PackageAwareModuleLoader::new(
-            state,
-            bound.cwd().to_path_buf(),
-        ))),
-        create_params: bound
-            .js_runtime_options()
-            .to_create_params()
-            .map_err(BindingError::runtime)?,
-        ..Default::default()
-    }))
+    package_worker::create_package_worker(
+        state,
+        context,
+        bound.cwd().to_path_buf(),
+        main_module,
+        package_worker::PackageWorkerOptions {
+            argv: Vec::new(),
+            argv0: None,
+            use_cli_snapshot: cli_snapshot_eligible(),
+        },
+    )
 }
 
 fn resolve_run_function(

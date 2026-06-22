@@ -337,8 +337,8 @@ export default async function run() {
             result = runtime(Script(source))()
 
     assert "module is not defined" not in result.get("message", "")
-    if result.get("loaded"):
-        assert result["answer"] == 42
+    assert result["loaded"] is True
+    assert result["answer"] == 42
 
 
 def test_environment_install_does_not_misload_mixed_cjs_file_dependency_as_esm(
@@ -372,8 +372,8 @@ export default async function run() {
 
     assert result["version"] == "7.0.0"
     assert "module is not defined" not in result.get("message", "")
-    if result.get("loaded"):
-        assert result["answer"] == 42
+    assert result["loaded"] is True
+    assert result["answer"] == 42
 
 
 def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_install(
