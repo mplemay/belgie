@@ -10,7 +10,8 @@ use deno_npm_cache::{hard_link_file, is_etxtbsy};
 use crate::embed::EmbedContextOptions;
 use crate::embed::sys::EmbedSys;
 use crate::synthetic_config::{
-    is_registry_import_specifier, read_synthetic_config_imports, write_synthetic_config_document,
+    is_node_modules_import_specifier, is_registry_import_specifier, read_synthetic_config_document,
+    read_synthetic_config_imports, synthetic_config_imports_mut, write_synthetic_config_document,
 };
 use crate::utils::symlink::remove_symlink_if_present;
 
@@ -50,21 +51,6 @@ impl DependencyLayout {
 
     pub(crate) fn is_mixed(self) -> bool {
         self.has_local && self.has_registry
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SyntheticConfigPhase {
-    InitialInstall,
-    PostInstall,
-}
-
-impl SyntheticConfigPhase {
-    fn include_local_file_imports(self, layout: DependencyLayout) -> bool {
-        match self {
-            Self::PostInstall => true,
-            Self::InitialInstall => !layout.is_mixed(),
-        }
     }
 }
 
@@ -123,9 +109,9 @@ pub(crate) fn write_synthetic_config(
     path: &Path,
     dependencies: &[PackageDependency],
     layout: DependencyLayout,
-    phase: SyntheticConfigPhase,
+    include_local_file_imports: bool,
 ) -> Result<(), AnyError> {
-    let imports = synthetic_imports(dependencies, phase.include_local_file_imports(layout))?;
+    let imports = synthetic_imports(dependencies, include_local_file_imports)?;
     let node_modules_dir = if layout.manual_node_modules {
         "manual"
     } else {
@@ -135,6 +121,30 @@ pub(crate) fn write_synthetic_config(
       "imports": imports,
       "nodeModulesDir": node_modules_dir,
     });
+    write_synthetic_config_document(path, &config)
+}
+
+pub(crate) fn refresh_local_file_imports_in_synthetic_config(
+    path: &Path,
+    dependencies: &[PackageDependency],
+    layout: DependencyLayout,
+) -> Result<(), AnyError> {
+    let mut config = read_synthetic_config_document(path)?;
+    let local_imports = synthetic_imports(dependencies, true)?;
+    let imports = synthetic_config_imports_mut(&mut config)?;
+    imports.retain(|_, value| !value.as_str().is_some_and(is_node_modules_import_specifier));
+    for (alias, specifier) in local_imports {
+        if !is_node_modules_import_specifier(&specifier) {
+            continue;
+        }
+        imports.insert(alias, serde_json::Value::String(specifier));
+    }
+    let node_modules_dir = if layout.manual_node_modules {
+        "manual"
+    } else {
+        "auto"
+    };
+    config["nodeModulesDir"] = serde_json::Value::String(node_modules_dir.to_string());
     write_synthetic_config_document(path, &config)
 }
 
@@ -632,13 +642,7 @@ mod tests {
         let dependencies = vec![normalize_dependency(temp_dir.path(), "react", "^19").unwrap()];
         let layout = DependencyLayout::from_dependencies(&dependencies);
 
-        write_synthetic_config(
-            &config_path,
-            &dependencies,
-            layout,
-            SyntheticConfigPhase::PostInstall,
-        )
-        .unwrap();
+        write_synthetic_config(&config_path, &dependencies, layout, true).unwrap();
 
         let text = fs::read_to_string(config_path).unwrap();
         let config: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -654,13 +658,7 @@ mod tests {
             vec![normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap()];
         let layout = DependencyLayout::from_dependencies(&dependencies);
 
-        write_synthetic_config(
-            &config_path,
-            &dependencies,
-            layout,
-            SyntheticConfigPhase::PostInstall,
-        )
-        .unwrap();
+        write_synthetic_config(&config_path, &dependencies, layout, true).unwrap();
 
         let text = fs::read_to_string(config_path).unwrap();
         let config: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -682,13 +680,7 @@ mod tests {
         ];
         let layout = DependencyLayout::from_dependencies(&dependencies);
 
-        write_synthetic_config(
-            &config_path,
-            &dependencies,
-            layout,
-            SyntheticConfigPhase::PostInstall,
-        )
-        .unwrap();
+        write_synthetic_config(&config_path, &dependencies, layout, true).unwrap();
 
         let text = fs::read_to_string(config_path).unwrap();
         let config: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -711,19 +703,48 @@ mod tests {
         ];
         let layout = DependencyLayout::from_dependencies(&dependencies);
 
-        write_synthetic_config(
-            &config_path,
-            &dependencies,
-            layout,
-            SyntheticConfigPhase::InitialInstall,
-        )
-        .unwrap();
+        write_synthetic_config(&config_path, &dependencies, layout, false).unwrap();
 
         let text = fs::read_to_string(config_path).unwrap();
         let config: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(config["imports"]["react"], "npm:react@^19");
         assert!(config["imports"].get("local-pkg").is_none());
         assert!(config["imports"].get("local-pkg/").is_none());
+        assert_eq!(config["nodeModulesDir"], "auto");
+    }
+
+    #[test]
+    fn refresh_local_file_imports_preserves_updated_registry_specifiers() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("deno.json");
+        let dependencies = vec![
+            normalize_dependency(temp_dir.path(), "is_number", "npm:is-number@6.0.0").unwrap(),
+            normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap(),
+        ];
+        let layout = DependencyLayout::from_dependencies(&dependencies);
+        write_synthetic_config(&config_path, &dependencies, layout, true).unwrap();
+
+        let mut config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["imports"]["is_number"] =
+            serde_json::Value::String("npm:is-number@7.0.0".to_string());
+        fs::write(
+            &config_path,
+            format!("{}\n", serde_json::to_string_pretty(&config).unwrap()),
+        )
+        .unwrap();
+
+        refresh_local_file_imports_in_synthetic_config(&config_path, &dependencies, layout)
+            .unwrap();
+
+        let config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        assert_eq!(config["imports"]["is_number"], "npm:is-number@7.0.0");
+        assert_eq!(
+            config["imports"]["local-pkg"],
+            "./node_modules/local-pkg/index.js"
+        );
+        assert_eq!(config["imports"]["local-pkg/"], "./node_modules/local-pkg/");
         assert_eq!(config["nodeModulesDir"], "auto");
     }
 

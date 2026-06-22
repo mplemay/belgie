@@ -11,9 +11,10 @@ mod materialize;
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
     DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest,
-    EnvironmentUpdateResult, PackageDependency, SyntheticConfigPhase, dependencies_from_mapping,
+    EnvironmentUpdateResult, PackageDependency, dependencies_from_mapping,
     has_tracked_local_file_dependencies, install_environment_packages,
-    sync_local_file_dependencies, update_environment_packages, write_synthetic_config,
+    refresh_local_file_imports_in_synthetic_config, sync_local_file_dependencies,
+    update_environment_packages, write_synthetic_config,
 };
 
 #[derive(Clone, Debug)]
@@ -303,7 +304,7 @@ fn prepare_install_layout(
         &config_file,
         &definition.dependencies,
         definition.layout,
-        SyntheticConfigPhase::InitialInstall,
+        !definition.layout.is_mixed(),
     )?;
     std::fs::create_dir_all(&cache_root)
         .with_context(|| format!("Creating {}", cache_root.display()))?;
@@ -437,11 +438,10 @@ impl ActiveEnvironment {
             self.sync_local_file_dependencies()?;
         }
         if self.layout.has_local {
-            write_synthetic_config(
+            refresh_local_file_imports_in_synthetic_config(
                 &self.config_file,
                 &self.dependencies,
                 self.layout,
-                SyntheticConfigPhase::PostInstall,
             )?;
         }
         Ok(())

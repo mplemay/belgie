@@ -605,13 +605,16 @@ def test_environment_update_skips_file_imports_in_mixed_environment(
     local_file_package,
 ):
     monkeypatch.chdir(tmp_path)
-    local_file_package(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    local_file_package(project)
 
     with Environment(
         {
             "local-pkg": "file:./local-pkg",
             "is_number": "npm:is-number@6.0.0",
         },
+        path=project,
     ) as env:
         env.install()
         result = env.update(["is_number@7.0.0"], lockfile_only=True)
@@ -620,6 +623,11 @@ def test_environment_update_skips_file_imports_in_mixed_environment(
     assert result.changes[0].name == "is_number"
     assert result.changes[0].previous == "npm:is-number@6.0.0"
     assert result.changes[0].updated == "npm:is-number@7.0.0"
+
+    config = json.loads((project / "deno.json").read_text(encoding="utf-8"))
+    assert config["imports"]["is_number"] == "npm:is-number@7.0.0"
+    assert config["imports"]["local-pkg"] == "./node_modules/local-pkg/index.js"
+    assert config["imports"]["local-pkg/"] == "./node_modules/local-pkg/"
 
 
 def test_direct_environment_installs_jsr_dependency_without_project_files(tmp_path: Path, monkeypatch):
