@@ -59,11 +59,7 @@ impl RuntimeSession {
                 .expect("runtime package environment lock should not be poisoned")
                 .clone(),
         );
-        let cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync> = {
-            let session = Arc::clone(session);
-            Arc::new(move || session.cli_snapshot_eligible())
-        };
-        let handle = DenoExecutionHandle::new(bound, cli_snapshot_eligible);
+        let handle = DenoExecutionHandle::new(bound, Arc::clone(session));
         session
             .scripts
             .lock()
@@ -89,16 +85,12 @@ impl RuntimeSession {
                     "Commands require an active Environment with package dependencies",
                 )
             })?;
-        let cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync> = {
-            let session = Arc::clone(&session);
-            Arc::new(move || session.cli_snapshot_eligible())
-        };
         let handle = CommandExecutionHandle::spawn(CommandExecutionOptions {
             package_environment,
             runtime_root: session.runtime.cwd().to_path_buf(),
             command,
             argv,
-            cli_snapshot_eligible,
+            session: Arc::clone(&session),
         });
         session
             .commands
@@ -162,7 +154,7 @@ impl RuntimeSession {
         }
     }
 
-    fn cli_snapshot_eligible(&self) -> bool {
+    pub(crate) fn cli_snapshot_eligible(&self) -> bool {
         let scripts = self
             .scripts
             .lock()

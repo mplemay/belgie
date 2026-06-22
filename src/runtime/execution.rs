@@ -7,19 +7,19 @@ use std::{
 };
 
 use deno_core::{
-    JsRuntime, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions, error::CoreError, v8,
+    JsRuntime, ModuleId, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions, error::CoreError,
+    v8,
 };
 use deno_lib::worker::LibMainWorker;
 use tokio::sync::oneshot;
 
 use crate::{
-    embed::prepare_package_runtime,
-    runtime::{
-        BoundPackageEnvironment, BoundRuntime, module_loader, package_worker, process_context,
-    },
+    runtime::{module_loader, package_worker, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
 };
+
+use super::{BoundRuntime, RuntimeSession};
 
 type ExecutionResult<T> = Result<T, BindingError>;
 
@@ -45,20 +45,12 @@ enum ExecutionCommand {
 }
 
 impl DenoExecutionHandle {
-    pub(crate) fn new(
-        bound: BoundRuntime,
-        cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
-    ) -> Self {
+    pub(crate) fn new(bound: BoundRuntime, session: Arc<RuntimeSession>) -> Self {
         let (sender, receiver) = mpsc::channel();
         let isolate_handle = Arc::new(Mutex::new(None));
         let worker_isolate_handle = isolate_handle.clone();
         let join_handle = thread::spawn(move || {
-            run_worker_thread(
-                bound,
-                cli_snapshot_eligible,
-                receiver,
-                worker_isolate_handle,
-            )
+            run_worker_thread(bound, session, receiver, worker_isolate_handle)
         });
         Self {
             inner: Arc::new(DenoExecutionHandleInner {
@@ -173,7 +165,7 @@ impl Drop for DenoExecutionHandleInner {
 
 fn run_worker_thread(
     bound: BoundRuntime,
-    cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
+    session: Arc<RuntimeSession>,
     receiver: mpsc::Receiver<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
 ) {
@@ -198,7 +190,10 @@ fn run_worker_thread(
     };
     let mut context = {
         let _process_context = process_context::blocking_guard();
-        match DenoExecutionContext::new(bound, cli_snapshot_eligible, &runtime) {
+        match runtime.block_on(DenoExecutionContext::new(
+            bound,
+            session.cli_snapshot_eligible(),
+        )) {
             Ok(context) => context,
             Err(error) => {
                 while let Ok(command) = receiver.recv() {
@@ -248,19 +243,25 @@ struct DenoExecutionContext {
 }
 
 impl DenoExecutionContext {
-    fn new(
-        bound: BoundRuntime,
-        cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
-        tokio_runtime: &tokio::runtime::Runtime,
-    ) -> ExecutionResult<Self> {
+    async fn new(bound: BoundRuntime, use_cli_snapshot: bool) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
         let backend = if let Some(package_environment) = bound.package_environment() {
-            ExecutionBackend::Package(Box::new(tokio_runtime.block_on(create_package_worker(
-                &bound,
-                package_environment,
-                main_module.clone(),
-                cli_snapshot_eligible,
-            ))?))
+            let context = package_environment.embed_context_rc()?;
+            ExecutionBackend::Package(Box::new(
+                package_worker::create_bound_package_worker(
+                    context,
+                    bound.cwd().to_path_buf(),
+                    main_module.clone(),
+                    package_worker::BoundPackageWorkerOptions {
+                        argv: Vec::new(),
+                        argv0: None,
+                        use_cli_snapshot,
+                        main_source: Some(bound.script().content().to_string()),
+                        header_overrides: HashMap::new(),
+                    },
+                )
+                .await?,
+            ))
         } else {
             ExecutionBackend::Lightweight(Box::new(create_js_runtime(&bound)?))
         };
@@ -308,21 +309,11 @@ impl DenoExecutionContext {
 
         let module_id = match &mut self.backend {
             ExecutionBackend::Package(worker) => {
-                let module_id = worker
-                    .js_runtime()
+                let js_runtime = worker.js_runtime();
+                js_runtime
                     .load_main_es_module(&self.main_module)
                     .await
-                    .map_err(|error| BindingError::module_load(error.to_string()))?;
-                let result = worker.js_runtime().mod_evaluate(module_id);
-                worker
-                    .js_runtime()
-                    .run_event_loop(Default::default())
-                    .await
-                    .map_err(map_core_error)?;
-                result
-                    .await
-                    .map_err(|error| BindingError::javascript(error.to_string()))?;
-                module_id
+                    .map_err(|error| BindingError::module_load(error.to_string()))?
             }
             ExecutionBackend::Lightweight(js_runtime) => js_runtime
                 .load_main_es_module_from_code(
@@ -337,17 +328,7 @@ impl DenoExecutionContext {
                 .map_err(|error| BindingError::module_load(error.to_string()))?,
         };
 
-        if matches!(self.backend, ExecutionBackend::Lightweight(_)) {
-            let js_runtime = self.js_runtime();
-            let result = js_runtime.mod_evaluate(module_id);
-            js_runtime
-                .run_event_loop(Default::default())
-                .await
-                .map_err(map_core_error)?;
-            result
-                .await
-                .map_err(|error| BindingError::javascript(error.to_string()))?;
-        }
+        evaluate_loaded_module(self.js_runtime(), module_id).await?;
 
         let namespace = self
             .js_runtime()
@@ -359,6 +340,20 @@ impl DenoExecutionContext {
         self.run_function = Some(run_function);
         Ok(())
     }
+}
+
+async fn evaluate_loaded_module(
+    js_runtime: &mut JsRuntime,
+    module_id: ModuleId,
+) -> ExecutionResult<()> {
+    let result = js_runtime.mod_evaluate(module_id);
+    js_runtime
+        .run_event_loop(Default::default())
+        .await
+        .map_err(map_core_error)?;
+    result
+        .await
+        .map_err(|error| BindingError::javascript(error.to_string()))
 }
 
 fn map_core_error(error: CoreError) -> BindingError {
@@ -388,36 +383,6 @@ fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
             .map_err(BindingError::runtime)?,
         ..Default::default()
     }))
-}
-
-async fn create_package_worker(
-    bound: &BoundRuntime,
-    package_environment: &BoundPackageEnvironment,
-    main_module: ModuleSpecifier,
-    cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
-) -> ExecutionResult<LibMainWorker> {
-    let context = package_environment.embed_context_rc()?;
-    let state = Arc::new(
-        prepare_package_runtime(
-            context.clone(),
-            main_module.clone(),
-            Some(bound.script().content().to_string()),
-            HashMap::new(),
-        )
-        .await
-        .map_err(|error| BindingError::runtime(error.to_string()))?,
-    );
-    package_worker::create_package_worker(
-        state,
-        context,
-        bound.cwd().to_path_buf(),
-        main_module,
-        package_worker::PackageWorkerOptions {
-            argv: Vec::new(),
-            argv0: None,
-            use_cli_snapshot: cli_snapshot_eligible(),
-        },
-    )
 }
 
 fn resolve_run_function(

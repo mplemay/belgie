@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -27,20 +28,19 @@ use node_resolver::errors::PackageJsonLoadError;
 use once_cell::sync::OnceCell;
 
 use crate::embed::sys::EmbedSys;
-use crate::embed::{EmbedContext, PackageRuntimeState};
+use crate::embed::{EmbedContext, PackageRuntimeState, prepare_package_runtime};
+use crate::runtime::error::map_package_environment_error;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 use crate::types::error::BindingError;
 
-pub(crate) struct PackageWorkerSnapshotOptions {
-    pub startup_snapshot: Option<&'static [u8]>,
-    pub residual_lazy_js_sources: &'static [(&'static str, &'static str)],
-    pub residual_lazy_esm_sources: &'static [(&'static str, &'static str)],
-    pub skip_op_registration: bool,
+struct PackageWorkerSnapshotOptions {
+    startup_snapshot: Option<&'static [u8]>,
+    residual_lazy_js_sources: &'static [(&'static str, &'static str)],
+    residual_lazy_esm_sources: &'static [(&'static str, &'static str)],
+    skip_op_registration: bool,
 }
 
-pub(crate) fn package_worker_snapshot_options(
-    use_cli_snapshot: bool,
-) -> PackageWorkerSnapshotOptions {
+fn package_worker_snapshot_options(use_cli_snapshot: bool) -> PackageWorkerSnapshotOptions {
     if use_cli_snapshot {
         PackageWorkerSnapshotOptions {
             startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
@@ -64,6 +64,82 @@ pub(crate) struct PackageWorkerOptions {
     pub use_cli_snapshot: bool,
 }
 
+pub(crate) struct BoundPackageWorkerOptions {
+    pub argv: Vec<String>,
+    pub argv0: Option<String>,
+    pub use_cli_snapshot: bool,
+    pub main_source: Option<String>,
+    pub header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+}
+
+pub(crate) async fn create_bound_package_worker(
+    context: Rc<EmbedContext>,
+    cwd: PathBuf,
+    main_module: ModuleSpecifier,
+    options: BoundPackageWorkerOptions,
+) -> Result<LibMainWorker, BindingError> {
+    let state = Arc::new(
+        prepare_package_runtime(
+            context.clone(),
+            main_module.clone(),
+            options.main_source,
+            options.header_overrides,
+        )
+        .await
+        .map_err(map_package_environment_error)?,
+    );
+    create_package_worker(
+        state,
+        context,
+        cwd,
+        main_module,
+        PackageWorkerOptions {
+            argv: options.argv,
+            argv0: options.argv0,
+            use_cli_snapshot: options.use_cli_snapshot,
+        },
+    )
+}
+
+fn default_lib_main_worker_options(
+    cwd: &Path,
+    snapshot: PackageWorkerSnapshotOptions,
+    argv: Vec<String>,
+    argv0: Option<String>,
+) -> LibMainWorkerOptions {
+    LibMainWorkerOptions {
+        argv,
+        log_level: WorkerLogLevel::Info,
+        enable_raw_imports: false,
+        enable_testing_features: false,
+        has_node_modules_dir: true,
+        inspect_brk: false,
+        inspect_wait: false,
+        trace_ops: None,
+        is_inspecting: false,
+        is_standalone: false,
+        auto_serve: false,
+        location: None,
+        argv0,
+        node_debug: std::env::var("NODE_DEBUG").ok(),
+        node_cluster_unique_id: std::env::var("NODE_UNIQUE_ID").ok(),
+        node_cluster_sched_policy: std::env::var("NODE_CLUSTER_SCHED_POLICY").ok(),
+        otel_config: Default::default(),
+        origin_data_folder_path: None,
+        seed: None,
+        unsafely_ignore_certificate_errors: None,
+        skip_op_registration: snapshot.skip_op_registration,
+        node_ipc_init: None,
+        no_legacy_abort: true,
+        startup_snapshot: snapshot.startup_snapshot,
+        residual_lazy_js_sources: snapshot.residual_lazy_js_sources,
+        residual_lazy_esm_sources: snapshot.residual_lazy_esm_sources,
+        serve_port: None,
+        serve_host: None,
+        maybe_initial_cwd: ModuleSpecifier::from_directory_path(cwd).ok(),
+    }
+}
+
 pub(crate) fn create_package_worker(
     state: Arc<PackageRuntimeState>,
     context: Rc<EmbedContext>,
@@ -74,17 +150,17 @@ pub(crate) fn create_package_worker(
     let resolver_factory = context.resolver_factory();
     let npm_resolver = resolver_factory
         .npm_resolver()
-        .map_err(package_worker_error)?;
+        .map_err(map_package_environment_error)?;
     let node_resolver = resolver_factory
         .node_resolver()
-        .map_err(package_worker_error)?
+        .map_err(map_package_environment_error)?
         .clone();
     let module_loader_factory = Box::new(BelgieModuleLoaderFactory {
         state,
         initial_cwd: cwd.clone(),
         cjs_tracker: resolver_factory
             .cjs_tracker()
-            .map_err(package_worker_error)?
+            .map_err(map_package_environment_error)?
             .clone(),
         npm_resolver: npm_resolver.clone(),
         memory_files: context.memory_files().clone(),
@@ -111,37 +187,7 @@ pub(crate) fn create_package_worker(
         Arc::new(BelgieRootCertStoreProvider::default()),
         StorageKeyResolver::empty(),
         EmbedSys::default(),
-        LibMainWorkerOptions {
-            argv: options.argv,
-            log_level: WorkerLogLevel::Info,
-            enable_raw_imports: false,
-            enable_testing_features: false,
-            has_node_modules_dir: true,
-            inspect_brk: false,
-            inspect_wait: false,
-            trace_ops: None,
-            is_inspecting: false,
-            is_standalone: false,
-            auto_serve: false,
-            location: None,
-            argv0: options.argv0,
-            node_debug: std::env::var("NODE_DEBUG").ok(),
-            node_cluster_unique_id: std::env::var("NODE_UNIQUE_ID").ok(),
-            node_cluster_sched_policy: std::env::var("NODE_CLUSTER_SCHED_POLICY").ok(),
-            otel_config: Default::default(),
-            origin_data_folder_path: None,
-            seed: None,
-            unsafely_ignore_certificate_errors: None,
-            skip_op_registration: snapshot_options.skip_op_registration,
-            node_ipc_init: None,
-            no_legacy_abort: true,
-            startup_snapshot: snapshot_options.startup_snapshot,
-            residual_lazy_js_sources: snapshot_options.residual_lazy_js_sources,
-            residual_lazy_esm_sources: snapshot_options.residual_lazy_esm_sources,
-            serve_port: None,
-            serve_host: None,
-            maybe_initial_cwd: ModuleSpecifier::from_directory_path(&cwd).ok(),
-        },
+        default_lib_main_worker_options(&cwd, snapshot_options, options.argv, options.argv0),
         LibWorkerFactoryRoots::default(),
         None,
     )
@@ -153,12 +199,6 @@ pub(crate) fn create_package_worker(
         Vec::new(),
     )
     .map_err(|error| BindingError::runtime(error.to_string()))
-}
-
-fn package_worker_error(error: impl std::fmt::Display) -> BindingError {
-    BindingError::runtime(format!(
-        "Environment dependencies are missing or out of date: {error}"
-    ))
 }
 
 #[derive(Debug)]
@@ -220,10 +260,19 @@ impl NodeRequireLoader for BelgieNodeRequireLoader {
     fn load_text_file_lossy(&self, path: &Path) -> Result<FastString, JsErrorBox> {
         let specifier = deno_path_util::url_from_file_path(path).map_err(JsErrorBox::from_err)?;
         if let Some(file) = self.memory_files.get(&specifier) {
-            return Ok(String::from_utf8_lossy(&file.source).into_owned().into());
+            let source = file.source.as_ref();
+            return Ok(match std::str::from_utf8(source) {
+                Ok(text) => text.to_string().into(),
+                Err(_) => String::from_utf8_lossy(source).into_owned().into(),
+            });
         }
         let bytes = std::fs::read(path).map_err(JsErrorBox::from_err)?;
-        Ok(String::from_utf8_lossy(&bytes).into_owned().into())
+        Ok(match String::from_utf8(bytes) {
+            Ok(text) => text.into(),
+            Err(error) => String::from_utf8_lossy(error.as_bytes())
+                .into_owned()
+                .into(),
+        })
     }
 
     fn is_maybe_cjs(&self, specifier: &ModuleSpecifier) -> Result<bool, PackageJsonLoadError> {
@@ -270,11 +319,14 @@ impl RootCertStoreProvider for BelgieRootCertStoreProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::package_worker_snapshot_options;
+    use std::path::Path;
+
+    use super::{default_lib_main_worker_options, package_worker_snapshot_options};
 
     #[test]
     fn package_worker_snapshot_options_enable_snapshot_and_skip_op_registration() {
-        let options = package_worker_snapshot_options(true);
+        let snapshot = package_worker_snapshot_options(true);
+        let options = default_lib_main_worker_options(Path::new("."), snapshot, vec![], None);
         assert!(options.startup_snapshot.is_some());
         assert!(!options.residual_lazy_js_sources.is_empty());
         assert!(!options.residual_lazy_esm_sources.is_empty());
@@ -283,7 +335,8 @@ mod tests {
 
     #[test]
     fn package_worker_snapshot_options_disable_snapshot_and_op_skip_when_unavailable() {
-        let options = package_worker_snapshot_options(false);
+        let snapshot = package_worker_snapshot_options(false);
+        let options = default_lib_main_worker_options(Path::new("."), snapshot, vec![], None);
         assert!(options.startup_snapshot.is_none());
         assert!(options.residual_lazy_js_sources.is_empty());
         assert!(options.residual_lazy_esm_sources.is_empty());

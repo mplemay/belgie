@@ -13,13 +13,14 @@ use deno_lib::args::npm_pkg_req_ref_to_binary_command;
 use deno_resolver::workspace::{MappedResolution, ResolutionKind as WorkspaceResolutionKind};
 use deno_runtime::deno_os::{WatcherExitHandle, WatcherExited};
 use deno_semver::npm::NpmPackageReqReference;
-use node_resolver::BinValue;
+use node_resolver::{BinValue, NodeResolutionKind, ResolutionMode, UrlOrPath};
 use tokio::sync::{oneshot, watch};
 
+use super::{BoundPackageEnvironment, RuntimeSession, process_context};
 use crate::command::CommandSource;
-use crate::embed::{EmbedContext, js_content_type_header_overrides, prepare_package_runtime};
-use crate::runtime::package_worker::{self, PackageWorkerOptions};
-use crate::runtime::{BoundPackageEnvironment, process_context};
+use crate::embed::{EmbedContext, js_content_type_header_overrides};
+use crate::runtime::error::map_package_environment_error;
+use crate::runtime::package_worker::{self, BoundPackageWorkerOptions};
 use crate::types::error::BindingError;
 use crate::utils::cancel_guard::Cancel;
 
@@ -42,7 +43,7 @@ pub(crate) struct CommandExecutionOptions {
     pub(crate) runtime_root: PathBuf,
     pub(crate) command: CommandSource,
     pub(crate) argv: Vec<String>,
-    pub(crate) cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
+    pub(crate) session: Arc<RuntimeSession>,
 }
 
 impl CommandExecutionHandle {
@@ -166,7 +167,7 @@ async fn run_command(
                 command_name,
                 path,
                 options.argv,
-                options.cli_snapshot_eligible.clone(),
+                options.session.clone(),
                 &mut cancel_rx,
             )
             .await
@@ -184,19 +185,20 @@ async fn resolve_command(
         .npm_installer_factory()
         .initialize_npm_resolution_if_managed()
         .await
-        .map_err(package_error)?;
+        .map_err(map_package_environment_error)?;
     let resolver_factory = context.resolver_factory();
-    let cwd_url = deno_path_util::url_from_directory_path(cwd).map_err(package_error)?;
+    let cwd_url =
+        deno_path_util::url_from_directory_path(cwd).map_err(map_package_environment_error)?;
     let explicit_npm_specifier = command.starts_with("npm:");
     let specifier = if explicit_npm_specifier {
-        ModuleSpecifier::parse(command).map_err(package_error)?
+        ModuleSpecifier::parse(command).map_err(map_package_environment_error)?
     } else {
         match resolver_factory
             .workspace_resolver()
             .await
-            .map_err(package_error)?
+            .map_err(map_package_environment_error)?
             .resolve(command, &cwd_url, WorkspaceResolutionKind::Execution)
-            .map_err(package_error)?
+            .map_err(map_package_environment_error)?
         {
             MappedResolution::Normal { specifier, .. } => specifier,
             resolution => {
@@ -211,14 +213,46 @@ async fn resolve_command(
             "Command {command:?} resolved to {specifier}, but only npm package commands are supported"
         ))
     })?;
-    let npm_resolver = resolver_factory.npm_resolver().map_err(package_error)?;
+    let npm_resolver = resolver_factory
+        .npm_resolver()
+        .map_err(map_package_environment_error)?;
     let package_folder = npm_resolver
         .resolve_pkg_folder_from_deno_module_req(package_ref.req(), &cwd_url)
-        .map_err(package_error)?;
-    let node_resolver = resolver_factory.node_resolver().map_err(package_error)?;
-    let bin = node_resolver
-        .resolve_binary_export(&package_folder, package_ref.sub_path())
-        .map_err(package_error)?;
+        .map_err(map_package_environment_error)?;
+    let node_resolver = resolver_factory
+        .node_resolver()
+        .map_err(map_package_environment_error)?;
+    let bin = match node_resolver.resolve_binary_export(&package_folder, package_ref.sub_path()) {
+        Ok(bin) => bin,
+        Err(original_err) => {
+            let Some(sub_path) = package_ref.sub_path() else {
+                return Err(map_package_environment_error(original_err));
+            };
+            let specifier = node_resolver
+                .resolve_package_subpath_from_deno_module(
+                    &package_folder,
+                    Some(sub_path),
+                    None,
+                    ResolutionMode::Import,
+                    NodeResolutionKind::Execution,
+                )
+                .map_err(map_package_environment_error)?;
+            let path = match specifier {
+                UrlOrPath::Url(url) => {
+                    deno_path_util::url_to_file_path(&url).map_err(map_package_environment_error)?
+                }
+                UrlOrPath::Path(path) => path,
+            };
+            if !path.exists() {
+                return Err(map_package_environment_error(original_err));
+            }
+            if is_native_binary(&path) {
+                BinValue::Executable(path)
+            } else {
+                BinValue::JsFile(path)
+            }
+        }
+    };
     Ok((
         if explicit_npm_specifier {
             npm_pkg_req_ref_to_binary_command(&package_ref).to_string()
@@ -235,32 +269,29 @@ async fn run_js_command(
     command_name: String,
     script_path: PathBuf,
     argv: Vec<String>,
-    cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync>,
+    session: Arc<RuntimeSession>,
     cancel_rx: &mut watch::Receiver<bool>,
 ) -> CommandResult {
+    let use_cli_snapshot = session.cli_snapshot_eligible();
     let main_module = ModuleSpecifier::from_file_path(&script_path).map_err(|()| {
         BindingError::runtime(format!(
             "Could not convert command entrypoint {} to a file URL",
             script_path.display()
         ))
     })?;
-    let header_overrides = js_content_type_header_overrides(main_module.clone());
-    let state = std::sync::Arc::new(
-        prepare_package_runtime(context.clone(), main_module.clone(), None, header_overrides)
-            .await
-            .map_err(package_error)?,
-    );
-    let mut worker = package_worker::create_package_worker(
-        state,
+    let mut worker = package_worker::create_bound_package_worker(
         context,
-        cwd.clone(),
-        main_module,
-        PackageWorkerOptions {
+        cwd,
+        main_module.clone(),
+        BoundPackageWorkerOptions {
             argv,
             argv0: Some(command_name),
-            use_cli_snapshot: cli_snapshot_eligible(),
+            use_cli_snapshot,
+            main_source: None,
+            header_overrides: js_content_type_header_overrides(main_module),
         },
-    )?;
+    )
+    .await?;
 
     let isolate = worker.js_runtime().v8_isolate().thread_safe_handle();
     worker
@@ -395,12 +426,6 @@ fn command_exit_result(exit_code: i32) -> CommandResult {
             "Command exited with status {exit_code}"
         )))
     }
-}
-
-fn package_error(error: impl std::fmt::Display) -> BindingError {
-    BindingError::runtime(format!(
-        "Environment dependencies are missing or out of date: {error}"
-    ))
 }
 
 fn resolve_command_cwd(runtime_root: &Path, configured: Option<&Path>) -> CommandResult<PathBuf> {
@@ -583,25 +608,6 @@ mod tests {
     use std::fs;
 
     use super::resolve_command_cwd;
-    use crate::runtime::package_worker::package_worker_snapshot_options;
-
-    #[test]
-    fn cli_snapshot_options_enable_snapshot_and_skip_op_registration() {
-        let options = package_worker_snapshot_options(true);
-        assert!(options.startup_snapshot.is_some());
-        assert!(!options.residual_lazy_js_sources.is_empty());
-        assert!(!options.residual_lazy_esm_sources.is_empty());
-        assert!(options.skip_op_registration);
-    }
-
-    #[test]
-    fn cli_snapshot_options_disable_snapshot_and_op_skip_when_unavailable() {
-        let options = package_worker_snapshot_options(false);
-        assert!(options.startup_snapshot.is_none());
-        assert!(options.residual_lazy_js_sources.is_empty());
-        assert!(options.residual_lazy_esm_sources.is_empty());
-        assert!(!options.skip_op_registration);
-    }
 
     #[test]
     fn resolves_relative_command_cwd_against_runtime_root() {

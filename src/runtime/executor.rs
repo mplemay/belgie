@@ -33,7 +33,7 @@ mod tests {
     use super::{execute_async, execute_sync};
     use crate::{
         options::{RuntimeOptions, ScriptOptions},
-        runtime::{BoundRuntime, DenoExecutionHandle, DenoRuntime},
+        runtime::{BoundRuntime, DenoExecutionHandle, DenoRuntime, RuntimeSession},
         script::ScriptSource,
         types::runner::RunnerArguments,
     };
@@ -77,10 +77,11 @@ mod tests {
         })
     }
 
-    use std::sync::Arc;
-
     fn handle(bound: BoundRuntime) -> DenoExecutionHandle {
-        DenoExecutionHandle::new(bound, Arc::new(|| true))
+        let cwd = env::current_dir().expect("current dir should be available");
+        let session =
+            RuntimeSession::activate(DenoRuntime::new(RuntimeOptions::new(cwd))).expect("session");
+        DenoExecutionHandle::new(bound, session)
     }
 
     fn bound_inline(source: &str) -> BoundRuntime {
