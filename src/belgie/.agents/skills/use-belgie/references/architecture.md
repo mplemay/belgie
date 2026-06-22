@@ -12,7 +12,7 @@ Belgie bridges two layers:
 ```text
 Python                          Belgie
 ──────                          ──────
-Environment (optional)            └─ synthetic deno.json + temp cache/node_modules
+Environment (optional)            └─ in-memory import map + cache/node_modules
   └─ install() / lock() / update()
 Runtime (context manager)
   └─ run(Script) → runner(*args, **kwargs)

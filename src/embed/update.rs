@@ -15,9 +15,8 @@ use deno_semver::{Version, VersionReq};
 
 use crate::embed::context::{EmbedContext, EmbedContextOptions};
 use crate::embed::install::install_packages_with_options;
-use crate::synthetic_config::{
-    is_registry_import_specifier, read_synthetic_config_document, synthetic_config_imports,
-    synthetic_config_imports_mut, write_synthetic_config_document,
+use crate::packages::{
+    PackageDependency, import_map_value, is_registry_import_specifier, registry_imports,
 };
 
 struct FilterEntry {
@@ -27,48 +26,46 @@ struct FilterEntry {
 
 pub(crate) async fn update_packages(
     cwd: PathBuf,
-    config_file: PathBuf,
     lockfile: PathBuf,
     filters: Vec<String>,
     latest: bool,
     lockfile_only: bool,
     options: EmbedContextOptions,
-) -> Result<(), AnyError> {
+    mut dependencies: Vec<PackageDependency>,
+) -> Result<Vec<PackageDependency>, AnyError> {
     let filter_entries = parse_filters(&filters);
-    let mut config = read_synthetic_config_document(&config_file)?;
     let aliases_to_update =
-        resolve_aliases_to_update(synthetic_config_imports(&config)?, &filter_entries)?;
+        resolve_aliases_to_update(&registry_imports(&dependencies), &filter_entries)?;
     if aliases_to_update.is_empty() {
-        return Ok(());
+        return Ok(dependencies);
     }
 
     let context_options = options.clone().for_package_manager();
-    let context = EmbedContext::new_with_options(
-        cwd.clone(),
-        config_file.clone(),
-        lockfile.clone(),
-        context_options,
-    )?;
-    let imports = synthetic_config_imports_mut(&mut config)?;
+    let context = EmbedContext::new_with_options(cwd.clone(), lockfile.clone(), context_options)?;
 
     for alias in aliases_to_update {
-        let current = imports
-            .get(&alias)
-            .and_then(|value| value.as_str())
+        let dependency = dependencies
+            .iter_mut()
+            .find(|dependency| dependency.alias() == alias)
+            .expect("alias was validated by resolve_aliases_to_update");
+        let current = dependency
+            .registry_specifier()
             .expect("alias was validated by resolve_aliases_to_update");
         let explicit = filter_entries
             .iter()
             .find(|entry| entry.alias == alias)
             .and_then(|entry| entry.version_req.as_deref());
         let updated = resolve_updated_specifier(&context, current, latest, explicit).await?;
-        imports.insert(alias, serde_json::Value::String(updated));
+        dependency.set_registry_specifier(updated);
     }
 
-    write_synthetic_config_document(&config_file, &config)?;
-
-    install_packages_with_options(cwd, config_file, lockfile, lockfile_only, options)
+    let mut install_options = options;
+    if let Some(import_map) = &mut install_options.specified_import_map {
+        import_map.value = import_map_value(&dependencies)?;
+    }
+    install_packages_with_options(cwd, lockfile, lockfile_only, install_options)
         .await
-        .map(|_| ())
+        .map(|_| dependencies)
 }
 
 fn parse_filters(filters: &[String]) -> Vec<FilterEntry> {

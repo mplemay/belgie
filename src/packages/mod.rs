@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -9,15 +9,12 @@ use deno_npm_cache::{hard_link_file, is_etxtbsy};
 
 use crate::embed::EmbedContextOptions;
 use crate::embed::sys::EmbedSys;
-use crate::synthetic_config::{
-    is_node_modules_import_specifier, is_registry_import_specifier, read_synthetic_config_document,
-    read_synthetic_config_imports, synthetic_config_imports_mut, write_synthetic_config_document,
-};
 use crate::utils::symlink::remove_symlink_if_present;
 
 pub(crate) const EMPTY_DENO_LOCK: &str = "{\"version\":\"5\"}\n";
 const BELGIE_DIR: &str = ".belgie";
 const LOCAL_FILE_DEPS_STATE: &str = "local-file-deps.json";
+const LOCAL_PACKAGE_MARKER: &str = ".belgie-local-package";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PackageDependency {
@@ -48,10 +45,6 @@ impl DependencyLayout {
             manual_node_modules: has_local && !has_registry,
         }
     }
-
-    pub(crate) fn is_mixed(self) -> bool {
-        self.has_local && self.has_registry
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,6 +58,26 @@ enum PackageDependencyKind {
     },
 }
 
+impl PackageDependency {
+    pub(crate) fn alias(&self) -> &str {
+        &self.alias
+    }
+
+    pub(crate) fn registry_specifier(&self) -> Option<&str> {
+        match &self.kind {
+            PackageDependencyKind::ImportMap { specifier } => Some(specifier),
+            PackageDependencyKind::LocalFile { .. } => None,
+        }
+    }
+
+    pub(crate) fn set_registry_specifier(&mut self, specifier: String) {
+        let PackageDependencyKind::ImportMap { specifier: current } = &mut self.kind else {
+            return;
+        };
+        *current = specifier;
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct EnvironmentInstallResult {
     pub lockfile: PathBuf,
@@ -75,6 +88,7 @@ pub(crate) struct EnvironmentInstallResult {
 pub(crate) struct EnvironmentUpdateResult {
     pub lockfile: PathBuf,
     pub changes: Vec<EnvironmentUpdateChange>,
+    pub dependencies: Vec<PackageDependency>,
 }
 
 #[derive(Clone, Debug)]
@@ -86,9 +100,8 @@ pub(crate) struct EnvironmentUpdateChange {
 
 pub(crate) struct EnvironmentUpdateRequest {
     pub cwd: PathBuf,
-    pub config_file: PathBuf,
     pub lockfile: PathBuf,
-    pub dependencies: usize,
+    pub dependencies: Vec<PackageDependency>,
     pub packages: Vec<String>,
     pub latest: bool,
     pub lockfile_only: bool,
@@ -105,52 +118,36 @@ pub(crate) fn dependencies_from_mapping(
         .collect()
 }
 
-pub(crate) fn write_synthetic_config(
-    path: &Path,
-    dependencies: &[PackageDependency],
-    layout: DependencyLayout,
-    include_local_file_imports: bool,
-) -> Result<(), AnyError> {
-    let imports = synthetic_imports(dependencies, include_local_file_imports)?;
-    let node_modules_dir = if layout.manual_node_modules {
-        "manual"
-    } else {
-        "auto"
-    };
-    let config = serde_json::json!({
-      "imports": imports,
-      "nodeModulesDir": node_modules_dir,
-    });
-    write_synthetic_config_document(path, &config)
+pub(crate) fn is_registry_import_specifier(specifier: &str) -> bool {
+    specifier.starts_with("npm:") || specifier.starts_with("jsr:")
 }
 
-pub(crate) fn refresh_local_file_imports_in_synthetic_config(
-    path: &Path,
+pub(crate) fn import_map_value(
     dependencies: &[PackageDependency],
-    layout: DependencyLayout,
-) -> Result<(), AnyError> {
-    let mut config = read_synthetic_config_document(path)?;
-    let local_imports = synthetic_imports(dependencies, true)?;
-    let imports = synthetic_config_imports_mut(&mut config)?;
-    imports.retain(|_, value| !value.as_str().is_some_and(is_node_modules_import_specifier));
-    for (alias, specifier) in local_imports {
-        if !is_node_modules_import_specifier(&specifier) {
-            continue;
-        }
-        imports.insert(alias, serde_json::Value::String(specifier));
-    }
-    let node_modules_dir = if layout.manual_node_modules {
-        "manual"
-    } else {
-        "auto"
-    };
-    config["nodeModulesDir"] = serde_json::Value::String(node_modules_dir.to_string());
-    write_synthetic_config_document(path, &config)
+) -> Result<serde_json::Value, AnyError> {
+    Ok(serde_json::json!({
+        "imports": dependency_imports(dependencies)?,
+    }))
 }
 
-fn synthetic_imports(
+pub(crate) fn registry_imports(
     dependencies: &[PackageDependency],
-    include_local_file_imports: bool,
+) -> serde_json::Map<String, serde_json::Value> {
+    dependencies
+        .iter()
+        .filter_map(|dep| {
+            dep.registry_specifier().map(|specifier| {
+                (
+                    dep.alias.clone(),
+                    serde_json::Value::String(specifier.to_string()),
+                )
+            })
+        })
+        .collect()
+}
+
+fn dependency_imports(
+    dependencies: &[PackageDependency],
 ) -> Result<BTreeMap<String, String>, AnyError> {
     let mut imports = BTreeMap::new();
     for dep in dependencies {
@@ -162,9 +159,6 @@ fn synthetic_imports(
                 target_path,
                 entrypoint,
             } => {
-                if !include_local_file_imports {
-                    continue;
-                }
                 let entrypoint_rel = entrypoint.strip_prefix(target_path).with_context(|| {
                     format!(
                         "Entrypoint {} is not under package root {}",
@@ -247,9 +241,6 @@ fn remove_legacy_synthetic_package_json(path: &Path) -> Result<(), AnyError> {
 }
 
 fn maybe_remove_legacy_synthetic_package_json(install_root: &Path) -> Result<(), AnyError> {
-    if local_file_deps_state_path(install_root).is_file() {
-        return Ok(());
-    }
     remove_legacy_synthetic_package_json(&install_root.join("package.json"))
 }
 
@@ -261,7 +252,7 @@ pub(crate) fn sync_local_file_dependencies(
     maybe_remove_legacy_synthetic_package_json(install_root)?;
 
     let current = local_file_dependencies(dependencies);
-    let previous = read_tracked_local_file_aliases(install_root)?;
+    let previous = read_owned_local_file_aliases(install_root, node_modules_root)?;
 
     for alias in &previous {
         if current.contains_key(alias) {
@@ -271,7 +262,7 @@ pub(crate) fn sync_local_file_dependencies(
     }
 
     if current.is_empty() {
-        remove_tracked_local_file_aliases(install_root)?;
+        remove_legacy_local_file_state(install_root)?;
         return Ok(());
     }
 
@@ -284,26 +275,19 @@ pub(crate) fn sync_local_file_dependencies(
             materialize_local_package(target_path, &dest)?;
         }
     }
-    write_tracked_local_file_aliases(install_root, current.keys())
+    remove_legacy_local_file_state(install_root)
 }
 
 pub(crate) async fn install_environment_packages(
     cwd: PathBuf,
-    config_file: PathBuf,
     lockfile: PathBuf,
     dependencies: usize,
     lockfile_only: bool,
     options: EmbedContextOptions,
 ) -> Result<EnvironmentInstallResult, AnyError> {
     if dependencies > 0 {
-        crate::embed::install_packages_with_options(
-            cwd,
-            config_file,
-            lockfile.clone(),
-            lockfile_only,
-            options,
-        )
-        .await?;
+        crate::embed::install_packages_with_options(cwd, lockfile.clone(), lockfile_only, options)
+            .await?;
     }
     Ok(EnvironmentInstallResult {
         lockfile,
@@ -314,29 +298,31 @@ pub(crate) async fn install_environment_packages(
 pub(crate) async fn update_environment_packages(
     request: EnvironmentUpdateRequest,
 ) -> Result<EnvironmentUpdateResult, AnyError> {
-    if request.dependencies == 0 {
+    if request.dependencies.is_empty() {
         return Ok(EnvironmentUpdateResult {
             lockfile: request.lockfile,
             changes: Vec::new(),
+            dependencies: request.dependencies,
         });
     }
 
-    let before = read_synthetic_config_imports(&request.config_file)?;
-    crate::embed::update_packages(
+    let before = registry_imports(&request.dependencies);
+    let updated_dependencies = crate::embed::update_packages(
         request.cwd,
-        request.config_file.clone(),
         request.lockfile.clone(),
         request.packages,
         request.latest,
         request.lockfile_only,
         request.options,
+        request.dependencies,
     )
     .await?;
-    let after = read_synthetic_config_imports(&request.config_file)?;
+    let after = registry_imports(&updated_dependencies);
 
     Ok(EnvironmentUpdateResult {
         lockfile: request.lockfile,
         changes: update_changes_from_imports(&before, &after),
+        dependencies: updated_dependencies,
     })
 }
 
@@ -398,10 +384,6 @@ fn local_file_deps_state_path(install_root: &Path) -> PathBuf {
     install_root.join(BELGIE_DIR).join(LOCAL_FILE_DEPS_STATE)
 }
 
-pub(crate) fn has_tracked_local_file_dependencies(install_root: &Path) -> bool {
-    local_file_deps_state_path(install_root).is_file()
-}
-
 fn read_tracked_local_file_aliases(install_root: &Path) -> Result<Vec<String>, AnyError> {
     let path = local_file_deps_state_path(install_root);
     if !path.is_file() {
@@ -412,20 +394,55 @@ fn read_tracked_local_file_aliases(install_root: &Path) -> Result<Vec<String>, A
     serde_json::from_str(&text).with_context(|| format!("Parsing {}", path.display()))
 }
 
-fn write_tracked_local_file_aliases<'a>(
+fn read_owned_local_file_aliases(
     install_root: &Path,
-    aliases: impl IntoIterator<Item = &'a String>,
-) -> Result<(), AnyError> {
-    let path = local_file_deps_state_path(install_root);
-    let parent = path.parent().expect("state file path must have a parent");
-    std::fs::create_dir_all(parent).with_context(|| format!("Creating {}", parent.display()))?;
-    let aliases = aliases.into_iter().cloned().collect::<Vec<_>>();
-    let text = serde_json::to_string_pretty(&aliases)?;
-    std::fs::write(&path, format!("{text}\n"))
-        .with_context(|| format!("Writing {}", path.display()))
+    node_modules_root: &Path,
+) -> Result<Vec<String>, AnyError> {
+    let mut aliases = read_tracked_local_file_aliases(install_root)?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    aliases.extend(read_marked_local_file_aliases(node_modules_root)?);
+    Ok(aliases.into_iter().collect())
 }
 
-fn remove_tracked_local_file_aliases(install_root: &Path) -> Result<(), AnyError> {
+fn read_marked_local_file_aliases(node_modules_root: &Path) -> Result<Vec<String>, AnyError> {
+    if !node_modules_root.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut aliases = Vec::new();
+    for entry in std::fs::read_dir(node_modules_root)
+        .with_context(|| format!("Reading {}", node_modules_root.display()))?
+    {
+        let entry = entry.with_context(|| format!("Reading {}", node_modules_root.display()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if name.starts_with('@') && path.is_dir() {
+            aliases.extend(read_marked_scoped_local_file_aliases(&name, &path)?);
+        } else if path.join(LOCAL_PACKAGE_MARKER).is_file() {
+            aliases.push(name);
+        }
+    }
+    Ok(aliases)
+}
+
+fn read_marked_scoped_local_file_aliases(
+    scope: &str,
+    scope_root: &Path,
+) -> Result<Vec<String>, AnyError> {
+    let mut aliases = Vec::new();
+    for entry in std::fs::read_dir(scope_root)
+        .with_context(|| format!("Reading {}", scope_root.display()))?
+    {
+        let entry = entry.with_context(|| format!("Reading {}", scope_root.display()))?;
+        let package_path = entry.path();
+        if package_path.join(LOCAL_PACKAGE_MARKER).is_file() {
+            aliases.push(format!("{scope}/{}", entry.file_name().to_string_lossy()));
+        }
+    }
+    Ok(aliases)
+}
+
+fn remove_legacy_local_file_state(install_root: &Path) -> Result<(), AnyError> {
     let path = local_file_deps_state_path(install_root);
     if path.is_file() {
         std::fs::remove_file(&path).with_context(|| format!("Removing {}", path.display()))?;
@@ -481,7 +498,8 @@ fn remove_installed_local_package(path: &Path) -> Result<(), AnyError> {
     }
 }
 
-const SKIP_LOCAL_PACKAGE_ENTRIES: &[&str] = &["node_modules", ".deno", ".git"];
+const SKIP_LOCAL_PACKAGE_ENTRIES: &[&str] =
+    &["node_modules", ".deno", ".git", LOCAL_PACKAGE_MARKER];
 
 fn should_skip_local_package_entry(name: &str) -> bool {
     SKIP_LOCAL_PACKAGE_ENTRIES.contains(&name)
@@ -489,6 +507,9 @@ fn should_skip_local_package_entry(name: &str) -> bool {
 
 fn local_package_needs_sync(source: &Path, dest: &Path) -> Result<bool, AnyError> {
     if !dest.exists() {
+        return Ok(true);
+    }
+    if !dest.join(LOCAL_PACKAGE_MARKER).is_file() {
         return Ok(true);
     }
     let source_modified = dir_modified_time(source)?;
@@ -505,7 +526,12 @@ fn dir_modified_time(path: &Path) -> Result<SystemTime, AnyError> {
 fn materialize_local_package(source: &Path, dest: &Path) -> Result<(), AnyError> {
     let _ = std::fs::remove_dir_all(dest);
     std::fs::create_dir_all(dest).with_context(|| format!("Creating {}", dest.display()))?;
-    materialize_local_package_entries(&EmbedSys::default(), source, dest)
+    materialize_local_package_entries(&EmbedSys::default(), source, dest)?;
+    std::fs::write(
+        dest.join(LOCAL_PACKAGE_MARKER),
+        "belgie local file dependency\n",
+    )
+    .with_context(|| format!("Writing {}", dest.join(LOCAL_PACKAGE_MARKER).display()))
 }
 
 fn materialize_local_package_entries(
@@ -636,116 +662,52 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_config_contains_imports_and_enables_isolated_node_modules_dir() {
+    fn import_map_contains_registry_imports() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let config_path = temp_dir.path().join("deno.json");
         let dependencies = vec![normalize_dependency(temp_dir.path(), "react", "^19").unwrap()];
-        let layout = DependencyLayout::from_dependencies(&dependencies);
 
-        write_synthetic_config(&config_path, &dependencies, layout, true).unwrap();
+        let import_map = import_map_value(&dependencies).unwrap();
 
-        let text = fs::read_to_string(config_path).unwrap();
-        let config: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(config["imports"]["react"], "npm:react@^19");
-        assert_eq!(config["nodeModulesDir"], "auto");
+        assert_eq!(import_map["imports"]["react"], "npm:react@^19");
     }
 
     #[test]
-    fn synthetic_config_uses_manual_node_modules_for_file_only_dependencies() {
+    fn import_map_contains_file_dependency_imports() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let config_path = temp_dir.path().join("deno.json");
         let dependencies =
             vec![normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap()];
-        let layout = DependencyLayout::from_dependencies(&dependencies);
 
-        write_synthetic_config(&config_path, &dependencies, layout, true).unwrap();
+        let import_map = import_map_value(&dependencies).unwrap();
 
-        let text = fs::read_to_string(config_path).unwrap();
-        let config: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(
-            config["imports"]["local-pkg"],
+            import_map["imports"]["local-pkg"],
             "./node_modules/local-pkg/index.js"
         );
-        assert_eq!(config["imports"]["local-pkg/"], "./node_modules/local-pkg/");
-        assert_eq!(config["nodeModulesDir"], "manual");
+        assert_eq!(
+            import_map["imports"]["local-pkg/"],
+            "./node_modules/local-pkg/"
+        );
     }
 
     #[test]
-    fn synthetic_config_uses_auto_node_modules_for_mixed_file_and_import_dependencies() {
+    fn import_map_contains_mixed_file_and_registry_dependencies() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let config_path = temp_dir.path().join("deno.json");
         let dependencies = vec![
             normalize_dependency(temp_dir.path(), "react", "^19").unwrap(),
             normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap(),
         ];
-        let layout = DependencyLayout::from_dependencies(&dependencies);
 
-        write_synthetic_config(&config_path, &dependencies, layout, true).unwrap();
+        let import_map = import_map_value(&dependencies).unwrap();
 
-        let text = fs::read_to_string(config_path).unwrap();
-        let config: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(config["imports"]["react"], "npm:react@^19");
+        assert_eq!(import_map["imports"]["react"], "npm:react@^19");
         assert_eq!(
-            config["imports"]["local-pkg"],
+            import_map["imports"]["local-pkg"],
             "./node_modules/local-pkg/index.js"
         );
-        assert_eq!(config["imports"]["local-pkg/"], "./node_modules/local-pkg/");
-        assert_eq!(config["nodeModulesDir"], "auto");
-    }
-
-    #[test]
-    fn synthetic_config_can_omit_local_file_imports_for_mixed_dependencies() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config_path = temp_dir.path().join("deno.json");
-        let dependencies = vec![
-            normalize_dependency(temp_dir.path(), "react", "^19").unwrap(),
-            normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap(),
-        ];
-        let layout = DependencyLayout::from_dependencies(&dependencies);
-
-        write_synthetic_config(&config_path, &dependencies, layout, false).unwrap();
-
-        let text = fs::read_to_string(config_path).unwrap();
-        let config: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(config["imports"]["react"], "npm:react@^19");
-        assert!(config["imports"].get("local-pkg").is_none());
-        assert!(config["imports"].get("local-pkg/").is_none());
-        assert_eq!(config["nodeModulesDir"], "auto");
-    }
-
-    #[test]
-    fn refresh_local_file_imports_preserves_updated_registry_specifiers() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config_path = temp_dir.path().join("deno.json");
-        let dependencies = vec![
-            normalize_dependency(temp_dir.path(), "is_number", "npm:is-number@6.0.0").unwrap(),
-            normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap(),
-        ];
-        let layout = DependencyLayout::from_dependencies(&dependencies);
-        write_synthetic_config(&config_path, &dependencies, layout, true).unwrap();
-
-        let mut config: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
-        config["imports"]["is_number"] =
-            serde_json::Value::String("npm:is-number@7.0.0".to_string());
-        fs::write(
-            &config_path,
-            format!("{}\n", serde_json::to_string_pretty(&config).unwrap()),
-        )
-        .unwrap();
-
-        refresh_local_file_imports_in_synthetic_config(&config_path, &dependencies, layout)
-            .unwrap();
-
-        let config: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
-        assert_eq!(config["imports"]["is_number"], "npm:is-number@7.0.0");
         assert_eq!(
-            config["imports"]["local-pkg"],
-            "./node_modules/local-pkg/index.js"
+            import_map["imports"]["local-pkg/"],
+            "./node_modules/local-pkg/"
         );
-        assert_eq!(config["imports"]["local-pkg/"], "./node_modules/local-pkg/");
-        assert_eq!(config["nodeModulesDir"], "auto");
     }
 
     #[test]
@@ -770,12 +732,8 @@ mod tests {
             "export const answer = 42;\n"
         );
         assert!(!install_root.join("package.json").exists());
-        assert!(
-            install_root
-                .join(BELGIE_DIR)
-                .join(LOCAL_FILE_DEPS_STATE)
-                .is_file()
-        );
+        assert!(installed.join(LOCAL_PACKAGE_MARKER).is_file());
+        assert!(!install_root.join(BELGIE_DIR).exists());
     }
 
     #[test]
@@ -877,12 +835,29 @@ mod tests {
         sync_local_file_dependencies(&install_root, &node_modules, &npm_dependencies).unwrap();
 
         assert!(!node_modules.join("local-pkg").exists());
-        assert!(
-            !install_root
-                .join(BELGIE_DIR)
-                .join(LOCAL_FILE_DEPS_STATE)
-                .exists()
-        );
+        assert!(!install_root.join(BELGIE_DIR).exists());
+    }
+
+    #[test]
+    fn sync_local_file_dependencies_removes_legacy_tracked_aliases() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let workspace = temp_dir.path().join("workspace");
+        let install_root = temp_dir.path().join("install");
+        let node_modules = install_root.join("node_modules");
+        let installed = node_modules.join("local-pkg");
+        fs::create_dir_all(&installed).unwrap();
+        fs::create_dir_all(install_root.join(BELGIE_DIR)).unwrap();
+        fs::write(
+            install_root.join(BELGIE_DIR).join(LOCAL_FILE_DEPS_STATE),
+            "[\"local-pkg\"]\n",
+        )
+        .unwrap();
+
+        let npm_dependencies = vec![normalize_dependency(&workspace, "react", "^19").unwrap()];
+        sync_local_file_dependencies(&install_root, &node_modules, &npm_dependencies).unwrap();
+
+        assert!(!installed.exists());
+        assert!(!install_root.join(BELGIE_DIR).exists());
     }
 
     #[test]

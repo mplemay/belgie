@@ -6,8 +6,8 @@ Use this file when managing isolated JavaScript dependencies from Python.
 
 `Environment` creates an isolated JS dependency sandbox:
 
-- Synthetic `deno.json` with an `imports` map and a Deno-managed `nodeModulesDir` mode
-- Local `file:` packages copied into the environment `node_modules` tree and tracked under `.belgie/`
+- Environment-owned import map and Deno settings passed directly to the embedded resolver
+- Local `file:` packages copied into the environment `node_modules` tree for command/native tooling
 - Dependency install state in either a temporary root (default) or a persisted project directory
 
 JavaScript dependencies stay isolated from the Python project's `pyproject.toml`.
@@ -17,7 +17,7 @@ JavaScript dependencies stay isolated from the Python project's `pyproject.toml`
 
 ### Ephemeral mode (`path` omitted)
 
-- Install tree (`deno.json`, `deno.lock`, `deno_dir`, `node_modules`) lives in a temporary Belgie environment root
+- Install tree (`deno.lock`, `deno_dir`, `node_modules`) lives in a temporary Belgie environment root
 - Workspace defaults to the process working directory at construction time
 - After `install()`, a `node_modules` symlink is created at the workspace so npm-native tools (Vite, Rollup, etc.) can
   resolve packages from nested working directories
@@ -83,13 +83,13 @@ Environment(
 | `"^19"` | `npm:react@^19` |
 | `"jsr:@std/path@^1"` | JSR package |
 | `"npm:pkg@1.0.0/path"` | Explicit npm subpath |
-| `"file:./packages/local-pkg"` | Local package copied into `node_modules` and exposed through the synthetic import map |
+| `"file:./packages/local-pkg"` | Local package copied into `node_modules` and exposed through the environment import map |
 
 `file:` dependency paths resolve relative to the environment workspace. In ephemeral mode that is the process working
 directory captured when `Environment` is constructed; in persisted mode it is the `path=` directory. Local file
 dependencies rely on the environment's `node_modules` layout, so call `install()` before importing them. In mixed
-local-plus-npm environments, Belgie keeps npm packages on Deno's managed `nodeModulesDir: "auto"` path and then
-refreshes the copied local packages after install. `Command` also re-materializes local `file:` packages before
+local-plus-npm environments, Belgie keeps npm packages on Deno's managed node_modules path and then refreshes the
+copied local packages after install. `Command` also re-materializes local `file:` packages before
 execution so nested working directories (for example a Vite project in `frontend/`) still resolve them even when
 `node_modules` was removed after install.
 

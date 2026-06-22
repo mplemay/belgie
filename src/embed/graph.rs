@@ -12,8 +12,16 @@ use deno_semver::jsr::JsrPackageReqReference;
 use crate::embed::context::EmbedContext;
 use crate::embed::sys::EmbedSys;
 
+#[cfg(test)]
 pub(crate) async fn collect_import_map_roots(
     resolver_factory: &ResolverFactory<EmbedSys>,
+) -> Result<Vec<ModuleSpecifier>, AnyError> {
+    collect_import_map_roots_with_options(resolver_factory, true).await
+}
+
+async fn collect_import_map_roots_with_options(
+    resolver_factory: &ResolverFactory<EmbedSys>,
+    include_local_node_modules_roots: bool,
 ) -> Result<Vec<ModuleSpecifier>, AnyError> {
     let workspace_resolver = resolver_factory.workspace_resolver().await?;
     let mut roots = Vec::new();
@@ -31,6 +39,9 @@ pub(crate) async fn collect_import_map_roots(
         let Some(specifier) = entry.value else {
             continue;
         };
+        if !include_local_node_modules_roots && is_node_modules_file_specifier(specifier) {
+            continue;
+        }
         match specifier.scheme() {
             "jsr" => {
                 let specifier_str = specifier.as_str();
@@ -61,11 +72,19 @@ pub(crate) async fn collect_import_map_roots(
     Ok(roots)
 }
 
-pub(crate) async fn build_module_graph(
+fn is_node_modules_file_specifier(specifier: &ModuleSpecifier) -> bool {
+    specifier.scheme() == "file"
+        && specifier.path_segments().is_some_and(|segments| {
+            segments
+                .into_iter()
+                .any(|segment| segment == "node_modules")
+        })
+}
+
+pub(crate) async fn build_install_module_graph(
     context: &EmbedContext,
-    extra_roots: Vec<ModuleSpecifier>,
 ) -> Result<ModuleGraph, AnyError> {
-    build_module_graph_with_header_overrides(context, extra_roots, HashMap::new()).await
+    build_module_graph_inner(context, Vec::new(), HashMap::new(), false).await
 }
 
 pub(crate) async fn build_module_graph_with_header_overrides(
@@ -73,9 +92,20 @@ pub(crate) async fn build_module_graph_with_header_overrides(
     extra_roots: Vec<ModuleSpecifier>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
 ) -> Result<ModuleGraph, AnyError> {
+    build_module_graph_inner(context, extra_roots, file_header_overrides, true).await
+}
+
+async fn build_module_graph_inner(
+    context: &EmbedContext,
+    extra_roots: Vec<ModuleSpecifier>,
+    file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+    include_local_node_modules_roots: bool,
+) -> Result<ModuleGraph, AnyError> {
     let resolver_factory = context.resolver_factory();
     let npm_installer_factory = context.npm_installer_factory();
-    let mut roots = collect_import_map_roots(resolver_factory).await?;
+    let mut roots =
+        collect_import_map_roots_with_options(resolver_factory, include_local_node_modules_roots)
+            .await?;
     roots.extend(extra_roots);
 
     let mut graph = ModuleGraph::new(GraphKind::All);
@@ -136,28 +166,32 @@ pub(crate) async fn build_module_graph_with_header_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embed::EmbedContext;
+    use crate::embed::{EmbedContext, EmbedContextOptions};
+    use deno_resolver::workspace::SpecifiedImportMap;
     use std::fs;
 
     #[tokio::test]
-    async fn collects_import_map_roots_from_synthetic_config() {
+    async fn collects_roots_from_specified_import_map_without_config_file() {
         let temp_dir = tempfile::tempdir().unwrap();
         let cwd = temp_dir.path().join("project");
         fs::create_dir_all(&cwd).unwrap();
-        let config_file = temp_dir.path().join("deno.json");
-        fs::write(
-            &config_file,
-            r#"{
-  "imports": {
-    "std_path": "jsr:@std/path@^1"
-  },
-  "nodeModulesDir": "none"
-}
-"#,
+        let import_map_base = deno_core::url::Url::from_directory_path(&cwd).unwrap();
+        let context = EmbedContext::new(
+            cwd.clone(),
+            temp_dir.path().join("deno.lock"),
+            EmbedContextOptions {
+                specified_import_map: Some(SpecifiedImportMap {
+                    base_url: import_map_base,
+                    value: serde_json::json!({
+                        "imports": {
+                            "std_path": "jsr:@std/path@^1",
+                        },
+                    }),
+                }),
+                ..Default::default()
+            },
         )
         .unwrap();
-        let context =
-            EmbedContext::new(cwd, config_file, temp_dir.path().join("deno.lock")).unwrap();
         let roots = collect_import_map_roots(context.resolver_factory())
             .await
             .unwrap();

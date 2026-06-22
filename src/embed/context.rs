@@ -26,6 +26,7 @@ use deno_npmrc::RegistryConfig;
 use deno_resolver::factory::ConfigDiscoveryOption;
 use deno_resolver::factory::ResolverFactory;
 use deno_resolver::factory::ResolverFactoryOptions;
+use deno_resolver::factory::SpecifiedImportMapProvider;
 use deno_resolver::factory::WorkspaceFactory;
 use deno_resolver::factory::WorkspaceFactoryOptions;
 use deno_resolver::file_fetcher::DenoGraphLoader;
@@ -34,6 +35,7 @@ use deno_resolver::file_fetcher::PermissionedFileFetcher;
 use deno_resolver::file_fetcher::PermissionedFileFetcherOptions;
 use deno_resolver::loader::AllowJsonImports;
 use deno_resolver::loader::MemoryFiles;
+use deno_resolver::workspace::SpecifiedImportMap;
 use deno_runtime::deno_fetch;
 use deno_runtime::deno_fetch::CreateHttpClientOptions;
 use deno_runtime::deno_fetch::create_http_client;
@@ -186,7 +188,6 @@ impl NpmCacheHttpClient for EmbedHttpClient {
 
 pub(crate) struct EmbedContext {
     pub cwd: PathBuf,
-    pub config_file: PathBuf,
     pub lockfile: PathBuf,
     http_client: Arc<EmbedHttpClient>,
     resolver_factory: Arc<ResolverFactory<EmbedSys>>,
@@ -203,6 +204,7 @@ pub(crate) struct EmbedContextOptions {
     pub lockfile_skip_write: bool,
     pub node_modules_dir_mode: Option<NodeModulesDirMode>,
     pub node_modules_root: Option<PathBuf>,
+    pub specified_import_map: Option<SpecifiedImportMap>,
 }
 
 impl EmbedContextOptions {
@@ -216,27 +218,40 @@ impl std::fmt::Debug for EmbedContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EmbedContext")
             .field("cwd", &self.cwd)
-            .field("config_file", &self.config_file)
             .field("lockfile", &self.lockfile)
             .finish_non_exhaustive()
     }
 }
 
+#[derive(Debug)]
+struct StaticImportMapProvider {
+    import_map: SpecifiedImportMap,
+}
+
+#[async_trait::async_trait(?Send)]
+impl SpecifiedImportMapProvider for StaticImportMapProvider {
+    async fn get(&self) -> Result<Option<SpecifiedImportMap>, AnyError> {
+        Ok(Some(self.import_map.clone()))
+    }
+}
+
 impl EmbedContext {
     #[cfg(test)]
-    pub fn new(cwd: PathBuf, config_file: PathBuf, lockfile: PathBuf) -> Result<Self, AnyError> {
-        Self::new_with_options(cwd, config_file, lockfile, EmbedContextOptions::default())
+    pub fn new(
+        cwd: PathBuf,
+        lockfile: PathBuf,
+        options: EmbedContextOptions,
+    ) -> Result<Self, AnyError> {
+        Self::new_with_options(cwd, lockfile, options)
     }
 
     pub fn new_with_options(
         cwd: PathBuf,
-        config_file: PathBuf,
         lockfile: PathBuf,
         options: EmbedContextOptions,
     ) -> Result<Self, AnyError> {
         ensure_initialized();
         let sys = EmbedSys::default();
-        let config_file = config_file.canonicalize().unwrap_or(config_file);
         let lockfile = if lockfile.is_absolute() {
             lockfile
         } else {
@@ -254,7 +269,7 @@ impl EmbedContext {
             sys.clone(),
             cwd.clone(),
             WorkspaceFactoryOptions {
-                config_discovery: ConfigDiscoveryOption::Path(config_file.clone()),
+                config_discovery: ConfigDiscoveryOption::Disabled,
                 lock_arg: Some(lockfile.clone()),
                 is_package_manager_subcommand: options.is_package_manager_subcommand,
                 frozen_lockfile: options.frozen_lockfile,
@@ -270,6 +285,10 @@ impl EmbedContext {
             workspace_factory,
             ResolverFactoryOptions {
                 allow_json_imports: AllowJsonImports::WithAttribute,
+                specified_import_map: options.specified_import_map.map(|import_map| {
+                    Box::new(StaticImportMapProvider { import_map })
+                        as Box<dyn SpecifiedImportMapProvider>
+                }),
                 ..Default::default()
             },
         ));
@@ -329,7 +348,6 @@ impl EmbedContext {
 
         Ok(Self {
             cwd,
-            config_file,
             lockfile,
             http_client: http_client_arc,
             resolver_factory,
