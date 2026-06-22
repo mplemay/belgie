@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use deno_core::anyhow::{Context, bail};
 use deno_core::error::AnyError;
 
+use crate::utils::symlink::{create_directory_symlink, remove_symlink};
+
 pub(crate) fn materialize_node_modules(
     cwd: &Path,
     temp_node_modules: &Path,
@@ -91,24 +93,6 @@ fn normalize_canonical(path: &Path) -> Result<PathBuf, AnyError> {
     ))
 }
 
-fn remove_symlink(path: &Path) -> Result<(), AnyError> {
-    let context = format!("Removing symlink {}", path.display());
-    #[cfg(unix)]
-    {
-        std::fs::remove_file(path).with_context(|| context)
-    }
-    #[cfg(windows)]
-    {
-        match std::fs::remove_dir(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
-                std::fs::remove_file(path).with_context(|| context)
-            }
-            Err(error) => Err(error).with_context(|| context),
-        }
-    }
-}
-
 fn resolve_symlink_target(link_path: &Path, link_contents: &Path) -> PathBuf {
     if link_contents.is_absolute() {
         link_contents.to_path_buf()
@@ -118,23 +102,6 @@ fn resolve_symlink_target(link_path: &Path, link_contents: &Path) -> PathBuf {
             .expect("symlink path must have a parent")
             .join(link_contents)
     }
-}
-
-fn create_directory_symlink(source: &Path, target: &Path) -> Result<(), AnyError> {
-    let context = format!(
-        "Creating symlink from {} to {}",
-        target.display(),
-        source.display()
-    );
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(source, target).with_context(|| context.clone())?;
-    }
-    #[cfg(windows)]
-    {
-        std::os::windows::fs::symlink_dir(source, target).with_context(|| context)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

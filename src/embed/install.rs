@@ -14,6 +14,7 @@ pub(crate) async fn install_packages_with_options(
     lockfile_only: bool,
     options: EmbedContextOptions,
 ) -> Result<Rc<EmbedContext>, AnyError> {
+    let options = options.for_package_manager();
     let context = Rc::new(EmbedContext::new_with_options(
         cwd,
         config_file,

@@ -290,6 +290,53 @@ export default function run() {
     assert list(tmp_path.iterdir()) == []
 
 
+def test_environment_install_resolves_file_dependency_for_runtime(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+    source = """
+import { answer } from "local-pkg";
+
+export default function run() {
+  return answer;
+}
+"""
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        result = env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == 42
+
+    assert result.dependencies == 1
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
+
+
+def test_persisted_environment_removes_stale_file_dependency_symlink(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    local_file_package(project)
+
+    with Environment({"local-pkg": "file:./local-pkg"}, path=project) as env:
+        env.install()
+
+    assert (project / "node_modules" / "local-pkg").is_symlink()
+    assert not (project / "package.json").exists()
+
+    with Environment({"react": "^19"}, path=project) as env:
+        env.install()
+
+    assert not (project / "node_modules" / "local-pkg").exists()
+    assert not (project / "package.json").exists()
+    assert not (project / ".belgie" / "local-file-deps.json").exists()
+
+
 def test_environment_update_changes_synthetic_dependency(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with Environment({"is_number": "npm:is-number@6.0.0"}) as env:
