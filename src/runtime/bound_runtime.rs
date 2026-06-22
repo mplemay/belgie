@@ -33,7 +33,7 @@ impl BoundPackageEnvironment {
     pub(crate) fn refresh_local_file_dependencies(&self) -> Result<(), BindingError> {
         match self {
             Self::Isolated(environment) => environment
-                .refresh_local_file_dependencies()
+                .refresh_local_file_dependencies(false)
                 .map_err(|error| BindingError::runtime(error.to_string())),
         }
     }

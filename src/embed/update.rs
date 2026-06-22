@@ -16,7 +16,7 @@ use deno_semver::{Version, VersionReq};
 use crate::embed::context::{EmbedContext, EmbedContextOptions};
 use crate::embed::install::install_packages_with_options;
 use crate::packages::{
-    PackageDependency, import_map_value, is_registry_import_specifier, registry_imports,
+    PackageDependency, is_registry_import_specifier, refresh_specified_import_map,
 };
 
 struct FilterEntry {
@@ -30,40 +30,37 @@ pub(crate) async fn update_packages(
     filters: Vec<String>,
     latest: bool,
     lockfile_only: bool,
-    options: EmbedContextOptions,
+    mut options: EmbedContextOptions,
     mut dependencies: Vec<PackageDependency>,
 ) -> Result<Vec<PackageDependency>, AnyError> {
     let filter_entries = parse_filters(&filters);
-    let aliases_to_update =
-        resolve_aliases_to_update(&registry_imports(&dependencies), &filter_entries)?;
+    let aliases_to_update = resolve_aliases_to_update(&dependencies, &filter_entries)?;
     if aliases_to_update.is_empty() {
         return Ok(dependencies);
     }
 
     let context_options = options.clone().for_package_manager();
     let context = EmbedContext::new_with_options(cwd.clone(), lockfile.clone(), context_options)?;
+    let filter_versions = filter_entries
+        .iter()
+        .map(|entry| (entry.alias.as_str(), entry.version_req.as_deref()))
+        .collect::<std::collections::HashMap<_, _>>();
 
     for alias in aliases_to_update {
         let dependency = dependencies
             .iter_mut()
             .find(|dependency| dependency.alias() == alias)
-            .expect("alias was validated by resolve_aliases_to_update");
+            .ok_or_else(|| anyhow!("Dependency alias '{alias}' was not found"))?;
         let current = dependency
             .registry_specifier()
-            .expect("alias was validated by resolve_aliases_to_update");
-        let explicit = filter_entries
-            .iter()
-            .find(|entry| entry.alias == alias)
-            .and_then(|entry| entry.version_req.as_deref());
+            .ok_or_else(|| anyhow!("Dependency alias '{alias}' is not a registry import"))?;
+        let explicit = filter_versions.get(alias.as_str()).copied().flatten();
         let updated = resolve_updated_specifier(&context, current, latest, explicit).await?;
         dependency.set_registry_specifier(updated);
     }
 
-    let mut install_options = options;
-    if let Some(import_map) = &mut install_options.specified_import_map {
-        import_map.value = import_map_value(&dependencies)?;
-    }
-    install_packages_with_options(cwd, lockfile, lockfile_only, install_options)
+    refresh_specified_import_map(&mut options, &dependencies)?;
+    install_packages_with_options(cwd, lockfile, lockfile_only, options)
         .await
         .map(|_| dependencies)
 }
@@ -90,32 +87,39 @@ fn parse_filters(filters: &[String]) -> Vec<FilterEntry> {
 }
 
 fn resolve_aliases_to_update(
-    imports: &serde_json::Map<String, serde_json::Value>,
+    dependencies: &[PackageDependency],
     filters: &[FilterEntry],
 ) -> Result<Vec<String>, AnyError> {
     let candidate_aliases = if filters.is_empty() {
-        imports.keys().collect::<Vec<_>>()
+        dependencies
+            .iter()
+            .filter_map(|dependency| {
+                dependency
+                    .registry_specifier()
+                    .filter(|specifier| is_registry_import_specifier(specifier))
+                    .map(|_| dependency.alias().to_string())
+            })
+            .collect()
     } else {
         let filter_aliases = filters
             .iter()
             .map(|entry| entry.alias.as_str())
             .collect::<HashSet<_>>();
-        imports
-            .keys()
-            .filter(|alias| filter_aliases.contains(alias.as_str()))
+        dependencies
+            .iter()
+            .filter_map(|dependency| {
+                if !filter_aliases.contains(dependency.alias()) {
+                    return None;
+                }
+                dependency
+                    .registry_specifier()
+                    .filter(|specifier| is_registry_import_specifier(specifier))
+                    .map(|_| dependency.alias().to_string())
+            })
             .collect()
     };
 
-    Ok(candidate_aliases
-        .into_iter()
-        .filter(|alias| {
-            imports
-                .get(alias.as_str())
-                .and_then(|value| value.as_str())
-                .is_some_and(is_registry_import_specifier)
-        })
-        .cloned()
-        .collect())
+    Ok(candidate_aliases)
 }
 
 async fn resolve_updated_specifier(
@@ -293,6 +297,19 @@ fn preserve_version_operator(version_req: &VersionReq) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packages::dependencies_from_mapping;
+    use std::path::Path;
+
+    fn test_dependencies(entries: &[(&str, &str)]) -> Vec<PackageDependency> {
+        dependencies_from_mapping(
+            Path::new("/project"),
+            entries
+                .iter()
+                .map(|(alias, specifier)| ((*alias).to_string(), (*specifier).to_string()))
+                .collect(),
+        )
+        .unwrap()
+    }
 
     #[test]
     fn parses_filters_with_explicit_versions() {
@@ -315,58 +332,37 @@ mod tests {
 
     #[test]
     fn resolves_scoped_alias_filters() {
-        let imports = serde_json::Map::from_iter([
-            (
-                "react".to_string(),
-                serde_json::Value::String("npm:react@^19".to_string()),
-            ),
-            (
-                "@types/react".to_string(),
-                serde_json::Value::String("npm:@types/react@^19".to_string()),
-            ),
+        let dependencies = test_dependencies(&[
+            ("react", "npm:react@^19"),
+            ("@types/react", "npm:@types/react@^19"),
         ]);
         let filters = parse_filters(&["@types/react@^20".to_string()]);
 
-        let aliases = resolve_aliases_to_update(&imports, &filters).unwrap();
+        let aliases = resolve_aliases_to_update(&dependencies, &filters).unwrap();
 
         assert_eq!(aliases, vec!["@types/react"]);
     }
 
     #[test]
     fn excludes_node_modules_imports_from_bulk_update() {
-        let imports = serde_json::Map::from_iter([
-            (
-                "react".to_string(),
-                serde_json::Value::String("npm:react@^19".to_string()),
-            ),
-            (
-                "std_path".to_string(),
-                serde_json::Value::String("jsr:@std/path@^1".to_string()),
-            ),
-            (
-                "local-pkg".to_string(),
-                serde_json::Value::String("./node_modules/local-pkg/index.js".to_string()),
-            ),
-            (
-                "local-pkg/".to_string(),
-                serde_json::Value::String("./node_modules/local-pkg/".to_string()),
-            ),
+        let dependencies = test_dependencies(&[
+            ("react", "npm:react@^19"),
+            ("std_path", "jsr:@std/path@^1"),
+            ("local-pkg", "file:./local-pkg"),
         ]);
+        let filters = parse_filters(&[]);
 
-        let aliases = resolve_aliases_to_update(&imports, &[]).unwrap();
+        let aliases = resolve_aliases_to_update(&dependencies, &filters).unwrap();
 
         assert_eq!(aliases, vec!["react", "std_path"]);
     }
 
     #[test]
     fn excludes_node_modules_imports_from_filtered_update() {
-        let imports = serde_json::Map::from_iter([(
-            "local-pkg".to_string(),
-            serde_json::Value::String("./node_modules/local-pkg/index.js".to_string()),
-        )]);
+        let dependencies = test_dependencies(&[("local-pkg", "file:./local-pkg")]);
         let filters = parse_filters(&["local-pkg".to_string()]);
 
-        let aliases = resolve_aliases_to_update(&imports, &filters).unwrap();
+        let aliases = resolve_aliases_to_update(&dependencies, &filters).unwrap();
 
         assert!(aliases.is_empty());
     }

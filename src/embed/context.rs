@@ -225,13 +225,13 @@ impl std::fmt::Debug for EmbedContext {
 
 #[derive(Debug)]
 struct StaticImportMapProvider {
-    import_map: SpecifiedImportMap,
+    import_map: Arc<SpecifiedImportMap>,
 }
 
 #[async_trait::async_trait(?Send)]
 impl SpecifiedImportMapProvider for StaticImportMapProvider {
     async fn get(&self) -> Result<Option<SpecifiedImportMap>, AnyError> {
-        Ok(Some(self.import_map.clone()))
+        Ok(Some((*self.import_map).clone()))
     }
 }
 
@@ -286,8 +286,9 @@ impl EmbedContext {
             ResolverFactoryOptions {
                 allow_json_imports: AllowJsonImports::WithAttribute,
                 specified_import_map: options.specified_import_map.map(|import_map| {
-                    Box::new(StaticImportMapProvider { import_map })
-                        as Box<dyn SpecifiedImportMapProvider>
+                    Box::new(StaticImportMapProvider {
+                        import_map: Arc::new(import_map),
+                    }) as Box<dyn SpecifiedImportMapProvider>
                 }),
                 ..Default::default()
             },

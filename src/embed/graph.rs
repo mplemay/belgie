@@ -167,7 +167,8 @@ async fn build_module_graph_inner(
 mod tests {
     use super::*;
     use crate::embed::{EmbedContext, EmbedContextOptions};
-    use deno_resolver::workspace::SpecifiedImportMap;
+    use crate::packages::{dependencies_from_mapping, specified_import_map};
+    use std::collections::BTreeMap;
     use std::fs;
 
     #[tokio::test]
@@ -175,19 +176,19 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let cwd = temp_dir.path().join("project");
         fs::create_dir_all(&cwd).unwrap();
+        let dependencies = dependencies_from_mapping(
+            &cwd,
+            BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+        )
+        .unwrap();
         let import_map_base = deno_core::url::Url::from_directory_path(&cwd).unwrap();
         let context = EmbedContext::new(
             cwd.clone(),
             temp_dir.path().join("deno.lock"),
             EmbedContextOptions {
-                specified_import_map: Some(SpecifiedImportMap {
-                    base_url: import_map_base,
-                    value: serde_json::json!({
-                        "imports": {
-                            "std_path": "jsr:@std/path@^1",
-                        },
-                    }),
-                }),
+                specified_import_map: Some(
+                    specified_import_map(import_map_base, &dependencies).unwrap(),
+                ),
                 ..Default::default()
             },
         )

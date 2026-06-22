@@ -4,17 +4,16 @@ use std::sync::{Arc, Mutex};
 
 use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
-use deno_core::url::Url;
-use deno_resolver::workspace::SpecifiedImportMap;
 use tempfile::TempDir;
 
 mod materialize;
 
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
-    DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest,
-    EnvironmentUpdateResult, PackageDependency, dependencies_from_mapping, import_map_value,
-    install_environment_packages, sync_local_file_dependencies, update_environment_packages,
+    BELGIE_DIR, DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult,
+    EnvironmentUpdateRequest, EnvironmentUpdateResult, PackageDependency,
+    dependencies_from_mapping, install_environment_packages, specified_import_map,
+    sync_local_file_dependencies, update_environment_packages,
 };
 
 #[derive(Clone, Debug)]
@@ -295,13 +294,13 @@ fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
     Ok(())
 }
 
-fn directory_url(path: &Path) -> Result<Url, AnyError> {
-    let absolute = std::path::absolute(path)
+fn install_root_url(install_root: &Path) -> Result<deno_core::url::Url, AnyError> {
+    let absolute = std::path::absolute(install_root)
         .map(deno_path_util::strip_unc_prefix)
-        .with_context(|| format!("Resolving {}", path.display()))?;
-    Url::from_directory_path(&absolute).map_err(|()| {
+        .with_context(|| format!("Resolving {}", install_root.display()))?;
+    deno_path_util::url_from_directory_path(&absolute).map_err(|error| {
         anyhow!(
-            "Could not convert environment root {} to a file URL",
+            "Could not convert environment root {} to a file URL: {error}",
             absolute.display()
         )
     })
@@ -328,10 +327,9 @@ fn prepare_install_layout(
         false
     };
 
-    let import_map_base_url = directory_url(install_root)?;
     let embed_options = EmbedContextOptions {
         cache_root: Some(cache_root),
-        frozen_lockfile: Some(frozen_lockfile),
+        frozen_lockfile: None,
         is_package_manager_subcommand: false,
         lockfile_skip_write: false,
         node_modules_dir_mode: definition
@@ -339,10 +337,7 @@ fn prepare_install_layout(
             .manual_node_modules
             .then_some(deno_config::deno_json::NodeModulesDirMode::Manual),
         node_modules_root: Some(node_modules_root),
-        specified_import_map: Some(SpecifiedImportMap {
-            base_url: import_map_base_url,
-            value: import_map_value(&definition.dependencies)?,
-        }),
+        specified_import_map: None,
     };
 
     Ok(InstallLayout {
@@ -411,27 +406,34 @@ impl ActiveEnvironment {
         matches!(self.root, EnvironmentRoot::Persisted)
     }
 
-    fn package_state(&self) -> ActivePackageState {
+    fn dependency_count(&self) -> usize {
         self.package_state
             .lock()
             .expect("package state lock should not be poisoned")
-            .clone()
+            .dependencies
+            .len()
     }
 
-    fn dependency_count(&self) -> usize {
-        self.package_state().dependencies.len()
+    fn with_package_state<R>(&self, f: impl FnOnce(&ActivePackageState) -> R) -> R {
+        let package_state = self
+            .package_state
+            .lock()
+            .expect("package state lock should not be poisoned");
+        f(&package_state)
+    }
+
+    fn node_modules_root(&self) -> PathBuf {
+        self.install_root().join("node_modules")
     }
 
     fn embed_options(&self) -> Result<Option<EmbedContextOptions>, AnyError> {
         let Some(mut options) = self.embed_options.clone() else {
             return Ok(None);
         };
-        let install_root = self.install_root();
-        let base_url = directory_url(install_root)?;
-        options.specified_import_map = Some(SpecifiedImportMap {
-            base_url,
-            value: import_map_value(&self.package_state().dependencies)?,
-        });
+        let base_url = install_root_url(self.install_root())?;
+        let dependencies = self.with_package_state(|state| state.dependencies.clone());
+        options.frozen_lockfile = Some(self.frozen_lockfile);
+        options.specified_import_map = Some(specified_import_map(base_url, &dependencies)?);
         Ok(Some(options))
     }
 
@@ -459,22 +461,29 @@ impl ActiveEnvironment {
     }
 
     fn sync_local_file_dependencies(&self) -> Result<(), AnyError> {
-        let install_root = self.install_root();
-        let package_state = self.package_state();
-        sync_local_file_dependencies(
-            install_root,
-            &install_root.join("node_modules"),
-            &package_state.dependencies,
-        )
+        self.with_package_state(|package_state| {
+            sync_local_file_dependencies(
+                self.install_root(),
+                &self.node_modules_root(),
+                &package_state.dependencies,
+            )
+        })
     }
 
-    pub(crate) fn refresh_local_file_dependencies(&self) -> Result<(), AnyError> {
-        let install_root = self.install_root();
-        let package_state = self.package_state();
-        if package_state.layout.has_local || install_root.join(".belgie").is_dir() {
-            self.sync_local_file_dependencies()?;
+    pub(crate) fn refresh_local_file_dependencies(
+        &self,
+        already_synced: bool,
+    ) -> Result<(), AnyError> {
+        let has_legacy_state = self.install_root().join(BELGIE_DIR).is_dir();
+        let needs_refresh = self
+            .with_package_state(|package_state| package_state.layout.has_local || has_legacy_state);
+        if !needs_refresh {
+            return Ok(());
         }
-        Ok(())
+        if already_synced && !has_legacy_state {
+            return Ok(());
+        }
+        self.sync_local_file_dependencies()
     }
 
     pub(crate) fn cleanup_materialized_node_modules(&self) -> Result<(), AnyError> {
@@ -536,19 +545,21 @@ impl ActiveEnvironment {
                 dependencies: 0,
             });
         };
-        let package_state = self.package_state();
+        let dependency_count = self.dependency_count();
         self.sync_local_file_dependencies()?;
-        let result = install_environment_packages(
+        let install_result = install_environment_packages(
             self.workspace.clone(),
             self.lockfile.clone(),
-            package_state.dependencies.len(),
             lockfile_only,
             options,
         )
         .await?;
-        self.refresh_local_file_dependencies()?;
+        self.refresh_local_file_dependencies(true)?;
         self.materialize_cwd_node_modules()?;
-        Ok(result)
+        Ok(EnvironmentInstallResult {
+            lockfile: install_result.lockfile,
+            dependencies: dependency_count,
+        })
     }
 
     async fn update(
@@ -567,7 +578,7 @@ impl ActiveEnvironment {
                 dependencies: Vec::new(),
             });
         };
-        let dependencies = self.package_state().dependencies;
+        let dependencies = self.with_package_state(|state| state.dependencies.clone());
         self.sync_local_file_dependencies()?;
         let result = update_environment_packages(EnvironmentUpdateRequest {
             cwd: self.workspace.clone(),
@@ -587,7 +598,7 @@ impl ActiveEnvironment {
             package_state.dependencies = result.dependencies.clone();
             package_state.layout = DependencyLayout::from_dependencies(&package_state.dependencies);
         }
-        self.refresh_local_file_dependencies()?;
+        self.refresh_local_file_dependencies(true)?;
         self.materialize_cwd_node_modules()?;
         Ok(result)
     }

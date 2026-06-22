@@ -5,14 +5,16 @@ use std::time::SystemTime;
 use deno_core::anyhow::{Context, bail};
 use deno_core::error::AnyError;
 use deno_core::serde_json;
+use deno_core::url::Url;
 use deno_npm_cache::{hard_link_file, is_etxtbsy};
+use deno_resolver::workspace::SpecifiedImportMap;
 
 use crate::embed::EmbedContextOptions;
 use crate::embed::sys::EmbedSys;
 use crate::utils::symlink::remove_symlink_if_present;
 
 pub(crate) const EMPTY_DENO_LOCK: &str = "{\"version\":\"5\"}\n";
-const BELGIE_DIR: &str = ".belgie";
+pub(crate) const BELGIE_DIR: &str = ".belgie";
 const LOCAL_FILE_DEPS_STATE: &str = "local-file-deps.json";
 const LOCAL_PACKAGE_MARKER: &str = ".belgie-local-package";
 
@@ -130,6 +132,26 @@ pub(crate) fn import_map_value(
     }))
 }
 
+pub(crate) fn specified_import_map(
+    base_url: Url,
+    dependencies: &[PackageDependency],
+) -> Result<SpecifiedImportMap, AnyError> {
+    Ok(SpecifiedImportMap {
+        base_url,
+        value: import_map_value(dependencies)?,
+    })
+}
+
+pub(crate) fn refresh_specified_import_map(
+    options: &mut EmbedContextOptions,
+    dependencies: &[PackageDependency],
+) -> Result<(), AnyError> {
+    if let Some(import_map) = &mut options.specified_import_map {
+        import_map.value = import_map_value(dependencies)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn registry_imports(
     dependencies: &[PackageDependency],
 ) -> serde_json::Map<String, serde_json::Value> {
@@ -240,19 +262,15 @@ fn remove_legacy_synthetic_package_json(path: &Path) -> Result<(), AnyError> {
     Ok(())
 }
 
-fn maybe_remove_legacy_synthetic_package_json(install_root: &Path) -> Result<(), AnyError> {
-    remove_legacy_synthetic_package_json(&install_root.join("package.json"))
-}
-
 pub(crate) fn sync_local_file_dependencies(
     install_root: &Path,
     node_modules_root: &Path,
     dependencies: &[PackageDependency],
 ) -> Result<(), AnyError> {
-    maybe_remove_legacy_synthetic_package_json(install_root)?;
+    remove_legacy_synthetic_package_json(&install_root.join("package.json"))?;
 
     let current = local_file_dependencies(dependencies);
-    let previous = read_owned_local_file_aliases(install_root, node_modules_root)?;
+    let previous = read_owned_local_file_aliases(install_root, node_modules_root, &current)?;
 
     for alias in &previous {
         if current.contains_key(alias) {
@@ -281,17 +299,14 @@ pub(crate) fn sync_local_file_dependencies(
 pub(crate) async fn install_environment_packages(
     cwd: PathBuf,
     lockfile: PathBuf,
-    dependencies: usize,
     lockfile_only: bool,
     options: EmbedContextOptions,
 ) -> Result<EnvironmentInstallResult, AnyError> {
-    if dependencies > 0 {
-        crate::embed::install_packages_with_options(cwd, lockfile.clone(), lockfile_only, options)
-            .await?;
-    }
+    crate::embed::install_packages_with_options(cwd, lockfile.clone(), lockfile_only, options)
+        .await?;
     Ok(EnvironmentInstallResult {
         lockfile,
-        dependencies,
+        dependencies: 0,
     })
 }
 
@@ -397,10 +412,23 @@ fn read_tracked_local_file_aliases(install_root: &Path) -> Result<Vec<String>, A
 fn read_owned_local_file_aliases(
     install_root: &Path,
     node_modules_root: &Path,
+    current: &BTreeMap<String, PathBuf>,
 ) -> Result<Vec<String>, AnyError> {
     let mut aliases = read_tracked_local_file_aliases(install_root)?
         .into_iter()
         .collect::<BTreeSet<_>>();
+    if current.is_empty()
+        && aliases.is_empty()
+        && !local_file_deps_state_path(install_root).is_file()
+        && (!node_modules_root.is_dir()
+            || std::fs::read_dir(node_modules_root)
+                .with_context(|| format!("Reading {}", node_modules_root.display()))?
+                .next()
+                .transpose()?
+                .is_none())
+    {
+        return Ok(Vec::new());
+    }
     aliases.extend(read_marked_local_file_aliases(node_modules_root)?);
     Ok(aliases.into_iter().collect())
 }
