@@ -313,6 +313,64 @@ export default function run() {
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
 
 
+def test_environment_install_does_not_misload_cjs_file_dependency_as_esm(
+    tmp_path: Path,
+    monkeypatch,
+    local_cjs_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_cjs_package(tmp_path)
+    source = """
+export default async function run() {
+  try {
+    await import("local-pkg");
+    return { loaded: true };
+  } catch (error) {
+    return { loaded: false, message: String(error) };
+  }
+}
+"""
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            result = runtime(Script(source))()
+
+    assert "module is not defined" not in result.get("message", "")
+
+
+def test_environment_install_does_not_misload_mixed_cjs_file_dependency_as_esm(
+    tmp_path: Path,
+    monkeypatch,
+    local_cjs_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_cjs_package(tmp_path)
+    source = """
+import packageJson from "pkg_json" with { type: "json" };
+
+export default async function run() {
+  try {
+    await import("local-pkg");
+    return { loaded: true, version: packageJson.version };
+  } catch (error) {
+    return { loaded: false, message: String(error), version: packageJson.version };
+  }
+}
+"""
+    with Environment(
+        {
+            "local-pkg": "file:./local-pkg",
+            "pkg_json": "npm:is-number@7.0.0/package.json",
+        },
+    ) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            result = runtime(Script(source))()
+
+    assert result["version"] == "7.0.0"
+    assert "module is not defined" not in result.get("message", "")
+
+
 def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_install(
     tmp_path: Path,
     monkeypatch,
@@ -333,7 +391,8 @@ def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_in
         result = env.install()
 
     assert result.dependencies == 2
-    assert (project / "node_modules" / "@acme" / "vite").is_symlink()
+    assert (project / "node_modules" / "@acme" / "vite").is_dir()
+    assert not (project / "node_modules" / "@acme" / "vite").is_symlink()
     assert (project / ".belgie" / "local-file-deps.json").is_file()
 
 
@@ -379,7 +438,8 @@ def test_persisted_environment_removes_stale_file_dependency_symlink(
     with Environment({"local-pkg": "file:./local-pkg"}, path=project) as env:
         env.install()
 
-    assert (project / "node_modules" / "local-pkg").is_symlink()
+    assert (project / "node_modules" / "local-pkg").is_dir()
+    assert not (project / "node_modules" / "local-pkg").is_symlink()
     assert not (project / "package.json").exists()
 
     with Environment({"react": "^19"}, path=project) as env:

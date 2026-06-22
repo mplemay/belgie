@@ -20,6 +20,25 @@ def isolated_project_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
 
 
 @pytest.fixture
+def local_cjs_package() -> Callable[..., Path]:
+    def create(root: Path, name: str = "local-pkg") -> Path:
+        local_pkg = root / name
+        local_pkg.mkdir(parents=True)
+        package_json = f"""
+{{
+  "name": "{name}",
+  "version": "1.0.0",
+  "main": "index.js"
+}}
+"""
+        (local_pkg / "package.json").write_text(package_json, encoding="utf-8")
+        (local_pkg / "index.js").write_text("module.exports = { answer: 42 };\n", encoding="utf-8")
+        return local_pkg
+
+    return create
+
+
+@pytest.fixture
 def local_file_package() -> Callable[..., Path]:
     def create(root: Path, name: str = "local-pkg") -> Path:
         local_pkg = root / name

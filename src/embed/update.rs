@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn excludes_file_imports_from_bulk_update() {
+    fn excludes_node_modules_imports_from_bulk_update() {
         let imports = serde_json::Map::from_iter([
             (
                 "react".to_string(),
@@ -348,11 +348,11 @@ mod tests {
             ),
             (
                 "local-pkg".to_string(),
-                serde_json::Value::String("file:///tmp/local-pkg/index.js".to_string()),
+                serde_json::Value::String("./node_modules/local-pkg/index.js".to_string()),
             ),
             (
                 "local-pkg/".to_string(),
-                serde_json::Value::String("file:///tmp/local-pkg/".to_string()),
+                serde_json::Value::String("./node_modules/local-pkg/".to_string()),
             ),
         ]);
 
@@ -362,10 +362,10 @@ mod tests {
     }
 
     #[test]
-    fn excludes_file_imports_from_filtered_update() {
+    fn excludes_node_modules_imports_from_filtered_update() {
         let imports = serde_json::Map::from_iter([(
             "local-pkg".to_string(),
-            serde_json::Value::String("file:///tmp/local-pkg/index.js".to_string()),
+            serde_json::Value::String("./node_modules/local-pkg/index.js".to_string()),
         )]);
         let filters = parse_filters(&["local-pkg".to_string()]);
 
