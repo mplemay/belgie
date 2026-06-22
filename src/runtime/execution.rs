@@ -7,16 +7,19 @@ use std::{
 };
 
 use deno_core::{
-    JsRuntime, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions, error::CoreError, v8,
+    JsRuntime, ModuleId, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions, error::CoreError,
+    v8,
 };
+use deno_lib::worker::LibMainWorker;
 use tokio::sync::oneshot;
 
 use crate::{
-    embed::prepare_package_runtime,
-    runtime::{BoundPackageEnvironment, BoundRuntime, module_loader, process_context},
+    runtime::{module_loader, package_worker, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
 };
+
+use super::{BoundRuntime, RuntimeSession};
 
 type ExecutionResult<T> = Result<T, BindingError>;
 
@@ -42,12 +45,13 @@ enum ExecutionCommand {
 }
 
 impl DenoExecutionHandle {
-    pub(crate) fn new(bound: BoundRuntime) -> Self {
+    pub(crate) fn new(bound: BoundRuntime, session: Arc<RuntimeSession>) -> Self {
         let (sender, receiver) = mpsc::channel();
         let isolate_handle = Arc::new(Mutex::new(None));
         let worker_isolate_handle = isolate_handle.clone();
-        let join_handle =
-            thread::spawn(move || run_worker_thread(bound, receiver, worker_isolate_handle));
+        let join_handle = thread::spawn(move || {
+            run_worker_thread(bound, session, receiver, worker_isolate_handle)
+        });
         Self {
             inner: Arc::new(DenoExecutionHandleInner {
                 sender,
@@ -161,6 +165,7 @@ impl Drop for DenoExecutionHandleInner {
 
 fn run_worker_thread(
     bound: BoundRuntime,
+    session: Arc<RuntimeSession>,
     receiver: mpsc::Receiver<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
 ) {
@@ -185,7 +190,10 @@ fn run_worker_thread(
     };
     let mut context = {
         let _process_context = process_context::blocking_guard();
-        match DenoExecutionContext::new(bound, &runtime) {
+        match runtime.block_on(DenoExecutionContext::new(
+            bound,
+            session.cli_snapshot_eligible(),
+        )) {
             Ok(context) => context,
             Err(error) => {
                 while let Ok(command) = receiver.recv() {
@@ -203,7 +211,7 @@ fn run_worker_thread(
     *isolate_handle
         .lock()
         .expect("execution isolate handle lock should not be poisoned") =
-        Some(context.js_runtime.v8_isolate().thread_safe_handle());
+        Some(context.js_runtime().v8_isolate().thread_safe_handle());
 
     while let Ok(command) = receiver.recv() {
         match command {
@@ -222,50 +230,74 @@ fn run_worker_thread(
     runtime.shutdown_background();
 }
 
+enum ExecutionBackend {
+    Lightweight(Box<JsRuntime>),
+    Package(Box<LibMainWorker>),
+}
+
 struct DenoExecutionContext {
     bound: BoundRuntime,
-    js_runtime: JsRuntime,
+    backend: ExecutionBackend,
     main_module: ModuleSpecifier,
     run_function: Option<v8::Global<v8::Function>>,
 }
 
 impl DenoExecutionContext {
-    fn new(bound: BoundRuntime, tokio_runtime: &tokio::runtime::Runtime) -> ExecutionResult<Self> {
+    async fn new(bound: BoundRuntime, use_cli_snapshot: bool) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
-        let js_runtime = if let Some(package_environment) = bound.package_environment() {
-            tokio_runtime.block_on(create_js_runtime_with_packages(
-                &bound,
-                package_environment,
-                main_module.clone(),
-            ))?
+        let backend = if let Some(package_environment) = bound.package_environment() {
+            let context = package_environment.embed_context_rc()?;
+            ExecutionBackend::Package(Box::new(
+                package_worker::create_bound_package_worker(
+                    context,
+                    bound.cwd().to_path_buf(),
+                    main_module.clone(),
+                    package_worker::BoundPackageWorkerOptions {
+                        argv: Vec::new(),
+                        argv0: None,
+                        use_cli_snapshot,
+                        main_source: Some(bound.script().content().to_string()),
+                        header_overrides: HashMap::new(),
+                    },
+                )
+                .await?,
+            ))
         } else {
-            create_js_runtime(&bound)?
+            ExecutionBackend::Lightweight(Box::new(create_js_runtime(&bound)?))
         };
         Ok(Self {
             bound,
-            js_runtime,
+            backend,
             main_module,
             run_function: None,
         })
+    }
+
+    fn js_runtime(&mut self) -> &mut JsRuntime {
+        match &mut self.backend {
+            ExecutionBackend::Lightweight(js_runtime) => js_runtime,
+            ExecutionBackend::Package(worker) => worker.js_runtime(),
+        }
     }
 
     async fn invoke(&mut self, arguments: RunnerArguments) -> ExecutionResult<PyJsValue> {
         self.ensure_loaded().await?;
         let run_function = self
             .run_function
-            .as_ref()
+            .clone()
             .ok_or_else(|| BindingError::missing_run_export(self.bound.description()))?;
+        let run_signature = self.bound.run_signature().cloned();
         let args = {
-            deno_core::scope!(scope, &mut self.js_runtime);
-            arguments.to_v8_globals(scope, self.bound.run_signature())?
+            deno_core::scope!(scope, self.js_runtime());
+            arguments.to_v8_globals(scope, run_signature.as_ref())?
         };
-        let call = self.js_runtime.call_with_args(run_function, &args);
+        let call = self.js_runtime().call_with_args(&run_function, &args);
         let result = self
-            .js_runtime
+            .js_runtime()
             .with_event_loop_promise(call, PollEventLoopOptions::default())
             .await
             .map_err(|error| BindingError::javascript(error.to_string()))?;
-        deno_core::scope!(scope, &mut self.js_runtime);
+        deno_core::scope!(scope, self.js_runtime());
         let result = v8::Local::new(scope, result);
         PyJsValue::from_v8(scope, result)
     }
@@ -275,13 +307,15 @@ impl DenoExecutionContext {
             return Ok(());
         }
 
-        let module_id = if self.bound.package_environment().is_some() {
-            self.js_runtime
-                .load_main_es_module(&self.main_module)
-                .await
-                .map_err(|error| BindingError::module_load(error.to_string()))?
-        } else {
-            self.js_runtime
+        let module_id = match &mut self.backend {
+            ExecutionBackend::Package(worker) => {
+                let js_runtime = worker.js_runtime();
+                js_runtime
+                    .load_main_es_module(&self.main_module)
+                    .await
+                    .map_err(|error| BindingError::module_load(error.to_string()))?
+            }
+            ExecutionBackend::Lightweight(js_runtime) => js_runtime
                 .load_main_es_module_from_code(
                     &self.main_module,
                     module_loader::maybe_transpile_source(
@@ -291,28 +325,35 @@ impl DenoExecutionContext {
                     .map_err(|error| BindingError::module_load(error.to_string()))?,
                 )
                 .await
-                .map_err(|error| BindingError::module_load(error.to_string()))?
+                .map_err(|error| BindingError::module_load(error.to_string()))?,
         };
 
-        let result = self.js_runtime.mod_evaluate(module_id);
-        self.js_runtime
-            .run_event_loop(Default::default())
-            .await
-            .map_err(map_core_error)?;
-        result
-            .await
-            .map_err(|error| BindingError::javascript(error.to_string()))?;
+        evaluate_loaded_module(self.js_runtime(), module_id).await?;
 
         let namespace = self
-            .js_runtime
+            .js_runtime()
             .get_module_namespace(module_id)
             .map_err(|error| BindingError::module_load(error.to_string()))?;
         let description = self.bound.description();
-        let run_function = resolve_run_function(&mut self.js_runtime, namespace, &description)?;
+        let run_function = resolve_run_function(self.js_runtime(), namespace, &description)?;
 
         self.run_function = Some(run_function);
         Ok(())
     }
+}
+
+async fn evaluate_loaded_module(
+    js_runtime: &mut JsRuntime,
+    module_id: ModuleId,
+) -> ExecutionResult<()> {
+    let result = js_runtime.mod_evaluate(module_id);
+    js_runtime
+        .run_event_loop(Default::default())
+        .await
+        .map_err(map_core_error)?;
+    result
+        .await
+        .map_err(|error| BindingError::javascript(error.to_string()))
 }
 
 fn map_core_error(error: CoreError) -> BindingError {
@@ -336,35 +377,6 @@ fn inline_module_path(bound: &BoundRuntime) -> PathBuf {
 fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
     Ok(JsRuntime::new(RuntimeOptions {
         module_loader: Some(Rc::new(module_loader::PythonModuleLoader)),
-        create_params: bound
-            .js_runtime_options()
-            .to_create_params()
-            .map_err(BindingError::runtime)?,
-        ..Default::default()
-    }))
-}
-
-async fn create_js_runtime_with_packages(
-    bound: &BoundRuntime,
-    package_environment: &BoundPackageEnvironment,
-    main_module: ModuleSpecifier,
-) -> ExecutionResult<JsRuntime> {
-    let context = package_environment.embed_context_rc()?;
-    let state = Arc::new(
-        prepare_package_runtime(
-            context,
-            main_module,
-            Some(bound.script().content().to_string()),
-            HashMap::new(),
-        )
-        .await
-        .map_err(|error| BindingError::runtime(error.to_string()))?,
-    );
-    Ok(JsRuntime::new(RuntimeOptions {
-        module_loader: Some(Rc::new(module_loader::PackageAwareModuleLoader::new(
-            state,
-            bound.cwd().to_path_buf(),
-        ))),
         create_params: bound
             .js_runtime_options()
             .to_create_params()

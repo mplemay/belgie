@@ -47,23 +47,25 @@ impl RuntimeSession {
     }
 
     pub(crate) fn bind_script(
-        &self,
+        session: &Arc<Self>,
         script: ScriptSource,
     ) -> Result<DenoExecutionHandle, BindingError> {
-        self.ensure_active()?;
-        self.pending_script_binds.fetch_add(1, Ordering::AcqRel);
-        let bound = self.runtime.bind(script).with_package_environment(
-            self.package_environment
+        session.ensure_active()?;
+        session.pending_script_binds.fetch_add(1, Ordering::AcqRel);
+        let bound = session.runtime.bind(script).with_package_environment(
+            session
+                .package_environment
                 .lock()
                 .expect("runtime package environment lock should not be poisoned")
                 .clone(),
         );
-        let handle = DenoExecutionHandle::new(bound);
-        self.scripts
+        let handle = DenoExecutionHandle::new(bound, Arc::clone(session));
+        session
+            .scripts
             .lock()
             .expect("runtime script handle lock should not be poisoned")
             .push(handle.clone());
-        self.pending_script_binds.fetch_sub(1, Ordering::AcqRel);
+        session.pending_script_binds.fetch_sub(1, Ordering::AcqRel);
         Ok(handle)
     }
 
@@ -83,16 +85,12 @@ impl RuntimeSession {
                     "Commands require an active Environment with package dependencies",
                 )
             })?;
-        let cli_snapshot_eligible: Arc<dyn Fn() -> bool + Send + Sync> = {
-            let session = Arc::clone(&session);
-            Arc::new(move || session.cli_snapshot_eligible())
-        };
         let handle = CommandExecutionHandle::spawn(CommandExecutionOptions {
             package_environment,
             runtime_root: session.runtime.cwd().to_path_buf(),
             command,
             argv,
-            cli_snapshot_eligible,
+            session: Arc::clone(&session),
         });
         session
             .commands
@@ -156,7 +154,7 @@ impl RuntimeSession {
         }
     }
 
-    fn cli_snapshot_eligible(&self) -> bool {
+    pub(crate) fn cli_snapshot_eligible(&self) -> bool {
         let scripts = self
             .scripts
             .lock()
@@ -228,7 +226,7 @@ mod tests {
         let script = ScriptSource::from_options(ScriptOptions::inline(
             "export default function run() { return 'ok'; }".to_string(),
         ));
-        session.bind_script(script).expect("script should bind");
+        RuntimeSession::bind_script(&session, script).expect("script should bind");
         assert!(!session.cli_snapshot_eligible());
     }
 }

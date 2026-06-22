@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from belgie import Environment, Runtime, RuntimeOptions, Script
+from belgie.__tests__.integration.conftest import assert_installed_package_dir, write_worker_main
 from belgie.errors import BelgieRuntimeError
 
 pytestmark = pytest.mark.integration
@@ -290,6 +291,65 @@ export default function run() {
     assert list(tmp_path.iterdir()) == []
 
 
+def test_environment_runtime_resolves_dynamic_npm_import(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+export default async function run() {
+  const isNumber = await import("is_number");
+  return isNumber.default(42);
+}
+"""
+    with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() is True
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_environment_runtime_resolves_npm_require(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const isNumber = require("is-number");
+
+export default function run() {
+  return isNumber(42);
+}
+"""
+    with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() is True
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_environment_runtime_resolves_npm_import_from_web_worker(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    main = write_worker_main(
+        tmp_path,
+        """
+import isNumber from "is_number";
+
+self.postMessage(isNumber(42));
+self.close();
+""",
+    )
+
+    with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script.from_file(main))() is True
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["main.js", "worker.js"]
+
+
 def test_environment_install_resolves_file_dependency_for_runtime(
     tmp_path: Path,
     monkeypatch,
@@ -313,7 +373,151 @@ export default function run() {
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
 
 
-def test_persisted_environment_removes_stale_file_dependency_symlink(
+def test_environment_runtime_resolves_file_dependency_from_web_worker(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+    main = write_worker_main(
+        tmp_path,
+        """
+import { answer } from "local-pkg";
+
+self.postMessage(answer);
+self.close();
+""",
+    )
+
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script.from_file(main))() == 42
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "local-pkg",
+        "main.js",
+        "worker.js",
+    ]
+
+
+def test_environment_install_does_not_misload_cjs_file_dependency_as_esm(
+    tmp_path: Path,
+    monkeypatch,
+    local_cjs_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_cjs_package(tmp_path)
+    source = """
+export default async function run() {
+  try {
+    const localPkg = await import("local-pkg");
+    return { loaded: true, answer: localPkg.answer };
+  } catch (error) {
+    return { loaded: false, message: String(error) };
+  }
+}
+"""
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            result = runtime(Script(source))()
+
+    assert "module is not defined" not in result.get("message", "")
+    assert result["loaded"] is True
+    assert result["answer"] == 42
+
+
+def test_environment_install_does_not_misload_mixed_cjs_file_dependency_as_esm(
+    tmp_path: Path,
+    monkeypatch,
+    local_cjs_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_cjs_package(tmp_path)
+    source = """
+import packageJson from "pkg_json" with { type: "json" };
+
+export default async function run() {
+  try {
+    const localPkg = await import("local-pkg");
+    return { loaded: true, answer: localPkg.answer, version: packageJson.version };
+  } catch (error) {
+    return { loaded: false, message: String(error), version: packageJson.version };
+  }
+}
+"""
+    with Environment(
+        {
+            "local-pkg": "file:./local-pkg",
+            "pkg_json": "npm:is-number@7.0.0/package.json",
+        },
+    ) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            result = runtime(Script(source))()
+
+    assert result["version"] == "7.0.0"
+    assert "module is not defined" not in result.get("message", "")
+    assert result["loaded"] is True
+    assert result["answer"] == 42
+
+
+def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_install(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    local_file_package(project / "packages", "@acme/vite")
+
+    with Environment(
+        {
+            "@acme/vite": "file:./packages/@acme/vite",
+            "pkg_json": "npm:is-number@7.0.0/package.json",
+        },
+        path=project,
+    ) as env:
+        result = env.install()
+
+    assert result.dependencies == 2
+    assert_installed_package_dir(project / "node_modules" / "@acme" / "vite")
+    assert (project / ".belgie" / "local-file-deps.json").is_file()
+
+
+def test_environment_install_resolves_mixed_file_and_npm_dependencies_for_runtime(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+    source = """
+import { answer } from "local-pkg";
+import packageJson from "pkg_json" with { type: "json" };
+
+export default function run() {
+  return { answer, version: packageJson.version };
+}
+"""
+    with Environment(
+        {
+            "local-pkg": "file:./local-pkg",
+            "pkg_json": "npm:is-number@7.0.0/package.json",
+        },
+    ) as env:
+        result = env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == {"answer": 42, "version": "7.0.0"}
+
+    assert result.dependencies == 2
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
+
+
+def test_persisted_environment_removes_stale_file_dependency_install(
     tmp_path: Path,
     monkeypatch,
     local_file_package,
@@ -326,7 +530,7 @@ def test_persisted_environment_removes_stale_file_dependency_symlink(
     with Environment({"local-pkg": "file:./local-pkg"}, path=project) as env:
         env.install()
 
-    assert (project / "node_modules" / "local-pkg").is_symlink()
+    assert_installed_package_dir(project / "node_modules" / "local-pkg")
     assert not (project / "package.json").exists()
 
     with Environment({"react": "^19"}, path=project) as env:
@@ -347,6 +551,43 @@ def test_environment_update_changes_synthetic_dependency(tmp_path: Path, monkeyp
     assert result.changes[0].previous == "npm:is-number@6.0.0"
     assert result.changes[0].updated == "npm:is-number@7.0.0"
     assert list(tmp_path.iterdir()) == []
+
+
+def test_environment_update_noops_for_file_only_dependencies(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        result = env.update()
+
+    assert result.changes == []
+
+
+def test_environment_update_skips_file_imports_in_mixed_environment(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+
+    with Environment(
+        {
+            "local-pkg": "file:./local-pkg",
+            "is_number": "npm:is-number@6.0.0",
+        },
+    ) as env:
+        env.install()
+        result = env.update(["is_number@7.0.0"], lockfile_only=True)
+
+    assert len(result.changes) == 1
+    assert result.changes[0].name == "is_number"
+    assert result.changes[0].previous == "npm:is-number@6.0.0"
+    assert result.changes[0].updated == "npm:is-number@7.0.0"
 
 
 def test_direct_environment_installs_jsr_dependency_without_project_files(tmp_path: Path, monkeypatch):

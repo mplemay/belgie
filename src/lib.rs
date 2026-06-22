@@ -7,6 +7,7 @@ mod options;
 mod packages;
 mod runtime;
 mod script;
+mod synthetic_config;
 mod types;
 mod utils;
 

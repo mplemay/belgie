@@ -1,21 +1,13 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-LOCAL_FILE_PACKAGE_JSON = """
-{
-  "name": "local-pkg",
-  "type": "module",
-  "exports": "./index.js"
-}
-"""
 
 
 @pytest.fixture
@@ -28,13 +20,79 @@ def isolated_project_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
     return project_root
 
 
+def assert_installed_package_dir(path: Path) -> None:
+    assert path.is_dir()
+    assert not path.is_symlink()
+
+
+def _write_local_package(
+    root: Path,
+    name: str = "local-pkg",
+    *,
+    module_system: Literal["esm", "cjs"] = "esm",
+) -> Path:
+    local_pkg = root / name
+    local_pkg.mkdir(parents=True)
+    if module_system == "esm":
+        package_json = {
+            "name": name,
+            "version": "1.0.0",
+            "type": "module",
+            "exports": "./index.js",
+        }
+        index_js = "export const answer = 42;\n"
+    else:
+        package_json = {
+            "name": name,
+            "version": "1.0.0",
+            "main": "index.js",
+        }
+        index_js = "module.exports = { answer: 42 };\n"
+    (local_pkg / "package.json").write_text(
+        json.dumps(package_json, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (local_pkg / "index.js").write_text(index_js, encoding="utf-8")
+    return local_pkg
+
+
 @pytest.fixture
-def local_file_package() -> Callable[[Path], Path]:
+def local_cjs_package() -> Callable[..., Path]:
     def create(root: Path, name: str = "local-pkg") -> Path:
-        local_pkg = root / name
-        local_pkg.mkdir()
-        (local_pkg / "package.json").write_text(LOCAL_FILE_PACKAGE_JSON, encoding="utf-8")
-        (local_pkg / "index.js").write_text("export const answer = 42;\n", encoding="utf-8")
-        return local_pkg
+        return _write_local_package(root, name, module_system="cjs")
 
     return create
+
+
+@pytest.fixture
+def local_file_package() -> Callable[..., Path]:
+    def create(root: Path, name: str = "local-pkg") -> Path:
+        return _write_local_package(root, name, module_system="esm")
+
+    return create
+
+
+WORKER_MAIN_SOURCE = """
+export default function run() {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./worker.js", import.meta.url).href, {
+      type: "module",
+    });
+    worker.onmessage = (event) => {
+      worker.terminate();
+      resolve(event.data);
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message));
+    };
+  });
+}
+"""
+
+
+def write_worker_main(tmp_path: Path, worker_source: str, *, worker_name: str = "worker.js") -> Path:
+    (tmp_path / worker_name).write_text(worker_source, encoding="utf-8")
+    main = tmp_path / "main.js"
+    main.write_text(WORKER_MAIN_SOURCE, encoding="utf-8")
+    return main

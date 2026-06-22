@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use deno_config::deno_json::NodeModulesDirMode;
 use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
 use tempfile::TempDir;
@@ -12,8 +11,8 @@ mod materialize;
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
     EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest, EnvironmentUpdateResult,
-    PackageDependency, dependencies_from_mapping, has_local_file_dependencies,
-    install_environment_packages, sync_local_file_dependency_symlinks, update_environment_packages,
+    PackageDependency, dependencies_from_mapping, install_environment_packages,
+    requires_manual_node_modules, sync_local_file_dependency_symlinks, update_environment_packages,
     write_synthetic_config,
 };
 
@@ -50,7 +49,7 @@ pub(crate) struct ActiveEnvironment {
     workspace: PathBuf,
     config_file: PathBuf,
     lockfile: PathBuf,
-    dependency_count: usize,
+    dependencies: Vec<PackageDependency>,
     frozen_lockfile: bool,
     embed_options: Option<EmbedContextOptions>,
     root: EnvironmentRoot,
@@ -68,7 +67,7 @@ impl std::fmt::Debug for ActiveEnvironment {
         formatter
             .debug_struct("ActiveEnvironment")
             .field("workspace", &self.workspace)
-            .field("dependency_count", &self.dependency_count)
+            .field("dependency_count", &self.dependencies.len())
             .field("frozen_lockfile", &self.frozen_lockfile)
             .field("persisted", &self.is_persisted())
             .finish_non_exhaustive()
@@ -321,8 +320,8 @@ fn prepare_install_layout(
         frozen_lockfile: Some(frozen_lockfile),
         is_package_manager_subcommand: false,
         lockfile_skip_write: false,
-        node_modules_dir_mode: has_local_file_dependencies(&definition.dependencies)
-            .then_some(NodeModulesDirMode::Manual),
+        node_modules_dir_mode: requires_manual_node_modules(&definition.dependencies)
+            .then_some(deno_config::deno_json::NodeModulesDirMode::Manual),
         node_modules_root: Some(node_modules_root),
     };
 
@@ -352,7 +351,7 @@ impl ActiveEnvironment {
             workspace: definition.workspace.clone(),
             config_file: layout.config_file,
             lockfile: layout.lockfile,
-            dependency_count: definition.dependencies.len(),
+            dependencies: definition.dependencies.clone(),
             frozen_lockfile: layout.frozen_lockfile,
             embed_options: layout.embed_options,
             root: EnvironmentRoot::Persisted,
@@ -375,7 +374,7 @@ impl ActiveEnvironment {
             workspace: definition.workspace.clone(),
             config_file: layout.config_file,
             lockfile: layout.lockfile,
-            dependency_count: definition.dependencies.len(),
+            dependencies: definition.dependencies.clone(),
             frozen_lockfile: layout.frozen_lockfile,
             embed_options: layout.embed_options,
             root: EnvironmentRoot::Ephemeral {
@@ -390,7 +389,7 @@ impl ActiveEnvironment {
     }
 
     fn materialize_cwd_node_modules(&self) -> Result<(), AnyError> {
-        if self.dependency_count == 0 {
+        if self.dependencies.is_empty() {
             return Ok(());
         }
         let EnvironmentRoot::Ephemeral {
@@ -410,6 +409,15 @@ impl ActiveEnvironment {
                 Some(materialized);
         }
         Ok(())
+    }
+
+    fn sync_local_file_dependency_symlinks(&self) -> Result<(), AnyError> {
+        let install_root = self.install_root();
+        sync_local_file_dependency_symlinks(
+            install_root,
+            &install_root.join("node_modules"),
+            &self.dependencies,
+        )
     }
 
     pub(crate) fn cleanup_materialized_node_modules(&self) -> Result<(), AnyError> {
@@ -477,11 +485,12 @@ impl ActiveEnvironment {
             self.workspace.clone(),
             self.config_file.clone(),
             self.lockfile.clone(),
-            self.dependency_count,
+            self.dependencies.len(),
             lockfile_only,
             options,
         )
         .await?;
+        self.sync_local_file_dependency_symlinks()?;
         self.materialize_cwd_node_modules()?;
         Ok(result)
     }
@@ -505,18 +514,18 @@ impl ActiveEnvironment {
             cwd: self.workspace.clone(),
             config_file: self.config_file.clone(),
             lockfile: self.lockfile.clone(),
-            dependencies: self.dependency_count,
+            dependencies: self.dependencies.len(),
             packages,
             latest,
             lockfile_only,
             options,
         })
         .await?;
+        self.sync_local_file_dependency_symlinks()?;
         self.materialize_cwd_node_modules()?;
         Ok(result)
     }
 
-    #[cfg(test)]
     pub(crate) fn install_root(&self) -> &Path {
         match &self.root {
             EnvironmentRoot::Ephemeral { temp_dir, .. } => temp_dir.path(),
