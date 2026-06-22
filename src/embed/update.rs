@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use deno_core::anyhow::{Context, anyhow, bail};
@@ -15,6 +15,10 @@ use deno_semver::{Version, VersionReq};
 
 use crate::embed::context::{EmbedContext, EmbedContextOptions};
 use crate::embed::install::install_packages_with_options;
+use crate::synthetic_config::{
+    is_registry_import_specifier, read_synthetic_config_document, synthetic_config_imports,
+    synthetic_config_imports_mut, write_synthetic_config_document,
+};
 
 struct FilterEntry {
     alias: String,
@@ -30,6 +34,14 @@ pub(crate) async fn update_packages(
     lockfile_only: bool,
     options: EmbedContextOptions,
 ) -> Result<(), AnyError> {
+    let filter_entries = parse_filters(&filters);
+    let mut config = read_synthetic_config_document(&config_file)?;
+    let aliases_to_update =
+        resolve_aliases_to_update(synthetic_config_imports(&config)?, &filter_entries)?;
+    if aliases_to_update.is_empty() {
+        return Ok(());
+    }
+
     let context_options = options.clone().for_package_manager();
     let context = EmbedContext::new_with_options(
         cwd.clone(),
@@ -37,49 +49,22 @@ pub(crate) async fn update_packages(
         lockfile.clone(),
         context_options,
     )?;
-    let filter_entries = parse_filters(&filters);
-    let text = std::fs::read_to_string(&config_file)
-        .with_context(|| format!("Reading {}", config_file.display()))?;
-    let mut config: serde_json::Value = serde_json::from_str(&text)
-        .with_context(|| format!("Parsing {}", config_file.display()))?;
-    let imports_snapshot = config
-        .get("imports")
-        .and_then(|value| value.as_object())
-        .ok_or_else(|| anyhow!("Synthetic belgie Deno config is missing an imports table"))?;
-    let aliases_to_update = resolve_aliases_to_update(imports_snapshot, &filter_entries)?;
-    if aliases_to_update.is_empty() {
-        return Ok(());
-    }
-
-    let imports = config
-        .get_mut("imports")
-        .and_then(|value| value.as_object_mut())
-        .ok_or_else(|| anyhow!("Synthetic belgie Deno config is missing an imports table"))?;
-
-    let explicit_versions = filter_entries
-        .iter()
-        .filter_map(|entry| {
-            entry
-                .version_req
-                .as_ref()
-                .map(|version| (entry.alias.clone(), version.clone()))
-        })
-        .collect::<HashMap<_, _>>();
+    let imports = synthetic_config_imports_mut(&mut config)?;
 
     for alias in aliases_to_update {
-        let Some(current) = imports.get(&alias).and_then(|value| value.as_str()) else {
-            continue;
-        };
-        let explicit = explicit_versions.get(&alias).map(String::as_str);
+        let current = imports
+            .get(&alias)
+            .and_then(|value| value.as_str())
+            .expect("alias was validated by resolve_aliases_to_update");
+        let explicit = filter_entries
+            .iter()
+            .find(|entry| entry.alias == alias)
+            .and_then(|entry| entry.version_req.as_deref());
         let updated = resolve_updated_specifier(&context, current, latest, explicit).await?;
         imports.insert(alias, serde_json::Value::String(updated));
     }
 
-    std::fs::write(
-        &config_file,
-        format!("{}\n", serde_json::to_string_pretty(&config)?),
-    )
-    .with_context(|| format!("Writing {}", config_file.display()))?;
+    write_synthetic_config_document(&config_file, &config)?;
 
     install_packages_with_options(cwd, config_file, lockfile, lockfile_only, options)
         .await
@@ -95,7 +80,7 @@ fn parse_filters(filters: &[String]) -> Vec<FilterEntry> {
             {
                 FilterEntry {
                     alias: alias.to_string(),
-                    version_req: Some(format!("@{version_req}")),
+                    version_req: Some(version_req.to_string()),
                 }
             } else {
                 FilterEntry {
@@ -105,10 +90,6 @@ fn parse_filters(filters: &[String]) -> Vec<FilterEntry> {
             }
         })
         .collect()
-}
-
-fn is_updatable_import_specifier(specifier: &str) -> bool {
-    specifier.starts_with("npm:") || specifier.starts_with("jsr:")
 }
 
 fn resolve_aliases_to_update(
@@ -134,7 +115,7 @@ fn resolve_aliases_to_update(
             imports
                 .get(alias.as_str())
                 .and_then(|value| value.as_str())
-                .is_some_and(is_updatable_import_specifier)
+                .is_some_and(is_registry_import_specifier)
         })
         .cloned()
         .collect())
@@ -159,14 +140,17 @@ async fn resolve_updated_specifier(
 }
 
 fn replace_specifier_version(current: &str, version_req: &str) -> Result<String, AnyError> {
-    let version_req = version_req.strip_prefix('@').unwrap_or(version_req);
     if version_req.starts_with("npm:") || version_req.starts_with("jsr:") {
         return Ok(version_req.to_string());
     }
-    if let Ok(req_ref) = NpmPackageReqReference::from_str(current) {
+    if current.starts_with("npm:") {
+        let req_ref = NpmPackageReqReference::from_str(current)
+            .with_context(|| format!("Parsing npm dependency specifier '{current}'"))?;
         return Ok(format!("npm:{}@{version_req}", req_ref.req().name));
     }
-    if let Ok(req_ref) = JsrPackageReqReference::from_str(current) {
+    if current.starts_with("jsr:") {
+        let req_ref = JsrPackageReqReference::from_str(current)
+            .with_context(|| format!("Parsing jsr dependency specifier '{current}'"))?;
         return Ok(format!("jsr:{}@{version_req}", req_ref.req().name));
     }
     bail!("Unsupported dependency specifier '{current}'")
@@ -187,7 +171,7 @@ async fn resolve_npm_specifier(
     };
     let version_resolver = npm_version_resolver.get_for_package(&info);
     let compatible = version_resolver
-        .resolve_best_package_version_info(&req.version_req, Vec::new().into_iter())?
+        .resolve_best_package_version_info(&req.version_req, std::iter::empty())?
         .version
         .clone();
     let target_version = if latest {
@@ -249,14 +233,10 @@ async fn resolve_jsr_specifier(
     let jsr_version_resolver = context.resolver_factory().jsr_version_resolver()?;
     let version_resolver = jsr_version_resolver.get_for_package(&req.name, &package_info);
     let compatible = version_resolver
-        .resolve_version(&req, Vec::new().into_iter())?
+        .resolve_version(&req, std::iter::empty())?
         .version
         .clone();
-    let target_version = if latest {
-        resolve_jsr_latest_version(&package_info, &compatible, &version_resolver)?
-    } else {
-        resolve_jsr_compatible_version(&package_info, &compatible, &version_resolver)?
-    };
+    let target_version = best_jsr_version(&package_info, &version_resolver, &compatible, !latest);
     let operator = preserve_version_operator(&req.version_req);
     let new_req = VersionReq::parse_from_specifier(&format!("{operator}{target_version}"))?;
     Ok(format!("jsr:{}@{new_req}", req.name))
@@ -272,45 +252,29 @@ async fn fetch_jsr_package_info(
         .http_client()
         .fetch_bytes(&meta_url)
         .await
-        .map_err(|err| anyhow!(err.to_string()))?;
+        .with_context(|| format!("Fetching JSR metadata for '{name}'"))?;
     serde_json::from_slice(&body).with_context(|| format!("Parsing JSR metadata for '{name}'"))
 }
 
-fn resolve_jsr_latest_version(
+fn best_jsr_version(
     package_info: &JsrPackageInfo,
-    lower_bound: &Version,
     version_resolver: &deno_graph::packages::JsrPackageVersionResolver<'_>,
-) -> Result<Version, AnyError> {
-    let mut best = Some(lower_bound.clone());
+    lower_bound: &Version,
+    newer_than_lower_bound: bool,
+) -> Version {
+    let mut best = lower_bound.clone();
     for (version, version_info) in &package_info.versions {
         if version_info.yanked || !version_resolver.matches_newest_dependency_date(version_info) {
             continue;
         }
-        if best.as_ref().is_none_or(|current| version > current) {
-            best = Some(version.clone());
-        }
-    }
-    best.ok_or_else(|| anyhow!("No JSR versions matched the dependency policy"))
-}
-
-fn resolve_jsr_compatible_version(
-    package_info: &JsrPackageInfo,
-    compatible: &Version,
-    version_resolver: &deno_graph::packages::JsrPackageVersionResolver<'_>,
-) -> Result<Version, AnyError> {
-    let mut best = Some(compatible.clone());
-    for (version, version_info) in &package_info.versions {
-        if version_info.yanked
-            || !version_resolver.matches_newest_dependency_date(version_info)
-            || version <= compatible
-        {
+        if newer_than_lower_bound && version <= lower_bound {
             continue;
         }
-        if best.as_ref().is_none_or(|current| version > current) {
-            best = Some(version.clone());
+        if version > &best {
+            best = version.clone();
         }
     }
-    best.ok_or_else(|| anyhow!("No newer compatible JSR version was found"))
+    best
 }
 
 fn preserve_version_operator(version_req: &VersionReq) -> &'static str {
@@ -345,11 +309,11 @@ mod tests {
         assert_eq!(filters[0].alias, "react");
         assert!(filters[0].version_req.is_none());
         assert_eq!(filters[1].alias, "std_path");
-        assert_eq!(filters[1].version_req.as_deref(), Some("@^2"));
+        assert_eq!(filters[1].version_req.as_deref(), Some("^2"));
         assert_eq!(filters[2].alias, "@types/react");
         assert!(filters[2].version_req.is_none());
         assert_eq!(filters[3].alias, "@types/react");
-        assert_eq!(filters[3].version_req.as_deref(), Some("@^20"));
+        assert_eq!(filters[3].version_req.as_deref(), Some("^20"));
     }
 
     #[test]

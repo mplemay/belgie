@@ -6,6 +6,9 @@ use deno_core::error::AnyError;
 use deno_core::serde_json;
 
 use crate::embed::EmbedContextOptions;
+use crate::synthetic_config::{
+    is_registry_import_specifier, read_synthetic_config_imports, write_synthetic_config_document,
+};
 use crate::utils::symlink::{create_directory_symlink, remove_symlink_if_present};
 
 pub(crate) const EMPTY_DENO_LOCK: &str = "{\"version\":\"5\"}\n";
@@ -78,10 +81,7 @@ pub(crate) fn write_synthetic_config(
       "imports": imports,
       "nodeModulesDir": node_modules_dir,
     });
-    let text = serde_json::to_string_pretty(&config)?;
-    std::fs::write(path, format!("{text}\n"))
-        .with_context(|| format!("Writing {}", path.display()))?;
-    Ok(())
+    write_synthetic_config_document(path, &config)
 }
 
 fn synthetic_imports(
@@ -272,7 +272,7 @@ fn normalize_dependency(
         });
     }
 
-    let specifier = if raw_value.starts_with("npm:") || raw_value.starts_with("jsr:") {
+    let specifier = if is_registry_import_specifier(raw_value) {
         raw_value.to_string()
     } else {
         format!("npm:{alias}@{raw_value}")
@@ -420,22 +420,6 @@ fn symlink_package_dir(source: &Path, link: &Path) -> Result<(), AnyError> {
         .with_context(|| format!("Creating {}", link_parent.display()))?;
     let relative_source = relative_path(link_parent, source);
     create_directory_symlink(&relative_source, link)
-}
-
-fn read_synthetic_config_imports(
-    config_file: &Path,
-) -> Result<serde_json::Map<String, serde_json::Value>, AnyError> {
-    let text = std::fs::read_to_string(config_file)
-        .with_context(|| format!("Reading {}", config_file.display()))?;
-    let config: serde_json::Value = serde_json::from_str(&text)
-        .with_context(|| format!("Parsing {}", config_file.display()))?;
-    config
-        .get("imports")
-        .and_then(|value| value.as_object())
-        .cloned()
-        .ok_or_else(|| {
-            deno_core::anyhow::anyhow!("Synthetic belgie Deno config is missing an imports table")
-        })
 }
 
 fn update_changes_from_imports(
