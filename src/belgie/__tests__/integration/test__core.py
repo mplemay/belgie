@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from belgie import Environment, Runtime, RuntimeOptions, Script
+from belgie.__tests__.integration.conftest import assert_installed_package_dir
 from belgie.errors import BelgieRuntimeError
 
 pytestmark = pytest.mark.integration
@@ -323,8 +324,8 @@ def test_environment_install_does_not_misload_cjs_file_dependency_as_esm(
     source = """
 export default async function run() {
   try {
-    await import("local-pkg");
-    return { loaded: true };
+    const localPkg = await import("local-pkg");
+    return { loaded: true, answer: localPkg.answer };
   } catch (error) {
     return { loaded: false, message: String(error) };
   }
@@ -336,6 +337,8 @@ export default async function run() {
             result = runtime(Script(source))()
 
     assert "module is not defined" not in result.get("message", "")
+    if result.get("loaded"):
+        assert result["answer"] == 42
 
 
 def test_environment_install_does_not_misload_mixed_cjs_file_dependency_as_esm(
@@ -350,8 +353,8 @@ import packageJson from "pkg_json" with { type: "json" };
 
 export default async function run() {
   try {
-    await import("local-pkg");
-    return { loaded: true, version: packageJson.version };
+    const localPkg = await import("local-pkg");
+    return { loaded: true, answer: localPkg.answer, version: packageJson.version };
   } catch (error) {
     return { loaded: false, message: String(error), version: packageJson.version };
   }
@@ -369,6 +372,8 @@ export default async function run() {
 
     assert result["version"] == "7.0.0"
     assert "module is not defined" not in result.get("message", "")
+    if result.get("loaded"):
+        assert result["answer"] == 42
 
 
 def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_install(
@@ -391,8 +396,7 @@ def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_in
         result = env.install()
 
     assert result.dependencies == 2
-    assert (project / "node_modules" / "@acme" / "vite").is_dir()
-    assert not (project / "node_modules" / "@acme" / "vite").is_symlink()
+    assert_installed_package_dir(project / "node_modules" / "@acme" / "vite")
     assert (project / ".belgie" / "local-file-deps.json").is_file()
 
 
@@ -425,7 +429,7 @@ export default function run() {
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
 
 
-def test_persisted_environment_removes_stale_file_dependency_symlink(
+def test_persisted_environment_removes_stale_file_dependency_install(
     tmp_path: Path,
     monkeypatch,
     local_file_package,
@@ -438,8 +442,7 @@ def test_persisted_environment_removes_stale_file_dependency_symlink(
     with Environment({"local-pkg": "file:./local-pkg"}, path=project) as env:
         env.install()
 
-    assert (project / "node_modules" / "local-pkg").is_dir()
-    assert not (project / "node_modules" / "local-pkg").is_symlink()
+    assert_installed_package_dir(project / "node_modules" / "local-pkg")
     assert not (project / "package.json").exists()
 
     with Environment({"react": "^19"}, path=project) as env:

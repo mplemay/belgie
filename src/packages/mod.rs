@@ -95,14 +95,14 @@ fn synthetic_imports(
             }
             PackageDependencyKind::LocalFile { target_path } => {
                 let entrypoint = local_file_dependency_entrypoint(target_path)?;
-                let entrypoint_rel = entrypoint
-                    .strip_prefix(target_path)
-                    .unwrap_or_else(|_| Path::new("index.js"));
-                let entrypoint_path = entrypoint_rel
-                    .components()
-                    .map(|component| component.as_os_str().to_string_lossy())
-                    .collect::<Vec<_>>()
-                    .join("/");
+                let entrypoint_rel = entrypoint.strip_prefix(target_path).with_context(|| {
+                    format!(
+                        "Entrypoint {} is not under package root {}",
+                        entrypoint.display(),
+                        target_path.display()
+                    )
+                })?;
+                let entrypoint_path = posix_relative_path(entrypoint_rel);
                 imports.insert(
                     dep.alias.clone(),
                     format!("./node_modules/{}/{}", dep.alias, entrypoint_path),
@@ -115,6 +115,13 @@ fn synthetic_imports(
         }
     }
     Ok(imports)
+}
+
+fn posix_relative_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn local_file_dependency_entrypoint(target_path: &Path) -> Result<PathBuf, AnyError> {
@@ -194,7 +201,9 @@ pub(crate) fn sync_local_file_dependency_symlinks(
     std::fs::create_dir_all(node_modules_root)
         .with_context(|| format!("Creating {}", node_modules_root.display()))?;
     for (alias, target_path) in &current {
-        install_package_dir(target_path, &node_modules_root.join(alias))?;
+        let dest = node_modules_root.join(alias);
+        remove_installed_local_package(&dest)?;
+        copy_dir_recursive(target_path, &dest)?;
     }
     write_tracked_local_file_aliases(install_root, current.keys())
 }
@@ -400,11 +409,6 @@ fn remove_installed_local_package(path: &Path) -> Result<(), AnyError> {
     }
 }
 
-fn install_package_dir(source: &Path, dest: &Path) -> Result<(), AnyError> {
-    remove_installed_local_package(dest)?;
-    copy_dir_recursive(source, dest)
-}
-
 fn copy_dir_recursive(source: &Path, dest: &Path) -> Result<(), AnyError> {
     std::fs::create_dir_all(dest).with_context(|| format!("Creating {}", dest.display()))?;
     for entry in
@@ -517,7 +521,6 @@ mod tests {
     #[test]
     fn synthetic_config_uses_manual_node_modules_for_file_only_dependencies() {
         let temp_dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(temp_dir.path().join("local-pkg")).unwrap();
         let config_path = temp_dir.path().join("deno.json");
         let dependencies =
             vec![normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap()];
@@ -537,7 +540,6 @@ mod tests {
     #[test]
     fn synthetic_config_uses_auto_node_modules_for_mixed_file_and_import_dependencies() {
         let temp_dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(temp_dir.path().join("local-pkg")).unwrap();
         let config_path = temp_dir.path().join("deno.json");
         let dependencies = vec![
             normalize_dependency(temp_dir.path(), "react", "^19").unwrap(),
@@ -558,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_local_file_dependency_symlinks_creates_package_link() {
+    fn sync_local_file_dependency_symlinks_creates_package_copy() {
         let temp_dir = tempfile::tempdir().unwrap();
         let workspace = temp_dir.path().join("workspace");
         let install_root = temp_dir.path().join("install");
@@ -588,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_local_file_dependency_symlinks_creates_scoped_package_link() {
+    fn sync_local_file_dependency_symlinks_creates_scoped_package_copy() {
         let temp_dir = tempfile::tempdir().unwrap();
         let workspace = temp_dir.path().join("workspace");
         let install_root = temp_dir.path().join("install");
