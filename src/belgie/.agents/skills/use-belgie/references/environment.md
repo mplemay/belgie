@@ -89,7 +89,9 @@ Environment(
 directory captured when `Environment` is constructed; in persisted mode it is the `path=` directory. Local file
 dependencies rely on the environment's `node_modules` layout, so call `install()` before importing them. In mixed
 local-plus-npm environments, Belgie keeps npm packages on Deno's managed `nodeModulesDir: "auto"` path and then
-refreshes the copied local packages after install.
+refreshes the copied local packages after install. `Command` also re-materializes local `file:` packages before
+execution so nested working directories (for example a Vite project in `frontend/`) still resolve them even when
+`node_modules` was removed after install.
 
 ## Project directory (`path`)
 
