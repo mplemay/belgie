@@ -4,8 +4,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deno_cache_dir::file_fetcher::CacheSetting;
-use deno_cache_dir::file_fetcher::File;
-use deno_cache_dir::file_fetcher::LoadedFrom;
 use deno_cache_dir::file_fetcher::NullBlobStore;
 use deno_cache_dir::file_fetcher::SendError;
 use deno_cache_dir::file_fetcher::SendResponse;
@@ -46,6 +44,7 @@ use http_body_util::BodyExt;
 use tokio::sync::Mutex;
 
 use crate::embed::init::ensure_initialized;
+use crate::embed::memory;
 use crate::embed::sys::EmbedSys;
 
 #[derive(Debug, Clone)]
@@ -365,15 +364,6 @@ impl EmbedContext {
     }
 
     pub fn insert_memory_file(&self, url: Url, source: String) {
-        self.memory_files.insert(
-            url.clone(),
-            File {
-                url,
-                mtime: None,
-                maybe_headers: None,
-                source: source.into_bytes().into(),
-                loaded_from: LoadedFrom::Local,
-            },
-        );
+        memory::insert_memory_file(&self.memory_files, url, source);
     }
 }

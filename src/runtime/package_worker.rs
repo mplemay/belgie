@@ -235,7 +235,6 @@ impl BelgieModuleLoaderFactory {
             module_loader: Rc::new(PackageAwareModuleLoader::new(
                 state,
                 self.initial_cwd.clone(),
-                is_worker,
             )),
             node_require_loader: Rc::new(BelgieNodeRequireLoader {
                 cjs_tracker: self.cjs_tracker.clone(),

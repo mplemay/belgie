@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from belgie import Environment, Runtime, RuntimeOptions, Script
-from belgie.__tests__.integration.conftest import assert_installed_package_dir
+from belgie.__tests__.integration.conftest import assert_installed_package_dir, write_worker_main
 from belgie.errors import BelgieRuntimeError
 
 pytestmark = pytest.mark.integration
@@ -332,35 +332,14 @@ def test_environment_runtime_resolves_npm_import_from_web_worker(
     monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "worker.js").write_text(
+    main = write_worker_main(
+        tmp_path,
         """
 import isNumber from "is_number";
 
 self.postMessage(isNumber(42));
 self.close();
 """,
-        encoding="utf-8",
-    )
-    main = tmp_path / "main.js"
-    main.write_text(
-        """
-export default function run() {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("./worker.js", import.meta.url).href, {
-      type: "module",
-    });
-    worker.onmessage = (event) => {
-      worker.terminate();
-      resolve(event.data);
-    };
-    worker.onerror = (event) => {
-      worker.terminate();
-      reject(new Error(event.message));
-    };
-  });
-}
-""",
-        encoding="utf-8",
     )
 
     with Environment({"is_number": "npm:is-number@7.0.0"}) as env:
@@ -401,35 +380,14 @@ def test_environment_runtime_resolves_file_dependency_from_web_worker(
 ):
     monkeypatch.chdir(tmp_path)
     local_file_package(tmp_path)
-    (tmp_path / "worker.js").write_text(
+    main = write_worker_main(
+        tmp_path,
         """
 import { answer } from "local-pkg";
 
 self.postMessage(answer);
 self.close();
 """,
-        encoding="utf-8",
-    )
-    main = tmp_path / "main.js"
-    main.write_text(
-        """
-export default function run() {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("./worker.js", import.meta.url).href, {
-      type: "module",
-    });
-    worker.onmessage = (event) => {
-      worker.terminate();
-      resolve(event.data);
-    };
-    worker.onerror = (event) => {
-      worker.terminate();
-      reject(new Error(event.message));
-    };
-  });
-}
-""",
-        encoding="utf-8",
     )
 
     with Environment({"local-pkg": "file:./local-pkg"}) as env:

@@ -70,3 +70,29 @@ def local_file_package() -> Callable[..., Path]:
         return _write_local_package(root, name, module_system="esm")
 
     return create
+
+
+WORKER_MAIN_SOURCE = """
+export default function run() {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./worker.js", import.meta.url).href, {
+      type: "module",
+    });
+    worker.onmessage = (event) => {
+      worker.terminate();
+      resolve(event.data);
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message));
+    };
+  });
+}
+"""
+
+
+def write_worker_main(tmp_path: Path, worker_source: str, *, worker_name: str = "worker.js") -> Path:
+    (tmp_path / worker_name).write_text(worker_source, encoding="utf-8")
+    main = tmp_path / "main.js"
+    main.write_text(WORKER_MAIN_SOURCE, encoding="utf-8")
+    return main

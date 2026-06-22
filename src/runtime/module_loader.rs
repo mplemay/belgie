@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fs, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 use deno_ast::{MediaType, ParseParams, SourceMapOption};
-use deno_cache_dir::file_fetcher::{File, LoadedFrom, MemoryFiles};
+use deno_cache_dir::file_fetcher::MemoryFiles as _;
 use deno_core::{
     ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
     ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
@@ -22,6 +22,7 @@ use node_resolver::ResolutionMode;
 use url::Url;
 
 use crate::embed::PackageRuntimeState;
+use crate::embed::insert_memory_file;
 
 #[derive(Debug, Default)]
 pub(crate) struct PythonModuleLoader;
@@ -205,20 +206,11 @@ fn transpile_source(
 pub(crate) struct PackageAwareModuleLoader {
     state: Arc<PackageRuntimeState>,
     initial_cwd: PathBuf,
-    is_worker: bool,
 }
 
 impl PackageAwareModuleLoader {
-    pub(crate) fn new(
-        state: Arc<PackageRuntimeState>,
-        initial_cwd: PathBuf,
-        is_worker: bool,
-    ) -> Self {
-        Self {
-            state,
-            initial_cwd,
-            is_worker,
-        }
+    pub(crate) fn new(state: Arc<PackageRuntimeState>, initial_cwd: PathBuf) -> Self {
+        Self { state, initial_cwd }
     }
 
     fn resolve_referrer(&self, referrer: &str) -> Result<ModuleSpecifier, ModuleLoaderError> {
@@ -310,16 +302,7 @@ impl PackageAwareModuleLoader {
         source: String,
     ) -> Result<(), ModuleLoaderError> {
         let url = Url::parse(module_specifier.as_str()).map_err(JsErrorBox::from_err)?;
-        self.state.memory_files.insert(
-            url.clone(),
-            File {
-                url,
-                mtime: None,
-                maybe_headers: None,
-                source: source.into_bytes().into(),
-                loaded_from: LoadedFrom::Local,
-            },
-        );
+        insert_memory_file(&self.state.memory_files, url, source);
         Ok(())
     }
 
@@ -368,85 +351,45 @@ impl PackageAwareModuleLoader {
         maybe_referrer: Option<&ModuleSpecifier>,
         requested_module_type: RequestedModuleType,
     ) -> Result<ModuleSource, ModuleLoaderError> {
+        let deno_requested = as_deno_resolver_requested_module_type(&requested_module_type);
+        let specifier_url = Url::parse(module_specifier.as_str()).map_err(JsErrorBox::from_err)?;
+        let maybe_referrer_url = maybe_referrer
+            .map(|referrer| Url::parse(referrer.as_str()).map_err(JsErrorBox::from_err))
+            .transpose()?;
+        let resolved_specifier =
+            if let Ok(reference) = NpmPackageReqReference::from_specifier(module_specifier) {
+                let referrer = match maybe_referrer {
+                    Some(referrer) => Cow::Borrowed(referrer),
+                    None => Cow::Owned(self.default_referrer()?),
+                };
+                Cow::Owned(
+                    self.state
+                        .deno_resolver
+                        .resolve_non_workspace_npm_req_ref_to_file(
+                            &reference,
+                            &referrer,
+                            ResolutionMode::Import,
+                            NodeResolutionKind::Execution,
+                        )
+                        .map_err(JsErrorBox::from_err)?
+                        .into_url()
+                        .map_err(JsErrorBox::from_err)?,
+                )
+            } else {
+                Cow::Borrowed(&specifier_url)
+            };
         let graph = self
             .state
             .graph
             .lock()
             .expect("module graph lock should not be poisoned")
             .clone();
-        let deno_requested = as_deno_resolver_requested_module_type(&requested_module_type);
-        let specifier_url = Url::parse(module_specifier.as_str()).map_err(JsErrorBox::from_err)?;
-        let maybe_referrer_url = maybe_referrer
-            .map(|referrer| Url::parse(referrer.as_str()).map_err(JsErrorBox::from_err))
-            .transpose()?;
-        if let Ok(reference) = NpmPackageReqReference::from_specifier(module_specifier) {
-            let fallback_referrer = self.default_referrer()?;
-            let referrer = maybe_referrer_url.as_ref().unwrap_or(&fallback_referrer);
-            let resolved = self
-                .state
-                .deno_resolver
-                .resolve_non_workspace_npm_req_ref_to_file(
-                    &reference,
-                    referrer,
-                    ResolutionMode::Import,
-                    NodeResolutionKind::Execution,
-                )
-                .map_err(JsErrorBox::from_err)?
-                .into_url()
-                .map_err(JsErrorBox::from_err)?;
-            let npm_module_loader = self
-                .state
-                .resolver_factory
-                .npm_module_loader()
-                .map(Clone::clone)
-                .map_err(|error| JsErrorBox::generic(error.to_string()))?;
-            let loaded_module = npm_module_loader
-                .load(
-                    Cow::Owned(resolved),
-                    maybe_referrer_url.as_ref(),
-                    &deno_requested,
-                )
-                .await
-                .map_err(JsErrorBox::from_err)?;
-            return loaded_module_to_module_source(
-                loaded_module,
-                &requested_module_type,
-                module_specifier,
-            );
-        }
-        let is_npm_package = self
-            .state
-            .resolver_factory
-            .node_resolver()
-            .map_err(|error| JsErrorBox::generic(error.to_string()))?
-            .in_npm_package(module_specifier);
-        if is_npm_package {
-            let npm_module_loader = self
-                .state
-                .resolver_factory
-                .npm_module_loader()
-                .map(Clone::clone)
-                .map_err(|error| JsErrorBox::generic(error.to_string()))?;
-            let loaded_module = npm_module_loader
-                .load(
-                    Cow::Borrowed(&specifier_url),
-                    maybe_referrer_url.as_ref(),
-                    &deno_requested,
-                )
-                .await
-                .map_err(JsErrorBox::from_err)?;
-            return loaded_module_to_module_source(
-                loaded_module,
-                &requested_module_type,
-                module_specifier,
-            );
-        }
         let loaded = self
             .state
             .module_loader
             .load(
                 &graph,
-                &specifier_url,
+                resolved_specifier.as_ref(),
                 maybe_referrer_url.as_ref(),
                 &deno_requested,
             )
@@ -535,18 +478,13 @@ impl ModuleLoader for PackageAwareModuleLoader {
 
         let state = self.state.clone();
         let initial_cwd = self.initial_cwd.clone();
-        let is_worker = self.is_worker;
         let module_specifier = module_specifier.clone();
         let maybe_referrer = maybe_referrer.map(|referrer| referrer.specifier.clone());
         let requested_module_type = options.requested_module_type;
 
         ModuleLoadResponse::Async(
             async move {
-                let loader = PackageAwareModuleLoader {
-                    state,
-                    initial_cwd,
-                    is_worker,
-                };
+                let loader = PackageAwareModuleLoader { state, initial_cwd };
                 loader
                     .load_package_module(
                         &module_specifier,
@@ -564,25 +502,13 @@ impl ModuleLoader for PackageAwareModuleLoader {
         module_specifier: &ModuleSpecifier,
         _maybe_referrer: Option<String>,
         maybe_content: Option<String>,
-        options: ModuleLoadOptions,
+        _options: ModuleLoadOptions,
     ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
         let result = if let Some(source) = maybe_content {
             self.insert_memory_module(module_specifier, source)
         } else {
             Ok(())
         };
-        if result.is_err()
-            || !(self.is_worker
-                || options.is_dynamic_import
-                || matches!(
-                    options.requested_module_type,
-                    RequestedModuleType::Text
-                        | RequestedModuleType::Bytes
-                        | RequestedModuleType::Other(_)
-                ))
-        {
-            return async move { result }.boxed_local();
-        }
         async move { result }.boxed_local()
     }
 }
