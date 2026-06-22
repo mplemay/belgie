@@ -10,10 +10,11 @@ mod materialize;
 
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
-    EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest, EnvironmentUpdateResult,
-    PackageDependency, dependencies_from_mapping, install_environment_packages,
-    requires_manual_node_modules, sync_local_file_dependency_symlinks, update_environment_packages,
-    write_synthetic_config,
+    DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest,
+    EnvironmentUpdateResult, PackageDependency, dependencies_from_mapping,
+    has_tracked_local_file_dependencies, install_environment_packages,
+    refresh_local_file_imports_in_synthetic_config, sync_local_file_dependencies,
+    update_environment_packages, write_synthetic_config,
 };
 
 #[derive(Clone, Debug)]
@@ -21,6 +22,7 @@ pub(crate) struct EnvironmentDefinition {
     workspace: PathBuf,
     persist_path: Option<PathBuf>,
     dependencies: Vec<PackageDependency>,
+    layout: DependencyLayout,
     lockfile_source: Option<PathBuf>,
 }
 
@@ -50,6 +52,7 @@ pub(crate) struct ActiveEnvironment {
     config_file: PathBuf,
     lockfile: PathBuf,
     dependencies: Vec<PackageDependency>,
+    layout: DependencyLayout,
     frozen_lockfile: bool,
     embed_options: Option<EmbedContextOptions>,
     root: EnvironmentRoot,
@@ -100,10 +103,12 @@ impl EnvironmentDefinition {
         lockfile_source: Option<PathBuf>,
     ) -> Result<Self, AnyError> {
         let dependencies = dependencies_from_mapping(&workspace, dependencies)?;
+        let layout = DependencyLayout::from_dependencies(&dependencies);
         Ok(Self {
             workspace,
             persist_path,
             dependencies,
+            layout,
             lockfile_source,
         })
     }
@@ -295,14 +300,17 @@ fn prepare_install_layout(
     let lockfile = install_root.join("deno.lock");
     let cache_root = install_root.join("deno_dir");
     let node_modules_root = install_root.join("node_modules");
-    write_synthetic_config(&config_file, &definition.dependencies)?;
+    write_synthetic_config(
+        &config_file,
+        &definition.dependencies,
+        definition.layout,
+        !definition.layout.is_mixed(),
+    )?;
     std::fs::create_dir_all(&cache_root)
         .with_context(|| format!("Creating {}", cache_root.display()))?;
-    sync_local_file_dependency_symlinks(
-        install_root,
-        &node_modules_root,
-        &definition.dependencies,
-    )?;
+    if definition.layout.has_local && !definition.layout.is_mixed() {
+        sync_local_file_dependencies(install_root, &node_modules_root, &definition.dependencies)?;
+    }
 
     let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
         copy_lockfile(source, &lockfile)?;
@@ -320,7 +328,9 @@ fn prepare_install_layout(
         frozen_lockfile: Some(frozen_lockfile),
         is_package_manager_subcommand: false,
         lockfile_skip_write: false,
-        node_modules_dir_mode: requires_manual_node_modules(&definition.dependencies)
+        node_modules_dir_mode: definition
+            .layout
+            .manual_node_modules
             .then_some(deno_config::deno_json::NodeModulesDirMode::Manual),
         node_modules_root: Some(node_modules_root),
     };
@@ -352,6 +362,7 @@ impl ActiveEnvironment {
             config_file: layout.config_file,
             lockfile: layout.lockfile,
             dependencies: definition.dependencies.clone(),
+            layout: definition.layout,
             frozen_lockfile: layout.frozen_lockfile,
             embed_options: layout.embed_options,
             root: EnvironmentRoot::Persisted,
@@ -375,6 +386,7 @@ impl ActiveEnvironment {
             config_file: layout.config_file,
             lockfile: layout.lockfile,
             dependencies: definition.dependencies.clone(),
+            layout: definition.layout,
             frozen_lockfile: layout.frozen_lockfile,
             embed_options: layout.embed_options,
             root: EnvironmentRoot::Ephemeral {
@@ -411,13 +423,28 @@ impl ActiveEnvironment {
         Ok(())
     }
 
-    fn sync_local_file_dependency_symlinks(&self) -> Result<(), AnyError> {
+    fn sync_local_file_dependencies(&self) -> Result<(), AnyError> {
         let install_root = self.install_root();
-        sync_local_file_dependency_symlinks(
+        sync_local_file_dependencies(
             install_root,
             &install_root.join("node_modules"),
             &self.dependencies,
         )
+    }
+
+    pub(crate) fn refresh_local_file_dependencies(&self) -> Result<(), AnyError> {
+        let install_root = self.install_root();
+        if self.layout.has_local || has_tracked_local_file_dependencies(install_root) {
+            self.sync_local_file_dependencies()?;
+        }
+        if self.layout.has_local {
+            refresh_local_file_imports_in_synthetic_config(
+                &self.config_file,
+                &self.dependencies,
+                self.layout,
+            )?;
+        }
+        Ok(())
     }
 
     pub(crate) fn cleanup_materialized_node_modules(&self) -> Result<(), AnyError> {
@@ -490,7 +517,7 @@ impl ActiveEnvironment {
             options,
         )
         .await?;
-        self.sync_local_file_dependency_symlinks()?;
+        self.refresh_local_file_dependencies()?;
         self.materialize_cwd_node_modules()?;
         Ok(result)
     }
@@ -521,7 +548,7 @@ impl ActiveEnvironment {
             options,
         })
         .await?;
-        self.sync_local_file_dependency_symlinks()?;
+        self.refresh_local_file_dependencies()?;
         self.materialize_cwd_node_modules()?;
         Ok(result)
     }

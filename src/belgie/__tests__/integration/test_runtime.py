@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -185,6 +186,49 @@ export default defineConfig({
 
     assert (frontend / "output" / "index.html").is_file()
     assert node_modules.is_dir()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")
+async def test_vite_command_refreshes_scoped_local_file_dependency_for_nested_cwd(
+    isolated_project_cwd: Path,
+    local_vite_plugin_package,
+) -> None:
+    packages = isolated_project_cwd / "packages"
+    local_vite_plugin_package(packages)
+    frontend = isolated_project_cwd / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text(
+        '<!doctype html><html><body><script type="module" src="/main.js"></script></body></html>\n',
+        encoding="utf-8",
+    )
+    (frontend / "main.js").write_text('document.body.dataset.ready = "true";\n', encoding="utf-8")
+    (frontend / "vite.config.js").write_text(
+        """
+import localPlugin from "@acme/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [localPlugin()],
+});
+""",
+        encoding="utf-8",
+    )
+
+    installed_plugin = isolated_project_cwd / "node_modules" / "@acme" / "vite"
+    dependencies = {
+        "@acme/vite": "file:./packages/@acme/vite",
+        "vite": VITE_VERSION,
+    }
+    async with Environment(dependencies, path=isolated_project_cwd) as env:
+        await env.install()
+        assert installed_plugin.is_dir()
+        shutil.rmtree(installed_plugin)
+        assert not installed_plugin.exists()
+        async with Runtime(env=env) as runtime:
+            await runtime(Command("vite", cwd="frontend"))("build", "--outDir", "output")
+
+    assert installed_plugin.is_dir()
+    assert (frontend / "output" / "index.html").is_file()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")

@@ -8,6 +8,10 @@ pub(crate) fn is_registry_import_specifier(specifier: &str) -> bool {
     specifier.starts_with("npm:") || specifier.starts_with("jsr:")
 }
 
+pub(crate) fn is_node_modules_import_specifier(specifier: &str) -> bool {
+    specifier.starts_with("./node_modules/")
+}
+
 fn missing_imports_table_error() -> AnyError {
     anyhow!("Synthetic belgie Deno config is missing an imports table")
 }
