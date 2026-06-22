@@ -68,16 +68,8 @@ pub(crate) fn write_synthetic_config(
     path: &Path,
     dependencies: &[PackageDependency],
 ) -> Result<(), AnyError> {
-    let imports = dependencies
-        .iter()
-        .filter_map(|dep| {
-            let PackageDependencyKind::ImportMap { specifier } = &dep.kind else {
-                return None;
-            };
-            Some((dep.alias.clone(), specifier.clone()))
-        })
-        .collect::<BTreeMap<_, _>>();
-    let node_modules_dir = if has_local_file_dependencies(dependencies) {
+    let imports = synthetic_imports(dependencies)?;
+    let node_modules_dir = if requires_manual_node_modules(dependencies) {
         "manual"
     } else {
         "auto"
@@ -90,6 +82,66 @@ pub(crate) fn write_synthetic_config(
     std::fs::write(path, format!("{text}\n"))
         .with_context(|| format!("Writing {}", path.display()))?;
     Ok(())
+}
+
+fn synthetic_imports(
+    dependencies: &[PackageDependency],
+) -> Result<BTreeMap<String, String>, AnyError> {
+    let mut imports = BTreeMap::new();
+    for dep in dependencies {
+        match &dep.kind {
+            PackageDependencyKind::ImportMap { specifier } => {
+                imports.insert(dep.alias.clone(), specifier.clone());
+            }
+            PackageDependencyKind::LocalFile { target_path } => {
+                let entrypoint = local_file_dependency_entrypoint(target_path)?;
+                let entrypoint_url = deno_path_util::url_from_file_path(&entrypoint)
+                    .with_context(|| format!("Converting {} to file URL", entrypoint.display()))?;
+                let package_url = deno_path_util::url_from_directory_path(target_path)
+                    .with_context(|| format!("Converting {} to file URL", target_path.display()))?;
+                imports.insert(dep.alias.clone(), entrypoint_url.to_string());
+                imports.insert(format!("{}/", dep.alias), package_url.to_string());
+            }
+        }
+    }
+    Ok(imports)
+}
+
+fn local_file_dependency_entrypoint(target_path: &Path) -> Result<PathBuf, AnyError> {
+    let package_json_path = target_path.join("package.json");
+    if !package_json_path.is_file() {
+        return Ok(target_path.join("index.js"));
+    }
+    let text = std::fs::read_to_string(&package_json_path)
+        .with_context(|| format!("Reading {}", package_json_path.display()))?;
+    let package_json: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("Parsing {}", package_json_path.display()))?;
+    let entrypoint = package_json
+        .get("exports")
+        .and_then(package_export_entrypoint)
+        .or_else(|| {
+            package_json
+                .get("module")
+                .and_then(serde_json::Value::as_str)
+        })
+        .or_else(|| package_json.get("main").and_then(serde_json::Value::as_str))
+        .unwrap_or("index.js");
+    Ok(target_path.join(entrypoint))
+}
+
+fn package_export_entrypoint(value: &serde_json::Value) -> Option<&str> {
+    if let Some(entrypoint) = value.as_str() {
+        return Some(entrypoint);
+    }
+    let object = value.as_object()?;
+    if let Some(dot_export) = object.get(".")
+        && let Some(entrypoint) = package_export_entrypoint(dot_export)
+    {
+        return Some(entrypoint);
+    }
+    ["import", "module", "default", "require"]
+        .into_iter()
+        .find_map(|condition| object.get(condition).and_then(package_export_entrypoint))
 }
 
 fn remove_legacy_synthetic_package_json(path: &Path) -> Result<(), AnyError> {
@@ -141,6 +193,13 @@ pub(crate) fn has_local_file_dependencies(dependencies: &[PackageDependency]) ->
     dependencies
         .iter()
         .any(|dep| matches!(dep.kind, PackageDependencyKind::LocalFile { .. }))
+}
+
+pub(crate) fn requires_manual_node_modules(dependencies: &[PackageDependency]) -> bool {
+    has_local_file_dependencies(dependencies)
+        && dependencies
+            .iter()
+            .all(|dep| matches!(dep.kind, PackageDependencyKind::LocalFile { .. }))
 }
 
 pub(crate) async fn install_environment_packages(
@@ -357,6 +416,8 @@ fn symlink_package_dir(source: &Path, link: &Path) -> Result<(), AnyError> {
         .parent()
         .expect("package symlink path must have a parent");
     remove_symlink_if_present(link)?;
+    std::fs::create_dir_all(link_parent)
+        .with_context(|| format!("Creating {}", link_parent.display()))?;
     let relative_source = relative_path(link_parent, source);
     create_directory_symlink(&relative_source, link)
 }
@@ -469,7 +530,35 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_config_uses_manual_node_modules_for_file_dependencies() {
+    fn synthetic_config_uses_manual_node_modules_for_file_only_dependencies() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("deno.json");
+        let dependencies =
+            vec![normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap()];
+
+        write_synthetic_config(&config_path, &dependencies).unwrap();
+
+        let text = fs::read_to_string(config_path).unwrap();
+        let config: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let expected_entrypoint = temp_dir.path().join("local-pkg").join("index.js");
+        let expected_package_dir = temp_dir.path().join("local-pkg");
+        assert_eq!(
+            config["imports"]["local-pkg"],
+            deno_path_util::url_from_file_path(&expected_entrypoint)
+                .unwrap()
+                .to_string()
+        );
+        assert_eq!(
+            config["imports"]["local-pkg/"],
+            deno_path_util::url_from_directory_path(&expected_package_dir)
+                .unwrap()
+                .to_string()
+        );
+        assert_eq!(config["nodeModulesDir"], "manual");
+    }
+
+    #[test]
+    fn synthetic_config_uses_auto_node_modules_for_mixed_file_and_import_dependencies() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config_path = temp_dir.path().join("deno.json");
         let dependencies = vec![
@@ -482,8 +571,21 @@ mod tests {
         let text = fs::read_to_string(config_path).unwrap();
         let config: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(config["imports"]["react"], "npm:react@^19");
-        assert!(config["imports"].get("local-pkg").is_none());
-        assert_eq!(config["nodeModulesDir"], "manual");
+        let expected_entrypoint = temp_dir.path().join("local-pkg").join("index.js");
+        let expected_package_dir = temp_dir.path().join("local-pkg");
+        assert_eq!(
+            config["imports"]["local-pkg"],
+            deno_path_util::url_from_file_path(&expected_entrypoint)
+                .unwrap()
+                .to_string()
+        );
+        assert_eq!(
+            config["imports"]["local-pkg/"],
+            deno_path_util::url_from_directory_path(&expected_package_dir)
+                .unwrap()
+                .to_string()
+        );
+        assert_eq!(config["nodeModulesDir"], "auto");
     }
 
     #[test]
@@ -511,6 +613,28 @@ mod tests {
                 .join(BELGIE_DIR)
                 .join(LOCAL_FILE_DEPS_STATE)
                 .is_file()
+        );
+    }
+
+    #[test]
+    fn sync_local_file_dependency_symlinks_creates_scoped_package_link() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let workspace = temp_dir.path().join("workspace");
+        let install_root = temp_dir.path().join("install");
+        let local_pkg = workspace.join("packages").join("@scope").join("pkg");
+        fs::create_dir_all(&local_pkg).unwrap();
+        let node_modules = install_root.join("node_modules");
+        let dependencies = vec![
+            normalize_dependency(&workspace, "@scope/pkg", "file:./packages/@scope/pkg").unwrap(),
+        ];
+
+        sync_local_file_dependency_symlinks(&install_root, &node_modules, &dependencies).unwrap();
+
+        let link = node_modules.join("@scope").join("pkg");
+        assert!(link.is_symlink());
+        assert_eq!(
+            fs::canonicalize(&link).unwrap(),
+            fs::canonicalize(&local_pkg).unwrap()
         );
     }
 

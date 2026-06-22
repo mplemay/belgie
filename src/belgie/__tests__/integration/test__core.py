@@ -313,6 +313,59 @@ export default function run() {
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
 
 
+def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_install(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    local_file_package(project / "packages", "@acme/vite")
+
+    with Environment(
+        {
+            "@acme/vite": "file:./packages/@acme/vite",
+            "pkg_json": "npm:is-number@7.0.0/package.json",
+        },
+        path=project,
+    ) as env:
+        result = env.install()
+
+    assert result.dependencies == 2
+    assert (project / "node_modules" / "@acme" / "vite").is_symlink()
+    assert (project / ".belgie" / "local-file-deps.json").is_file()
+
+
+def test_environment_install_resolves_mixed_file_and_npm_dependencies_for_runtime(
+    tmp_path: Path,
+    monkeypatch,
+    local_file_package,
+):
+    monkeypatch.chdir(tmp_path)
+    local_file_package(tmp_path)
+    source = """
+import { answer } from "local-pkg";
+import packageJson from "pkg_json" with { type: "json" };
+
+export default function run() {
+  return { answer, version: packageJson.version };
+}
+"""
+    with Environment(
+        {
+            "local-pkg": "file:./local-pkg",
+            "pkg_json": "npm:is-number@7.0.0/package.json",
+        },
+    ) as env:
+        result = env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == {"answer": 42, "version": "7.0.0"}
+
+    assert result.dependencies == 2
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
+
+
 def test_persisted_environment_removes_stale_file_dependency_symlink(
     tmp_path: Path,
     monkeypatch,
