@@ -147,6 +147,9 @@ async fn run_command(
     mut cancel_rx: watch::Receiver<bool>,
 ) -> CommandResult {
     let _context_lock = process_context::acquire_guard(&mut cancel_rx).await?;
+    options
+        .package_environment
+        .refresh_local_file_dependencies()?;
 
     let command_cwd = resolve_command_cwd(&options.runtime_root, options.command.cwd())?;
     let _cwd_guard = CurrentDirGuard::change_to(&command_cwd)?;

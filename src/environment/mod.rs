@@ -11,9 +11,10 @@ mod materialize;
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
     EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest, EnvironmentUpdateResult,
-    PackageDependency, dependencies_from_mapping, install_environment_packages,
+    PackageDependency, dependencies_from_mapping, has_local_file_dependencies,
+    has_mixed_file_and_import_dependencies, install_environment_packages,
     requires_manual_node_modules, sync_local_file_dependency_symlinks, update_environment_packages,
-    write_synthetic_config,
+    write_synthetic_config, write_synthetic_config_with_options,
 };
 
 #[derive(Clone, Debug)]
@@ -295,14 +296,21 @@ fn prepare_install_layout(
     let lockfile = install_root.join("deno.lock");
     let cache_root = install_root.join("deno_dir");
     let node_modules_root = install_root.join("node_modules");
-    write_synthetic_config(&config_file, &definition.dependencies)?;
+    let defer_local_file_imports = has_mixed_file_and_import_dependencies(&definition.dependencies);
+    write_synthetic_config_with_options(
+        &config_file,
+        &definition.dependencies,
+        !defer_local_file_imports,
+    )?;
     std::fs::create_dir_all(&cache_root)
         .with_context(|| format!("Creating {}", cache_root.display()))?;
-    sync_local_file_dependency_symlinks(
-        install_root,
-        &node_modules_root,
-        &definition.dependencies,
-    )?;
+    if has_local_file_dependencies(&definition.dependencies) && !defer_local_file_imports {
+        sync_local_file_dependency_symlinks(
+            install_root,
+            &node_modules_root,
+            &definition.dependencies,
+        )?;
+    }
 
     let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
         copy_lockfile(source, &lockfile)?;
@@ -420,6 +428,11 @@ impl ActiveEnvironment {
         )
     }
 
+    pub(crate) fn refresh_local_file_dependencies(&self) -> Result<(), AnyError> {
+        self.sync_local_file_dependency_symlinks()?;
+        write_synthetic_config(&self.config_file, &self.dependencies)
+    }
+
     pub(crate) fn cleanup_materialized_node_modules(&self) -> Result<(), AnyError> {
         let EnvironmentRoot::Ephemeral {
             temp_dir,
@@ -490,7 +503,7 @@ impl ActiveEnvironment {
             options,
         )
         .await?;
-        self.sync_local_file_dependency_symlinks()?;
+        self.refresh_local_file_dependencies()?;
         self.materialize_cwd_node_modules()?;
         Ok(result)
     }
@@ -521,7 +534,7 @@ impl ActiveEnvironment {
             options,
         })
         .await?;
-        self.sync_local_file_dependency_symlinks()?;
+        self.refresh_local_file_dependencies()?;
         self.materialize_cwd_node_modules()?;
         Ok(result)
     }

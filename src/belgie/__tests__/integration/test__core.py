@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -486,6 +487,37 @@ def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_in
     assert result.dependencies == 2
     assert_installed_package_dir(project / "node_modules" / "@acme" / "vite")
     assert (project / ".belgie" / "local-file-deps.json").is_file()
+
+
+def test_environment_install_rewrites_synthetic_config_for_mixed_scoped_file_dependency(
+    tmp_path: Path,
+    monkeypatch,
+    local_vite_plugin_package,
+):
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    local_vite_plugin_package(project / "packages")
+
+    with Environment(
+        {
+            "@acme/vite": "file:./packages/@acme/vite",
+            "vite": "^6",
+        },
+        path=project,
+    ) as env:
+        env.install()
+
+    config = json.loads((project / "deno.json").read_text(encoding="utf-8"))
+    assert config["imports"]["@acme/vite"] == "./node_modules/@acme/vite/dist/index.js"
+    assert config["imports"]["@acme/vite/"] == "./node_modules/@acme/vite/"
+    assert config["imports"]["vite"] == "npm:vite@^6"
+    assert config["nodeModulesDir"] == "auto"
+    assert_installed_package_dir(project / "node_modules" / "@acme" / "vite")
+    assert json.loads((project / ".belgie" / "local-file-deps.json").read_text(encoding="utf-8")) == [
+        "@acme/vite",
+    ]
+    assert not (project / "package.json").exists()
 
 
 def test_environment_install_resolves_mixed_file_and_npm_dependencies_for_runtime(

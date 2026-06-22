@@ -7,7 +7,7 @@ Use this file when managing isolated JavaScript dependencies from Python.
 `Environment` creates an isolated JS dependency sandbox:
 
 - Synthetic `deno.json` with an `imports` map and a Deno-managed `nodeModulesDir` mode
-- Synthetic `package.json` dependencies when local npm `file:` packages are used
+- Local `file:` packages copied into the environment `node_modules` tree and tracked under `.belgie/`
 - Dependency install state in either a temporary root (default) or a persisted project directory
 
 JavaScript dependencies stay isolated from the Python project's `pyproject.toml`.
@@ -64,8 +64,8 @@ async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
 
 ## Dependency map format
 
-The mapping key is the JavaScript import alias. Values are a full `npm:` / `jsr:` specifier, a Deno-native npm
-`file:` dependency, or an npm version requirement:
+The mapping key is the JavaScript import alias. Values are a full `npm:` / `jsr:` specifier, a local `file:` package
+path, or an npm version requirement:
 
 ```python
 Environment(
@@ -83,11 +83,13 @@ Environment(
 | `"^19"` | `npm:react@^19` |
 | `"jsr:@std/path@^1"` | JSR package |
 | `"npm:pkg@1.0.0/path"` | Explicit npm subpath |
-| `"file:./packages/local-pkg"` | Local npm package via package.json `file:` dependency |
+| `"file:./packages/local-pkg"` | Local package copied into `node_modules` and exposed through the synthetic import map |
 
 `file:` dependency paths resolve relative to the environment workspace. In ephemeral mode that is the process working
 directory captured when `Environment` is constructed; in persisted mode it is the `path=` directory. Local file
-dependencies rely on the environment's `node_modules` layout, so call `install()` before importing them.
+dependencies rely on the environment's `node_modules` layout, so call `install()` before importing them. In mixed
+local-plus-npm environments, Belgie keeps npm packages on Deno's managed `nodeModulesDir: "auto"` path and then
+refreshes the copied local packages after install.
 
 ## Project directory (`path`)
 
