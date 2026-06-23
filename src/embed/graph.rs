@@ -12,6 +12,7 @@ use deno_semver::jsr::JsrPackageReqReference;
 use crate::embed::context::EmbedContext;
 use crate::embed::sys::EmbedSys;
 
+// Trimmed from Deno's cli/tools/pm/cache_deps.rs import-map root loop.
 async fn collect_import_map_roots(
     resolver_factory: &ResolverFactory<EmbedSys>,
 ) -> Result<Vec<ModuleSpecifier>, AnyError> {
@@ -76,16 +77,23 @@ fn is_node_modules_file_specifier(specifier: &ModuleSpecifier) -> bool {
         })
 }
 
+async fn collect_graph_roots(
+    context: &EmbedContext,
+    extra_roots: Vec<ModuleSpecifier>,
+    filter_node_modules: bool,
+) -> Result<Vec<ModuleSpecifier>, AnyError> {
+    let mut roots = collect_import_map_roots(context.resolver_factory()).await?;
+    if filter_node_modules {
+        roots.retain(|specifier| !is_node_modules_file_specifier(specifier));
+    }
+    roots.extend(extra_roots);
+    Ok(roots)
+}
+
 pub(crate) async fn build_install_module_graph(
     context: &EmbedContext,
 ) -> Result<ModuleGraph, AnyError> {
-    let resolver_factory = context.resolver_factory();
-    let mut roots = collect_import_map_roots(resolver_factory)
-        .await?
-        .into_iter()
-        .filter(|specifier| !is_node_modules_file_specifier(specifier))
-        .collect::<Vec<_>>();
-    roots.extend(context.install_graph_roots().iter().cloned());
+    let roots = collect_graph_roots(context, context.install_graph_roots().to_vec(), true).await?;
     build_module_graph_inner(context, roots, HashMap::new()).await
 }
 
@@ -94,9 +102,7 @@ pub(crate) async fn build_module_graph_with_header_overrides(
     extra_roots: Vec<ModuleSpecifier>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
 ) -> Result<ModuleGraph, AnyError> {
-    let resolver_factory = context.resolver_factory();
-    let mut roots = collect_import_map_roots(resolver_factory).await?;
-    roots.extend(extra_roots);
+    let roots = collect_graph_roots(context, extra_roots, false).await?;
     build_module_graph_inner(context, roots, file_header_overrides).await
 }
 

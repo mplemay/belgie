@@ -8,6 +8,7 @@ use deno_core::serde_json;
 use deno_core::url::Url;
 use deno_graph::ModuleSpecifier;
 use deno_npm_cache::{hard_link_file, is_etxtbsy};
+use deno_package_json::{PackageJson, PackageJsonDepValue};
 use deno_resolver::workspace::SpecifiedImportMap;
 
 use crate::embed::EmbedContextOptions;
@@ -237,25 +238,24 @@ fn local_package_registry_roots(target_path: &Path) -> Result<Vec<ModuleSpecifie
     if !package_json_path.is_file() {
         return Ok(Vec::new());
     }
-    let text = std::fs::read_to_string(&package_json_path)
-        .with_context(|| format!("Reading {}", package_json_path.display()))?;
-    let package_json: serde_json::Value = serde_json::from_str(&text)
-        .with_context(|| format!("Parsing {}", package_json_path.display()))?;
-    let mut roots = Vec::new();
-    let Some(deps) = package_json
-        .get("dependencies")
-        .and_then(serde_json::Value::as_object)
+    let sys = EmbedSys::default();
+    let Some(package_json) =
+        PackageJson::load_from_path(&sys, None, &package_json_path).map_err(AnyError::from)?
     else {
+        return Ok(Vec::new());
+    };
+    let mut roots = Vec::new();
+    let Some(deps) = package_json.dependencies.as_ref() else {
         return Ok(roots);
     };
-    for (name, version) in deps {
-        let Some(version) = version.as_str() else {
-            continue;
-        };
-        let specifier = if is_registry_import_specifier(version) {
-            version.to_string()
+    for (name, value) in deps {
+        let specifier = if is_registry_import_specifier(value) {
+            value.clone()
         } else {
-            format!("npm:{name}@{version}")
+            match PackageJsonDepValue::parse(name, value) {
+                Ok(PackageJsonDepValue::Req(req)) => format!("npm:{req}"),
+                _ => continue,
+            }
         };
         let Ok(root) = ModuleSpecifier::parse(&specifier) else {
             continue;
@@ -277,20 +277,20 @@ fn local_file_dependency_entrypoint(target_path: &Path) -> Result<PathBuf, AnyEr
     if !package_json_path.is_file() {
         return Ok(target_path.join("index.js"));
     }
-    let text = std::fs::read_to_string(&package_json_path)
-        .with_context(|| format!("Reading {}", package_json_path.display()))?;
-    let package_json: serde_json::Value = serde_json::from_str(&text)
-        .with_context(|| format!("Parsing {}", package_json_path.display()))?;
+    let sys = EmbedSys::default();
+    let Some(package_json) =
+        PackageJson::load_from_path(&sys, None, &package_json_path).map_err(AnyError::from)?
+    else {
+        return Ok(target_path.join("index.js"));
+    };
     let entrypoint = package_json
-        .get("exports")
-        .and_then(package_export_entrypoint)
-        .or_else(|| {
-            package_json
-                .get("module")
-                .and_then(serde_json::Value::as_str)
-        })
-        .or_else(|| package_json.get("main").and_then(serde_json::Value::as_str))
-        .unwrap_or("index.js");
+        .exports
+        .as_ref()
+        .map(|exports| serde_json::Value::Object(exports.clone()))
+        .and_then(|exports| package_export_entrypoint(&exports).map(str::to_string))
+        .or(package_json.module.clone())
+        .or(package_json.main.clone())
+        .unwrap_or_else(|| "index.js".to_string());
     Ok(target_path.join(entrypoint))
 }
 
@@ -322,6 +322,10 @@ fn remove_legacy_synthetic_package_json(path: &Path) -> Result<(), AnyError> {
             .with_context(|| format!("Removing legacy synthetic {}", path.display()))?;
     }
     Ok(())
+}
+
+pub(crate) fn has_legacy_local_file_state(install_root: &Path) -> bool {
+    install_root.join(BELGIE_DIR).is_dir()
 }
 
 pub(crate) fn sync_local_file_dependencies(
@@ -363,13 +367,10 @@ pub(crate) async fn install_environment_packages(
     lockfile: PathBuf,
     lockfile_only: bool,
     options: EmbedContextOptions,
-) -> Result<EnvironmentInstallResult, AnyError> {
+) -> Result<PathBuf, AnyError> {
     crate::embed::install_packages_with_options(cwd, lockfile.clone(), lockfile_only, options)
         .await?;
-    Ok(EnvironmentInstallResult {
-        lockfile,
-        dependencies: 0,
-    })
+    Ok(lockfile)
 }
 
 pub(crate) async fn update_environment_packages(
@@ -591,10 +592,6 @@ fn remove_installed_local_package(path: &Path) -> Result<(), AnyError> {
 const SKIP_LOCAL_PACKAGE_ENTRIES: &[&str] =
     &["node_modules", ".deno", ".git", LOCAL_PACKAGE_MARKER];
 
-fn should_skip_local_package_entry(name: &str) -> bool {
-    SKIP_LOCAL_PACKAGE_ENTRIES.contains(&name)
-}
-
 fn local_package_needs_sync(source: &Path, dest: &Path) -> Result<bool, AnyError> {
     if !dest.exists() {
         return Ok(true);
@@ -635,7 +632,7 @@ fn materialize_local_package_entries(
         let entry = entry.with_context(|| format!("Reading {}", source.display()))?;
         let file_name = entry.file_name();
         let file_name = file_name.to_string_lossy();
-        if should_skip_local_package_entry(&file_name) {
+        if SKIP_LOCAL_PACKAGE_ENTRIES.contains(&file_name.as_ref()) {
             continue;
         }
         let file_type = entry

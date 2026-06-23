@@ -228,13 +228,13 @@ impl std::fmt::Debug for EmbedContext {
 
 #[derive(Debug)]
 struct StaticImportMapProvider {
-    import_map: Arc<SpecifiedImportMap>,
+    import_map: SpecifiedImportMap,
 }
 
 #[async_trait::async_trait(?Send)]
 impl SpecifiedImportMapProvider for StaticImportMapProvider {
     async fn get(&self) -> Result<Option<SpecifiedImportMap>, AnyError> {
-        Ok(Some((*self.import_map).clone()))
+        Ok(Some(self.import_map.clone()))
     }
 }
 
@@ -289,17 +289,15 @@ impl EmbedContext {
             ResolverFactoryOptions {
                 allow_json_imports: AllowJsonImports::WithAttribute,
                 specified_import_map: options.specified_import_map.map(|import_map| {
-                    Box::new(StaticImportMapProvider {
-                        import_map: Arc::new(import_map),
-                    }) as Box<dyn SpecifiedImportMapProvider>
+                    Box::new(StaticImportMapProvider { import_map })
+                        as Box<dyn SpecifiedImportMapProvider>
                 }),
                 ..Default::default()
             },
         ));
 
         let root_cert_store = get_root_cert_store(&sys, None, None, None)?;
-        let http_client = EmbedHttpClient::new(root_cert_store)?;
-        let http_client_arc = Arc::new(http_client.clone());
+        let http_client = Arc::new(EmbedHttpClient::new(root_cert_store)?);
         let memory_files = deno_maybe_sync::new_rc(MemoryFiles::default());
         let global_http_cache = resolver_factory
             .workspace_factory()
@@ -311,7 +309,7 @@ impl EmbedContext {
             deno_maybe_sync::new_rc(deno_cache_dir::GlobalOrLocalHttpCache::from(
                 global_http_cache.clone(),
             )),
-            http_client.clone(),
+            http_client.as_ref().clone(),
             memory_files.clone(),
             sys.clone(),
             PermissionedFileFetcherOptions {
@@ -334,7 +332,7 @@ impl EmbedContext {
 
         let npm_installer_factory = Rc::new(NpmInstallerFactory::new(
             resolver_factory.clone(),
-            http_client_arc.clone(),
+            http_client.clone(),
             Arc::new(NullLifecycleScriptsExecutor),
             LogReporter,
             None,
@@ -353,7 +351,7 @@ impl EmbedContext {
         Ok(Self {
             cwd,
             lockfile,
-            http_client: http_client_arc,
+            http_client,
             resolver_factory,
             npm_installer_factory,
             memory_files,

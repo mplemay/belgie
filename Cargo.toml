@@ -28,6 +28,7 @@ deno_npm = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_npm_cache = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_npm_installer = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_npmrc = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
+deno_package_json = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_path_util = "=0.6.4"
 deno_permissions = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_resolver = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", features = ["sync", "graph", "deno_ast"] }

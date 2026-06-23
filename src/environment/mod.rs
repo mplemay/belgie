@@ -10,9 +10,9 @@ mod materialize;
 
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
-    BELGIE_DIR, DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult,
-    EnvironmentUpdateRequest, EnvironmentUpdateResult, PackageDependency,
-    dependencies_from_mapping, install_environment_packages, local_file_dependency_install_roots,
+    DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest,
+    EnvironmentUpdateResult, PackageDependency, dependencies_from_mapping,
+    has_legacy_local_file_state, install_environment_packages, local_file_dependency_install_roots,
     specified_import_map, sync_local_file_dependencies, update_environment_packages,
 };
 
@@ -476,7 +476,7 @@ impl ActiveEnvironment {
         &self,
         already_synced: bool,
     ) -> Result<(), AnyError> {
-        let has_legacy_state = self.install_root().join(BELGIE_DIR).is_dir();
+        let has_legacy_state = has_legacy_local_file_state(self.install_root());
         let needs_refresh = self
             .with_package_state(|package_state| package_state.layout.has_local || has_legacy_state);
         if !needs_refresh {
@@ -549,7 +549,7 @@ impl ActiveEnvironment {
         };
         let dependency_count = self.dependency_count();
         self.sync_local_file_dependencies()?;
-        let install_result = install_environment_packages(
+        let lockfile = install_environment_packages(
             self.workspace.clone(),
             self.lockfile.clone(),
             lockfile_only,
@@ -559,7 +559,7 @@ impl ActiveEnvironment {
         self.refresh_local_file_dependencies(true)?;
         self.materialize_cwd_node_modules()?;
         Ok(EnvironmentInstallResult {
-            lockfile: install_result.lockfile,
+            lockfile,
             dependencies: dependency_count,
         })
     }
