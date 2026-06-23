@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -258,7 +257,6 @@ def test_environment_path_resolves_inline_relative_imports(isolated_project_cwd:
         assert runtime(Script(source))() == 42
 
     assert sorted(path.name for path in isolated_project_cwd.iterdir()) == [
-        "deno.json",
         "deno.lock",
         "deno_dir",
         "value.ts",
@@ -369,6 +367,37 @@ export default function run() {
         result = env.install()
         with Runtime(env=env) as runtime:
             assert runtime(Script(source))() == 42
+
+    assert result.dependencies == 1
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
+
+
+def test_environment_install_resolves_transitive_npm_in_local_file_dependency(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    local_pkg = tmp_path / "local-pkg"
+    local_pkg.mkdir()
+    (local_pkg / "package.json").write_text(
+        '{"name":"local-pkg","version":"1.0.0","type":"module","dependencies":{"is-number":"7.0.0"},"exports":"./index.js"}\n',
+        encoding="utf-8",
+    )
+    (local_pkg / "index.js").write_text(
+        'import isNumber from "is-number";\n\nexport const answer = isNumber(42);\n',
+        encoding="utf-8",
+    )
+    source = """
+import { answer } from "local-pkg";
+
+export default function run() {
+  return answer;
+}
+"""
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        result = env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() is True
 
     assert result.dependencies == 1
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
@@ -486,10 +515,11 @@ def test_environment_install_preserves_scoped_file_dependency_after_mixed_npm_in
 
     assert result.dependencies == 2
     assert_installed_package_dir(project / "node_modules" / "@acme" / "vite")
-    assert (project / ".belgie" / "local-file-deps.json").is_file()
+    assert not (project / "deno.json").exists()
+    assert not (project / ".belgie").exists()
 
 
-def test_environment_install_rewrites_synthetic_config_for_mixed_scoped_file_dependency(
+def test_environment_install_preserves_mixed_scoped_file_dependency_without_synthetic_files(
     tmp_path: Path,
     monkeypatch,
     local_vite_plugin_package,
@@ -508,15 +538,9 @@ def test_environment_install_rewrites_synthetic_config_for_mixed_scoped_file_dep
     ) as env:
         env.install()
 
-    config = json.loads((project / "deno.json").read_text(encoding="utf-8"))
-    assert config["imports"]["@acme/vite"] == "./node_modules/@acme/vite/dist/index.js"
-    assert config["imports"]["@acme/vite/"] == "./node_modules/@acme/vite/"
-    assert config["imports"]["vite"] == "npm:vite@^6"
-    assert config["nodeModulesDir"] == "auto"
     assert_installed_package_dir(project / "node_modules" / "@acme" / "vite")
-    assert json.loads((project / ".belgie" / "local-file-deps.json").read_text(encoding="utf-8")) == [
-        "@acme/vite",
-    ]
+    assert not (project / "deno.json").exists()
+    assert not (project / ".belgie").exists()
     assert not (project / "package.json").exists()
 
 
@@ -570,10 +594,10 @@ def test_persisted_environment_removes_stale_file_dependency_install(
 
     assert not (project / "node_modules" / "local-pkg").exists()
     assert not (project / "package.json").exists()
-    assert not (project / ".belgie" / "local-file-deps.json").exists()
+    assert not (project / ".belgie").exists()
 
 
-def test_environment_update_changes_synthetic_dependency(tmp_path: Path, monkeypatch):
+def test_environment_update_changes_dependency(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with Environment({"is_number": "npm:is-number@6.0.0"}) as env:
         result = env.update(["is_number@7.0.0"], lockfile_only=True)
@@ -624,10 +648,8 @@ def test_environment_update_skips_file_imports_in_mixed_environment(
     assert result.changes[0].previous == "npm:is-number@6.0.0"
     assert result.changes[0].updated == "npm:is-number@7.0.0"
 
-    config = json.loads((project / "deno.json").read_text(encoding="utf-8"))
-    assert config["imports"]["is_number"] == "npm:is-number@7.0.0"
-    assert config["imports"]["local-pkg"] == "./node_modules/local-pkg/index.js"
-    assert config["imports"]["local-pkg/"] == "./node_modules/local-pkg/"
+    assert not (project / "deno.json").exists()
+    assert not (project / ".belgie").exists()
 
 
 def test_direct_environment_installs_jsr_dependency_without_project_files(tmp_path: Path, monkeypatch):

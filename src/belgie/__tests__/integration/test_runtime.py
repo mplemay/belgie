@@ -116,7 +116,6 @@ writeFileSync("persisted.ts", "export const persisted = 42;\\n", "utf-8");
         assert await runtime(Script(source))() == 42
 
     assert sorted([entry.name async for entry in AsyncPath(isolated_project_cwd).iterdir()]) == [
-        "deno.json",
         "deno.lock",
         "deno_dir",
         "node_modules",

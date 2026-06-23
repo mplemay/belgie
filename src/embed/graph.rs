@@ -12,7 +12,8 @@ use deno_semver::jsr::JsrPackageReqReference;
 use crate::embed::context::EmbedContext;
 use crate::embed::sys::EmbedSys;
 
-pub(crate) async fn collect_import_map_roots(
+// Trimmed from Deno's cli/tools/pm/cache_deps.rs import-map root loop.
+async fn collect_import_map_roots(
     resolver_factory: &ResolverFactory<EmbedSys>,
 ) -> Result<Vec<ModuleSpecifier>, AnyError> {
     let workspace_resolver = resolver_factory.workspace_resolver().await?;
@@ -53,6 +54,12 @@ pub(crate) async fn collect_import_map_roots(
                 if entry.key.ends_with('/') && specifier.as_str().ends_with('/') {
                     continue;
                 }
+                if specifier.scheme() == "file"
+                    && let Ok(path) = specifier.to_file_path()
+                    && !path.is_file()
+                {
+                    continue;
+                }
                 roots.push(specifier.clone());
             }
         }
@@ -61,11 +68,33 @@ pub(crate) async fn collect_import_map_roots(
     Ok(roots)
 }
 
-pub(crate) async fn build_module_graph(
+fn is_node_modules_file_specifier(specifier: &ModuleSpecifier) -> bool {
+    specifier.scheme() == "file"
+        && specifier.path_segments().is_some_and(|segments| {
+            segments
+                .into_iter()
+                .any(|segment| segment == "node_modules")
+        })
+}
+
+async fn collect_graph_roots(
     context: &EmbedContext,
     extra_roots: Vec<ModuleSpecifier>,
+    filter_node_modules: bool,
+) -> Result<Vec<ModuleSpecifier>, AnyError> {
+    let mut roots = collect_import_map_roots(context.resolver_factory()).await?;
+    if filter_node_modules {
+        roots.retain(|specifier| !is_node_modules_file_specifier(specifier));
+    }
+    roots.extend(extra_roots);
+    Ok(roots)
+}
+
+pub(crate) async fn build_install_module_graph(
+    context: &EmbedContext,
 ) -> Result<ModuleGraph, AnyError> {
-    build_module_graph_with_header_overrides(context, extra_roots, HashMap::new()).await
+    let roots = collect_graph_roots(context, context.install_graph_roots().to_vec(), true).await?;
+    build_module_graph_inner(context, roots, HashMap::new()).await
 }
 
 pub(crate) async fn build_module_graph_with_header_overrides(
@@ -73,10 +102,17 @@ pub(crate) async fn build_module_graph_with_header_overrides(
     extra_roots: Vec<ModuleSpecifier>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
 ) -> Result<ModuleGraph, AnyError> {
+    let roots = collect_graph_roots(context, extra_roots, false).await?;
+    build_module_graph_inner(context, roots, file_header_overrides).await
+}
+
+async fn build_module_graph_inner(
+    context: &EmbedContext,
+    roots: Vec<ModuleSpecifier>,
+    file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+) -> Result<ModuleGraph, AnyError> {
     let resolver_factory = context.resolver_factory();
     let npm_installer_factory = context.npm_installer_factory();
-    let mut roots = collect_import_map_roots(resolver_factory).await?;
-    roots.extend(extra_roots);
 
     let mut graph = ModuleGraph::new(GraphKind::All);
     if roots.is_empty() {
@@ -136,28 +172,33 @@ pub(crate) async fn build_module_graph_with_header_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embed::EmbedContext;
+    use crate::embed::{EmbedContext, EmbedContextOptions};
+    use crate::packages::{dependencies_from_mapping, specified_import_map};
+    use std::collections::BTreeMap;
     use std::fs;
 
     #[tokio::test]
-    async fn collects_import_map_roots_from_synthetic_config() {
+    async fn collects_roots_from_specified_import_map_without_config_file() {
         let temp_dir = tempfile::tempdir().unwrap();
         let cwd = temp_dir.path().join("project");
         fs::create_dir_all(&cwd).unwrap();
-        let config_file = temp_dir.path().join("deno.json");
-        fs::write(
-            &config_file,
-            r#"{
-  "imports": {
-    "std_path": "jsr:@std/path@^1"
-  },
-  "nodeModulesDir": "none"
-}
-"#,
+        let dependencies = dependencies_from_mapping(
+            &cwd,
+            BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
         )
         .unwrap();
-        let context =
-            EmbedContext::new(cwd, config_file, temp_dir.path().join("deno.lock")).unwrap();
+        let import_map_base = deno_core::url::Url::from_directory_path(&cwd).unwrap();
+        let context = EmbedContext::new(
+            cwd.clone(),
+            temp_dir.path().join("deno.lock"),
+            EmbedContextOptions {
+                specified_import_map: Some(
+                    specified_import_map(import_map_base, &dependencies).unwrap(),
+                ),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let roots = collect_import_map_roots(context.resolver_factory())
             .await
             .unwrap();

@@ -5,22 +5,16 @@ use deno_core::error::AnyError;
 use deno_npm_installer::PackageCaching;
 
 use crate::embed::context::{EmbedContext, EmbedContextOptions};
-use crate::embed::graph::build_module_graph;
+use crate::embed::graph::build_install_module_graph;
 
 pub(crate) async fn install_packages_with_options(
     cwd: PathBuf,
-    config_file: PathBuf,
     lockfile: PathBuf,
     lockfile_only: bool,
     options: EmbedContextOptions,
 ) -> Result<Rc<EmbedContext>, AnyError> {
     let options = options.for_package_manager();
-    let context = Rc::new(EmbedContext::new_with_options(
-        cwd,
-        config_file,
-        lockfile,
-        options,
-    )?);
+    let context = Rc::new(EmbedContext::new_with_options(cwd, lockfile, options)?);
     let npm_installer_factory = context.npm_installer_factory();
     npm_installer_factory
         .initialize_npm_resolution_if_managed()
@@ -35,7 +29,7 @@ pub(crate) async fn install_packages_with_options(
         lockfile.error_if_changed()?;
     }
 
-    build_module_graph(context.as_ref(), Vec::new()).await?;
+    build_install_module_graph(context.as_ref()).await?;
 
     if lockfile_only {
         npm_installer.install_resolution_if_pending().await?;

@@ -11,6 +11,7 @@ use deno_config::deno_json::NodeModulesDirMode;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_error::JsErrorBox;
+use deno_graph::ModuleSpecifier;
 use deno_lib::args::get_root_cert_store;
 use deno_lib::version::DENO_VERSION_INFO;
 use deno_npm_cache::NpmCacheHttpClient;
@@ -26,6 +27,7 @@ use deno_npmrc::RegistryConfig;
 use deno_resolver::factory::ConfigDiscoveryOption;
 use deno_resolver::factory::ResolverFactory;
 use deno_resolver::factory::ResolverFactoryOptions;
+use deno_resolver::factory::SpecifiedImportMapProvider;
 use deno_resolver::factory::WorkspaceFactory;
 use deno_resolver::factory::WorkspaceFactoryOptions;
 use deno_resolver::file_fetcher::DenoGraphLoader;
@@ -34,6 +36,7 @@ use deno_resolver::file_fetcher::PermissionedFileFetcher;
 use deno_resolver::file_fetcher::PermissionedFileFetcherOptions;
 use deno_resolver::loader::AllowJsonImports;
 use deno_resolver::loader::MemoryFiles;
+use deno_resolver::workspace::SpecifiedImportMap;
 use deno_runtime::deno_fetch;
 use deno_runtime::deno_fetch::CreateHttpClientOptions;
 use deno_runtime::deno_fetch::create_http_client;
@@ -186,13 +189,13 @@ impl NpmCacheHttpClient for EmbedHttpClient {
 
 pub(crate) struct EmbedContext {
     pub cwd: PathBuf,
-    pub config_file: PathBuf,
     pub lockfile: PathBuf,
     http_client: Arc<EmbedHttpClient>,
     resolver_factory: Arc<ResolverFactory<EmbedSys>>,
     npm_installer_factory: Rc<NpmInstallerFactory<EmbedHttpClient, LogReporter, EmbedSys>>,
     memory_files: deno_resolver::loader::MemoryFilesRc,
     graph_loader: Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>>,
+    install_graph_roots: Vec<ModuleSpecifier>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -203,6 +206,8 @@ pub(crate) struct EmbedContextOptions {
     pub lockfile_skip_write: bool,
     pub node_modules_dir_mode: Option<NodeModulesDirMode>,
     pub node_modules_root: Option<PathBuf>,
+    pub specified_import_map: Option<SpecifiedImportMap>,
+    pub install_graph_roots: Vec<ModuleSpecifier>,
 }
 
 impl EmbedContextOptions {
@@ -216,27 +221,40 @@ impl std::fmt::Debug for EmbedContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EmbedContext")
             .field("cwd", &self.cwd)
-            .field("config_file", &self.config_file)
             .field("lockfile", &self.lockfile)
             .finish_non_exhaustive()
     }
 }
 
+#[derive(Debug)]
+struct StaticImportMapProvider {
+    import_map: SpecifiedImportMap,
+}
+
+#[async_trait::async_trait(?Send)]
+impl SpecifiedImportMapProvider for StaticImportMapProvider {
+    async fn get(&self) -> Result<Option<SpecifiedImportMap>, AnyError> {
+        Ok(Some(self.import_map.clone()))
+    }
+}
+
 impl EmbedContext {
     #[cfg(test)]
-    pub fn new(cwd: PathBuf, config_file: PathBuf, lockfile: PathBuf) -> Result<Self, AnyError> {
-        Self::new_with_options(cwd, config_file, lockfile, EmbedContextOptions::default())
+    pub fn new(
+        cwd: PathBuf,
+        lockfile: PathBuf,
+        options: EmbedContextOptions,
+    ) -> Result<Self, AnyError> {
+        Self::new_with_options(cwd, lockfile, options)
     }
 
     pub fn new_with_options(
         cwd: PathBuf,
-        config_file: PathBuf,
         lockfile: PathBuf,
         options: EmbedContextOptions,
     ) -> Result<Self, AnyError> {
         ensure_initialized();
         let sys = EmbedSys::default();
-        let config_file = config_file.canonicalize().unwrap_or(config_file);
         let lockfile = if lockfile.is_absolute() {
             lockfile
         } else {
@@ -254,7 +272,7 @@ impl EmbedContext {
             sys.clone(),
             cwd.clone(),
             WorkspaceFactoryOptions {
-                config_discovery: ConfigDiscoveryOption::Path(config_file.clone()),
+                config_discovery: ConfigDiscoveryOption::Disabled,
                 lock_arg: Some(lockfile.clone()),
                 is_package_manager_subcommand: options.is_package_manager_subcommand,
                 frozen_lockfile: options.frozen_lockfile,
@@ -270,13 +288,16 @@ impl EmbedContext {
             workspace_factory,
             ResolverFactoryOptions {
                 allow_json_imports: AllowJsonImports::WithAttribute,
+                specified_import_map: options.specified_import_map.map(|import_map| {
+                    Box::new(StaticImportMapProvider { import_map })
+                        as Box<dyn SpecifiedImportMapProvider>
+                }),
                 ..Default::default()
             },
         ));
 
         let root_cert_store = get_root_cert_store(&sys, None, None, None)?;
-        let http_client = EmbedHttpClient::new(root_cert_store)?;
-        let http_client_arc = Arc::new(http_client.clone());
+        let http_client = Arc::new(EmbedHttpClient::new(root_cert_store)?);
         let memory_files = deno_maybe_sync::new_rc(MemoryFiles::default());
         let global_http_cache = resolver_factory
             .workspace_factory()
@@ -288,7 +309,7 @@ impl EmbedContext {
             deno_maybe_sync::new_rc(deno_cache_dir::GlobalOrLocalHttpCache::from(
                 global_http_cache.clone(),
             )),
-            http_client.clone(),
+            http_client.as_ref().clone(),
             memory_files.clone(),
             sys.clone(),
             PermissionedFileFetcherOptions {
@@ -311,7 +332,7 @@ impl EmbedContext {
 
         let npm_installer_factory = Rc::new(NpmInstallerFactory::new(
             resolver_factory.clone(),
-            http_client_arc.clone(),
+            http_client.clone(),
             Arc::new(NullLifecycleScriptsExecutor),
             LogReporter,
             None,
@@ -329,13 +350,13 @@ impl EmbedContext {
 
         Ok(Self {
             cwd,
-            config_file,
             lockfile,
-            http_client: http_client_arc,
+            http_client,
             resolver_factory,
             npm_installer_factory,
             memory_files,
             graph_loader: Mutex::new(graph_loader),
+            install_graph_roots: options.install_graph_roots,
         })
     }
 
@@ -361,6 +382,10 @@ impl EmbedContext {
         &self,
     ) -> &Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>> {
         &self.graph_loader
+    }
+
+    pub fn install_graph_roots(&self) -> &[ModuleSpecifier] {
+        &self.install_graph_roots
     }
 
     pub fn insert_memory_file(&self, url: Url, source: String) {
