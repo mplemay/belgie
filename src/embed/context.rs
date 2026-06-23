@@ -11,6 +11,7 @@ use deno_config::deno_json::NodeModulesDirMode;
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_error::JsErrorBox;
+use deno_graph::ModuleSpecifier;
 use deno_lib::args::get_root_cert_store;
 use deno_lib::version::DENO_VERSION_INFO;
 use deno_npm_cache::NpmCacheHttpClient;
@@ -194,6 +195,7 @@ pub(crate) struct EmbedContext {
     npm_installer_factory: Rc<NpmInstallerFactory<EmbedHttpClient, LogReporter, EmbedSys>>,
     memory_files: deno_resolver::loader::MemoryFilesRc,
     graph_loader: Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>>,
+    install_graph_roots: Vec<ModuleSpecifier>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -205,6 +207,7 @@ pub(crate) struct EmbedContextOptions {
     pub node_modules_dir_mode: Option<NodeModulesDirMode>,
     pub node_modules_root: Option<PathBuf>,
     pub specified_import_map: Option<SpecifiedImportMap>,
+    pub install_graph_roots: Vec<ModuleSpecifier>,
 }
 
 impl EmbedContextOptions {
@@ -355,6 +358,7 @@ impl EmbedContext {
             npm_installer_factory,
             memory_files,
             graph_loader: Mutex::new(graph_loader),
+            install_graph_roots: options.install_graph_roots,
         })
     }
 
@@ -380,6 +384,10 @@ impl EmbedContext {
         &self,
     ) -> &Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>> {
         &self.graph_loader
+    }
+
+    pub fn install_graph_roots(&self) -> &[ModuleSpecifier] {
+        &self.install_graph_roots
     }
 
     pub fn insert_memory_file(&self, url: Url, source: String) {

@@ -372,6 +372,37 @@ export default function run() {
     assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
 
 
+def test_environment_install_resolves_transitive_npm_in_local_file_dependency(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    local_pkg = tmp_path / "local-pkg"
+    local_pkg.mkdir()
+    (local_pkg / "package.json").write_text(
+        '{"name":"local-pkg","version":"1.0.0","type":"module","dependencies":{"is-number":"7.0.0"},"exports":"./index.js"}\n',
+        encoding="utf-8",
+    )
+    (local_pkg / "index.js").write_text(
+        'import isNumber from "is-number";\n\nexport const answer = isNumber(42);\n',
+        encoding="utf-8",
+    )
+    source = """
+import { answer } from "local-pkg";
+
+export default function run() {
+  return answer;
+}
+"""
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        result = env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() is True
+
+    assert result.dependencies == 1
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["local-pkg"]
+
+
 def test_environment_runtime_resolves_file_dependency_from_web_worker(
     tmp_path: Path,
     monkeypatch,

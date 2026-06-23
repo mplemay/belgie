@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use deno_core::anyhow::{Context, bail};
+use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_core::url::Url;
+use deno_graph::ModuleSpecifier;
 use deno_npm_cache::{hard_link_file, is_etxtbsy};
 use deno_resolver::workspace::SpecifiedImportMap;
 
@@ -201,6 +202,67 @@ fn dependency_imports(
         }
     }
     Ok(imports)
+}
+
+pub(crate) fn local_file_dependency_install_roots(
+    dependencies: &[PackageDependency],
+) -> Result<Vec<ModuleSpecifier>, AnyError> {
+    let mut roots = Vec::new();
+    for dep in dependencies {
+        let PackageDependencyKind::LocalFile {
+            target_path,
+            entrypoint,
+        } = &dep.kind
+        else {
+            continue;
+        };
+        let registry_roots = local_package_registry_roots(target_path)?;
+        if registry_roots.is_empty() {
+            let url = deno_path_util::url_from_file_path(entrypoint).map_err(|error| {
+                anyhow!(
+                    "Could not convert local package entrypoint {} to a file URL: {error}",
+                    entrypoint.display()
+                )
+            })?;
+            roots.push(ModuleSpecifier::from(url));
+            continue;
+        }
+        roots.extend(registry_roots);
+    }
+    Ok(roots)
+}
+
+fn local_package_registry_roots(target_path: &Path) -> Result<Vec<ModuleSpecifier>, AnyError> {
+    let package_json_path = target_path.join("package.json");
+    if !package_json_path.is_file() {
+        return Ok(Vec::new());
+    }
+    let text = std::fs::read_to_string(&package_json_path)
+        .with_context(|| format!("Reading {}", package_json_path.display()))?;
+    let package_json: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("Parsing {}", package_json_path.display()))?;
+    let mut roots = Vec::new();
+    let Some(deps) = package_json
+        .get("dependencies")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Ok(roots);
+    };
+    for (name, version) in deps {
+        let Some(version) = version.as_str() else {
+            continue;
+        };
+        let specifier = if is_registry_import_specifier(version) {
+            version.to_string()
+        } else {
+            format!("npm:{name}@{version}")
+        };
+        let Ok(root) = ModuleSpecifier::parse(&specifier) else {
+            continue;
+        };
+        roots.push(root);
+    }
+    Ok(roots)
 }
 
 fn posix_relative_path(path: &Path) -> String {
@@ -715,6 +777,33 @@ mod tests {
             import_map["imports"]["local-pkg/"],
             "./node_modules/local-pkg/"
         );
+    }
+
+    #[test]
+    fn local_file_dependency_install_roots_include_package_json_registry_deps() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let local_pkg = temp_dir.path().join("local-pkg");
+        std::fs::create_dir_all(&local_pkg).unwrap();
+        std::fs::write(
+            local_pkg.join("package.json"),
+            r#"{
+  "name": "local-pkg",
+  "version": "1.0.0",
+  "dependencies": {
+    "is-number": "7.0.0"
+  }
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(local_pkg.join("index.js"), "export const answer = 42;\n").unwrap();
+        let dependencies =
+            vec![normalize_dependency(temp_dir.path(), "local-pkg", "file:./local-pkg").unwrap()];
+
+        let roots = local_file_dependency_install_roots(&dependencies).unwrap();
+
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].as_str(), "npm:is-number@7.0.0");
     }
 
     #[test]

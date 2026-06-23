@@ -12,16 +12,8 @@ use deno_semver::jsr::JsrPackageReqReference;
 use crate::embed::context::EmbedContext;
 use crate::embed::sys::EmbedSys;
 
-#[cfg(test)]
-pub(crate) async fn collect_import_map_roots(
+async fn collect_import_map_roots(
     resolver_factory: &ResolverFactory<EmbedSys>,
-) -> Result<Vec<ModuleSpecifier>, AnyError> {
-    collect_import_map_roots_with_options(resolver_factory, true).await
-}
-
-async fn collect_import_map_roots_with_options(
-    resolver_factory: &ResolverFactory<EmbedSys>,
-    include_local_node_modules_roots: bool,
 ) -> Result<Vec<ModuleSpecifier>, AnyError> {
     let workspace_resolver = resolver_factory.workspace_resolver().await?;
     let mut roots = Vec::new();
@@ -39,9 +31,6 @@ async fn collect_import_map_roots_with_options(
         let Some(specifier) = entry.value else {
             continue;
         };
-        if !include_local_node_modules_roots && is_node_modules_file_specifier(specifier) {
-            continue;
-        }
         match specifier.scheme() {
             "jsr" => {
                 let specifier_str = specifier.as_str();
@@ -64,6 +53,12 @@ async fn collect_import_map_roots_with_options(
                 if entry.key.ends_with('/') && specifier.as_str().ends_with('/') {
                     continue;
                 }
+                if specifier.scheme() == "file"
+                    && let Ok(path) = specifier.to_file_path()
+                    && !path.is_file()
+                {
+                    continue;
+                }
                 roots.push(specifier.clone());
             }
         }
@@ -84,7 +79,14 @@ fn is_node_modules_file_specifier(specifier: &ModuleSpecifier) -> bool {
 pub(crate) async fn build_install_module_graph(
     context: &EmbedContext,
 ) -> Result<ModuleGraph, AnyError> {
-    build_module_graph_inner(context, Vec::new(), HashMap::new(), false).await
+    let resolver_factory = context.resolver_factory();
+    let mut roots = collect_import_map_roots(resolver_factory)
+        .await?
+        .into_iter()
+        .filter(|specifier| !is_node_modules_file_specifier(specifier))
+        .collect::<Vec<_>>();
+    roots.extend(context.install_graph_roots().iter().cloned());
+    build_module_graph_inner(context, roots, HashMap::new()).await
 }
 
 pub(crate) async fn build_module_graph_with_header_overrides(
@@ -92,21 +94,19 @@ pub(crate) async fn build_module_graph_with_header_overrides(
     extra_roots: Vec<ModuleSpecifier>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
 ) -> Result<ModuleGraph, AnyError> {
-    build_module_graph_inner(context, extra_roots, file_header_overrides, true).await
+    let resolver_factory = context.resolver_factory();
+    let mut roots = collect_import_map_roots(resolver_factory).await?;
+    roots.extend(extra_roots);
+    build_module_graph_inner(context, roots, file_header_overrides).await
 }
 
 async fn build_module_graph_inner(
     context: &EmbedContext,
-    extra_roots: Vec<ModuleSpecifier>,
+    roots: Vec<ModuleSpecifier>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
-    include_local_node_modules_roots: bool,
 ) -> Result<ModuleGraph, AnyError> {
     let resolver_factory = context.resolver_factory();
     let npm_installer_factory = context.npm_installer_factory();
-    let mut roots =
-        collect_import_map_roots_with_options(resolver_factory, include_local_node_modules_roots)
-            .await?;
-    roots.extend(extra_roots);
 
     let mut graph = ModuleGraph::new(GraphKind::All);
     if roots.is_empty() {

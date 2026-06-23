@@ -12,8 +12,8 @@ use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
     BELGIE_DIR, DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult,
     EnvironmentUpdateRequest, EnvironmentUpdateResult, PackageDependency,
-    dependencies_from_mapping, install_environment_packages, specified_import_map,
-    sync_local_file_dependencies, update_environment_packages,
+    dependencies_from_mapping, install_environment_packages, local_file_dependency_install_roots,
+    specified_import_map, sync_local_file_dependencies, update_environment_packages,
 };
 
 #[derive(Clone, Debug)]
@@ -338,6 +338,7 @@ fn prepare_install_layout(
             .then_some(deno_config::deno_json::NodeModulesDirMode::Manual),
         node_modules_root: Some(node_modules_root),
         specified_import_map: None,
+        install_graph_roots: Vec::new(),
     };
 
     Ok(InstallLayout {
@@ -434,6 +435,7 @@ impl ActiveEnvironment {
         let dependencies = self.with_package_state(|state| state.dependencies.clone());
         options.frozen_lockfile = Some(self.frozen_lockfile);
         options.specified_import_map = Some(specified_import_map(base_url, &dependencies)?);
+        options.install_graph_roots = local_file_dependency_install_roots(&dependencies)?;
         Ok(Some(options))
     }
 
