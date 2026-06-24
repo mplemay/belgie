@@ -288,13 +288,13 @@ mod tests {
         fs::write(root.join("main.ts"), "export default () => 42;\n")
             .expect("script should be written");
         env::set_current_dir(&root).expect("cwd should be set to temp dir");
+        let expected = env::current_dir()
+            .expect("current dir should be available")
+            .join("main.ts");
 
         with_python(|py| {
             let (normalized, content) =
                 read_script_file(py, PathBuf::from("main.ts")).expect("script should be read");
-            let expected = env::current_dir()
-                .expect("current dir should be available")
-                .join("main.ts");
 
             assert_eq!(normalized, expected);
             assert_eq!(content, "export default () => 42;\n");
@@ -320,6 +320,9 @@ mod tests {
         let root = temp_dir("output-directory-relative").expect("temp dir should be created");
         let previous_cwd = env::current_dir().expect("current dir should be available");
         env::set_current_dir(&root).expect("cwd should be set to temp dir");
+        let expected = env::current_dir()
+            .expect("current dir should be available")
+            .join("custom_cache");
 
         with_python(|py| {
             let normalized = normalize_optional_output_directory(
@@ -330,10 +333,6 @@ mod tests {
             .expect("relative cache should normalize")
             .expect("cache should be present");
 
-            assert!(normalized.is_absolute());
-            let expected = env::current_dir()
-                .expect("current dir should be available")
-                .join("custom_cache");
             assert_eq!(normalized, expected);
         });
 
