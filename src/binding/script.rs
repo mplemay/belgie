@@ -1,4 +1,6 @@
-use pyo3::{Bound, PyAny, PyResult, prelude::*, types::PyType};
+use std::path::PathBuf;
+
+use pyo3::{Bound, PyResult, prelude::*, types::PyType};
 
 use crate::{options::ScriptOptions, script::ScriptSource, utils::normalize_path};
 
@@ -18,9 +20,7 @@ impl PyScript {
     }
 
     #[classmethod]
-    pub fn from_file(_cls: &Bound<'_, PyType>, path: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let py = path.py();
-        let path = normalize_path::path_from_py(path, "path")?;
+    pub fn from_file(_cls: &Bound<'_, PyType>, py: Python<'_>, path: PathBuf) -> PyResult<Self> {
         let (path, content) = normalize_path::read_script_file(py, path)?;
         Ok(Self {
             source: ScriptSource::from_options(ScriptOptions::from_file(content, path)),

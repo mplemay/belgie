@@ -1,5 +1,4 @@
 pub(crate) mod blocking;
-pub(crate) mod coerce;
 pub(crate) mod command;
 pub(crate) mod environment;
 pub(crate) mod packages;

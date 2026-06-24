@@ -4,12 +4,16 @@ use std::{
 };
 
 use pyo3::{
-    Bound, PyAny, PyResult, Python,
-    exceptions::{PyFileNotFoundError, PyOSError, PyTypeError},
+    PyResult, Python,
+    exceptions::{PyFileNotFoundError, PyOSError},
     types::PyAnyMethods,
 };
 
-pub fn path_from_py(value: &Bound<'_, PyAny>, argument_name: &str) -> PyResult<PathBuf> {
+#[cfg(test)]
+use pyo3::{Bound, PyAny, exceptions::PyTypeError};
+
+#[cfg(test)]
+fn path_from_py(value: &Bound<'_, PyAny>, argument_name: &str) -> PyResult<PathBuf> {
     let py = value.py();
     let os = py.import("os")?;
     let fspath = os.getattr("fspath")?.call1((value,))?;
@@ -19,34 +23,32 @@ pub fn path_from_py(value: &Bound<'_, PyAny>, argument_name: &str) -> PyResult<P
     Ok(PathBuf::from(path))
 }
 
-pub fn normalize_cwd(py: Python<'_>, cwd: Option<&Bound<'_, PyAny>>) -> PyResult<PathBuf> {
+pub fn normalize_cwd(py: Python<'_>, cwd: Option<PathBuf>) -> PyResult<PathBuf> {
     let path = match cwd {
-        Some(value) if !value.is_none() => path_from_py(value, "cwd")?,
-        _ => std::env::current_dir().map_err(io_error_to_py)?,
+        Some(value) => value,
+        None => std::env::current_dir().map_err(io_error_to_py)?,
     };
     normalize_directory(py, path, "cwd")
 }
 
 pub fn normalize_optional_output_directory(
     py: Python<'_>,
-    path: Option<&Bound<'_, PyAny>>,
+    path: Option<PathBuf>,
     argument_name: &str,
 ) -> PyResult<Option<PathBuf>> {
-    let Some(value) = path.filter(|value| !value.is_none()) else {
+    let Some(path) = path else {
         return Ok(None);
     };
-    let path = path_from_py(value, argument_name)?;
     normalize_output_directory(py, path, argument_name).map(Some)
 }
 
 pub fn normalize_optional_directory(
     py: Python<'_>,
-    path: Option<&Bound<'_, PyAny>>,
+    path: Option<PathBuf>,
 ) -> PyResult<Option<PathBuf>> {
-    let Some(value) = path.filter(|value| !value.is_none()) else {
+    let Some(path) = path else {
         return Ok(None);
     };
-    let path = path_from_py(value, "path")?;
     normalize_directory(py, path, "path").map(Some)
 }
 
@@ -158,7 +160,7 @@ mod tests {
     use pyo3::{
         IntoPyObject, Python,
         exceptions::{PyFileNotFoundError, PyOSError, PyTypeError},
-        types::{PyAnyMethods, PyString},
+        types::PyAnyMethods,
     };
     use std::{
         env, fs, io,
@@ -221,9 +223,7 @@ mod tests {
         let root = temp_dir("cwd-absolute").expect("temp dir should be created");
 
         with_python(|py| {
-            let cwd = PyString::new(py, root.to_str().expect("temp path should be UTF-8"));
-
-            let normalized = normalize_cwd(py, Some(cwd.as_any())).expect("cwd should normalize");
+            let normalized = normalize_cwd(py, Some(root.clone())).expect("cwd should normalize");
 
             assert!(normalized.is_absolute());
             assert_eq!(normalized, root);
@@ -238,9 +238,7 @@ mod tests {
         let missing = root.join("missing");
 
         with_python(|py| {
-            let cwd = PyString::new(py, missing.to_str().expect("temp path should be UTF-8"));
-
-            let error = normalize_cwd(py, Some(cwd.as_any())).expect_err("missing cwd should fail");
+            let error = normalize_cwd(py, Some(missing)).expect_err("missing cwd should fail");
 
             assert!(error.is_instance_of::<PyFileNotFoundError>(py));
             assert!(error.to_string().contains("cwd does not exist"));
@@ -256,9 +254,7 @@ mod tests {
         fs::write(&file_path, "").expect("file should be written");
 
         with_python(|py| {
-            let cwd = PyString::new(py, file_path.to_str().expect("temp path should be UTF-8"));
-
-            let error = normalize_cwd(py, Some(cwd.as_any())).expect_err("file cwd should fail");
+            let error = normalize_cwd(py, Some(file_path)).expect_err("file cwd should fail");
 
             assert!(error.is_instance_of::<PyOSError>(py));
             assert!(error.to_string().contains("cwd is not a directory"));
@@ -326,11 +322,13 @@ mod tests {
         env::set_current_dir(&root).expect("cwd should be set to temp dir");
 
         with_python(|py| {
-            let cache = PyString::new(py, "custom_cache");
-
-            let normalized = normalize_optional_output_directory(py, Some(cache.as_any()), "cache")
-                .expect("relative cache should normalize")
-                .expect("cache should be present");
+            let normalized = normalize_optional_output_directory(
+                py,
+                Some(PathBuf::from("custom_cache")),
+                "cache",
+            )
+            .expect("relative cache should normalize")
+            .expect("cache should be present");
 
             assert!(normalized.is_absolute());
             assert_eq!(normalized, root.join("custom_cache"));
@@ -346,11 +344,10 @@ mod tests {
         let missing = root.join("missing-cache");
 
         with_python(|py| {
-            let cache = PyString::new(py, missing.to_str().expect("temp path should be UTF-8"));
-
-            let normalized = normalize_optional_output_directory(py, Some(cache.as_any()), "cache")
-                .expect("missing cache should normalize")
-                .expect("cache should be present");
+            let normalized =
+                normalize_optional_output_directory(py, Some(missing.clone()), "cache")
+                    .expect("missing cache should normalize")
+                    .expect("cache should be present");
 
             assert_eq!(normalized, missing);
             assert!(!normalized.exists());
@@ -366,9 +363,7 @@ mod tests {
         fs::write(&file_path, "").expect("file should be written");
 
         with_python(|py| {
-            let cache = PyString::new(py, file_path.to_str().expect("temp path should be UTF-8"));
-
-            let error = normalize_optional_output_directory(py, Some(cache.as_any()), "cache")
+            let error = normalize_optional_output_directory(py, Some(file_path), "cache")
                 .expect_err("file cache should fail");
 
             assert!(error.is_instance_of::<PyOSError>(py));

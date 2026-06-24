@@ -1,9 +1,14 @@
+use std::{collections::BTreeMap, path::PathBuf};
+
 use pyo3::{
-    Bound, PyAny, PyResult, Python, exceptions::PyValueError, prelude::*, types::PyAnyMethods,
+    Bound, PyAny, PyResult, Python,
+    exceptions::{PyBaseException, PyValueError},
+    prelude::*,
+    types::{PyTraceback, PyType},
 };
 
 use crate::{
-    binding::{blocking, coerce, packages},
+    binding::{blocking, packages},
     environment::{EnvironmentDefinition, SharedEnvironment},
     utils::normalize_path,
 };
@@ -36,13 +41,13 @@ impl PyEnvironment {
     #[pyo3(signature = (dependencies = None, *, path = None, lockfile = None, cache = None))]
     fn new(
         py: Python<'_>,
-        dependencies: Option<&Bound<'_, PyAny>>,
-        path: Option<&Bound<'_, PyAny>>,
-        lockfile: Option<&Bound<'_, PyAny>>,
-        cache: Option<&Bound<'_, PyAny>>,
+        dependencies: Option<BTreeMap<String, String>>,
+        path: Option<PathBuf>,
+        lockfile: Option<PathBuf>,
+        cache: Option<PathBuf>,
     ) -> PyResult<Self> {
-        let dependencies = coerce::normalize_dependencies(dependencies)?;
-        if dependencies.is_empty() && lockfile.is_some_and(|value| !value.is_none()) {
+        let dependencies = dependencies.unwrap_or_default();
+        if dependencies.is_empty() && lockfile.is_some() {
             return Err(PyValueError::new_err(
                 "lockfile requires at least one dependency mapping",
             ));
@@ -76,9 +81,9 @@ impl PyEnvironment {
 
     fn __exit__(
         &self,
-        _exc_type: Option<&Bound<'_, PyAny>>,
-        _exc: Option<&Bound<'_, PyAny>>,
-        _traceback: Option<&Bound<'_, PyAny>>,
+        _exc_type: Option<&Bound<'_, PyType>>,
+        _exc: Option<&Bound<'_, PyBaseException>>,
+        _traceback: Option<&Bound<'_, PyTraceback>>,
     ) -> PyResult<bool> {
         self.inner.deactivate().map_err(blocking::any_error_to_py)?;
         Ok(false)
@@ -100,9 +105,9 @@ impl PyEnvironment {
     fn __aexit__<'py>(
         &self,
         py: Python<'py>,
-        _exc_type: Option<&Bound<'_, PyAny>>,
-        _exc: Option<&Bound<'_, PyAny>>,
-        _traceback: Option<&Bound<'_, PyAny>>,
+        _exc_type: Option<&Bound<'_, PyType>>,
+        _exc: Option<&Bound<'_, PyBaseException>>,
+        _traceback: Option<&Bound<'_, PyTraceback>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let environment = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -124,7 +129,7 @@ impl PySyncEnvironment {
     fn lock(
         &self,
         py: Python<'_>,
-        lockfile: Option<&Bound<'_, PyAny>>,
+        lockfile: Option<PathBuf>,
     ) -> PyResult<packages::PyEnvironmentInstallResult> {
         let output_lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Output)?;
         let environment = self.inner.clone();
@@ -144,11 +149,11 @@ impl PySyncEnvironment {
     fn update(
         &self,
         py: Python<'_>,
-        packages: Option<&Bound<'_, PyAny>>,
+        packages: Option<Vec<String>>,
         latest: bool,
         lockfile_only: bool,
     ) -> PyResult<packages::PyEnvironmentUpdateResult> {
-        let filters = packages::normalize_package_filters(packages)?;
+        let filters = packages.unwrap_or_default();
         let environment = self.inner.clone();
         py.detach(|| environment.update_blocking(filters, latest, lockfile_only))
             .map(Into::into)
@@ -163,11 +168,7 @@ impl PySyncEnvironment {
 #[pymethods]
 impl PyAsyncEnvironment {
     #[pyo3(signature = (*, lockfile = None))]
-    fn lock<'py>(
-        &self,
-        py: Python<'py>,
-        lockfile: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn lock<'py>(&self, py: Python<'py>, lockfile: Option<PathBuf>) -> PyResult<Bound<'py, PyAny>> {
         let output_lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Output)?;
         let environment = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -196,11 +197,11 @@ impl PyAsyncEnvironment {
     fn update<'py>(
         &self,
         py: Python<'py>,
-        packages: Option<&Bound<'_, PyAny>>,
+        packages: Option<Vec<String>>,
         latest: bool,
         lockfile_only: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let filters = packages::normalize_package_filters(packages)?;
+        let filters = packages.unwrap_or_default();
         let environment = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = blocking::run_on_blocking_thread(
@@ -250,13 +251,12 @@ enum LockfilePathMode {
 
 fn normalize_lockfile_arg(
     py: Python<'_>,
-    lockfile: Option<&Bound<'_, PyAny>>,
+    lockfile: Option<PathBuf>,
     mode: LockfilePathMode,
 ) -> PyResult<Option<std::path::PathBuf>> {
-    let Some(lockfile) = lockfile.filter(|value| !value.is_none()) else {
+    let Some(path) = lockfile else {
         return Ok(None);
     };
-    let path = normalize_path::path_from_py(lockfile, "lockfile")?;
     match mode {
         LockfilePathMode::Input => normalize_path::normalize_file(py, path, "lockfile").map(Some),
         LockfilePathMode::Output => {
