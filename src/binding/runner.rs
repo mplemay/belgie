@@ -1,15 +1,17 @@
 use std::sync::Arc;
 
 use pyo3::{
-    Bound, PyAny, PyResult, Python,
+    Borrowed, Bound, FromPyObject, PyAny, PyErr, PyResult, Python,
+    exceptions::PyTypeError,
     prelude::*,
-    types::{PyDict, PyTuple},
+    types::{PyAnyMethods, PyDict, PyTuple},
 };
 
 use crate::{
     binding::{PyCommand, PyScript},
     command::CommandSource,
     runtime::{DenoExecutionHandle, RuntimeSession, executor},
+    script::ScriptSource,
     types::runner::RunnerArguments,
     utils::{cancel_guard::CancelGuard, py_error},
 };
@@ -54,26 +56,53 @@ pub struct PyAsyncCommandRunner {
     command: CommandSource,
 }
 
-#[pymethods]
-impl PySyncRuntime {
-    fn __call__(&self, py: Python<'_>, target: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-        if let Ok(script) = target.extract::<PyRef<'_, PyScript>>() {
+enum RuntimeTargetArg {
+    Script {
+        source: ScriptSource,
+        description: String,
+    },
+    Command(CommandSource),
+}
+
+impl FromPyObject<'_, '_> for RuntimeTargetArg {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
+        if let Ok(script) = obj.extract::<PyRef<'_, PyScript>>() {
             let source = script.source();
             let description = source.description();
-            let handle = RuntimeSession::bind_script(&self.session, source)
-                .map_err(py_error::from_binding_error)?;
-            return Ok(Py::new(py, PySyncRunner::from_handle(handle, description))?.into_any());
+            return Ok(Self::Script {
+                source,
+                description,
+            });
         }
-        if let Ok(command) = target.extract::<PyRef<'_, PyCommand>>() {
-            return Ok(Py::new(
-                py,
-                PySyncCommandRunner::new(self.session.clone(), command.source()),
-            )?
-            .into_any());
+        if let Ok(command) = obj.extract::<PyRef<'_, PyCommand>>() {
+            return Ok(Self::Command(command.source()));
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
+        Err(PyTypeError::new_err(
             "Runtime target must be a Script or Command",
         ))
+    }
+}
+
+#[pymethods]
+impl PySyncRuntime {
+    fn __call__(&self, py: Python<'_>, target: RuntimeTargetArg) -> PyResult<Py<PyAny>> {
+        match target {
+            RuntimeTargetArg::Script {
+                source,
+                description,
+            } => {
+                let handle = RuntimeSession::bind_script(&self.session, source)
+                    .map_err(py_error::from_binding_error)?;
+                Ok(Py::new(py, PySyncRunner::from_handle(handle, description))?.into_any())
+            }
+            RuntimeTargetArg::Command(command) => Ok(Py::new(
+                py,
+                PySyncCommandRunner::new(self.session.clone(), command),
+            )?
+            .into_any()),
+        }
     }
 
     fn __repr__(&self) -> String {
@@ -83,24 +112,22 @@ impl PySyncRuntime {
 
 #[pymethods]
 impl PyAsyncRuntime {
-    fn __call__(&self, py: Python<'_>, target: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-        if let Ok(script) = target.extract::<PyRef<'_, PyScript>>() {
-            let source = script.source();
-            let description = source.description();
-            let handle = RuntimeSession::bind_script(&self.session, source)
-                .map_err(py_error::from_binding_error)?;
-            return Ok(Py::new(py, PyAsyncRunner::from_handle(handle, description))?.into_any());
-        }
-        if let Ok(command) = target.extract::<PyRef<'_, PyCommand>>() {
-            return Ok(Py::new(
+    fn __call__(&self, py: Python<'_>, target: RuntimeTargetArg) -> PyResult<Py<PyAny>> {
+        match target {
+            RuntimeTargetArg::Script {
+                source,
+                description,
+            } => {
+                let handle = RuntimeSession::bind_script(&self.session, source)
+                    .map_err(py_error::from_binding_error)?;
+                Ok(Py::new(py, PyAsyncRunner::from_handle(handle, description))?.into_any())
+            }
+            RuntimeTargetArg::Command(command) => Ok(Py::new(
                 py,
-                PyAsyncCommandRunner::new(self.session.clone(), command.source()),
+                PyAsyncCommandRunner::new(self.session.clone(), command),
             )?
-            .into_any());
+            .into_any()),
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
-            "Runtime target must be a Script or Command",
-        ))
     }
 
     fn __repr__(&self) -> String {

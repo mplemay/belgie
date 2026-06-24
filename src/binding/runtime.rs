@@ -1,10 +1,13 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use pyo3::{
-    Bound, PyAny, PyResult, Python,
-    exceptions::{PyTypeError, PyValueError},
+    Borrowed, Bound, FromPyObject, PyAny, PyErr, PyResult, Python,
+    exceptions::{PyBaseException, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyAnyMethods, PyType},
+    types::{PyTraceback, PyType},
 };
 
 use crate::{
@@ -27,7 +30,7 @@ pub struct PyRuntimeOptions {
 impl PyRuntimeOptions {
     #[new]
     #[pyo3(signature = (*, max_old_generation_size_mb = None, max_young_generation_size_mb = None, code_range_size_mb = None))]
-    pub fn new(
+    fn new(
         max_old_generation_size_mb: Option<i64>,
         max_young_generation_size_mb: Option<i64>,
         code_range_size_mb: Option<i64>,
@@ -75,16 +78,53 @@ pub struct PyRuntime {
     project: bool,
 }
 
+enum RuntimeEnvironmentArg {
+    Environment(SharedEnvironment),
+    SyncEnvironment(SharedEnvironment),
+    AsyncEnvironment(SharedEnvironment),
+}
+
+impl RuntimeEnvironmentArg {
+    fn into_shared(self) -> SharedEnvironment {
+        match self {
+            Self::Environment(environment)
+            | Self::SyncEnvironment(environment)
+            | Self::AsyncEnvironment(environment) => environment,
+        }
+    }
+}
+
+impl FromPyObject<'_, '_> for RuntimeEnvironmentArg {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
+        if let Ok(environment) = obj.extract::<PyRef<'_, PyEnvironment>>() {
+            return Ok(Self::Environment(environment.environment()));
+        }
+        if let Ok(environment) = obj.extract::<PyRef<'_, PySyncEnvironment>>() {
+            return Ok(Self::SyncEnvironment(environment.environment()));
+        }
+        if let Ok(environment) = obj.extract::<PyRef<'_, PyAsyncEnvironment>>() {
+            return Ok(Self::AsyncEnvironment(environment.environment()));
+        }
+        Err(PyTypeError::new_err(
+            "env must be Environment, SyncEnvironment, or AsyncEnvironment",
+        ))
+    }
+}
+
 #[pymethods]
 impl PyRuntime {
     #[new]
     #[pyo3(signature = (*, env = None, options = None))]
-    pub fn new(
+    fn new(
         py: Python<'_>,
-        env: Option<&Bound<'_, PyAny>>,
+        env: Option<RuntimeEnvironmentArg>,
         options: Option<PyRef<'_, PyRuntimeOptions>>,
     ) -> PyResult<Self> {
-        let environment = normalize_runtime_environment(env)?.map(RuntimeEnvironment::Isolated);
+        let environment = env
+            .map(RuntimeEnvironmentArg::into_shared)
+            .map(RuntimeEnvironment::Isolated);
         let cwd = environment.as_ref().map_or_else(
             || normalize_path::normalize_cwd(py, None),
             |environment| {
@@ -107,11 +147,10 @@ impl PyRuntime {
     #[pyo3(signature = (path, *, options = None))]
     fn from_folder(
         _cls: &Bound<'_, PyType>,
-        path: &Bound<'_, PyAny>,
+        py: Python<'_>,
+        path: PathBuf,
         options: Option<PyRef<'_, PyRuntimeOptions>>,
     ) -> PyResult<Self> {
-        let py = path.py();
-        let path = normalize_path::path_from_py(path, "path")?;
         let path = normalize_path::normalize_directory(py, path, "path")?;
         Ok(Self::from_parts(path, None, options.as_deref(), true))
     }
@@ -129,9 +168,9 @@ impl PyRuntime {
     fn __exit__(
         &self,
         py: Python<'_>,
-        _exc_type: Option<&Bound<'_, PyAny>>,
-        _exc: Option<&Bound<'_, PyAny>>,
-        _traceback: Option<&Bound<'_, PyAny>>,
+        _exc_type: Option<&Bound<'_, PyType>>,
+        _exc: Option<&Bound<'_, PyBaseException>>,
+        _traceback: Option<&Bound<'_, PyTraceback>>,
     ) -> PyResult<bool> {
         let session = self.take_active()?;
         py.detach(|| session.close_blocking())
@@ -156,9 +195,9 @@ impl PyRuntime {
     fn __aexit__<'py>(
         &self,
         py: Python<'py>,
-        _exc_type: Option<&Bound<'_, PyAny>>,
-        _exc: Option<&Bound<'_, PyAny>>,
-        _traceback: Option<&Bound<'_, PyAny>>,
+        _exc_type: Option<&Bound<'_, PyType>>,
+        _exc: Option<&Bound<'_, PyBaseException>>,
+        _traceback: Option<&Bound<'_, PyTraceback>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let session = self.take_active()?;
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -200,26 +239,6 @@ impl PyRuntime {
             }
         }
     }
-}
-
-fn normalize_runtime_environment(
-    env: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Option<SharedEnvironment>> {
-    let Some(env) = env.filter(|value| !value.is_none()) else {
-        return Ok(None);
-    };
-    if let Ok(environment) = env.extract::<PyRef<'_, PyEnvironment>>() {
-        return Ok(Some(environment.environment()));
-    }
-    if let Ok(environment) = env.extract::<PyRef<'_, PySyncEnvironment>>() {
-        return Ok(Some(environment.environment()));
-    }
-    if let Ok(environment) = env.extract::<PyRef<'_, PyAsyncEnvironment>>() {
-        return Ok(Some(environment.environment()));
-    }
-    Err(PyTypeError::new_err(
-        "env must be Environment, SyncEnvironment, or AsyncEnvironment",
-    ))
 }
 
 fn normalize_memory_size(field_name: &str, value: Option<i64>) -> PyResult<Option<u64>> {

@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
-use pyo3::{Bound, PyAny, PyResult, prelude::*};
+use pyo3::{PyResult, prelude::*};
 
-use crate::{command::CommandSource, utils::normalize_path};
+use crate::command::CommandSource;
 
 #[pyclass(name = "Command", module = "belgie._core", skip_from_py_object)]
 #[derive(Clone, Debug)]
@@ -16,7 +16,7 @@ impl PyCommand {
     #[pyo3(signature = (name, *, cwd = None, env = None))]
     fn new(
         name: String,
-        cwd: Option<&Bound<'_, PyAny>>,
+        cwd: Option<PathBuf>,
         env: Option<BTreeMap<String, String>>,
     ) -> PyResult<Self> {
         let name = name.trim().to_string();
@@ -25,10 +25,6 @@ impl PyCommand {
                 "Command name must not be empty",
             ));
         }
-        let cwd = cwd
-            .filter(|value| !value.is_none())
-            .map(|value| normalize_path::path_from_py(value, "cwd"))
-            .transpose()?;
         Ok(Self {
             source: CommandSource::new(name, cwd, env.unwrap_or_default()),
         })

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use pyo3::{Bound, PyAny, PyResult, pyclass, pymethods, types::PyAnyMethods};
+use pyo3::{pyclass, pymethods};
 
 use crate::packages;
 
@@ -102,15 +102,6 @@ impl PyEnvironmentUpdateResult {
             self.lockfile(),
             self.changes.len(),
         )
-    }
-}
-
-pub(crate) fn normalize_package_filters(
-    packages: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Vec<String>> {
-    match packages {
-        Some(value) if !value.is_none() => value.extract(),
-        _ => Ok(Vec::new()),
     }
 }
 

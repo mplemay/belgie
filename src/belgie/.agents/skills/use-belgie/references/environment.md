@@ -17,7 +17,8 @@ JavaScript dependencies stay isolated from the Python project's `pyproject.toml`
 
 ### Ephemeral mode (`path` omitted)
 
-- Install tree (`deno.lock`, `deno_dir`, `node_modules`) lives in a temporary Belgie environment root
+- Install tree (`deno.lock`, `node_modules`) lives in a temporary Belgie environment root
+- Uses Deno's default cache unless `cache=` is set (see [Deno cache](#deno-cache-cache) below)
 - Workspace defaults to the process working directory at construction time
 - After `install()`, a `node_modules` symlink is created at the workspace so npm-native tools (Vite, Rollup, etc.) can
   resolve packages from nested working directories
@@ -26,7 +27,7 @@ JavaScript dependencies stay isolated from the Python project's `pyproject.toml`
 
 ### Persisted mode (`path=` set)
 
-- Install tree is written directly into `path`
+- Install tree (`deno.lock`, `node_modules`) is written directly into `path`
 - Workspace is `path`; relative imports and command paths resolve from there
 - `node_modules` is a real directory under `path` — no symlink materialization
 - Belgie does not remove install artifacts from `path` on environment exit; other files written under `path` also
@@ -108,6 +109,16 @@ with Environment({"std_path": "jsr:@std/path@^1"}, path=Path.cwd()) as env:
 
 When `path` is omitted, Belgie uses ephemeral mode: workspace is the process working directory at construction time, and
 install state stays in a temporary root. Relative imports and command working directories resolve from the workspace.
+
+## Deno cache (`cache`)
+
+By default, Belgie defers to Deno's standard cache resolution (`DENO_DIR`, `XDG_CACHE_HOME/deno`, the OS cache
+directory, or `~/.deno`). Pass `cache=` to override the Deno cache root for that environment:
+
+```python
+with Environment({"std_path": "jsr:@std/path@^1"}, cache="./.deno_cache") as env:
+    env.install()
+```
 
 ## Package operations
 
