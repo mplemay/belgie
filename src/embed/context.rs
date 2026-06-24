@@ -200,7 +200,7 @@ pub(crate) struct EmbedContext {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct EmbedContextOptions {
-    pub cache_root: Option<PathBuf>,
+    pub cache: Option<PathBuf>,
     pub frozen_lockfile: Option<bool>,
     pub is_package_manager_subcommand: bool,
     pub lockfile_skip_write: bool,
@@ -277,7 +277,7 @@ impl EmbedContext {
                 is_package_manager_subcommand: options.is_package_manager_subcommand,
                 frozen_lockfile: options.frozen_lockfile,
                 lockfile_skip_write: options.lockfile_skip_write,
-                maybe_custom_deno_dir_root: options.cache_root,
+                maybe_custom_deno_dir_root: options.cache,
                 node_modules_dir: Some(node_modules_dir),
                 root_node_modules_dir_override: options.node_modules_root,
                 ..Default::default()

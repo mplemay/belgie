@@ -33,12 +33,13 @@ pub struct PyAsyncEnvironment {
 #[pymethods]
 impl PyEnvironment {
     #[new]
-    #[pyo3(signature = (dependencies = None, *, path = None, lockfile = None))]
+    #[pyo3(signature = (dependencies = None, *, path = None, lockfile = None, cache = None))]
     fn new(
         py: Python<'_>,
         dependencies: Option<&Bound<'_, PyAny>>,
         path: Option<&Bound<'_, PyAny>>,
         lockfile: Option<&Bound<'_, PyAny>>,
+        cache: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let dependencies = coerce::normalize_dependencies(dependencies)?;
         if dependencies.is_empty() && lockfile.is_some_and(|value| !value.is_none()) {
@@ -48,13 +49,19 @@ impl PyEnvironment {
         }
         let lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Input)?;
         let persist_path = normalize_path::normalize_optional_directory(py, path)?;
+        let cache = normalize_path::normalize_optional_absolute_directory(py, cache, "cache")?;
         let workspace = match &persist_path {
             Some(path) => path.clone(),
             None => normalize_path::normalize_cwd(py, None)?,
         };
-        let definition =
-            EnvironmentDefinition::from_mapping(workspace, persist_path, dependencies, lockfile)
-                .map_err(blocking::any_error_to_py)?;
+        let definition = EnvironmentDefinition::from_mapping(
+            workspace,
+            persist_path,
+            dependencies,
+            lockfile,
+            cache,
+        )
+        .map_err(blocking::any_error_to_py)?;
         Ok(Self {
             inner: SharedEnvironment::new(definition),
         })

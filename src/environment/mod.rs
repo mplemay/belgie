@@ -23,6 +23,7 @@ pub(crate) struct EnvironmentDefinition {
     dependencies: Vec<PackageDependency>,
     layout: DependencyLayout,
     lockfile_source: Option<PathBuf>,
+    cache: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -103,6 +104,7 @@ impl EnvironmentDefinition {
         persist_path: Option<PathBuf>,
         dependencies: std::collections::BTreeMap<String, String>,
         lockfile_source: Option<PathBuf>,
+        cache: Option<PathBuf>,
     ) -> Result<Self, AnyError> {
         let dependencies = dependencies_from_mapping(&workspace, dependencies)?;
         let layout = DependencyLayout::from_dependencies(&dependencies);
@@ -112,6 +114,7 @@ impl EnvironmentDefinition {
             dependencies,
             layout,
             lockfile_source,
+            cache,
         })
     }
 
@@ -311,10 +314,7 @@ fn prepare_install_layout(
     definition: &EnvironmentDefinition,
 ) -> Result<InstallLayout, AnyError> {
     let lockfile = install_root.join("deno.lock");
-    let cache_root = install_root.join("deno_dir");
     let node_modules_root = install_root.join("node_modules");
-    std::fs::create_dir_all(&cache_root)
-        .with_context(|| format!("Creating {}", cache_root.display()))?;
 
     let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
         copy_lockfile(source, &lockfile)?;
@@ -328,7 +328,7 @@ fn prepare_install_layout(
     };
 
     let embed_options = EmbedContextOptions {
-        cache_root: Some(cache_root),
+        cache: definition.cache.clone(),
         frozen_lockfile: None,
         is_package_manager_subcommand: false,
         lockfile_skip_write: false,
@@ -625,7 +625,8 @@ mod tests {
 
     fn ephemeral_environment(workspace: std::path::PathBuf) -> SharedEnvironment {
         let definition =
-            EnvironmentDefinition::from_mapping(workspace, None, BTreeMap::new(), None).unwrap();
+            EnvironmentDefinition::from_mapping(workspace, None, BTreeMap::new(), None, None)
+                .unwrap();
         SharedEnvironment::new(definition)
     }
 
@@ -641,6 +642,7 @@ mod tests {
             workspace.clone(),
             None,
             BTreeMap::from([("pkg".to_string(), "npm:is-number@7.0.0".to_string())]),
+            None,
             None,
         )
         .unwrap();
@@ -663,7 +665,7 @@ mod tests {
         assert!(root.is_dir());
         assert!(!root.join("deno.json").exists());
         assert!(root.join("deno.lock").is_file());
-        assert!(root.join("deno_dir").is_dir());
+        assert!(!root.join("deno_dir").exists());
         environment.deactivate().unwrap();
         drop(active);
         assert!(!root.exists());
@@ -676,6 +678,7 @@ mod tests {
             folder.path().to_path_buf(),
             None,
             BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+            None,
             None,
         )
         .unwrap();
@@ -691,6 +694,7 @@ mod tests {
             None,
             BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
             None,
+            None,
         )
         .unwrap();
         let environment = SharedEnvironment::new(definition);
@@ -700,7 +704,7 @@ mod tests {
 
         assert!(!root.join("deno.json").exists());
         assert!(!root.join("deno.lock").exists());
-        assert!(root.join("deno_dir").is_dir());
+        assert!(!root.join("deno_dir").exists());
     }
 
     #[test]
@@ -779,6 +783,7 @@ mod tests {
             None,
             BTreeMap::from([("pkg".to_string(), "npm:is-number@7.0.0".to_string())]),
             None,
+            None,
         )
         .unwrap();
         let environment = SharedEnvironment::new(definition);
@@ -806,6 +811,7 @@ mod tests {
             Some(project.clone()),
             BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
             Some(lockfile.clone()),
+            None,
         )
         .unwrap();
         let environment = SharedEnvironment::new(definition);
@@ -827,6 +833,7 @@ mod tests {
             Some(project.clone()),
             BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
             None,
+            None,
         )
         .unwrap();
         let environment = SharedEnvironment::new(definition);
@@ -836,6 +843,6 @@ mod tests {
         drop(active);
 
         assert!(!project.join("deno.json").exists());
-        assert!(project.join("deno_dir").is_dir());
+        assert!(!project.join("deno_dir").exists());
     }
 }

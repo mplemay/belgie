@@ -27,6 +27,25 @@ pub fn normalize_cwd(py: Python<'_>, cwd: Option<&Bound<'_, PyAny>>) -> PyResult
     normalize_directory(py, path, "cwd")
 }
 
+pub fn normalize_optional_absolute_directory(
+    py: Python<'_>,
+    path: Option<&Bound<'_, PyAny>>,
+    argument_name: &str,
+) -> PyResult<Option<PathBuf>> {
+    let Some(value) = path.filter(|value| !value.is_none()) else {
+        return Ok(None);
+    };
+    let path = path_from_py(value, argument_name)?;
+    let path = absolutize(py, path)?;
+    if path.exists() && !path.is_dir() {
+        return Err(PyOSError::new_err(format!(
+            "{argument_name} is not a directory: {}",
+            path.display()
+        )));
+    }
+    Ok(Some(path))
+}
+
 pub fn normalize_optional_directory(
     py: Python<'_>,
     path: Option<&Bound<'_, PyAny>>,
