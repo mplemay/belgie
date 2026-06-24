@@ -331,7 +331,10 @@ mod tests {
             .expect("cache should be present");
 
             assert!(normalized.is_absolute());
-            assert_eq!(normalized, root.join("custom_cache"));
+            let expected = env::current_dir()
+                .expect("current dir should be available")
+                .join("custom_cache");
+            assert_eq!(normalized, expected);
         });
 
         env::set_current_dir(previous_cwd).expect("cwd should be restored");
