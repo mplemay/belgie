@@ -8,6 +8,7 @@ use tempfile::TempDir;
 
 mod materialize;
 
+use crate::embed::sys::EmbedSys;
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::packages::{
     DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest,
@@ -297,6 +298,25 @@ fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
     Ok(())
 }
 
+fn resolve_environment_cache(
+    workspace: &Path,
+    explicit: Option<&PathBuf>,
+) -> Result<Option<PathBuf>, AnyError> {
+    if let Some(path) = explicit {
+        return Ok(Some(path.clone()));
+    }
+    let sys = EmbedSys::default();
+    let resolved = deno_cache_dir::resolve_deno_dir(
+        &sys,
+        deno_cache_dir::ResolveDenoDirOptions {
+            maybe_initial_cwd: Some(workspace),
+            maybe_custom_root: None,
+        },
+    )
+    .map_err(|error| anyhow!(error))?;
+    Ok(Some(resolved.into_owned()))
+}
+
 fn install_root_url(install_root: &Path) -> Result<deno_core::url::Url, AnyError> {
     let absolute = std::path::absolute(install_root)
         .map(deno_path_util::strip_unc_prefix)
@@ -327,8 +347,10 @@ fn prepare_install_layout(
         false
     };
 
+    let cache = resolve_environment_cache(&definition.workspace, definition.cache.as_ref())?;
+
     let embed_options = EmbedContextOptions {
-        cache: definition.cache.clone(),
+        cache,
         frozen_lockfile: None,
         is_package_manager_subcommand: false,
         lockfile_skip_write: false,
@@ -724,6 +746,66 @@ mod tests {
         assert!(!root.join("deno_dir").exists());
         environment.deactivate().unwrap();
         drop(active);
+    }
+
+    #[test]
+    fn relative_deno_dir_resolves_against_workspace_in_embed_options() {
+        struct DenoDirGuard {
+            previous: Option<std::ffi::OsString>,
+        }
+
+        impl DenoDirGuard {
+            fn set(value: &str) -> Self {
+                let previous = std::env::var_os("DENO_DIR");
+                // SAFETY: single-threaded test env mutation.
+                unsafe { std::env::set_var("DENO_DIR", value) };
+                Self { previous }
+            }
+        }
+
+        impl Drop for DenoDirGuard {
+            fn drop(&mut self) {
+                match &self.previous {
+                    Some(value) => {
+                        // SAFETY: single-threaded test env mutation.
+                        unsafe { std::env::set_var("DENO_DIR", value) };
+                    }
+                    None => {
+                        // SAFETY: single-threaded test env mutation.
+                        unsafe { std::env::remove_var("DENO_DIR") };
+                    }
+                }
+            }
+        }
+
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = deno_path_util::strip_unc_prefix(
+            folder
+                .path()
+                .canonicalize()
+                .expect("workspace should canonicalize"),
+        );
+        let _deno_dir = DenoDirGuard::set("./.deno_cache");
+        let definition = EnvironmentDefinition::from_mapping(
+            workspace.clone(),
+            None,
+            BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+            None,
+            None,
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+        let active = environment.activate_blocking().unwrap();
+
+        let cache = active
+            .embed_options()
+            .expect("embed options should resolve")
+            .expect("dependency environment should have embed options")
+            .cache
+            .expect("default cache should be resolved");
+
+        assert_eq!(cache, workspace.join(".deno_cache"));
+        environment.deactivate().unwrap();
     }
 
     #[test]
