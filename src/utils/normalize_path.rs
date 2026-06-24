@@ -27,7 +27,7 @@ pub fn normalize_cwd(py: Python<'_>, cwd: Option<&Bound<'_, PyAny>>) -> PyResult
     normalize_directory(py, path, "cwd")
 }
 
-pub fn normalize_optional_absolute_directory(
+pub fn normalize_optional_output_directory(
     py: Python<'_>,
     path: Option<&Bound<'_, PyAny>>,
     argument_name: &str,
@@ -36,14 +36,7 @@ pub fn normalize_optional_absolute_directory(
         return Ok(None);
     };
     let path = path_from_py(value, argument_name)?;
-    let path = absolutize(py, path)?;
-    if path.exists() && !path.is_dir() {
-        return Err(PyOSError::new_err(format!(
-            "{argument_name} is not a directory: {}",
-            path.display()
-        )));
-    }
-    Ok(Some(path))
+    normalize_output_directory(py, path, argument_name).map(Some)
 }
 
 pub fn normalize_optional_directory(
@@ -110,6 +103,21 @@ pub fn normalize_output_file(
     Ok(path)
 }
 
+pub fn normalize_output_directory(
+    py: Python<'_>,
+    path: PathBuf,
+    argument_name: &str,
+) -> PyResult<PathBuf> {
+    let path = absolutize(py, path)?;
+    if path.exists() && !path.is_dir() {
+        return Err(PyOSError::new_err(format!(
+            "{argument_name} is not a directory: {}",
+            path.display()
+        )));
+    }
+    Ok(path)
+}
+
 pub fn read_script_file(py: Python<'_>, path: PathBuf) -> PyResult<(PathBuf, String)> {
     let path = absolutize(py, path)?;
     let content = fs::read_to_string(&path).map_err(io_error_to_py)?;
@@ -144,7 +152,9 @@ fn io_error_to_py(err: io::Error) -> pyo3::PyErr {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_cwd, path_from_py, read_script_file};
+    use super::{
+        normalize_cwd, normalize_optional_output_directory, path_from_py, read_script_file,
+    };
     use pyo3::{
         IntoPyObject, Python,
         exceptions::{PyFileNotFoundError, PyOSError, PyTypeError},
@@ -295,6 +305,76 @@ mod tests {
         });
 
         env::set_current_dir(previous_cwd).expect("cwd should be restored");
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn optional_output_directory_returns_none_for_missing_argument() {
+        with_python(|py| {
+            let normalized = normalize_optional_output_directory(py, None, "cache")
+                .expect("none should normalize");
+
+            assert_eq!(normalized, None);
+        });
+    }
+
+    #[test]
+    fn optional_output_directory_absolutizes_relative_paths() {
+        let _cwd_guard = CWD_LOCK.lock().expect("cwd lock should not be poisoned");
+        let root = temp_dir("output-directory-relative").expect("temp dir should be created");
+        let previous_cwd = env::current_dir().expect("current dir should be available");
+        env::set_current_dir(&root).expect("cwd should be set to temp dir");
+
+        with_python(|py| {
+            let cache = PyString::new(py, "custom_cache");
+
+            let normalized = normalize_optional_output_directory(py, Some(cache.as_any()), "cache")
+                .expect("relative cache should normalize")
+                .expect("cache should be present");
+
+            assert!(normalized.is_absolute());
+            assert_eq!(normalized, root.join("custom_cache"));
+        });
+
+        env::set_current_dir(previous_cwd).expect("cwd should be restored");
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn optional_output_directory_allows_missing_paths() {
+        let root = temp_dir("output-directory-missing").expect("temp dir should be created");
+        let missing = root.join("missing-cache");
+
+        with_python(|py| {
+            let cache = PyString::new(py, missing.to_str().expect("temp path should be UTF-8"));
+
+            let normalized = normalize_optional_output_directory(py, Some(cache.as_any()), "cache")
+                .expect("missing cache should normalize")
+                .expect("cache should be present");
+
+            assert_eq!(normalized, missing);
+            assert!(!normalized.exists());
+        });
+
+        remove_dir(&root);
+    }
+
+    #[test]
+    fn optional_output_directory_rejects_existing_files() {
+        let root = temp_dir("output-directory-file").expect("temp dir should be created");
+        let file_path = root.join("not-a-directory");
+        fs::write(&file_path, "").expect("file should be written");
+
+        with_python(|py| {
+            let cache = PyString::new(py, file_path.to_str().expect("temp path should be UTF-8"));
+
+            let error = normalize_optional_output_directory(py, Some(cache.as_any()), "cache")
+                .expect_err("file cache should fail");
+
+            assert!(error.is_instance_of::<PyOSError>(py));
+            assert!(error.to_string().contains("cache is not a directory"));
+        });
+
         remove_dir(&root);
     }
 }

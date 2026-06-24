@@ -665,7 +665,6 @@ mod tests {
         assert!(root.is_dir());
         assert!(!root.join("deno.json").exists());
         assert!(root.join("deno.lock").is_file());
-        assert!(!root.join("deno_dir").exists());
         environment.deactivate().unwrap();
         drop(active);
         assert!(!root.exists());
@@ -704,7 +703,27 @@ mod tests {
 
         assert!(!root.join("deno.json").exists());
         assert!(!root.join("deno.lock").exists());
+    }
+
+    #[test]
+    fn install_layout_does_not_create_per_environment_deno_dir() {
+        let folder = tempfile::tempdir().unwrap();
+        let definition = EnvironmentDefinition::from_mapping(
+            folder.path().to_path_buf(),
+            None,
+            BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+            None,
+            None,
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+
+        let active = environment.activate_blocking().unwrap();
+        let root = active.install_root().to_path_buf();
+
         assert!(!root.join("deno_dir").exists());
+        environment.deactivate().unwrap();
+        drop(active);
     }
 
     #[test]
@@ -843,6 +862,5 @@ mod tests {
         drop(active);
 
         assert!(!project.join("deno.json").exists());
-        assert!(!project.join("deno_dir").exists());
     }
 }

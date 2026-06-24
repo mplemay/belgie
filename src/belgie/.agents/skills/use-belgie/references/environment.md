@@ -18,8 +18,7 @@ JavaScript dependencies stay isolated from the Python project's `pyproject.toml`
 ### Ephemeral mode (`path` omitted)
 
 - Install tree (`deno.lock`, `node_modules`) lives in a temporary Belgie environment root
-- Deno module and npm cache data uses Deno's standard global cache location (`DENO_DIR`, OS cache dir, or `~/.deno`)
-  unless `cache=` is set
+- Uses Deno's default cache unless `cache=` is set (see [Deno cache](#deno-cache-cache) below)
 - Workspace defaults to the process working directory at construction time
 - After `install()`, a `node_modules` symlink is created at the workspace so npm-native tools (Vite, Rollup, etc.) can
   resolve packages from nested working directories

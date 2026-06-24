@@ -262,7 +262,7 @@ def test_environment_path_resolves_inline_relative_imports(isolated_project_cwd:
     ]
 
 
-def test_environment_cache_override_uses_custom_deno_dir(tmp_path: Path, monkeypatch):
+def test_environment_cache_override_creates_custom_cache_dir(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cache = tmp_path / "custom_cache"
     with Environment({"std_path": "jsr:@std/path@^1"}, cache=cache) as env:

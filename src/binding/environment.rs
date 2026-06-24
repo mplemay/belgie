@@ -49,7 +49,7 @@ impl PyEnvironment {
         }
         let lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Input)?;
         let persist_path = normalize_path::normalize_optional_directory(py, path)?;
-        let cache = normalize_path::normalize_optional_absolute_directory(py, cache, "cache")?;
+        let cache = normalize_path::normalize_optional_output_directory(py, cache, "cache")?;
         let workspace = match &persist_path {
             Some(path) => path.clone(),
             None => normalize_path::normalize_cwd(py, None)?,
