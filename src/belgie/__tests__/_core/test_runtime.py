@@ -346,6 +346,22 @@ class TestRuntimeLifecycle:
             with pytest.raises(_core.BelgieRuntimeError, match="package dependencies"):
                 command("--version")
 
+    def test_command_requires_package_dependencies_not_just_worker_options(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+
+        with (
+            Environment(path=project) as env,
+            Runtime(env=env, options=RuntimeOptions(seed=1)) as runtime,
+        ):
+            command = runtime(Command("vite"))
+            assert isinstance(command, SyncCommandRunner)
+            with pytest.raises(_core.BelgieRuntimeError, match="package dependencies"):
+                command("--version")
+
     def test_closed_runtime_rejects_new_bindings(self) -> None:
         with Runtime() as runtime:
             pass

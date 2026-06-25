@@ -9,7 +9,7 @@ use tempfile::TempDir;
 mod materialize;
 
 use crate::embed::{EmbedContext, EmbedContextOptions};
-use crate::options::EnvironmentOptions;
+use crate::options::{EnvironmentOptions, RuntimeWorkerOptions};
 use crate::packages::{
     DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest,
     EnvironmentUpdateResult, PackageDependency, dependencies_from_mapping,
@@ -551,6 +551,16 @@ impl ActiveEnvironment {
 
     pub(crate) fn uses_package_loader(&self) -> bool {
         self.dependency_count() > 0
+    }
+
+    pub(crate) fn needs_package_environment(&self, worker_options: &RuntimeWorkerOptions) -> bool {
+        self.uses_package_loader()
+            || worker_options.requires_package_worker()
+            || self.embed_options.requires_embed_module_loader()
+    }
+
+    pub(crate) fn has_package_dependencies(&self) -> bool {
+        self.uses_package_loader()
     }
 
     async fn lock(

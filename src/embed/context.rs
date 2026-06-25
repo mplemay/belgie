@@ -256,6 +256,14 @@ impl EmbedContextOptions {
         self.is_package_manager_subcommand = true;
         self
     }
+
+    pub(crate) fn requires_embed_module_loader(&self) -> bool {
+        !self.allow_remote
+            || !matches!(self.allow_json_imports, AllowJsonImports::WithAttribute)
+            || self.no_npm
+            || self.unsafely_ignore_certificate_errors.is_some()
+            || self.cache_setting != CacheSetting::Use
+    }
 }
 
 impl std::fmt::Debug for EmbedContext {
@@ -446,5 +454,66 @@ impl EmbedContext {
 
     pub fn insert_memory_file(&self, url: Url, source: String) {
         memory::insert_memory_file(&self.memory_files, url, source);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use deno_cache_dir::file_fetcher::CacheSetting;
+    use deno_resolver::loader::AllowJsonImports;
+
+    use super::EmbedContextOptions;
+
+    #[test]
+    fn requires_embed_module_loader_is_false_for_defaults() {
+        assert!(!EmbedContextOptions::default().requires_embed_module_loader());
+    }
+
+    #[test]
+    fn requires_embed_module_loader_is_true_for_non_default_resolution_options() {
+        let cases = [
+            (
+                EmbedContextOptions {
+                    allow_json_imports: AllowJsonImports::Always,
+                    ..Default::default()
+                },
+                "allow_json_imports",
+            ),
+            (
+                EmbedContextOptions {
+                    allow_remote: false,
+                    ..Default::default()
+                },
+                "allow_remote",
+            ),
+            (
+                EmbedContextOptions {
+                    no_npm: true,
+                    ..Default::default()
+                },
+                "no_npm",
+            ),
+            (
+                EmbedContextOptions {
+                    unsafely_ignore_certificate_errors: Some(vec!["localhost".to_string()]),
+                    ..Default::default()
+                },
+                "unsafely_ignore_certificate_errors",
+            ),
+            (
+                EmbedContextOptions {
+                    cache_setting: CacheSetting::ReloadAll,
+                    ..Default::default()
+                },
+                "cache_setting",
+            ),
+        ];
+
+        for (options, label) in cases {
+            assert!(
+                options.requires_embed_module_loader(),
+                "expected {label} to require embed module loader"
+            );
+        }
     }
 }

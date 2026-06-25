@@ -27,9 +27,9 @@ impl RuntimeSession {
                     let active = isolated
                         .acquire_active()
                         .map_err(|error| BindingError::runtime(error.to_string()))?;
-                    (active.uses_package_loader()
-                        || runtime.worker_options().requires_package_worker())
-                    .then_some(BoundPackageEnvironment::Isolated(active))
+                    active
+                        .needs_package_environment(runtime.worker_options())
+                        .then_some(BoundPackageEnvironment::Isolated(active))
                 } else {
                     None
                 }
@@ -80,6 +80,7 @@ impl RuntimeSession {
             .lock()
             .expect("runtime package environment lock should not be poisoned")
             .clone()
+            .filter(|BoundPackageEnvironment::Isolated(env)| env.has_package_dependencies())
             .ok_or_else(|| {
                 BindingError::runtime(
                     "Commands require an active Environment with package dependencies",

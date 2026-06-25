@@ -152,10 +152,7 @@ export default () => data.answer;
 
     with (
         Environment(path=project, options=EnvironmentOptions(allow_json_imports="always")) as env,
-        Runtime(
-            env=env,
-            options=RuntimeOptions(seed=1),
-        ) as runtime,
+        Runtime(env=env) as runtime,
     ):
         assert runtime(Script.from_file(main))() == 42
 
@@ -166,10 +163,7 @@ def test_environment_options_can_disable_remote_imports(tmp_path: Path):
 
     with (
         Environment(path=project, options=EnvironmentOptions(allow_remote=False)) as env,
-        Runtime(
-            env=env,
-            options=RuntimeOptions(seed=1),
-        ) as runtime,
+        Runtime(env=env) as runtime,
         pytest.raises((BelgieModuleError, BelgieRuntimeError), match="remote|fetch|Module"),
     ):
         runtime(Script("import 'https://example.com/mod.ts'; export default () => 1;"))()
