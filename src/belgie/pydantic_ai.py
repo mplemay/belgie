@@ -5,7 +5,8 @@ import inspect
 import json
 import re
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import KW_ONLY, dataclass, field, replace
 from typing import TYPE_CHECKING, Annotated, Any, Final, NotRequired, TypedDict, cast
 
@@ -30,6 +31,8 @@ from belgie.errors import BelgieJavaScriptError, BelgieModuleError, BelgieRuntim
 
 if TYPE_CHECKING:
     from os import PathLike
+
+    from belgie._core import AsyncRuntime
 
 ToolSearchCapability: type[AbstractCapability[Any]] | None
 try:
@@ -355,39 +358,40 @@ class JavaScriptCodeModeToolset(WrapperToolset[AgentDepsT]):
         )
         results: list[ToolCallResult] = []
 
-        for round_number in range(self.max_tool_rounds + 1):
-            response = await self._execute_replay(code, tool.callable_defs, results)
-            status = _response_status(response)
-            output = _response_output(response)
-            call_count = _response_call_count(response)
-            if call_count < len(results):
-                raise ModelRetry(NONDETERMINISTIC_TOOL_CALLS_MESSAGE)
-            if status == "complete":
-                if call_count > len(results):
-                    raise ModelRetry(UNAWAITED_TOOL_CALL_MESSAGE)
-                result = response.get("result")
-                return _build_tool_return(
-                    result,
-                    output,
-                    dispatch_state.nested_calls,
-                    dispatch_state.nested_returns,
-                )
-            if round_number == self.max_tool_rounds:
-                message = f"JavaScript requested tools for more than {self.max_tool_rounds} replay rounds."
-                raise ModelRetry(message)
+        async with self._javascript_runtime() as runtime:
+            for round_number in range(self.max_tool_rounds + 1):
+                response = await self._execute_replay(code, tool.callable_defs, results, runtime)
+                status = _response_status(response)
+                output = _response_output(response)
+                call_count = _response_call_count(response)
+                if call_count < len(results):
+                    raise ModelRetry(NONDETERMINISTIC_TOOL_CALLS_MESSAGE)
+                if status == "complete":
+                    if call_count > len(results):
+                        raise ModelRetry(UNAWAITED_TOOL_CALL_MESSAGE)
+                    result = response.get("result")
+                    return _build_tool_return(
+                        result,
+                        output,
+                        dispatch_state.nested_calls,
+                        dispatch_state.nested_returns,
+                    )
+                if round_number == self.max_tool_rounds:
+                    message = f"JavaScript requested tools for more than {self.max_tool_rounds} replay rounds."
+                    raise ModelRetry(message)
 
-            pending = _response_pending_calls(response, tool.sanitized_to_original)
-            if not pending:
-                raise ModelRetry(NO_PENDING_TOOL_CALLS_MESSAGE)
-            if any(call.index < len(results) for call in pending):
-                raise ModelRetry(NONDETERMINISTIC_TOOL_CALLS_MESSAGE)
+                pending = _response_pending_calls(response, tool.sanitized_to_original)
+                if not pending:
+                    raise ModelRetry(NO_PENDING_TOOL_CALLS_MESSAGE)
+                if any(call.index < len(results) for call in pending):
+                    raise ModelRetry(NONDETERMINISTIC_TOOL_CALLS_MESSAGE)
 
-            if _must_dispatch_sequentially(pending, tool.callable_defs, dispatch_state.tool_manager):
-                results.extend([await self._dispatch_pending(call, dispatch_state) for call in pending])
-            else:
-                results.extend(
-                    await asyncio.gather(*(self._dispatch_pending(call, dispatch_state) for call in pending)),
-                )
+                if _must_dispatch_sequentially(pending, tool.callable_defs, dispatch_state.tool_manager):
+                    results.extend([await self._dispatch_pending(call, dispatch_state) for call in pending])
+                else:
+                    results.extend(
+                        await asyncio.gather(*(self._dispatch_pending(call, dispatch_state) for call in pending)),
+                    )
 
         raise ModelRetry(UNEXPECTED_REPLAY_END_MESSAGE)
 
@@ -436,30 +440,35 @@ class JavaScriptCodeModeToolset(WrapperToolset[AgentDepsT]):
         value = TOOL_RETURN_CONTENT_ADAPTER.dump_python(result, mode="json")
         return {"key": call.key, "ok": True, "value": value}
 
+    @asynccontextmanager
+    async def _javascript_runtime(self) -> AsyncIterator[AsyncRuntime]:
+        if self._uses_environment():
+            environment = Environment(
+                self.dependencies,
+                path=self.path,
+                lockfile=self.lockfile,
+                cache=self.cache,
+            )
+            async with environment as env:
+                if self.dependencies is not None:
+                    await env.install()
+                async with Runtime(env=env) as runtime:
+                    yield runtime
+        else:
+            async with Runtime() as runtime:
+                yield runtime
+
     async def _execute_replay(
         self,
         code: str,
         callable_defs: dict[str, ToolDefinition],
         results: list[ToolCallResult],
+        runtime: AsyncRuntime,
     ) -> dict[str, Any]:
         script = Script(_build_replay_script(code, callable_defs))
         payload = {"results": results}
         try:
-            if self._uses_environment():
-                environment = Environment(
-                    self.dependencies,
-                    path=self.path,
-                    lockfile=self.lockfile,
-                    cache=self.cache,
-                )
-                async with environment as env:
-                    if self.dependencies is not None:
-                        await env.install()
-                    async with Runtime(env=env) as runtime:
-                        result = await runtime(script)(payload)
-            else:
-                async with Runtime() as runtime:
-                    result = await runtime(script)(payload)
+            result = await runtime(script)(payload)
         except BelgieJavaScriptError as exc:
             if "BelgieCodeModePendingToolCall" in str(exc):
                 raise ModelRetry(UNAWAITED_TOOL_CALL_MESSAGE) from exc
@@ -810,7 +819,7 @@ def _build_tool_return(
         result = TOOL_RETURN_CONTENT_ADAPTER.validate_python(result)
 
     if not output:
-        return_value: Any = result if result is not None else {}
+        return_value: Any = result
     elif result is None:
         return_value = {"output": output}
     elif _contains_multimodal(result):

@@ -11,6 +11,7 @@ from pydantic_ai.tool_manager import ToolManager
 from pydantic_ai.toolsets.abstract import ToolsetTool
 from pydantic_ai.usage import RunUsage
 
+from belgie._core import AsyncEnvironment
 from belgie.pydantic_ai import (
     JavaScriptCodeMode,
     JavaScriptCodeModeToolset,
@@ -33,9 +34,10 @@ async def build_code_mode_toolset(
     wrapped: FunctionToolset[Any],
     *,
     tools: Any = "all",
+    **toolset_kwargs: Any,
 ) -> tuple[JavaScriptCodeModeToolset[Any], RunContext[Any], dict[str, ToolsetTool[Any]]]:
     ctx: RunContext[Any] = RunContext(deps=None, model=TestModel(), usage=RunUsage(), run_step=0)
-    toolset = JavaScriptCodeModeToolset(wrapped=wrapped, tool_selector=tools)
+    toolset = JavaScriptCodeModeToolset(wrapped=wrapped, tool_selector=tools, **toolset_kwargs)
     tools_map = await toolset.get_tools(ctx)
     ctx.tool_manager = ToolManager(toolset=toolset, ctx=ctx, tools=tools_map)
     return toolset, ctx, tools_map
@@ -104,6 +106,61 @@ async def test_run_javascript_calls_tools_in_parallel() -> None:
 
     assert result.return_value == [6, 18]
     assert len(result.metadata["tool_calls"]) == 2
+
+
+async def test_run_javascript_preserves_null_return() -> None:
+    wrapped: FunctionToolset[Any] = FunctionToolset()
+    toolset, ctx, tools = await build_code_mode_toolset(wrapped)
+
+    result = await call_run_javascript(toolset, ctx, tools, "return null;")
+
+    assert result.return_value is None
+
+
+async def test_run_javascript_distinguishes_null_from_empty_object() -> None:
+    wrapped: FunctionToolset[Any] = FunctionToolset()
+    toolset, ctx, tools = await build_code_mode_toolset(wrapped)
+
+    null_result = await call_run_javascript(toolset, ctx, tools, "return null;")
+    empty_result = await call_run_javascript(toolset, ctx, tools, "return {};")
+
+    assert null_result.return_value is None
+    assert empty_result.return_value == {}
+
+
+async def test_run_javascript_reuses_environment_for_replay_rounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wrapped: FunctionToolset[Any] = FunctionToolset(include_return_schema=True)
+
+    @wrapped.tool_plain
+    def echo(value: str) -> str:
+        return value
+
+    install_calls = 0
+    original_install = AsyncEnvironment.install
+
+    def counting_install(self: AsyncEnvironment) -> object:
+        nonlocal install_calls
+        install_calls += 1
+        return original_install(self)
+
+    monkeypatch.setattr(AsyncEnvironment, "install", counting_install)
+
+    toolset, ctx, tools = await build_code_mode_toolset(
+        wrapped,
+        dependencies={"leftpad": "npm:left-pad@^1"},
+    )
+
+    result = await call_run_javascript(
+        toolset,
+        ctx,
+        tools,
+        'const first = await echo({ value: "a" });\nreturn await echo({ value: first });',
+    )
+
+    assert result.return_value == "a"
+    assert install_calls == 1
 
 
 async def test_unselected_tools_stay_native() -> None:
