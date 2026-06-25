@@ -9,10 +9,12 @@ if TYPE_CHECKING:
         Command,
         Environment,
         EnvironmentInstallResult,
+        EnvironmentOptions,
         EnvironmentUpdateChange,
         EnvironmentUpdateResult,
         Runtime,
         RuntimeOptions,
+        RuntimePermissions,
         Script,
     )
 
@@ -37,10 +39,12 @@ if not TYPE_CHECKING:
     Command = CORE_MODULE.Command
     Environment = CORE_MODULE.Environment
     EnvironmentInstallResult = CORE_MODULE.EnvironmentInstallResult
+    EnvironmentOptions = CORE_MODULE.EnvironmentOptions
     EnvironmentUpdateChange = CORE_MODULE.EnvironmentUpdateChange
     EnvironmentUpdateResult = CORE_MODULE.EnvironmentUpdateResult
     Runtime = CORE_MODULE.Runtime
     RuntimeOptions = CORE_MODULE.RuntimeOptions
+    RuntimePermissions = CORE_MODULE.RuntimePermissions
     Script = CORE_MODULE.Script
 
 type JsonPrimitive = None | bool | int | float | str
@@ -53,6 +57,7 @@ __all__: tuple[str, ...] = (
     "Command",
     "Environment",
     "EnvironmentInstallResult",
+    "EnvironmentOptions",
     "EnvironmentUpdateChange",
     "EnvironmentUpdateResult",
     "JsonArray",
@@ -62,5 +67,6 @@ __all__: tuple[str, ...] = (
     "JsonPrimitive",
     "Runtime",
     "RuntimeOptions",
+    "RuntimePermissions",
     "Script",
 )

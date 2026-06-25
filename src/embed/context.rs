@@ -7,7 +7,7 @@ use deno_cache_dir::file_fetcher::CacheSetting;
 use deno_cache_dir::file_fetcher::NullBlobStore;
 use deno_cache_dir::file_fetcher::SendError;
 use deno_cache_dir::file_fetcher::SendResponse;
-use deno_config::deno_json::NodeModulesDirMode;
+use deno_config::deno_json::{NodeModulesDirMode, NodeModulesLinkerMode};
 use deno_core::error::AnyError;
 use deno_core::url::Url;
 use deno_error::JsErrorBox;
@@ -56,11 +56,15 @@ pub(crate) struct EmbedHttpClient {
 }
 
 impl EmbedHttpClient {
-    fn new(root_cert_store: RootCertStore) -> Result<Self, AnyError> {
+    fn new(
+        root_cert_store: RootCertStore,
+        unsafely_ignore_certificate_errors: Option<Vec<String>>,
+    ) -> Result<Self, AnyError> {
         let client = create_http_client(
             DENO_VERSION_INFO.user_agent,
             CreateHttpClientOptions {
                 root_cert_store: Some(root_cert_store),
+                unsafely_ignore_certificate_errors,
                 ..Default::default()
             },
         )
@@ -196,24 +200,69 @@ pub(crate) struct EmbedContext {
     memory_files: deno_resolver::loader::MemoryFilesRc,
     graph_loader: Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>>,
     install_graph_roots: Vec<ModuleSpecifier>,
+    allow_json_imports: AllowJsonImports,
+    unsafely_ignore_certificate_errors: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct EmbedContextOptions {
     pub cache: Option<PathBuf>,
+    pub cache_setting: CacheSetting,
+    pub allow_remote: bool,
+    pub allow_json_imports: AllowJsonImports,
     pub frozen_lockfile: Option<bool>,
     pub is_package_manager_subcommand: bool,
     pub lockfile_skip_write: bool,
     pub node_modules_dir_mode: Option<NodeModulesDirMode>,
+    pub node_modules_linker: Option<NodeModulesLinkerMode>,
     pub node_modules_root: Option<PathBuf>,
+    pub no_npm: bool,
+    pub npm_caching: NpmCachingStrategy,
+    pub clean_on_install: bool,
+    pub production: bool,
+    pub skip_types: bool,
+    pub unsafely_ignore_certificate_errors: Option<Vec<String>>,
     pub specified_import_map: Option<SpecifiedImportMap>,
     pub install_graph_roots: Vec<ModuleSpecifier>,
+}
+
+impl Default for EmbedContextOptions {
+    fn default() -> Self {
+        Self {
+            cache: None,
+            cache_setting: CacheSetting::Use,
+            allow_remote: true,
+            allow_json_imports: AllowJsonImports::WithAttribute,
+            frozen_lockfile: None,
+            is_package_manager_subcommand: false,
+            lockfile_skip_write: false,
+            node_modules_dir_mode: None,
+            node_modules_linker: None,
+            node_modules_root: None,
+            no_npm: false,
+            npm_caching: NpmCachingStrategy::Eager,
+            clean_on_install: true,
+            production: false,
+            skip_types: false,
+            unsafely_ignore_certificate_errors: None,
+            specified_import_map: None,
+            install_graph_roots: Vec::new(),
+        }
+    }
 }
 
 impl EmbedContextOptions {
     pub(crate) fn for_package_manager(mut self) -> Self {
         self.is_package_manager_subcommand = true;
         self
+    }
+
+    pub(crate) fn requires_embed_module_loader(&self) -> bool {
+        !self.allow_remote
+            || !matches!(self.allow_json_imports, AllowJsonImports::WithAttribute)
+            || self.no_npm
+            || self.unsafely_ignore_certificate_errors.is_some()
+            || self.cache_setting != CacheSetting::Use
     }
 }
 
@@ -279,6 +328,8 @@ impl EmbedContext {
                 lockfile_skip_write: options.lockfile_skip_write,
                 maybe_custom_deno_dir_root: options.cache,
                 node_modules_dir: Some(node_modules_dir),
+                node_modules_linker: options.node_modules_linker,
+                no_npm: options.no_npm,
                 root_node_modules_dir_override: options.node_modules_root,
                 ..Default::default()
             },
@@ -287,7 +338,7 @@ impl EmbedContext {
         let resolver_factory = Arc::new(ResolverFactory::new(
             workspace_factory,
             ResolverFactoryOptions {
-                allow_json_imports: AllowJsonImports::WithAttribute,
+                allow_json_imports: options.allow_json_imports,
                 specified_import_map: options.specified_import_map.map(|import_map| {
                     Box::new(StaticImportMapProvider { import_map })
                         as Box<dyn SpecifiedImportMapProvider>
@@ -297,7 +348,10 @@ impl EmbedContext {
         ));
 
         let root_cert_store = get_root_cert_store(&sys, None, None, None)?;
-        let http_client = Arc::new(EmbedHttpClient::new(root_cert_store)?);
+        let http_client = Arc::new(EmbedHttpClient::new(
+            root_cert_store,
+            options.unsafely_ignore_certificate_errors.clone(),
+        )?);
         let memory_files = deno_maybe_sync::new_rc(MemoryFiles::default());
         let global_http_cache = resolver_factory
             .workspace_factory()
@@ -313,8 +367,8 @@ impl EmbedContext {
             memory_files.clone(),
             sys.clone(),
             PermissionedFileFetcherOptions {
-                allow_remote: true,
-                cache_setting: CacheSetting::Use,
+                allow_remote: options.allow_remote,
+                cache_setting: options.cache_setting.clone(),
             },
         ));
         let graph_loader = DenoGraphLoader::new(
@@ -326,7 +380,7 @@ impl EmbedContext {
                 file_header_overrides: HashMap::new(),
                 permissions: None,
                 reporter: None,
-                include_npm_sources: true,
+                include_npm_sources: !options.no_npm,
             },
         );
 
@@ -337,13 +391,13 @@ impl EmbedContext {
             LogReporter,
             None,
             NpmInstallerFactoryOptions {
-                clean_on_install: true,
-                cache_setting: NpmCacheSetting::Use,
-                caching_strategy: NpmCachingStrategy::Eager,
+                clean_on_install: options.clean_on_install,
+                cache_setting: NpmCacheSetting::from_cache_setting(&options.cache_setting),
+                caching_strategy: options.npm_caching,
                 dedup_lockfile_peer_variants: true,
                 lifecycle_scripts_config: Default::default(),
-                production: false,
-                skip_types: false,
+                production: options.production,
+                skip_types: options.skip_types,
                 resolve_npm_resolution_snapshot: Box::new(|| Ok(None)),
             },
         ));
@@ -357,6 +411,8 @@ impl EmbedContext {
             memory_files,
             graph_loader: Mutex::new(graph_loader),
             install_graph_roots: options.install_graph_roots,
+            allow_json_imports: options.allow_json_imports,
+            unsafely_ignore_certificate_errors: options.unsafely_ignore_certificate_errors,
         })
     }
 
@@ -388,7 +444,76 @@ impl EmbedContext {
         &self.install_graph_roots
     }
 
+    pub fn allow_json_imports(&self) -> AllowJsonImports {
+        self.allow_json_imports
+    }
+
+    pub fn unsafely_ignore_certificate_errors(&self) -> Option<Vec<String>> {
+        self.unsafely_ignore_certificate_errors.clone()
+    }
+
     pub fn insert_memory_file(&self, url: Url, source: String) {
         memory::insert_memory_file(&self.memory_files, url, source);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use deno_cache_dir::file_fetcher::CacheSetting;
+    use deno_resolver::loader::AllowJsonImports;
+
+    use super::EmbedContextOptions;
+
+    #[test]
+    fn requires_embed_module_loader_is_false_for_defaults() {
+        assert!(!EmbedContextOptions::default().requires_embed_module_loader());
+    }
+
+    #[test]
+    fn requires_embed_module_loader_is_true_for_non_default_resolution_options() {
+        let cases = [
+            (
+                EmbedContextOptions {
+                    allow_json_imports: AllowJsonImports::Always,
+                    ..Default::default()
+                },
+                "allow_json_imports",
+            ),
+            (
+                EmbedContextOptions {
+                    allow_remote: false,
+                    ..Default::default()
+                },
+                "allow_remote",
+            ),
+            (
+                EmbedContextOptions {
+                    no_npm: true,
+                    ..Default::default()
+                },
+                "no_npm",
+            ),
+            (
+                EmbedContextOptions {
+                    unsafely_ignore_certificate_errors: Some(vec!["localhost".to_string()]),
+                    ..Default::default()
+                },
+                "unsafely_ignore_certificate_errors",
+            ),
+            (
+                EmbedContextOptions {
+                    cache_setting: CacheSetting::ReloadAll,
+                    ..Default::default()
+                },
+                "cache_setting",
+            ),
+        ];
+
+        for (options, label) in cases {
+            assert!(
+                options.requires_embed_module_loader(),
+                "expected {label} to require embed module loader"
+            );
+        }
     }
 }

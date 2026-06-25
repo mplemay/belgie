@@ -9,6 +9,7 @@ use deno_graph::ModuleGraph;
 use deno_graph::ModuleSpecifier;
 use deno_resolver::factory::ResolverFactory;
 use deno_resolver::graph::DefaultDenoResolverRc;
+use deno_resolver::loader::AllowJsonImports;
 use deno_resolver::loader::ModuleLoaderRc;
 
 use crate::embed::context::EmbedContext;
@@ -21,6 +22,7 @@ pub(crate) struct PackageRuntimeState {
     pub deno_resolver: DefaultDenoResolverRc<EmbedSys>,
     pub memory_files: deno_resolver::loader::MemoryFilesRc,
     pub module_loader: ModuleLoaderRc<EmbedSys>,
+    pub allow_json_imports: AllowJsonImports,
 }
 
 impl PackageRuntimeState {
@@ -31,6 +33,7 @@ impl PackageRuntimeState {
             deno_resolver: self.deno_resolver.clone(),
             memory_files: self.memory_files.clone(),
             module_loader: self.module_loader.clone(),
+            allow_json_imports: self.allow_json_imports,
         }
     }
 }
@@ -77,6 +80,7 @@ pub(crate) async fn prepare_package_runtime(
         deno_resolver,
         memory_files,
         module_loader,
+        allow_json_imports: context.allow_json_imports(),
     })
 }
 

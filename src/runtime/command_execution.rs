@@ -19,6 +19,7 @@ use tokio::sync::{oneshot, watch};
 use super::{BoundPackageEnvironment, RuntimeSession, process_context};
 use crate::command::CommandSource;
 use crate::embed::{EmbedContext, js_content_type_header_overrides};
+use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
 use crate::runtime::error::map_package_environment_error;
 use crate::runtime::package_worker::{self, BoundPackageWorkerOptions};
 use crate::types::error::BindingError;
@@ -40,6 +41,8 @@ struct CommandExecutionHandleInner {
 
 pub(crate) struct CommandExecutionOptions {
     pub(crate) package_environment: BoundPackageEnvironment,
+    pub(crate) js_runtime_options: JsRuntimeOptions,
+    pub(crate) runtime_worker_options: RuntimeWorkerOptions,
     pub(crate) runtime_root: PathBuf,
     pub(crate) command: CommandSource,
     pub(crate) argv: Vec<String>,
@@ -165,12 +168,16 @@ async fn run_command(
         }
         BinValue::JsFile(path) | BinValue::Executable(path) => {
             run_js_command(
-                context,
-                command_cwd,
-                command_name,
-                path,
-                options.argv,
-                options.session.clone(),
+                JsCommandRunOptions {
+                    context,
+                    cwd: command_cwd,
+                    command_name,
+                    script_path: path,
+                    argv: options.argv,
+                    js_runtime_options: options.js_runtime_options.clone(),
+                    runtime_worker_options: options.runtime_worker_options.clone(),
+                    session: options.session.clone(),
+                },
                 &mut cancel_rx,
             )
             .await
@@ -266,15 +273,31 @@ async fn resolve_command(
     ))
 }
 
-async fn run_js_command(
+struct JsCommandRunOptions {
     context: std::rc::Rc<EmbedContext>,
     cwd: PathBuf,
     command_name: String,
     script_path: PathBuf,
     argv: Vec<String>,
+    js_runtime_options: JsRuntimeOptions,
+    runtime_worker_options: RuntimeWorkerOptions,
     session: Arc<RuntimeSession>,
+}
+
+async fn run_js_command(
+    options: JsCommandRunOptions,
     cancel_rx: &mut watch::Receiver<bool>,
 ) -> CommandResult {
+    let JsCommandRunOptions {
+        context,
+        cwd,
+        command_name,
+        script_path,
+        argv,
+        js_runtime_options,
+        runtime_worker_options,
+        session,
+    } = options;
     let use_cli_snapshot = session.cli_snapshot_eligible();
     let main_module = ModuleSpecifier::from_file_path(&script_path).map_err(|()| {
         BindingError::runtime(format!(
@@ -290,6 +313,8 @@ async fn run_js_command(
             argv,
             argv0: Some(command_name),
             use_cli_snapshot,
+            js_runtime_options,
+            runtime_worker_options,
             main_source: None,
             header_overrides: js_content_type_header_overrides(main_module),
         },

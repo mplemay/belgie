@@ -1,13 +1,19 @@
 from collections.abc import Awaitable, Coroutine, Iterable, Mapping
 from os import PathLike
 from types import TracebackType
-from typing import Any, Self, overload
+from typing import Any, Literal, Self, overload
 
 type JsonPrimitive = None | bool | int | float | str
 type JsonInput = JsonPrimitive | list[JsonInput] | tuple[JsonInput, ...] | dict[str, JsonInput]
 type JsonOutput = JsonPrimitive | list[JsonOutput] | dict[str, JsonOutput]
 type JsonObject = dict[str, JsonOutput]
 type JsonArray = list[JsonOutput]
+type CacheSetting = Literal["use", "reload", "only"]
+type JsonImportMode = Literal["with_attribute", "always"]
+type NodeModulesDirMode = Literal["auto", "manual", "none"]
+type NodeModulesLinkerMode = Literal["isolated", "hoisted"]
+type NpmCachingMode = Literal["eager", "lazy", "manual"]
+type WorkerLogLevel = Literal["error", "warn", "info", "debug"]
 
 class BelgieError(Exception): ...
 class BelgieRuntimeError(BelgieError): ...
@@ -94,6 +100,35 @@ class AsyncRuntime:
     @overload
     def __call__(self, target: Command) -> AsyncCommandRunner: ...
 
+class RuntimePermissions:
+    def __init__(
+        self,
+        *,
+        allow_env: Iterable[str] | None = None,
+        deny_env: Iterable[str] | None = None,
+        ignore_env: Iterable[str] | None = None,
+        allow_net: Iterable[str] | None = None,
+        deny_net: Iterable[str] | None = None,
+        allow_ffi: Iterable[str] | None = None,
+        deny_ffi: Iterable[str] | None = None,
+        allow_read: Iterable[str] | None = None,
+        deny_read: Iterable[str] | None = None,
+        ignore_read: Iterable[str] | None = None,
+        allow_run: Iterable[str] | None = None,
+        deny_run: Iterable[str] | None = None,
+        allow_sys: Iterable[str] | None = None,
+        deny_sys: Iterable[str] | None = None,
+        allow_write: Iterable[str] | None = None,
+        deny_write: Iterable[str] | None = None,
+        allow_import: Iterable[str] | None = None,
+        deny_import: Iterable[str] | None = None,
+        prompt: bool = False,
+    ) -> None: ...
+    @classmethod
+    def all(cls) -> Self: ...
+    @classmethod
+    def none(cls, *, prompt: bool = False) -> Self: ...
+
 class RuntimeOptions:
     def __init__(
         self,
@@ -101,6 +136,31 @@ class RuntimeOptions:
         max_old_generation_size_mb: int | None = None,
         max_young_generation_size_mb: int | None = None,
         code_range_size_mb: int | None = None,
+        permissions: RuntimePermissions | None = None,
+        seed: int | None = None,
+        location: str | None = None,
+        log_level: WorkerLogLevel | None = None,
+        enable_testing_features: bool = False,
+        enable_raw_imports: bool = False,
+        trace_ops: Iterable[str] | None = None,
+    ) -> None: ...
+
+class EnvironmentOptions:
+    def __init__(
+        self,
+        *,
+        cache_setting: CacheSetting = "use",
+        reload: Iterable[str] | None = None,
+        allow_remote: bool = True,
+        allow_json_imports: JsonImportMode = "with_attribute",
+        node_modules_dir: NodeModulesDirMode | None = None,
+        node_modules_linker: NodeModulesLinkerMode | None = None,
+        npm_caching: NpmCachingMode = "eager",
+        no_npm: bool = False,
+        clean_on_install: bool = True,
+        production: bool = False,
+        skip_types: bool = False,
+        unsafely_ignore_certificate_errors: bool | Iterable[str] | None = None,
     ) -> None: ...
 
 class Environment:
@@ -111,6 +171,7 @@ class Environment:
         path: str | PathLike[str] | None = None,
         lockfile: str | PathLike[str] | None = None,
         cache: str | PathLike[str] | None = None,
+        options: EnvironmentOptions | None = None,
     ) -> None: ...
     def __enter__(self) -> SyncEnvironment: ...
     def __exit__(

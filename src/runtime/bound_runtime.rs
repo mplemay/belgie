@@ -2,7 +2,7 @@ use std::{path::Path, rc::Rc, sync::Arc};
 
 use crate::embed::EmbedContext;
 use crate::environment::ActiveEnvironment;
-use crate::options::JsRuntimeOptions;
+use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
 use crate::script::{RunSignature, ScriptSource, media_type_for_script, parse_run_signature};
 use crate::types::error::BindingError;
 
@@ -57,6 +57,10 @@ impl BoundRuntime {
 
     pub(crate) fn js_runtime_options(&self) -> &JsRuntimeOptions {
         self.runtime.js_runtime_options()
+    }
+
+    pub(crate) fn worker_options(&self) -> &RuntimeWorkerOptions {
+        self.runtime.worker_options()
     }
 
     pub(crate) fn package_environment(&self) -> Option<&BoundPackageEnvironment> {

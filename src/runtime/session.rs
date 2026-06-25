@@ -28,7 +28,7 @@ impl RuntimeSession {
                         .acquire_active()
                         .map_err(|error| BindingError::runtime(error.to_string()))?;
                     active
-                        .uses_package_loader()
+                        .needs_package_environment(runtime.worker_options())
                         .then_some(BoundPackageEnvironment::Isolated(active))
                 } else {
                     None
@@ -80,6 +80,7 @@ impl RuntimeSession {
             .lock()
             .expect("runtime package environment lock should not be poisoned")
             .clone()
+            .filter(|BoundPackageEnvironment::Isolated(env)| env.has_package_dependencies())
             .ok_or_else(|| {
                 BindingError::runtime(
                     "Commands require an active Environment with package dependencies",
@@ -87,6 +88,8 @@ impl RuntimeSession {
             })?;
         let handle = CommandExecutionHandle::spawn(CommandExecutionOptions {
             package_environment,
+            js_runtime_options: session.runtime.js_runtime_options().clone(),
+            runtime_worker_options: session.runtime.worker_options().clone(),
             runtime_root: session.runtime.cwd().to_path_buf(),
             command,
             argv,
