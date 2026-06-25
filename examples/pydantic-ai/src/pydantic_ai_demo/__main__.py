@@ -86,7 +86,7 @@ async def run_javascript_parallel_demo() -> dict[str, float]:
     return cast("dict[str, float]", result.return_value)
 
 
-async def main() -> None:
+async def _main() -> None:
     for model, env_var in MODELS:
         if env_var in os.environ:
             agent = build_agent(model)
@@ -99,5 +99,9 @@ async def main() -> None:
     sys.exit(1)
 
 
+def main() -> None:
+    asyncio.run(_main())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Final
 
@@ -26,14 +27,16 @@ async def resolve_join_export_async() -> str:
             return str(await runtime(Script(SOURCE))())
 
 
-async def main() -> None:
+async def _main() -> None:
     async with Environment({"std_path": "jsr:@std/path@^1"}, path=Path.cwd()) as env:
         await env.install()
         async with Runtime(env=env) as runtime:
             print(str(await runtime(Script(SOURCE))()))  # noqa: T201
 
 
-if __name__ == "__main__":
-    import asyncio
+def main() -> None:
+    asyncio.run(_main())
 
-    asyncio.run(main())
+
+if __name__ == "__main__":
+    main()
