@@ -69,6 +69,21 @@ async def test_runs_command_from_isolated_environment(tmp_path: Path, monkeypatc
         await runtime(Command("semver"))("--help")
 
 
+async def test_relative_deno_dir_reuses_cache_for_nested_command_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DENO_DIR", "./.deno_cache")
+    (tmp_path / "subdir").mkdir()
+
+    async with installed_environment({"semver": "7.7.2"}) as env, Runtime(env=env) as runtime:
+        await runtime(Command("semver", cwd="subdir"))("--help")
+
+    assert (tmp_path / ".deno_cache").is_dir()
+    assert not (tmp_path / "subdir" / ".deno_cache").exists()
+
+
 async def test_runs_command_from_frozen_lockfile_environment_without_external_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
