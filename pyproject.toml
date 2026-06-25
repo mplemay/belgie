@@ -9,9 +9,15 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = []
 
+[project.optional-dependencies]
+pydantic-ai = [
+    "pydantic-ai-slim>=1.105.0",
+]
+
 [dependency-groups]
 dev = [
     "anyio>=4",
+    "belgie[pydantic-ai]",
     "prek>=0.4.4",
     "pytest>=9.0.3",
     "ruff>=0.15.16",

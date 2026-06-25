@@ -2,9 +2,9 @@
 name: use-belgie
 description: >-
   Embed JavaScript/TypeScript in Python with belgie — Runtime, Script, Environment, Command, npm/JSR deps
-  without Node on PATH, JSON bridging, sync/async context managers, and error-driven troubleshooting. Use when
-  the user mentions belgie, embedded JS in Python, Deno runtime, npm packages from Python, JSR imports,
-  TypeScript scripts, or Belgie* errors.
+  without Node on PATH, JSON bridging, sync/async context managers, Pydantic AI JavaScript code mode, and
+  error-driven troubleshooting. Use when the user mentions belgie, embedded JS in Python, Deno runtime,
+  npm packages from Python, JSR imports, TypeScript scripts, Pydantic AI code execution, or Belgie* errors.
 license: MIT
 compatibility: Requires Python >=3.12,<3.15
 allowed-tools: Bash(uv *)
@@ -25,6 +25,7 @@ Invoke this skill when:
 - Running JavaScript or TypeScript from Python without Node.js on `PATH`
 - Installing npm or JSR packages in an isolated `Environment`
 - Executing npm package binaries (vite, esbuild, etc.) through `Command`
+- Letting Pydantic AI agents run LLM-written JavaScript through `JavaScriptCodeMode`
 - Wiring sync or async `with Runtime()` / `async with Runtime()` context managers
 - Bridging JSON data between Python and JavaScript
 - Diagnosing `BelgieRuntimeError`, `BelgieModuleError`, or `BelgieJavaScriptError` failures
@@ -129,6 +130,7 @@ asyncio.run(main())
 | Inline or file-based scripts | [references/scripts.md](references/scripts.md) |
 | npm package binaries | [references/commands.md](references/commands.md) |
 | Embed in async apps or build pipelines | [references/integrations.md](references/integrations.md) |
+| Add Pydantic AI JavaScript code mode | [capabilities/pydantic-ai-code-mode.md](capabilities/pydantic-ai-code-mode.md) |
 | Add belgie to another repository | [references/adoption.md](references/adoption.md) |
 | Something broken | [references/troubleshooting.md](references/troubleshooting.md) |
 
@@ -157,6 +159,7 @@ Load only the most relevant reference first. Read additional references only if 
 | Run inline or file-based JS/TS scripts | [references/scripts.md](references/scripts.md) |
 | Run npm package binaries | [references/commands.md](references/commands.md) |
 | Integrate with async apps or CI pipelines | [references/integrations.md](references/integrations.md) |
+| Add Pydantic AI JavaScript code execution | [capabilities/pydantic-ai-code-mode.md](capabilities/pydantic-ai-code-mode.md) |
 | Check compatibility and adoption checklist | [references/adoption.md](references/adoption.md) |
 | Fix errors or runtime failures | [references/troubleshooting.md](references/troubleshooting.md) |
 
