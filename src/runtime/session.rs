@@ -161,8 +161,18 @@ impl RuntimeSession {
             .package_environment
             .lock()
             .expect("runtime package environment lock should not be poisoned");
-        if package_environment.is_some() || !bound.script().needs_package_loader() {
-            return Ok(package_environment.clone());
+
+        if !bound.script().needs_package_loader() {
+            return match package_environment.as_ref() {
+                Some(BoundPackageEnvironment::Isolated(env)) => {
+                    Ok(Some(BoundPackageEnvironment::Isolated(Arc::clone(env))))
+                }
+                _ => Ok(None),
+            };
+        }
+
+        if let Some(existing) = package_environment.clone() {
+            return Ok(Some(existing));
         }
 
         let environment =
@@ -192,6 +202,17 @@ impl RuntimeSession {
 impl Drop for RuntimeSession {
     fn drop(&mut self) {
         let _ = self.close_blocking();
+    }
+}
+
+#[cfg(test)]
+impl RuntimeSession {
+    fn package_environment_for_script_for_test(
+        &self,
+        script: ScriptSource,
+    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
+        let bound = self.runtime.bind(script);
+        self.package_environment_for_script(&bound)
     }
 }
 
@@ -293,5 +314,34 @@ mod tests {
             ) => assert!(Arc::ptr_eq(&first, &second)),
             other => panic!("expected implicit environments, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn simple_script_does_not_inherit_implicit_package_environment() {
+        use crate::runtime::BoundPackageEnvironment;
+
+        let session = test_session();
+        let npm_script = ScriptSource::from_options(ScriptOptions::inline(
+            r#"import isNumber from "npm:is-number@7.0.0"; export default () => isNumber(1);"#
+                .to_string(),
+        ));
+        let simple_script = ScriptSource::from_options(ScriptOptions::inline(
+            "export default () => 'ok';".to_string(),
+        ));
+
+        RuntimeSession::bind_script(&session, npm_script).expect("npm script should bind");
+        assert!(matches!(
+            session
+                .package_environment
+                .lock()
+                .expect("runtime package environment lock should not be poisoned")
+                .as_ref(),
+            Some(BoundPackageEnvironment::Implicit(_))
+        ));
+
+        let assigned = session
+            .package_environment_for_script_for_test(simple_script)
+            .expect("package environment should resolve");
+        assert!(assigned.is_none());
     }
 }
