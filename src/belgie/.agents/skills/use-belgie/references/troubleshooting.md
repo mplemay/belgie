@@ -14,7 +14,7 @@ Classify the issue before editing:
 2. **Script export or load failure**
    - Missing or non-callable `run` export.
    - Inline `./` import without `Runtime.from_folder()` (file scripts via `Script.from_file` resolve from script dir).
-   - npm/JSR import without `Environment`.
+   - Bare package import without a direct `npm:` / `jsr:` specifier or environment alias.
 3. **JSON bridge failure**
    - Non-serializable Python or JS values across the boundary.
 4. **Command execution failure**
@@ -29,7 +29,8 @@ If belgie is not wired yet, use [quickstart.md](quickstart.md) and [adoption.md]
 Before changing behavior:
 
 - Confirm `Environment` and `Runtime` are entered with `with` or `async with`.
-- Confirm `env.install()` ran when scripts import npm/JSR packages.
+- Confirm script package imports use `npm:` / `jsr:` / URL specifiers, or `env.install()` ran for dependency-map
+  aliases.
 - Confirm JS modules export a callable default or named `run`.
 - Confirm inline `Script("...")` with `./` imports uses `Runtime.from_folder()`; `Script.from_file` resolves from script
   dir.
@@ -94,8 +95,8 @@ asyncio.run(main())
 | `must be entered` | Environment or runtime used outside context | Wrap in `with` / `async with` | Inspect context manager usage |
 | `closed` | Runner called after context exit | Bind and call inside the context | Move `run()` inside `with` block |
 | `already active` | Nested runtime context on same instance | Use a single `with Runtime()` block | Remove nested `with run` |
-| `package dependencies` | Script/command needs env without packages | `Environment` + `install()` + `Runtime(env=)` | Inspect JS imports |
-| `Environment has no package dependencies` | Script/command needs packages but `Environment()` has no deps | Add deps to map and call `install()`, or use plain `Runtime()` | Inspect `Environment({...})` |
+| `package dependencies` | Command or dependency-map import needs env without packages | `Environment` + `install()` + `Runtime(env=)` | Inspect JS imports |
+| `Environment has no package dependencies` | Command needs packages but `Environment()` has no deps | Add deps to map and call `install()` | Inspect `Environment({...})` |
 | `frozen lockfile` | `update()` on environment with `lockfile=` | Remove `lockfile=` or create a new `Environment` | Inspect constructor args |
 | `lockfile is out of date` | Stale lock relative to dependency map | `env.lock()` or `env.update()` | Re-resolve dependencies |
 | `requires at least one dependency` | Empty dependency map or lockfile without deps | Add at least one entry to `Environment({...})` | Inspect dependency dict |
@@ -111,7 +112,7 @@ asyncio.run(main())
 | `Runtime target must be a Script or Command` | Wrong type passed to `run()` | Pass `Script` or `Command` only | Inspect `run(...)` argument |
 | `Commands require an active Environment with package dependencies` | `Command` without env/install | `Environment` + `install()` + `Runtime(env=)` | Inspect command setup |
 | JS error message (e.g. `boom`) | Thrown JavaScript exception | Fix JS logic | Inspect `BelgieJavaScriptError` message |
-| Import/load error in JS | Missing module or bad relative path | Fix imports; add `Environment` or `from_folder` for inline | Inspect `BelgieModuleError` message |
+| Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
 
 ## Structured diagnosis flow
 
@@ -124,7 +125,8 @@ asyncio.run(main())
 ## Verify after fix
 
 - Inline script returns the expected value inside `with Runtime() as run:`.
-- Package-backed script runs after `env.install()` inside nested contexts.
+- Direct `npm:` / `jsr:` script imports run inside `Runtime()`.
+- Commands and dependency-map imports run after `env.install()` inside nested contexts.
 - `Command` returns `None` on success.
 - Thrown JS errors surface as `BelgieJavaScriptError`, not silent failures.
 

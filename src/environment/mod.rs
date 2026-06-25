@@ -4,11 +4,14 @@ use std::sync::{Arc, Mutex};
 
 use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
+use deno_resolver::cache::{DenoDirOptions, DenoDirProvider};
 use tempfile::TempDir;
 
 mod materialize;
 
+use crate::embed::sys::EmbedSys;
 use crate::embed::{EmbedContext, EmbedContextOptions};
+use crate::options::{EnvironmentOptions, RuntimeWorkerOptions};
 use crate::packages::{
     DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest,
     EnvironmentUpdateResult, PackageDependency, dependencies_from_mapping,
@@ -24,6 +27,7 @@ pub(crate) struct EnvironmentDefinition {
     layout: DependencyLayout,
     lockfile_source: Option<PathBuf>,
     cache: Option<PathBuf>,
+    options: EnvironmentOptions,
 }
 
 #[derive(Clone)]
@@ -52,14 +56,14 @@ pub(crate) struct ActiveEnvironment {
     lockfile: PathBuf,
     package_state: Mutex<ActivePackageState>,
     frozen_lockfile: bool,
-    embed_options: Option<EmbedContextOptions>,
+    embed_options: EmbedContextOptions,
     root: EnvironmentRoot,
 }
 
 struct InstallLayout {
     lockfile: PathBuf,
     frozen_lockfile: bool,
-    embed_options: Option<EmbedContextOptions>,
+    embed_options: EmbedContextOptions,
 }
 
 #[derive(Clone, Debug)]
@@ -99,12 +103,31 @@ impl std::fmt::Debug for SharedEnvironment {
 }
 
 impl EnvironmentDefinition {
+    #[cfg(test)]
     pub(crate) fn from_mapping(
         workspace: PathBuf,
         persist_path: Option<PathBuf>,
         dependencies: std::collections::BTreeMap<String, String>,
         lockfile_source: Option<PathBuf>,
         cache: Option<PathBuf>,
+    ) -> Result<Self, AnyError> {
+        Self::from_mapping_with_options(
+            workspace,
+            persist_path,
+            dependencies,
+            lockfile_source,
+            cache,
+            EnvironmentOptions::default(),
+        )
+    }
+
+    pub(crate) fn from_mapping_with_options(
+        workspace: PathBuf,
+        persist_path: Option<PathBuf>,
+        dependencies: std::collections::BTreeMap<String, String>,
+        lockfile_source: Option<PathBuf>,
+        cache: Option<PathBuf>,
+        options: EnvironmentOptions,
     ) -> Result<Self, AnyError> {
         let dependencies = dependencies_from_mapping(&workspace, dependencies)?;
         let layout = DependencyLayout::from_dependencies(&dependencies);
@@ -115,6 +138,7 @@ impl EnvironmentDefinition {
             layout,
             lockfile_source,
             cache,
+            options,
         })
     }
 
@@ -297,6 +321,22 @@ fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
     Ok(())
 }
 
+fn resolve_environment_cache(
+    workspace: &Path,
+    explicit: Option<&PathBuf>,
+) -> Result<PathBuf, AnyError> {
+    DenoDirProvider::new(
+        EmbedSys::default(),
+        DenoDirOptions {
+            maybe_initial_cwd: Some(workspace.to_path_buf()),
+            maybe_custom_root: explicit.cloned(),
+        },
+    )
+    .get_or_create()
+    .map(|dir| dir.root.clone())
+    .map_err(AnyError::from)
+}
+
 fn install_root_url(install_root: &Path) -> Result<deno_core::url::Url, AnyError> {
     let absolute = std::path::absolute(install_root)
         .map(deno_path_util::strip_unc_prefix)
@@ -316,35 +356,58 @@ fn prepare_install_layout(
     let lockfile = install_root.join("deno.lock");
     let node_modules_root = install_root.join("node_modules");
 
+    let has_dependencies = !definition.dependencies.is_empty();
+
     let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
         copy_lockfile(source, &lockfile)?;
         true
     } else {
-        if definition.dependencies.is_empty() {
+        if !has_dependencies {
             std::fs::write(&lockfile, EMPTY_DENO_LOCK)
                 .with_context(|| format!("Writing {}", lockfile.display()))?;
         }
         false
     };
 
-    let embed_options = EmbedContextOptions {
+    let node_modules_dir_mode = definition.options.node_modules_dir().or_else(|| {
+        definition
+            .layout
+            .manual_node_modules
+            .then_some(deno_config::deno_json::NodeModulesDirMode::Manual)
+    });
+
+    let mut embed_options = EmbedContextOptions {
         cache: definition.cache.clone(),
+        cache_setting: definition.options.cache_setting().clone(),
+        allow_remote: definition.options.allow_remote(),
+        allow_json_imports: definition.options.allow_json_imports(),
         frozen_lockfile: None,
         is_package_manager_subcommand: false,
         lockfile_skip_write: false,
-        node_modules_dir_mode: definition
-            .layout
-            .manual_node_modules
-            .then_some(deno_config::deno_json::NodeModulesDirMode::Manual),
+        node_modules_dir_mode,
+        node_modules_linker: definition.options.node_modules_linker(),
         node_modules_root: Some(node_modules_root),
+        no_npm: definition.options.no_npm(),
+        npm_caching: definition.options.npm_caching(),
+        clean_on_install: definition.options.clean_on_install(),
+        production: definition.options.production(),
+        skip_types: definition.options.skip_types(),
+        unsafely_ignore_certificate_errors: definition.options.unsafely_ignore_certificate_errors(),
         specified_import_map: None,
         install_graph_roots: Vec::new(),
     };
 
+    if has_dependencies || embed_options.requires_embed_module_loader() {
+        embed_options.cache = Some(resolve_environment_cache(
+            &definition.workspace,
+            definition.cache.as_ref(),
+        )?);
+    }
+
     Ok(InstallLayout {
         lockfile,
         frozen_lockfile,
-        embed_options: (!definition.dependencies.is_empty()).then_some(embed_options),
+        embed_options,
     })
 }
 
@@ -427,16 +490,14 @@ impl ActiveEnvironment {
         self.install_root().join("node_modules")
     }
 
-    fn embed_options(&self) -> Result<Option<EmbedContextOptions>, AnyError> {
-        let Some(mut options) = self.embed_options.clone() else {
-            return Ok(None);
-        };
+    fn embed_options(&self) -> Result<EmbedContextOptions, AnyError> {
+        let mut options = self.embed_options.clone();
         let base_url = install_root_url(self.install_root())?;
         let dependencies = self.with_package_state(|state| state.dependencies.clone());
         options.frozen_lockfile = Some(self.frozen_lockfile);
         options.specified_import_map = Some(specified_import_map(base_url, &dependencies)?);
         options.install_graph_roots = local_file_dependency_install_roots(&dependencies)?;
-        Ok(Some(options))
+        Ok(options)
     }
 
     fn materialize_cwd_node_modules(&self) -> Result<(), AnyError> {
@@ -507,9 +568,7 @@ impl ActiveEnvironment {
     }
 
     pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
-        let options = self
-            .embed_options()?
-            .ok_or_else(|| anyhow!("Environment has no package dependencies"))?;
+        let options = self.embed_options()?;
         Ok(Rc::new(EmbedContext::new_with_options(
             self.workspace.clone(),
             self.lockfile.clone(),
@@ -518,7 +577,17 @@ impl ActiveEnvironment {
     }
 
     pub(crate) fn uses_package_loader(&self) -> bool {
-        self.embed_options.is_some()
+        self.dependency_count() > 0
+    }
+
+    pub(crate) fn needs_package_environment(&self, worker_options: &RuntimeWorkerOptions) -> bool {
+        self.uses_package_loader()
+            || worker_options.requires_package_worker()
+            || self.embed_options.requires_embed_module_loader()
+    }
+
+    pub(crate) fn has_package_dependencies(&self) -> bool {
+        self.uses_package_loader()
     }
 
     async fn lock(
@@ -541,12 +610,13 @@ impl ActiveEnvironment {
         &self,
         lockfile_only: bool,
     ) -> Result<EnvironmentInstallResult, AnyError> {
-        let Some(options) = self.embed_options()? else {
+        if self.dependency_count() == 0 {
             return Ok(EnvironmentInstallResult {
                 lockfile: self.lockfile.clone(),
                 dependencies: 0,
             });
-        };
+        }
+        let options = self.embed_options()?;
         let dependency_count = self.dependency_count();
         self.sync_local_file_dependencies()?;
         let lockfile = install_environment_packages(
@@ -573,13 +643,14 @@ impl ActiveEnvironment {
         if self.frozen_lockfile {
             bail!("Cannot update an Environment created with a frozen lockfile");
         }
-        let Some(options) = self.embed_options()? else {
+        if self.dependency_count() == 0 {
             return Ok(EnvironmentUpdateResult {
                 lockfile: self.lockfile.clone(),
                 changes: Vec::new(),
                 dependencies: Vec::new(),
             });
-        };
+        }
+        let options = self.embed_options()?;
         let dependencies = self.with_package_state(|state| state.dependencies.clone());
         self.sync_local_file_dependencies()?;
         let result = update_environment_packages(EnvironmentUpdateRequest {
@@ -616,6 +687,7 @@ impl ActiveEnvironment {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::ffi::OsString;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -623,11 +695,95 @@ mod tests {
 
     use super::{ActiveEnvironment, EnvironmentDefinition, SharedEnvironment};
 
+    // Tests mutate env vars; run serially.
+    fn restore_env_var(name: &str, previous: Option<&OsString>) {
+        match previous {
+            Some(value) => {
+                // SAFETY: single-threaded test env mutation.
+                unsafe { std::env::set_var(name, value) };
+            }
+            None => {
+                // SAFETY: single-threaded test env mutation.
+                unsafe { std::env::remove_var(name) };
+            }
+        }
+    }
+
+    struct EnvVarGuard {
+        name: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(name: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(name);
+            // SAFETY: single-threaded test env mutation.
+            unsafe { std::env::set_var(name, value) };
+            Self { name, previous }
+        }
+
+        fn remove(name: &'static str) -> Self {
+            let previous = std::env::var_os(name);
+            // SAFETY: single-threaded test env mutation.
+            unsafe { std::env::remove_var(name) };
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            restore_env_var(self.name, self.previous.as_ref());
+        }
+    }
+
+    struct ClearedCacheEnvGuards {
+        _deno_dir: EnvVarGuard,
+        _xdg_cache_home: EnvVarGuard,
+        _home: EnvVarGuard,
+    }
+
+    fn cleared_cache_env() -> ClearedCacheEnvGuards {
+        ClearedCacheEnvGuards {
+            _deno_dir: EnvVarGuard::remove("DENO_DIR"),
+            _xdg_cache_home: EnvVarGuard::remove("XDG_CACHE_HOME"),
+            _home: EnvVarGuard::remove("HOME"),
+        }
+    }
+
+    fn canonical_test_workspace(folder: &tempfile::TempDir) -> PathBuf {
+        deno_path_util::strip_unc_prefix(
+            folder
+                .path()
+                .canonicalize()
+                .expect("workspace should canonicalize"),
+        )
+    }
+
     fn ephemeral_environment(workspace: std::path::PathBuf) -> SharedEnvironment {
         let definition =
             EnvironmentDefinition::from_mapping(workspace, None, BTreeMap::new(), None, None)
                 .unwrap();
         SharedEnvironment::new(definition)
+    }
+
+    fn dependency_environment(workspace: PathBuf) -> SharedEnvironment {
+        let definition = EnvironmentDefinition::from_mapping(
+            workspace,
+            None,
+            BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+            None,
+            None,
+        )
+        .unwrap();
+        SharedEnvironment::new(definition)
+    }
+
+    fn resolved_cache(active: &ActiveEnvironment) -> PathBuf {
+        active
+            .embed_options()
+            .expect("embed options should resolve")
+            .cache
+            .expect("default cache should be resolved")
     }
 
     fn setup_materialized_npm_env() -> (
@@ -668,6 +824,35 @@ mod tests {
         environment.deactivate().unwrap();
         drop(active);
         assert!(!root.exists());
+    }
+
+    #[test]
+    fn empty_environment_skips_cache_resolution() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = canonical_test_workspace(&folder);
+        let environment = ephemeral_environment(workspace);
+        let active = environment.activate_blocking().unwrap();
+
+        assert!(active.embed_options().unwrap().cache.is_none());
+        assert!(active.install_root().join("deno.lock").is_file());
+        environment.deactivate().unwrap();
+    }
+
+    #[test]
+    fn dependency_environment_requires_resolvable_cache() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = canonical_test_workspace(&folder);
+        let _env = cleared_cache_env();
+        let result = dependency_environment(workspace).activate_blocking();
+        if let Err(error) = result {
+            let message = error.to_string().to_lowercase();
+            assert!(
+                message.contains("cache")
+                    || message.contains("deno_dir")
+                    || message.contains("home"),
+                "unexpected error: {error}"
+            );
+        }
     }
 
     #[test]
@@ -724,6 +909,18 @@ mod tests {
         assert!(!root.join("deno_dir").exists());
         environment.deactivate().unwrap();
         drop(active);
+    }
+
+    #[test]
+    fn relative_deno_dir_resolves_against_workspace_in_embed_options() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = canonical_test_workspace(&folder);
+        let _deno_dir = EnvVarGuard::set("DENO_DIR", "./.deno_cache");
+        let environment = dependency_environment(workspace.clone());
+        let active = environment.activate_blocking().unwrap();
+
+        assert_eq!(resolved_cache(&active), workspace.join(".deno_cache"));
+        environment.deactivate().unwrap();
     }
 
     #[test]

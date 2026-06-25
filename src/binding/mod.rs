@@ -7,7 +7,9 @@ pub(crate) mod runtime;
 pub(crate) mod script;
 
 pub(crate) use command::PyCommand;
-pub(crate) use environment::{PyAsyncEnvironment, PyEnvironment, PySyncEnvironment};
+pub(crate) use environment::{
+    PyAsyncEnvironment, PyEnvironment, PyEnvironmentOptions, PySyncEnvironment,
+};
 pub(crate) use packages::{
     PyEnvironmentInstallResult, PyEnvironmentUpdateChange, PyEnvironmentUpdateResult,
 };
@@ -15,5 +17,5 @@ pub(crate) use runner::{
     PyAsyncCommandRunner, PyAsyncRunner, PyAsyncRuntime, PySyncCommandRunner, PySyncRunner,
     PySyncRuntime,
 };
-pub(crate) use runtime::{PyRuntime, PyRuntimeOptions};
+pub(crate) use runtime::{PyRuntime, PyRuntimeOptions, PyRuntimePermissions};
 pub(crate) use script::PyScript;

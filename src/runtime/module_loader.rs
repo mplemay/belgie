@@ -5,14 +5,17 @@ use deno_cache_dir::file_fetcher::MemoryFiles as _;
 use deno_core::{
     ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
     ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
-    error::ModuleLoaderError,
+    error::ModuleLoaderError, serde_json,
 };
 use deno_error::JsErrorBox;
 use deno_graph::Position;
 use deno_lib::loader::as_deno_resolver_requested_module_type;
 use deno_lib::loader::loaded_module_source_to_module_source_code;
 use deno_lib::loader::module_type_from_media_and_requested_type;
-use deno_resolver::graph::ResolveWithGraphOptions;
+use deno_resolver::graph::{
+    ResolveWithGraphError, ResolveWithGraphErrorKind, ResolveWithGraphOptions,
+};
+use deno_resolver::loader::AllowJsonImports;
 use deno_resolver::loader::LoadedModule;
 use deno_resolver::loader::LoadedModuleOrAsset;
 use deno_semver::npm::NpmPackageReqReference;
@@ -54,13 +57,14 @@ fn load_module_source(
     module_specifier: &ModuleSpecifier,
     requested_module_type: RequestedModuleType,
 ) -> Result<ModuleSource, ModuleLoaderError> {
-    load_module_source_with_media_type(module_specifier, requested_module_type, None)
+    load_module_source_with_media_type(module_specifier, requested_module_type, None, false)
 }
 
 fn load_module_source_with_media_type(
     module_specifier: &ModuleSpecifier,
     requested_module_type: RequestedModuleType,
     media_type_override: Option<MediaType>,
+    allow_json_without_attribute: bool,
 ) -> Result<ModuleSource, ModuleLoaderError> {
     let path = module_specifier
         .to_file_path()
@@ -87,6 +91,14 @@ fn load_module_source_with_media_type(
     let media_type = media_type_override.unwrap_or_else(|| MediaType::from_path(&path));
     let (module_type, should_transpile) = module_type_for_media_type(media_type, &path)?;
     if module_type == ModuleType::Json && requested_module_type != RequestedModuleType::Json {
+        if allow_json_without_attribute {
+            return Ok(ModuleSource::new(
+                ModuleType::JavaScript,
+                json_module_source_code(module_specifier, &read_bytes(&path, module_specifier)?)?,
+                module_specifier,
+                None,
+            ));
+        }
         return Err(JsErrorBox::generic(
             "Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement.",
         ));
@@ -278,22 +290,64 @@ impl PackageAwareModuleLoader {
             .lock()
             .expect("module graph lock should not be poisoned")
             .clone();
-        let specifier = self
-            .state
-            .deno_resolver
-            .resolve_with_graph(
-                &graph,
-                raw_specifier,
-                &referrer_url,
-                Position::zeroed(),
-                ResolveWithGraphOptions {
-                    mode: resolution_mode,
-                    kind: NodeResolutionKind::Execution,
-                    maintain_npm_specifiers,
-                },
-            )
-            .map_err(JsErrorBox::from_err)?;
+        let specifier = match self.state.deno_resolver.resolve_with_graph(
+            &graph,
+            raw_specifier,
+            &referrer_url,
+            Position::zeroed(),
+            ResolveWithGraphOptions {
+                mode: resolution_mode,
+                kind: NodeResolutionKind::Execution,
+                maintain_npm_specifiers,
+            },
+        ) {
+            Ok(specifier) => specifier,
+            Err(error) => {
+                match self.fallback_json_resolution(
+                    raw_specifier,
+                    &referrer_url,
+                    resolution_mode,
+                    &error,
+                ) {
+                    Some(specifier) => specifier,
+                    None => return Err(JsErrorBox::from_err(error)),
+                }
+            }
+        };
         ModuleSpecifier::parse(specifier.as_str()).map_err(JsErrorBox::from_err)
+    }
+
+    fn fallback_json_resolution(
+        &self,
+        raw_specifier: &str,
+        referrer: &Url,
+        resolution_mode: ResolutionMode,
+        error: &ResolveWithGraphError,
+    ) -> Option<ModuleSpecifier> {
+        if !matches!(self.state.allow_json_imports, AllowJsonImports::Always)
+            || !matches!(error.as_kind(), ResolveWithGraphErrorKind::Resolution(_))
+        {
+            return None;
+        }
+        self.state
+            .deno_resolver
+            .resolve(
+                raw_specifier,
+                referrer,
+                Position::zeroed(),
+                resolution_mode,
+                NodeResolutionKind::Execution,
+            )
+            .ok()
+            .or_else(|| {
+                if referrer.scheme() != "file" {
+                    return None;
+                }
+                deno_core::resolve_import(raw_specifier, referrer.as_str())
+                    .ok()
+                    .filter(|specifier| specifier.scheme() == "file")
+            })
+            .filter(|specifier| MediaType::from_specifier(specifier) == MediaType::Json)
     }
 
     fn insert_memory_module(
@@ -400,6 +454,7 @@ impl PackageAwareModuleLoader {
                 loaded_module,
                 &requested_module_type,
                 module_specifier,
+                matches!(self.state.allow_json_imports, AllowJsonImports::Always),
             ),
             LoadedModuleOrAsset::ExternalAsset { specifier, .. } => Err(JsErrorBox::generic(
                 format!("Unsupported external asset import: {specifier}"),
@@ -412,13 +467,42 @@ fn loaded_module_to_module_source(
     loaded_module: LoadedModule<'_>,
     requested_module_type: &RequestedModuleType,
     module_specifier: &ModuleSpecifier,
+    allow_json_without_attribute: bool,
 ) -> Result<ModuleSource, ModuleLoaderError> {
+    let redirect =
+        ModuleSpecifier::parse(loaded_module.specifier.as_str()).map_err(JsErrorBox::from_err)?;
+    if loaded_module.media_type == MediaType::Json
+        && !matches!(requested_module_type, RequestedModuleType::Json)
+        && allow_json_without_attribute
+    {
+        return Ok(ModuleSource::new_with_redirect(
+            ModuleType::JavaScript,
+            json_module_source_code(module_specifier, loaded_module.source.as_bytes())?,
+            module_specifier,
+            &redirect,
+            None,
+        ));
+    }
     Ok(ModuleSource::new_with_redirect(
         module_type_from_media_and_requested_type(loaded_module.media_type, requested_module_type),
         loaded_module_source_to_module_source_code(loaded_module.source),
         module_specifier,
-        &ModuleSpecifier::parse(loaded_module.specifier.as_str()).map_err(JsErrorBox::from_err)?,
+        &redirect,
         None,
+    ))
+}
+
+fn json_module_source_code(
+    module_specifier: &ModuleSpecifier,
+    source: &[u8],
+) -> Result<ModuleSourceCode, ModuleLoaderError> {
+    let value: serde_json::Value = serde_json::from_slice(source).map_err(|error| {
+        JsErrorBox::generic(format!(
+            "Failed to parse JSON module {module_specifier}: {error}"
+        ))
+    })?;
+    Ok(ModuleSourceCode::String(
+        format!("export default {value};\n").into(),
     ))
 }
 
@@ -470,9 +554,11 @@ impl ModuleLoader for PackageAwareModuleLoader {
                 .ok()
                 .is_some_and(|path| path.exists())
         {
-            return ModuleLoadResponse::Sync(load_module_source(
+            return ModuleLoadResponse::Sync(load_module_source_with_media_type(
                 module_specifier,
                 options.requested_module_type,
+                None,
+                matches!(self.state.allow_json_imports, AllowJsonImports::Always),
             ));
         }
 
@@ -515,7 +601,7 @@ impl ModuleLoader for PackageAwareModuleLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::load_module_source;
+    use super::{load_module_source, load_module_source_with_media_type};
     use deno_core::{ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType};
     use std::{
         fs, io,
@@ -571,5 +657,27 @@ mod tests {
 
         let _ = fs::remove_dir_all(&root);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn allows_json_imports_without_attribute_when_configured() {
+        let root = temp_dir("json-allowed").expect("temp dir should be created");
+        let path = root.join("data.json");
+        fs::write(&path, "{\"answer\":42}").expect("json module should be written");
+
+        let module = load_module_source_with_media_type(
+            &specifier(&path),
+            RequestedModuleType::None,
+            None,
+            true,
+        )
+        .expect("json module should load without an import attribute when configured");
+
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(module.module_type, ModuleType::JavaScript);
+        let ModuleSourceCode::String(code) = module.code else {
+            panic!("json modules should be loaded as synthesized JavaScript source");
+        };
+        assert_eq!(code.as_str(), "export default {\"answer\":42};\n");
     }
 }

@@ -11,10 +11,12 @@ from belgie import (
     Command,
     Environment,
     EnvironmentInstallResult,
+    EnvironmentOptions,
     EnvironmentUpdateChange,
     EnvironmentUpdateResult,
     Runtime,
     RuntimeOptions,
+    RuntimePermissions,
     Script,
 )
 from belgie.errors import BelgieJavaScriptError, BelgieModuleError, BelgieRuntimeError
@@ -27,10 +29,12 @@ if TYPE_CHECKING:
 def test_runtime_api_is_exported_from_top_level_belgie() -> None:
     assert belgie.Runtime is Runtime
     assert belgie.Environment is Environment
+    assert belgie.EnvironmentOptions is EnvironmentOptions
     assert belgie.EnvironmentInstallResult is EnvironmentInstallResult
     assert belgie.EnvironmentUpdateChange is EnvironmentUpdateChange
     assert belgie.EnvironmentUpdateResult is EnvironmentUpdateResult
     assert belgie.RuntimeOptions is RuntimeOptions
+    assert belgie.RuntimePermissions is RuntimePermissions
     assert belgie.Script is Script
     assert belgie.Command is Command
 
@@ -69,6 +73,11 @@ def test_runtime_options_accept_memory_limits() -> None:
     assert "RuntimeOptions" in repr(options)
 
 
+def test_option_types_are_exported_from_top_level_belgie() -> None:
+    assert isinstance(EnvironmentOptions(allow_json_imports="always"), EnvironmentOptions)
+    assert isinstance(RuntimePermissions.none(), RuntimePermissions)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -79,7 +88,7 @@ def test_runtime_options_accept_memory_limits() -> None:
 )
 def test_runtime_options_reject_non_positive_memory_limits(kwargs: dict[str, int]) -> None:
     with pytest.raises(ValueError, match="positive"):
-        RuntimeOptions(**kwargs)
+        RuntimeOptions(**cast("Any", kwargs))
 
 
 def test_script_accepts_inline_source(default_export_source: str) -> None:

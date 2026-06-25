@@ -41,6 +41,32 @@ async with Runtime() as run:
     result = await run(script)()
 ```
 
+## Inline dependencies
+
+Scripts may import npm, JSR, and URL modules directly using Deno-style specifiers:
+
+```python
+from belgie import Runtime, Script
+
+script = Script(
+    """
+import { assertEquals } from "jsr:@std/assert@^1";
+import isNumber from "npm:is-number@7.0.0";
+
+export default function run(value) {
+  assertEquals(isNumber(value), true);
+  return true;
+}
+"""
+)
+
+with Runtime() as run:
+    assert run(script)(42) is True
+```
+
+Use `Environment` only when the script needs a frozen lockfile, custom cache/options, local `file:` packages, or
+dependency aliases. URL imports still respect `EnvironmentOptions(allow_remote=False)` when an environment is supplied.
+
 ## Argument passing
 
 Belgie parses the exported `run` function signature at bind time and maps Python arguments to named JavaScript
@@ -127,8 +153,8 @@ with Runtime.from_folder("frontend") as run:
     result = run(script)()
 ```
 
-`Runtime.from_folder()` sets the runtime cwd only. It does not install npm or JSR packages. Use it when a fixed project
-cwd is desired even without relative imports.
+`Runtime.from_folder()` sets the runtime cwd only. Inline `npm:`, `jsr:`, and URL imports still resolve through Deno's
+package loader when present. Use it when a fixed project cwd is desired even without relative imports.
 
 ## Module state
 

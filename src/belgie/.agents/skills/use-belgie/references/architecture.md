@@ -32,7 +32,7 @@ with unrestricted Deno permissions.
 ## Runtime constructor decision tree
 
 ```text
-Need npm or JSR package imports?
+Need command binaries, local file packages, aliases, lock/cache options?
 ├── Yes → Environment(...) + install() + Runtime(env=env)
 └── No → Need inline ./ imports or a fixed project cwd?
     ├── Yes → Runtime.from_folder(path)
@@ -40,15 +40,17 @@ Need npm or JSR package imports?
 ```
 
 Plain `Runtime()` snapshots the process working directory when it is constructed. `Script.from_file()` resolves `./`
-imports from the script file's directory without `from_folder()`.
+imports from the script file's directory without `from_folder()`. Scripts may import packages directly using `npm:`,
+`jsr:`, and URL specifiers.
 
-| Constructor | Installs packages | Relative imports | npm/JSR imports |
+| Constructor | Environment state | Relative imports | Package imports |
 | --- | --- | --- | --- |
-| `Runtime()` | No | `Script.from_file` only (from script dir) | No |
-| `Runtime.from_folder(path)` | No | Inline `./` from `path`; sets runtime cwd | No |
-| `Runtime(env=env)` | Uses env state | From env workspace (`path` or process cwd) | Yes, after `install()` |
+| `Runtime()` | Temporary for direct inline deps | `Script.from_file` only (from script dir) | Direct `npm:`, `jsr:`, URL |
+| `Runtime.from_folder(path)` | Temporary for direct inline deps | Inline `./` from `path`; sets runtime cwd | Direct `npm:`, `jsr:`, URL |
+| `Runtime(env=env)` | Uses env state | From env workspace (`path` or process cwd) | Direct imports plus aliases/local deps |
 
-`Runtime.from_folder()` does not read `pyproject.toml`, install packages, or manage lockfiles.
+`Runtime.from_folder()` does not read `pyproject.toml`. Use `Environment` for persisted lockfiles, custom Deno cache or
+resolver options, local `file:` package aliases, and npm package binaries.
 
 ## Binding and calling
 

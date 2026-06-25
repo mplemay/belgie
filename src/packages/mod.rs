@@ -126,6 +126,12 @@ pub(crate) fn is_registry_import_specifier(specifier: &str) -> bool {
     specifier.starts_with("npm:") || specifier.starts_with("jsr:")
 }
 
+pub(crate) fn is_resolver_import_specifier(specifier: &str) -> bool {
+    ModuleSpecifier::parse(specifier)
+        .ok()
+        .is_some_and(|url| matches!(url.scheme(), "npm" | "jsr" | "http" | "https"))
+}
+
 pub(crate) fn import_map_value(
     dependencies: &[PackageDependency],
 ) -> Result<serde_json::Value, AnyError> {
@@ -718,6 +724,16 @@ mod tests {
                 specifier: "jsr:@std/path@^1".to_string()
             }
         );
+    }
+
+    #[test]
+    fn classifies_resolver_import_specifiers() {
+        assert!(is_resolver_import_specifier("jsr:@std/path@1"));
+        assert!(is_resolver_import_specifier("npm:is-number@7.0.0"));
+        assert!(is_resolver_import_specifier("https://example.com/mod.ts"));
+        assert!(is_resolver_import_specifier("http://example.com/mod.ts"));
+        assert!(!is_resolver_import_specifier("node:fs"));
+        assert!(!is_resolver_import_specifier("./mod.ts"));
     }
 
     #[test]

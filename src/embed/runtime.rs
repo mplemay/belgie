@@ -7,8 +7,10 @@ use deno_core::url::Url;
 use deno_graph::GraphKind;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleSpecifier;
+use deno_npm_installer::PackageCaching;
 use deno_resolver::factory::ResolverFactory;
 use deno_resolver::graph::DefaultDenoResolverRc;
+use deno_resolver::loader::AllowJsonImports;
 use deno_resolver::loader::ModuleLoaderRc;
 
 use crate::embed::context::EmbedContext;
@@ -21,6 +23,7 @@ pub(crate) struct PackageRuntimeState {
     pub deno_resolver: DefaultDenoResolverRc<EmbedSys>,
     pub memory_files: deno_resolver::loader::MemoryFilesRc,
     pub module_loader: ModuleLoaderRc<EmbedSys>,
+    pub allow_json_imports: AllowJsonImports,
 }
 
 impl PackageRuntimeState {
@@ -31,6 +34,7 @@ impl PackageRuntimeState {
             deno_resolver: self.deno_resolver.clone(),
             memory_files: self.memory_files.clone(),
             module_loader: self.module_loader.clone(),
+            allow_json_imports: self.allow_json_imports,
         }
     }
 }
@@ -63,8 +67,17 @@ pub(crate) async fn prepare_package_runtime(
         file_header_overrides,
     )
     .await?;
+    npm_installer_factory
+        .npm_installer()
+        .await?
+        .cache_packages(PackageCaching::All)
+        .await?;
     if let Some(lockfile) = npm_installer_factory.maybe_lockfile().await? {
-        lockfile.error_if_changed()?;
+        if context.frozen_lockfile() {
+            lockfile.error_if_changed()?;
+        } else {
+            lockfile.write_if_changed()?;
+        }
     }
     let resolver_factory = context.resolver_factory();
     let deno_resolver = resolver_factory.deno_resolver().await?.clone();
@@ -77,6 +90,7 @@ pub(crate) async fn prepare_package_runtime(
         deno_resolver,
         memory_files,
         module_loader,
+        allow_json_imports: context.allow_json_imports(),
     })
 }
 

@@ -20,10 +20,12 @@ fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::Py
     m.add_class::<binding::PyCommand>()?;
     m.add_class::<binding::PyScript>()?;
     m.add_class::<binding::PyEnvironment>()?;
+    m.add_class::<binding::PyEnvironmentOptions>()?;
     m.add_class::<binding::PySyncEnvironment>()?;
     m.add_class::<binding::PyAsyncEnvironment>()?;
     m.add_class::<binding::PyRuntime>()?;
     m.add_class::<binding::PyRuntimeOptions>()?;
+    m.add_class::<binding::PyRuntimePermissions>()?;
     m.add_class::<binding::PySyncRuntime>()?;
     m.add_class::<binding::PyAsyncRuntime>()?;
     m.add_class::<binding::PySyncRunner>()?;
