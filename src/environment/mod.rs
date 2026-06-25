@@ -347,26 +347,29 @@ fn prepare_install_layout(
         false
     };
 
-    let cache = resolve_environment_cache(&definition.workspace, definition.cache.as_ref())?;
-
-    let embed_options = EmbedContextOptions {
-        cache,
-        frozen_lockfile: None,
-        is_package_manager_subcommand: false,
-        lockfile_skip_write: false,
-        node_modules_dir_mode: definition
-            .layout
-            .manual_node_modules
-            .then_some(deno_config::deno_json::NodeModulesDirMode::Manual),
-        node_modules_root: Some(node_modules_root),
-        specified_import_map: None,
-        install_graph_roots: Vec::new(),
+    let embed_options = if definition.dependencies.is_empty() {
+        None
+    } else {
+        let cache = resolve_environment_cache(&definition.workspace, definition.cache.as_ref())?;
+        Some(EmbedContextOptions {
+            cache,
+            frozen_lockfile: None,
+            is_package_manager_subcommand: false,
+            lockfile_skip_write: false,
+            node_modules_dir_mode: definition
+                .layout
+                .manual_node_modules
+                .then_some(deno_config::deno_json::NodeModulesDirMode::Manual),
+            node_modules_root: Some(node_modules_root),
+            specified_import_map: None,
+            install_graph_roots: Vec::new(),
+        })
     };
 
     Ok(InstallLayout {
         lockfile,
         frozen_lockfile,
-        embed_options: (!definition.dependencies.is_empty()).then_some(embed_options),
+        embed_options,
     })
 }
 
@@ -690,6 +693,87 @@ mod tests {
         environment.deactivate().unwrap();
         drop(active);
         assert!(!root.exists());
+    }
+
+    #[test]
+    fn empty_environment_skips_cache_resolution() {
+        struct CacheEnvGuard {
+            deno_dir: Option<std::ffi::OsString>,
+            xdg_cache_home: Option<std::ffi::OsString>,
+            home: Option<std::ffi::OsString>,
+        }
+
+        impl CacheEnvGuard {
+            fn clear() -> Self {
+                let deno_dir = std::env::var_os("DENO_DIR");
+                let xdg_cache_home = std::env::var_os("XDG_CACHE_HOME");
+                let home = std::env::var_os("HOME");
+                // SAFETY: single-threaded test env mutation.
+                unsafe {
+                    std::env::remove_var("DENO_DIR");
+                    std::env::remove_var("XDG_CACHE_HOME");
+                    std::env::remove_var("HOME");
+                }
+                Self {
+                    deno_dir,
+                    xdg_cache_home,
+                    home,
+                }
+            }
+        }
+
+        impl Drop for CacheEnvGuard {
+            fn drop(&mut self) {
+                restore_env_var("DENO_DIR", self.deno_dir.as_ref());
+                restore_env_var("XDG_CACHE_HOME", self.xdg_cache_home.as_ref());
+                restore_env_var("HOME", self.home.as_ref());
+            }
+        }
+
+        fn restore_env_var(name: &str, previous: Option<&std::ffi::OsString>) {
+            match previous {
+                Some(value) => {
+                    // SAFETY: single-threaded test env mutation.
+                    unsafe { std::env::set_var(name, value) };
+                }
+                None => {
+                    // SAFETY: single-threaded test env mutation.
+                    unsafe { std::env::remove_var(name) };
+                }
+            }
+        }
+
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = deno_path_util::strip_unc_prefix(
+            folder
+                .path()
+                .canonicalize()
+                .expect("workspace should canonicalize"),
+        );
+        let _env = CacheEnvGuard::clear();
+
+        let environment = ephemeral_environment(workspace.clone());
+        let active = environment.activate_blocking().unwrap();
+
+        assert!(active.embed_options().unwrap().is_none());
+        assert!(active.install_root().join("deno.lock").is_file());
+        environment.deactivate().unwrap();
+
+        if super::resolve_environment_cache(&workspace, None).is_err() {
+            let definition = EnvironmentDefinition::from_mapping(
+                workspace,
+                None,
+                BTreeMap::from([("std_path".to_string(), "jsr:@std/path@^1".to_string())]),
+                None,
+                None,
+            )
+            .unwrap();
+            let dependency_environment = SharedEnvironment::new(definition);
+            assert!(
+                dependency_environment.activate_blocking().is_err(),
+                "dependency environments should still require a resolvable cache directory"
+            );
+        }
     }
 
     #[test]
