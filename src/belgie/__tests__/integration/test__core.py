@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from belgie import Environment, Runtime, RuntimeOptions, Script
+from belgie import Environment, EnvironmentOptions, Runtime, RuntimeOptions, RuntimePermissions, Script
 from belgie.__tests__.integration.conftest import assert_installed_package_dir, write_worker_main
-from belgie.errors import BelgieRuntimeError
+from belgie.errors import BelgieJavaScriptError, BelgieModuleError, BelgieRuntimeError
 
 pytestmark = pytest.mark.integration
 
@@ -84,6 +85,125 @@ def test_executes_with_runtime_options(tmp_path: Path):
 
     with Runtime(options=options) as runtime:
         assert runtime(Script("export default () => 'configured'"))() == "configured"
+
+
+def test_runtime_worker_seed_is_deterministic_with_environment(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with Environment(path=project) as env, Runtime(env=env, options=RuntimeOptions(seed=123)) as runtime:
+        assert runtime(Script("export default () => 'seeded';"))() == "seeded"
+
+
+def test_runtime_worker_location_is_exposed_with_environment(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with (
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(location="https://example.com/app?x=1"),
+        ) as runtime,
+    ):
+        assert runtime(Script("export default () => globalThis.location.href;"))() == "https://example.com/app?x=1"
+
+
+def test_runtime_permissions_can_deny_and_allow_read_access(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+    source = f"export default () => Deno.readTextFileSync({json.dumps(str(secret))});"
+
+    with (
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(permissions=RuntimePermissions.none()),
+        ) as runtime,
+        pytest.raises(BelgieJavaScriptError, match="read|NotCapable"),
+    ):
+        runtime(Script(source))()
+
+    with (
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(permissions=RuntimePermissions(allow_read=[str(secret)])),
+        ) as runtime,
+    ):
+        assert runtime(Script(source))() == "secret"
+
+
+def test_environment_options_allow_json_imports_without_attribute(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "data.json").write_text('{"answer":42}', encoding="utf-8")
+    main = project / "main.js"
+    main.write_text(
+        """
+import data from "./data.json";
+
+export default () => data.answer;
+""",
+        encoding="utf-8",
+    )
+
+    with (
+        Environment(path=project, options=EnvironmentOptions(allow_json_imports="always")) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(seed=1),
+        ) as runtime,
+    ):
+        assert runtime(Script.from_file(main))() == 42
+
+
+def test_environment_options_can_disable_remote_imports(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with (
+        Environment(path=project, options=EnvironmentOptions(allow_remote=False)) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(seed=1),
+        ) as runtime,
+        pytest.raises((BelgieModuleError, BelgieRuntimeError), match="remote|fetch|Module"),
+    ):
+        runtime(Script("import 'https://example.com/mod.ts'; export default () => 1;"))()
+
+
+def test_environment_options_can_disable_npm_resolution(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with (
+        Environment(
+            {"is_number": "npm:is-number@7.0.0"},
+            path=project,
+            options=EnvironmentOptions(no_npm=True),
+        ) as env,
+        Runtime(env=env) as runtime,
+        pytest.raises((BelgieModuleError, BelgieRuntimeError), match="npm|NPM|package"),
+    ):
+        runtime(Script("import isNumber from 'is_number'; export default () => isNumber(1);"))()
+
+
+def test_package_worker_reports_memory_options_without_cli_snapshot(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with (
+        Environment(path=project) as env,
+        Runtime(
+            env=env,
+            options=RuntimeOptions(max_old_generation_size_mb=64, seed=1),
+        ) as runtime,
+        pytest.raises(BelgieRuntimeError, match="V8 memory options require the Deno CLI snapshot"),
+    ):
+        runtime(Script("export default () => 'package-memory';"))()
 
 
 def test_executes_script_loaded_from_file(tmp_path: Path, write_script):

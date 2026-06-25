@@ -1,12 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use deno_core::error::AnyError;
-use deno_graph::GraphKind;
-use deno_graph::ModuleGraph;
-use deno_graph::ModuleSpecifier;
+use deno_graph::{
+    CheckJsOption, GraphKind, ModuleErrorKind, ModuleGraph, ModuleGraphError, ModuleSpecifier,
+    WalkOptions,
+};
+use deno_media_type::MediaType;
 use deno_resolver::deno_json::JsxImportSourceConfigResolver;
 use deno_resolver::factory::ResolverFactory;
 use deno_resolver::graph::NpmTypesResolutionMode;
+use deno_resolver::loader::AllowJsonImports;
 use deno_semver::jsr::JsrPackageReqReference;
 
 use crate::embed::context::EmbedContext;
@@ -165,8 +168,39 @@ async fn build_module_graph_inner(
             },
         )
         .await;
-    graph.valid()?;
+    validate_graph(context, &graph)?;
     Ok(graph)
+}
+
+fn validate_graph(context: &EmbedContext, graph: &ModuleGraph) -> Result<(), AnyError> {
+    let allow_json_without_attribute =
+        matches!(context.allow_json_imports(), AllowJsonImports::Always);
+    let mut errors = graph
+        .walk(
+            graph.roots.iter(),
+            WalkOptions {
+                check_js: CheckJsOption::True,
+                kind: GraphKind::CodeOnly,
+                follow_dynamic: false,
+                prefer_fast_check_graph: false,
+            },
+        )
+        .errors()
+        .filter(|error| !(allow_json_without_attribute && is_unsupported_json_media_type(error)));
+    match errors.next() {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
+    }
+}
+
+fn is_unsupported_json_media_type(error: &ModuleGraphError) -> bool {
+    matches!(
+        error.as_module_error_kind(),
+        Some(ModuleErrorKind::UnsupportedMediaType {
+            media_type: MediaType::Json,
+            ..
+        })
+    )
 }
 
 #[cfg(test)]

@@ -20,10 +20,12 @@ from belgie._core import (
     Command,
     Environment,
     EnvironmentInstallResult,
+    EnvironmentOptions,
     EnvironmentUpdateChange,
     EnvironmentUpdateResult,
     Runtime,
     RuntimeOptions,
+    RuntimePermissions,
     Script,
     SyncCommandRunner,
     SyncEnvironment,
@@ -52,12 +54,14 @@ class TestCoreRuntimeExports:
     def test_runtime_exports_are_available_from_core_module(self) -> None:
         assert _core.Runtime is Runtime
         assert _core.Environment is Environment
+        assert _core.EnvironmentOptions is EnvironmentOptions
         assert _core.EnvironmentInstallResult is EnvironmentInstallResult
         assert _core.EnvironmentUpdateChange is EnvironmentUpdateChange
         assert _core.EnvironmentUpdateResult is EnvironmentUpdateResult
         assert _core.SyncEnvironment is SyncEnvironment
         assert _core.AsyncEnvironment is AsyncEnvironment
         assert _core.RuntimeOptions is RuntimeOptions
+        assert _core.RuntimePermissions is RuntimePermissions
         assert _core.Script is Script
         assert _core.Command is Command
         assert _core.SyncRuntime is SyncRuntime
@@ -92,13 +96,88 @@ class TestRuntimeOptions:
     )
     def test_rejects_non_positive_memory_limits(self, kwargs: dict[str, int]) -> None:
         with pytest.raises(ValueError, match="positive integer"):
-            RuntimeOptions(**kwargs)
+            RuntimeOptions(**cast("Any", kwargs))
 
     def test_rejects_positional_memory_limits(self) -> None:
         options_type = cast("Any", RuntimeOptions)
 
         with pytest.raises(TypeError):
             options_type(64)
+
+    def test_accepts_worker_options(self) -> None:
+        permissions = RuntimePermissions(allow_read=[], deny_net=["example.com"], prompt=False)
+        options = RuntimeOptions(
+            permissions=permissions,
+            seed=123,
+            location="https://example.com/app",
+            log_level="debug",
+            enable_testing_features=True,
+            enable_raw_imports=True,
+            trace_ops=["fs"],
+        )
+
+        assert isinstance(options, RuntimeOptions)
+        assert "seed=Some(123)" in repr(options)
+        assert "location=Some" in repr(options)
+        assert "debug" in repr(options)
+
+    def test_rejects_invalid_worker_options(self) -> None:
+        with pytest.raises(ValueError, match="valid URL"):
+            RuntimeOptions(location="not a url")
+        with pytest.raises(ValueError, match="log_level"):
+            RuntimeOptions(log_level=cast("Any", "verbose"))
+        with pytest.raises(ValueError, match="seed"):
+            RuntimeOptions(seed=-1)
+
+    def test_rejects_worker_options_without_environment(self) -> None:
+        with pytest.raises(_core.BelgieRuntimeError, match="Runtime\\(env=Environment"):
+            Runtime(options=RuntimeOptions(seed=1))
+        with pytest.raises(_core.BelgieRuntimeError, match="Runtime\\(env=Environment"):
+            Runtime.from_folder(".", options=RuntimeOptions(permissions=RuntimePermissions.none()))
+
+
+class TestEnvironmentOptions:
+    def test_accepts_supported_deno_options(self) -> None:
+        options = EnvironmentOptions(
+            cache_setting="reload",
+            reload=["jsr:@std/path"],
+            allow_remote=False,
+            allow_json_imports="always",
+            node_modules_dir="manual",
+            node_modules_linker="hoisted",
+            npm_caching="lazy",
+            no_npm=True,
+            clean_on_install=False,
+            production=True,
+            skip_types=True,
+            unsafely_ignore_certificate_errors=["localhost"],
+        )
+
+        assert isinstance(options, EnvironmentOptions)
+        assert "EnvironmentOptions" in repr(options)
+        assert "reload" in repr(options)
+        assert "always" in repr(options)
+
+    def test_rejects_invalid_environment_options(self) -> None:
+        with pytest.raises(ValueError, match="cache_setting"):
+            EnvironmentOptions(cache_setting=cast("Any", "fresh"))
+        with pytest.raises(ValueError, match="reload"):
+            EnvironmentOptions(cache_setting="use", reload=["jsr:@std/path"])
+        with pytest.raises(ValueError, match="allow_json_imports"):
+            EnvironmentOptions(allow_json_imports=cast("Any", "never"))
+        with pytest.raises(ValueError, match="node_modules_dir"):
+            EnvironmentOptions(node_modules_dir=cast("Any", "linked"))
+        with pytest.raises(ValueError, match="node_modules_linker"):
+            EnvironmentOptions(node_modules_linker=cast("Any", "flat"))
+        with pytest.raises(ValueError, match="npm_caching"):
+            EnvironmentOptions(npm_caching=cast("Any", "none"))
+
+
+class TestRuntimePermissions:
+    def test_accepts_permission_constructors(self) -> None:
+        assert "all" in repr(RuntimePermissions.all())
+        assert "none" in repr(RuntimePermissions.none())
+        assert "configured" in repr(RuntimePermissions(allow_env=[], ignore_read=[".cache"]))
 
 
 class TestScript:

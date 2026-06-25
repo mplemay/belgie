@@ -256,6 +256,8 @@ impl DenoExecutionContext {
                         argv: Vec::new(),
                         argv0: None,
                         use_cli_snapshot,
+                        js_runtime_options: bound.js_runtime_options().clone(),
+                        runtime_worker_options: bound.worker_options().clone(),
                         main_source: Some(bound.script().content().to_string()),
                         header_overrides: HashMap::new(),
                     },
