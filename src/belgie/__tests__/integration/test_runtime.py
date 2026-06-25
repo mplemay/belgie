@@ -77,10 +77,8 @@ async def test_relative_deno_dir_reuses_cache_for_nested_command_cwd(
     monkeypatch.setenv("DENO_DIR", "./.deno_cache")
     (tmp_path / "subdir").mkdir()
 
-    async with Environment({"semver": "7.7.2"}) as env:
-        await env.install()
-        async with Runtime(env=env) as runtime:
-            await runtime(Command("semver", cwd="subdir"))("--help")
+    async with installed_environment({"semver": "7.7.2"}) as env, Runtime(env=env) as runtime:
+        await runtime(Command("semver", cwd="subdir"))("--help")
 
     assert (tmp_path / ".deno_cache").is_dir()
     assert not (tmp_path / "subdir" / ".deno_cache").exists()
