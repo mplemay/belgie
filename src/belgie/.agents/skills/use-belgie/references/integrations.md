@@ -98,7 +98,8 @@ the direct integration surface.
 | Inline JS snippet | `Runtime()` + `Script("...")` |
 | TS file on disk | `Runtime()` + `Script.from_file()` (relatives from script dir) |
 | Inline `./` imports | `Runtime.from_folder()` + `Script("...")` |
-| npm/JSR imports in scripts | `Environment` + `Runtime(env=)` |
+| npm/JSR/URL imports in scripts | Direct specifiers with `Runtime()` or `Runtime.from_folder()` |
+| Dependency aliases, local packages, lock/cache options | `Environment` + `Runtime(env=)` |
 | npm CLI binary | `Environment` + `Runtime(env=)` + `Command` |
 | Async service integration | `async with Runtime` / `await runner(...)` |
 | V8 memory tuning | `RuntimeOptions` |

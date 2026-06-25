@@ -7,6 +7,7 @@ use deno_core::url::Url;
 use deno_graph::GraphKind;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleSpecifier;
+use deno_npm_installer::PackageCaching;
 use deno_resolver::factory::ResolverFactory;
 use deno_resolver::graph::DefaultDenoResolverRc;
 use deno_resolver::loader::AllowJsonImports;
@@ -66,8 +67,17 @@ pub(crate) async fn prepare_package_runtime(
         file_header_overrides,
     )
     .await?;
+    npm_installer_factory
+        .npm_installer()
+        .await?
+        .cache_packages(PackageCaching::All)
+        .await?;
     if let Some(lockfile) = npm_installer_factory.maybe_lockfile().await? {
-        lockfile.error_if_changed()?;
+        if context.frozen_lockfile() {
+            lockfile.error_if_changed()?;
+        } else {
+            lockfile.write_if_changed()?;
+        }
     }
     let resolver_factory = context.resolver_factory();
     let deno_resolver = resolver_factory.deno_resolver().await?.clone();

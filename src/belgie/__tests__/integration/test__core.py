@@ -185,6 +185,90 @@ def test_environment_options_can_disable_npm_resolution(tmp_path: Path):
         runtime(Script("import isNumber from 'is_number'; export default () => isNumber(1);"))()
 
 
+def test_runtime_resolves_inline_jsr_import(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import { join } from "jsr:@std/path@^1";
+
+export default function run() {
+  return join.name;
+}
+"""
+
+    with Runtime() as runtime:
+        assert runtime(Script(source))() == "join"
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_runtime_resolves_inline_npm_import(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    source = """
+import camelcase from "npm:camelcase@8.0.0";
+
+export default function run() {
+  return camelcase("inline-deps");
+}
+"""
+
+    with Runtime() as runtime:
+        assert runtime(Script(source))() == "inlineDeps"
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_script_from_file_resolves_inline_url_import(tmp_path: Path):
+    script = tmp_path / "main.ts"
+    script.write_text(
+        """
+import { join } from "https://deno.land/std@0.224.0/path/mod.ts";
+
+export default function run() {
+  return join.name;
+}
+""",
+        encoding="utf-8",
+    )
+
+    with Runtime() as runtime:
+        assert runtime(Script.from_file(script))() == "join"
+
+
+def test_environment_options_can_disable_inline_npm_resolution(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with (
+        Environment(path=project, options=EnvironmentOptions(no_npm=True)) as env,
+        Runtime(env=env) as runtime,
+        pytest.raises((BelgieModuleError, BelgieRuntimeError), match="npm|NPM|package"),
+    ):
+        runtime(Script('import camelcase from "npm:camelcase@8.0.0"; export default () => camelcase("x-y");'))()
+
+
+def test_frozen_lockfile_environment_rejects_inline_dependency_changes(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    lockfile = tmp_path / "deno.lock"
+    with Environment({"std_path": "jsr:@std/path@^1"}) as source_env:
+        source_lock = source_env.lock()
+        lockfile.write_text(Path(source_lock.lockfile).read_text(encoding="utf-8"), encoding="utf-8")
+
+    source = """
+import { assertEquals } from "jsr:@std/assert@^1";
+
+export default function run() {
+  assertEquals(1, 1);
+  return true;
+}
+"""
+    with (
+        Environment({"std_path": "jsr:@std/path@^1"}, lockfile=lockfile) as env,
+        Runtime(env=env) as runtime,
+        pytest.raises(BelgieRuntimeError, match="lockfile is out of date"),
+    ):
+        runtime(Script(source))()
+
+
 def test_package_worker_reports_memory_options_without_cli_snapshot(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()

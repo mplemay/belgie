@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::command::CommandSource;
 use crate::runtime::{
     BoundPackageEnvironment, CommandExecutionHandle, CommandExecutionOptions, DenoExecutionHandle,
-    DenoRuntime,
+    DenoRuntime, ImplicitPackageEnvironment,
 };
 use crate::script::ScriptSource;
 use crate::types::error::BindingError;
@@ -51,14 +51,10 @@ impl RuntimeSession {
         script: ScriptSource,
     ) -> Result<DenoExecutionHandle, BindingError> {
         session.ensure_active()?;
+        let bound = session.runtime.bind(script);
+        let package_environment = session.package_environment_for_script(&bound)?;
         session.pending_script_binds.fetch_add(1, Ordering::AcqRel);
-        let bound = session.runtime.bind(script).with_package_environment(
-            session
-                .package_environment
-                .lock()
-                .expect("runtime package environment lock should not be poisoned")
-                .clone(),
-        );
+        let bound = bound.with_package_environment(package_environment);
         let handle = DenoExecutionHandle::new(bound, Arc::clone(session));
         session
             .scripts
@@ -80,7 +76,10 @@ impl RuntimeSession {
             .lock()
             .expect("runtime package environment lock should not be poisoned")
             .clone()
-            .filter(|BoundPackageEnvironment::Isolated(env)| env.has_package_dependencies())
+            .filter(|environment| match environment {
+                BoundPackageEnvironment::Isolated(env) => env.has_package_dependencies(),
+                BoundPackageEnvironment::Implicit(_) => false,
+            })
             .ok_or_else(|| {
                 BindingError::runtime(
                     "Commands require an active Environment with package dependencies",
@@ -155,6 +154,33 @@ impl RuntimeSession {
         } else {
             Err(BindingError::runtime("Runtime session is closed"))
         }
+    }
+
+    fn package_environment_for_script(
+        &self,
+        bound: &crate::runtime::BoundRuntime,
+    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
+        let current = self
+            .package_environment
+            .lock()
+            .expect("runtime package environment lock should not be poisoned")
+            .clone();
+        if current.is_some() || !bound.needs_package_loader() {
+            return Ok(current);
+        }
+
+        if let Some(environment) = self.runtime.environment()
+            && let Some(isolated) = environment.isolated()
+        {
+            let active = isolated
+                .acquire_active()
+                .map_err(|error| BindingError::runtime(error.to_string()))?;
+            return Ok(Some(BoundPackageEnvironment::Isolated(active)));
+        }
+
+        Ok(Some(BoundPackageEnvironment::Implicit(Arc::new(
+            ImplicitPackageEnvironment::new(self.runtime.cwd())?,
+        ))))
     }
 
     pub(crate) fn cli_snapshot_eligible(&self) -> bool {

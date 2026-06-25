@@ -60,14 +60,14 @@ if __name__ == "__main__":
 Use `Runtime.from_folder(path)` when inline `Script("...")` source has `./` imports or when the runtime cwd must be a
 fixed project root. `Script.from_file()` resolves `./` imports from the script file's directory.
 
-## Path C: JSR dependency through Environment
+## Path C: inline dependency import
 
 ```python
-from belgie import Environment, Runtime, Script
+from belgie import Runtime, Script
 
 script = Script(
     """
-import { join } from "std_path";
+import { join } from "jsr:@std/path@^1";
 
 export default function run() {
   return join.name;
@@ -75,10 +75,8 @@ export default function run() {
 """
 )
 
-with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-    env.install()
-    with Runtime(env=env) as run:
-        assert run(script)() == "join"
+with Runtime() as run:
+    assert run(script)() == "join"
 ```
 
 ## Path D: npm package binary through Command
@@ -100,7 +98,8 @@ asyncio.run(main())
 
 - Scripts export a callable (`export default function run(...)` or `export default () => ...`).
 - `Environment` and `Runtime` are entered with `with` or `async with`.
-- `env.install()` runs before scripts or commands that import npm/JSR packages.
+- Use direct `npm:`, `jsr:`, or URL imports for script packages.
+- `env.install()` runs before commands, local `file:` packages, or dependency-map imports.
 - Errors are imported from `belgie.errors`.
 
 For architecture choices, see [architecture.md](architecture.md).

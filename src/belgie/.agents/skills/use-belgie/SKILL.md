@@ -38,9 +38,10 @@ Do **not** use this skill for:
 ## Principles
 
 1. Always enter `Environment` and `Runtime` with context managers before binding or calling.
-2. Call `install()` explicitly before scripts or commands that need npm/JSR packages.
-3. Keep the Python ↔ JavaScript boundary JSON-serializable; design APIs with dicts, lists, and primitives.
-4. Use inline patterns in skill references rather than inventing architecture.
+2. Prefer Deno-style inline imports (`npm:`, `jsr:`, or URL) directly in scripts.
+3. Use `Environment` when scripts need a frozen lockfile, custom cache/options, local `file:` packages, or commands.
+4. Keep the Python ↔ JavaScript boundary JSON-serializable; design APIs with dicts, lists, and primitives.
+5. Use inline patterns in skill references rather than inventing architecture.
 
 ## Critical Rules
 
@@ -49,7 +50,7 @@ These rules are **always enforced**. Each links to Incorrect/Correct pairs.
 ### Context lifecycle → [rules/context-lifecycle.md](rules/context-lifecycle.md)
 
 - Enter `Environment` and `Runtime` with `with` or `async with` before use.
-- Call `install()` on the entered environment before package-backed scripts or commands.
+- Call `install()` on the entered environment before commands, local `file:` packages, or dependency-map imports.
 - Bind and call runners inside the active runtime context.
 
 ### Script export contract → [rules/script-export.md](rules/script-export.md)
@@ -67,9 +68,9 @@ These rules are **always enforced**. Each links to Incorrect/Correct pairs.
 
 ### Runtime selection → [rules/runtime-selection.md](rules/runtime-selection.md)
 
-- `Runtime()` for dependency-free inline scripts.
-- `Runtime(env=env)` after `Environment(...).install()` for npm/JSR imports.
-- `Runtime.from_folder(path)` for inline `./` imports or a fixed project cwd (no package management).
+- `Runtime()` for dependency-free inline scripts and direct `npm:` / `jsr:` / URL imports.
+- `Runtime(env=env)` for dependency aliases, local `file:` packages, frozen lockfiles, or custom cache/options.
+- `Runtime.from_folder(path)` for inline `./` imports, inline dependencies with a fixed cwd, or a fixed project root.
 - `Runtime(env=env)` + `Command(...)` for npm package binaries.
 
 ## Quick-Start Patterns
@@ -83,14 +84,14 @@ with Runtime() as run:
     result = run(Script("export default (n) => n + 1"))(41)
 ```
 
-### Environment with JSR dependency
+### Inline dependency script
 
 ```python
-from belgie import Environment, Runtime, Script
+from belgie import Runtime, Script
 
 script = Script(
     """
-import { join } from "std_path";
+import { join } from "jsr:@std/path@^1";
 
 export default function run() {
   return join.name;
@@ -98,10 +99,8 @@ export default function run() {
 """
 )
 
-with Environment({"std_path": "jsr:@std/path@^1"}) as env:
-    env.install()
-    with Runtime(env=env) as run:
-        assert run(script)() == "join"
+with Runtime() as run:
+    assert run(script)() == "join"
 ```
 
 ### Async npm command
@@ -138,12 +137,13 @@ asyncio.run(main())
 2. **Install:** `uv add belgie` in the consumer project.
 3. **Choose constructor:** `Runtime()`, `Runtime.from_folder()`, or `Runtime(env=env)` — see
    [rules/runtime-selection.md](rules/runtime-selection.md).
-4. **Environment:** if npm/JSR imports or commands are needed, create `Environment({...})`, enter it, and call
-   `install()`.
-5. **Enter contexts:** nest `Runtime` inside an active `Environment` when `env=` is used.
-6. **Bind and call:** `runner = run(Script(...))` or `run(Command(...))`, then call with JSON-safe args.
-7. **On failure:** match the error text in [references/troubleshooting.md](references/troubleshooting.md).
-8. **After fix:** re-run inside active contexts with `install()` when packages are involved.
+4. **Inline deps:** for script packages, prefer direct `import ... from "npm:..."` or `import ... from "jsr:..."`.
+5. **Environment:** use `Environment({...})` and `install()` for commands, local `file:` packages, dependency aliases,
+   or explicit lock/cache/options.
+6. **Enter contexts:** nest `Runtime` inside an active `Environment` when `env=` is used.
+7. **Bind and call:** `runner = run(Script(...))` or `run(Command(...))`, then call with JSON-safe args.
+8. **On failure:** match the error text in [references/troubleshooting.md](references/troubleshooting.md).
+9. **After fix:** re-run inside active contexts with `install()` when commands or explicit environments are involved.
 
 ## Task Routing Table
 
@@ -164,9 +164,10 @@ Load only the most relevant reference first. Read additional references only if 
 
 - Use the public integration surface: `Runtime`, `Script`, `Environment`, `Command`, `RuntimeOptions`.
 - Install with `uv add belgie`.
-- Declare JavaScript packages in `Environment({...})`, not in Python `pyproject.toml`.
+- Import script packages inline with `npm:`, `jsr:`, or URL specifiers; do not put JavaScript dependencies in Python
+  `pyproject.toml`.
 - Export a callable from every JS module (`export default function run(...)` or `export default () => ...`).
-- Call `env.install()` before scripts or commands that resolve npm/JSR packages.
+- Call `env.install()` before commands, local `file:` package aliases, or explicit dependency-map imports.
 - Use `Runtime.from_folder()` for inline `./` imports or a fixed project cwd; `Script.from_file()` resolves
   relatives from the script directory. `from_folder()` does not install packages.
 - Pass `Command` args as separate `str` values; belgie does not parse shell strings.
@@ -177,13 +178,13 @@ Load only the most relevant reference first. Read additional references only if 
 Agents commonly make these mistakes with belgie:
 
 - Calling `install()` or `run(...)` outside an active `Environment` / `Runtime` context (`must be entered`).
-- Running package-backed scripts without `env.install()` (`package dependencies`).
-- Using plain `Runtime()` when scripts import npm or JSR packages.
+- Running dependency-map or local `file:` imports without `env.install()` (`package dependencies`).
+- Using an `Environment` dependency map when a direct `npm:` or `jsr:` script import is simpler.
 - Expecting `Runtime.from_folder()` to install packages or read `pyproject.toml`.
 - Using `Runtime.from_folder()` for `Script.from_file()` when only the script directory matters for `./` imports.
 - Exporting non-callable values from JS modules (`callable run function`, `not callable`).
 - Passing shell command strings to `Command` instead of separate argv (`argument 0 must be str`).
-- Putting JavaScript dependencies in Python `pyproject.toml` instead of `Environment`.
+- Putting JavaScript dependencies in Python `pyproject.toml` instead of inline script imports or `Environment`.
 - Calling a bound runner after the runtime context exits (`closed`).
 - Passing non-JSON Python objects across the boundary (`Only JSON-serializable`).
 - Importing `BelgieRuntimeError` from top-level `belgie` instead of `belgie.errors`.
