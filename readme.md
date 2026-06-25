@@ -4,7 +4,8 @@ Belgie lets you run JavaScript and TypeScript from Python. Deno is bundled — y
 PATH.
 
 - **Scripts from Python:** Run inline or file-based JS/TS with `Runtime` and `Script`, sync or async.
-- **Isolated packages:** Add npm or JSR deps in `Environment`; installs live in temp storage, not your repo.
+- **Inline dependencies:** Import npm, JSR, and URL modules directly from JS/TS source.
+- **Isolated packages:** Use `Environment` for lockfiles, custom cache/options, local packages, and commands.
 - **CLI tools:** Run npm binaries (Vite, esbuild, etc.) through `Command`.
 - **Simple data bridge:** Pass JSON-safe dicts, lists, and primitives across the boundary.
 
@@ -25,11 +26,11 @@ coding agents can follow belgie's public API when you work on integrations. Skip
 ```python
 import asyncio
 
-from belgie import Environment, Runtime, Script
+from belgie import Runtime, Script
 
 script = Script(
     """
-import camelcase from "camelcase";
+import camelcase from "npm:camelcase@8.0.0";
 
 export default function run(input) {
   return camelcase(input);
@@ -38,10 +39,8 @@ export default function run(input) {
 )
 
 async def main() -> None:
-    async with Environment({"camelcase": "npm:camelcase@8.0.0"}) as env:
-        await env.install()
-        async with Runtime(env=env) as run:
-            print(await run(script)("foo-bar"))  # prints: fooBar
+    async with Runtime() as run:
+        print(await run(script)("foo-bar"))  # prints: fooBar
 
 asyncio.run(main())
 ```
@@ -49,7 +48,8 @@ asyncio.run(main())
 ## Examples
 
 - **[simple](examples/simple):** Async `Runtime` with a TypeScript file on disk.
-- **[jsr-deps](examples/jsr-deps):** JSR packages declared inline in `Environment`.
+- **[inline-deps](examples/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a script.
+- **[jsr-deps](examples/jsr-deps):** JSR packages declared through an explicit `Environment`.
 - **[environment](examples/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
 

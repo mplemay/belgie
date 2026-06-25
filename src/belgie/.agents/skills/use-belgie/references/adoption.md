@@ -61,7 +61,7 @@ dependencies = [
 Before finishing adoption, confirm:
 
 - [ ] `Environment` and `Runtime` are used as context managers (`with` / `async with`)
-- [ ] `env.install()` runs before scripts or commands that need npm/JSR packages
+- [ ] Script packages use direct `npm:` / `jsr:` / URL imports, or `env.install()` runs for aliases and commands
 - [ ] JS modules export a callable (`export default function run(...)` or `export default () => ...`)
 - [ ] Python ↔ JS data is JSON-serializable (dicts, lists, primitives)
 - [ ] Errors are imported from `belgie.errors`

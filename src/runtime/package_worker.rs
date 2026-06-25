@@ -84,6 +84,7 @@ pub(crate) async fn create_bound_package_worker(
     cwd: PathBuf,
     main_module: ModuleSpecifier,
     options: BoundPackageWorkerOptions,
+    roots: &LibWorkerFactoryRoots,
 ) -> Result<LibMainWorker, BindingError> {
     let state = Arc::new(
         prepare_package_runtime(
@@ -107,6 +108,7 @@ pub(crate) async fn create_bound_package_worker(
             js_runtime_options: options.js_runtime_options,
             runtime_worker_options: options.runtime_worker_options,
         },
+        roots,
     )
 }
 
@@ -159,6 +161,7 @@ pub(crate) fn create_package_worker(
     cwd: PathBuf,
     main_module: ModuleSpecifier,
     options: PackageWorkerOptions,
+    roots: &LibWorkerFactoryRoots,
 ) -> Result<LibMainWorker, BindingError> {
     let resolver_factory = context.resolver_factory();
     let npm_resolver = resolver_factory
@@ -187,9 +190,8 @@ pub(crate) fn create_package_worker(
             .map_err(BindingError::runtime)?,
     );
     let snapshot_options = package_worker_snapshot_options(options.use_cli_snapshot);
-    let roots = LibWorkerFactoryRoots::default();
     let unconfigured_runtime =
-        create_unconfigured_runtime(&snapshot_options, &options.js_runtime_options, &roots)?;
+        create_unconfigured_runtime(&snapshot_options, &options.js_runtime_options, roots)?;
     let main_module_url = url::Url::parse(main_module.as_str())
         .map_err(|error| BindingError::runtime(error.to_string()))?;
     LibMainWorkerFactory::new(
@@ -215,7 +217,7 @@ pub(crate) fn create_package_worker(
             &options.runtime_worker_options,
             context.unsafely_ignore_certificate_errors(),
         ),
-        roots,
+        roots.clone(),
         None,
     )
     .create_custom_worker(

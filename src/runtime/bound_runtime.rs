@@ -1,9 +1,15 @@
-use std::{path::Path, rc::Rc, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+    sync::Arc,
+};
 
-use crate::embed::EmbedContext;
+use tempfile::TempDir;
+
+use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::environment::ActiveEnvironment;
-use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
-use crate::script::{RunSignature, ScriptSource, media_type_for_script, parse_run_signature};
+use crate::options::{JsRuntimeOptions, RuntimeEnvironment, RuntimeWorkerOptions};
+use crate::script::ScriptSource;
 use crate::types::error::BindingError;
 
 use super::DenoRuntime;
@@ -13,20 +19,98 @@ pub(crate) struct BoundRuntime {
     runtime: DenoRuntime,
     script: ScriptSource,
     package_environment: Option<BoundPackageEnvironment>,
-    run_signature: Option<RunSignature>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) enum BoundPackageEnvironment {
     Isolated(Arc<ActiveEnvironment>),
+    Implicit(Arc<ImplicitPackageEnvironment>),
+}
+
+pub(crate) struct ImplicitPackageEnvironment {
+    workspace: PathBuf,
+    lockfile: PathBuf,
+    options: EmbedContextOptions,
+    _temp_dir: TempDir,
+}
+
+impl std::fmt::Debug for ImplicitPackageEnvironment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ImplicitPackageEnvironment")
+            .field("workspace", &self.workspace)
+            .field("lockfile", &self.lockfile)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ImplicitPackageEnvironment {
+    pub(crate) fn new(workspace: &Path) -> Result<Self, BindingError> {
+        let temp_dir = tempfile::Builder::new()
+            .prefix("belgie-inline-deps-")
+            .tempdir()
+            .map_err(|error| {
+                BindingError::runtime(format!(
+                    "Creating temporary inline dependency environment failed: {error}"
+                ))
+            })?;
+        let root = deno_path_util::strip_unc_prefix(temp_dir.path().to_path_buf());
+        Ok(Self {
+            workspace: workspace.to_path_buf(),
+            lockfile: root.join("deno.lock"),
+            options: EmbedContextOptions {
+                node_modules_root: Some(root.join("node_modules")),
+                ..Default::default()
+            },
+            _temp_dir: temp_dir,
+        })
+    }
+
+    fn embed_context(&self) -> Result<Rc<EmbedContext>, BindingError> {
+        Ok(Rc::new(
+            EmbedContext::new_with_options(
+                self.workspace.clone(),
+                self.lockfile.clone(),
+                self.options.clone(),
+            )
+            .map_err(|error| BindingError::runtime(error.to_string()))?,
+        ))
+    }
 }
 
 impl BoundPackageEnvironment {
+    pub(crate) fn from_isolated_runtime(
+        runtime: &DenoRuntime,
+    ) -> Result<Option<Self>, BindingError> {
+        let Some(RuntimeEnvironment::Isolated(isolated)) = runtime.environment() else {
+            return Ok(None);
+        };
+        let active = isolated
+            .acquire_active()
+            .map_err(|error| BindingError::runtime(error.to_string()))?;
+        Ok(Some(Self::Isolated(active)))
+    }
+
+    pub(crate) fn for_script_without_package_loader(existing: Option<&Self>) -> Option<Self> {
+        match existing {
+            Some(Self::Isolated(environment)) => Some(Self::Isolated(Arc::clone(environment))),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn supports_commands(&self) -> bool {
+        match self {
+            Self::Isolated(environment) => environment.has_package_dependencies(),
+            Self::Implicit(_) => false,
+        }
+    }
+
     pub(crate) fn embed_context_rc(&self) -> Result<Rc<EmbedContext>, BindingError> {
         match self {
             Self::Isolated(environment) => environment
                 .embed_context()
                 .map_err(|error| BindingError::runtime(error.to_string())),
+            Self::Implicit(environment) => environment.embed_context(),
         }
     }
 
@@ -35,19 +119,17 @@ impl BoundPackageEnvironment {
             Self::Isolated(environment) => environment
                 .refresh_local_file_dependencies(false)
                 .map_err(|error| BindingError::runtime(error.to_string())),
+            Self::Implicit(_) => Ok(()),
         }
     }
 }
 
 impl BoundRuntime {
     pub(crate) fn new(runtime: DenoRuntime, script: ScriptSource) -> Self {
-        let media_type = media_type_for_script(script.path());
-        let run_signature = parse_run_signature(script.content(), media_type);
         Self {
             runtime,
             script,
             package_environment: None,
-            run_signature,
         }
     }
 
@@ -79,8 +161,8 @@ impl BoundRuntime {
         &self.script
     }
 
-    pub(crate) fn run_signature(&self) -> Option<&RunSignature> {
-        self.run_signature.as_ref()
+    pub(crate) fn run_signature(&self) -> Option<&crate::script::RunSignature> {
+        self.script.run_signature()
     }
 
     pub(crate) fn description(&self) -> String {

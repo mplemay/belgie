@@ -19,7 +19,7 @@ deno_cache_dir = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3",
 deno_config = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3", features = ["sync", "workspace"] }
 deno_core = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_error = "0.7.1"
-deno_graph = { version = "=0.108.4", default-features = false }
+deno_graph = { version = "=0.108.4", default-features = false, features = ["swc"] }
 deno_lib = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_lockfile = { git = "https://github.com/denoland/deno.git", tag = "v2.8.3" }
 deno_media_type = { version = "=0.4.0", features = ["module_specifier"] }

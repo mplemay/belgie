@@ -1,6 +1,6 @@
 # Environment
 
-Use this file when managing isolated JavaScript dependencies from Python.
+Use this file when managing isolated JavaScript dependency state from Python.
 
 ## What Environment provides
 
@@ -10,7 +10,9 @@ Use this file when managing isolated JavaScript dependencies from Python.
 - Local `file:` packages copied into the environment `node_modules` tree for command/native tooling
 - Dependency install state in either a temporary root (default) or a persisted project directory
 
-JavaScript dependencies stay isolated from the Python project's `pyproject.toml`.
+JavaScript dependencies stay isolated from the Python project's `pyproject.toml`. For ordinary script packages, prefer
+direct Deno-style imports such as `npm:pkg@1.0.0` or `jsr:@scope/pkg@1`. Use `Environment` when you need dependency
+aliases, local `file:` packages, a frozen or persisted lockfile, custom cache/options, or npm package binaries.
 
 `Environment()` with no dependency map is valid for dependency-free scripts in an isolated temporary root. Calling
 `install()` on a dependency-less environment succeeds and returns `dependencies=0` without installing packages.
@@ -33,7 +35,7 @@ JavaScript dependencies stay isolated from the Python project's `pyproject.toml`
 - Belgie does not remove install artifacts from `path` on environment exit; other files written under `path` also
   persist
 
-## Basic usage
+## Basic alias usage
 
 ```python
 from belgie import Environment, Runtime, Script
@@ -61,6 +63,17 @@ async with Environment({"std_path": "jsr:@std/path@^1"}) as env:
     await env.install()
     async with Runtime(env=env) as run:
         result = await run(script)()
+```
+
+For direct inline imports, no dependency map is required:
+
+```python
+from belgie import Runtime, Script
+
+script = Script('import { join } from "jsr:@std/path@^1"; export default () => join.name;')
+
+with Runtime() as run:
+    result = run(script)()
 ```
 
 ## Dependency map format
@@ -122,7 +135,8 @@ with Environment({"std_path": "jsr:@std/path@^1"}, cache="./.deno_cache") as env
 
 ## Package operations
 
-Call these on the **entered** sync or async environment object:
+Call these on the **entered** sync or async environment object. They resolve the environment dependency map and local
+package aliases; direct inline script imports are resolved when the script is bound.
 
 | Method | Purpose |
 | --- | --- |
@@ -172,7 +186,7 @@ with Environment({"std_assert": "jsr:@std/assert@^1"}, lockfile="deno.lock") as 
 
 - Enter `Environment` before calling `install()`, `lock()`, or `update()`.
 - Pass the entered environment (or the `Environment` instance while entered) to `Runtime(env=...)`.
-- Call `install()` before scripts or commands that need resolved packages.
+- Call `install()` before commands, local `file:` packages, or dependency-map imports.
 - `lockfile=` at construction requires at least one dependency entry.
 
 For context-manager guardrails, see [rules/context-lifecycle.md](../rules/context-lifecycle.md).

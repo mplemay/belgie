@@ -5,7 +5,7 @@ See [references/architecture.md](../references/architecture.md) for the full dec
 ## Contents
 
 - Dependency-free inline scripts
-- npm and JSR imports
+- npm, JSR, and URL imports
 - Inline relative imports
 - File scripts with relative imports
 - npm package binaries
@@ -35,27 +35,32 @@ with Runtime() as run:
 
 ---
 
-## npm and JSR imports
+## npm, JSR, and URL imports
 
 **Incorrect:**
 
 ```python
 from belgie import Runtime, Script
 
+script = Script('import react from "react"; export default () => react.version;')
+
 with Runtime() as run:
-    run(Script('import react from "react"; export default () => react.version;'))()
+    run(script)()
 ```
 
 **Correct:**
 
 ```python
-from belgie import Environment, Runtime, Script
+from belgie import Runtime, Script
 
-with Environment({"react": "^19"}) as env:
-    env.install()
-    with Runtime(env=env) as run:
-        run(Script('import react from "react"; export default () => react.version;'))()
+script = Script('import react from "npm:react@^19"; export default () => react.version;')
+
+with Runtime() as run:
+    run(script)()
 ```
+
+Use `Environment` when you need dependency aliases, local `file:` packages, frozen lockfiles, custom cache/options, or
+commands.
 
 ---
 

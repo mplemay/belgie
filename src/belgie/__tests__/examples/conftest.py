@@ -32,6 +32,11 @@ def jsr_deps_module() -> Iterator[ModuleType]:
 
 
 @pytest.fixture
+def inline_deps_module() -> Iterator[ModuleType]:
+    yield from _load_example_main(EXAMPLES_ROOT / "inline-deps", "inline_deps")
+
+
+@pytest.fixture
 def command_module() -> Iterator[ModuleType]:
     yield from _load_example_main(EXAMPLES_ROOT / "commands", "commands_example")
 

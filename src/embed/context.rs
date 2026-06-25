@@ -201,6 +201,7 @@ pub(crate) struct EmbedContext {
     graph_loader: Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>>,
     install_graph_roots: Vec<ModuleSpecifier>,
     allow_json_imports: AllowJsonImports,
+    frozen_lockfile: bool,
     unsafely_ignore_certificate_errors: Option<Vec<String>>,
 }
 
@@ -412,6 +413,7 @@ impl EmbedContext {
             graph_loader: Mutex::new(graph_loader),
             install_graph_roots: options.install_graph_roots,
             allow_json_imports: options.allow_json_imports,
+            frozen_lockfile: options.frozen_lockfile.unwrap_or(false),
             unsafely_ignore_certificate_errors: options.unsafely_ignore_certificate_errors,
         })
     }
@@ -446,6 +448,10 @@ impl EmbedContext {
 
     pub fn allow_json_imports(&self) -> AllowJsonImports {
         self.allow_json_imports
+    }
+
+    pub fn frozen_lockfile(&self) -> bool {
+        self.frozen_lockfile
     }
 
     pub fn unsafely_ignore_certificate_errors(&self) -> Option<Vec<String>> {
