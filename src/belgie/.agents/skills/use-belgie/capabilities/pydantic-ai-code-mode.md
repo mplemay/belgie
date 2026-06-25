@@ -48,3 +48,8 @@ JavaScriptCodeMode(tools=["search", "fetch_page"])
 
 Tools excluded by the selector stay visible to the model as normal Pydantic AI tools. Framework, deferred-loading,
 and native-fallback tools also stay native so Pydantic AI can manage those protocol flows.
+
+## Full example
+
+See [`examples/pydantic-ai`](../../../../../../examples/pydantic-ai) for a runnable agent that fetches Paris and Tokyo
+weather in Celsius through one `run_javascript` call.

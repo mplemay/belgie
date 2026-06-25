@@ -52,5 +52,6 @@ asyncio.run(main())
 - **[jsr-deps](examples/jsr-deps):** JSR packages declared through an explicit `Environment`.
 - **[environment](examples/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
+- **[pydantic-ai](examples/pydantic-ai):** Pydantic AI `JavaScriptCodeMode` with parallel tool calls in JavaScript.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
