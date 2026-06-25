@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "belgie[pydantic-ai]",
+    "pydantic-ai-slim[openai]",
 ]
 
 [project.scripts]

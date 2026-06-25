@@ -14,16 +14,15 @@ This example mirrors the harness weather demo: fetch Paris and Tokyo weather, co
 uv sync
 ```
 
-Requires the `belgie[pydantic-ai]` extra (declared in this example's `pyproject.toml`).
+Requires the `belgie[pydantic-ai]` extra and `pydantic-ai-slim[openai]` (both declared in this example's
+`pyproject.toml`).
 
 ## Run with a real model
 
-Set one provider API key, then run:
+Set your OpenAI API key, then run:
 
 ```bash
-export OPENAI_API_KEY=...        # openai:gpt-5-mini
-# export GEMINI_API_KEY=...      # google:gemini-3-flash-preview
-# export GROQ_API_KEY=...        # groq:llama-3.3-70b-versatile
+export OPENAI_API_KEY=...
 
 uv run main
 ```

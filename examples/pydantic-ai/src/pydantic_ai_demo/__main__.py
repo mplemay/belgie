@@ -25,11 +25,8 @@ const tokyo_c = await convert_temp({ fahrenheit: tokyo.temp_f });
 return { paris: paris_c, tokyo: tokyo_c };
 """
 
-MODELS: Final[list[tuple[str, str]]] = [
-    ("openai:gpt-5-mini", "OPENAI_API_KEY"),
-    ("google:gemini-3-flash-preview", "GEMINI_API_KEY"),
-    ("groq:llama-3.3-70b-versatile", "GROQ_API_KEY"),
-]
+MODEL: Final[str] = "openai:gpt-5-mini"
+OPENAI_API_KEY_ENV: Final[str] = "OPENAI_API_KEY"
 
 AGENT_PROMPT: Final[str] = "What's the weather in Paris and Tokyo, in Celsius?"
 
@@ -87,16 +84,13 @@ async def run_javascript_parallel_demo() -> dict[str, float]:
 
 
 async def _main() -> None:
-    for model, env_var in MODELS:
-        if env_var in os.environ:
-            agent = build_agent(model)
-            result = await agent.run(AGENT_PROMPT)
-            print(result.output)  # noqa: T201
-            return
+    if OPENAI_API_KEY_ENV not in os.environ:
+        print(f"Set {OPENAI_API_KEY_ENV}", file=sys.stderr)  # noqa: T201
+        sys.exit(1)
 
-    required = ", ".join(env_var for _, env_var in MODELS)
-    print(f"Set one of: {required}", file=sys.stderr)  # noqa: T201
-    sys.exit(1)
+    agent = build_agent(MODEL)
+    result = await agent.run(AGENT_PROMPT)
+    print(result.output)  # noqa: T201
 
 
 def main() -> None:
