@@ -2,9 +2,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::command::CommandSource;
+use crate::options::RuntimeEnvironment;
+use crate::runtime::bound_runtime::{BoundPackageEnvironment, ImplicitPackageEnvironment};
 use crate::runtime::{
-    BoundPackageEnvironment, CommandExecutionHandle, CommandExecutionOptions, DenoExecutionHandle,
-    DenoRuntime, ImplicitPackageEnvironment,
+    BoundRuntime, CommandExecutionHandle, CommandExecutionOptions, DenoExecutionHandle, DenoRuntime,
 };
 use crate::script::ScriptSource;
 use crate::types::error::BindingError;
@@ -22,17 +23,13 @@ pub(crate) struct RuntimeSession {
 impl RuntimeSession {
     pub(crate) fn activate(runtime: DenoRuntime) -> Result<Arc<Self>, BindingError> {
         let package_environment = match runtime.environment() {
-            Some(environment) => {
-                if let Some(isolated) = environment.isolated() {
-                    let active = isolated
-                        .acquire_active()
-                        .map_err(|error| BindingError::runtime(error.to_string()))?;
-                    active
-                        .needs_package_environment(runtime.worker_options())
-                        .then_some(BoundPackageEnvironment::Isolated(active))
-                } else {
-                    None
-                }
+            Some(RuntimeEnvironment::Isolated(isolated)) => {
+                let active = isolated
+                    .acquire_active()
+                    .map_err(|error| BindingError::runtime(error.to_string()))?;
+                active
+                    .needs_package_environment(runtime.worker_options())
+                    .then_some(BoundPackageEnvironment::Isolated(active))
             }
             None => None,
         };
@@ -52,8 +49,8 @@ impl RuntimeSession {
     ) -> Result<DenoExecutionHandle, BindingError> {
         session.ensure_active()?;
         let bound = session.runtime.bind(script);
-        let package_environment = session.package_environment_for_script(&bound)?;
         session.pending_script_binds.fetch_add(1, Ordering::AcqRel);
+        let package_environment = session.package_environment_for_script(&bound)?;
         let bound = bound.with_package_environment(package_environment);
         let handle = DenoExecutionHandle::new(bound, Arc::clone(session));
         session
@@ -158,29 +155,29 @@ impl RuntimeSession {
 
     fn package_environment_for_script(
         &self,
-        bound: &crate::runtime::BoundRuntime,
+        bound: &BoundRuntime,
     ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
-        let current = self
+        let mut package_environment = self
             .package_environment
             .lock()
-            .expect("runtime package environment lock should not be poisoned")
-            .clone();
-        if current.is_some() || !bound.needs_package_loader() {
-            return Ok(current);
+            .expect("runtime package environment lock should not be poisoned");
+        if package_environment.is_some() || !bound.script().needs_package_loader() {
+            return Ok(package_environment.clone());
         }
 
-        if let Some(environment) = self.runtime.environment()
-            && let Some(isolated) = environment.isolated()
-        {
-            let active = isolated
-                .acquire_active()
-                .map_err(|error| BindingError::runtime(error.to_string()))?;
-            return Ok(Some(BoundPackageEnvironment::Isolated(active)));
-        }
-
-        Ok(Some(BoundPackageEnvironment::Implicit(Arc::new(
-            ImplicitPackageEnvironment::new(self.runtime.cwd())?,
-        ))))
+        let environment =
+            if let Some(RuntimeEnvironment::Isolated(isolated)) = self.runtime.environment() {
+                let active = isolated
+                    .acquire_active()
+                    .map_err(|error| BindingError::runtime(error.to_string()))?;
+                BoundPackageEnvironment::Isolated(active)
+            } else {
+                BoundPackageEnvironment::Implicit(Arc::new(ImplicitPackageEnvironment::new(
+                    self.runtime.cwd(),
+                )?))
+            };
+        *package_environment = Some(environment.clone());
+        Ok(Some(environment))
     }
 
     pub(crate) fn cli_snapshot_eligible(&self) -> bool {
@@ -257,5 +254,44 @@ mod tests {
         ));
         RuntimeSession::bind_script(&session, script).expect("script should bind");
         assert!(!session.cli_snapshot_eligible());
+    }
+
+    #[test]
+    fn reuses_implicit_package_environment_for_multiple_inline_dep_binds() {
+        use crate::runtime::BoundPackageEnvironment;
+
+        let session = test_session();
+        let npm_script = ScriptSource::from_options(ScriptOptions::inline(
+            r#"import isNumber from "npm:is-number@7.0.0"; export default () => isNumber(1);"#
+                .to_string(),
+        ));
+        let jsr_script = ScriptSource::from_options(ScriptOptions::inline(
+            r#"import { assertEquals } from "jsr:@std/assert@1"; export default () => 1;"#
+                .to_string(),
+        ));
+
+        RuntimeSession::bind_script(&session, npm_script).expect("npm script should bind");
+        let first = session
+            .package_environment
+            .lock()
+            .expect("runtime package environment lock should not be poisoned")
+            .clone()
+            .expect("implicit environment should be created");
+
+        RuntimeSession::bind_script(&session, jsr_script).expect("jsr script should bind");
+        let second = session
+            .package_environment
+            .lock()
+            .expect("runtime package environment lock should not be poisoned")
+            .clone()
+            .expect("implicit environment should remain");
+
+        match (first, second) {
+            (
+                BoundPackageEnvironment::Implicit(first),
+                BoundPackageEnvironment::Implicit(second),
+            ) => assert!(Arc::ptr_eq(&first, &second)),
+            other => panic!("expected implicit environments, got {other:?}"),
+        }
     }
 }

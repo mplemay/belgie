@@ -1,120 +1,113 @@
-use deno_ast::swc::ast::{CallExpr, Callee, Expr, Lit, Module, ModuleDecl, ModuleItem};
-use deno_ast::swc::ecma_visit::{Visit, VisitWith, noop_visit_type};
-use deno_ast::{MediaType, ModuleSpecifier, ParseParams, parse_module};
+use deno_ast::ParsedSource;
+use deno_graph::analysis::{
+    DependencyDescriptor, DynamicArgument, DynamicTemplatePart, ModuleInfo, SpecifierWithRange,
+    TypeScriptReference,
+};
+use deno_graph::ast::ParserModuleAnalyzer;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ScriptDependencies {
-    needs_package_loader: bool,
+use crate::packages::is_resolver_import_specifier;
+
+pub(crate) fn content_may_have_resolver_imports(content: &str) -> bool {
+    content.contains("npm:")
+        || content.contains("jsr:")
+        || content.contains("https:")
+        || content.contains("http:")
 }
 
-impl ScriptDependencies {
-    pub(crate) fn needs_package_loader(self) -> bool {
-        self.needs_package_loader
-    }
+pub(crate) fn analyze_parsed_script_dependencies(parsed: &ParsedSource) -> bool {
+    module_needs_package_loader(&ParserModuleAnalyzer::module_info(parsed))
 }
 
-pub(crate) fn analyze_script_dependencies(
-    content: &str,
-    media_type: MediaType,
-) -> ScriptDependencies {
-    let Some(module) = parse_script_module(content, media_type) else {
-        return ScriptDependencies {
-            needs_package_loader: false,
-        };
-    };
-    let mut visitor = DependencyVisitor::default();
-    collect_module_specifiers(&module, &mut visitor);
-    ScriptDependencies {
-        needs_package_loader: visitor.needs_package_loader,
-    }
+fn module_needs_package_loader(module_info: &ModuleInfo) -> bool {
+    module_info
+        .dependencies
+        .iter()
+        .any(dependency_needs_resolver)
+        || module_info
+            .ts_references
+            .iter()
+            .any(ts_reference_needs_resolver)
+        || module_info
+            .jsdoc_imports
+            .iter()
+            .any(|import| specifier_with_range_needs_resolver(&import.specifier))
+        || module_info
+            .self_types_specifier
+            .as_ref()
+            .is_some_and(specifier_with_range_needs_resolver)
+        || module_info
+            .jsx_import_source
+            .as_ref()
+            .is_some_and(specifier_with_range_needs_resolver)
+        || module_info
+            .jsx_import_source_types
+            .as_ref()
+            .is_some_and(specifier_with_range_needs_resolver)
 }
 
-fn parse_script_module(content: &str, media_type: MediaType) -> Option<deno_ast::ParsedSource> {
-    let specifier = ModuleSpecifier::parse("file:///belgie_inline_script.ts").ok()?;
-    parse_module(ParseParams {
-        specifier,
-        text: content.into(),
-        media_type,
-        capture_tokens: false,
-        scope_analysis: false,
-        maybe_syntax: None,
-    })
-    .ok()
-}
-
-fn collect_module_specifiers(parsed: &deno_ast::ParsedSource, visitor: &mut DependencyVisitor) {
-    let program = parsed.program_ref();
-    let deno_ast::ProgramRef::Module(module) = program else {
-        return;
-    };
-    collect_static_specifiers(module, visitor);
-    module.visit_with(visitor);
-}
-
-fn collect_static_specifiers(module: &Module, visitor: &mut DependencyVisitor) {
-    for item in &module.body {
-        let ModuleItem::ModuleDecl(decl) = item else {
-            continue;
-        };
-        match decl {
-            ModuleDecl::Import(import) => visitor.visit_specifier(import.src.value.as_str()),
-            ModuleDecl::ExportNamed(export) => {
-                if let Some(src) = &export.src {
-                    visitor.visit_specifier(src.value.as_str());
-                }
-            }
-            ModuleDecl::ExportAll(export) => visitor.visit_specifier(export.src.value.as_str()),
-            _ => {}
+fn dependency_needs_resolver(dependency: &DependencyDescriptor) -> bool {
+    match dependency {
+        DependencyDescriptor::Static(dependency) => {
+            specifier_needs_resolver(&dependency.specifier)
+                || dependency
+                    .types_specifier
+                    .as_ref()
+                    .is_some_and(specifier_with_range_needs_resolver)
+        }
+        DependencyDescriptor::Dynamic(dependency) => {
+            dynamic_argument_needs_resolver(&dependency.argument)
+                || dependency
+                    .types_specifier
+                    .as_ref()
+                    .is_some_and(specifier_with_range_needs_resolver)
         }
     }
 }
 
-#[derive(Default)]
-struct DependencyVisitor {
-    needs_package_loader: bool,
-}
-
-impl DependencyVisitor {
-    fn visit_specifier(&mut self, specifier: Option<&str>) {
-        if specifier.is_some_and(is_inline_dependency_specifier) {
-            self.needs_package_loader = true;
+fn ts_reference_needs_resolver(reference: &TypeScriptReference) -> bool {
+    match reference {
+        TypeScriptReference::Path(specifier) => specifier_with_range_needs_resolver(specifier),
+        TypeScriptReference::Types { specifier, .. } => {
+            specifier_with_range_needs_resolver(specifier)
         }
     }
 }
 
-impl Visit for DependencyVisitor {
-    noop_visit_type!();
-
-    fn visit_call_expr(&mut self, call_expr: &CallExpr) {
-        if matches!(call_expr.callee, Callee::Import(_)) {
-            let specifier = call_expr
-                .args
-                .first()
-                .and_then(|arg| match arg.expr.as_ref() {
-                    Expr::Lit(Lit::Str(value)) if arg.spread.is_none() => value.value.as_str(),
-                    _ => None,
-                });
-            self.visit_specifier(specifier);
-        }
-        call_expr.visit_children_with(self);
-    }
+fn specifier_with_range_needs_resolver(specifier: &SpecifierWithRange) -> bool {
+    specifier_needs_resolver(&specifier.text)
 }
 
-fn is_inline_dependency_specifier(specifier: &str) -> bool {
-    matches!(
-        specifier.split_once(':').map(|(scheme, _)| scheme),
-        Some("jsr" | "npm" | "http" | "https")
-    )
+fn specifier_needs_resolver(specifier: &str) -> bool {
+    is_resolver_import_specifier(specifier)
+}
+
+fn dynamic_argument_needs_resolver(argument: &DynamicArgument) -> bool {
+    match argument {
+        DynamicArgument::String(specifier) => specifier_needs_resolver(specifier),
+        DynamicArgument::Template(parts) => parts.iter().any(|part| match part {
+            DynamicTemplatePart::String { value } => specifier_needs_resolver(value),
+            DynamicTemplatePart::Expr => false,
+        }),
+        DynamicArgument::Expr => false,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use deno_ast::MediaType;
 
-    use super::{analyze_script_dependencies, is_inline_dependency_specifier};
+    use crate::script::signature::parse_script_module;
+
+    use super::{analyze_parsed_script_dependencies, content_may_have_resolver_imports};
 
     fn needs_package_loader(source: &str) -> bool {
-        analyze_script_dependencies(source, MediaType::TypeScript).needs_package_loader()
+        if !content_may_have_resolver_imports(source) {
+            return false;
+        }
+        let Some(parsed) = parse_script_module(source, MediaType::TypeScript) else {
+            return false;
+        };
+        analyze_parsed_script_dependencies(&parsed)
     }
 
     #[test]
@@ -156,6 +149,30 @@ mod tests {
     }
 
     #[test]
+    fn detects_require_calls() {
+        assert!(needs_package_loader(
+            r#"const isNumber = require("npm:is-number@7.0.0"); export default () => isNumber(1);"#
+        ));
+    }
+
+    #[test]
+    fn detects_deno_types_comments() {
+        assert!(needs_package_loader(
+            r#"// @deno-types="npm:@types/node"
+import fs from "node:fs";
+export default () => typeof fs.readFileSync;"#,
+        ));
+    }
+
+    #[test]
+    fn detects_import_type_from_jsr() {
+        assert!(needs_package_loader(
+            r#"import type { AssertEquals } from "jsr:@std/assert@1";
+export default () => 1;"#,
+        ));
+    }
+
+    #[test]
     fn ignores_local_and_bare_imports() {
         assert!(!needs_package_loader(
             r#"import { value } from "./value.ts";"#
@@ -168,15 +185,5 @@ mod tests {
         assert!(!needs_package_loader(
             r#"export default async (name) => await import(name);"#
         ));
-    }
-
-    #[test]
-    fn classifies_inline_dependency_schemes() {
-        assert!(is_inline_dependency_specifier("jsr:@std/path@1"));
-        assert!(is_inline_dependency_specifier("npm:is-number@7.0.0"));
-        assert!(is_inline_dependency_specifier("https://example.com/mod.ts"));
-        assert!(is_inline_dependency_specifier("http://example.com/mod.ts"));
-        assert!(!is_inline_dependency_specifier("node:fs"));
-        assert!(!is_inline_dependency_specifier("./mod.ts"));
     }
 }

@@ -89,9 +89,12 @@ pub(crate) fn media_type_for_script(content_path: Option<&std::path::Path>) -> M
     }
 }
 
-pub(crate) fn parse_run_signature(content: &str, media_type: MediaType) -> Option<RunSignature> {
+pub(crate) fn parse_script_module(
+    content: &str,
+    media_type: MediaType,
+) -> Option<deno_ast::ParsedSource> {
     let specifier = ModuleSpecifier::parse("file:///belgie_inline_script.ts").ok()?;
-    let parsed = parse_module(ParseParams {
+    parse_module(ParseParams {
         specifier,
         text: content.into(),
         media_type,
@@ -99,8 +102,10 @@ pub(crate) fn parse_run_signature(content: &str, media_type: MediaType) -> Optio
         scope_analysis: false,
         maybe_syntax: None,
     })
-    .ok()?;
+    .ok()
+}
 
+pub(crate) fn run_signature_from_parsed(parsed: &deno_ast::ParsedSource) -> Option<RunSignature> {
     let program = parsed.program_ref();
     let deno_ast::ProgramRef::Module(module) = program else {
         return None;
@@ -291,11 +296,13 @@ fn entity_name_ident(name: &TsEntityName) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ParamPattern, RunSignature, parse_run_signature};
+    use super::{ParamPattern, RunSignature, parse_script_module, run_signature_from_parsed};
     use deno_ast::MediaType;
 
     fn parse_ts(source: &str) -> Option<RunSignature> {
-        parse_run_signature(source, MediaType::TypeScript)
+        parse_script_module(source, MediaType::TypeScript)
+            .as_ref()
+            .and_then(run_signature_from_parsed)
     }
 
     fn ident_param(name: &str, accepts_object_fields: bool) -> ParamPattern {

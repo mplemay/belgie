@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::environment::ActiveEnvironment;
 use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
-use crate::script::{RunSignature, ScriptSource, media_type_for_script, parse_run_signature};
+use crate::script::ScriptSource;
 use crate::types::error::BindingError;
 
 use super::DenoRuntime;
@@ -19,8 +19,6 @@ pub(crate) struct BoundRuntime {
     runtime: DenoRuntime,
     script: ScriptSource,
     package_environment: Option<BoundPackageEnvironment>,
-    run_signature: Option<RunSignature>,
-    needs_package_loader: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -29,12 +27,21 @@ pub(crate) enum BoundPackageEnvironment {
     Implicit(Arc<ImplicitPackageEnvironment>),
 }
 
-#[derive(Debug)]
 pub(crate) struct ImplicitPackageEnvironment {
     workspace: PathBuf,
     lockfile: PathBuf,
     options: EmbedContextOptions,
     _temp_dir: TempDir,
+}
+
+impl std::fmt::Debug for ImplicitPackageEnvironment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ImplicitPackageEnvironment")
+            .field("workspace", &self.workspace)
+            .field("lockfile", &self.lockfile)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ImplicitPackageEnvironment {
@@ -93,15 +100,10 @@ impl BoundPackageEnvironment {
 
 impl BoundRuntime {
     pub(crate) fn new(runtime: DenoRuntime, script: ScriptSource) -> Self {
-        let media_type = media_type_for_script(script.path());
-        let run_signature = parse_run_signature(script.content(), media_type);
-        let needs_package_loader = script.dependencies().needs_package_loader();
         Self {
             runtime,
             script,
             package_environment: None,
-            run_signature,
-            needs_package_loader,
         }
     }
 
@@ -121,10 +123,6 @@ impl BoundRuntime {
         self.package_environment.as_ref()
     }
 
-    pub(crate) fn needs_package_loader(&self) -> bool {
-        self.needs_package_loader
-    }
-
     pub(crate) fn with_package_environment(
         mut self,
         environment: Option<BoundPackageEnvironment>,
@@ -137,8 +135,8 @@ impl BoundRuntime {
         &self.script
     }
 
-    pub(crate) fn run_signature(&self) -> Option<&RunSignature> {
-        self.run_signature.as_ref()
+    pub(crate) fn run_signature(&self) -> Option<&crate::script::RunSignature> {
+        self.script.run_signature()
     }
 
     pub(crate) fn description(&self) -> String {

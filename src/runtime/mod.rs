@@ -10,7 +10,7 @@ mod package_worker;
 mod process_context;
 mod session;
 
-pub(crate) use bound_runtime::{BoundPackageEnvironment, BoundRuntime, ImplicitPackageEnvironment};
+pub(crate) use bound_runtime::{BoundPackageEnvironment, BoundRuntime};
 pub(crate) use command_execution::{CommandExecutionHandle, CommandExecutionOptions};
 pub(crate) use deno_runtime::DenoRuntime;
 pub(crate) use execution::DenoExecutionHandle;
