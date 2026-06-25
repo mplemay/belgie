@@ -318,6 +318,7 @@ async fn run_js_command(
             main_source: None,
             header_overrides: js_content_type_header_overrides(main_module),
         },
+        session.worker_factory_roots(),
     )
     .await?;
 

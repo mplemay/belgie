@@ -9,7 +9,7 @@ use deno_core::{
     JsRuntime, ModuleId, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions, error::CoreError,
     v8,
 };
-use deno_lib::worker::LibMainWorker;
+use deno_lib::worker::{LibMainWorker, LibWorkerFactoryRoots};
 use tokio::sync::oneshot;
 
 use crate::{
@@ -193,6 +193,7 @@ fn run_worker_thread(
         match runtime.block_on(DenoExecutionContext::new(
             bound,
             session.cli_snapshot_eligible(),
+            session.worker_factory_roots(),
         )) {
             Ok(context) => context,
             Err(error) => {
@@ -243,7 +244,11 @@ struct DenoExecutionContext {
 }
 
 impl DenoExecutionContext {
-    async fn new(bound: BoundRuntime, use_cli_snapshot: bool) -> ExecutionResult<Self> {
+    async fn new(
+        bound: BoundRuntime,
+        use_cli_snapshot: bool,
+        worker_factory_roots: &LibWorkerFactoryRoots,
+    ) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
         let backend = if let Some(package_environment) = bound.package_environment() {
             let context = package_environment.embed_context_rc()?;
@@ -261,6 +266,7 @@ impl DenoExecutionContext {
                         main_source: Some(bound.script().content().to_string()),
                         header_overrides: js_content_type_header_overrides(main_module.clone()),
                     },
+                    worker_factory_roots,
                 )
                 .await?,
             ))

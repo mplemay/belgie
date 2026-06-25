@@ -1,8 +1,9 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use deno_lib::worker::LibWorkerFactoryRoots;
+
 use crate::command::CommandSource;
-use crate::options::RuntimeEnvironment;
 use crate::runtime::bound_runtime::{BoundPackageEnvironment, ImplicitPackageEnvironment};
 use crate::runtime::{
     BoundRuntime, CommandExecutionHandle, CommandExecutionOptions, DenoExecutionHandle, DenoRuntime,
@@ -10,7 +11,16 @@ use crate::runtime::{
 use crate::script::ScriptSource;
 use crate::types::error::BindingError;
 
-#[derive(Debug)]
+struct PendingScriptBind<'a> {
+    counter: &'a AtomicUsize,
+}
+
+impl Drop for PendingScriptBind<'_> {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 pub(crate) struct RuntimeSession {
     runtime: DenoRuntime,
     package_environment: Mutex<Option<BoundPackageEnvironment>>,
@@ -18,20 +28,32 @@ pub(crate) struct RuntimeSession {
     scripts: Mutex<Vec<DenoExecutionHandle>>,
     commands: Mutex<Vec<CommandExecutionHandle>>,
     pending_script_binds: AtomicUsize,
+    worker_factory_roots: LibWorkerFactoryRoots,
+}
+
+impl std::fmt::Debug for RuntimeSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RuntimeSession")
+            .field("runtime", &self.runtime)
+            .field("active", &self.active.load(Ordering::Acquire))
+            .field(
+                "pending_script_binds",
+                &self.pending_script_binds.load(Ordering::Acquire),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl RuntimeSession {
     pub(crate) fn activate(runtime: DenoRuntime) -> Result<Arc<Self>, BindingError> {
-        let package_environment = match runtime.environment() {
-            Some(RuntimeEnvironment::Isolated(isolated)) => {
-                let active = isolated
-                    .acquire_active()
-                    .map_err(|error| BindingError::runtime(error.to_string()))?;
-                active
-                    .needs_package_environment(runtime.worker_options())
-                    .then_some(BoundPackageEnvironment::Isolated(active))
+        let package_environment = match BoundPackageEnvironment::from_isolated_runtime(&runtime)? {
+            Some(BoundPackageEnvironment::Isolated(active))
+                if active.needs_package_environment(runtime.worker_options()) =>
+            {
+                Some(BoundPackageEnvironment::Isolated(active))
             }
-            None => None,
+            _ => None,
         };
         Ok(Arc::new(Self {
             runtime,
@@ -40,6 +62,7 @@ impl RuntimeSession {
             scripts: Mutex::new(Vec::new()),
             commands: Mutex::new(Vec::new()),
             pending_script_binds: AtomicUsize::new(0),
+            worker_factory_roots: LibWorkerFactoryRoots::default(),
         }))
     }
 
@@ -50,6 +73,9 @@ impl RuntimeSession {
         session.ensure_active()?;
         let bound = session.runtime.bind(script);
         session.pending_script_binds.fetch_add(1, Ordering::AcqRel);
+        let _pending_script_bind = PendingScriptBind {
+            counter: &session.pending_script_binds,
+        };
         let package_environment = session.package_environment_for_script(&bound)?;
         let bound = bound.with_package_environment(package_environment);
         let handle = DenoExecutionHandle::new(bound, Arc::clone(session));
@@ -58,7 +84,6 @@ impl RuntimeSession {
             .lock()
             .expect("runtime script handle lock should not be poisoned")
             .push(handle.clone());
-        session.pending_script_binds.fetch_sub(1, Ordering::AcqRel);
         Ok(handle)
     }
 
@@ -73,10 +98,7 @@ impl RuntimeSession {
             .lock()
             .expect("runtime package environment lock should not be poisoned")
             .clone()
-            .filter(|environment| match environment {
-                BoundPackageEnvironment::Isolated(env) => env.has_package_dependencies(),
-                BoundPackageEnvironment::Implicit(_) => false,
-            })
+            .filter(|environment| environment.supports_commands())
             .ok_or_else(|| {
                 BindingError::runtime(
                     "Commands require an active Environment with package dependencies",
@@ -153,7 +175,23 @@ impl RuntimeSession {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn package_environment_for_script(
+        &self,
+        bound: &BoundRuntime,
+    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
+        self.resolve_package_environment_for_script(bound)
+    }
+
+    #[cfg(not(test))]
     fn package_environment_for_script(
+        &self,
+        bound: &BoundRuntime,
+    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
+        self.resolve_package_environment_for_script(bound)
+    }
+
+    fn resolve_package_environment_for_script(
         &self,
         bound: &BoundRuntime,
     ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
@@ -163,31 +201,27 @@ impl RuntimeSession {
             .expect("runtime package environment lock should not be poisoned");
 
         if !bound.script().needs_package_loader() {
-            return match package_environment.as_ref() {
-                Some(BoundPackageEnvironment::Isolated(env)) => {
-                    Ok(Some(BoundPackageEnvironment::Isolated(Arc::clone(env))))
-                }
-                _ => Ok(None),
-            };
+            return Ok(BoundPackageEnvironment::for_script_without_package_loader(
+                package_environment.as_ref(),
+            ));
         }
 
         if let Some(existing) = package_environment.clone() {
             return Ok(Some(existing));
         }
 
-        let environment =
-            if let Some(RuntimeEnvironment::Isolated(isolated)) = self.runtime.environment() {
-                let active = isolated
-                    .acquire_active()
-                    .map_err(|error| BindingError::runtime(error.to_string()))?;
-                BoundPackageEnvironment::Isolated(active)
-            } else {
-                BoundPackageEnvironment::Implicit(Arc::new(ImplicitPackageEnvironment::new(
-                    self.runtime.cwd(),
-                )?))
-            };
+        let environment = match BoundPackageEnvironment::from_isolated_runtime(&self.runtime)? {
+            Some(environment) => environment,
+            None => BoundPackageEnvironment::Implicit(Arc::new(ImplicitPackageEnvironment::new(
+                self.runtime.cwd(),
+            )?)),
+        };
         *package_environment = Some(environment.clone());
         Ok(Some(environment))
+    }
+
+    pub(crate) fn worker_factory_roots(&self) -> &LibWorkerFactoryRoots {
+        &self.worker_factory_roots
     }
 
     pub(crate) fn cli_snapshot_eligible(&self) -> bool {
@@ -202,17 +236,6 @@ impl RuntimeSession {
 impl Drop for RuntimeSession {
     fn drop(&mut self) {
         let _ = self.close_blocking();
-    }
-}
-
-#[cfg(test)]
-impl RuntimeSession {
-    fn package_environment_for_script_for_test(
-        &self,
-        script: ScriptSource,
-    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
-        let bound = self.runtime.bind(script);
-        self.package_environment_for_script(&bound)
     }
 }
 
@@ -339,8 +362,9 @@ mod tests {
             Some(BoundPackageEnvironment::Implicit(_))
         ));
 
+        let bound = session.runtime.bind(simple_script);
         let assigned = session
-            .package_environment_for_script_for_test(simple_script)
+            .package_environment_for_script(&bound)
             .expect("package environment should resolve");
         assert!(assigned.is_none());
     }

@@ -8,7 +8,7 @@ use tempfile::TempDir;
 
 use crate::embed::{EmbedContext, EmbedContextOptions};
 use crate::environment::ActiveEnvironment;
-use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
+use crate::options::{JsRuntimeOptions, RuntimeEnvironment, RuntimeWorkerOptions};
 use crate::script::ScriptSource;
 use crate::types::error::BindingError;
 
@@ -79,6 +79,32 @@ impl ImplicitPackageEnvironment {
 }
 
 impl BoundPackageEnvironment {
+    pub(crate) fn from_isolated_runtime(
+        runtime: &DenoRuntime,
+    ) -> Result<Option<Self>, BindingError> {
+        let Some(RuntimeEnvironment::Isolated(isolated)) = runtime.environment() else {
+            return Ok(None);
+        };
+        let active = isolated
+            .acquire_active()
+            .map_err(|error| BindingError::runtime(error.to_string()))?;
+        Ok(Some(Self::Isolated(active)))
+    }
+
+    pub(crate) fn for_script_without_package_loader(existing: Option<&Self>) -> Option<Self> {
+        match existing {
+            Some(Self::Isolated(environment)) => Some(Self::Isolated(Arc::clone(environment))),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn supports_commands(&self) -> bool {
+        match self {
+            Self::Isolated(environment) => environment.has_package_dependencies(),
+            Self::Implicit(_) => false,
+        }
+    }
+
     pub(crate) fn embed_context_rc(&self) -> Result<Rc<EmbedContext>, BindingError> {
         match self {
             Self::Isolated(environment) => environment
