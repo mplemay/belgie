@@ -113,6 +113,7 @@ class TestRuntimeOptions:
             log_level="debug",
             enable_testing_features=True,
             enable_raw_imports=True,
+            disable_offscreen_canvas=True,
             trace_ops=["fs"],
         )
 
@@ -120,6 +121,7 @@ class TestRuntimeOptions:
         assert "seed=Some(123)" in repr(options)
         assert "location=Some" in repr(options)
         assert "debug" in repr(options)
+        assert "disable_offscreen_canvas=true" in repr(options).lower()
 
     def test_rejects_invalid_worker_options(self) -> None:
         with pytest.raises(ValueError, match="valid URL"):
@@ -134,6 +136,8 @@ class TestRuntimeOptions:
             Runtime(options=RuntimeOptions(seed=1))
         with pytest.raises(_core.BelgieRuntimeError, match="Runtime\\(env=Environment"):
             Runtime.from_folder(".", options=RuntimeOptions(permissions=RuntimePermissions.none()))
+        with pytest.raises(_core.BelgieRuntimeError, match="Runtime\\(env=Environment"):
+            Runtime(options=RuntimeOptions(disable_offscreen_canvas=True))
 
 
 class TestEnvironmentOptions:
@@ -151,12 +155,16 @@ class TestEnvironmentOptions:
             production=True,
             skip_types=True,
             unsafely_ignore_certificate_errors=["localhost"],
+            import_package_lockfile=True,
+            minimum_dependency_age_minutes=0,
         )
 
         assert isinstance(options, EnvironmentOptions)
         assert "EnvironmentOptions" in repr(options)
         assert "reload" in repr(options)
         assert "always" in repr(options)
+        assert "import_package_lockfile=true" in repr(options)
+        assert "minimum_dependency_age_minutes=Some(0)" in repr(options)
 
     def test_rejects_invalid_environment_options(self) -> None:
         with pytest.raises(ValueError, match="cache_setting"):
@@ -171,6 +179,8 @@ class TestEnvironmentOptions:
             EnvironmentOptions(node_modules_linker=cast("Any", "flat"))
         with pytest.raises(ValueError, match="npm_caching"):
             EnvironmentOptions(npm_caching=cast("Any", "none"))
+        with pytest.raises(ValueError, match="minimum_dependency_age_minutes"):
+            EnvironmentOptions(minimum_dependency_age_minutes=-1)
 
 
 class TestRuntimePermissions:

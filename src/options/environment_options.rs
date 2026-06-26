@@ -1,5 +1,7 @@
 use deno_cache_dir::file_fetcher::CacheSetting;
-use deno_config::deno_json::{NodeModulesDirMode, NodeModulesLinkerMode};
+use deno_config::deno_json::{NewestDependencyDate, NodeModulesDirMode, NodeModulesLinkerMode};
+use deno_core::anyhow::anyhow;
+use deno_core::error::AnyError;
 use deno_npm_installer::graph::NpmCachingStrategy;
 use deno_resolver::loader::AllowJsonImports;
 
@@ -16,6 +18,8 @@ pub(crate) struct EnvironmentOptions {
     production: bool,
     skip_types: bool,
     unsafely_ignore_certificate_errors: Option<Vec<String>>,
+    import_package_lockfile: bool,
+    minimum_dependency_age_minutes: Option<u64>,
 }
 
 impl Default for EnvironmentOptions {
@@ -32,6 +36,8 @@ impl Default for EnvironmentOptions {
             production: false,
             skip_types: false,
             unsafely_ignore_certificate_errors: None,
+            import_package_lockfile: false,
+            minimum_dependency_age_minutes: None,
         }
     }
 }
@@ -53,6 +59,8 @@ impl EnvironmentOptions {
         production: bool,
         skip_types: bool,
         unsafely_ignore_certificate_errors: Option<Vec<String>>,
+        import_package_lockfile: bool,
+        minimum_dependency_age_minutes: Option<u64>,
     ) -> Self {
         Self {
             cache_setting,
@@ -66,6 +74,8 @@ impl EnvironmentOptions {
             production,
             skip_types,
             unsafely_ignore_certificate_errors,
+            import_package_lockfile,
+            minimum_dependency_age_minutes,
         }
     }
 
@@ -112,11 +122,35 @@ impl EnvironmentOptions {
     pub(crate) fn unsafely_ignore_certificate_errors(&self) -> Option<Vec<String>> {
         self.unsafely_ignore_certificate_errors.clone()
     }
+
+    pub(crate) fn import_package_lockfile(&self) -> bool {
+        self.import_package_lockfile
+    }
+
+    pub(crate) fn minimum_dependency_age_minutes(&self) -> Option<u64> {
+        self.minimum_dependency_age_minutes
+    }
+
+    pub(crate) fn newest_dependency_date(&self) -> Result<Option<NewestDependencyDate>, AnyError> {
+        let Some(minutes) = self.minimum_dependency_age_minutes else {
+            return Ok(None);
+        };
+        if minutes == 0 {
+            return Ok(Some(NewestDependencyDate::Disabled));
+        }
+        let minutes = i64::try_from(minutes)
+            .map_err(|_| anyhow!("minimum_dependency_age_minutes is too large"))?;
+        let now = chrono::DateTime::<chrono::Utc>::from(std::time::SystemTime::now());
+        Ok(Some(NewestDependencyDate::Enabled(
+            now - chrono::Duration::minutes(minutes),
+        )))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use deno_cache_dir::file_fetcher::CacheSetting;
+    use deno_config::deno_json::NewestDependencyDate;
     use deno_resolver::loader::AllowJsonImports;
 
     use super::EnvironmentOptions;
@@ -138,5 +172,67 @@ mod tests {
         assert!(!options.production());
         assert!(!options.skip_types());
         assert!(options.unsafely_ignore_certificate_errors().is_none());
+        assert!(!options.import_package_lockfile());
+        assert!(options.minimum_dependency_age_minutes().is_none());
+    }
+
+    #[test]
+    fn minimum_dependency_age_none_uses_deno_default() {
+        assert!(
+            EnvironmentOptions::default()
+                .newest_dependency_date()
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn minimum_dependency_age_zero_disables_filter() {
+        let options = EnvironmentOptions::new(
+            CacheSetting::Use,
+            true,
+            AllowJsonImports::WithAttribute,
+            None,
+            None,
+            deno_npm_installer::graph::NpmCachingStrategy::Eager,
+            false,
+            true,
+            false,
+            false,
+            None,
+            false,
+            Some(0),
+        );
+        assert!(matches!(
+            options.newest_dependency_date().unwrap(),
+            Some(NewestDependencyDate::Disabled),
+        ));
+    }
+
+    #[test]
+    fn minimum_dependency_age_positive_sets_cutoff_date() {
+        let options = EnvironmentOptions::new(
+            CacheSetting::Use,
+            true,
+            AllowJsonImports::WithAttribute,
+            None,
+            None,
+            deno_npm_installer::graph::NpmCachingStrategy::Eager,
+            false,
+            true,
+            false,
+            false,
+            None,
+            false,
+            Some(5),
+        );
+        let now = chrono::Utc::now();
+        let date = options.newest_dependency_date().unwrap();
+        let Some(NewestDependencyDate::Enabled(cutoff)) = date else {
+            panic!("expected enabled newest dependency date");
+        };
+
+        assert!(cutoff <= now);
+        assert!(cutoff > now - chrono::Duration::minutes(6));
     }
 }

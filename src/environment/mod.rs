@@ -55,16 +55,21 @@ pub(crate) struct ActiveEnvironment {
     workspace: PathBuf,
     lockfile: PathBuf,
     package_state: Mutex<ActivePackageState>,
-    frozen_lockfile: bool,
-    embed_options: EmbedContextOptions,
+    base_embed_options: EmbedContextOptions,
     root: EnvironmentRoot,
 }
 
 struct InstallLayout {
     lockfile: PathBuf,
-    frozen_lockfile: bool,
     embed_options: EmbedContextOptions,
 }
+
+const PACKAGE_LOCKFILE_IMPORT_CANDIDATES: &[&str] = &[
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lock",
+];
 
 #[derive(Clone, Debug)]
 struct ActivePackageState {
@@ -78,7 +83,10 @@ impl std::fmt::Debug for ActiveEnvironment {
             .debug_struct("ActiveEnvironment")
             .field("workspace", &self.workspace)
             .field("dependency_count", &self.dependency_count())
-            .field("frozen_lockfile", &self.frozen_lockfile)
+            .field(
+                "frozen_lockfile",
+                &self.base_embed_options.frozen_lockfile.unwrap_or(false),
+            )
             .field("persisted", &self.is_persisted())
             .finish_non_exhaustive()
     }
@@ -307,18 +315,17 @@ impl SharedEnvironment {
     }
 }
 
-fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
+fn copy_file_if_distinct(from: &Path, to: &Path, action: &str) -> Result<(), AnyError> {
     if from == to {
         return Ok(());
     }
-    std::fs::copy(from, to).with_context(|| {
-        format!(
-            "Copying lockfile from {} to {}",
-            from.display(),
-            to.display()
-        )
-    })?;
+    std::fs::copy(from, to)
+        .with_context(|| format!("{action} from {} to {}", from.display(), to.display()))?;
     Ok(())
+}
+
+fn copy_lockfile(from: &Path, to: &Path) -> Result<(), AnyError> {
+    copy_file_if_distinct(from, to, "Copying lockfile")
 }
 
 fn resolve_environment_cache(
@@ -357,12 +364,18 @@ fn prepare_install_layout(
     let node_modules_root = install_root.join("node_modules");
 
     let has_dependencies = !definition.dependencies.is_empty();
+    if definition.lockfile_source.is_none()
+        && definition.options.import_package_lockfile()
+        && install_root != definition.workspace
+    {
+        copy_package_lockfile_seed(&definition.workspace, install_root)?;
+    }
 
     let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
         copy_lockfile(source, &lockfile)?;
         true
     } else {
-        if !has_dependencies {
+        if !has_dependencies && !definition.options.import_package_lockfile() {
             std::fs::write(&lockfile, EMPTY_DENO_LOCK)
                 .with_context(|| format!("Writing {}", lockfile.display()))?;
         }
@@ -381,23 +394,25 @@ fn prepare_install_layout(
         cache_setting: definition.options.cache_setting().clone(),
         allow_remote: definition.options.allow_remote(),
         allow_json_imports: definition.options.allow_json_imports(),
-        frozen_lockfile: None,
-        is_package_manager_subcommand: false,
-        lockfile_skip_write: false,
+        frozen_lockfile: Some(frozen_lockfile),
         node_modules_dir_mode,
         node_modules_linker: definition.options.node_modules_linker(),
         node_modules_root: Some(node_modules_root),
         no_npm: definition.options.no_npm(),
+        import_package_lockfile: definition.options.import_package_lockfile(),
         npm_caching: definition.options.npm_caching(),
         clean_on_install: definition.options.clean_on_install(),
         production: definition.options.production(),
         skip_types: definition.options.skip_types(),
+        newest_dependency_date: definition.options.newest_dependency_date()?,
         unsafely_ignore_certificate_errors: definition.options.unsafely_ignore_certificate_errors(),
-        specified_import_map: None,
-        install_graph_roots: Vec::new(),
+        ..Default::default()
     };
 
-    if has_dependencies || embed_options.requires_embed_module_loader() {
+    if has_dependencies
+        || embed_options.import_package_lockfile
+        || embed_options.requires_embed_module_loader()
+    {
         embed_options.cache = Some(resolve_environment_cache(
             &definition.workspace,
             definition.cache.as_ref(),
@@ -406,9 +421,21 @@ fn prepare_install_layout(
 
     Ok(InstallLayout {
         lockfile,
-        frozen_lockfile,
         embed_options,
     })
+}
+
+fn copy_package_lockfile_seed(workspace: &Path, install_root: &Path) -> Result<(), AnyError> {
+    for file_name in PACKAGE_LOCKFILE_IMPORT_CANDIDATES {
+        let source = workspace.join(file_name);
+        if !source.is_file() {
+            continue;
+        }
+        let destination = install_root.join(file_name);
+        copy_file_if_distinct(&source, &destination, "Copying package lockfile")?;
+        return Ok(());
+    }
+    Ok(())
 }
 
 impl ActiveEnvironment {
@@ -432,8 +459,7 @@ impl ActiveEnvironment {
                 dependencies: definition.dependencies.clone(),
                 layout: definition.layout,
             }),
-            frozen_lockfile: layout.frozen_lockfile,
-            embed_options: layout.embed_options,
+            base_embed_options: layout.embed_options,
             root: EnvironmentRoot::Persisted,
         })
     }
@@ -457,8 +483,7 @@ impl ActiveEnvironment {
                 dependencies: definition.dependencies.clone(),
                 layout: definition.layout,
             }),
-            frozen_lockfile: layout.frozen_lockfile,
-            embed_options: layout.embed_options,
+            base_embed_options: layout.embed_options,
             root: EnvironmentRoot::Ephemeral {
                 temp_dir,
                 materialized_node_modules: Mutex::new(None),
@@ -490,11 +515,10 @@ impl ActiveEnvironment {
         self.install_root().join("node_modules")
     }
 
-    fn embed_options(&self) -> Result<EmbedContextOptions, AnyError> {
-        let mut options = self.embed_options.clone();
+    fn resolve_embed_options(&self) -> Result<EmbedContextOptions, AnyError> {
+        let mut options = self.base_embed_options.clone();
         let base_url = install_root_url(self.install_root())?;
         let dependencies = self.with_package_state(|state| state.dependencies.clone());
-        options.frozen_lockfile = Some(self.frozen_lockfile);
         options.specified_import_map = Some(specified_import_map(base_url, &dependencies)?);
         options.install_graph_roots = local_file_dependency_install_roots(&dependencies)?;
         Ok(options)
@@ -567,8 +591,12 @@ impl ActiveEnvironment {
         Ok(())
     }
 
-    pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
-        let options = self.embed_options()?;
+    pub(crate) fn embed_context_with_worker_options(
+        &self,
+        worker_options: &RuntimeWorkerOptions,
+    ) -> Result<Rc<EmbedContext>, AnyError> {
+        let mut options = self.resolve_embed_options()?;
+        options.apply_worker_options(worker_options);
         Ok(Rc::new(EmbedContext::new_with_options(
             self.workspace.clone(),
             self.lockfile.clone(),
@@ -577,17 +605,17 @@ impl ActiveEnvironment {
     }
 
     pub(crate) fn uses_package_loader(&self) -> bool {
-        self.dependency_count() > 0
+        self.dependency_count() > 0 || self.base_embed_options.import_package_lockfile
+    }
+
+    fn should_run_package_install(&self) -> bool {
+        self.dependency_count() > 0 || self.base_embed_options.import_package_lockfile
     }
 
     pub(crate) fn needs_package_environment(&self, worker_options: &RuntimeWorkerOptions) -> bool {
         self.uses_package_loader()
             || worker_options.requires_package_worker()
-            || self.embed_options.requires_embed_module_loader()
-    }
-
-    pub(crate) fn has_package_dependencies(&self) -> bool {
-        self.uses_package_loader()
+            || self.base_embed_options.requires_embed_module_loader()
     }
 
     async fn lock(
@@ -610,13 +638,13 @@ impl ActiveEnvironment {
         &self,
         lockfile_only: bool,
     ) -> Result<EnvironmentInstallResult, AnyError> {
-        if self.dependency_count() == 0 {
+        if !self.should_run_package_install() {
             return Ok(EnvironmentInstallResult {
                 lockfile: self.lockfile.clone(),
                 dependencies: 0,
             });
         }
-        let options = self.embed_options()?;
+        let options = self.resolve_embed_options()?;
         let dependency_count = self.dependency_count();
         self.sync_local_file_dependencies()?;
         let lockfile = install_environment_packages(
@@ -640,7 +668,7 @@ impl ActiveEnvironment {
         latest: bool,
         lockfile_only: bool,
     ) -> Result<EnvironmentUpdateResult, AnyError> {
-        if self.frozen_lockfile {
+        if self.base_embed_options.frozen_lockfile.unwrap_or(false) {
             bail!("Cannot update an Environment created with a frozen lockfile");
         }
         if self.dependency_count() == 0 {
@@ -650,7 +678,7 @@ impl ActiveEnvironment {
                 dependencies: Vec::new(),
             });
         }
-        let options = self.embed_options()?;
+        let options = self.resolve_embed_options()?;
         let dependencies = self.with_package_state(|state| state.dependencies.clone());
         self.sync_local_file_dependencies()?;
         let result = update_environment_packages(EnvironmentUpdateRequest {
@@ -692,10 +720,13 @@ mod tests {
     use std::sync::Arc;
 
     use crate::environment::materialize::create_dangling_dir_symlink;
+    use crate::options::EnvironmentOptions;
 
-    use super::{ActiveEnvironment, EnvironmentDefinition, SharedEnvironment};
+    use super::{
+        ActiveEnvironment, EnvironmentDefinition, SharedEnvironment, copy_package_lockfile_seed,
+        prepare_install_layout,
+    };
 
-    // Tests mutate env vars; run serially.
     fn restore_env_var(name: &str, previous: Option<&OsString>) {
         match previous {
             Some(value) => {
@@ -780,10 +811,28 @@ mod tests {
 
     fn resolved_cache(active: &ActiveEnvironment) -> PathBuf {
         active
-            .embed_options()
+            .resolve_embed_options()
             .expect("embed options should resolve")
             .cache
             .expect("default cache should be resolved")
+    }
+
+    fn package_import_options(minutes: Option<u64>) -> EnvironmentOptions {
+        EnvironmentOptions::new(
+            deno_cache_dir::file_fetcher::CacheSetting::Use,
+            true,
+            deno_resolver::loader::AllowJsonImports::WithAttribute,
+            None,
+            None,
+            deno_npm_installer::graph::NpmCachingStrategy::Eager,
+            false,
+            true,
+            false,
+            false,
+            None,
+            true,
+            minutes,
+        )
     }
 
     fn setup_materialized_npm_env() -> (
@@ -833,7 +882,7 @@ mod tests {
         let environment = ephemeral_environment(workspace);
         let active = environment.activate_blocking().unwrap();
 
-        assert!(active.embed_options().unwrap().cache.is_none());
+        assert!(active.resolve_embed_options().unwrap().cache.is_none());
         assert!(active.install_root().join("deno.lock").is_file());
         environment.deactivate().unwrap();
     }
@@ -843,16 +892,13 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let workspace = canonical_test_workspace(&folder);
         let _env = cleared_cache_env();
-        let result = dependency_environment(workspace).activate_blocking();
-        if let Err(error) = result {
-            let message = error.to_string().to_lowercase();
-            assert!(
-                message.contains("cache")
-                    || message.contains("deno_dir")
-                    || message.contains("home"),
-                "unexpected error: {error}"
-            );
-        }
+        let active = dependency_environment(workspace)
+            .activate_blocking()
+            .unwrap();
+        assert!(
+            active.resolve_embed_options().unwrap().cache.is_some(),
+            "dependency environments should resolve a deno cache"
+        );
     }
 
     #[test]
@@ -868,6 +914,108 @@ mod tests {
         .unwrap();
 
         assert_eq!(definition.dependency_count(), 1);
+    }
+
+    #[test]
+    fn package_lockfile_seed_copies_first_matching_project_lockfile() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("workspace");
+        let install_root = folder.path().join("install");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&install_root).unwrap();
+        std::fs::write(workspace.join("yarn.lock"), "yarn").unwrap();
+        std::fs::write(workspace.join("package-lock.json"), "npm").unwrap();
+
+        copy_package_lockfile_seed(&workspace, &install_root).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(install_root.join("package-lock.json")).unwrap(),
+            "npm",
+        );
+        assert!(!install_root.join("yarn.lock").exists());
+    }
+
+    #[test]
+    fn package_lockfile_seed_ignores_missing_project_lockfiles() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("workspace");
+        let install_root = folder.path().join("install");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&install_root).unwrap();
+
+        copy_package_lockfile_seed(&workspace, &install_root).unwrap();
+
+        assert_eq!(std::fs::read_dir(&install_root).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn install_layout_propagates_package_import_options() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("workspace");
+        let install_root = folder.path().join("install");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&install_root).unwrap();
+        std::fs::write(workspace.join("package-lock.json"), "{}").unwrap();
+        let definition = EnvironmentDefinition::from_mapping_with_options(
+            workspace,
+            None,
+            BTreeMap::new(),
+            None,
+            None,
+            package_import_options(Some(0)),
+        )
+        .unwrap();
+
+        let layout = prepare_install_layout(&install_root, &definition).unwrap();
+
+        assert!(layout.embed_options.import_package_lockfile);
+        assert!(matches!(
+            layout.embed_options.newest_dependency_date,
+            Some(deno_config::deno_json::NewestDependencyDate::Disabled),
+        ));
+        assert!(install_root.join("package-lock.json").is_file());
+    }
+
+    #[test]
+    fn install_layout_resolves_cache_for_package_lock_import_without_belgie_deps() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("workspace");
+        let install_root = folder.path().join("install");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&install_root).unwrap();
+        std::fs::write(workspace.join("package-lock.json"), "{}").unwrap();
+        let definition = EnvironmentDefinition::from_mapping_with_options(
+            workspace,
+            None,
+            BTreeMap::new(),
+            None,
+            None,
+            package_import_options(None),
+        )
+        .unwrap();
+
+        let layout = prepare_install_layout(&install_root, &definition).unwrap();
+
+        assert!(layout.embed_options.cache.is_some());
+    }
+
+    #[test]
+    fn uses_package_loader_when_importing_package_lockfile() {
+        let folder = tempfile::tempdir().unwrap();
+        let definition = EnvironmentDefinition::from_mapping_with_options(
+            folder.path().to_path_buf(),
+            None,
+            BTreeMap::new(),
+            None,
+            None,
+            package_import_options(None),
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+        let active = environment.activate_blocking().unwrap();
+
+        assert!(active.uses_package_loader());
+        environment.deactivate().unwrap();
     }
 
     #[test]

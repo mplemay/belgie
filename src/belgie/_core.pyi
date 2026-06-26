@@ -142,6 +142,7 @@ class RuntimeOptions:
         log_level: WorkerLogLevel | None = None,
         enable_testing_features: bool = False,
         enable_raw_imports: bool = False,
+        disable_offscreen_canvas: bool = False,
         trace_ops: Iterable[str] | None = None,
     ) -> None: ...
 
@@ -161,6 +162,8 @@ class EnvironmentOptions:
         production: bool = False,
         skip_types: bool = False,
         unsafely_ignore_certificate_errors: bool | Iterable[str] | None = None,
+        import_package_lockfile: bool = False,
+        minimum_dependency_age_minutes: int | None = None,
     ) -> None: ...
 
 class Environment:

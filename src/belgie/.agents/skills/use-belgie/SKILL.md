@@ -162,7 +162,8 @@ Load only the most relevant reference first. Read additional references only if 
 
 ## Key Practices
 
-- Use the public integration surface: `Runtime`, `Script`, `Environment`, `Command`, `RuntimeOptions`.
+- Use the public integration surface: `Runtime`, `Script`, `Environment`, `Command`, `RuntimeOptions`,
+  `EnvironmentOptions`.
 - Install with `uv add belgie`.
 - Import script packages inline with `npm:`, `jsr:`, or URL specifiers; do not put JavaScript dependencies in Python
   `pyproject.toml`.

@@ -109,6 +109,44 @@ def test_runtime_worker_location_is_exposed_with_environment(tmp_path: Path):
         assert runtime(Script("export default () => globalThis.location.href;"))() == "https://example.com/app?x=1"
 
 
+def test_runtime_can_disable_offscreen_canvas_with_environment(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with (
+        Environment(path=project) as env,
+        Runtime(env=env, options=RuntimeOptions(disable_offscreen_canvas=True)) as runtime,
+    ):
+        assert runtime(Script("export default () => typeof globalThis.OffscreenCanvas;"))() == "undefined"
+
+
+def test_runtime_supports_css_module_imports_with_raw_imports(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "style.css").write_text("body { color: rgb(1, 2, 3); }\n", encoding="utf-8")
+    main = project / "main.js"
+    main.write_text(
+        """
+import sheet from "./style.css" with { type: "css" };
+
+export default () => ({
+  constructorName: sheet.constructor.name,
+  replaceSyncType: typeof sheet.replaceSync,
+});
+""",
+        encoding="utf-8",
+    )
+
+    with (
+        Environment(path=project) as env,
+        Runtime(env=env, options=RuntimeOptions(enable_raw_imports=True)) as runtime,
+    ):
+        assert runtime(Script.from_file(main))() == {
+            "constructorName": "CSSStyleSheet",
+            "replaceSyncType": "function",
+        }
+
+
 def test_runtime_permissions_can_deny_and_allow_read_access(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()
@@ -244,6 +282,112 @@ def test_environment_options_can_disable_inline_npm_resolution(tmp_path: Path):
         pytest.raises((BelgieModuleError, BelgieRuntimeError), match="npm|NPM|package"),
     ):
         runtime(Script('import camelcase from "npm:camelcase@8.0.0"; export default () => camelcase("x-y");'))()
+
+
+def test_environment_can_seed_deno_lock_from_package_lock(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    package_lock = {
+        "name": "belgie-lock-seed",
+        "lockfileVersion": 3,
+        "packages": {
+            "": {
+                "name": "belgie-lock-seed",
+                "dependencies": {"is-number": "7.0.0"},
+            },
+            "node_modules/is-number": {
+                "version": "7.0.0",
+                "resolved": "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz",
+                "integrity": (
+                    "sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD4GR/87Rkhl7s9EuvWSJQ4D2bK50yDVsE1aZ4l8VYTk1wcAaw=="
+                ),
+            },
+        },
+    }
+    (project / "package-lock.json").write_text(json.dumps(package_lock), encoding="utf-8")
+
+    with Environment(
+        {"is_number": "npm:is-number@7.0.0"},
+        path=project,
+        options=EnvironmentOptions(import_package_lockfile=True),
+    ) as env:
+        result = env.install()
+
+    assert result.dependencies == 1
+    assert (project / "deno.lock").is_file()
+    assert "npm:is-number@7.0.0" in (project / "deno.lock").read_text(encoding="utf-8")
+    assert (project / "package-lock.json").is_file()
+
+
+def test_environment_can_seed_deno_lock_from_package_json_only(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    package_json = {
+        "name": "belgie-package-json-only",
+        "version": "1.0.0",
+        "dependencies": {"is-number": "7.0.0"},
+    }
+    package_lock = {
+        "name": "belgie-package-json-only",
+        "lockfileVersion": 3,
+        "packages": {
+            "": {
+                "name": "belgie-package-json-only",
+                "dependencies": {"is-number": "7.0.0"},
+            },
+            "node_modules/is-number": {
+                "version": "7.0.0",
+                "resolved": "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz",
+                "integrity": (
+                    "sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD4GR/87Rkhl7s9EuvWSJQ4D2bK50yDVsE1aZ4l8VYTk1wcAaw=="
+                ),
+            },
+        },
+    }
+    (project / "package.json").write_text(json.dumps(package_json), encoding="utf-8")
+    (project / "package-lock.json").write_text(json.dumps(package_lock), encoding="utf-8")
+
+    with Environment(
+        path=project,
+        options=EnvironmentOptions(
+            import_package_lockfile=True,
+            minimum_dependency_age_minutes=0,
+        ),
+    ) as env:
+        result = env.install()
+
+    assert result.dependencies == 0
+    assert (project / "deno.lock").is_file()
+    assert "npm:is-number@7.0.0" in (project / "deno.lock").read_text(encoding="utf-8")
+
+
+def test_environment_default_minimum_dependency_age_allows_old_packages(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with Environment(
+        {"is_number": "npm:is-number@7.0.0"},
+        path=project,
+    ) as env:
+        result = env.install()
+
+    assert result.dependencies == 1
+    assert (project / "deno.lock").is_file()
+
+
+def test_environment_options_can_disable_minimum_dependency_age(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with Environment(
+        {"is_number": "npm:is-number@7.0.0"},
+        path=project,
+        options=EnvironmentOptions(minimum_dependency_age_minutes=0),
+    ) as env:
+        result = env.install()
+
+    assert result.dependencies == 1
+    assert (project / "deno.lock").is_file()
 
 
 def test_frozen_lockfile_environment_rejects_inline_dependency_changes(tmp_path: Path, monkeypatch):

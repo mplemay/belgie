@@ -12,7 +12,7 @@ use pyo3::{
 };
 
 use crate::{
-    binding::{blocking, packages},
+    binding::{blocking, normalize, packages},
     environment::{EnvironmentDefinition, SharedEnvironment},
     options::EnvironmentOptions,
     utils::normalize_path,
@@ -58,7 +58,7 @@ pub struct PyAsyncEnvironment {
 #[pymethods]
 impl PyEnvironmentOptions {
     #[new]
-    #[pyo3(signature = (*, cache_setting = "use", reload = None, allow_remote = true, allow_json_imports = "with_attribute", node_modules_dir = None, node_modules_linker = None, npm_caching = "eager", no_npm = false, clean_on_install = true, production = false, skip_types = false, unsafely_ignore_certificate_errors = None))]
+    #[pyo3(signature = (*, cache_setting = "use", reload = None, allow_remote = true, allow_json_imports = "with_attribute", node_modules_dir = None, node_modules_linker = None, npm_caching = "eager", no_npm = false, clean_on_install = true, production = false, skip_types = false, unsafely_ignore_certificate_errors = None, import_package_lockfile = false, minimum_dependency_age_minutes = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         cache_setting: &str,
@@ -73,12 +73,18 @@ impl PyEnvironmentOptions {
         production: bool,
         skip_types: bool,
         unsafely_ignore_certificate_errors: Option<&Bound<'_, PyAny>>,
+        import_package_lockfile: bool,
+        minimum_dependency_age_minutes: Option<i64>,
     ) -> PyResult<Self> {
         let cache_setting = normalize_cache_setting(cache_setting, reload)?;
         let allow_json_imports = normalize_allow_json_imports(allow_json_imports)?;
         let node_modules_dir = normalize_node_modules_dir(node_modules_dir)?;
         let node_modules_linker = normalize_node_modules_linker(node_modules_linker)?;
         let npm_caching = normalize_npm_caching(npm_caching)?;
+        let minimum_dependency_age_minutes = normalize::normalize_non_negative_u64(
+            "minimum_dependency_age_minutes",
+            minimum_dependency_age_minutes,
+        )?;
         Ok(Self {
             inner: EnvironmentOptions::new(
                 cache_setting.0,
@@ -92,6 +98,8 @@ impl PyEnvironmentOptions {
                 production,
                 skip_types,
                 normalize_certificate_errors(unsafely_ignore_certificate_errors)?,
+                import_package_lockfile,
+                minimum_dependency_age_minutes,
             ),
             cache_setting: cache_setting.1,
             allow_json_imports: allow_json_imports.1,
@@ -103,12 +111,14 @@ impl PyEnvironmentOptions {
 
     fn __repr__(&self) -> String {
         format!(
-            "EnvironmentOptions(cache_setting={:?}, allow_json_imports={:?}, node_modules_dir={:?}, node_modules_linker={:?}, npm_caching={:?})",
+            "EnvironmentOptions(cache_setting={:?}, allow_json_imports={:?}, node_modules_dir={:?}, node_modules_linker={:?}, npm_caching={:?}, import_package_lockfile={:?}, minimum_dependency_age_minutes={:?})",
             self.cache_setting,
             self.allow_json_imports,
             self.node_modules_dir,
             self.node_modules_linker,
             self.npm_caching,
+            self.inner.import_package_lockfile(),
+            self.inner.minimum_dependency_age_minutes(),
         )
     }
 }
