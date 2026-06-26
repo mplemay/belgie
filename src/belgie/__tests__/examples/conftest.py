@@ -44,3 +44,8 @@ def command_module() -> Iterator[ModuleType]:
 @pytest.fixture
 def environment_module() -> Iterator[ModuleType]:
     yield from _load_example_main(EXAMPLES_ROOT / "environment", "environment")
+
+
+@pytest.fixture
+def pydantic_ai_demo_module() -> Iterator[ModuleType]:
+    yield from _load_example_main(EXAMPLES_ROOT / "pydantic-ai", "pydantic_ai_demo")

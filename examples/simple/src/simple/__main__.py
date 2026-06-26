@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Final
 
@@ -14,11 +15,13 @@ async def greet(name: str) -> str:
     return str(result["greeting"])
 
 
-async def main() -> None:
+async def _main() -> None:
     print(await greet("belgie"))  # noqa: T201
 
 
-if __name__ == "__main__":
-    import asyncio
+def main() -> None:
+    asyncio.run(_main())
 
-    asyncio.run(main())
+
+if __name__ == "__main__":
+    main()
