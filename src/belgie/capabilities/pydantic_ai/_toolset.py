@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from types import TracebackType
@@ -7,9 +8,11 @@ from typing import Annotated, Any, Final, Self, TypedDict, cast
 
 from pydantic import Field, TypeAdapter
 from pydantic_ai import AbstractToolset, RunContext, ToolDefinition, WrapperToolset
+from pydantic_ai._deferred_capabilities import DEFERRED_CAPABILITY_TOOL_METADATA_KEY
 from pydantic_ai.exceptions import ModelRetry, UserError
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT
+from pydantic_ai.toolsets._deferred_capability_loader import LOAD_CAPABILITY_TOOL_NAME
 from pydantic_ai.toolsets.abstract import SchemaValidatorProt, ToolsetTool
 
 from belgie import Environment, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
@@ -76,8 +79,16 @@ INSTRUCTIONS_CONFLICT_MESSAGE: Final[str] = (
 RUNTIME_ENVIRONMENT_CONFLICT_MESSAGE: Final[str] = (
     "`runtime` cannot be combined with `environment` or `runtime_options`."
 )
-UNSUPPORTED_TOOL_MESSAGE: Final[str] = "Belgie capability only supports the {tool_name!r} tool."
+UNSUPPORTED_TOOL_MESSAGE: Final[str] = (
+    "Belgie capability only supports the {supported_tool_name!r} tool, not {requested_tool_name!r}."
+)
 TOOLSET_NOT_ENTERED_MESSAGE: Final[str] = "BelgieToolset must be entered before calling tools."
+DEFER_LOADING_REQUIRES_ID_MESSAGE: Final[str] = "`defer_loading=True` requires a stable `id` on the Belgie capability."
+SCRIPT_TIMEOUT_MESSAGE: Final[str] = "Belgie script execution timed out after {timeout} seconds."
+DEFAULT_BELGIE_CAPABILITY_ID: Final[str] = "belgie"
+DEFAULT_BELGIE_CAPABILITY_DESCRIPTION: Final[str] = (
+    "Execute JavaScript or TypeScript belgie.Script modules in a Deno sandbox via run_code."
+)
 
 
 class _BelgieOptionsKwargs(TypedDict):
@@ -87,6 +98,9 @@ class _BelgieOptionsKwargs(TypedDict):
     runtime_options: RuntimeOptions | None
     instructions: str | None
     dangerously_replace_instructions: str | None
+    timeout: float | None
+    defer_loading: bool
+    capability_id: str | None
 
 
 @dataclass(kw_only=True)
@@ -97,12 +111,17 @@ class _BelgieOptions:
     runtime_options: RuntimeOptions | None = None
     instructions: str | None = None
     dangerously_replace_instructions: str | None = None
+    timeout: float | None = None
+    defer_loading: bool = False
+    capability_id: str | None = None
 
     def validate(self) -> None:
         if self.instructions is not None and self.dangerously_replace_instructions is not None:
             raise UserError(INSTRUCTIONS_CONFLICT_MESSAGE)
         if self.runtime is not None and (self.environment is not None or self.runtime_options is not None):
             raise UserError(RUNTIME_ENVIRONMENT_CONFLICT_MESSAGE)
+        if self.defer_loading and self.capability_id is None:
+            raise UserError(DEFER_LOADING_REQUIRES_ID_MESSAGE)
 
     def options_kwargs(self) -> _BelgieOptionsKwargs:
         return {
@@ -112,6 +131,9 @@ class _BelgieOptions:
             "runtime_options": self.runtime_options,
             "instructions": self.instructions,
             "dangerously_replace_instructions": self.dangerously_replace_instructions,
+            "timeout": self.timeout,
+            "defer_loading": self.defer_loading,
+            "capability_id": self.capability_id,
         }
 
 
@@ -123,11 +145,17 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     def __post_init__(self) -> None:
         self.validate()
 
-    async def for_run(self, ctx: RunContext[AgentDepsT]) -> AbstractToolset[AgentDepsT]:  # noqa: ARG002
-        return replace(self)
+    async def for_run(self, ctx: RunContext[AgentDepsT]) -> AbstractToolset[AgentDepsT]:
+        new_wrapped = await self.wrapped.for_run(ctx)
+        if new_wrapped is self.wrapped:
+            return self
+        return replace(self, wrapped=new_wrapped)
 
-    async def for_run_step(self, ctx: RunContext[AgentDepsT]) -> AbstractToolset[AgentDepsT]:  # noqa: ARG002
-        return self
+    async def for_run_step(self, ctx: RunContext[AgentDepsT]) -> AbstractToolset[AgentDepsT]:
+        new_wrapped = await self.wrapped.for_run_step(ctx)
+        if new_wrapped is self.wrapped:
+            return self
+        return replace(self, wrapped=new_wrapped)
 
     async def get_instructions(self, ctx: RunContext[AgentDepsT]) -> None:  # noqa: ARG002
         # Wrapped toolset instructions must not leak into the system prompt.
@@ -139,6 +167,7 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
 
         stack = AsyncExitStack()
         try:
+            await stack.enter_async_context(self.wrapped)
             self._active_runtime = await self._enter_runtime(stack)
             self._exit_stack = stack
         except BaseException:
@@ -154,31 +183,45 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
             return None
         return await stack.__aexit__(*cast("AsyncExitArgs", args))
 
-    async def get_tools(self, ctx: RunContext[AgentDepsT]) -> dict[str, ToolsetTool[AgentDepsT]]:  # noqa: ARG002
-        return {
-            RUN_CODE_TOOL_NAME: ToolsetTool(
-                toolset=self,
-                tool_def=ToolDefinition(
-                    name=RUN_CODE_TOOL_NAME,
-                    description=self._resolved_description(),
-                    parameters_json_schema=RUN_CODE_JSON_SCHEMA,
-                    metadata=RUN_CODE_METADATA,
-                    sequential=True,
-                ),
-                max_retries=self.max_retries,
-                args_validator=RUN_CODE_ARGS_VALIDATOR,
+    async def get_tools(self, ctx: RunContext[AgentDepsT]) -> dict[str, ToolsetTool[AgentDepsT]]:
+        wrapped_tools = await self.wrapped.get_tools(ctx)
+        tools = {name: tool for name, tool in wrapped_tools.items() if name == LOAD_CAPABILITY_TOOL_NAME}
+        metadata: dict[str, Any] = dict(RUN_CODE_METADATA)
+        if self.defer_loading:
+            metadata[DEFERRED_CAPABILITY_TOOL_METADATA_KEY] = True
+        tools[RUN_CODE_TOOL_NAME] = ToolsetTool(
+            toolset=self,
+            tool_def=ToolDefinition(
+                name=RUN_CODE_TOOL_NAME,
+                description=self._resolved_description(),
+                parameters_json_schema=RUN_CODE_JSON_SCHEMA,
+                metadata=metadata,
+                sequential=True,
+                timeout=self.timeout,
+                defer_loading=self.defer_loading,
+                capability_id=self.capability_id if self.defer_loading else None,
             ),
-        }
+            max_retries=self.max_retries,
+            args_validator=RUN_CODE_ARGS_VALIDATOR,
+        )
+        return tools
 
     async def call_tool(
         self,
         name: str,
         tool_args: dict[str, Any],
-        ctx: RunContext[AgentDepsT],  # noqa: ARG002
-        tool: ToolsetTool[AgentDepsT],  # noqa: ARG002
+        ctx: RunContext[AgentDepsT],
+        tool: ToolsetTool[AgentDepsT],
     ) -> Any:  # noqa: ANN401
+        if name == LOAD_CAPABILITY_TOOL_NAME:
+            return await self.wrapped.call_tool(name, tool_args, ctx, tool)
         if name != RUN_CODE_TOOL_NAME:
-            raise UserError(UNSUPPORTED_TOOL_MESSAGE.format(tool_name=RUN_CODE_TOOL_NAME))
+            raise UserError(
+                UNSUPPORTED_TOOL_MESSAGE.format(
+                    supported_tool_name=RUN_CODE_TOOL_NAME,
+                    requested_tool_name=name,
+                ),
+            )
         if self._exit_stack is None:
             raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
 
@@ -211,7 +254,13 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
         if self._active_runtime is None:
             raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
         runner = self._active_runtime(Script(source))
-        return await runner()
+        try:
+            if self.timeout is None:
+                return await runner()
+            return await asyncio.wait_for(runner(), timeout=self.timeout)
+        except TimeoutError as error:
+            retry_message = SCRIPT_TIMEOUT_MESSAGE.format(timeout=self.timeout)
+            raise ModelRetry(retry_message) from error
 
     def _resolved_description(self) -> str:
         if self.dangerously_replace_instructions is not None:
