@@ -409,7 +409,10 @@ fn prepare_install_layout(
         ..Default::default()
     };
 
-    if has_dependencies || embed_options.requires_embed_module_loader() {
+    if has_dependencies
+        || embed_options.import_package_lockfile
+        || embed_options.requires_embed_module_loader()
+    {
         embed_options.cache = Some(resolve_environment_cache(
             &definition.workspace,
             definition.cache.as_ref(),
@@ -602,7 +605,11 @@ impl ActiveEnvironment {
     }
 
     pub(crate) fn uses_package_loader(&self) -> bool {
-        self.dependency_count() > 0
+        self.dependency_count() > 0 || self.base_embed_options.import_package_lockfile
+    }
+
+    fn should_run_package_install(&self) -> bool {
+        self.dependency_count() > 0 || self.base_embed_options.import_package_lockfile
     }
 
     pub(crate) fn needs_package_environment(&self, worker_options: &RuntimeWorkerOptions) -> bool {
@@ -631,7 +638,7 @@ impl ActiveEnvironment {
         &self,
         lockfile_only: bool,
     ) -> Result<EnvironmentInstallResult, AnyError> {
-        if self.dependency_count() == 0 {
+        if !self.should_run_package_install() {
             return Ok(EnvironmentInstallResult {
                 lockfile: self.lockfile.clone(),
                 dependencies: 0,
@@ -967,6 +974,48 @@ mod tests {
             Some(deno_config::deno_json::NewestDependencyDate::Disabled),
         ));
         assert!(install_root.join("package-lock.json").is_file());
+    }
+
+    #[test]
+    fn install_layout_resolves_cache_for_package_lock_import_without_belgie_deps() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("workspace");
+        let install_root = folder.path().join("install");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&install_root).unwrap();
+        std::fs::write(workspace.join("package-lock.json"), "{}").unwrap();
+        let definition = EnvironmentDefinition::from_mapping_with_options(
+            workspace,
+            None,
+            BTreeMap::new(),
+            None,
+            None,
+            package_import_options(None),
+        )
+        .unwrap();
+
+        let layout = prepare_install_layout(&install_root, &definition).unwrap();
+
+        assert!(layout.embed_options.cache.is_some());
+    }
+
+    #[test]
+    fn uses_package_loader_when_importing_package_lockfile() {
+        let folder = tempfile::tempdir().unwrap();
+        let definition = EnvironmentDefinition::from_mapping_with_options(
+            folder.path().to_path_buf(),
+            None,
+            BTreeMap::new(),
+            None,
+            None,
+            package_import_options(None),
+        )
+        .unwrap();
+        let environment = SharedEnvironment::new(definition);
+        let active = environment.activate_blocking().unwrap();
+
+        assert!(active.uses_package_loader());
+        environment.deactivate().unwrap();
     }
 
     #[test]

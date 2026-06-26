@@ -15,7 +15,33 @@ direct Deno-style imports such as `npm:pkg@1.0.0` or `jsr:@scope/pkg@1`. Use `En
 aliases, local `file:` packages, a frozen or persisted lockfile, custom cache/options, or npm package binaries.
 
 `Environment()` with no dependency map is valid for dependency-free scripts in an isolated temporary root. Calling
-`install()` on a dependency-less environment succeeds and returns `dependencies=0` without installing packages.
+`install()` on a dependency-less environment succeeds and returns `dependencies=0` without installing packages unless
+`import_package_lockfile=True` and the workspace contains `package.json` with a supported npm lockfile.
+
+## Migrating from npm lockfiles (Deno 2.9)
+
+Set `import_package_lockfile=True` in `EnvironmentOptions` to seed `deno.lock` from an existing `package-lock.json`,
+`pnpm-lock.yaml`, `yarn.lock`, or `bun.lock` on the first install. Belgie dependency mappings are optional when the
+workspace already has a `package.json`:
+
+```python
+from belgie import Environment, EnvironmentOptions
+
+with Environment(
+    path="./my-node-app",
+    options=EnvironmentOptions(import_package_lockfile=True),
+) as env:
+    env.install()
+```
+
+Deno 2.9 enables a default 24-hour minimum dependency age for npm packages. Disable or tune it with
+`minimum_dependency_age_minutes` (`0` disables; `None` uses Deno's default):
+
+```python
+EnvironmentOptions(minimum_dependency_age_minutes=0)
+```
+
+For CSS module imports in scripts, pass `RuntimeOptions(enable_raw_imports=True)` when binding `Runtime`.
 
 ### Ephemeral mode (`path` omitted)
 

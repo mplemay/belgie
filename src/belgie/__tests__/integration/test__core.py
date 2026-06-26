@@ -319,6 +319,62 @@ def test_environment_can_seed_deno_lock_from_package_lock(tmp_path: Path):
     assert (project / "package-lock.json").is_file()
 
 
+def test_environment_can_seed_deno_lock_from_package_json_only(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    package_json = {
+        "name": "belgie-package-json-only",
+        "version": "1.0.0",
+        "dependencies": {"is-number": "7.0.0"},
+    }
+    package_lock = {
+        "name": "belgie-package-json-only",
+        "lockfileVersion": 3,
+        "packages": {
+            "": {
+                "name": "belgie-package-json-only",
+                "dependencies": {"is-number": "7.0.0"},
+            },
+            "node_modules/is-number": {
+                "version": "7.0.0",
+                "resolved": "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz",
+                "integrity": (
+                    "sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD4GR/87Rkhl7s9EuvWSJQ4D2bK50yDVsE1aZ4l8VYTk1wcAaw=="
+                ),
+            },
+        },
+    }
+    (project / "package.json").write_text(json.dumps(package_json), encoding="utf-8")
+    (project / "package-lock.json").write_text(json.dumps(package_lock), encoding="utf-8")
+
+    with Environment(
+        path=project,
+        options=EnvironmentOptions(
+            import_package_lockfile=True,
+            minimum_dependency_age_minutes=0,
+        ),
+    ) as env:
+        result = env.install()
+
+    assert result.dependencies == 0
+    assert (project / "deno.lock").is_file()
+    assert "npm:is-number@7.0.0" in (project / "deno.lock").read_text(encoding="utf-8")
+
+
+def test_environment_default_minimum_dependency_age_allows_old_packages(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with Environment(
+        {"is_number": "npm:is-number@7.0.0"},
+        path=project,
+    ) as env:
+        result = env.install()
+
+    assert result.dependencies == 1
+    assert (project / "deno.lock").is_file()
+
+
 def test_environment_options_can_disable_minimum_dependency_age(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()
