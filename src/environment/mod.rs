@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use deno_config::deno_json::NewestDependencyDate;
 use deno_core::anyhow::{Context, anyhow, bail};
 use deno_core::error::AnyError;
 use deno_resolver::cache::{DenoDirOptions, DenoDirProvider};
@@ -65,6 +66,13 @@ struct InstallLayout {
     frozen_lockfile: bool,
     embed_options: EmbedContextOptions,
 }
+
+const PACKAGE_LOCKFILE_IMPORT_CANDIDATES: &[&str] = &[
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lock",
+];
 
 #[derive(Clone, Debug)]
 struct ActivePackageState {
@@ -357,6 +365,9 @@ fn prepare_install_layout(
     let node_modules_root = install_root.join("node_modules");
 
     let has_dependencies = !definition.dependencies.is_empty();
+    if definition.lockfile_source.is_none() && definition.options.import_package_lockfile() {
+        copy_package_lockfile_seed(&definition.workspace, install_root)?;
+    }
 
     let frozen_lockfile = if let Some(source) = &definition.lockfile_source {
         copy_lockfile(source, &lockfile)?;
@@ -381,6 +392,7 @@ fn prepare_install_layout(
         cache_setting: definition.options.cache_setting().clone(),
         allow_remote: definition.options.allow_remote(),
         allow_json_imports: definition.options.allow_json_imports(),
+        enable_raw_imports: false,
         frozen_lockfile: None,
         is_package_manager_subcommand: false,
         lockfile_skip_write: false,
@@ -388,10 +400,14 @@ fn prepare_install_layout(
         node_modules_linker: definition.options.node_modules_linker(),
         node_modules_root: Some(node_modules_root),
         no_npm: definition.options.no_npm(),
+        import_package_lockfile: definition.options.import_package_lockfile(),
         npm_caching: definition.options.npm_caching(),
         clean_on_install: definition.options.clean_on_install(),
         production: definition.options.production(),
         skip_types: definition.options.skip_types(),
+        newest_dependency_date: newest_dependency_date(
+            definition.options.minimum_dependency_age_minutes(),
+        )?,
         unsafely_ignore_certificate_errors: definition.options.unsafely_ignore_certificate_errors(),
         specified_import_map: None,
         install_graph_roots: Vec::new(),
@@ -409,6 +425,43 @@ fn prepare_install_layout(
         frozen_lockfile,
         embed_options,
     })
+}
+
+fn copy_package_lockfile_seed(workspace: &Path, install_root: &Path) -> Result<(), AnyError> {
+    for file_name in PACKAGE_LOCKFILE_IMPORT_CANDIDATES {
+        let source = workspace.join(file_name);
+        if !source.is_file() {
+            continue;
+        }
+        let destination = install_root.join(file_name);
+        if source == destination {
+            return Ok(());
+        }
+        std::fs::copy(&source, &destination).with_context(|| {
+            format!(
+                "Copying package lockfile from {} to {}",
+                source.display(),
+                destination.display()
+            )
+        })?;
+        return Ok(());
+    }
+    Ok(())
+}
+
+fn newest_dependency_date(minutes: Option<u64>) -> Result<Option<NewestDependencyDate>, AnyError> {
+    let Some(minutes) = minutes else {
+        return Ok(None);
+    };
+    if minutes == 0 {
+        return Ok(Some(NewestDependencyDate::Disabled));
+    }
+    let minutes = i64::try_from(minutes)
+        .map_err(|_| anyhow!("minimum_dependency_age_minutes is too large"))?;
+    let now = chrono::DateTime::<chrono::Utc>::from(std::time::SystemTime::now());
+    Ok(Some(NewestDependencyDate::Enabled(
+        now - chrono::Duration::minutes(minutes),
+    )))
 }
 
 impl ActiveEnvironment {
@@ -567,8 +620,12 @@ impl ActiveEnvironment {
         Ok(())
     }
 
-    pub(crate) fn embed_context(&self) -> Result<Rc<EmbedContext>, AnyError> {
-        let options = self.embed_options()?;
+    pub(crate) fn embed_context_with_worker_options(
+        &self,
+        worker_options: &RuntimeWorkerOptions,
+    ) -> Result<Rc<EmbedContext>, AnyError> {
+        let mut options = self.embed_options()?;
+        options.enable_raw_imports = worker_options.enable_raw_imports();
         Ok(Rc::new(EmbedContext::new_with_options(
             self.workspace.clone(),
             self.lockfile.clone(),
@@ -692,8 +749,12 @@ mod tests {
     use std::sync::Arc;
 
     use crate::environment::materialize::create_dangling_dir_symlink;
+    use crate::options::EnvironmentOptions;
 
-    use super::{ActiveEnvironment, EnvironmentDefinition, SharedEnvironment};
+    use super::{
+        ActiveEnvironment, EnvironmentDefinition, NewestDependencyDate, SharedEnvironment,
+        copy_package_lockfile_seed, newest_dependency_date, prepare_install_layout,
+    };
 
     // Tests mutate env vars; run serially.
     fn restore_env_var(name: &str, previous: Option<&OsString>) {
@@ -786,6 +847,24 @@ mod tests {
             .expect("default cache should be resolved")
     }
 
+    fn package_import_options(minutes: Option<u64>) -> EnvironmentOptions {
+        EnvironmentOptions::new(
+            deno_cache_dir::file_fetcher::CacheSetting::Use,
+            true,
+            deno_resolver::loader::AllowJsonImports::WithAttribute,
+            None,
+            None,
+            deno_npm_installer::graph::NpmCachingStrategy::Eager,
+            false,
+            true,
+            false,
+            false,
+            None,
+            true,
+            minutes,
+        )
+    }
+
     fn setup_materialized_npm_env() -> (
         tempfile::TempDir,
         PathBuf,
@@ -868,6 +947,91 @@ mod tests {
         .unwrap();
 
         assert_eq!(definition.dependency_count(), 1);
+    }
+
+    #[test]
+    fn package_lockfile_seed_copies_first_matching_project_lockfile() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("workspace");
+        let install_root = folder.path().join("install");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&install_root).unwrap();
+        std::fs::write(workspace.join("yarn.lock"), "yarn").unwrap();
+        std::fs::write(workspace.join("package-lock.json"), "npm").unwrap();
+
+        copy_package_lockfile_seed(&workspace, &install_root).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(install_root.join("package-lock.json")).unwrap(),
+            "npm",
+        );
+        assert!(!install_root.join("yarn.lock").exists());
+    }
+
+    #[test]
+    fn package_lockfile_seed_ignores_missing_project_lockfiles() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("workspace");
+        let install_root = folder.path().join("install");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&install_root).unwrap();
+
+        copy_package_lockfile_seed(&workspace, &install_root).unwrap();
+
+        assert_eq!(std::fs::read_dir(&install_root).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn install_layout_propagates_package_import_options() {
+        let folder = tempfile::tempdir().unwrap();
+        let workspace = folder.path().join("workspace");
+        let install_root = folder.path().join("install");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&install_root).unwrap();
+        std::fs::write(workspace.join("package-lock.json"), "{}").unwrap();
+        let definition = EnvironmentDefinition::from_mapping_with_options(
+            workspace,
+            None,
+            BTreeMap::new(),
+            None,
+            None,
+            package_import_options(Some(0)),
+        )
+        .unwrap();
+
+        let layout = prepare_install_layout(&install_root, &definition).unwrap();
+
+        assert!(layout.embed_options.import_package_lockfile);
+        assert!(matches!(
+            layout.embed_options.newest_dependency_date,
+            Some(NewestDependencyDate::Disabled),
+        ));
+        assert!(install_root.join("package-lock.json").is_file());
+    }
+
+    #[test]
+    fn minimum_dependency_age_none_uses_deno_default() {
+        assert!(newest_dependency_date(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn minimum_dependency_age_zero_disables_filter() {
+        assert!(matches!(
+            newest_dependency_date(Some(0)).unwrap(),
+            Some(NewestDependencyDate::Disabled),
+        ));
+    }
+
+    #[test]
+    fn minimum_dependency_age_positive_sets_cutoff_date() {
+        let now = chrono::Utc::now();
+        let date = newest_dependency_date(Some(5)).unwrap();
+        let Some(NewestDependencyDate::Enabled(cutoff)) = date else {
+            panic!("expected enabled newest dependency date");
+        };
+
+        assert!(cutoff <= now);
+        assert!(cutoff > now - chrono::Duration::minutes(6));
     }
 
     #[test]

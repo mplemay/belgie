@@ -34,6 +34,7 @@ pub(crate) struct RuntimeWorkerOptions {
     log_level: Option<WorkerLogLevel>,
     enable_testing_features: bool,
     enable_raw_imports: bool,
+    disable_offscreen_canvas: bool,
     trace_ops: Option<Vec<String>>,
 }
 
@@ -107,6 +108,10 @@ impl RuntimeEnvironment {
 }
 
 impl RuntimeWorkerOptions {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "mirrors the normalized RuntimeOptions binding fields"
+    )]
     pub(crate) fn new(
         permissions: RuntimePermissionOptions,
         seed: Option<u64>,
@@ -114,6 +119,7 @@ impl RuntimeWorkerOptions {
         log_level: Option<WorkerLogLevel>,
         enable_testing_features: bool,
         enable_raw_imports: bool,
+        disable_offscreen_canvas: bool,
         trace_ops: Option<Vec<String>>,
     ) -> Self {
         Self {
@@ -123,6 +129,7 @@ impl RuntimeWorkerOptions {
             log_level,
             enable_testing_features,
             enable_raw_imports,
+            disable_offscreen_canvas,
             trace_ops,
         }
     }
@@ -134,6 +141,7 @@ impl RuntimeWorkerOptions {
             || self.log_level.is_some()
             || self.enable_testing_features
             || self.enable_raw_imports
+            || self.disable_offscreen_canvas
             || self.trace_ops.is_some()
     }
 
@@ -159,6 +167,10 @@ impl RuntimeWorkerOptions {
 
     pub(crate) fn enable_raw_imports(&self) -> bool {
         self.enable_raw_imports
+    }
+
+    pub(crate) fn disable_offscreen_canvas(&self) -> bool {
+        self.disable_offscreen_canvas
     }
 
     pub(crate) fn trace_ops(&self) -> Option<Vec<String>> {
@@ -326,6 +338,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
             false,
             None,

@@ -66,14 +66,15 @@ impl ImplicitPackageEnvironment {
         })
     }
 
-    fn embed_context(&self) -> Result<Rc<EmbedContext>, BindingError> {
+    fn embed_context(
+        &self,
+        worker_options: &RuntimeWorkerOptions,
+    ) -> Result<Rc<EmbedContext>, BindingError> {
+        let mut options = self.options.clone();
+        options.enable_raw_imports = worker_options.enable_raw_imports();
         Ok(Rc::new(
-            EmbedContext::new_with_options(
-                self.workspace.clone(),
-                self.lockfile.clone(),
-                self.options.clone(),
-            )
-            .map_err(|error| BindingError::runtime(error.to_string()))?,
+            EmbedContext::new_with_options(self.workspace.clone(), self.lockfile.clone(), options)
+                .map_err(|error| BindingError::runtime(error.to_string()))?,
         ))
     }
 }
@@ -105,12 +106,15 @@ impl BoundPackageEnvironment {
         }
     }
 
-    pub(crate) fn embed_context_rc(&self) -> Result<Rc<EmbedContext>, BindingError> {
+    pub(crate) fn embed_context_rc(
+        &self,
+        worker_options: &RuntimeWorkerOptions,
+    ) -> Result<Rc<EmbedContext>, BindingError> {
         match self {
             Self::Isolated(environment) => environment
-                .embed_context()
+                .embed_context_with_worker_options(worker_options)
                 .map_err(|error| BindingError::runtime(error.to_string())),
-            Self::Implicit(environment) => environment.embed_context(),
+            Self::Implicit(environment) => environment.embed_context(worker_options),
         }
     }
 

@@ -31,6 +31,8 @@ pub struct PyEnvironmentOptions {
     node_modules_dir: Option<String>,
     node_modules_linker: Option<String>,
     npm_caching: String,
+    import_package_lockfile: bool,
+    minimum_dependency_age_minutes: Option<u64>,
 }
 
 #[pyclass(name = "Environment", module = "belgie._core", skip_from_py_object)]
@@ -58,7 +60,7 @@ pub struct PyAsyncEnvironment {
 #[pymethods]
 impl PyEnvironmentOptions {
     #[new]
-    #[pyo3(signature = (*, cache_setting = "use", reload = None, allow_remote = true, allow_json_imports = "with_attribute", node_modules_dir = None, node_modules_linker = None, npm_caching = "eager", no_npm = false, clean_on_install = true, production = false, skip_types = false, unsafely_ignore_certificate_errors = None))]
+    #[pyo3(signature = (*, cache_setting = "use", reload = None, allow_remote = true, allow_json_imports = "with_attribute", node_modules_dir = None, node_modules_linker = None, npm_caching = "eager", no_npm = false, clean_on_install = true, production = false, skip_types = false, unsafely_ignore_certificate_errors = None, import_package_lockfile = false, minimum_dependency_age_minutes = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         cache_setting: &str,
@@ -73,12 +75,16 @@ impl PyEnvironmentOptions {
         production: bool,
         skip_types: bool,
         unsafely_ignore_certificate_errors: Option<&Bound<'_, PyAny>>,
+        import_package_lockfile: bool,
+        minimum_dependency_age_minutes: Option<i64>,
     ) -> PyResult<Self> {
         let cache_setting = normalize_cache_setting(cache_setting, reload)?;
         let allow_json_imports = normalize_allow_json_imports(allow_json_imports)?;
         let node_modules_dir = normalize_node_modules_dir(node_modules_dir)?;
         let node_modules_linker = normalize_node_modules_linker(node_modules_linker)?;
         let npm_caching = normalize_npm_caching(npm_caching)?;
+        let minimum_dependency_age_minutes =
+            normalize_minimum_dependency_age_minutes(minimum_dependency_age_minutes)?;
         Ok(Self {
             inner: EnvironmentOptions::new(
                 cache_setting.0,
@@ -92,23 +98,29 @@ impl PyEnvironmentOptions {
                 production,
                 skip_types,
                 normalize_certificate_errors(unsafely_ignore_certificate_errors)?,
+                import_package_lockfile,
+                minimum_dependency_age_minutes,
             ),
             cache_setting: cache_setting.1,
             allow_json_imports: allow_json_imports.1,
             node_modules_dir: node_modules_dir.map(|value| value.1),
             node_modules_linker: node_modules_linker.map(|value| value.1),
             npm_caching: npm_caching.1,
+            import_package_lockfile,
+            minimum_dependency_age_minutes,
         })
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "EnvironmentOptions(cache_setting={:?}, allow_json_imports={:?}, node_modules_dir={:?}, node_modules_linker={:?}, npm_caching={:?})",
+            "EnvironmentOptions(cache_setting={:?}, allow_json_imports={:?}, node_modules_dir={:?}, node_modules_linker={:?}, npm_caching={:?}, import_package_lockfile={:?}, minimum_dependency_age_minutes={:?})",
             self.cache_setting,
             self.allow_json_imports,
             self.node_modules_dir,
             self.node_modules_linker,
             self.npm_caching,
+            self.import_package_lockfile,
+            self.minimum_dependency_age_minutes,
         )
     }
 }
@@ -466,6 +478,16 @@ fn normalize_certificate_errors(value: Option<&Bound<'_, PyAny>>) -> PyResult<Op
     value.extract::<Vec<String>>().map(Some).map_err(|_| {
         PyTypeError::new_err("unsafely_ignore_certificate_errors must be bool or iterable of str")
     })
+}
+
+fn normalize_minimum_dependency_age_minutes(value: Option<i64>) -> PyResult<Option<u64>> {
+    match value {
+        Some(value) if value < 0 => Err(PyValueError::new_err(
+            "minimum_dependency_age_minutes must be a non-negative integer",
+        )),
+        Some(value) => Ok(Some(value as u64)),
+        None => Ok(None),
+    }
 }
 
 fn invalid_option(field_name: &str, value: &str, expected: &str) -> PyErr {

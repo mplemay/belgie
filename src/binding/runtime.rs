@@ -127,7 +127,7 @@ impl PyRuntimePermissions {
 #[pymethods]
 impl PyRuntimeOptions {
     #[new]
-    #[pyo3(signature = (*, max_old_generation_size_mb = None, max_young_generation_size_mb = None, code_range_size_mb = None, permissions = None, seed = None, location = None, log_level = None, enable_testing_features = false, enable_raw_imports = false, trace_ops = None))]
+    #[pyo3(signature = (*, max_old_generation_size_mb = None, max_young_generation_size_mb = None, code_range_size_mb = None, permissions = None, seed = None, location = None, log_level = None, enable_testing_features = false, enable_raw_imports = false, disable_offscreen_canvas = false, trace_ops = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         max_old_generation_size_mb: Option<i64>,
@@ -139,6 +139,7 @@ impl PyRuntimeOptions {
         log_level: Option<&str>,
         enable_testing_features: bool,
         enable_raw_imports: bool,
+        disable_offscreen_canvas: bool,
         trace_ops: Option<Vec<String>>,
     ) -> PyResult<Self> {
         let log_level_value = normalize_log_level(log_level)?;
@@ -161,6 +162,7 @@ impl PyRuntimeOptions {
                 log_level_value.0,
                 enable_testing_features,
                 enable_raw_imports,
+                disable_offscreen_canvas,
                 trace_ops,
             ),
             permissions_repr: permissions
@@ -172,7 +174,7 @@ impl PyRuntimeOptions {
 
     fn __repr__(&self) -> String {
         format!(
-            "RuntimeOptions(max_old_generation_size_mb={:?}, max_young_generation_size_mb={:?}, code_range_size_mb={:?}, permissions={}, seed={:?}, location={:?}, log_level={:?})",
+            "RuntimeOptions(max_old_generation_size_mb={:?}, max_young_generation_size_mb={:?}, code_range_size_mb={:?}, permissions={}, seed={:?}, location={:?}, log_level={:?}, disable_offscreen_canvas={:?})",
             self.js_runtime.max_old_generation_size_mb(),
             self.js_runtime.max_young_generation_size_mb(),
             self.js_runtime.code_range_size_mb(),
@@ -180,6 +182,7 @@ impl PyRuntimeOptions {
             self.worker.seed(),
             self.worker.location().map(|url| url.to_string()),
             self.log_level_repr,
+            self.worker.disable_offscreen_canvas(),
         )
     }
 }

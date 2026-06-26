@@ -16,6 +16,8 @@ pub(crate) struct EnvironmentOptions {
     production: bool,
     skip_types: bool,
     unsafely_ignore_certificate_errors: Option<Vec<String>>,
+    import_package_lockfile: bool,
+    minimum_dependency_age_minutes: Option<u64>,
 }
 
 impl Default for EnvironmentOptions {
@@ -32,6 +34,8 @@ impl Default for EnvironmentOptions {
             production: false,
             skip_types: false,
             unsafely_ignore_certificate_errors: None,
+            import_package_lockfile: false,
+            minimum_dependency_age_minutes: None,
         }
     }
 }
@@ -53,6 +57,8 @@ impl EnvironmentOptions {
         production: bool,
         skip_types: bool,
         unsafely_ignore_certificate_errors: Option<Vec<String>>,
+        import_package_lockfile: bool,
+        minimum_dependency_age_minutes: Option<u64>,
     ) -> Self {
         Self {
             cache_setting,
@@ -66,6 +72,8 @@ impl EnvironmentOptions {
             production,
             skip_types,
             unsafely_ignore_certificate_errors,
+            import_package_lockfile,
+            minimum_dependency_age_minutes,
         }
     }
 
@@ -112,6 +120,14 @@ impl EnvironmentOptions {
     pub(crate) fn unsafely_ignore_certificate_errors(&self) -> Option<Vec<String>> {
         self.unsafely_ignore_certificate_errors.clone()
     }
+
+    pub(crate) fn import_package_lockfile(&self) -> bool {
+        self.import_package_lockfile
+    }
+
+    pub(crate) fn minimum_dependency_age_minutes(&self) -> Option<u64> {
+        self.minimum_dependency_age_minutes
+    }
 }
 
 #[cfg(test)]
@@ -138,5 +154,7 @@ mod tests {
         assert!(!options.production());
         assert!(!options.skip_types());
         assert!(options.unsafely_ignore_certificate_errors().is_none());
+        assert!(!options.import_package_lockfile());
+        assert!(options.minimum_dependency_age_minutes().is_none());
     }
 }

@@ -159,7 +159,9 @@ async fn run_command(
     let _env_guard = EnvironmentGuard::apply(options.command.env());
     native_addon_host::ensure_symbols_visible()?;
 
-    let context = options.package_environment.embed_context_rc()?;
+    let context = options
+        .package_environment
+        .embed_context_rc(&options.runtime_worker_options)?;
     let (command_name, bin) =
         resolve_command(context.clone(), &command_cwd, options.command.name()).await?;
     let result = match bin {

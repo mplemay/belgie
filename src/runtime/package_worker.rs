@@ -21,7 +21,7 @@ use deno_runtime::deno_node::NodeRequireLoader;
 use deno_runtime::deno_permissions::PermissionsContainer;
 use deno_runtime::deno_tls::RootCertStoreProvider;
 use deno_runtime::deno_tls::rustls::RootCertStore;
-use deno_runtime::deno_web::{BlobStore, BlobStoreTrait};
+use deno_runtime::deno_web::{Blob, BlobStore, BlobStoreTrait};
 use deno_runtime::permissions::RuntimePermissionDescriptorParser;
 use deno_runtime::{
     FeatureChecker, UnconfiguredRuntimeOptions, WorkerExecutionMode, WorkerLogLevel,
@@ -151,7 +151,9 @@ fn default_lib_main_worker_options(
         residual_lazy_esm_sources: snapshot.residual_lazy_esm_sources,
         serve_port: None,
         serve_host: None,
+        close_on_idle: true,
         maybe_initial_cwd: ModuleSpecifier::from_directory_path(cwd).ok(),
+        disable_offscreen_canvas: runtime_worker_options.disable_offscreen_canvas(),
     }
 }
 
@@ -282,6 +284,7 @@ impl ModuleLoaderFactory for BelgieModuleLoaderFactory {
         &self,
         _parent_permissions: PermissionsContainer,
         _permissions: PermissionsContainer,
+        _maybe_main_module_blob: Option<(ModuleSpecifier, Arc<Blob>)>,
     ) -> CreateModuleLoaderResult {
         self.create(true)
     }
@@ -445,6 +448,7 @@ mod tests {
             Some(WorkerLogLevel::Debug),
             true,
             true,
+            true,
             Some(vec!["fs".to_string()]),
         );
 
@@ -462,6 +466,7 @@ mod tests {
         assert!(matches!(options.log_level, WorkerLogLevel::Debug));
         assert!(options.enable_testing_features);
         assert!(options.enable_raw_imports);
+        assert!(options.disable_offscreen_canvas);
         assert_eq!(options.trace_ops, Some(vec!["fs".to_string()]));
         assert_eq!(
             options.unsafely_ignore_certificate_errors,

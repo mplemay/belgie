@@ -251,7 +251,7 @@ impl DenoExecutionContext {
     ) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
         let backend = if let Some(package_environment) = bound.package_environment() {
-            let context = package_environment.embed_context_rc()?;
+            let context = package_environment.embed_context_rc(bound.worker_options())?;
             ExecutionBackend::Package(Box::new(
                 package_worker::create_bound_package_worker(
                     context,

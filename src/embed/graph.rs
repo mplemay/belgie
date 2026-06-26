@@ -162,6 +162,9 @@ async fn build_module_graph_inner(
                 jsr_version_resolver: std::borrow::Cow::Borrowed(jsr_version_resolver),
                 npm_resolver: Some(npm_graph_resolver),
                 resolver: Some(&graph_resolver),
+                unstable_bytes_imports: context.enable_raw_imports(),
+                unstable_text_imports: true,
+                unstable_css_imports: context.enable_raw_imports(),
                 file_system: resolver_factory.workspace_factory().sys(),
                 locker: locker.as_mut().map(|locker| locker as _),
                 ..Default::default()

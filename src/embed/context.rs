@@ -201,6 +201,7 @@ pub(crate) struct EmbedContext {
     graph_loader: Mutex<DenoGraphLoader<NullBlobStore, EmbedSys, EmbedHttpClient>>,
     install_graph_roots: Vec<ModuleSpecifier>,
     allow_json_imports: AllowJsonImports,
+    enable_raw_imports: bool,
     frozen_lockfile: bool,
     unsafely_ignore_certificate_errors: Option<Vec<String>>,
 }
@@ -211,6 +212,7 @@ pub(crate) struct EmbedContextOptions {
     pub cache_setting: CacheSetting,
     pub allow_remote: bool,
     pub allow_json_imports: AllowJsonImports,
+    pub enable_raw_imports: bool,
     pub frozen_lockfile: Option<bool>,
     pub is_package_manager_subcommand: bool,
     pub lockfile_skip_write: bool,
@@ -218,10 +220,12 @@ pub(crate) struct EmbedContextOptions {
     pub node_modules_linker: Option<NodeModulesLinkerMode>,
     pub node_modules_root: Option<PathBuf>,
     pub no_npm: bool,
+    pub import_package_lockfile: bool,
     pub npm_caching: NpmCachingStrategy,
     pub clean_on_install: bool,
     pub production: bool,
     pub skip_types: bool,
+    pub newest_dependency_date: Option<deno_config::deno_json::NewestDependencyDate>,
     pub unsafely_ignore_certificate_errors: Option<Vec<String>>,
     pub specified_import_map: Option<SpecifiedImportMap>,
     pub install_graph_roots: Vec<ModuleSpecifier>,
@@ -234,6 +238,7 @@ impl Default for EmbedContextOptions {
             cache_setting: CacheSetting::Use,
             allow_remote: true,
             allow_json_imports: AllowJsonImports::WithAttribute,
+            enable_raw_imports: false,
             frozen_lockfile: None,
             is_package_manager_subcommand: false,
             lockfile_skip_write: false,
@@ -241,10 +246,12 @@ impl Default for EmbedContextOptions {
             node_modules_linker: None,
             node_modules_root: None,
             no_npm: false,
+            import_package_lockfile: false,
             npm_caching: NpmCachingStrategy::Eager,
             clean_on_install: true,
             production: false,
             skip_types: false,
+            newest_dependency_date: None,
             unsafely_ignore_certificate_errors: None,
             specified_import_map: None,
             install_graph_roots: Vec::new(),
@@ -331,6 +338,7 @@ impl EmbedContext {
                 node_modules_dir: Some(node_modules_dir),
                 node_modules_linker: options.node_modules_linker,
                 no_npm: options.no_npm,
+                import_npm_lockfile: options.import_package_lockfile,
                 root_node_modules_dir_override: options.node_modules_root,
                 ..Default::default()
             },
@@ -340,6 +348,7 @@ impl EmbedContext {
             workspace_factory,
             ResolverFactoryOptions {
                 allow_json_imports: options.allow_json_imports,
+                newest_dependency_date: options.newest_dependency_date,
                 specified_import_map: options.specified_import_map.map(|import_map| {
                     Box::new(StaticImportMapProvider { import_map })
                         as Box<dyn SpecifiedImportMapProvider>
@@ -413,6 +422,7 @@ impl EmbedContext {
             graph_loader: Mutex::new(graph_loader),
             install_graph_roots: options.install_graph_roots,
             allow_json_imports: options.allow_json_imports,
+            enable_raw_imports: options.enable_raw_imports,
             frozen_lockfile: options.frozen_lockfile.unwrap_or(false),
             unsafely_ignore_certificate_errors: options.unsafely_ignore_certificate_errors,
         })
@@ -448,6 +458,10 @@ impl EmbedContext {
 
     pub fn allow_json_imports(&self) -> AllowJsonImports {
         self.allow_json_imports
+    }
+
+    pub fn enable_raw_imports(&self) -> bool {
+        self.enable_raw_imports
     }
 
     pub fn frozen_lockfile(&self) -> bool {
