@@ -118,7 +118,6 @@ class _BelgieOptions:
 @dataclass(kw_only=True)
 class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     _exit_stack: AsyncExitStack | None = field(default=None, init=False, repr=False)
-    _active_environment: BelgieEnvironment | None = field(default=None, init=False, repr=False)
     _active_runtime: AsyncRuntime | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -140,10 +139,7 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
 
         stack = AsyncExitStack()
         try:
-            if self.runtime is None:
-                self._active_environment = await self._enter_environment(stack)
-            else:
-                self._active_runtime = await stack.enter_async_context(self.runtime)
+            self._active_runtime = await self._enter_runtime(stack)
             self._exit_stack = stack
         except BaseException:
             await stack.aclose()
@@ -153,7 +149,6 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     async def __aexit__(self, *args: object) -> bool | None:
         stack = self._exit_stack
         self._exit_stack = None
-        self._active_environment = None
         self._active_runtime = None
         if stack is None:
             return None
@@ -195,30 +190,28 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
 
         return ToolReturn(
             return_value=return_value,
-            metadata={"belgie": True, "code_language": "typescript"},
+            metadata={"belgie": True, "code_language": RUN_CODE_METADATA["code_arg_language"]},
         )
 
-    async def _enter_environment(self, stack: AsyncExitStack) -> BelgieEnvironment:
-        if self.environment is None:
-            return await stack.enter_async_context(Environment())
-        if isinstance(self.environment, Environment):
-            return await stack.enter_async_context(self.environment)
-        return self.environment
-
-    async def _run_script(self, source: str) -> JsonOutput:
-        script = Script(source)
-        if self._active_runtime is not None:
-            runner = self._active_runtime(script)
-            return await runner()
-
-        active_environment = self._active_environment
-        if active_environment is None:
-            raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
+    async def _enter_runtime(self, stack: AsyncExitStack) -> AsyncRuntime:
+        if self.runtime is not None:
+            return await stack.enter_async_context(self.runtime)
 
         options = self.runtime_options or DEFAULT_RUNTIME_OPTIONS
-        async with Runtime(env=active_environment, options=options) as active_runtime:
-            runner = active_runtime(script)
-            return await runner()
+        if self.environment is None:
+            active_environment = await stack.enter_async_context(Environment())
+        elif isinstance(self.environment, Environment):
+            active_environment = await stack.enter_async_context(self.environment)
+        else:
+            active_environment = self.environment
+
+        return await stack.enter_async_context(Runtime(env=active_environment, options=options))
+
+    async def _run_script(self, source: str) -> JsonOutput:
+        if self._active_runtime is None:
+            raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
+        runner = self._active_runtime(Script(source))
+        return await runner()
 
     def _resolved_description(self) -> str:
         if self.dangerously_replace_instructions is not None:

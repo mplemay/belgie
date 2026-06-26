@@ -14,7 +14,7 @@ from pydantic_core import SchemaValidator, core_schema
 from belgie import Runtime, RuntimeOptions
 from belgie.capabilities import pydantic_ai as pydantic_ai_capability
 from belgie.capabilities.pydantic_ai import DEFAULT_RUN_CODE_INSTRUCTIONS, Belgie
-from belgie.capabilities.pydantic_ai._toolset import BelgieToolset
+from belgie.capabilities.pydantic_ai._toolset import RUN_CODE_METADATA, BelgieToolset
 
 
 @pytest.fixture
@@ -93,7 +93,7 @@ async def test_tool_definition_exposes_typescript_run_code_only(
     assert list(tools) == ["run_code"]
     tool_def = tools["run_code"].tool_def
     assert tool_def.sequential is True
-    assert tool_def.metadata == {"code_arg_name": "code", "code_arg_language": "typescript"}
+    assert tool_def.metadata == RUN_CODE_METADATA
     assert tool_def.parameters_json_schema["required"] == ["code"]
 
 
@@ -119,24 +119,50 @@ export default function run(): { total: number; label: string } {
 
     assert isinstance(result, ToolReturn)
     assert result.return_value == {"total": 42, "label": "typescript"}
-    assert result.metadata == {"belgie": True, "code_language": "typescript"}
+    assert result.metadata == {"belgie": True, "code_language": RUN_CODE_METADATA["code_arg_language"]}
 
 
 async def test_run_code_accepts_named_run_export(
     run_context: RunContext[None],
     belgie_toolset: BelgieToolset[None],
+    named_run_source: str,
 ) -> None:
     async with belgie_toolset:
         tools = await belgie_toolset.get_tools(run_context)
         result = await belgie_toolset.call_tool(
             "run_code",
-            {"code": "export function run(): { ok: boolean } { return { ok: true }; }"},
+            {"code": named_run_source},
             run_context,
             tools["run_code"],
         )
 
     assert isinstance(result, ToolReturn)
     assert result.return_value == {"ok": True}
+
+
+async def test_run_code_supports_multiple_calls_in_one_session(
+    run_context: RunContext[None],
+    belgie_toolset: BelgieToolset[None],
+) -> None:
+    async with belgie_toolset:
+        tools = await belgie_toolset.get_tools(run_context)
+        first = await belgie_toolset.call_tool(
+            "run_code",
+            {"code": "export default function run() { return { call: 1 }; }"},
+            run_context,
+            tools["run_code"],
+        )
+        second = await belgie_toolset.call_tool(
+            "run_code",
+            {"code": "export default function run() { return { call: 2 }; }"},
+            run_context,
+            tools["run_code"],
+        )
+
+    assert isinstance(first, ToolReturn)
+    assert first.return_value == {"call": 1}
+    assert isinstance(second, ToolReturn)
+    assert second.return_value == {"call": 2}
 
 
 async def test_script_errors_become_model_retries(
