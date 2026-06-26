@@ -892,12 +892,12 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let workspace = canonical_test_workspace(&folder);
         let _env = cleared_cache_env();
-        let result = dependency_environment(workspace).activate_blocking();
-        assert!(result.is_err());
-        let message = result.unwrap_err().to_string().to_lowercase();
+        let active = dependency_environment(workspace)
+            .activate_blocking()
+            .unwrap();
         assert!(
-            message.contains("cache") || message.contains("deno_dir") || message.contains("home"),
-            "unexpected error: {message}"
+            active.resolve_embed_options().unwrap().cache.is_some(),
+            "dependency environments should resolve a deno cache"
         );
     }
 
