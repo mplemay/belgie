@@ -34,6 +34,7 @@ use crate::embed::{EmbedContext, PackageRuntimeState, prepare_package_runtime};
 use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
 use crate::runtime::error::map_package_environment_error;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
+use crate::runtime::native_addon_host;
 use crate::types::error::BindingError;
 
 struct PackageWorkerSnapshotOptions {
@@ -200,6 +201,7 @@ pub(crate) fn create_package_worker(
         create_unconfigured_runtime(&snapshot_options, &options.js_runtime_options, roots)?;
     let main_module_url = url::Url::parse(main_module.as_str())
         .map_err(|error| BindingError::runtime(error.to_string()))?;
+    native_addon_host::ensure_symbols_visible()?;
     LibMainWorkerFactory::new(
         BlobStore::default_arc() as Arc<dyn BlobStoreTrait>,
         None,

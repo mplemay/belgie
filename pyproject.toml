@@ -17,6 +17,7 @@ dev = [
     "ruff>=0.15.16",
     "rumdl>=0.2.7",
     "ty>=0.0.43",
+    "uvloop>=0.22.1 ; sys_platform != 'win32'",
     "zizmor>=1.25.2",
 ]
 
