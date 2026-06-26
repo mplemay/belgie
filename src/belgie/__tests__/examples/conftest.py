@@ -47,5 +47,6 @@ def environment_module() -> Iterator[ModuleType]:
 
 
 @pytest.fixture
-def pydantic_ai_module() -> Iterator[ModuleType]:
+def pydantic_ai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     yield from _load_example_main(EXAMPLES_ROOT / "pydantic-ai", "pydantic_ai_example")
