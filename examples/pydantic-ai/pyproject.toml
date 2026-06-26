@@ -1,0 +1,26 @@
+[project]
+name = "pydantic-ai-example"
+version = "0.1.0"
+description = "OpenAI pydantic-ai capability example for belgie"
+readme = "readme.md"
+authors = [
+    { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
+]
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "belgie[pydantic-ai]",
+]
+
+[project.scripts]
+main = "pydantic_ai_example.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { belgie = false, pydantic-ai = false, pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false }
+
+[tool.uv.sources]
+belgie = { path = "../../", editable = true }
