@@ -6,6 +6,7 @@ mod command_execution;
 mod deno_runtime;
 mod error;
 mod execution;
+mod native_addon_host;
 mod package_worker;
 mod process_context;
 mod session;
