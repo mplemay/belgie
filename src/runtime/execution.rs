@@ -13,7 +13,7 @@ use deno_lib::worker::{LibMainWorker, LibWorkerFactoryRoots};
 use tokio::sync::oneshot;
 
 use crate::{
-    embed::runtime::js_content_type_header_overrides,
+    embed::runtime::ts_content_type_header_overrides,
     runtime::{module_loader, package_worker, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
@@ -264,7 +264,7 @@ impl DenoExecutionContext {
                         js_runtime_options: bound.js_runtime_options().clone(),
                         runtime_worker_options: bound.worker_options().clone(),
                         main_source: Some(bound.script().content().to_string()),
-                        header_overrides: js_content_type_header_overrides(main_module.clone()),
+                        header_overrides: ts_content_type_header_overrides(main_module.clone()),
                     },
                     worker_factory_roots,
                 )
