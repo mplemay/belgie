@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from types import TracebackType
-from typing import Annotated, Any, Final, NotRequired, Self, TypedDict, cast
+from typing import Annotated, Any, Final, Self, TypedDict, cast
 
 from pydantic import Field, TypeAdapter
 from pydantic_ai import AbstractToolset, RunContext, ToolDefinition, WrapperToolset
@@ -13,12 +12,11 @@ from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT
 from pydantic_ai.toolsets.abstract import SchemaValidatorProt, ToolsetTool
 
-from belgie import Environment, JsonInput, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
+from belgie import Environment, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
 from belgie._core import AsyncEnvironment, AsyncRuntime, SyncEnvironment
 from belgie.errors import BelgieError
 
 type BelgieEnvironment = Environment | SyncEnvironment | AsyncEnvironment
-type RunCodeRunner = Callable[[JsonInput], Awaitable[JsonOutput]]
 type AsyncExitArgs = tuple[
     type[BaseException] | None,
     BaseException | None,
@@ -27,13 +25,7 @@ type AsyncExitArgs = tuple[
 
 
 class RunCodeArguments(TypedDict):
-    code: Annotated[str, Field(description="The JavaScript code to execute.")]
-    restart: NotRequired[
-        Annotated[
-            bool,
-            Field(description="Set to true to reset the JavaScript state object before executing code."),
-        ]
-    ]
+    code: Annotated[str, Field(description="The JavaScript or TypeScript belgie.Script module source to execute.")]
 
 
 RUN_CODE_TOOL_NAME: Final[str] = "run_code"
@@ -42,104 +34,37 @@ RUN_CODE_JSON_SCHEMA: Final[dict[str, Any]] = RUN_CODE_ADAPTER.json_schema()
 RUN_CODE_ARGS_VALIDATOR: Final[SchemaValidatorProt] = cast("SchemaValidatorProt", RUN_CODE_ADAPTER.validator)
 RUN_CODE_METADATA: Final[dict[str, str]] = {
     "code_arg_name": "code",
-    "code_arg_language": "javascript",
+    "code_arg_language": "typescript",
 }
 DEFAULT_RUNTIME_OPTIONS: Final[RuntimeOptions] = RuntimeOptions(
     permissions=RuntimePermissions(allow_net=[]),
 )
 RUN_CODE_DESCRIPTION: Final[str] = """\
-Write and run JavaScript in a belgie sandbox.
+Write and run a belgie.Script module in a sandbox.
 
-The code runs inside an async JavaScript function, so `await fetch(...)` is available \
-when this capability uses its default runtime configuration. The sandbox exposes a persistent \
-`state` object for this agent run; store values on `state` when you need them in a later \
-`run_code` call. Set `restart: true` to clear that state.
+The code is complete JavaScript or TypeScript module source for Belgie's embedded Deno-powered \
+runtime. Belgie treats inline source as TypeScript, so type annotations are supported and plain \
+JavaScript is valid. Export a callable function; prefer `export default async function run() { ... }`, \
+or use `export function run() { ... }`.
+
+This is a Deno environment, not Node.js. Use Deno-style imports such as `npm:pkg@version`, \
+`jsr:@scope/pkg@version`, or full URLs. `await fetch(...)` is available when this capability uses \
+its default runtime configuration.
 
 Important restrictions:
-- Only JavaScript is supported.
 - External pydantic-ai tools are not available inside the sandbox.
 - Return values must be JSON-serializable.
-- Use `return` for the value you want to send back; `console.log` is only for supplementary output.
+- Use `return` from the exported function for the value you want to send back.
 
 Examples:
 
-```javascript
-const response = await fetch("https://hacker-news.firebaseio.com/v0/topstories.json");
-const ids = await response.json();
-state.topIds = ids.slice(0, 20);
-return state.topIds;
+```typescript
+export default async function run(): Promise<number[]> {
+  const response = await fetch("https://hacker-news.firebaseio.com/v0/topstories.json");
+  const ids: number[] = await response.json();
+  return ids.slice(0, 20);
+}
 ```
-"""
-RUN_CODE_SCRIPT: Final[str] = r"""
-const STATE_KEY = Symbol.for("belgie.pydantic_ai.state");
-
-function stateContainer() {
-  if (!globalThis[STATE_KEY]) {
-    globalThis[STATE_KEY] = {};
-  }
-  return globalThis[STATE_KEY];
-}
-
-function clearState(state) {
-  for (const key of Object.keys(state)) {
-    delete state[key];
-  }
-}
-
-function formatLogValue(value) {
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    const formatted = JSON.stringify(value);
-    return formatted === undefined ? String(value) : formatted;
-  } catch {
-    return String(value);
-  }
-}
-
-function toJsonValue(value) {
-  if (value === undefined) {
-    return null;
-  }
-  try {
-    const encoded = JSON.stringify(value);
-    if (encoded === undefined) {
-      return null;
-    }
-    return JSON.parse(encoded);
-  } catch (error) {
-    throw new TypeError(`run_code returned a value that is not JSON-serializable: ${error.message}`);
-  }
-}
-
-export default async function run(input) {
-  const state = stateContainer();
-  if (input.restart) {
-    clearState(state);
-  }
-
-  const logs = [];
-  const originalLog = console.log;
-  const originalWarn = console.warn;
-  console.log = (...values) => logs.push(values.map(formatLogValue).join(" "));
-  console.warn = (...values) => logs.push(values.map(formatLogValue).join(" "));
-
-  try {
-    const execute = new Function("state", `"use strict"; return (async () => {\n${input.code}\n})();`);
-    const result = toJsonValue(await execute(state));
-    if (logs.length === 0) {
-      return result ?? {};
-    }
-    if (result === null) {
-      return { output: logs.join("\n") };
-    }
-    return { output: logs.join("\n"), result };
-  } finally {
-    console.log = originalLog;
-    console.warn = originalWarn;
-  }
-}
 """
 
 DEFAULT_RUN_CODE_INSTRUCTIONS: Final[str] = RUN_CODE_DESCRIPTION
@@ -193,7 +118,8 @@ class _BelgieOptions:
 @dataclass(kw_only=True)
 class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     _exit_stack: AsyncExitStack | None = field(default=None, init=False, repr=False)
-    _runner: RunCodeRunner | None = field(default=None, init=False, repr=False)
+    _active_environment: BelgieEnvironment | None = field(default=None, init=False, repr=False)
+    _active_runtime: AsyncRuntime | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.validate()
@@ -214,8 +140,10 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
 
         stack = AsyncExitStack()
         try:
-            active_runtime = await self._enter_runtime(stack)
-            self._runner = active_runtime(Script(RUN_CODE_SCRIPT))
+            if self.runtime is None:
+                self._active_environment = await self._enter_environment(stack)
+            else:
+                self._active_runtime = await stack.enter_async_context(self.runtime)
             self._exit_stack = stack
         except BaseException:
             await stack.aclose()
@@ -225,7 +153,8 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     async def __aexit__(self, *args: object) -> bool | None:
         stack = self._exit_stack
         self._exit_stack = None
-        self._runner = None
+        self._active_environment = None
+        self._active_runtime = None
         if stack is None:
             return None
         return await stack.__aexit__(*cast("AsyncExitArgs", args))
@@ -255,38 +184,41 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     ) -> Any:  # noqa: ANN401
         if name != RUN_CODE_TOOL_NAME:
             raise UserError(UNSUPPORTED_TOOL_MESSAGE.format(tool_name=RUN_CODE_TOOL_NAME))
-        if self._runner is None:
+        if self._exit_stack is None:
             raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
 
         try:
-            return_value = await self._runner(
-                {
-                    "code": tool_args["code"],
-                    "restart": tool_args.get("restart", False),
-                },
-            )
+            return_value = await self._run_script(tool_args["code"])
         except BelgieError as error:
-            retry_message = f"JavaScript execution failed:\n{error}"
+            retry_message = f"Belgie script execution failed:\n{error}"
             raise ModelRetry(retry_message) from error
 
         return ToolReturn(
             return_value=return_value,
-            metadata={"belgie": True, "code_language": "javascript"},
+            metadata={"belgie": True, "code_language": "typescript"},
         )
 
-    async def _enter_runtime(self, stack: AsyncExitStack) -> AsyncRuntime:
-        if self.runtime is not None:
-            return await stack.enter_async_context(self.runtime)
+    async def _enter_environment(self, stack: AsyncExitStack) -> BelgieEnvironment:
+        if self.environment is None:
+            return await stack.enter_async_context(Environment())
+        if isinstance(self.environment, Environment):
+            return await stack.enter_async_context(self.environment)
+        return self.environment
+
+    async def _run_script(self, source: str) -> JsonOutput:
+        script = Script(source)
+        if self._active_runtime is not None:
+            runner = self._active_runtime(script)
+            return await runner()
+
+        active_environment = self._active_environment
+        if active_environment is None:
+            raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
 
         options = self.runtime_options or DEFAULT_RUNTIME_OPTIONS
-        if self.environment is None:
-            active_environment = await stack.enter_async_context(Environment())
-        elif isinstance(self.environment, Environment):
-            active_environment = await stack.enter_async_context(self.environment)
-        else:
-            active_environment = self.environment
-
-        return await stack.enter_async_context(Runtime(env=active_environment, options=options))
+        async with Runtime(env=active_environment, options=options) as active_runtime:
+            runner = active_runtime(script)
+            return await runner()
 
     def _resolved_description(self) -> str:
         if self.dangerously_replace_instructions is not None:

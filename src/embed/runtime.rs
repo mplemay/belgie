@@ -97,8 +97,21 @@ pub(crate) async fn prepare_package_runtime(
 pub(crate) fn js_content_type_header_overrides(
     main_module: ModuleSpecifier,
 ) -> HashMap<ModuleSpecifier, HashMap<String, String>> {
+    content_type_header_overrides(main_module, "text/javascript")
+}
+
+pub(crate) fn ts_content_type_header_overrides(
+    main_module: ModuleSpecifier,
+) -> HashMap<ModuleSpecifier, HashMap<String, String>> {
+    content_type_header_overrides(main_module, "text/typescript")
+}
+
+fn content_type_header_overrides(
+    main_module: ModuleSpecifier,
+    content_type: &str,
+) -> HashMap<ModuleSpecifier, HashMap<String, String>> {
     HashMap::from([(
         main_module,
-        HashMap::from([("content-type".to_string(), "text/javascript".to_string())]),
+        HashMap::from([("content-type".to_string(), content_type.to_string())]),
     )])
 }

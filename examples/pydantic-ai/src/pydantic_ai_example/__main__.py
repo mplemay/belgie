@@ -10,7 +10,8 @@ agent = Agent(
 
 def main() -> None:
     result = agent.run_sync(
-        "Use run_code to fetch the Hacker News top stories API and summarize the top headline.",
+        "Use run_code with a TypeScript belgie.Script module that exports an async run function "
+        "to fetch the Hacker News top stories API and summarize the top headline.",
     )
     print(result.output)  # noqa: T201
 

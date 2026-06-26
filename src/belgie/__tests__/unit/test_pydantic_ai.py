@@ -71,6 +71,8 @@ def test_public_exports_are_limited() -> None:
     assert Belgie.__name__ == "Belgie"
     assert DEFAULT_RUN_CODE_INSTRUCTIONS is pydantic_ai_capability.DEFAULT_RUN_CODE_INSTRUCTIONS
     assert "JavaScript" in DEFAULT_RUN_CODE_INSTRUCTIONS
+    assert "TypeScript" in DEFAULT_RUN_CODE_INSTRUCTIONS
+    assert "Deno" in DEFAULT_RUN_CODE_INSTRUCTIONS
 
 
 def test_rejects_conflicting_configuration() -> None:
@@ -81,7 +83,7 @@ def test_rejects_conflicting_configuration() -> None:
         Belgie(runtime=Runtime(), runtime_options=RuntimeOptions())
 
 
-async def test_tool_definition_exposes_javascript_run_code_only(
+async def test_tool_definition_exposes_typescript_run_code_only(
     run_context: RunContext[None],
     belgie_toolset: BelgieToolset[None],
 ) -> None:
@@ -91,45 +93,11 @@ async def test_tool_definition_exposes_javascript_run_code_only(
     assert list(tools) == ["run_code"]
     tool_def = tools["run_code"].tool_def
     assert tool_def.sequential is True
-    assert tool_def.metadata == {"code_arg_name": "code", "code_arg_language": "javascript"}
+    assert tool_def.metadata == {"code_arg_name": "code", "code_arg_language": "typescript"}
     assert tool_def.parameters_json_schema["required"] == ["code"]
 
 
-async def test_run_code_preserves_state_and_restart_clears_it(
-    run_context: RunContext[None],
-    belgie_toolset: BelgieToolset[None],
-) -> None:
-    async with belgie_toolset:
-        tools = await belgie_toolset.get_tools(run_context)
-        tool = tools["run_code"]
-        first = await belgie_toolset.call_tool(
-            "run_code",
-            {"code": "state.count = (state.count ?? 0) + 1; return state.count;"},
-            run_context,
-            tool,
-        )
-        second = await belgie_toolset.call_tool(
-            "run_code",
-            {"code": "state.count = (state.count ?? 0) + 1; return state.count;"},
-            run_context,
-            tool,
-        )
-        restarted = await belgie_toolset.call_tool(
-            "run_code",
-            {"code": "state.count = (state.count ?? 0) + 1; return state.count;", "restart": True},
-            run_context,
-            tool,
-        )
-
-    assert isinstance(first, ToolReturn)
-    assert first.return_value == 1
-    assert isinstance(second, ToolReturn)
-    assert second.return_value == 2
-    assert isinstance(restarted, ToolReturn)
-    assert restarted.return_value == 1
-
-
-async def test_run_code_captures_console_output(
+async def test_run_code_executes_typescript_script_module(
     run_context: RunContext[None],
     belgie_toolset: BelgieToolset[None],
 ) -> None:
@@ -137,25 +105,50 @@ async def test_run_code_captures_console_output(
         tools = await belgie_toolset.get_tools(run_context)
         result = await belgie_toolset.call_tool(
             "run_code",
-            {"code": 'console.log("debug", { value: 1 }); return { ok: true };'},
+            {
+                "code": """
+export default function run(): { total: number; label: string } {
+  const values: number[] = [20, 22];
+  return { total: values.reduce((sum, value) => sum + value, 0), label: "typescript" };
+}
+""",
+            },
             run_context,
             tools["run_code"],
         )
 
     assert isinstance(result, ToolReturn)
-    assert result.return_value == {"output": 'debug {"value":1}', "result": {"ok": True}}
+    assert result.return_value == {"total": 42, "label": "typescript"}
+    assert result.metadata == {"belgie": True, "code_language": "typescript"}
 
 
-async def test_javascript_errors_become_model_retries(
+async def test_run_code_accepts_named_run_export(
     run_context: RunContext[None],
     belgie_toolset: BelgieToolset[None],
 ) -> None:
     async with belgie_toolset:
         tools = await belgie_toolset.get_tools(run_context)
-        with pytest.raises(ModelRetry, match="JavaScript execution failed"):
+        result = await belgie_toolset.call_tool(
+            "run_code",
+            {"code": "export function run(): { ok: boolean } { return { ok: true }; }"},
+            run_context,
+            tools["run_code"],
+        )
+
+    assert isinstance(result, ToolReturn)
+    assert result.return_value == {"ok": True}
+
+
+async def test_script_errors_become_model_retries(
+    run_context: RunContext[None],
+    belgie_toolset: BelgieToolset[None],
+) -> None:
+    async with belgie_toolset:
+        tools = await belgie_toolset.get_tools(run_context)
+        with pytest.raises(ModelRetry, match="Belgie script execution failed"):
             await belgie_toolset.call_tool(
                 "run_code",
-                {"code": 'throw new Error("boom");'},
+                {"code": 'export default function run() { throw new Error("boom"); }'},
                 run_context,
                 tools["run_code"],
             )
