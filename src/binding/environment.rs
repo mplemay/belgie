@@ -12,7 +12,7 @@ use pyo3::{
 };
 
 use crate::{
-    binding::{blocking, packages},
+    binding::{blocking, normalize, packages},
     environment::{EnvironmentDefinition, SharedEnvironment},
     options::EnvironmentOptions,
     utils::normalize_path,
@@ -31,8 +31,6 @@ pub struct PyEnvironmentOptions {
     node_modules_dir: Option<String>,
     node_modules_linker: Option<String>,
     npm_caching: String,
-    import_package_lockfile: bool,
-    minimum_dependency_age_minutes: Option<u64>,
 }
 
 #[pyclass(name = "Environment", module = "belgie._core", skip_from_py_object)]
@@ -83,8 +81,10 @@ impl PyEnvironmentOptions {
         let node_modules_dir = normalize_node_modules_dir(node_modules_dir)?;
         let node_modules_linker = normalize_node_modules_linker(node_modules_linker)?;
         let npm_caching = normalize_npm_caching(npm_caching)?;
-        let minimum_dependency_age_minutes =
-            normalize_minimum_dependency_age_minutes(minimum_dependency_age_minutes)?;
+        let minimum_dependency_age_minutes = normalize::normalize_non_negative_u64(
+            "minimum_dependency_age_minutes",
+            minimum_dependency_age_minutes,
+        )?;
         Ok(Self {
             inner: EnvironmentOptions::new(
                 cache_setting.0,
@@ -106,8 +106,6 @@ impl PyEnvironmentOptions {
             node_modules_dir: node_modules_dir.map(|value| value.1),
             node_modules_linker: node_modules_linker.map(|value| value.1),
             npm_caching: npm_caching.1,
-            import_package_lockfile,
-            minimum_dependency_age_minutes,
         })
     }
 
@@ -119,8 +117,8 @@ impl PyEnvironmentOptions {
             self.node_modules_dir,
             self.node_modules_linker,
             self.npm_caching,
-            self.import_package_lockfile,
-            self.minimum_dependency_age_minutes,
+            self.inner.import_package_lockfile(),
+            self.inner.minimum_dependency_age_minutes(),
         )
     }
 }
@@ -478,16 +476,6 @@ fn normalize_certificate_errors(value: Option<&Bound<'_, PyAny>>) -> PyResult<Op
     value.extract::<Vec<String>>().map(Some).map_err(|_| {
         PyTypeError::new_err("unsafely_ignore_certificate_errors must be bool or iterable of str")
     })
-}
-
-fn normalize_minimum_dependency_age_minutes(value: Option<i64>) -> PyResult<Option<u64>> {
-    match value {
-        Some(value) if value < 0 => Err(PyValueError::new_err(
-            "minimum_dependency_age_minutes must be a non-negative integer",
-        )),
-        Some(value) => Ok(Some(value as u64)),
-        None => Ok(None),
-    }
 }
 
 fn invalid_option(field_name: &str, value: &str, expected: &str) -> PyErr {

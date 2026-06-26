@@ -49,6 +49,7 @@ use tokio::sync::Mutex;
 use crate::embed::init::ensure_initialized;
 use crate::embed::memory;
 use crate::embed::sys::EmbedSys;
+use crate::options::RuntimeWorkerOptions;
 
 #[derive(Debug, Clone)]
 pub(crate) struct EmbedHttpClient {
@@ -271,6 +272,10 @@ impl EmbedContextOptions {
             || self.no_npm
             || self.unsafely_ignore_certificate_errors.is_some()
             || self.cache_setting != CacheSetting::Use
+    }
+
+    pub(crate) fn apply_worker_options(&mut self, worker: &RuntimeWorkerOptions) {
+        self.enable_raw_imports = worker.enable_raw_imports();
     }
 }
 

@@ -153,7 +153,11 @@ fn default_lib_main_worker_options(
         serve_host: None,
         close_on_idle: true,
         maybe_initial_cwd: ModuleSpecifier::from_directory_path(cwd).ok(),
-        disable_offscreen_canvas: runtime_worker_options.disable_offscreen_canvas(),
+        disable_offscreen_canvas: runtime_worker_options.disable_offscreen_canvas()
+            || matches!(
+                std::env::var("DENO_DISABLE_OFFSCREEN_CANVAS").as_deref(),
+                Ok("1") | Ok("true")
+            ),
     }
 }
 

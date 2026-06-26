@@ -13,6 +13,7 @@ use pyo3::{
 use crate::{
     binding::{
         PyAsyncEnvironment, PyAsyncRuntime, PyEnvironment, PySyncEnvironment, PySyncRuntime,
+        normalize,
     },
     environment::SharedEnvironment,
     exceptions::BelgieRuntimeError,
@@ -387,13 +388,7 @@ fn normalize_memory_size(field_name: &str, value: Option<i64>) -> PyResult<Optio
 }
 
 fn normalize_seed(value: Option<i64>) -> PyResult<Option<u64>> {
-    match value {
-        Some(value) if value < 0 => {
-            Err(PyValueError::new_err("seed must be a non-negative integer"))
-        }
-        Some(value) => Ok(Some(value as u64)),
-        None => Ok(None),
-    }
+    normalize::normalize_non_negative_u64("seed", value)
 }
 
 fn normalize_location(value: Option<&str>) -> PyResult<Option<url::Url>> {

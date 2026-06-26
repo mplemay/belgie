@@ -71,7 +71,7 @@ impl ImplicitPackageEnvironment {
         worker_options: &RuntimeWorkerOptions,
     ) -> Result<Rc<EmbedContext>, BindingError> {
         let mut options = self.options.clone();
-        options.enable_raw_imports = worker_options.enable_raw_imports();
+        options.apply_worker_options(worker_options);
         Ok(Rc::new(
             EmbedContext::new_with_options(self.workspace.clone(), self.lockfile.clone(), options)
                 .map_err(|error| BindingError::runtime(error.to_string()))?,
@@ -101,7 +101,7 @@ impl BoundPackageEnvironment {
 
     pub(crate) fn supports_commands(&self) -> bool {
         match self {
-            Self::Isolated(environment) => environment.has_package_dependencies(),
+            Self::Isolated(environment) => environment.uses_package_loader(),
             Self::Implicit(_) => false,
         }
     }

@@ -1,6 +1,7 @@
 pub(crate) mod blocking;
 pub(crate) mod command;
 pub(crate) mod environment;
+pub(crate) mod normalize;
 pub(crate) mod packages;
 pub(crate) mod runner;
 pub(crate) mod runtime;
