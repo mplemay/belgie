@@ -157,7 +157,6 @@ async fn run_command(
     let command_cwd = resolve_command_cwd(&options.runtime_root, options.command.cwd())?;
     let _cwd_guard = CurrentDirGuard::change_to(&command_cwd)?;
     let _env_guard = EnvironmentGuard::apply(options.command.env());
-    native_addon_host::ensure_symbols_visible()?;
 
     let context = options
         .package_environment
@@ -169,6 +168,7 @@ async fn run_command(
             run_native_command(path, command_cwd, options.argv, &mut cancel_rx).await
         }
         BinValue::JsFile(path) | BinValue::Executable(path) => {
+            native_addon_host::ensure_symbols_visible()?;
             run_js_command(
                 JsCommandRunOptions {
                     context,

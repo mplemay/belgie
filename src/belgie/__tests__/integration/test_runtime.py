@@ -5,8 +5,9 @@ import shutil
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from json import dumps
+from json import dumps, loads
 from os import PathLike, environ
+from subprocess import CompletedProcess, run
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import pytest
@@ -26,6 +27,54 @@ VITE_VERSION: Final[str] = "6.1.0"
 ZX_VERSION: Final[str] = "8.5.5"
 REACT_VERSION: Final[str] = "^19"
 VITE_REACT_PLUGIN_VERSION: Final[str] = "^4"
+
+
+def run_fresh_python(source: str) -> CompletedProcess[str]:
+    return run(  # noqa: S603
+        [sys.executable, "-c", source],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux dynamic loader regression")
+def test_importing_belgie_keeps_deno_host_symbols_local() -> None:
+    result = run_fresh_python(
+        """
+import ctypes
+import json
+
+import belgie
+
+process = ctypes.CDLL(None)
+print(json.dumps({
+    "napi_create_string_utf8": hasattr(process, "napi_create_string_utf8"),
+    "uv_async_init": hasattr(process, "uv_async_init"),
+}))
+""".strip(),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert loads(result.stdout) == {
+        "napi_create_string_utf8": False,
+        "uv_async_init": False,
+    }
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uvloop is unavailable on Windows")
+def test_importing_belgie_before_uvloop_can_create_event_loop() -> None:
+    result = run_fresh_python(
+        """
+import belgie
+import uvloop
+
+loop = uvloop.new_event_loop()
+loop.close()
+""".strip(),
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @asynccontextmanager
