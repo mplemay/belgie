@@ -1,4 +1,4 @@
-# Belgie: A secure JavaScript runtime for Python, powered by Deno
+# Belgie: A Javascript Sandbox for Python, powered by Deno
 
 Belgie lets you run JavaScript and TypeScript from Python. Deno is bundled — you do not need Node.js or Deno on your
 PATH.
@@ -17,11 +17,6 @@ uv add belgie
 uvx library-skills install  # optional: install the use-belgie skill for Cursor, Codex, Claude, etc.
 ```
 
-`uv add belgie` adds the library (Python `>=3.12,<3.15`, no runtime Python deps).
-
-`uvx library-skills install` is optional. It links the bundled **`use-belgie`** agent skill into `.agents/skills/` so
-coding agents can follow belgie's public API when you work on integrations. Skip it if you only need the Python library.
-
 ## Quick Start
 
 ```python
@@ -29,11 +24,11 @@ import asyncio
 
 from belgie import Runtime, Script
 
-script = Script(
+script = Script[[str], str](
     """
 import camelcase from "npm:camelcase@8.0.0";
 
-export default function run(input) {
+export default function run(input: string): string {
   return camelcase(input);
 }
 """
@@ -70,6 +65,9 @@ print(result.output)
 See the full runnable project in [examples/pydantic-ai](examples/pydantic-ai).
 
 ## Examples
+
+Want to learn more about Belgie's features? The examples below are small, runnable projects — each one focuses on a
+single capability.
 
 - **[simple](examples/simple):** Async `Runtime` with a TypeScript file on disk.
 - **[inline-deps](examples/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a script.

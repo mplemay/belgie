@@ -1,7 +1,7 @@
 [project]
 name = "belgie"
 version = "0.1.1"
-description = "A minimal, secure javascript runtime for python"
+description = "A Javascript Sandbox for Python, powered by Deno"
 readme = "readme.md"
 authors = [
     { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
