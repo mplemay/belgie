@@ -64,6 +64,41 @@ print(result.output)
 
 See the full runnable project in [examples/pydantic-ai](examples/pydantic-ai).
 
+## LangChain
+
+`belgie.capabilities.langchain.BelgieMiddleware` is a LangChain agent middleware that gives the agent a `run_code`
+tool. The model writes a `belgie.Script` module and Belgie runs it in the embedded Deno sandbox.
+
+Install the optional extra with `uv add "belgie[langchain]"`. Set `OPENAI_API_KEY`, then:
+
+```python
+from langchain.agents import create_agent
+
+from belgie.capabilities.langchain import BelgieMiddleware
+
+agent = create_agent(
+    model="openai:gpt-5",
+    tools=[],
+    middleware=[BelgieMiddleware()],
+    system_prompt="You can execute JS/TS in a Deno sandbox with run_code.",
+)
+
+result = agent.invoke(
+    {
+        "messages": [
+            (
+                "user",
+                "Use run_code with a TypeScript belgie.Script module that imports npm:camelcase "
+                "and returns camelCase('foo-bar').",
+            ),
+        ],
+    },
+)
+print(result["messages"][-1].content)
+```
+
+See the full runnable project in [examples/langchain](examples/langchain).
+
 ## Examples
 
 Want to learn more about Belgie's features? The examples below are small, runnable projects — each one focuses on a
