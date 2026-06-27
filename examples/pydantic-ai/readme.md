@@ -5,6 +5,16 @@ The model writes a `belgie.Script` module and belgie executes it in the embedded
 
 Requires `belgie[pydantic-ai]` (included in this example's dependencies).
 
+## Prerequisites
+
+Set `OPENAI_API_KEY` before running.
+
+## Run
+
+```bash
+uv run main
+```
+
 ## What's happening
 
 `Belgie()` registers the `run_code` tool and sandbox instructions with the agent:
@@ -31,13 +41,3 @@ print(result.output)
 
 See also the [Pydantic AI section](../../readme.md#pydantic-ai) in the root readme for `defer_loading`, tool approval,
 and production hardening.
-
-## Prerequisites
-
-Set `OPENAI_API_KEY` before running.
-
-## Run
-
-```bash
-uv run main
-```

@@ -3,6 +3,12 @@
 Imports `npm:`, `jsr:`, and URL modules directly inside a `Script` string — no `Environment` or lockfile required. Use
 this when dependencies are declared in JavaScript rather than in Python.
 
+## Run
+
+```bash
+uv run main
+```
+
 ## What's happening
 
 The script embeds Deno-style inline imports and exports a `run` function:
@@ -34,10 +40,4 @@ Belgie resolves and caches each import when the script runs. For a Python-owned 
 
 ```text
 {'assertion': 'assertEquals', 'camelcase': 'inlineDeps', 'join': 'join'}
-```
-
-## Run
-
-```bash
-uv run main
 ```

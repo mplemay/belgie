@@ -3,6 +3,12 @@
 Python declares a JSR package under a short alias; `Environment.install()` resolves it, and the script imports by that
 alias. Use this when Python owns the dependency map instead of inline `jsr:` URLs in source.
 
+## Run
+
+```bash
+uv run main
+```
+
 ## What's happening
 
 The environment maps `std_path` to a JSR package. After `install()`, the script imports through the alias:
@@ -28,10 +34,4 @@ Same JSR pattern as `environment`, but sync-only and without a persistent workin
 
 ```text
 join
-```
-
-## Run
-
-```bash
-uv run main
 ```

@@ -4,6 +4,12 @@ Declares JSR dependencies through `Environment`, like `jsr-deps`, and also shows
 persistent working directory via `path=`. Temporary Deno state is removed when the environment exits; files written
 under `path` remain on disk.
 
+## Run
+
+```bash
+uv run main
+```
+
 ## What's happening
 
 Sync usage — enter the environment, install, then run the script:
@@ -30,10 +36,4 @@ The script imports `join` from the `std_path` alias, same as in `jsr-deps`.
 
 ```text
 join
-```
-
-## Run
-
-```bash
-uv run main
 ```
