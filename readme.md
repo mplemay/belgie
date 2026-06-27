@@ -1,4 +1,4 @@
-# Belgie: A secure JavaScript runtime for Python, powered by Deno
+# Belgie: Execute JavaScript from Python in a secure Deno runtime
 
 Belgie lets you run JavaScript and TypeScript from Python. Deno is bundled — you do not need Node.js or Deno on your
 PATH.
@@ -16,11 +16,6 @@ PATH.
 uv add belgie
 uvx library-skills install  # optional: install the use-belgie skill for Cursor, Codex, Claude, etc.
 ```
-
-`uv add belgie` adds the library (Python `>=3.12,<3.15`, no runtime Python deps).
-
-`uvx library-skills install` is optional. It links the bundled **`use-belgie`** agent skill into `.agents/skills/` so
-coding agents can follow belgie's public API when you work on integrations. Skip it if you only need the Python library.
 
 ## Quick Start
 
