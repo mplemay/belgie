@@ -66,6 +66,9 @@ See the full runnable project in [examples/pydantic-ai](examples/pydantic-ai).
 
 ## Examples
 
+Want to learn more about Belgie's features? The examples below are small, runnable projects — each one focuses on a
+single capability.
+
 - **[simple](examples/simple):** Async `Runtime` with a TypeScript file on disk.
 - **[inline-deps](examples/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a script.
 - **[jsr-deps](examples/jsr-deps):** JSR packages declared through an explicit `Environment`.
