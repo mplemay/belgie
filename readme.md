@@ -1,4 +1,4 @@
-# Belgie: Execute JavaScript from Python in a secure Deno runtime
+# Belgie: Run JavaScript from Python in a secure Deno runtime
 
 Belgie lets you run JavaScript and TypeScript from Python. Deno is bundled — you do not need Node.js or Deno on your
 PATH.
