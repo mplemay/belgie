@@ -28,7 +28,7 @@ with Environment({"std_path": "jsr:@std/path@^1"}) as env:
         result = runtime(Script(SOURCE))()
 ```
 
-Same JSR pattern as `environment`, but sync-only and without a persistent working directory.
+Same JSR pattern as [environment](../environment), but sync-only and without a persistent working directory.
 
 ## Output
 

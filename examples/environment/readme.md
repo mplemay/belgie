@@ -1,8 +1,8 @@
 # Environment
 
-Declares JSR dependencies through `Environment`, like `jsr-deps`, and also shows sync and async context managers plus a
-persistent working directory via `path=`. Temporary Deno state is removed when the environment exits; files written
-under `path` remain on disk.
+Declares JSR dependencies through `Environment`, like [jsr-deps](../jsr-deps), and also shows sync and async context
+managers plus a persistent working directory via `path=`. Temporary Deno state is removed when the environment exits;
+files written under `path` remain on disk.
 
 ## Run
 
@@ -30,7 +30,7 @@ async with Environment({"std_path": "jsr:@std/path@^1"}, path=Path.cwd()) as env
         result = await runtime(Script(SOURCE))()
 ```
 
-The script imports `join` from the `std_path` alias, same as in `jsr-deps`.
+The script imports `join` from the `std_path` alias, same as in [jsr-deps](../jsr-deps).
 
 ## Output
 

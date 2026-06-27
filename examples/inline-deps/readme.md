@@ -34,7 +34,7 @@ with Runtime() as runtime:
 ```
 
 Belgie resolves and caches each import when the script runs. For a Python-owned dependency map or lockfile, see
-`jsr-deps` or `environment`.
+[jsr-deps](../jsr-deps) or [environment](../environment).
 
 ## Output
 
