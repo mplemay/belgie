@@ -12,7 +12,6 @@ from pydantic_ai._deferred_capabilities import DEFERRED_CAPABILITY_TOOL_METADATA
 from pydantic_ai.exceptions import ModelRetry, UserError
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.tools import AgentDepsT
-from pydantic_ai.toolsets._deferred_capability_loader import LOAD_CAPABILITY_TOOL_NAME
 from pydantic_ai.toolsets.abstract import SchemaValidatorProt, ToolsetTool
 
 from belgie import Environment, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
@@ -79,8 +78,8 @@ INSTRUCTIONS_CONFLICT_MESSAGE: Final[str] = (
 RUNTIME_ENVIRONMENT_CONFLICT_MESSAGE: Final[str] = (
     "`runtime` cannot be combined with `environment` or `runtime_options`."
 )
-UNSUPPORTED_TOOL_MESSAGE: Final[str] = (
-    "Belgie capability only supports the {supported_tool_name!r} tool, not {requested_tool_name!r}."
+RUN_CODE_RESERVED_NAME_MESSAGE: Final[str] = (
+    f"Tool name '{RUN_CODE_TOOL_NAME}' is reserved for the Belgie capability. Rename your tool to avoid conflicts."
 )
 TOOLSET_NOT_ENTERED_MESSAGE: Final[str] = "BelgieToolset must be entered before calling tools."
 DEFER_LOADING_REQUIRES_ID_MESSAGE: Final[str] = "`defer_loading=True` requires a stable `id` on the Belgie capability."
@@ -185,7 +184,9 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
 
     async def get_tools(self, ctx: RunContext[AgentDepsT]) -> dict[str, ToolsetTool[AgentDepsT]]:
         wrapped_tools = await self.wrapped.get_tools(ctx)
-        tools = {name: tool for name, tool in wrapped_tools.items() if name == LOAD_CAPABILITY_TOOL_NAME}
+        if RUN_CODE_TOOL_NAME in wrapped_tools:
+            raise UserError(RUN_CODE_RESERVED_NAME_MESSAGE)
+        tools = dict(wrapped_tools)
         metadata: dict[str, Any] = dict(RUN_CODE_METADATA)
         if self.defer_loading:
             metadata[DEFERRED_CAPABILITY_TOOL_METADATA_KEY] = True
@@ -213,15 +214,8 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
         ctx: RunContext[AgentDepsT],
         tool: ToolsetTool[AgentDepsT],
     ) -> Any:  # noqa: ANN401
-        if name == LOAD_CAPABILITY_TOOL_NAME:
-            return await self.wrapped.call_tool(name, tool_args, ctx, tool)
         if name != RUN_CODE_TOOL_NAME:
-            raise UserError(
-                UNSUPPORTED_TOOL_MESSAGE.format(
-                    supported_tool_name=RUN_CODE_TOOL_NAME,
-                    requested_tool_name=name,
-                ),
-            )
+            return await self.wrapped.call_tool(name, tool_args, ctx, tool)
         if self._exit_stack is None:
             raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
 

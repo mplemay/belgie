@@ -59,7 +59,7 @@ class StaticToolset(AbstractToolset[None]):
                 toolset=self,
                 tool_def=ToolDefinition(
                     name="external",
-                    description="External tool that should not be exposed by Belgie.",
+                    description="External tool preserved alongside run_code.",
                     parameters_json_schema={"type": "object", "properties": {}},
                 ),
                 max_retries=1,
@@ -125,7 +125,7 @@ async def test_deferred_capability_marks_run_code(run_context: RunContext[None])
     async with toolset:
         tools = await toolset.get_tools(run_context)
 
-    assert list(tools) == [RUN_CODE_TOOL_NAME]
+    assert sorted(tools) == ["external", RUN_CODE_TOOL_NAME]
     assert tools[RUN_CODE_TOOL_NAME].tool_def.defer_loading is True
     assert tools[RUN_CODE_TOOL_NAME].tool_def.capability_id == DEFAULT_BELGIE_CAPABILITY_ID
 
@@ -191,18 +191,83 @@ async def test_script_timeout_becomes_model_retry(
             )
 
 
-async def test_tool_definition_exposes_typescript_run_code_only(
+async def test_tool_definition_exposes_run_code_and_preserves_wrapped_tools(
     run_context: RunContext[None],
     belgie_toolset: BelgieToolset[None],
 ) -> None:
     async with belgie_toolset:
         tools = await belgie_toolset.get_tools(run_context)
 
-    assert list(tools) == ["run_code"]
+    assert sorted(tools) == ["external", "run_code"]
     tool_def = tools["run_code"].tool_def
     assert tool_def.sequential is True
     assert tool_def.metadata == RUN_CODE_METADATA
     assert tool_def.parameters_json_schema["required"] == ["code"]
+
+
+async def test_preserves_wrapped_tools_and_delegates_calls(
+    run_context: RunContext[None],
+    belgie_toolset: BelgieToolset[None],
+) -> None:
+    async with belgie_toolset:
+        tools = await belgie_toolset.get_tools(run_context)
+        result = await belgie_toolset.call_tool("external", {}, run_context, tools["external"])
+
+    assert result == {"called": "external"}
+
+
+async def test_native_tool_named_run_code_raises_user_error(run_context: RunContext[None]) -> None:
+    class RunCodeCollisionToolset(AbstractToolset[None]):
+        @property
+        def id(self) -> str | None:
+            return None
+
+        async def get_tools(self, ctx: RunContext[None]) -> dict[str, ToolsetTool[None]]:  # noqa: ARG002
+            return {
+                RUN_CODE_TOOL_NAME: ToolsetTool(
+                    toolset=self,
+                    tool_def=ToolDefinition(
+                        name=RUN_CODE_TOOL_NAME,
+                        description="Collides with the Belgie meta-tool.",
+                        parameters_json_schema={"type": "object", "properties": {}},
+                    ),
+                    max_retries=1,
+                    args_validator=SchemaValidator(core_schema.any_schema()),
+                ),
+            }
+
+        async def call_tool(
+            self,
+            name: str,
+            tool_args: dict[str, Any],  # noqa: ARG002
+            ctx: RunContext[None],  # noqa: ARG002
+            tool: ToolsetTool[None],  # noqa: ARG002
+        ) -> Any:
+            return name
+
+    toolset = BelgieToolset(wrapped=RunCodeCollisionToolset())
+    with pytest.raises(UserError, match="reserved for the Belgie capability"):
+        async with toolset:
+            await toolset.get_tools(run_context)
+
+
+async def test_agent_with_belgie_and_function_tool_exposes_both() -> None:
+    agent = Agent("test", capabilities=[Belgie()])
+    model_steps: list[list[str]] = []
+
+    @agent.tool_plain
+    def helper() -> str:
+        return "ok"
+
+    def belgie_model(messages: list[Any], info: Any) -> ModelResponse:
+        model_steps.append([tool.name for tool in info.function_tools])
+        return ModelResponse(parts=[TextPart(content="done")])
+
+    with agent.override(model=FunctionModel(belgie_model)):
+        await agent.run("inspect tools")
+
+    assert RUN_CODE_TOOL_NAME in model_steps[0]
+    assert "helper" in model_steps[0]
 
 
 async def test_run_code_executes_typescript_script_module(
