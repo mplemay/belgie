@@ -24,11 +24,11 @@ import asyncio
 
 from belgie import Runtime, Script
 
-script = Script(
+script = Script[[str], str](
     """
 import camelcase from "npm:camelcase@8.0.0";
 
-export default function run(input) {
+export default function run(input: string): string {
   return camelcase(input);
 }
 """
