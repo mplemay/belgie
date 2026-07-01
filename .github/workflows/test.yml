@@ -10,12 +10,61 @@ permissions:
   contents: read
 
 jobs:
+  cache-rust:
+    name: warm rust cache (${{ matrix.os }})
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_INCREMENTAL: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: stable
+
+      - name: Restore cargo cache
+        id: cargo-cache
+        uses: ./.github/actions/cargo-cache
+
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+
+      - name: Warm build artifacts
+        run: cargo build --package belgie --all-targets --all-features --features extension-module
+
+      - name: Prune workspace artifacts from target cache
+        run: cargo clean -p belgie
+
+      - name: Save cargo cache
+        if: success()
+        uses: ./.github/actions/cargo-cache
+        with:
+          phase: save
+          save: true
+          sources-cache-key: ${{ steps.cargo-cache.outputs.sources-cache-key }}
+          target-cache-key: ${{ steps.cargo-cache.outputs.target-cache-key }}
+
   prek:
     name: lint
     runs-on: ubuntu-latest
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -27,11 +76,7 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          shared-key: ubuntu-latest
-          cache-bin: false
-          save-if: false
+      - uses: ./.github/actions/cargo-cache
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
@@ -43,6 +88,7 @@ jobs:
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_INCREMENTAL: "0"
     strategy:
       fail-fast: false
       matrix:
@@ -62,15 +108,13 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          shared-key: ${{ matrix.os }}
-          cache-bin: false
-          save-if: ${{ github.ref == 'refs/heads/main' && matrix.python-version == '3.12' }}
+      - uses: ./.github/actions/cargo-cache
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Run tests
         run: uv run pytest
@@ -81,6 +125,7 @@ jobs:
     env:
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_INCREMENTAL: "0"
     strategy:
       fail-fast: false
       matrix:
@@ -99,11 +144,7 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          shared-key: ${{ matrix.os }}
-          cache-bin: false
-          save-if: false
+      - uses: ./.github/actions/cargo-cache
 
       - name: Run Rust tests
         run: cargo test --package belgie --all-targets

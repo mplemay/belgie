@@ -1,0 +1,84 @@
+name: Cargo cache
+description: Two-tier cargo cache for registry/git sources and per-OS target artifacts
+
+inputs:
+  phase:
+    description: restore or save
+    required: false
+    default: restore
+  save:
+    description: Whether cache writes are allowed
+    required: false
+    default: "false"
+  sources-cache-key:
+    description: Primary key from sources restore step (required for save phase)
+    required: false
+    default: ""
+  target-cache-key:
+    description: Primary key from target restore step (required for save phase)
+    required: false
+    default: ""
+  target-key-suffix:
+    description: Optional suffix appended to the per-OS target cache key
+    required: false
+    default: ""
+
+outputs:
+  sources-cache-key:
+    description: Primary cache key used for cargo sources
+    value: ${{ steps.cargo-sources-restore.outputs.cache-primary-key }}
+  sources-cache-hit:
+    description: Whether sources cache was an exact hit
+    value: ${{ steps.cargo-sources-restore.outputs.cache-hit }}
+  target-cache-key:
+    description: Primary cache key used for cargo target
+    value: ${{ steps.cargo-target-restore.outputs.cache-primary-key }}
+  target-cache-hit:
+    description: Whether target cache was an exact hit
+    value: ${{ steps.cargo-target-restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore cargo source cache
+      if: inputs.phase == 'restore'
+      id: cargo-sources-restore
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git
+        key: belgie-cargo-sources-v1-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          belgie-cargo-sources-v1-
+        enableCrossOsArchive: true
+
+    - name: Restore cargo target cache
+      if: inputs.phase == 'restore'
+      id: cargo-target-restore
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: target
+        key: belgie-cargo-target-v1-${{ runner.os }}${{ inputs.target-key-suffix != '' && format('-{0}', inputs.target-key-suffix) || '' }}-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          belgie-cargo-target-v1-${{ runner.os }}${{ inputs.target-key-suffix != '' && format('-{0}', inputs.target-key-suffix) || '' }}-
+          belgie-cargo-target-v1-${{ runner.os }}-
+
+    - name: Save cargo source cache
+      if: inputs.phase == 'save' && inputs.save == 'true' && inputs.sources-cache-key != ''
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git
+        key: ${{ inputs.sources-cache-key }}
+        enableCrossOsArchive: true
+
+    - name: Save cargo target cache
+      if: inputs.phase == 'save' && inputs.save == 'true' && inputs.target-cache-key != ''
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: target
+        key: ${{ inputs.target-cache-key }}
