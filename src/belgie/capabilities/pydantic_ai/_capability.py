@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(kw_only=True)
-class Belgie(_BelgieOptions, AbstractCapability[AgentDepsT]):
+class BelgieCapability(_BelgieOptions, AbstractCapability[AgentDepsT]):
     def __post_init__(self) -> None:
         if self.defer_loading and self.id is None:
             self.id = DEFAULT_BELGIE_CAPABILITY_ID
