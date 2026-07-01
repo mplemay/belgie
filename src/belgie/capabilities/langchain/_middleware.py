@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, Final, NotRequired, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain.agents.middleware.types import PrivateStateAttr
+from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import ToolMessage
 
 from belgie.capabilities.core._options import BelgieOptions
@@ -18,6 +17,11 @@ from belgie.capabilities.core._run_code import (
     resolved_description,
 )
 from belgie.capabilities.core._runtime import BelgieRuntimeSession
+from belgie.capabilities.langchain._state import (
+    BELGIE_RUNTIME_SESSION_STATE_KEY,
+    BelgieAgentState,
+    session_from_state,
+)
 from belgie.capabilities.langchain._tools import build_load_belgie_tool, build_run_code_tool
 from belgie.errors import BelgieError
 
@@ -25,17 +29,10 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langchain.agents.middleware.types import ModelRequest, ModelResponse
-    from langchain.tools import ToolRuntime
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.runtime import Runtime
     from langgraph.types import Command
-
-BELGIE_RUNTIME_SESSION_STATE_KEY: Final[str] = "belgie_runtime_session"
-
-
-class BelgieAgentState(AgentState[Any]):
-    belgie_runtime_session: NotRequired[Annotated[BelgieRuntimeSession | None, PrivateStateAttr]]
 
 
 @dataclass(kw_only=True)
@@ -52,7 +49,6 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
         capability_id = self.capability_id or DEFAULT_BELGIE_CAPABILITY_ID
         description = resolved_description(self)
         run_code_tool = build_run_code_tool(
-            session_getter=self._runtime_session,
             description=description,
             defer_loading=self.defer_loading,
         )
@@ -66,15 +62,6 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
 
     def _new_session(self) -> BelgieRuntimeSession:
         return BelgieRuntimeSession(**self.options_kwargs())
-
-    def _runtime_session(self, runtime: ToolRuntime[Any, Any]) -> BelgieRuntimeSession | None:
-        state = runtime.state
-        if not isinstance(state, dict):
-            return None
-        return cast("BelgieRuntimeSession | None", state.get(BELGIE_RUNTIME_SESSION_STATE_KEY))
-
-    def _state_session(self, state: BelgieAgentState) -> BelgieRuntimeSession | None:
-        return cast("BelgieRuntimeSession | None", state.get(BELGIE_RUNTIME_SESSION_STATE_KEY))
 
     def before_agent(self, state: BelgieAgentState, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
         session = self._new_session()
@@ -91,7 +78,7 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
         return {BELGIE_RUNTIME_SESSION_STATE_KEY: session}
 
     def after_agent(self, state: BelgieAgentState, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
-        self._close_session(self._state_session(state))
+        self._close_session(session_from_state(state))
         return {BELGIE_RUNTIME_SESSION_STATE_KEY: None}
 
     async def aafter_agent(
@@ -99,7 +86,7 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
         state: BelgieAgentState,
         runtime: Runtime[Any],  # noqa: ARG002
     ) -> dict[str, Any] | None:
-        await self._aclose_session(self._state_session(state))
+        await self._aclose_session(session_from_state(state))
         return {BELGIE_RUNTIME_SESSION_STATE_KEY: None}
 
     def wrap_model_call(

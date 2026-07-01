@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from langchain.agents import create_agent
@@ -17,7 +17,6 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
-from pydantic import BaseModel
 
 from belgie import Runtime as BelgieRuntime, RuntimeOptions
 from belgie.capabilities import langchain as langchain_capability
@@ -26,6 +25,7 @@ from belgie.capabilities.core._run_code import (
     DEFAULT_BELGIE_CAPABILITY_ID,
     LOAD_BELGIE_TOOL_NAME,
     RUN_CODE_DESCRIPTION,
+    RUN_CODE_JSON_SCHEMA,
     RUN_CODE_METADATA,
     RUN_CODE_TOOL_NAME,
     resolved_description,
@@ -33,10 +33,13 @@ from belgie.capabilities.core._run_code import (
 from belgie.capabilities.langchain import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieMiddleware
 from belgie.capabilities.langchain._tools import build_run_code_tool
 
+if TYPE_CHECKING:
+    from belgie.capabilities.langchain._state import BelgieAgentState
+
 AGENT_RUN_CODE_SOURCE = "export default function run() { return { agent: true }; }"
 
 
-def tool_runtime(state: dict[str, Any], *, tool_call_id: str = "call_1") -> ToolRuntime[Any, Any]:
+def tool_runtime(state: BelgieAgentState, *, tool_call_id: str = "call_1") -> ToolRuntime[Any, BelgieAgentState]:
     return ToolRuntime(
         state=state,
         context=None,
@@ -48,14 +51,15 @@ def tool_runtime(state: dict[str, Any], *, tool_call_id: str = "call_1") -> Tool
 
 
 @asynccontextmanager
-async def active_langchain_state(middleware: BelgieMiddleware) -> AsyncIterator[dict[str, Any]]:
-    state: dict[str, Any] = {"messages": []}
-    update = await middleware.abefore_agent(cast("Any", state), Runtime(context=None))
-    state.update(update or {})
+async def active_langchain_state(middleware: BelgieMiddleware) -> AsyncIterator[BelgieAgentState]:
+    state: BelgieAgentState = {"messages": []}
+    update = await middleware.abefore_agent(state, Runtime(context=None))
+    if update:
+        state.update(cast("BelgieAgentState", update))
     try:
         yield state
     finally:
-        await middleware.aafter_agent(cast("Any", state), Runtime(context=None))
+        await middleware.aafter_agent(state, Runtime(context=None))
 
 
 class ToolCapableFakeChatModel(GenericFakeChatModel):
@@ -82,8 +86,7 @@ class SessionRoutingFakeChatModel(ToolCapableFakeChatModel):
 
         label = str(messages[-1].content)
         code = f"""
-export default async function run() {{
-  await new Promise((resolve) => setTimeout(resolve, 25));
+export default function run() {{
   globalThis.labels = globalThis.labels ?? [];
   globalThis.labels.push({json.dumps(label)});
   return {{ labels: globalThis.labels }};
@@ -105,6 +108,11 @@ export default async function run() {{
 @pytest.fixture
 def belgie_middleware() -> BelgieMiddleware:
     return BelgieMiddleware()
+
+
+@pytest.fixture
+def run_code_tool(belgie_middleware: BelgieMiddleware) -> BaseTool:
+    return next(tool for tool in belgie_middleware.tools if tool.name == RUN_CODE_TOOL_NAME)
 
 
 @pytest.fixture
@@ -184,17 +192,14 @@ def test_tool_definition_exposes_typescript_run_code_only(
     assert visible_names == {RUN_CODE_TOOL_NAME}
     run_code_tool = next(tool for tool in captured[0] if isinstance(tool, BaseTool) and tool.name == RUN_CODE_TOOL_NAME)
     assert RUN_CODE_METADATA["code_arg_language"] in run_code_tool.description
-    tool_call_schema = run_code_tool.tool_call_schema
-    if isinstance(tool_call_schema, type) and issubclass(tool_call_schema, BaseModel):
-        schema = tool_call_schema.model_json_schema()
-    else:
-        schema = {}
-    assert schema.get("required") == ["code"]
+    assert RUN_CODE_JSON_SCHEMA["required"] == ["code"]
 
 
-async def test_run_code_executes_typescript_script_module(belgie_middleware: BelgieMiddleware) -> None:
+async def test_run_code_executes_typescript_script_module(
+    belgie_middleware: BelgieMiddleware,
+    run_code_tool: BaseTool,
+) -> None:
     async with active_langchain_state(belgie_middleware) as state:
-        run_code_tool = next(tool for tool in belgie_middleware.tools if tool.name == RUN_CODE_TOOL_NAME)
         result = await run_code_tool.ainvoke(
             {
                 "code": """
@@ -212,18 +217,20 @@ export default function run(): { total: number; label: string } {
 
 async def test_run_code_accepts_named_run_export(
     belgie_middleware: BelgieMiddleware,
+    run_code_tool: BaseTool,
     named_run_source: str,
 ) -> None:
     async with active_langchain_state(belgie_middleware) as state:
-        run_code_tool = next(tool for tool in belgie_middleware.tools if tool.name == RUN_CODE_TOOL_NAME)
         result = await run_code_tool.ainvoke({"code": named_run_source, "runtime": tool_runtime(state)})
 
     assert result == {"ok": True}
 
 
-async def test_run_code_supports_multiple_calls_in_one_session(belgie_middleware: BelgieMiddleware) -> None:
+async def test_run_code_supports_multiple_calls_in_one_session(
+    belgie_middleware: BelgieMiddleware,
+    run_code_tool: BaseTool,
+) -> None:
     async with active_langchain_state(belgie_middleware) as state:
-        run_code_tool = next(tool for tool in belgie_middleware.tools if tool.name == RUN_CODE_TOOL_NAME)
         first = await run_code_tool.ainvoke(
             {"code": "export default function run() { return { call: 1 }; }", "runtime": tool_runtime(state)},
         )
@@ -235,9 +242,11 @@ async def test_run_code_supports_multiple_calls_in_one_session(belgie_middleware
     assert second == {"call": 2}
 
 
-async def test_script_errors_surface_as_tool_errors(belgie_middleware: BelgieMiddleware) -> None:
+async def test_script_errors_surface_as_tool_errors(
+    belgie_middleware: BelgieMiddleware,
+    run_code_tool: BaseTool,
+) -> None:
     async with active_langchain_state(belgie_middleware) as state:
-        run_code_tool = next(tool for tool in belgie_middleware.tools if tool.name == RUN_CODE_TOOL_NAME)
         with pytest.raises(Exception, match="boom"):
             await run_code_tool.ainvoke(
                 {
@@ -323,9 +332,11 @@ def test_deferred_exposes_load_belgie() -> None:
     assert (run_code_tool.extras or {}).get("defer_loading") is True
 
 
-async def test_wrap_tool_call_maps_errors_to_tool_message(belgie_middleware: BelgieMiddleware) -> None:
+async def test_wrap_tool_call_maps_errors_to_tool_message(
+    belgie_middleware: BelgieMiddleware,
+    run_code_tool: BaseTool,
+) -> None:
     async with active_langchain_state(belgie_middleware) as state:
-        run_code_tool = next(tool for tool in belgie_middleware.tools if tool.name == RUN_CODE_TOOL_NAME)
 
         def failing_handler(request: Any) -> ToolMessage:
             boom_message = "boom"
@@ -335,7 +346,7 @@ async def test_wrap_tool_call_maps_errors_to_tool_message(belgie_middleware: Bel
             tool_call={"name": RUN_CODE_TOOL_NAME, "args": {"code": "bad"}, "id": "call_1", "type": "tool_call"},
             tool=run_code_tool,
             state=state,
-            runtime=tool_runtime(state),
+            runtime=cast("Any", tool_runtime(state)),
         )
         result = belgie_middleware.wrap_tool_call(request, failing_handler)
     assert isinstance(result, ToolMessage)
@@ -344,10 +355,7 @@ async def test_wrap_tool_call_maps_errors_to_tool_message(belgie_middleware: Bel
 
 
 def test_build_run_code_tool_requires_active_session() -> None:
-    run_code_tool = build_run_code_tool(
-        session_getter=lambda _: None,
-        description=resolved_description(BelgieOptions()),
-    )
+    run_code_tool = build_run_code_tool(description=resolved_description(BelgieOptions()))
 
     with pytest.raises(RuntimeError, match="must be entered"):
         run_code_tool.invoke(
