@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, NotRequired, cast
 from langchain.agents.middleware import AgentState
 from langchain.agents.middleware.types import PrivateStateAttr
 
+from belgie.capabilities.core._runtime import BelgieRuntimeSession  # noqa: TC001
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    from belgie.capabilities.core._runtime import BelgieRuntimeSession
 
 BELGIE_RUNTIME_SESSION_STATE_KEY: Final[str] = "belgie_runtime_session"
 
