@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 from belgie.errors import BelgieError
 
 if TYPE_CHECKING:
-    from belgie.capabilities.core._options import BelgieOptions
+    from belgie.ext.core._options import BelgieOptions
 
 
 class RunCodeInput(BaseModel):

@@ -1,6 +1,6 @@
 from pydantic_ai import Agent
 
-from belgie.capabilities.pydantic_ai import BelgieCapability
+from belgie.ext.pydantic_ai import BelgieCapability
 
 agent = Agent(
     "openai:gpt-5",
