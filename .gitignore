@@ -284,3 +284,6 @@ $RECYCLE.BIN/
 *.lnk
 
 ### Project ###
+
+!.github/scripts/
+!.github/scripts/**

@@ -9,9 +9,21 @@ on:
         description: Release tag to publish (vX.Y.Z)
         required: true
         type: string
+      publish_target:
+        description: Where to publish
+        type: choice
+        options: [pypi, testpypi]
+        default: pypi
+      upload_to_release:
+        description: Attach wheels to the GitHub Release (workflow_dispatch only)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+env:
+  EXPECTED_WHEELS: "8"
 
 jobs:
   check:
@@ -21,6 +33,9 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       tag_commit: ${{ steps.release.outputs.tag_commit }}
       version: ${{ steps.release.outputs.version }}
+      publish_target: ${{ steps.release.outputs.publish_target }}
+      publish_url: ${{ steps.release.outputs.publish_url }}
+      upload_to_release: ${{ steps.release.outputs.upload_to_release }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -31,6 +46,8 @@ jobs:
         id: release
         env:
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+          INPUT_PUBLISH_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_target || 'pypi' }}
+          INPUT_UPLOAD_TO_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_to_release || 'false' }}
         run: |
           set -euo pipefail
 
@@ -46,15 +63,32 @@ jobs:
           fi
 
           version="${TAG_NAME#v}"
-          status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "https://pypi.org/pypi/belgie/${version}/json")"
+
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            publish_target="pypi"
+            upload_to_release="true"
+          else
+            publish_target="$INPUT_PUBLISH_TARGET"
+            upload_to_release="$INPUT_UPLOAD_TO_RELEASE"
+          fi
+
+          if [[ "$publish_target" == "testpypi" ]]; then
+            probe_url="https://test.pypi.org/pypi/belgie/${version}/json"
+            publish_url="https://test.pypi.org/p/belgie"
+          else
+            probe_url="https://pypi.org/pypi/belgie/${version}/json"
+            publish_url="https://pypi.org/p/belgie"
+          fi
+
+          status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "$probe_url")"
           case "$status" in
             404)
               ;;
             200)
-              echo "::warning::belgie $version already exists on PyPI; publish will skip already-uploaded files."
+              echo "::warning::belgie $version already exists on $publish_target; publish will skip already-uploaded files."
               ;;
             *)
-              echo "::error::Failed to check PyPI for belgie $version (HTTP $status)."
+              echo "::error::Failed to check $publish_target for belgie $version (HTTP $status)."
               exit 1
               ;;
           esac
@@ -62,6 +96,9 @@ jobs:
           echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "tag_commit=$tag_commit" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish_target=$publish_target" >> "$GITHUB_OUTPUT"
+          echo "publish_url=$publish_url" >> "$GITHUB_OUTPUT"
+          echo "upload_to_release=$upload_to_release" >> "$GITHUB_OUTPUT"
 
   build:
     name: build wheel (${{ matrix.target }})
@@ -81,6 +118,12 @@ jobs:
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             manylinux: "2_28"
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            manylinux: musllinux_1_2
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             manylinux: ""
@@ -89,6 +132,9 @@ jobs:
             manylinux: ""
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
+            manylinux: ""
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
             manylinux: ""
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -124,85 +170,11 @@ jobs:
           set -euo pipefail
 
           uv version "$VERSION" --frozen
-
-          uv run --no-project --python 3.12 python - <<'PY'
-          from pathlib import Path
-          import os
-          import re
-          import tomllib
-
-          version = os.environ["VERSION"]
-
-
-          def replace_version_in_named_block(path: str, header_pattern: str, name: str) -> None:
-              file_path = Path(path)
-              text = file_path.read_text()
-              header = re.search(header_pattern, text, flags=re.MULTILINE)
-              if header is None:
-                  raise SystemExit(f"{path} is missing block for {name}")
-
-              next_block = re.search(r"\n(?:\[\[package\]\]|\[[^\]\n]+\])", text[header.end() :])
-              block_end = len(text) if next_block is None else header.end() + next_block.start()
-              block = text[header.start() : block_end]
-              updated_block, count = re.subn(
-                  r'(?m)^version = "[^"]+"$',
-                  f'version = "{version}"',
-                  block,
-                  count=1,
-              )
-              if count != 1:
-                  raise SystemExit(f"{path} block for {name} is missing exactly one version")
-
-              file_path.write_text(text[: header.start()] + updated_block + text[block_end:])
-
-
-          replace_version_in_named_block(
-              "Cargo.toml",
-              r'(?m)^\[package\]\nname = "belgie"$',
-              "belgie",
-          )
-          replace_version_in_named_block(
-              "Cargo.lock",
-              r'(?ms)^\[\[package\]\]\nname = "belgie"$',
-              "belgie",
-          )
-          replace_version_in_named_block(
-              "uv.lock",
-              r'(?ms)^\[\[package\]\]\nname = "belgie"$',
-              "belgie",
-          )
-
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
-          cargo = tomllib.loads(Path("Cargo.toml").read_text())
-          cargo_lock = tomllib.loads(Path("Cargo.lock").read_text())
-          uv_lock = tomllib.loads(Path("uv.lock").read_text())
-
-          actual = {
-              "pyproject.toml": pyproject["project"]["version"],
-              "Cargo.toml": cargo["package"]["version"],
-          }
-          for package in cargo_lock["package"]:
-              if package["name"] == "belgie":
-                  actual["Cargo.lock"] = package["version"]
-                  break
-          for package in uv_lock["package"]:
-              if package["name"] == "belgie":
-                  actual["uv.lock"] = package["version"]
-                  break
-
-          missing = {"Cargo.lock", "uv.lock"} - actual.keys()
-          if missing:
-              raise SystemExit(f"missing belgie package entries: {sorted(missing)}")
-
-          mismatched = {name: found for name, found in actual.items() if found != version}
-          if mismatched:
-              raise SystemExit(f"release version mismatch: {mismatched}")
-          PY
-
+          uv run --no-project --python 3.12 python .github/scripts/set-release-version.py
           cargo metadata --locked --format-version 1 --no-deps >/dev/null
 
       - name: Set up QEMU
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-musl'
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         with:
           platforms: arm64
@@ -228,6 +200,10 @@ jobs:
 
             export LIBCLANG_PATH="$(llvm-config --libdir)"
 
+            if [[ "${{ matrix.target }}" == *-musl ]]; then
+              export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-feature=-crt-static"
+            fi
+
             if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
               # deno_snapshots build.rs build-depends on deno_runtime for the HOST
               # during cross-compilation, which pulls in aws-lc-sys. The manylinux
@@ -237,6 +213,13 @@ jobs:
 
               sysroot="$(aarch64-unknown-linux-gnu-gcc -print-sysroot)"
               export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include -I$sysroot/usr/include/aarch64-linux-gnu"
+            elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
+              unset TARGET_CC TARGET_CXX
+
+              sysroot="$(aarch64-linux-musl-gcc -print-sysroot 2>/dev/null || true)"
+              if [[ -n "$sysroot" ]]; then
+                export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include"
+              fi
             fi
           args: --release --locked --compatibility pypi --out dist
 
@@ -283,81 +266,7 @@ jobs:
           set -euo pipefail
 
           uv version "$VERSION" --frozen
-
-          uv run --no-project --python 3.12 python - <<'PY'
-          from pathlib import Path
-          import os
-          import re
-          import tomllib
-
-          version = os.environ["VERSION"]
-
-
-          def replace_version_in_named_block(path: str, header_pattern: str, name: str) -> None:
-              file_path = Path(path)
-              text = file_path.read_text()
-              header = re.search(header_pattern, text, flags=re.MULTILINE)
-              if header is None:
-                  raise SystemExit(f"{path} is missing block for {name}")
-
-              next_block = re.search(r"\n(?:\[\[package\]\]|\[[^\]\n]+\])", text[header.end() :])
-              block_end = len(text) if next_block is None else header.end() + next_block.start()
-              block = text[header.start() : block_end]
-              updated_block, count = re.subn(
-                  r'(?m)^version = "[^"]+"$',
-                  f'version = "{version}"',
-                  block,
-                  count=1,
-              )
-              if count != 1:
-                  raise SystemExit(f"{path} block for {name} is missing exactly one version")
-
-              file_path.write_text(text[: header.start()] + updated_block + text[block_end:])
-
-
-          replace_version_in_named_block(
-              "Cargo.toml",
-              r'(?m)^\[package\]\nname = "belgie"$',
-              "belgie",
-          )
-          replace_version_in_named_block(
-              "Cargo.lock",
-              r'(?ms)^\[\[package\]\]\nname = "belgie"$',
-              "belgie",
-          )
-          replace_version_in_named_block(
-              "uv.lock",
-              r'(?ms)^\[\[package\]\]\nname = "belgie"$',
-              "belgie",
-          )
-
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
-          cargo = tomllib.loads(Path("Cargo.toml").read_text())
-          cargo_lock = tomllib.loads(Path("Cargo.lock").read_text())
-          uv_lock = tomllib.loads(Path("uv.lock").read_text())
-
-          actual = {
-              "pyproject.toml": pyproject["project"]["version"],
-              "Cargo.toml": cargo["package"]["version"],
-          }
-          for package in cargo_lock["package"]:
-              if package["name"] == "belgie":
-                  actual["Cargo.lock"] = package["version"]
-                  break
-          for package in uv_lock["package"]:
-              if package["name"] == "belgie":
-                  actual["uv.lock"] = package["version"]
-                  break
-
-          missing = {"Cargo.lock", "uv.lock"} - actual.keys()
-          if missing:
-              raise SystemExit(f"missing belgie package entries: {sorted(missing)}")
-
-          mismatched = {name: found for name, found in actual.items() if found != version}
-          if mismatched:
-              raise SystemExit(f"release version mismatch: {mismatched}")
-          PY
-
+          uv run --no-project --python 3.12 python .github/scripts/set-release-version.py
           cargo metadata --locked --format-version 1 --no-deps >/dev/null
 
       - name: Build source distribution
@@ -373,17 +282,18 @@ jobs:
           path: dist/*.tar.gz
 
   publish:
-    name: publish to PyPI
+    name: publish to ${{ needs.check.outputs.publish_target }}
     needs: [build, sdist, check]
     runs-on: ubuntu-latest
     environment:
-      name: pypi
-      url: https://pypi.org/p/belgie
+      name: ${{ needs.check.outputs.publish_target }}
+      url: ${{ needs.check.outputs.publish_url }}
     permissions:
       contents: read
       id-token: write
     env:
       VERSION: ${{ needs.check.outputs.version }}
+      PUBLISH_TARGET: ${{ needs.check.outputs.publish_target }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -401,34 +311,45 @@ jobs:
 
       - name: Validate distributions
         shell: bash
-        run: |
-          set -euo pipefail
-
-          wheel_count="$(find dist -maxdepth 1 -type f -name 'belgie-*.whl' | wc -l | tr -d ' ')"
-          sdist_count="$(find dist -maxdepth 1 -type f -name 'belgie-*.tar.gz' | wc -l | tr -d ' ')"
-
-          if [[ "$wheel_count" != "5" ]]; then
-            echo "::error::Expected 5 wheels, found $wheel_count."
-            find dist -maxdepth 1 -type f -print
-            exit 1
-          fi
-
-          if [[ "$sdist_count" != "1" ]]; then
-            echo "::error::Expected 1 source distribution, found $sdist_count."
-            find dist -maxdepth 1 -type f -print
-            exit 1
-          fi
-
-          for artifact in dist/*; do
-            filename="$(basename "$artifact")"
-            if [[ "$filename" != belgie-"$VERSION"-* && "$filename" != belgie-"$VERSION".tar.gz ]]; then
-              echo "::error::Unexpected distribution filename: $filename"
-              exit 1
-            fi
-          done
+        run: bash .github/scripts/validate-distributions.sh
 
       - name: Check distributions
         run: uvx twine check --strict dist/*
 
       - name: Publish to PyPI
+        if: env.PUBLISH_TARGET == 'pypi'
         run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/ dist/*
+
+      - name: Publish to TestPyPI
+        if: env.PUBLISH_TARGET == 'testpypi'
+        run: >-
+          uv publish --trusted-publishing always
+          --publish-url https://test.pypi.org/legacy/
+          --check-url https://test.pypi.org/simple/
+          dist/*
+
+  upload-release-assets:
+    name: upload release assets
+    needs: [build, sdist, check]
+    if: needs.check.outputs.upload_to_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Validate distributions
+        shell: bash
+        run: bash .github/scripts/validate-distributions.sh
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@be5bf660704cac670d937e271e1a7533aa0617c9 # v2.2.0
+        with:
+          tag_name: ${{ needs.check.outputs.tag }}
+          files: dist/*
+          fail_on_unmatched_files: true

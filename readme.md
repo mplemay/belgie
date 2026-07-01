@@ -112,3 +112,24 @@ single capability.
 - **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with the `BelgieCapability` capability and `run_code` tool.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
+
+## Releasing
+
+Releases are automated via [`.github/workflows/publish.yml`](.github/workflows/publish.yml).
+
+1. Merge version bumps to `main` and create a GitHub Release with tag `vX.Y.Z` on `main`.
+2. The workflow builds **8 platform wheels** plus one source distribution, publishes to [PyPI](https://pypi.org/project/belgie/), and attaches artifacts to the GitHub Release.
+3. For staging, run the workflow manually (`workflow_dispatch`) with `publish_target: testpypi` before cutting the production release. Configure a `testpypi` GitHub Environment with [TestPyPI trusted publishing](https://test.pypi.org/manage/account/publishing/).
+
+**Supported wheel platforms:**
+
+| Platform | Tag |
+|----------|-----|
+| Linux (glibc) x86_64 | `manylinux_2_28_x86_64` |
+| Linux (glibc) aarch64 | `manylinux_2_28_aarch64` |
+| Linux (musl) x86_64 | `musllinux_1_2_x86_64` |
+| Linux (musl) aarch64 | `musllinux_1_2_aarch64` |
+| macOS Intel | `macosx_*_x86_64` |
+| macOS Apple Silicon | `macosx_*_arm64` |
+| Windows x86_64 | `win_amd64` |
+| Windows ARM64 | `win_arm64` |
