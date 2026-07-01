@@ -19,9 +19,9 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 
 from belgie import Runtime as BelgieRuntime, RuntimeOptions
-from belgie.capabilities import langchain as langchain_capability
-from belgie.capabilities.core._options import BelgieOptions
-from belgie.capabilities.core._run_code import (
+from belgie.ext import langchain as langchain_capability
+from belgie.ext.core._options import BelgieOptions
+from belgie.ext.core._run_code import (
     DEFAULT_BELGIE_CAPABILITY_ID,
     LOAD_BELGIE_TOOL_NAME,
     RUN_CODE_DESCRIPTION,
@@ -30,11 +30,11 @@ from belgie.capabilities.core._run_code import (
     RUN_CODE_TOOL_NAME,
     resolved_description,
 )
-from belgie.capabilities.langchain import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieMiddleware
-from belgie.capabilities.langchain._tools import build_run_code_tool
+from belgie.ext.langchain import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieMiddleware
+from belgie.ext.langchain._tools import build_run_code_tool
 
 if TYPE_CHECKING:
-    from belgie.capabilities.langchain._state import BelgieAgentState
+    from belgie.ext.langchain._state import BelgieAgentState
 
 AGENT_RUN_CODE_SOURCE: Final[str] = "export default function run() { return { agent: true }; }"
 

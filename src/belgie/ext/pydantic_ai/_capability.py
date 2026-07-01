@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, cast
 from pydantic_ai.capabilities import AbstractCapability, CapabilityOrdering
 from pydantic_ai.tools import AgentDepsT
 
-from belgie.capabilities.core._run_code import (
+from belgie.ext.core._run_code import (
     DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
     DEFAULT_BELGIE_CAPABILITY_ID,
     apply_defer_loading_defaults,
 )
-from belgie.capabilities.pydantic_ai._toolset import (
+from belgie.ext.pydantic_ai._toolset import (
     BelgieToolset,
     _BelgieOptions,
 )
