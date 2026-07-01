@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
 from pydantic import BaseModel, Field
 
 from belgie.capabilities.core._run_code import (
     LOAD_BELGIE_TOOL_NAME,
     RUN_CODE_TOOL_NAME,
-    RunCodeInput,
     load_belgie_tool_description,
 )
 from belgie.capabilities.core._runtime import SESSION_NOT_ENTERED_MESSAGE, BelgieRuntimeSession
@@ -38,7 +37,7 @@ def _run_script_sync(session: BelgieRuntimeSession, code: str) -> Any:  # noqa: 
 
 def build_run_code_tool(
     *,
-    session_getter: Callable[[], BelgieRuntimeSession | None],
+    session_getter: Callable[[ToolRuntime[Any, Any]], BelgieRuntimeSession | None],
     description: str,
     defer_loading: bool = False,
 ) -> BaseTool:
@@ -47,11 +46,10 @@ def build_run_code_tool(
     @tool(
         RUN_CODE_TOOL_NAME,
         description=description,
-        args_schema=RunCodeInput,
         extras=extras,
     )
-    def run_code(code: str) -> Any:  # noqa: ANN401
-        session = session_getter()
+    def run_code(code: str, runtime: ToolRuntime[Any, Any]) -> Any:  # noqa: ANN401
+        session = session_getter(runtime)
         if session is None:
             raise RuntimeError(SESSION_NOT_ENTERED_MESSAGE)
         return _run_script_sync(session, code)
