@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from pydantic_ai import AbstractToolset, Agent, ModelResponse, RunContext, ToolDefinition
@@ -26,7 +26,7 @@ from belgie.capabilities.core._run_code import (
 from belgie.capabilities.pydantic_ai import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieCapability
 from belgie.capabilities.pydantic_ai._toolset import BelgieToolset
 
-AGENT_RUN_CODE_SOURCE = "export default function run() { return { agent: true }; }"
+AGENT_RUN_CODE_SOURCE: Final[str] = "export default function run() { return { agent: true }; }"
 
 
 @pytest.fixture

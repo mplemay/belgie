@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 import pytest
 
@@ -107,7 +107,7 @@ export default function localPlugin() {
     return create
 
 
-WORKER_MAIN_SOURCE = """
+WORKER_MAIN_SOURCE: Final[str] = """
 export default function run() {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./worker.js", import.meta.url).href, {

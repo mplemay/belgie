@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import pytest
 from langchain.agents import create_agent
@@ -36,7 +36,7 @@ from belgie.capabilities.langchain._tools import build_run_code_tool
 if TYPE_CHECKING:
     from belgie.capabilities.langchain._state import BelgieAgentState
 
-AGENT_RUN_CODE_SOURCE = "export default function run() { return { agent: true }; }"
+AGENT_RUN_CODE_SOURCE: Final[str] = "export default function run() { return { agent: true }; }"
 
 
 def tool_runtime(state: BelgieAgentState, *, tool_call_id: str = "call_1") -> ToolRuntime[Any, BelgieAgentState]:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Final, TypedDict
 
 from belgie._core import AsyncEnvironment, Environment, SyncEnvironment
 
@@ -10,13 +10,15 @@ if TYPE_CHECKING:
 
 type BelgieEnvironment = Environment | SyncEnvironment | AsyncEnvironment
 
-INSTRUCTIONS_CONFLICT_MESSAGE: str = (
+INSTRUCTIONS_CONFLICT_MESSAGE: Final[str] = (
     "`instructions` and `dangerously_replace_instructions` are mutually exclusive: "
     "`instructions` appends to the built-in prose, while "
     "`dangerously_replace_instructions` replaces it."
 )
-RUNTIME_ENVIRONMENT_CONFLICT_MESSAGE: str = "`runtime` cannot be combined with `environment` or `runtime_options`."
-DEFER_LOADING_REQUIRES_ID_MESSAGE: str = "`defer_loading=True` requires a stable `id` on the Belgie capability."
+RUNTIME_ENVIRONMENT_CONFLICT_MESSAGE: Final[str] = (
+    "`runtime` cannot be combined with `environment` or `runtime_options`."
+)
+DEFER_LOADING_REQUIRES_ID_MESSAGE: Final[str] = "`defer_loading=True` requires a stable `id` on the Belgie capability."
 
 
 class BelgieOptionsKwargs(TypedDict):
