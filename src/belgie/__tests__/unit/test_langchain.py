@@ -61,7 +61,6 @@ def external() -> str:
 
 def test_public_exports_are_limited() -> None:
     assert set(langchain_capability.__all__) == {
-        "Belgie",
         "BelgieMiddleware",
         "DEFAULT_RUN_CODE_INSTRUCTIONS",
     }

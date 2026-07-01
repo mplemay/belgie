@@ -12,10 +12,7 @@ except ModuleNotFoundError as import_error:
         raise ImportError(LANGCHAIN_REQUIRED_MESSAGE) from import_error
     raise
 
-Belgie = BelgieMiddleware
-
 __all__: tuple[str, ...] = (
     "DEFAULT_RUN_CODE_INSTRUCTIONS",
-    "Belgie",
     "BelgieMiddleware",
 )
