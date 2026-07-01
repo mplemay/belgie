@@ -4,7 +4,6 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, Self, cast
 
-from pydantic import TypeAdapter
 from pydantic_ai import AbstractToolset, RunContext, ToolDefinition, WrapperToolset
 from pydantic_ai._deferred_capabilities import DEFERRED_CAPABILITY_TOOL_METADATA_KEY
 from pydantic_ai.exceptions import ModelRetry, UserError
@@ -15,10 +14,12 @@ from pydantic_ai.toolsets.abstract import SchemaValidatorProt, ToolsetTool
 
 from belgie.capabilities.core._options import BelgieOptions
 from belgie.capabilities.core._run_code import (
+    RUN_CODE_ARGS_VALIDATOR as _RUN_CODE_ARGS_VALIDATOR,
     RUN_CODE_JSON_SCHEMA,
     RUN_CODE_METADATA,
     RUN_CODE_TOOL_NAME,
-    RunCodeArguments,
+    RunCodeInput,
+    format_script_failure,
     resolved_description,
 )
 from belgie.capabilities.core._runtime import AsyncExitArgs, BelgieRuntimeSession
@@ -26,7 +27,7 @@ from belgie.errors import BelgieError
 
 RUN_CODE_ARGS_VALIDATOR: Final[SchemaValidatorProt] = cast(
     "SchemaValidatorProt",
-    TypeAdapter(RunCodeArguments).validator,
+    _RUN_CODE_ARGS_VALIDATOR,
 )
 UNSUPPORTED_TOOL_MESSAGE: Final[str] = (
     "Belgie capability only supports the {supported_tool_name!r} tool, not {requested_tool_name!r}."
@@ -134,10 +135,10 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
             raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
 
         try:
-            return_value = await self._session.run_script(tool_args["code"])
+            parsed = tool_args if isinstance(tool_args, RunCodeInput) else RunCodeInput.model_validate(tool_args)
+            return_value = await self._session.run_script(parsed.code)
         except BelgieError as error:
-            retry_message = f"Belgie script execution failed:\n{error}"
-            raise ModelRetry(retry_message) from error
+            raise ModelRetry(format_script_failure(error)) from error
         except TimeoutError as error:
             raise ModelRetry(str(error)) from error
 
@@ -145,6 +146,3 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
             return_value=return_value,
             metadata={"belgie": True, "code_language": RUN_CODE_METADATA["code_arg_language"]},
         )
-
-    def _resolved_description(self) -> str:
-        return resolved_description(self)

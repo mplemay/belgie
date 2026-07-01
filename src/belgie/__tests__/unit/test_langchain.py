@@ -19,7 +19,6 @@ from belgie import Runtime as BelgieRuntime, RuntimeOptions
 from belgie.capabilities import langchain as langchain_capability
 from belgie.capabilities.core._options import BelgieOptions
 from belgie.capabilities.core._run_code import (
-    DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
     DEFAULT_BELGIE_CAPABILITY_ID,
     LOAD_BELGIE_TOOL_NAME,
     RUN_CODE_DESCRIPTION,
@@ -92,13 +91,13 @@ def test_defer_loading_assigns_default_capability_id() -> None:
 
 def test_resolved_description_appends_or_replaces_instructions() -> None:
     default_middleware = BelgieMiddleware()
-    assert default_middleware.resolved_description() == RUN_CODE_DESCRIPTION
+    assert resolved_description(default_middleware) == RUN_CODE_DESCRIPTION
 
     appended = BelgieMiddleware(instructions="Use strict TypeScript.")
-    assert appended.resolved_description() == f"{RUN_CODE_DESCRIPTION}\n\nUse strict TypeScript."
+    assert resolved_description(appended) == f"{RUN_CODE_DESCRIPTION}\n\nUse strict TypeScript."
 
     replaced = BelgieMiddleware(dangerously_replace_instructions="Custom only.")
-    assert replaced.resolved_description() == "Custom only."
+    assert resolved_description(replaced) == "Custom only."
 
 
 def test_tool_definition_exposes_typescript_run_code_only(
@@ -244,7 +243,6 @@ def test_deferred_exposes_load_belgie() -> None:
     assert tool_names == {LOAD_BELGIE_TOOL_NAME, RUN_CODE_TOOL_NAME}
     run_code_tool = next(tool for tool in middleware.tools if tool.name == RUN_CODE_TOOL_NAME)
     assert (run_code_tool.extras or {}).get("defer_loading") is True
-    assert DEFAULT_BELGIE_CAPABILITY_DESCRIPTION in middleware.resolved_description() or True
 
 
 async def test_wrap_tool_call_maps_errors_to_tool_message(belgie_middleware: BelgieMiddleware) -> None:

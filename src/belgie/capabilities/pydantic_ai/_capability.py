@@ -9,6 +9,7 @@ from pydantic_ai.tools import AgentDepsT
 from belgie.capabilities.core._run_code import (
     DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
     DEFAULT_BELGIE_CAPABILITY_ID,
+    apply_defer_loading_defaults,
 )
 from belgie.capabilities.pydantic_ai._toolset import (
     BelgieToolset,
@@ -28,6 +29,7 @@ class Belgie(_BelgieOptions, AbstractCapability[AgentDepsT]):
             self.description = DEFAULT_BELGIE_CAPABILITY_DESCRIPTION
         if self.capability_id is None:
             self.capability_id = self.id
+        apply_defer_loading_defaults(self)
         self.validate()
 
     def get_ordering(self) -> CapabilityOrdering:

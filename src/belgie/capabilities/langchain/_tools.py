@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 
 from langchain.tools import tool
 from pydantic import BaseModel, Field
@@ -9,21 +9,15 @@ from pydantic import BaseModel, Field
 from belgie.capabilities.core._run_code import (
     LOAD_BELGIE_TOOL_NAME,
     RUN_CODE_TOOL_NAME,
+    RunCodeInput,
+    load_belgie_tool_description,
 )
 from belgie.capabilities.core._runtime import SESSION_NOT_ENTERED_MESSAGE, BelgieRuntimeSession
-from belgie.errors import BelgieError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.tools import BaseTool
-
-SESSION_NOT_READY_MESSAGE: Final[str] = "Belgie middleware runtime session is not active."
-SCRIPT_FAILURE_PREFIX: Final[str] = "Belgie script execution failed:\n"
-
-
-class RunCodeInput(BaseModel):
-    code: str = Field(description="The JavaScript or TypeScript belgie.Script module source to execute.")
 
 
 class LoadBelgieInput(BaseModel):
@@ -69,23 +63,13 @@ def build_load_belgie_tool(
     *,
     capability_id: str,
     description: str,
-    on_load: Callable[[], None],
 ) -> BaseTool:
     @tool(
         LOAD_BELGIE_TOOL_NAME,
-        description=(
-            f"Load the Belgie JavaScript/TypeScript sandbox capability. Available capability id: {capability_id}."
-        ),
+        description=load_belgie_tool_description(capability_id),
         args_schema=LoadBelgieInput,
     )
     def load_belgie(capability_id: str) -> str:  # noqa: ARG001
-        on_load()
         return description
 
     return load_belgie
-
-
-def format_tool_error(error: Exception) -> str:
-    if isinstance(error, BelgieError):
-        return f"{SCRIPT_FAILURE_PREFIX}{error}"
-    return str(error)

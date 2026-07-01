@@ -21,6 +21,7 @@ from belgie.capabilities.core._run_code import (
     RUN_CODE_DESCRIPTION,
     RUN_CODE_METADATA,
     RUN_CODE_TOOL_NAME,
+    resolved_description,
 )
 from belgie.capabilities.pydantic_ai import DEFAULT_RUN_CODE_INSTRUCTIONS, Belgie
 from belgie.capabilities.pydantic_ai._toolset import BelgieToolset
@@ -106,13 +107,13 @@ def test_defer_loading_assigns_default_id_and_description() -> None:
 
 def test_resolved_description_appends_or_replaces_instructions(belgie_toolset: BelgieToolset[None]) -> None:
     default_toolset = BelgieToolset(wrapped=StaticToolset())
-    assert default_toolset._resolved_description() == RUN_CODE_DESCRIPTION
+    assert resolved_description(default_toolset) == RUN_CODE_DESCRIPTION
 
     appended = BelgieToolset(wrapped=StaticToolset(), instructions="Use strict TypeScript.")
-    assert appended._resolved_description() == f"{RUN_CODE_DESCRIPTION}\n\nUse strict TypeScript."
+    assert resolved_description(appended) == f"{RUN_CODE_DESCRIPTION}\n\nUse strict TypeScript."
 
     replaced = BelgieToolset(wrapped=StaticToolset(), dangerously_replace_instructions="Custom only.")
-    assert replaced._resolved_description() == "Custom only."
+    assert resolved_description(replaced) == "Custom only."
 
 
 async def test_deferred_capability_marks_run_code(run_context: RunContext[None]) -> None:
