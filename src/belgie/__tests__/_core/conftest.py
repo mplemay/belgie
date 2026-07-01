@@ -1,9 +1,10 @@
 import socket
 from pathlib import Path
+from typing import Final
 
 import pytest
 
-EMPTY_DENO_LOCK = '{"version":"5"}\n'
+EMPTY_DENO_LOCK: Final[str] = '{"version":"5"}\n'
 
 
 @pytest.fixture

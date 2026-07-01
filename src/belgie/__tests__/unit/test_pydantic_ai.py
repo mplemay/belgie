@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from pydantic_ai import AbstractToolset, Agent, ModelResponse, RunContext, ToolDefinition
@@ -15,17 +15,18 @@ from pydantic_core import SchemaValidator, core_schema
 
 from belgie import Runtime, RuntimeOptions
 from belgie.capabilities import pydantic_ai as pydantic_ai_capability
-from belgie.capabilities.pydantic_ai import DEFAULT_RUN_CODE_INSTRUCTIONS, Belgie
-from belgie.capabilities.pydantic_ai._toolset import (
+from belgie.capabilities.core._run_code import (
     DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
     DEFAULT_BELGIE_CAPABILITY_ID,
     RUN_CODE_DESCRIPTION,
     RUN_CODE_METADATA,
     RUN_CODE_TOOL_NAME,
-    BelgieToolset,
+    resolved_description,
 )
+from belgie.capabilities.pydantic_ai import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieCapability
+from belgie.capabilities.pydantic_ai._toolset import BelgieToolset
 
-AGENT_RUN_CODE_SOURCE = "export default function run() { return { agent: true }; }"
+AGENT_RUN_CODE_SOURCE: Final[str] = "export default function run() { return { agent: true }; }"
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def run_context() -> RunContext[None]:
 
 @pytest.fixture
 def belgie_toolset() -> BelgieToolset[None]:
-    toolset = Belgie[None]().get_wrapper_toolset(StaticToolset())
+    toolset = BelgieCapability[None]().get_wrapper_toolset(StaticToolset())
     assert isinstance(toolset, BelgieToolset)
     return toolset
 
@@ -78,8 +79,8 @@ class StaticToolset(AbstractToolset[None]):
 
 
 def test_public_exports_are_limited() -> None:
-    assert set(pydantic_ai_capability.__all__) == {"Belgie", "DEFAULT_RUN_CODE_INSTRUCTIONS"}
-    assert Belgie.__name__ == "Belgie"
+    assert set(pydantic_ai_capability.__all__) == {"BelgieCapability", "DEFAULT_RUN_CODE_INSTRUCTIONS"}
+    assert BelgieCapability.__name__ == "BelgieCapability"
     assert DEFAULT_RUN_CODE_INSTRUCTIONS is pydantic_ai_capability.DEFAULT_RUN_CODE_INSTRUCTIONS
     assert "JavaScript" in DEFAULT_RUN_CODE_INSTRUCTIONS
     assert "TypeScript" in DEFAULT_RUN_CODE_INSTRUCTIONS
@@ -88,17 +89,17 @@ def test_public_exports_are_limited() -> None:
 
 def test_rejects_conflicting_configuration() -> None:
     with pytest.raises(UserError, match="mutually exclusive"):
-        Belgie(instructions="append", dangerously_replace_instructions="replace")
+        BelgieCapability(instructions="append", dangerously_replace_instructions="replace")
 
     with pytest.raises(UserError, match="cannot be combined"):
-        Belgie(runtime=Runtime(), runtime_options=RuntimeOptions())
+        BelgieCapability(runtime=Runtime(), runtime_options=RuntimeOptions())
 
     with pytest.raises(UserError, match="requires a stable `id`"):
         BelgieToolset(wrapped=StaticToolset(), defer_loading=True, capability_id=None)
 
 
 def test_defer_loading_assigns_default_id_and_description() -> None:
-    belgie = Belgie(defer_loading=True)
+    belgie = BelgieCapability(defer_loading=True)
     assert belgie.id == DEFAULT_BELGIE_CAPABILITY_ID
     assert belgie.description == DEFAULT_BELGIE_CAPABILITY_DESCRIPTION
     assert belgie.capability_id == DEFAULT_BELGIE_CAPABILITY_ID
@@ -106,13 +107,13 @@ def test_defer_loading_assigns_default_id_and_description() -> None:
 
 def test_resolved_description_appends_or_replaces_instructions(belgie_toolset: BelgieToolset[None]) -> None:
     default_toolset = BelgieToolset(wrapped=StaticToolset())
-    assert default_toolset._resolved_description() == RUN_CODE_DESCRIPTION
+    assert resolved_description(default_toolset) == RUN_CODE_DESCRIPTION
 
     appended = BelgieToolset(wrapped=StaticToolset(), instructions="Use strict TypeScript.")
-    assert appended._resolved_description() == f"{RUN_CODE_DESCRIPTION}\n\nUse strict TypeScript."
+    assert resolved_description(appended) == f"{RUN_CODE_DESCRIPTION}\n\nUse strict TypeScript."
 
     replaced = BelgieToolset(wrapped=StaticToolset(), dangerously_replace_instructions="Custom only.")
-    assert replaced._resolved_description() == "Custom only."
+    assert resolved_description(replaced) == "Custom only."
 
 
 async def test_deferred_capability_marks_run_code(run_context: RunContext[None]) -> None:
@@ -131,7 +132,7 @@ async def test_deferred_capability_marks_run_code(run_context: RunContext[None])
 
 
 async def test_deferred_agent_exposes_load_capability() -> None:
-    agent = Agent("test", capabilities=[Belgie(defer_loading=True)])
+    agent = Agent("test", capabilities=[BelgieCapability(defer_loading=True)])
     model = TestModel(call_tools=[], custom_output_text="done")
 
     with agent.override(model=model):
@@ -147,7 +148,7 @@ async def test_deferred_agent_exposes_load_capability() -> None:
 
 
 async def test_agent_run_code_through_capability_wiring() -> None:
-    agent = Agent("test", capabilities=[Belgie()])
+    agent = Agent("test", capabilities=[BelgieCapability()])
     model_steps: list[list[str]] = []
 
     def belgie_model(messages: list[Any], info: Any) -> ModelResponse:

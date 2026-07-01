@@ -43,17 +43,17 @@ asyncio.run(main())
 
 ## Pydantic AI
 
-`belgie.capabilities.pydantic_ai.Belgie` is a Pydantic AI capability that gives the agent a `run_code` tool. The model
-writes a `belgie.Script` module and Belgie runs it in the embedded Deno sandbox.
+`belgie.capabilities.pydantic_ai.BelgieCapability` is a Pydantic AI capability that gives the agent a `run_code` tool.
+The model writes a `belgie.Script` module and Belgie runs it in the embedded Deno sandbox.
 
 Install the optional extra with `uv add "belgie[pydantic-ai]"`. Set `OPENAI_API_KEY`, then:
 
 ```python
 from pydantic_ai import Agent
 
-from belgie.capabilities.pydantic_ai import Belgie
+from belgie.capabilities.pydantic_ai import BelgieCapability
 
-agent = Agent("openai:gpt-5", capabilities=[Belgie()])
+agent = Agent("openai:gpt-5", capabilities=[BelgieCapability()])
 
 result = agent.run_sync(
     "Use run_code with a TypeScript belgie.Script module that imports npm:camelcase "
@@ -63,6 +63,41 @@ print(result.output)
 ```
 
 See the full runnable project in [examples/pydantic-ai](examples/pydantic-ai).
+
+## LangChain
+
+`belgie.capabilities.langchain.BelgieMiddleware` is a LangChain agent middleware that gives the agent a `run_code`
+tool. The model writes a `belgie.Script` module and Belgie runs it in the embedded Deno sandbox.
+
+Install the optional extra with `uv add "belgie[langchain]"`. Set `OPENAI_API_KEY`, then:
+
+```python
+from langchain.agents import create_agent
+
+from belgie.capabilities.langchain import BelgieMiddleware
+
+agent = create_agent(
+    model="openai:gpt-5",
+    tools=[],
+    middleware=[BelgieMiddleware()],
+    system_prompt="You can execute JS/TS in a Deno sandbox with run_code.",
+)
+
+result = agent.invoke(
+    {
+        "messages": [
+            (
+                "user",
+                "Use run_code with a TypeScript belgie.Script module that imports npm:camelcase "
+                "and returns camelCase('foo-bar').",
+            ),
+        ],
+    },
+)
+print(result["messages"][-1].content)
+```
+
+See the full runnable project in [examples/langchain](examples/langchain).
 
 ## Examples
 
@@ -74,6 +109,6 @@ single capability.
 - **[jsr-deps](examples/jsr-deps):** JSR packages declared through an explicit `Environment`.
 - **[environment](examples/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
-- **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with the `Belgie` capability and `run_code` tool.
+- **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with the `BelgieCapability` capability and `run_code` tool.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
