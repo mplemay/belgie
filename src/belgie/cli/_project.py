@@ -86,6 +86,17 @@ def atomic_write_text(path: Path, text: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def read_lockfile_backup(lockfile_path: Path) -> bytes | None:
+    return lockfile_path.read_bytes() if lockfile_path.is_file() else None
+
+
+def restore_lockfile(lockfile_path: Path, previous: bytes | None) -> None:
+    if previous is None:
+        lockfile_path.unlink(missing_ok=True)
+    else:
+        lockfile_path.write_bytes(previous)
+
+
 def set_dependency_in_document(document: dict[str, Any], alias: str, specifier: str) -> None:
     if not alias.strip():
         msg = "Dependency alias must not be empty"

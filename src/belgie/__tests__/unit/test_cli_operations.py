@@ -74,7 +74,7 @@ class FakeEnvironment:
         assert packages == ["camelcase"]
         assert not latest
         assert lockfile_only
-        lockfile = self.path / ".updated.lock"
+        lockfile = self.path / "deno.lock"
         lockfile.write_text("updated", encoding="utf-8")
         return FakeUpdateResult(
             lockfile=str(lockfile),
@@ -120,6 +120,49 @@ def test_update_project_updates_shorthand_dependency_and_lockfile(tmp_path: Path
     assert document["tool"]["belgie"]["dependencies"] == {"camelcase": "8.0.1"}
     assert result.changes[0].updated == "npm:camelcase@8.0.1"
     assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == "updated"
+
+
+@pytest.mark.parametrize(
+    ("update_changes", "expected_match"),
+    [
+        (
+            [FakeUpdateChange(name="unknown", previous="npm:pkg@1.0.0", updated="npm:pkg@2.0.0")],
+            "unknown dependency alias",
+        ),
+        (
+            [FakeUpdateChange(name="camelcase", previous="npm:camelcase@8.0.0", updated="npm:other@1.0.0")],
+            "no longer resolves",
+        ),
+    ],
+)
+def test_update_project_restores_lockfile_when_validation_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    update_changes: list[FakeUpdateChange],
+    expected_match: str,
+) -> None:
+    write_pyproject(tmp_path, {"camelcase": "8.0.0"})
+    (tmp_path / "deno.lock").write_text("original", encoding="utf-8")
+
+    def failing_update(
+        self: FakeEnvironment,
+        packages: list[str] | None,
+        *,
+        latest: bool,
+        lockfile_only: bool,
+    ) -> FakeUpdateResult:
+        lockfile = self.path / "deno.lock"
+        lockfile.write_text("updated", encoding="utf-8")
+        return FakeUpdateResult(lockfile=str(lockfile), changes=update_changes)
+
+    monkeypatch.setattr(FakeEnvironment, "update", failing_update)
+
+    with pytest.raises(ProjectError, match=expected_match):
+        update_project(load_project(tmp_path), ["camelcase"], latest=False)
+
+    assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == "original"
+    document = rtoml.load(tmp_path / "pyproject.toml")
+    assert document["tool"]["belgie"]["dependencies"] == {"camelcase": "8.0.0"}
 
 
 def test_updated_dependency_value_preserves_explicit_registry_specifiers() -> None:

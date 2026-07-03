@@ -9,6 +9,8 @@ from belgie.cli._project import (
     BelgieProject,
     ProjectError,
     _load_project_from_document,
+    read_lockfile_backup,
+    restore_lockfile,
     set_dependency_in_document,
     set_dependency_value_in_document,
     temporary_lockfile,
@@ -75,12 +77,17 @@ def update_project(
     latest: bool,
 ) -> EnvironmentUpdateResult:
     document = deepcopy(project.pyproject)
+    lockfile_path = project.lockfile_path
+    previous_lockfile = read_lockfile_backup(lockfile_path)
     with (
         temporary_lockfile(project.root) as temporary,
         create_environment(project, frozen=False) as environment,
     ):
-        result = environment.update(packages, latest=latest, lockfile_only=True)
-        temporary.write_bytes(Path(result.lockfile).read_bytes())
+        try:
+            result = environment.update(packages, latest=latest, lockfile_only=True)
+            temporary.write_bytes(Path(result.lockfile).read_bytes())
+        finally:
+            restore_lockfile(lockfile_path, previous_lockfile)
 
         for change in result.changes:
             if (current := project.dependencies.get(change.name)) is None:
