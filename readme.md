@@ -107,6 +107,8 @@ single capability.
 - **[simple](examples/simple):** Async `Runtime` with a TypeScript file on disk.
 - **[inline-deps](examples/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a script.
 - **[jsr-deps](examples/jsr-deps):** JSR packages declared through an explicit `Environment`.
+- **[pyproject-cli](examples/pyproject-cli):** Manage project package dependencies with `belgie[cli]` and
+  `[tool.belgie.dependencies]`.
 - **[environment](examples/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
 - **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with the `BelgieCapability` capability and `run_code` tool.

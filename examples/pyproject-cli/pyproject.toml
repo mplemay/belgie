@@ -1,0 +1,29 @@
+[project]
+name = "pyproject-cli"
+version = "0.1.0"
+description = "pyproject.toml dependency management with the belgie CLI"
+readme = "readme.md"
+authors = [
+    { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
+]
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "belgie[cli]",
+]
+
+[project.scripts]
+main = "pyproject_cli_example.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.belgie.dependencies]
+std_path = "jsr:@std/path@^1"
+
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { belgie = false }
+
+[tool.uv.sources]
+belgie = { path = "../../", editable = true }
