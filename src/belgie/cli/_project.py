@@ -55,6 +55,15 @@ def temporary_lockfile(root: Path) -> Iterator[Path]:
         temporary.unlink(missing_ok=True)
 
 
+@contextmanager
+def preserve_lockfile(lockfile_path: Path) -> Iterator[None]:
+    previous = read_lockfile_backup(lockfile_path)
+    try:
+        yield
+    finally:
+        restore_lockfile(lockfile_path, previous)
+
+
 def read_pyproject_document(root: Path) -> dict[str, Any]:
     pyproject_path = root / PYPROJECT_NAME
     if not pyproject_path.is_file():
@@ -76,14 +85,24 @@ def write_pyproject_document(root: Path, document: dict[str, Any]) -> None:
     atomic_write_text(root / PYPROJECT_NAME, text)
 
 
-def atomic_write_text(path: Path, text: str) -> None:
+def atomic_write_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = temporary_file(path.parent, f".{path.name}.")
     try:
-        temporary.write_text(text, encoding="utf-8")
+        temporary.write_bytes(data)
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def atomic_commit_if_changed(path: Path, data: bytes) -> None:
+    if path.is_file() and path.read_bytes() == data:
+        return
+    atomic_write_bytes(path, data)
 
 
 def read_lockfile_backup(lockfile_path: Path) -> bytes | None:
@@ -97,24 +116,26 @@ def restore_lockfile(lockfile_path: Path, previous: bytes | None) -> None:
         lockfile_path.write_bytes(previous)
 
 
-def set_dependency_in_document(document: dict[str, Any], alias: str, specifier: str) -> None:
-    if not alias.strip():
-        msg = "Dependency alias must not be empty"
-        raise ProjectError(msg)
-    if not specifier.strip():
-        msg = "Dependency specifier must not be empty"
-        raise ProjectError(msg)
+def set_dependency_in_document(
+    document: dict[str, Any],
+    alias: str,
+    value: str,
+    *,
+    validate: bool = False,
+) -> None:
+    if validate:
+        if not alias.strip():
+            msg = "Dependency alias must not be empty"
+            raise ProjectError(msg)
+        if not value.strip():
+            msg = "Dependency specifier must not be empty"
+            raise ProjectError(msg)
 
-    dependencies = ensure_dependencies_table(document)
-    dependencies[alias] = specifier
-
-
-def set_dependency_value_in_document(document: dict[str, Any], alias: str, value: str) -> None:
-    dependencies = ensure_dependencies_table(document)
+    dependencies = _ensure_dependencies_table(document)
     dependencies[alias] = value
 
 
-def ensure_dependencies_table(document: dict[str, Any]) -> dict[str, Any]:
+def _ensure_dependencies_table(document: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tool := document.setdefault(TOOL_TABLE, {}), dict):
         msg = "[tool] must be a table"
         raise ProjectError(msg)
@@ -127,7 +148,7 @@ def ensure_dependencies_table(document: dict[str, Any]) -> dict[str, Any]:
     return dependencies
 
 
-def _belgie_table(document: dict[str, Any]) -> dict[str, Any] | None:
+def _read_dependencies_table(document: dict[str, Any]) -> dict[str, Any] | None:
     tool = document.get(TOOL_TABLE)
     if tool is None:
         return None
@@ -140,19 +161,19 @@ def _belgie_table(document: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(belgie, dict):
         msg = "[tool.belgie] must be a table"
         raise ProjectError(msg)
-    return belgie
+    dependencies = belgie.get(DEPENDENCIES_TABLE)
+    if dependencies is None:
+        return None
+    if not isinstance(dependencies, dict):
+        msg = "[tool.belgie.dependencies] must be a table"
+        raise ProjectError(msg)
+    return dependencies
 
 
 def _parse_dependencies(document: dict[str, Any]) -> dict[str, str]:
-    belgie = _belgie_table(document)
-    if belgie is None:
-        return {}
-    table = belgie.get(DEPENDENCIES_TABLE)
+    table = _read_dependencies_table(document)
     if table is None:
         return {}
-    if not isinstance(table, dict):
-        msg = "[tool.belgie.dependencies] must be a table"
-        raise ProjectError(msg)
 
     dependencies: dict[str, str] = {}
     for alias, value in table.items():

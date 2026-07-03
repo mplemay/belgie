@@ -9,7 +9,7 @@ import pytest
 import rtoml
 
 from belgie.cli import _operations
-from belgie.cli._operations import add_dependency, update_project, updated_dependency_value
+from belgie.cli._operations import add_dependency, update_project
 from belgie.cli._project import ProjectError, load_project
 
 
@@ -163,12 +163,3 @@ def test_update_project_restores_lockfile_when_validation_fails(
     assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == "original"
     document = rtoml.load(tmp_path / "pyproject.toml")
     assert document["tool"]["belgie"]["dependencies"] == {"camelcase": "8.0.0"}
-
-
-def test_updated_dependency_value_preserves_explicit_registry_specifiers() -> None:
-    assert updated_dependency_value("std_path", "jsr:@std/path@^1", "jsr:@std/path@1.2.3") == "jsr:@std/path@1.2.3"
-
-
-def test_updated_dependency_value_rejects_package_name_mismatch() -> None:
-    with pytest.raises(ProjectError, match="no longer resolves"):
-        updated_dependency_value("camelcase", "8.0.0", "npm:other@1.0.0")

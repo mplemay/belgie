@@ -9,18 +9,19 @@ from belgie.cli._project import (
     BelgieProject,
     ProjectError,
     _load_project_from_document,
-    read_lockfile_backup,
-    restore_lockfile,
+    atomic_commit_if_changed,
+    preserve_lockfile,
     set_dependency_in_document,
-    set_dependency_value_in_document,
     temporary_lockfile,
     write_pyproject_document,
 )
+from belgie.cli._specifiers import manifest_dependency_value
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from belgie import EnvironmentInstallResult, EnvironmentUpdateResult
+    from belgie._core import SyncEnvironment
 
 
 def create_environment(project: BelgieProject, *, frozen: bool) -> Environment:
@@ -45,9 +46,7 @@ def lock_project(project: BelgieProject) -> EnvironmentInstallResult:
         temporary_lockfile(project.root) as temporary,
         create_environment(project, frozen=False) as environment,
     ):
-        result = environment.lock(lockfile=temporary)
-        commit_lockfile(temporary, project.lockfile_path)
-        return result
+        return _lock_to_temporary(project, environment, temporary)
 
 
 def install_project(project: BelgieProject, *, frozen: bool) -> EnvironmentInstallResult:
@@ -57,16 +56,15 @@ def install_project(project: BelgieProject, *, frozen: bool) -> EnvironmentInsta
 
 def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> EnvironmentInstallResult:
     document = deepcopy(project.pyproject)
-    set_dependency_in_document(document, alias, specifier)
+    set_dependency_in_document(document, alias, specifier, validate=True)
     updated_project = _load_project_from_document(project.root, document)
 
     with (
         temporary_lockfile(project.root) as temporary,
         create_environment(updated_project, frozen=False) as environment,
     ):
-        result = environment.lock(lockfile=temporary)
+        result = _lock_to_temporary(project, environment, temporary)
         write_pyproject_document(project.root, document)
-        commit_lockfile(temporary, project.lockfile_path)
         return result
 
 
@@ -78,42 +76,35 @@ def update_project(
 ) -> EnvironmentUpdateResult:
     document = deepcopy(project.pyproject)
     lockfile_path = project.lockfile_path
-    previous_lockfile = read_lockfile_backup(lockfile_path)
     with (
+        preserve_lockfile(lockfile_path),
         temporary_lockfile(project.root) as temporary,
         create_environment(project, frozen=False) as environment,
     ):
-        try:
-            result = environment.update(packages, latest=latest, lockfile_only=True)
-            temporary.write_bytes(Path(result.lockfile).read_bytes())
-        finally:
-            restore_lockfile(lockfile_path, previous_lockfile)
+        result = environment.update(packages, latest=latest, lockfile_only=True)
+        temporary.write_bytes(Path(result.lockfile).read_bytes())
+        lockfile_bytes = temporary.read_bytes()
 
-        for change in result.changes:
-            if (current := project.dependencies.get(change.name)) is None:
-                msg = f"Belgie updated unknown dependency alias '{change.name}'"
-                raise ProjectError(msg)
-            set_dependency_value_in_document(
-                document,
-                change.name,
-                updated_dependency_value(change.name, current, change.updated),
-            )
+    for change in result.changes:
+        if (current := project.dependencies.get(change.name)) is None:
+            msg = f"Belgie updated unknown dependency alias '{change.name}'"
+            raise ProjectError(msg)
+        set_dependency_in_document(
+            document,
+            change.name,
+            manifest_dependency_value(change.name, change.updated, current=current),
+        )
 
-        write_pyproject_document(project.root, document)
-        commit_lockfile(temporary, project.lockfile_path)
-        return result
+    write_pyproject_document(project.root, document)
+    atomic_commit_if_changed(lockfile_path, lockfile_bytes)
+    return result
 
 
-def commit_lockfile(temporary: Path, lockfile_path: Path) -> None:
-    temporary.replace(lockfile_path)
-
-
-def updated_dependency_value(alias: str, current: str, updated: str) -> str:
-    if current.startswith(("npm:", "jsr:")):
-        return updated
-
-    prefix = f"npm:{alias}@"
-    if not updated.startswith(prefix):
-        msg = f"Updated dependency '{alias}' no longer resolves to its npm package: {updated}"
-        raise ProjectError(msg)
-    return updated.removeprefix(prefix)
+def _lock_to_temporary(
+    project: BelgieProject,
+    environment: SyncEnvironment,
+    temporary: Path,
+) -> EnvironmentInstallResult:
+    result = environment.lock(lockfile=temporary)
+    atomic_commit_if_changed(project.lockfile_path, temporary.read_bytes())
+    return result
