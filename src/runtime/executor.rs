@@ -81,7 +81,11 @@ mod tests {
         let cwd = env::current_dir().expect("current dir should be available");
         let session =
             RuntimeSession::activate(DenoRuntime::new(RuntimeOptions::new(cwd))).expect("session");
-        DenoExecutionHandle::new(bound, session)
+        DenoExecutionHandle::new(
+            bound,
+            session.cli_snapshot_eligible(),
+            session.worker_factory_roots().clone(),
+        )
     }
 
     fn bound_inline(source: &str) -> BoundRuntime {

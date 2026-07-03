@@ -640,6 +640,24 @@ export default function run() {
     assert list(tmp_path.iterdir()) == []
 
 
+def test_installed_environment_runs_trivial_inline_script(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    with Environment({"react": "19.2.6"}, path=project) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script("export default () => 42"))() == 42
+
+
+async def test_installed_environment_runs_trivial_inline_script_async(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    async with Environment({"react": "19.2.6"}, path=project) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            assert await runtime(Script("export default async () => 42"))() == 42
+
+
 def test_environment_runtime_resolves_dynamic_npm_import(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     source = """

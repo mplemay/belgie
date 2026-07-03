@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use deno_lib::worker::LibWorkerFactoryRoots;
 
 use crate::command::CommandSource;
+use crate::embed::ensure_initialized;
 use crate::runtime::bound_runtime::{BoundPackageEnvironment, ImplicitPackageEnvironment};
 use crate::runtime::{
     BoundRuntime, CommandExecutionHandle, CommandExecutionOptions, DenoExecutionHandle, DenoRuntime,
@@ -51,6 +52,7 @@ impl RuntimeSession {
             Some(BoundPackageEnvironment::Isolated(active))
                 if active.needs_package_environment(runtime.worker_options()) =>
             {
+                ensure_initialized();
                 Some(BoundPackageEnvironment::Isolated(active))
             }
             _ => None,
@@ -72,13 +74,18 @@ impl RuntimeSession {
     ) -> Result<DenoExecutionHandle, BindingError> {
         session.ensure_active()?;
         let bound = session.runtime.bind(script);
+        let use_cli_snapshot = session.cli_snapshot_eligible();
         session.pending_script_binds.fetch_add(1, Ordering::AcqRel);
         let _pending_script_bind = PendingScriptBind {
             counter: &session.pending_script_binds,
         };
         let package_environment = session.package_environment_for_script(&bound)?;
         let bound = bound.with_package_environment(package_environment);
-        let handle = DenoExecutionHandle::new(bound, Arc::clone(session));
+        let handle = DenoExecutionHandle::new(
+            bound,
+            use_cli_snapshot,
+            session.worker_factory_roots().clone(),
+        );
         session
             .scripts
             .lock()
@@ -261,6 +268,17 @@ mod tests {
     fn cli_snapshot_eligible_when_no_scripts_are_bound() {
         let session = test_session();
         assert!(session.cli_snapshot_eligible());
+    }
+
+    #[test]
+    fn first_script_bind_captures_cli_snapshot_before_pending_counter() {
+        let session = test_session();
+        let use_cli_snapshot = session.cli_snapshot_eligible();
+        assert!(use_cli_snapshot);
+        session
+            .pending_script_binds
+            .fetch_add(1, Ordering::AcqRel);
+        assert!(!session.cli_snapshot_eligible());
     }
 
     #[test]

@@ -19,7 +19,7 @@ use crate::{
     utils::cancel_guard::Cancel,
 };
 
-use super::{BoundRuntime, RuntimeSession};
+use super::BoundRuntime;
 
 type ExecutionResult<T> = Result<T, BindingError>;
 
@@ -45,12 +45,22 @@ enum ExecutionCommand {
 }
 
 impl DenoExecutionHandle {
-    pub(crate) fn new(bound: BoundRuntime, session: Arc<RuntimeSession>) -> Self {
+    pub(crate) fn new(
+        bound: BoundRuntime,
+        use_cli_snapshot: bool,
+        worker_factory_roots: LibWorkerFactoryRoots,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let isolate_handle = Arc::new(Mutex::new(None));
         let worker_isolate_handle = isolate_handle.clone();
         let join_handle = thread::spawn(move || {
-            run_worker_thread(bound, session, receiver, worker_isolate_handle)
+            run_worker_thread(
+                bound,
+                use_cli_snapshot,
+                worker_factory_roots,
+                receiver,
+                worker_isolate_handle,
+            )
         });
         Self {
             inner: Arc::new(DenoExecutionHandleInner {
@@ -165,7 +175,8 @@ impl Drop for DenoExecutionHandleInner {
 
 fn run_worker_thread(
     bound: BoundRuntime,
-    session: Arc<RuntimeSession>,
+    use_cli_snapshot: bool,
+    worker_factory_roots: LibWorkerFactoryRoots,
     receiver: mpsc::Receiver<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
 ) {
@@ -192,8 +203,8 @@ fn run_worker_thread(
         let _process_context = process_context::blocking_guard();
         match runtime.block_on(DenoExecutionContext::new(
             bound,
-            session.cli_snapshot_eligible(),
-            session.worker_factory_roots(),
+            use_cli_snapshot,
+            &worker_factory_roots,
         )) {
             Ok(context) => context,
             Err(error) => {
