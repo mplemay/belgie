@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import builtins
+import importlib
+import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from belgie.cli import __main__ as cli_main
-from belgie.cli._app import app
+from belgie.cli.__main__ import CLI_REQUIRED_MESSAGE, app
 
 runner = CliRunner()
 
@@ -42,18 +45,26 @@ def test_main_reports_missing_cli_extra(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    def fake_import_module(
-        name: str,
-    ) -> object:
-        if name == "belgie.cli._app":
-            msg = "No module named 'typer'"
-            raise ModuleNotFoundError(msg, name="typer")
-        return None
+    real_import = builtins.__import__
 
-    monkeypatch.setattr(cli_main, "import_module", fake_import_module)
+    def fake_import(
+        name: str,
+        globals: Mapping[str, object] | None = None,  # noqa: A002
+        locals: Mapping[str, object] | None = None,  # noqa: A002
+        fromlist: Sequence[str] = (),
+        level: int = 0,
+    ) -> object:
+        if name == "typer":
+            msg = "No module named 'typer'"
+            raise ImportError(msg)
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.delitem(sys.modules, "belgie.cli.__main__", raising=False)
+    monkeypatch.delitem(sys.modules, "belgie.cli._app", raising=False)
 
     with pytest.raises(SystemExit) as exc_info:
-        cli_main.main(["--help"])
+        importlib.import_module("belgie.cli.__main__")
 
     assert exc_info.value.code == 1
-    assert 'uv add "belgie[cli]"' in capsys.readouterr().err
+    assert CLI_REQUIRED_MESSAGE in capsys.readouterr().err
