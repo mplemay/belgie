@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
+  SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+
 jobs:
   prek:
     name: lint
@@ -27,10 +34,13 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: ubuntu-latest
           cache-bin: false
+          cache-targets: false
           save-if: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -62,10 +72,13 @@ jobs:
         with:
           toolchain: stable
 
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: ${{ matrix.os }}
           cache-bin: false
+          cache-targets: false
           save-if: ${{ github.ref == 'refs/heads/main' && matrix.python-version == '3.12' }}
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -99,10 +112,13 @@ jobs:
         with:
           toolchain: stable
 
+      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: ${{ matrix.os }}
           cache-bin: false
+          cache-targets: false
           save-if: false
 
       - name: Run Rust tests
