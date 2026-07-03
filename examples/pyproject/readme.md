@@ -1,4 +1,4 @@
-# Pyproject CLI Example
+# Pyproject Example
 
 This example declares Belgie package dependencies in `pyproject.toml`:
 
