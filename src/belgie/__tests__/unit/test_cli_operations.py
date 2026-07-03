@@ -111,6 +111,27 @@ def test_add_dependency_writes_pyproject_and_commits_lockfile(tmp_path: Path) ->
     assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == "locked"
 
 
+def test_add_dependency_leaves_lockfile_unchanged_when_pyproject_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_pyproject(tmp_path)
+    (tmp_path / "deno.lock").write_text("original", encoding="utf-8")
+
+    def failing_write(root: Path, document: dict[str, Any]) -> None:
+        msg = "pyproject write failed"
+        raise ProjectError(msg)
+
+    monkeypatch.setattr(_operations, "write_pyproject_document", failing_write)
+
+    with pytest.raises(ProjectError, match="pyproject write failed"):
+        add_dependency(load_project(tmp_path), alias="std_path", specifier="jsr:@std/path@^1")
+
+    assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == "original"
+    document = rtoml.load(tmp_path / "pyproject.toml")
+    assert "tool" not in document
+
+
 def test_update_project_updates_shorthand_dependency_and_lockfile(tmp_path: Path) -> None:
     write_pyproject(tmp_path, {"camelcase": "8.0.0"})
 

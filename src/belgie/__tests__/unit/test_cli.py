@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from belgie.cli.__main__ import CLI_REQUIRED_MESSAGE, app
+from belgie.cli.__main__ import CLI_REQUIRED_MESSAGE, app, main
 
 runner = CliRunner()
 
@@ -39,6 +39,19 @@ def test_list_command_reports_empty_dependency_table(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "No [tool.belgie.dependencies] entries found." in result.output
+
+
+def test_main_handles_project_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    missing_project = tmp_path / "missing"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["list", "-C", str(missing_project)])
+
+    assert exc_info.value.code == 1
+    assert f"No pyproject.toml found at {missing_project}" in capsys.readouterr().err
 
 
 def test_main_reports_missing_cli_extra(

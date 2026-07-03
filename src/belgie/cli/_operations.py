@@ -46,7 +46,9 @@ def lock_project(project: BelgieProject) -> EnvironmentInstallResult:
         temporary_lockfile(project.root) as temporary,
         create_environment(project, frozen=False) as environment,
     ):
-        return _lock_to_temporary(project, environment, temporary)
+        result, lockfile_bytes = _lock_to_temporary(environment, temporary)
+    atomic_commit_if_changed(project.lockfile_path, lockfile_bytes)
+    return result
 
 
 def install_project(project: BelgieProject, *, frozen: bool) -> EnvironmentInstallResult:
@@ -63,9 +65,11 @@ def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> Env
         temporary_lockfile(project.root) as temporary,
         create_environment(updated_project, frozen=False) as environment,
     ):
-        result = _lock_to_temporary(project, environment, temporary)
-        write_pyproject_document(project.root, document)
-        return result
+        result, lockfile_bytes = _lock_to_temporary(environment, temporary)
+
+    write_pyproject_document(project.root, document)
+    atomic_commit_if_changed(project.lockfile_path, lockfile_bytes)
+    return result
 
 
 def update_project(
@@ -101,10 +105,8 @@ def update_project(
 
 
 def _lock_to_temporary(
-    project: BelgieProject,
     environment: SyncEnvironment,
     temporary: Path,
-) -> EnvironmentInstallResult:
+) -> tuple[EnvironmentInstallResult, bytes]:
     result = environment.lock(lockfile=temporary)
-    atomic_commit_if_changed(project.lockfile_path, temporary.read_bytes())
-    return result
+    return result, temporary.read_bytes()
