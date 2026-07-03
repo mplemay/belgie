@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from belgie import Environment
 from belgie.cli._project import (
+    PYPROJECT_NAME,
     BelgieProject,
     ProjectError,
     _load_project_from_document,
-    atomic_commit_if_changed,
-    preserve_lockfile,
+    preserve_file_on_error,
     set_dependency_in_document,
-    temporary_lockfile,
     write_pyproject_document,
 )
 from belgie.cli._specifiers import manifest_dependency_value
@@ -21,7 +19,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from belgie import EnvironmentInstallResult, EnvironmentUpdateResult
-    from belgie._core import SyncEnvironment
 
 
 def create_environment(project: BelgieProject, *, frozen: bool) -> Environment:
@@ -42,13 +39,12 @@ def create_environment(project: BelgieProject, *, frozen: bool) -> Environment:
 
 
 def lock_project(project: BelgieProject) -> EnvironmentInstallResult:
+    lockfile_path = project.lockfile_path
     with (
-        temporary_lockfile(project.root) as temporary,
+        preserve_file_on_error(lockfile_path),
         create_environment(project, frozen=False) as environment,
     ):
-        result, lockfile_bytes = _lock_to_temporary(environment, temporary)
-    atomic_commit_if_changed(project.lockfile_path, lockfile_bytes)
-    return result
+        return environment.lock(lockfile=lockfile_path)
 
 
 def install_project(project: BelgieProject, *, frozen: bool) -> EnvironmentInstallResult:
@@ -61,14 +57,15 @@ def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> Env
     set_dependency_in_document(document, alias, specifier, validate=True)
     updated_project = _load_project_from_document(project.root, document)
 
+    lockfile_path = project.lockfile_path
+    pyproject_path = project.root / PYPROJECT_NAME
     with (
-        temporary_lockfile(project.root) as temporary,
+        preserve_file_on_error(lockfile_path),
+        preserve_file_on_error(pyproject_path),
         create_environment(updated_project, frozen=False) as environment,
     ):
-        result, lockfile_bytes = _lock_to_temporary(environment, temporary)
-
-    write_pyproject_document(project.root, document)
-    atomic_commit_if_changed(project.lockfile_path, lockfile_bytes)
+        result = environment.lock(lockfile=lockfile_path)
+        write_pyproject_document(project.root, document)
     return result
 
 
@@ -80,33 +77,21 @@ def update_project(
 ) -> EnvironmentUpdateResult:
     document = deepcopy(project.pyproject)
     lockfile_path = project.lockfile_path
+    pyproject_path = project.root / PYPROJECT_NAME
     with (
-        preserve_lockfile(lockfile_path),
-        temporary_lockfile(project.root) as temporary,
+        preserve_file_on_error(lockfile_path),
+        preserve_file_on_error(pyproject_path),
         create_environment(project, frozen=False) as environment,
     ):
         result = environment.update(packages, latest=latest, lockfile_only=True)
-        temporary.write_bytes(Path(result.lockfile).read_bytes())
-        lockfile_bytes = temporary.read_bytes()
-
-    for change in result.changes:
-        if (current := project.dependencies.get(change.name)) is None:
-            msg = f"Belgie updated unknown dependency alias '{change.name}'"
-            raise ProjectError(msg)
-        set_dependency_in_document(
-            document,
-            change.name,
-            manifest_dependency_value(change.name, change.updated, current=current),
-        )
-
-    write_pyproject_document(project.root, document)
-    atomic_commit_if_changed(lockfile_path, lockfile_bytes)
+        for change in result.changes:
+            if (current := project.dependencies.get(change.name)) is None:
+                msg = f"Belgie updated unknown dependency alias '{change.name}'"
+                raise ProjectError(msg)
+            set_dependency_in_document(
+                document,
+                change.name,
+                manifest_dependency_value(change.name, change.updated, current=current),
+            )
+        write_pyproject_document(project.root, document)
     return result
-
-
-def _lock_to_temporary(
-    environment: SyncEnvironment,
-    temporary: Path,
-) -> tuple[EnvironmentInstallResult, bytes]:
-    result = environment.lock(lockfile=temporary)
-    return result, temporary.read_bytes()

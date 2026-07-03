@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,30 +36,25 @@ class BelgieProject:
         return self.root / LOCKFILE_NAME
 
 
-def temporary_file(parent: Path, prefix: str) -> Path:
-    descriptor, temporary_name = tempfile.mkstemp(prefix=prefix, dir=parent)
-    os.close(descriptor)
-    temporary = Path(temporary_name)
-    temporary.unlink()
-    return temporary
+def read_file_backup(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() else None
+
+
+def restore_file(path: Path, previous: bytes | None) -> None:
+    if previous is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_bytes(previous)
 
 
 @contextmanager
-def temporary_lockfile(root: Path) -> Iterator[Path]:
-    temporary = temporary_file(root, f".{LOCKFILE_NAME}.")
-    try:
-        yield temporary
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-@contextmanager
-def preserve_lockfile(lockfile_path: Path) -> Iterator[None]:
-    previous = read_lockfile_backup(lockfile_path)
+def preserve_file_on_error(path: Path) -> Iterator[None]:
+    previous = read_file_backup(path)
     try:
         yield
-    finally:
-        restore_lockfile(lockfile_path, previous)
+    except BaseException:
+        restore_file(path, previous)
+        raise
 
 
 def read_pyproject_document(root: Path) -> dict[str, Any]:
@@ -81,39 +74,9 @@ def read_pyproject_document(root: Path) -> dict[str, Any]:
 
 
 def write_pyproject_document(root: Path, document: dict[str, Any]) -> None:
-    text = rtoml.dumps(document, pretty=True)
-    atomic_write_text(root / PYPROJECT_NAME, text)
-
-
-def atomic_write_bytes(path: Path, data: bytes) -> None:
+    path = root / PYPROJECT_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = temporary_file(path.parent, f".{path.name}.")
-    try:
-        temporary.write_bytes(data)
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def atomic_write_text(path: Path, text: str) -> None:
-    atomic_write_bytes(path, text.encode("utf-8"))
-
-
-def atomic_commit_if_changed(path: Path, data: bytes) -> None:
-    if path.is_file() and path.read_bytes() == data:
-        return
-    atomic_write_bytes(path, data)
-
-
-def read_lockfile_backup(lockfile_path: Path) -> bytes | None:
-    return lockfile_path.read_bytes() if lockfile_path.is_file() else None
-
-
-def restore_lockfile(lockfile_path: Path, previous: bytes | None) -> None:
-    if previous is None:
-        lockfile_path.unlink(missing_ok=True)
-    else:
-        lockfile_path.write_bytes(previous)
+    path.write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
 
 
 def set_dependency_in_document(
