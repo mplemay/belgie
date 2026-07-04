@@ -46,19 +46,24 @@ langchain = [
 requires-dist = [
     { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1,<2" },
     { name = "pydantic-ai-slim", extras = ["openai"], marker = "extra == 'pydantic-ai'", specifier = ">=2,<3" },
+    { name = "rtoml", marker = "extra == 'cli'", specifier = ">=0.13,<1" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.20,<1" },
 ]
-provides-extras = ["pydantic-ai", "langchain"]
+provides-extras = ["cli", "pydantic-ai", "langchain"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "anyio", specifier = ">=4" },
     { name = "langchain", specifier = ">=1,<2" },
+    { name = "langchain-openai", specifier = ">=1.1.14,<2" },
     { name = "prek", specifier = ">=0.4.4" },
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=9.0.3" },
+    { name = "rtoml", specifier = ">=0.13,<1" },
     { name = "ruff", specifier = ">=0.15.16" },
     { name = "rumdl", specifier = ">=0.2.7" },
     { name = "ty", specifier = ">=0.0.43" },
+    { name = "typer", specifier = ">=0.20,<1" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
     { name = "zizmor", specifier = ">=1.25.2" },
 ]
@@ -348,21 +353,21 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "belgie", extras = ["langchain"], editable = "../../" },
-    { name = "langchain-openai", specifier = ">=0.3,<1" },
+    { name = "langchain-openai", specifier = ">=1.1.14,<2" },
 ]
 
 [[package]]
 name = "langchain-openai"
-version = "0.3.34"
+version = "1.1.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "openai" },
     { name = "tiktoken" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/75/23/91461c6c2b1c8ceeadd6fefe453a03b1537afeff4ace3c118d7e7659f5a7/langchain_openai-0.3.34.tar.gz", hash = "sha256:57916d462be5b8fd19e5cb2f00d4e5cf0465266a292d583de2fc693a55ba190e", size = 785924, upload-time = "2025-10-01T15:18:40.635Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/f5/b1a56f703fb90952b07ff9fb5507123a39df1267d62a7f2bb821c5dbb628/langchain_openai-1.1.14.tar.gz", hash = "sha256:71b4262932fabe506ce79c175dbc956cc48f24d81e20b27662df493147750643", size = 1115195, upload-time = "2026-04-16T14:55:24.696Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/66/94/132aff5a1ed4ebfe7b4d3e4dbf30b9f70ce2bd2ac3470d0c0e742845afb1/langchain_openai-0.3.34-py3-none-any.whl", hash = "sha256:08d61d68a6d869c70d542171e149b9065668dedfc4fafcd4de8aeb5b933030a9", size = 75605, upload-time = "2025-10-01T15:18:39.415Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/fa/8c33befbc0cf81b21371cc1dab4e7bf94a80b8116194f263a5021ec02529/langchain_openai-1.1.14-py3-none-any.whl", hash = "sha256:cb525d2011f9813fc15a7dcfd4bca5b87badcbcb2c113a7fbe45d1b8a1bbb69c", size = 88705, upload-time = "2026-04-16T14:55:23.159Z" },
 ]
 
 [[package]]
