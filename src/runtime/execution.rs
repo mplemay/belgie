@@ -6,11 +6,11 @@ use std::{
 };
 
 use deno_core::{
-    JsRuntime, ModuleId, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions, error::CoreError,
-    v8,
+    ExternalOpsTracker, JsRuntime, ModuleId, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions,
+    error::CoreError, v8,
 };
 use deno_lib::worker::{LibMainWorker, LibWorkerFactoryRoots};
-use tokio::sync::oneshot;
+use tokio::sync::{Notify, oneshot};
 
 use crate::{
     embed::runtime::ts_content_type_header_overrides,
@@ -19,7 +19,7 @@ use crate::{
     utils::cancel_guard::Cancel,
 };
 
-use super::{BoundRuntime, RuntimeSession};
+use super::BoundRuntime;
 
 type ExecutionResult<T> = Result<T, BindingError>;
 
@@ -32,6 +32,7 @@ pub(crate) struct DenoExecutionHandle {
 struct DenoExecutionHandleInner {
     sender: mpsc::Sender<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
+    shutdown: Arc<Notify>,
     join_handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -45,17 +46,26 @@ enum ExecutionCommand {
 }
 
 impl DenoExecutionHandle {
-    pub(crate) fn new(bound: BoundRuntime, session: Arc<RuntimeSession>) -> Self {
+    pub(crate) fn new(bound: BoundRuntime, worker_factory_roots: LibWorkerFactoryRoots) -> Self {
         let (sender, receiver) = mpsc::channel();
         let isolate_handle = Arc::new(Mutex::new(None));
         let worker_isolate_handle = isolate_handle.clone();
+        let shutdown = Arc::new(Notify::new());
+        let worker_shutdown = shutdown.clone();
         let join_handle = thread::spawn(move || {
-            run_worker_thread(bound, session, receiver, worker_isolate_handle)
+            run_worker_thread(
+                bound,
+                worker_factory_roots,
+                receiver,
+                worker_isolate_handle,
+                worker_shutdown,
+            )
         });
         Self {
             inner: Arc::new(DenoExecutionHandleInner {
                 sender,
                 isolate_handle,
+                shutdown,
                 join_handle: Mutex::new(Some(join_handle)),
             }),
         }
@@ -145,6 +155,7 @@ impl DenoExecutionHandleInner {
         {
             handle.terminate_execution();
         }
+        self.shutdown.notify_one();
         let _ = self.sender.send(ExecutionCommand::Shutdown);
     }
 }
@@ -165,9 +176,10 @@ impl Drop for DenoExecutionHandleInner {
 
 fn run_worker_thread(
     bound: BoundRuntime,
-    session: Arc<RuntimeSession>,
+    worker_factory_roots: LibWorkerFactoryRoots,
     receiver: mpsc::Receiver<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
+    shutdown: Arc<Notify>,
 ) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -190,11 +202,7 @@ fn run_worker_thread(
     };
     let mut context = {
         let _process_context = process_context::blocking_guard();
-        match runtime.block_on(DenoExecutionContext::new(
-            bound,
-            session.cli_snapshot_eligible(),
-            session.worker_factory_roots(),
-        )) {
+        match runtime.block_on(DenoExecutionContext::new(bound, &worker_factory_roots)) {
             Ok(context) => context,
             Err(error) => {
                 while let Ok(command) = receiver.recv() {
@@ -221,7 +229,14 @@ fn run_worker_thread(
                 respond_to,
             } => {
                 let _process_context = process_context::blocking_guard();
-                let result = runtime.block_on(context.invoke(arguments));
+                let result = runtime.block_on(async {
+                    tokio::select! {
+                        result = context.invoke(arguments) => result,
+                        () = shutdown.notified() => {
+                            Err(BindingError::runtime("Deno execution was cancelled"))
+                        }
+                    }
+                });
                 let _ = respond_to.send(result);
             }
             ExecutionCommand::Shutdown => break,
@@ -236,6 +251,24 @@ enum ExecutionBackend {
     Package(Box<LibMainWorker>),
 }
 
+struct InvocationKeepalive {
+    tracker: ExternalOpsTracker,
+}
+
+impl InvocationKeepalive {
+    fn new(runtime: &JsRuntime) -> Self {
+        let tracker = runtime.op_state().borrow().external_ops_tracker.clone();
+        tracker.ref_op();
+        Self { tracker }
+    }
+}
+
+impl Drop for InvocationKeepalive {
+    fn drop(&mut self) {
+        self.tracker.unref_op();
+    }
+}
+
 struct DenoExecutionContext {
     bound: BoundRuntime,
     backend: ExecutionBackend,
@@ -246,7 +279,6 @@ struct DenoExecutionContext {
 impl DenoExecutionContext {
     async fn new(
         bound: BoundRuntime,
-        use_cli_snapshot: bool,
         worker_factory_roots: &LibWorkerFactoryRoots,
     ) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
@@ -260,7 +292,6 @@ impl DenoExecutionContext {
                     package_worker::BoundPackageWorkerOptions {
                         argv: Vec::new(),
                         argv0: None,
-                        use_cli_snapshot,
                         js_runtime_options: bound.js_runtime_options().clone(),
                         runtime_worker_options: bound.worker_options().clone(),
                         main_source: Some(bound.script().content().to_string()),
@@ -299,6 +330,7 @@ impl DenoExecutionContext {
             deno_core::scope!(scope, self.js_runtime());
             arguments.to_v8_globals(scope, run_signature.as_ref())?
         };
+        let _keepalive = InvocationKeepalive::new(self.js_runtime());
         let call = self.js_runtime().call_with_args(&run_function, &args);
         let result = self
             .js_runtime()

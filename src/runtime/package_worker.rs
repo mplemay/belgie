@@ -44,28 +44,18 @@ struct PackageWorkerSnapshotOptions {
     skip_op_registration: bool,
 }
 
-fn package_worker_snapshot_options(use_cli_snapshot: bool) -> PackageWorkerSnapshotOptions {
-    if use_cli_snapshot {
-        PackageWorkerSnapshotOptions {
-            startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
-            residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
-            residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
-            skip_op_registration: true,
-        }
-    } else {
-        PackageWorkerSnapshotOptions {
-            startup_snapshot: None,
-            residual_lazy_js_sources: &[],
-            residual_lazy_esm_sources: &[],
-            skip_op_registration: false,
-        }
+fn package_worker_snapshot_options() -> PackageWorkerSnapshotOptions {
+    PackageWorkerSnapshotOptions {
+        startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+        residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+        residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
+        skip_op_registration: deno_snapshots::CLI_SNAPSHOT.is_some(),
     }
 }
 
 pub(crate) struct PackageWorkerOptions {
     pub argv: Vec<String>,
     pub argv0: Option<String>,
-    pub use_cli_snapshot: bool,
     pub js_runtime_options: JsRuntimeOptions,
     pub runtime_worker_options: RuntimeWorkerOptions,
 }
@@ -73,7 +63,6 @@ pub(crate) struct PackageWorkerOptions {
 pub(crate) struct BoundPackageWorkerOptions {
     pub argv: Vec<String>,
     pub argv0: Option<String>,
-    pub use_cli_snapshot: bool,
     pub js_runtime_options: JsRuntimeOptions,
     pub runtime_worker_options: RuntimeWorkerOptions,
     pub main_source: Option<String>,
@@ -105,7 +94,6 @@ pub(crate) async fn create_bound_package_worker(
         PackageWorkerOptions {
             argv: options.argv,
             argv0: options.argv0,
-            use_cli_snapshot: options.use_cli_snapshot,
             js_runtime_options: options.js_runtime_options,
             runtime_worker_options: options.runtime_worker_options,
         },
@@ -196,7 +184,7 @@ pub(crate) fn create_package_worker(
             .to_permissions()
             .map_err(BindingError::runtime)?,
     );
-    let snapshot_options = package_worker_snapshot_options(options.use_cli_snapshot);
+    let snapshot_options = package_worker_snapshot_options();
     let unconfigured_runtime =
         create_unconfigured_runtime(&snapshot_options, &options.js_runtime_options, roots)?;
     let main_module_url = url::Url::parse(main_module.as_str())
@@ -400,16 +388,13 @@ mod tests {
 
     use deno_runtime::WorkerLogLevel;
 
-    use crate::options::{JsRuntimeOptions, RuntimePermissionOptions, RuntimeWorkerOptions};
+    use crate::options::{RuntimePermissionOptions, RuntimeWorkerOptions};
 
-    use super::{
-        create_unconfigured_runtime, default_lib_main_worker_options,
-        package_worker_snapshot_options,
-    };
+    use super::{default_lib_main_worker_options, package_worker_snapshot_options};
 
     #[test]
     fn package_worker_snapshot_options_enable_snapshot_and_skip_op_registration() {
-        let snapshot = package_worker_snapshot_options(true);
+        let snapshot = package_worker_snapshot_options();
         let worker_options = RuntimeWorkerOptions::default();
         let options = default_lib_main_worker_options(
             Path::new("."),
@@ -426,26 +411,8 @@ mod tests {
     }
 
     #[test]
-    fn package_worker_snapshot_options_disable_snapshot_and_op_skip_when_unavailable() {
-        let snapshot = package_worker_snapshot_options(false);
-        let worker_options = RuntimeWorkerOptions::default();
-        let options = default_lib_main_worker_options(
-            Path::new("."),
-            snapshot,
-            vec![],
-            None,
-            &worker_options,
-            None,
-        );
-        assert!(options.startup_snapshot.is_none());
-        assert!(options.residual_lazy_js_sources.is_empty());
-        assert!(options.residual_lazy_esm_sources.is_empty());
-        assert!(!options.skip_op_registration);
-    }
-
-    #[test]
     fn lib_main_worker_options_apply_runtime_worker_options() {
-        let snapshot = package_worker_snapshot_options(false);
+        let snapshot = package_worker_snapshot_options();
         let location = url::Url::parse("https://example.com/app").unwrap();
         let worker_options = RuntimeWorkerOptions::new(
             RuntimePermissionOptions::AllowAll,
@@ -478,21 +445,5 @@ mod tests {
             options.unsafely_ignore_certificate_errors,
             Some(vec!["localhost".to_string()])
         );
-    }
-
-    #[test]
-    fn custom_v8_params_report_missing_snapshot() {
-        let snapshot = package_worker_snapshot_options(false);
-        let roots = deno_lib::worker::LibWorkerFactoryRoots::default();
-        let result = create_unconfigured_runtime(
-            &snapshot,
-            &JsRuntimeOptions::new(Some(64), None, None),
-            &roots,
-        );
-
-        let Err(error) = result else {
-            panic!("expected missing snapshot error");
-        };
-        assert!(error.message().contains("CLI snapshot"));
     }
 }

@@ -10,13 +10,14 @@ use std::time::Duration;
 
 use deno_core::ModuleSpecifier;
 use deno_lib::args::npm_pkg_req_ref_to_binary_command;
+use deno_lib::worker::LibWorkerFactoryRoots;
 use deno_resolver::workspace::{MappedResolution, ResolutionKind as WorkspaceResolutionKind};
 use deno_runtime::deno_os::{WatcherExitHandle, WatcherExited};
 use deno_semver::npm::NpmPackageReqReference;
 use node_resolver::{BinValue, NodeResolutionKind, ResolutionMode, UrlOrPath};
 use tokio::sync::{oneshot, watch};
 
-use super::{BoundPackageEnvironment, RuntimeSession, process_context};
+use super::{BoundPackageEnvironment, process_context};
 use crate::command::CommandSource;
 use crate::embed::{EmbedContext, js_content_type_header_overrides};
 use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
@@ -46,7 +47,7 @@ pub(crate) struct CommandExecutionOptions {
     pub(crate) runtime_root: PathBuf,
     pub(crate) command: CommandSource,
     pub(crate) argv: Vec<String>,
-    pub(crate) session: Arc<RuntimeSession>,
+    pub(crate) worker_factory_roots: LibWorkerFactoryRoots,
 }
 
 impl CommandExecutionHandle {
@@ -177,7 +178,7 @@ async fn run_command(
                     argv: options.argv,
                     js_runtime_options: options.js_runtime_options.clone(),
                     runtime_worker_options: options.runtime_worker_options.clone(),
-                    session: options.session.clone(),
+                    worker_factory_roots: options.worker_factory_roots.clone(),
                 },
                 &mut cancel_rx,
             )
@@ -219,19 +220,33 @@ async fn resolve_command(
             }
         }
     };
-    let package_ref = NpmPackageReqReference::from_specifier(&specifier).map_err(|_| {
-        BindingError::runtime(format!(
-            "Command {command:?} resolved to {specifier}, but only npm package commands are supported"
-        ))
-    })?;
+    let node_resolver = resolver_factory
+        .node_resolver()
+        .map_err(map_package_environment_error)?;
+    let Ok(package_ref) = NpmPackageReqReference::from_specifier(&specifier) else {
+        let path = deno_path_util::url_to_file_path(&specifier).map_err(|_| {
+            BindingError::runtime(format!(
+                "Command {command:?} resolved to {specifier}, but only package commands are supported"
+            ))
+        })?;
+        let package_folder = path
+            .ancestors()
+            .find(|ancestor| ancestor.join("package.json").is_file())
+            .ok_or_else(|| {
+                BindingError::runtime(format!(
+                    "Command {command:?} resolved to {specifier}, but no package.json was found"
+                ))
+            })?;
+        let bin = node_resolver
+            .resolve_binary_export(package_folder, None)
+            .map_err(map_package_environment_error)?;
+        return Ok((command.to_string(), bin));
+    };
     let npm_resolver = resolver_factory
         .npm_resolver()
         .map_err(map_package_environment_error)?;
     let package_folder = npm_resolver
         .resolve_pkg_folder_from_deno_module_req(package_ref.req(), &cwd_url)
-        .map_err(map_package_environment_error)?;
-    let node_resolver = resolver_factory
-        .node_resolver()
         .map_err(map_package_environment_error)?;
     let bin = match node_resolver.resolve_binary_export(&package_folder, package_ref.sub_path()) {
         Ok(bin) => bin,
@@ -282,7 +297,7 @@ struct JsCommandRunOptions {
     argv: Vec<String>,
     js_runtime_options: JsRuntimeOptions,
     runtime_worker_options: RuntimeWorkerOptions,
-    session: Arc<RuntimeSession>,
+    worker_factory_roots: LibWorkerFactoryRoots,
 }
 
 async fn run_js_command(
@@ -297,9 +312,8 @@ async fn run_js_command(
         argv,
         js_runtime_options,
         runtime_worker_options,
-        session,
+        worker_factory_roots,
     } = options;
-    let use_cli_snapshot = session.cli_snapshot_eligible();
     let main_module = ModuleSpecifier::from_file_path(&script_path).map_err(|()| {
         BindingError::runtime(format!(
             "Could not convert command entrypoint {} to a file URL",
@@ -313,13 +327,12 @@ async fn run_js_command(
         BoundPackageWorkerOptions {
             argv,
             argv0: Some(command_name),
-            use_cli_snapshot,
             js_runtime_options,
             runtime_worker_options,
             main_source: None,
             header_overrides: js_content_type_header_overrides(main_module),
         },
-        session.worker_factory_roots(),
+        &worker_factory_roots,
     )
     .await?;
 
