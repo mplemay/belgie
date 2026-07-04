@@ -42,6 +42,11 @@ def command_module() -> Iterator[ModuleType]:
 
 
 @pytest.fixture
+def pyproject_module() -> Iterator[ModuleType]:
+    yield from _load_example_main(EXAMPLES_ROOT / "pyproject", "pyproject")
+
+
+@pytest.fixture
 def environment_module() -> Iterator[ModuleType]:
     yield from _load_example_main(EXAMPLES_ROOT / "environment", "environment")
 
