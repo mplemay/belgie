@@ -1,45 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import chdir
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final
 
 from belgie import Command, Environment, Runtime, Script
+from belgie.__tests__.helpers.local_package import write_local_package_with_bin
 
 ANSWER: Final[int] = 42
 REACT_VERSION: Final[str] = "19.2.6"
 COMMAND_OUTPUT: Final[str] = "ok\n"
-
-
-def check_equal(actual: object, expected: object, description: str) -> None:
-    if actual != expected:
-        message = f"{description}: expected {expected!r}, got {actual!r}"
-        raise RuntimeError(message)
-
-
-def write_local_package(root: Path) -> None:
-    package = root / "local-pkg"
-    package.mkdir()
-    (package / "package.json").write_text(
-        json.dumps(
-            {
-                "name": "local-pkg",
-                "version": "1.0.0",
-                "type": "module",
-                "exports": "./index.js",
-                "bin": {"local-pkg": "./bin.js"},
-            },
-        ),
-        encoding="utf-8",
-    )
-    (package / "index.js").write_text("export const answer = 42;\n", encoding="utf-8")
-    (package / "bin.js").write_text(
-        'import { writeFileSync } from "node:fs"; writeFileSync("local-command.txt", "ok\\n");\n',
-        encoding="utf-8",
-    )
 
 
 def dependencies() -> dict[str, str]:
@@ -50,89 +22,88 @@ def dependencies() -> dict[str, str]:
     }
 
 
-def sync_smoke(root: Path) -> None:
-    write_local_package(root)
+def run_smoke(root: Path, *, async_mode: bool) -> None:
+    write_local_package_with_bin(root, bin_name="local-pkg")
     lockfile = root / "deno.lock"
+    script_source = "export default async () => 42" if async_mode else "export default () => 42"
+    react_source = (
+        'import React from "react"; export default async () => React.version;'
+        if async_mode
+        else 'import React from "react"; export default () => React.version;'
+    )
+    local_source = (
+        'import { answer } from "local-pkg"; export default async () => answer;'
+        if async_mode
+        else 'import { answer } from "local-pkg"; export default () => answer;'
+    )
+    label = "async" if async_mode else "sync"
+
     with chdir(root):
-        with Environment(dependencies()) as env:
-            env.lock(lockfile=lockfile)
-        frozen_lock = lockfile.read_bytes()
+        if async_mode:
+            asyncio.run(_async_lock_environment(lockfile))
+            frozen_lock = lockfile.read_bytes()
+            asyncio.run(
+                _async_smoke_runtime(lockfile, script_source, react_source, local_source, label),
+            )
+        else:
+            frozen_lock = _sync_smoke_runtime(lockfile, script_source, react_source, local_source, label)
 
-        with Environment(dependencies(), lockfile=lockfile, path=root) as env:
-            env.install()
-            with Runtime(env=env) as runtime:
-                check_equal(runtime(Script("export default () => 42"))(), ANSWER, "sync script")
-                check_equal(
-                    runtime(
-                        Script('import React from "react"; export default () => React.version;'),
-                    )(),
-                    REACT_VERSION,
-                    "sync React script",
-                )
-                check_equal(
-                    runtime(
-                        Script('import { answer } from "local-pkg"; export default () => answer;'),
-                    )(),
-                    ANSWER,
-                    "sync local package script",
-                )
-                check_equal(runtime(Command("semver"))("--help"), None, "sync npm command")
-                check_equal(runtime(Command("local-pkg"))(), None, "sync local package command")
-
-        check_equal(lockfile.read_bytes(), frozen_lock, "sync frozen lockfile")
-        check_equal(
-            (root / "local-command.txt").read_text(encoding="utf-8"),
-            COMMAND_OUTPUT,
-            "sync local package command output",
+        assert lockfile.read_bytes() == frozen_lock, f"{label} frozen lockfile"
+        assert (root / "local-command.txt").read_text(encoding="utf-8") == COMMAND_OUTPUT, (
+            f"{label} local package command output"
         )
 
 
-async def async_smoke(root: Path) -> None:
-    write_local_package(root)
-    lockfile = root / "deno.lock"
-    with chdir(root):
-        async with Environment(dependencies()) as env:
-            await env.lock(lockfile=lockfile)
-        frozen_lock = lockfile.read_bytes()
+async def _async_lock_environment(lockfile: Path) -> None:
+    async with Environment(dependencies()) as env:
+        await env.lock(lockfile=lockfile)
 
-        async with Environment(dependencies(), lockfile=lockfile, path=root) as env:
-            await env.install()
-            async with Runtime(env=env) as runtime:
-                check_equal(await runtime(Script("export default async () => 42"))(), ANSWER, "async script")
-                check_equal(
-                    await runtime(
-                        Script('import React from "react"; export default async () => React.version;'),
-                    )(),
-                    REACT_VERSION,
-                    "async React script",
-                )
-                check_equal(
-                    await runtime(
-                        Script('import { answer } from "local-pkg"; export default async () => answer;'),
-                    )(),
-                    ANSWER,
-                    "async local package script",
-                )
-                check_equal(await runtime(Command("semver"))("--help"), None, "async npm command")
-                check_equal(
-                    await runtime(Command("local-pkg"))(),
-                    None,
-                    "async local package command",
-                )
 
-        check_equal(lockfile.read_bytes(), frozen_lock, "async frozen lockfile")
-        check_equal(
-            (root / "local-command.txt").read_text(encoding="utf-8"),
-            COMMAND_OUTPUT,
-            "async local package command output",
-        )
+def _sync_smoke_runtime(
+    lockfile: Path,
+    script_source: str,
+    react_source: str,
+    local_source: str,
+    label: str,
+) -> bytes:
+    with Environment(dependencies()) as env:
+        env.lock(lockfile=lockfile)
+    frozen_lock = lockfile.read_bytes()
+
+    with Environment(dependencies(), lockfile=lockfile, path=lockfile.parent) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(script_source))() == ANSWER, f"{label} script"
+            assert runtime(Script(react_source))() == REACT_VERSION, f"{label} React script"
+            assert runtime(Script(local_source))() == ANSWER, f"{label} local package script"
+            assert runtime(Command("semver"))("--help") is None, f"{label} npm command"
+            assert runtime(Command("local-pkg"))() is None, f"{label} local package command"
+
+    return frozen_lock
+
+
+async def _async_smoke_runtime(
+    lockfile: Path,
+    script_source: str,
+    react_source: str,
+    local_source: str,
+    label: str,
+) -> None:
+    async with Environment(dependencies(), lockfile=lockfile, path=lockfile.parent) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            assert await runtime(Script(script_source))() == ANSWER, f"{label} script"
+            assert await runtime(Script(react_source))() == REACT_VERSION, f"{label} React script"
+            assert await runtime(Script(local_source))() == ANSWER, f"{label} local package script"
+            assert await runtime(Command("semver"))("--help") is None, f"{label} npm command"
+            assert await runtime(Command("local-pkg"))() is None, f"{label} local package command"
 
 
 def main() -> None:
     with TemporaryDirectory(prefix="belgie-wheel-sync-") as tmp:
-        sync_smoke(Path(tmp))
+        run_smoke(Path(tmp), async_mode=False)
     with TemporaryDirectory(prefix="belgie-wheel-async-") as tmp:
-        asyncio.run(async_smoke(Path(tmp)))
+        run_smoke(Path(tmp), async_mode=True)
 
 
 if __name__ == "__main__":

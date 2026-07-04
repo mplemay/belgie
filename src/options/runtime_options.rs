@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use deno_lib::worker::create_isolate_create_params;
 use deno_runtime::WorkerLogLevel;
 use deno_runtime::deno_permissions::{PermissionDescriptorParser, Permissions, PermissionsOptions};
 
@@ -229,7 +230,7 @@ impl JsRuntimeOptions {
             return Ok(None);
         }
 
-        let mut params = deno_core::v8::CreateParams::default();
+        let mut params = create_isolate_create_params(&EmbedSys::default()).unwrap_or_default();
         if let Some(value) = self.max_old_generation_size_mb {
             params = params.set_max_old_generation_size_in_bytes(mb_to_bytes(
                 value,

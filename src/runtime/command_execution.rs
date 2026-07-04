@@ -170,16 +170,11 @@ async fn run_command(
         }
         BinValue::JsFile(path) | BinValue::Executable(path) => {
             run_js_command(
-                JsCommandRunOptions {
-                    context,
-                    cwd: command_cwd,
-                    command_name,
-                    script_path: path,
-                    argv: options.argv,
-                    js_runtime_options: options.js_runtime_options.clone(),
-                    runtime_worker_options: options.runtime_worker_options.clone(),
-                    worker_factory_roots: options.worker_factory_roots.clone(),
-                },
+                &options,
+                context,
+                command_cwd,
+                command_name,
+                path,
                 &mut cancel_rx,
             )
             .await
@@ -289,31 +284,14 @@ async fn resolve_command(
     ))
 }
 
-struct JsCommandRunOptions {
+async fn run_js_command(
+    options: &CommandExecutionOptions,
     context: std::rc::Rc<EmbedContext>,
     cwd: PathBuf,
     command_name: String,
     script_path: PathBuf,
-    argv: Vec<String>,
-    js_runtime_options: JsRuntimeOptions,
-    runtime_worker_options: RuntimeWorkerOptions,
-    worker_factory_roots: LibWorkerFactoryRoots,
-}
-
-async fn run_js_command(
-    options: JsCommandRunOptions,
     cancel_rx: &mut watch::Receiver<bool>,
 ) -> CommandResult {
-    let JsCommandRunOptions {
-        context,
-        cwd,
-        command_name,
-        script_path,
-        argv,
-        js_runtime_options,
-        runtime_worker_options,
-        worker_factory_roots,
-    } = options;
     let main_module = ModuleSpecifier::from_file_path(&script_path).map_err(|()| {
         BindingError::runtime(format!(
             "Could not convert command entrypoint {} to a file URL",
@@ -325,14 +303,14 @@ async fn run_js_command(
         cwd,
         main_module.clone(),
         BoundPackageWorkerOptions {
-            argv,
+            argv: options.argv.clone(),
             argv0: Some(command_name),
-            js_runtime_options,
-            runtime_worker_options,
+            js_runtime_options: options.js_runtime_options.clone(),
+            runtime_worker_options: options.runtime_worker_options.clone(),
             main_source: None,
             header_overrides: js_content_type_header_overrides(main_module),
         },
-        &worker_factory_roots,
+        &options.worker_factory_roots,
     )
     .await?;
 

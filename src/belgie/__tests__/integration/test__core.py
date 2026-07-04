@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from belgie import Command, Environment, EnvironmentOptions, Runtime, RuntimeOptions, RuntimePermissions, Script
+from belgie.__tests__.helpers.local_package import write_local_package_with_bin
 from belgie.__tests__.integration.conftest import assert_installed_package_dir, write_worker_main
 from belgie.errors import BelgieJavaScriptError, BelgieModuleError, BelgieRuntimeError
 
@@ -678,25 +679,7 @@ def test_environment_runtime_runs_local_file_package_script_and_command(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.chdir(tmp_path)
-    local_pkg = tmp_path / "local-pkg"
-    local_pkg.mkdir()
-    (local_pkg / "package.json").write_text(
-        json.dumps(
-            {
-                "name": "local-pkg",
-                "version": "1.0.0",
-                "type": "module",
-                "exports": "./index.js",
-                "bin": {"local-pkg": "./bin.js"},
-            },
-        ),
-        encoding="utf-8",
-    )
-    (local_pkg / "index.js").write_text("export const answer = 42;\n", encoding="utf-8")
-    (local_pkg / "bin.js").write_text(
-        'import { writeFileSync } from "node:fs"; writeFileSync("local-command.txt", "ok\\n");\n',
-        encoding="utf-8",
-    )
+    write_local_package_with_bin(tmp_path, bin_name="local-pkg")
 
     source = 'import { answer } from "local-pkg"; export default () => answer;'
     with Environment({"local-pkg": "file:./local-pkg"}) as env:

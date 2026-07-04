@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use deno_lib::worker::LibWorkerFactoryRoots;
 
 use crate::command::CommandSource;
-use crate::embed::ensure_initialized;
+use crate::embed::init::ensure_initialized;
 use crate::runtime::bound_runtime::{BoundPackageEnvironment, ImplicitPackageEnvironment};
 use crate::runtime::{
     BoundRuntime, CommandExecutionHandle, CommandExecutionOptions, DenoExecutionHandle, DenoRuntime,
@@ -33,11 +33,11 @@ impl std::fmt::Debug for RuntimeSession {
 
 impl RuntimeSession {
     pub(crate) fn activate(runtime: DenoRuntime) -> Result<Arc<Self>, BindingError> {
+        ensure_initialized();
         let package_environment = match BoundPackageEnvironment::from_isolated_runtime(&runtime)? {
             Some(BoundPackageEnvironment::Isolated(active))
                 if active.needs_package_environment(runtime.worker_options()) =>
             {
-                ensure_initialized();
                 Some(BoundPackageEnvironment::Isolated(active))
             }
             _ => None,
@@ -157,23 +157,7 @@ impl RuntimeSession {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn package_environment_for_script(
-        &self,
-        bound: &BoundRuntime,
-    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
-        self.resolve_package_environment_for_script(bound)
-    }
-
-    #[cfg(not(test))]
     fn package_environment_for_script(
-        &self,
-        bound: &BoundRuntime,
-    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
-        self.resolve_package_environment_for_script(bound)
-    }
-
-    fn resolve_package_environment_for_script(
         &self,
         bound: &BoundRuntime,
     ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
@@ -200,11 +184,6 @@ impl RuntimeSession {
         };
         *package_environment = Some(environment.clone());
         Ok(Some(environment))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn worker_factory_roots(&self) -> &LibWorkerFactoryRoots {
-        &self.worker_factory_roots
     }
 }
 
@@ -244,10 +223,7 @@ mod tests {
                 .to_string(),
         ));
 
-        let npm_bound = session.runtime.bind(npm_script);
-        session
-            .package_environment_for_script(&npm_bound)
-            .expect("npm package environment should resolve");
+        RuntimeSession::bind_script(&session, npm_script).expect("npm script should bind");
         let first = session
             .package_environment
             .lock()
@@ -255,10 +231,7 @@ mod tests {
             .clone()
             .expect("implicit environment should be created");
 
-        let jsr_bound = session.runtime.bind(jsr_script);
-        session
-            .package_environment_for_script(&jsr_bound)
-            .expect("jsr package environment should resolve");
+        RuntimeSession::bind_script(&session, jsr_script).expect("jsr script should bind");
         let second = session
             .package_environment
             .lock()
@@ -288,10 +261,7 @@ mod tests {
             "export default () => 'ok';".to_string(),
         ));
 
-        let npm_bound = session.runtime.bind(npm_script);
-        session
-            .package_environment_for_script(&npm_bound)
-            .expect("npm package environment should resolve");
+        RuntimeSession::bind_script(&session, npm_script).expect("npm script should bind");
         assert!(matches!(
             session
                 .package_environment
@@ -301,10 +271,14 @@ mod tests {
             Some(BoundPackageEnvironment::Implicit(_))
         ));
 
-        let bound = session.runtime.bind(simple_script);
-        let assigned = session
-            .package_environment_for_script(&bound)
-            .expect("package environment should resolve");
+        let _ = session.runtime.bind(simple_script);
+        let assigned = BoundPackageEnvironment::for_script_without_package_loader(
+            session
+                .package_environment
+                .lock()
+                .expect("runtime package environment lock should not be poisoned")
+                .as_ref(),
+        );
         assert!(assigned.is_none());
     }
 }
