@@ -1,6 +1,6 @@
 from langchain.agents import create_agent
 
-from belgie.ext.langchain import BelgieMiddleware
+from belgie.langchain import BelgieMiddleware
 
 agent = create_agent(
     model="openai:gpt-5",
