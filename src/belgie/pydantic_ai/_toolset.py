@@ -12,9 +12,8 @@ from pydantic_ai.tools import AgentDepsT
 from pydantic_ai.toolsets._deferred_capability_loader import LOAD_CAPABILITY_TOOL_NAME
 from pydantic_ai.toolsets.abstract import SchemaValidatorProt, ToolsetTool
 
-from belgie.errors import BelgieError
-from belgie.ext.core._options import BelgieOptions
-from belgie.ext.core._run_code import (
+from belgie.agent._options import BelgieOptions
+from belgie.agent._run_code import (
     RUN_CODE_ARGS_VALIDATOR as _RUN_CODE_ARGS_VALIDATOR,
     RUN_CODE_JSON_SCHEMA,
     RUN_CODE_METADATA,
@@ -23,7 +22,8 @@ from belgie.ext.core._run_code import (
     format_script_failure,
     resolved_description,
 )
-from belgie.ext.core._runtime import AsyncExitArgs, BelgieRuntimeSession
+from belgie.agent._runtime import AsyncExitArgs, BelgieRuntimeSession
+from belgie.errors import BelgieError
 
 RUN_CODE_ARGS_VALIDATOR: Final[SchemaValidatorProt] = cast(
     "SchemaValidatorProt",

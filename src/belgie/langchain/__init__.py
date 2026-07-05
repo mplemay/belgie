@@ -1,12 +1,12 @@
 from typing import Final
 
 LANGCHAIN_REQUIRED_MESSAGE: Final[str] = (
-    'langchain is required for belgie.ext.langchain. Install it with: uv add "belgie[langchain]"'
+    'langchain is required for belgie.langchain. Install it with: uv add "belgie[langchain]"'
 )
 
 try:
-    from belgie.ext.core._run_code import DEFAULT_RUN_CODE_INSTRUCTIONS
-    from belgie.ext.langchain._middleware import BelgieMiddleware
+    from belgie.agent._run_code import DEFAULT_RUN_CODE_INSTRUCTIONS
+    from belgie.langchain._middleware import BelgieMiddleware
 except ModuleNotFoundError as import_error:
     if import_error.name in {"langchain", "langchain_core", "langgraph"}:
         raise ImportError(LANGCHAIN_REQUIRED_MESSAGE) from import_error

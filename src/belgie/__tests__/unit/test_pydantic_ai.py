@@ -13,9 +13,8 @@ from pydantic_ai.toolsets.abstract import ToolsetTool
 from pydantic_ai.usage import RunUsage
 from pydantic_core import SchemaValidator, core_schema
 
-from belgie import Runtime, RuntimeOptions
-from belgie.ext import pydantic_ai as pydantic_ai_capability
-from belgie.ext.core._run_code import (
+from belgie import Runtime, RuntimeOptions, pydantic_ai as pydantic_ai_capability
+from belgie.agent._run_code import (
     DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
     DEFAULT_BELGIE_CAPABILITY_ID,
     RUN_CODE_DESCRIPTION,
@@ -23,8 +22,8 @@ from belgie.ext.core._run_code import (
     RUN_CODE_TOOL_NAME,
     resolved_description,
 )
-from belgie.ext.pydantic_ai import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieCapability
-from belgie.ext.pydantic_ai._toolset import BelgieToolset
+from belgie.pydantic_ai import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieCapability
+from belgie.pydantic_ai._toolset import BelgieToolset
 
 AGENT_RUN_CODE_SOURCE: Final[str] = "export default function run() { return { agent: true }; }"
 
