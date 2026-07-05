@@ -90,6 +90,15 @@ jobs:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             manylinux: ""
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            manylinux: ""
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -202,7 +211,7 @@ jobs:
           cargo metadata --locked --format-version 1 --no-deps >/dev/null
 
       - name: Set up QEMU
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: startsWith(matrix.target, 'aarch64-unknown-linux-')
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         with:
           platforms: arm64
@@ -228,16 +237,26 @@ jobs:
 
             export LIBCLANG_PATH="$(llvm-config --libdir)"
 
-            if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-              # deno_snapshots build.rs build-depends on deno_runtime for the HOST
-              # during cross-compilation, which pulls in aws-lc-sys. The manylinux
-              # cross image sets TARGET_CC to the aarch64 cross compiler; aws-lc-sys
-              # incorrectly applies that to CC_x86_64_unknown_linux_gnu for host tests.
-              unset TARGET_CC TARGET_CXX
+            case "${{ matrix.target }}" in
+              aarch64-unknown-linux-gnu)
+                # deno_snapshots build.rs build-depends on deno_runtime for the HOST
+                # during cross-compilation, which pulls in aws-lc-sys. The manylinux
+                # cross image sets TARGET_CC to the aarch64 cross compiler; aws-lc-sys
+                # incorrectly applies that to CC_x86_64_unknown_linux_gnu for host tests.
+                unset TARGET_CC TARGET_CXX
 
-              sysroot="$(aarch64-unknown-linux-gnu-gcc -print-sysroot)"
-              export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include -I$sysroot/usr/include/aarch64-linux-gnu"
-            fi
+                cross_gcc=aarch64-unknown-linux-gnu-gcc
+                sysroot="$($cross_gcc -print-sysroot)"
+                export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include -I$sysroot/usr/include/aarch64-linux-gnu"
+                ;;
+              aarch64-unknown-linux-musl)
+                unset TARGET_CC TARGET_CXX
+
+                cross_gcc=aarch64-unknown-linux-musl-gcc
+                sysroot="$($cross_gcc -print-sysroot)"
+                export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include"
+                ;;
+            esac
           args: --release --locked --compatibility pypi --out dist
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -382,14 +401,28 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            smoke_via: ""
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            smoke_via: ""
           - runner: macos-15-intel
             target: x86_64-apple-darwin
+            smoke_via: ""
           - runner: macos-latest
             target: aarch64-apple-darwin
+            smoke_via: ""
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
+            smoke_via: ""
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            smoke_via: alpine-docker
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            smoke_via: alpine-run-on-arch
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            smoke_via: ""
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -407,6 +440,7 @@ jobs:
           path: dist
 
       - name: Run installed wheel smoke test
+        if: matrix.smoke_via == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -422,6 +456,44 @@ jobs:
           wheel="$GITHUB_WORKSPACE/${wheels[0]}"
           cd "$RUNNER_TEMP"
           uv run --no-project --python 3.12 --with "$wheel" python "$GITHUB_WORKSPACE/src/belgie/__tests__/wheel_smoke.py"
+
+      - name: Run installed wheel smoke test (musl x86_64)
+        if: matrix.smoke_via == 'alpine-docker'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          if [[ "${#wheels[@]}" != "1" ]]; then
+            echo "::error::Expected exactly one wheel, found ${#wheels[@]}."
+            find dist -maxdepth 1 -type f -print
+            exit 1
+          fi
+
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/dist:/dist:ro" \
+            -v "$GITHUB_WORKSPACE/src/belgie/__tests__/wheel_smoke.py:/wheel_smoke.py:ro" \
+            python:3.12-alpine sh -eu -c '
+              pip3 install --no-cache-dir /dist/*.whl
+              cd /tmp
+              python3 /wheel_smoke.py
+            '
+
+      - name: Run installed wheel smoke test (musl aarch64)
+        if: matrix.smoke_via == 'alpine-run-on-arch'
+        uses: uraimo/run-on-arch-action@f9b26e3a1a408d5fd530d20c17b9f3f4428ff8d9 # v3.1.0
+        with:
+          arch: aarch64
+          distro: alpine_latest
+          githubToken: ${{ github.token }}
+          install: |
+            apk add --no-cache python3 py3-pip
+          run: |
+            set -eu
+            pip3 install --no-cache-dir dist/*.whl
+            cd /tmp
+            python3 "$GITHUB_WORKSPACE/src/belgie/__tests__/wheel_smoke.py"
 
   publish:
     name: publish to PyPI
@@ -458,8 +530,8 @@ jobs:
           wheel_count="$(find dist -maxdepth 1 -type f -name 'belgie-*.whl' | wc -l | tr -d ' ')"
           sdist_count="$(find dist -maxdepth 1 -type f -name 'belgie-*.tar.gz' | wc -l | tr -d ' ')"
 
-          if [[ "$wheel_count" != "5" ]]; then
-            echo "::error::Expected 5 wheels, found $wheel_count."
+          if [[ "$wheel_count" != "8" ]]; then
+            echo "::error::Expected 8 wheels, found $wheel_count."
             find dist -maxdepth 1 -type f -print
             exit 1
           fi
