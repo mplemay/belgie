@@ -94,7 +94,7 @@
   `test_core.py`, tests for `_core` go in `test__core.py`)
 - Do not name test files by functionality (e.g. avoid `test_ship_init.py`, `test_template.py`)
 - Tests live under `__tests__/` with `unit/` and `integration/` subdirectories. Group tests by domain in
-  subfolders (`cli/`, `pydantic_ai/`, `langchain/`, `_core/`, etc.).
+  subfolders (`agent/`, `cli/`, `pydantic_ai/`, `langchain/`, `_core/`, etc.).
 - Integration tests are marked with `@pytest.mark.integration`
 
 ## After Changes

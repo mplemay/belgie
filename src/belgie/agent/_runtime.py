@@ -7,8 +7,8 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Final, Self, cast
 
 from belgie import Environment, JsonOutput, Runtime, RuntimeOptions, RuntimePermissions, Script
-from belgie.ext.core._options import BelgieOptions
-from belgie.ext.core._run_code import SCRIPT_TIMEOUT_MESSAGE
+from belgie.agent._options import BelgieOptions
+from belgie.agent._run_code import SCRIPT_TIMEOUT_MESSAGE
 
 if TYPE_CHECKING:
     from belgie._core import AsyncRuntime

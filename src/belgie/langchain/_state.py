@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, NotRequired, cast
 from langchain.agents.middleware import AgentState
 from langchain.agents.middleware.types import PrivateStateAttr
 
-from belgie.ext.core._runtime import BelgieRuntimeSession  # noqa: TC001
+from belgie.agent import BelgieRuntimeSession  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

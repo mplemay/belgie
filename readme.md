@@ -43,7 +43,7 @@ asyncio.run(main())
 
 ## Pydantic AI
 
-`belgie.ext.pydantic_ai.BelgieCapability` is a Pydantic AI capability that gives the agent a `run_code` tool.
+`belgie.pydantic_ai.BelgieCapability` is a Pydantic AI capability that gives the agent a `run_code` tool.
 The model writes a `belgie.Script` module and Belgie runs it in the embedded Deno sandbox.
 
 Install the optional extra with `uv add "belgie[pydantic-ai]"`. Set `OPENAI_API_KEY`, then:
@@ -51,7 +51,7 @@ Install the optional extra with `uv add "belgie[pydantic-ai]"`. Set `OPENAI_API_
 ```python
 from pydantic_ai import Agent
 
-from belgie.ext.pydantic_ai import BelgieCapability
+from belgie.pydantic_ai import BelgieCapability
 
 agent = Agent("openai:gpt-5", capabilities=[BelgieCapability()])
 
@@ -66,7 +66,7 @@ See the full runnable project in [examples/pydantic-ai](examples/pydantic-ai).
 
 ## LangChain
 
-`belgie.ext.langchain.BelgieMiddleware` is a LangChain agent middleware that gives the agent a `run_code`
+`belgie.langchain.BelgieMiddleware` is a LangChain agent middleware that gives the agent a `run_code`
 tool. The model writes a `belgie.Script` module and Belgie runs it in the embedded Deno sandbox.
 
 Install the optional extra with `uv add "belgie[langchain]"`. Set `OPENAI_API_KEY`, then:
@@ -74,7 +74,7 @@ Install the optional extra with `uv add "belgie[langchain]"`. Set `OPENAI_API_KE
 ```python
 from langchain.agents import create_agent
 
-from belgie.ext.langchain import BelgieMiddleware
+from belgie.langchain import BelgieMiddleware
 
 agent = create_agent(
     model="openai:gpt-5",
