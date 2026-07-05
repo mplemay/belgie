@@ -80,6 +80,12 @@ impl ImplicitPackageEnvironment {
 }
 
 impl BoundPackageEnvironment {
+    pub(crate) fn implicit_for_cwd(cwd: &Path) -> Result<Self, BindingError> {
+        Ok(Self::Implicit(Arc::new(ImplicitPackageEnvironment::new(
+            cwd,
+        )?)))
+    }
+
     pub(crate) fn from_isolated_runtime(
         runtime: &DenoRuntime,
     ) -> Result<Option<Self>, BindingError> {

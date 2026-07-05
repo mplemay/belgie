@@ -8,6 +8,8 @@ use deno_lib::args::get_root_cert_store;
 use crate::embed::sys::EmbedSys;
 
 static GLOBAL_INIT: Once = Once::new();
+// Python may call belgie from arbitrary threads, but V8 requires init_platform on a parent of
+// every isolate-spawning thread (same rule as Deno CLI's main thread in cli/lib.rs::init_v8).
 static V8_HOST_TX: OnceLock<SyncSender<Box<dyn FnOnce() + Send>>> = OnceLock::new();
 
 fn v8_host_sender() -> &'static SyncSender<Box<dyn FnOnce() + Send>> {

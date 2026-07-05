@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use deno_cache_dir::file_fetcher::MemoryFiles;
 use deno_core::{FastString, ModuleSpecifier};
@@ -36,8 +36,6 @@ use crate::runtime::error::map_package_environment_error;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 use crate::runtime::native_addon_host;
 use crate::types::error::BindingError;
-
-static SNAPSHOT_WORKER_LOCK: Mutex<()> = Mutex::new(());
 
 pub(crate) struct BoundPackageWorkerOptions {
     pub argv: Vec<String>,
@@ -182,11 +180,6 @@ fn create_package_worker(
             .to_permissions()
             .map_err(BindingError::runtime)?,
     );
-    let _snapshot_worker_guard = deno_snapshots::CLI_SNAPSHOT.is_some().then(|| {
-        SNAPSHOT_WORKER_LOCK
-            .lock()
-            .expect("snapshot worker lock should not be poisoned")
-    });
     let unconfigured_runtime = create_unconfigured_runtime(&js_runtime_options, roots)?;
     let main_module_url = url::Url::parse(main_module.as_str())
         .map_err(|error| BindingError::runtime(error.to_string()))?;
@@ -233,12 +226,11 @@ fn create_unconfigured_runtime(
     js_runtime_options: &JsRuntimeOptions,
     roots: &LibWorkerFactoryRoots,
 ) -> Result<Option<deno_runtime::UnconfiguredRuntime>, BindingError> {
+    let custom_params = js_runtime_options
+        .to_create_params()
+        .map_err(BindingError::runtime)?;
     let Some(startup_snapshot) = deno_snapshots::CLI_SNAPSHOT else {
-        if js_runtime_options
-            .to_create_params()
-            .map_err(BindingError::runtime)?
-            .is_some()
-        {
+        if custom_params.is_some() {
             return Err(BindingError::runtime(
                 "Belgie was built without the Deno CLI snapshot; custom V8 memory options are unavailable",
             ));
@@ -246,10 +238,8 @@ fn create_unconfigured_runtime(
         return Ok(None);
     };
 
-    let create_params = js_runtime_options
-        .to_create_params()
-        .map_err(BindingError::runtime)?
-        .or_else(|| create_isolate_create_params(&EmbedSys::default()));
+    let create_params =
+        custom_params.or_else(|| create_isolate_create_params(&EmbedSys::default()));
 
     Ok(Some(deno_runtime::UnconfiguredRuntime::new::<
         DenoInNpmPackageChecker,

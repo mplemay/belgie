@@ -5,7 +5,7 @@ use deno_lib::worker::LibWorkerFactoryRoots;
 
 use crate::command::CommandSource;
 use crate::embed::init::ensure_initialized;
-use crate::runtime::bound_runtime::{BoundPackageEnvironment, ImplicitPackageEnvironment};
+use crate::runtime::bound_runtime::BoundPackageEnvironment;
 use crate::runtime::{
     BoundRuntime, CommandExecutionHandle, CommandExecutionOptions, DenoExecutionHandle, DenoRuntime,
 };
@@ -178,9 +178,7 @@ impl RuntimeSession {
 
         let environment = match BoundPackageEnvironment::from_isolated_runtime(&self.runtime)? {
             Some(environment) => environment,
-            None => BoundPackageEnvironment::Implicit(Arc::new(ImplicitPackageEnvironment::new(
-                self.runtime.cwd(),
-            )?)),
+            None => BoundPackageEnvironment::implicit_for_cwd(self.runtime.cwd())?,
         };
         *package_environment = Some(environment.clone());
         Ok(Some(environment))
