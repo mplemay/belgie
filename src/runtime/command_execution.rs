@@ -19,7 +19,7 @@ use tokio::sync::{oneshot, watch};
 
 use super::{BoundPackageEnvironment, process_context};
 use crate::command::CommandSource;
-use crate::embed::{EmbedContext, js_content_type_header_overrides};
+use crate::embed::{EmbedContext, init::spawn_v8_worker, js_content_type_header_overrides};
 use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
 use crate::runtime::error::map_package_environment_error;
 use crate::runtime::package_worker::{self, BoundPackageWorkerOptions};
@@ -54,7 +54,7 @@ impl CommandExecutionHandle {
     pub(crate) fn spawn(options: CommandExecutionOptions) -> Self {
         let (cancel, cancel_rx) = watch::channel(false);
         let (respond_to, response) = oneshot::channel();
-        let join_handle = thread::spawn(move || {
+        let join_handle = spawn_v8_worker(move || {
             let result = run_command_thread(options, cancel_rx);
             let _ = respond_to.send(result);
         });

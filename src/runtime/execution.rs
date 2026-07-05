@@ -13,13 +13,14 @@ use deno_lib::worker::{LibMainWorker, LibWorkerFactoryRoots};
 use tokio::sync::{Notify, oneshot};
 
 use crate::{
-    embed::runtime::ts_content_type_header_overrides,
+    embed::{init::spawn_v8_worker, runtime::ts_content_type_header_overrides},
     runtime::{module_loader, package_worker, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
 };
 
 use super::BoundRuntime;
+use crate::runtime::bound_runtime::{BoundPackageEnvironment, ImplicitPackageEnvironment};
 
 type ExecutionResult<T> = Result<T, BindingError>;
 
@@ -52,7 +53,7 @@ impl DenoExecutionHandle {
         let worker_isolate_handle = isolate_handle.clone();
         let shutdown = Arc::new(Notify::new());
         let worker_shutdown = shutdown.clone();
-        let join_handle = thread::spawn(move || {
+        let join_handle = spawn_v8_worker(move || {
             run_worker_thread(
                 bound,
                 worker_factory_roots,
@@ -282,28 +283,35 @@ impl DenoExecutionContext {
         worker_factory_roots: &LibWorkerFactoryRoots,
     ) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
-        let backend = if let Some(package_environment) = bound.package_environment() {
-            let context = package_environment.embed_context_rc(bound.worker_options())?;
-            ExecutionBackend::Package(Box::new(
-                package_worker::create_bound_package_worker(
-                    context,
-                    bound.cwd().to_path_buf(),
-                    main_module.clone(),
-                    package_worker::BoundPackageWorkerOptions {
-                        argv: Vec::new(),
-                        argv0: None,
-                        js_runtime_options: bound.js_runtime_options().clone(),
-                        runtime_worker_options: bound.worker_options().clone(),
-                        main_source: Some(bound.script().content().to_string()),
-                        header_overrides: ts_content_type_header_overrides(main_module.clone()),
-                    },
-                    worker_factory_roots,
-                )
-                .await?,
-            ))
-        } else {
-            ExecutionBackend::Lightweight(Box::new(create_js_runtime(&bound)?))
-        };
+        let backend =
+            if bound.package_environment().is_some() || deno_snapshots::CLI_SNAPSHOT.is_some() {
+                let package_environment = match bound.package_environment() {
+                    Some(environment) => environment.clone(),
+                    None => BoundPackageEnvironment::Implicit(Arc::new(
+                        ImplicitPackageEnvironment::new(bound.cwd())?,
+                    )),
+                };
+                let context = package_environment.embed_context_rc(bound.worker_options())?;
+                ExecutionBackend::Package(Box::new(
+                    package_worker::create_bound_package_worker(
+                        context,
+                        bound.cwd().to_path_buf(),
+                        main_module.clone(),
+                        package_worker::BoundPackageWorkerOptions {
+                            argv: Vec::new(),
+                            argv0: None,
+                            js_runtime_options: bound.js_runtime_options().clone(),
+                            runtime_worker_options: bound.worker_options().clone(),
+                            main_source: Some(bound.script().content().to_string()),
+                            header_overrides: ts_content_type_header_overrides(main_module.clone()),
+                        },
+                        worker_factory_roots,
+                    )
+                    .await?,
+                ))
+            } else {
+                ExecutionBackend::Lightweight(Box::new(create_js_runtime(&bound)?))
+            };
         Ok(Self {
             bound,
             backend,
@@ -423,6 +431,62 @@ fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
             .map_err(BindingError::runtime)?,
         ..Default::default()
     }))
+}
+
+#[cfg(test)]
+pub(crate) fn with_test_js_runtime<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut JsRuntime) -> R + Send + 'static,
+    R: Send + 'static,
+{
+    if deno_snapshots::CLI_SNAPSHOT.is_some() {
+        spawn_v8_worker(move || {
+            let _process_context = process_context::blocking_guard();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("test tokio runtime should build");
+            runtime.block_on(async {
+                let cwd = std::env::current_dir().expect("current dir should be available");
+                let package_environment = BoundPackageEnvironment::Implicit(Arc::new(
+                    ImplicitPackageEnvironment::new(&cwd)
+                        .expect("implicit package environment should initialize"),
+                ));
+                let worker_options = crate::options::RuntimeWorkerOptions::default();
+                let context = package_environment
+                    .embed_context_rc(&worker_options)
+                    .expect("embed context should initialize");
+                let main_module = ModuleSpecifier::from_file_path(cwd.join("__belgie_test__.ts"))
+                    .expect("test module path should convert to file URL");
+                let mut worker = package_worker::create_bound_package_worker(
+                    context,
+                    cwd,
+                    main_module.clone(),
+                    package_worker::BoundPackageWorkerOptions {
+                        argv: Vec::new(),
+                        argv0: None,
+                        js_runtime_options: Default::default(),
+                        runtime_worker_options: Default::default(),
+                        main_source: Some("export {}".to_string()),
+                        header_overrides: ts_content_type_header_overrides(main_module),
+                    },
+                    &LibWorkerFactoryRoots::default(),
+                )
+                .await
+                .expect("package worker should initialize for tests");
+                f(worker.js_runtime())
+            })
+        })
+        .join()
+        .expect("v8 worker thread should not panic")
+    } else {
+        spawn_v8_worker(move || {
+            let mut runtime = JsRuntime::new(RuntimeOptions::default());
+            f(&mut runtime)
+        })
+        .join()
+        .expect("v8 worker thread should not panic")
+    }
 }
 
 fn resolve_run_function(

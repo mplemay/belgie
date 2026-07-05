@@ -15,4 +15,7 @@ pub(crate) use bound_runtime::{BoundPackageEnvironment, BoundRuntime};
 pub(crate) use command_execution::{CommandExecutionHandle, CommandExecutionOptions};
 pub(crate) use deno_runtime::DenoRuntime;
 pub(crate) use execution::DenoExecutionHandle;
+
+#[cfg(test)]
+pub(crate) use execution::with_test_js_runtime;
 pub(crate) use session::RuntimeSession;

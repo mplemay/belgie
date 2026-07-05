@@ -402,6 +402,7 @@ fn object_path(path: &str, key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{MAX_SAFE_INTEGER, PyJsValue};
+    use crate::runtime::with_test_js_runtime;
     use deno_core::{
         serde_json::{Map, Number, Value},
         v8,
@@ -578,57 +579,61 @@ mod tests {
 
     #[test]
     fn bridges_json_values_through_v8() {
-        let mut runtime = deno_core::JsRuntime::new(Default::default());
-        deno_core::scope!(scope, &mut runtime);
-        let value = PyJsValue::from_json(Value::Object(Map::from_iter([
-            ("first".to_string(), Value::Number(Number::from(1))),
-            (
-                "items".to_string(),
-                Value::Array(vec![Value::Bool(true), Value::Null]),
-            ),
-        ])));
+        with_test_js_runtime(|runtime| {
+            deno_core::scope!(scope, runtime);
+            let value = PyJsValue::from_json(Value::Object(Map::from_iter([
+                ("first".to_string(), Value::Number(Number::from(1))),
+                (
+                    "items".to_string(),
+                    Value::Array(vec![Value::Bool(true), Value::Null]),
+                ),
+            ])));
 
-        let v8_value = value.to_v8(scope).expect("JSON should convert to V8");
-        let round_trip = PyJsValue::from_v8(scope, v8_value).expect("V8 should convert to JSON");
+            let v8_value = value.to_v8(scope).expect("JSON should convert to V8");
+            let round_trip =
+                PyJsValue::from_v8(scope, v8_value).expect("V8 should convert to JSON");
 
-        assert_eq!(round_trip.as_json(), value.as_json());
+            assert_eq!(round_trip.as_json(), value.as_json());
+        });
     }
 
     #[test]
     fn rejects_cyclic_javascript_objects() {
-        let mut runtime = deno_core::JsRuntime::new(Default::default());
-        deno_core::scope!(scope, &mut runtime);
-        let object = v8::Object::new(scope);
-        let key = v8::String::new(scope, "self").expect("key should build");
-        object
-            .set(scope, key.into(), object.into())
-            .expect("property should set");
+        with_test_js_runtime(|runtime| {
+            deno_core::scope!(scope, runtime);
+            let object = v8::Object::new(scope);
+            let key = v8::String::new(scope, "self").expect("key should build");
+            object
+                .set(scope, key.into(), object.into())
+                .expect("property should set");
 
-        let error = PyJsValue::from_v8(scope, object.into())
-            .expect_err("cycles should fail")
-            .message()
-            .to_string();
+            let error = PyJsValue::from_v8(scope, object.into())
+                .expect_err("cycles should fail")
+                .message()
+                .to_string();
 
-        assert!(error.contains("cycle"));
-        assert!(error.contains("$.self"));
+            assert!(error.contains("cycle"));
+            assert!(error.contains("$.self"));
+        });
     }
 
     #[test]
     fn rejects_cyclic_javascript_arrays() {
-        let mut runtime = deno_core::JsRuntime::new(Default::default());
-        deno_core::scope!(scope, &mut runtime);
-        let array = v8::Array::new(scope, 0);
-        array
-            .set_index(scope, 0, array.into())
-            .expect("array item should set");
+        with_test_js_runtime(|runtime| {
+            deno_core::scope!(scope, runtime);
+            let array = v8::Array::new(scope, 0);
+            array
+                .set_index(scope, 0, array.into())
+                .expect("array item should set");
 
-        let error = PyJsValue::from_v8(scope, array.into())
-            .expect_err("cycles should fail")
-            .message()
-            .to_string();
+            let error = PyJsValue::from_v8(scope, array.into())
+                .expect_err("cycles should fail")
+                .message()
+                .to_string();
 
-        assert!(error.contains("cycle"));
-        assert!(error.contains("$[0]"));
+            assert!(error.contains("cycle"));
+            assert!(error.contains("$[0]"));
+        });
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use deno_cache_dir::file_fetcher::MemoryFiles;
 use deno_core::{FastString, ModuleSpecifier};
@@ -11,7 +11,7 @@ use deno_lib::args::get_root_cert_store;
 use deno_lib::npm::create_npm_process_state_provider;
 use deno_lib::worker::{
     CreateModuleLoaderResult, LibMainWorker, LibMainWorkerFactory, LibMainWorkerOptions,
-    LibWorkerFactoryRoots, ModuleLoaderFactory, StorageKeyResolver,
+    LibWorkerFactoryRoots, ModuleLoaderFactory, StorageKeyResolver, create_isolate_create_params,
 };
 use deno_media_type::MediaType;
 use deno_resolver::cjs::CjsTrackerRc;
@@ -36,6 +36,8 @@ use crate::runtime::error::map_package_environment_error;
 use crate::runtime::module_loader::PackageAwareModuleLoader;
 use crate::runtime::native_addon_host;
 use crate::types::error::BindingError;
+
+static SNAPSHOT_WORKER_LOCK: Mutex<()> = Mutex::new(());
 
 pub(crate) struct BoundPackageWorkerOptions {
     pub argv: Vec<String>,
@@ -180,6 +182,11 @@ fn create_package_worker(
             .to_permissions()
             .map_err(BindingError::runtime)?,
     );
+    let _snapshot_worker_guard = deno_snapshots::CLI_SNAPSHOT.is_some().then(|| {
+        SNAPSHOT_WORKER_LOCK
+            .lock()
+            .expect("snapshot worker lock should not be poisoned")
+    });
     let unconfigured_runtime = create_unconfigured_runtime(&js_runtime_options, roots)?;
     let main_module_url = url::Url::parse(main_module.as_str())
         .map_err(|error| BindingError::runtime(error.to_string()))?;
@@ -226,17 +233,24 @@ fn create_unconfigured_runtime(
     js_runtime_options: &JsRuntimeOptions,
     roots: &LibWorkerFactoryRoots,
 ) -> Result<Option<deno_runtime::UnconfiguredRuntime>, BindingError> {
-    let Some(create_params) = js_runtime_options
-        .to_create_params()
-        .map_err(BindingError::runtime)?
-    else {
+    let Some(startup_snapshot) = deno_snapshots::CLI_SNAPSHOT else {
+        if js_runtime_options
+            .to_create_params()
+            .map_err(BindingError::runtime)?
+            .is_some()
+        {
+            return Err(BindingError::runtime(
+                "Belgie was built without the Deno CLI snapshot; custom V8 memory options are unavailable",
+            ));
+        }
         return Ok(None);
     };
-    let Some(startup_snapshot) = deno_snapshots::CLI_SNAPSHOT else {
-        return Err(BindingError::runtime(
-            "Belgie was built without the Deno CLI snapshot; custom V8 memory options are unavailable",
-        ));
-    };
+
+    let create_params = js_runtime_options
+        .to_create_params()
+        .map_err(BindingError::runtime)?
+        .or_else(|| create_isolate_create_params(&EmbedSys::default()));
+
     Ok(Some(deno_runtime::UnconfiguredRuntime::new::<
         DenoInNpmPackageChecker,
         NpmResolver<EmbedSys>,
@@ -245,7 +259,7 @@ fn create_unconfigured_runtime(
         startup_snapshot,
         residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
         residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
-        create_params: Some(create_params),
+        create_params,
         shared_array_buffer_store: Some(roots.shared_array_buffer_store.clone()),
         compiled_wasm_module_store: Some(roots.compiled_wasm_module_store.clone()),
         additional_extensions: Vec::new(),
