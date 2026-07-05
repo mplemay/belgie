@@ -337,6 +337,28 @@ async def test_installed_environment_runs_trivial_inline_script_async(tmp_path: 
             assert await runtime(Script("export default async () => 42"))() == 42
 
 
+def test_installed_environment_runs_react_version_inline_script(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    react_version = "19.2.6"
+    source = f'import react from "npm:react@{react_version}"; export default () => react.version;'
+    with Environment({"react": react_version}, path=project) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == react_version
+
+
+async def test_installed_environment_runs_react_version_inline_script_async(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    react_version = "19.2.6"
+    source = f'import react from "npm:react@{react_version}"; export default async () => react.version;'
+    async with Environment({"react": react_version}, path=project) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            assert await runtime(Script(source))() == react_version
+
+
 def test_persisted_environment_removes_stale_file_dependency_install(
     tmp_path: Path,
     monkeypatch,
