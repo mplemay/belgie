@@ -19,14 +19,16 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 
 from belgie import Runtime as BelgieRuntime, RuntimeOptions, langchain as langchain_capability
-from belgie.agent._options import BelgieOptions
-from belgie.agent._run_code import (
-    DEFAULT_BELGIE_CAPABILITY_ID,
+from belgie.agent import (
     LOAD_BELGIE_TOOL_NAME,
-    RUN_CODE_DESCRIPTION,
     RUN_CODE_JSON_SCHEMA,
     RUN_CODE_METADATA,
     RUN_CODE_TOOL_NAME,
+    BelgieOptions,
+)
+from belgie.agent._run_code import (
+    DEFAULT_BELGIE_CAPABILITY_ID,
+    RUN_CODE_DESCRIPTION,
     resolved_description,
 )
 from belgie.langchain import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieMiddleware

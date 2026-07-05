@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
-from typing import Any, Final, Self, cast
+from typing import TYPE_CHECKING, Any, Final, Self, cast
 
 from pydantic_ai import AbstractToolset, RunContext, ToolDefinition, WrapperToolset
 from pydantic_ai._deferred_capabilities import DEFERRED_CAPABILITY_TOOL_METADATA_KEY
@@ -12,18 +12,23 @@ from pydantic_ai.tools import AgentDepsT
 from pydantic_ai.toolsets._deferred_capability_loader import LOAD_CAPABILITY_TOOL_NAME
 from pydantic_ai.toolsets.abstract import SchemaValidatorProt, ToolsetTool
 
-from belgie.agent._options import BelgieOptions
-from belgie.agent._run_code import (
-    RUN_CODE_ARGS_VALIDATOR as _RUN_CODE_ARGS_VALIDATOR,
+from belgie.agent import (
     RUN_CODE_JSON_SCHEMA,
     RUN_CODE_METADATA,
     RUN_CODE_TOOL_NAME,
+    BelgieOptions,
+    BelgieRuntimeSession,
     RunCodeInput,
     format_script_failure,
+)
+from belgie.agent._run_code import (
+    RUN_CODE_ARGS_VALIDATOR as _RUN_CODE_ARGS_VALIDATOR,
     resolved_description,
 )
-from belgie.agent._runtime import AsyncExitArgs, BelgieRuntimeSession
 from belgie.errors import BelgieError
+
+if TYPE_CHECKING:
+    from belgie.agent._runtime import AsyncExitArgs
 
 RUN_CODE_ARGS_VALIDATOR: Final[SchemaValidatorProt] = cast(
     "SchemaValidatorProt",

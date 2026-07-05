@@ -5,7 +5,7 @@ LANGCHAIN_REQUIRED_MESSAGE: Final[str] = (
 )
 
 try:
-    from belgie.agent._run_code import DEFAULT_RUN_CODE_INSTRUCTIONS
+    from belgie.agent import DEFAULT_RUN_CODE_INSTRUCTIONS
     from belgie.langchain._middleware import BelgieMiddleware
 except ModuleNotFoundError as import_error:
     if import_error.name in {"langchain", "langchain_core", "langgraph"}:

@@ -5,7 +5,7 @@ PYDANTIC_AI_REQUIRED_MESSAGE: Final[str] = (
 )
 
 try:
-    from belgie.agent._run_code import DEFAULT_RUN_CODE_INSTRUCTIONS
+    from belgie.agent import DEFAULT_RUN_CODE_INSTRUCTIONS
     from belgie.pydantic_ai._capability import BelgieCapability
 except ModuleNotFoundError as import_error:
     if import_error.name in {"pydantic", "pydantic_ai"}:
