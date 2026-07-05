@@ -1,12 +1,33 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import sys
+from json import loads
+from os import environ
 from pathlib import Path
+from subprocess import CompletedProcess, run
 
 import pytest
 
-from belgie import Environment, Runtime, RuntimeOptions, RuntimePermissions, Script
+from belgie import Command, Environment, Runtime, RuntimeOptions, RuntimePermissions, Script
+from belgie.__tests__.integration._core.conftest import (
+    ROLLUP_VERSION,
+    ZX_VERSION,
+    installed_environment,
+    rollup_native_package,
+)
 from belgie.errors import BelgieJavaScriptError
+
+
+def run_fresh_python(source: str) -> CompletedProcess[str]:
+    return run(  # noqa: S603
+        [sys.executable, "-c", source],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
 
 pytestmark = pytest.mark.integration
 
@@ -227,3 +248,133 @@ export default function run() {
 
     with Runtime.from_folder(tmp_path) as runtime:
         assert runtime(Script(source))() == 42
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux dynamic loader regression")
+def test_importing_belgie_keeps_deno_host_symbols_local() -> None:
+    result = run_fresh_python(
+        """
+import ctypes
+import json
+
+import belgie
+
+process = ctypes.CDLL(None)
+print(json.dumps({
+    "napi_create_string_utf8": hasattr(process, "napi_create_string_utf8"),
+    "uv_async_init": hasattr(process, "uv_async_init"),
+}))
+""".strip(),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert loads(result.stdout) == {
+        "napi_create_string_utf8": False,
+        "uv_async_init": False,
+    }
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uvloop is unavailable on Windows")
+def test_importing_belgie_before_uvloop_can_create_event_loop() -> None:
+    result = run_fresh_python(
+        """
+import belgie
+import uvloop
+
+loop = uvloop.new_event_loop()
+loop.close()
+""".strip(),
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+async def test_package_script_loads_native_rollup_addon_before_command(
+    isolated_project_cwd: Path,
+) -> None:
+    native_package = rollup_native_package()
+
+    source = f"""
+import {{ createRequire }} from "node:module";
+
+const require = createRequire(import.meta.url);
+const native = require("{native_package}");
+
+export default function run() {{
+  return typeof native.parse;
+}}
+"""
+    async with (
+        installed_environment(
+            {native_package: ROLLUP_VERSION},
+            install_path=isolated_project_cwd,
+        ) as env,
+        Runtime(env=env) as runtime,
+    ):
+        assert await runtime(Script(source))() == "function"
+
+
+async def _assert_concurrent_script_and_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    script_first: bool,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BELGIE_PROBE", "baseline")
+
+    for directory, expected in (("baseline", "baseline"), ("override", "command")):
+        root = tmp_path / directory
+        root.mkdir()
+        (root / "probe.mjs").write_text(
+            f"""
+import {{ mkdirSync, writeFileSync }} from "node:fs";
+
+if (process.env.BELGIE_PROBE !== "{expected}") {{
+  throw new Error("saw " + process.env.BELGIE_PROBE);
+}}
+mkdirSync("output", {{ recursive: true }});
+writeFileSync("output/probe.txt", process.cwd() + "\\n", "utf-8");
+""",
+            encoding="utf-8",
+        )
+
+    script = Script("export default async () => 'ok';")
+    baseline_command = Command("zx", cwd="baseline")
+    override_command = Command("zx", cwd="override", env={"BELGIE_PROBE": "command"})
+
+    async with installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}) as env, Runtime(env=env) as runtime:
+        script_call = runtime(script)()
+        baseline_call = runtime(baseline_command)("probe.mjs")
+        override_call = runtime(override_command)("probe.mjs")
+        if script_first:
+            script_result, _baseline_result, _override_result = await asyncio.gather(
+                script_call,
+                baseline_call,
+                override_call,
+            )
+        else:
+            _baseline_result, _override_result, script_result = await asyncio.gather(
+                baseline_call,
+                override_call,
+                script_call,
+            )
+        assert script_result == "ok"
+
+    assert environ["BELGIE_PROBE"] == "baseline"
+    assert (tmp_path / "baseline" / "output" / "probe.txt").read_text(encoding="utf-8") == (
+        str(tmp_path / "baseline") + "\n"
+    )
+    assert (tmp_path / "override" / "output" / "probe.txt").read_text(encoding="utf-8") == (
+        str(tmp_path / "override") + "\n"
+    )
+
+
+@pytest.mark.parametrize("script_first", [True, False], ids=["script_first", "commands_first"])
+async def test_concurrent_script_and_command_with_env_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    script_first: bool,
+) -> None:
+    await _assert_concurrent_script_and_commands(tmp_path, monkeypatch, script_first=script_first)

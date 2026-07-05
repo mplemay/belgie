@@ -7,7 +7,8 @@ from typing import Any, cast
 import pytest
 from anyio import Path as AsyncPath
 
-from belgie import Environment, EnvironmentInstallResult, EnvironmentOptions, Runtime, Script
+from belgie import Command, Environment, EnvironmentInstallResult, EnvironmentOptions, Runtime, Script
+from belgie.__tests__.integration._core.conftest import SEMVER_VERSION, ZX_VERSION, installed_environment
 from belgie.__tests__.integration.conftest import assert_installed_package_dir
 from belgie.errors import BelgieModuleError, BelgieRuntimeError
 
@@ -575,3 +576,69 @@ export default () => value;
         Runtime(env=env) as runtime,
     ):
         assert runtime(Script.from_file(main))() == 42
+
+
+async def test_runs_command_from_frozen_lockfile_environment_without_external_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    lockfile = tmp_path / "deno.lock"
+    dependencies = {"semver": SEMVER_VERSION}
+    async with Environment(dependencies) as env:
+        await env.lock(lockfile=lockfile)
+
+    original_lock = lockfile.read_text(encoding="utf-8")
+    monkeypatch.setenv("PATH", "")
+    async with Environment(dependencies, lockfile=lockfile) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            await runtime(Command("semver"))("--help")
+
+    assert lockfile.read_text(encoding="utf-8") == original_lock
+
+
+async def test_environment_path_persists_command_files_across_recreation(
+    isolated_project_cwd: Path,
+) -> None:
+    (isolated_project_cwd / "persist.mjs").write_text(
+        """
+import { writeFileSync } from "node:fs";
+
+writeFileSync("persisted.ts", "export const persisted = 42;\\n", "utf-8");
+""",
+        encoding="utf-8",
+    )
+
+    async with (
+        installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}, install_path=isolated_project_cwd) as env,
+        Runtime(env=env) as runtime,
+    ):
+        await runtime(Command("zx"))("persist.mjs")
+
+    assert await AsyncPath(isolated_project_cwd / "persisted.ts").is_file()
+
+    source = 'import { persisted } from "./persisted.ts"; export default () => persisted;'
+    async with Environment(path=isolated_project_cwd) as env, Runtime(env=env) as runtime:
+        assert await runtime(Script(source))() == 42
+
+    assert sorted([entry.name async for entry in AsyncPath(isolated_project_cwd).iterdir()]) == [
+        "deno.lock",
+        "node_modules",
+        "persist.mjs",
+        "persisted.ts",
+    ]
+
+
+async def test_environment_materializes_node_modules_symlink_at_workspace_during_install(
+    isolated_project_cwd: Path,
+) -> None:
+    process_root = isolated_project_cwd.parent / "process"
+    node_modules = process_root / "node_modules"
+
+    async with Environment({"semver": SEMVER_VERSION}) as env:
+        await env.install()
+        assert node_modules.is_symlink()
+        assert node_modules.exists()
+
+    assert not node_modules.exists()
