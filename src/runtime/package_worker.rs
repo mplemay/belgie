@@ -11,7 +11,7 @@ use deno_lib::args::get_root_cert_store;
 use deno_lib::npm::create_npm_process_state_provider;
 use deno_lib::worker::{
     CreateModuleLoaderResult, LibMainWorker, LibMainWorkerFactory, LibMainWorkerOptions,
-    LibWorkerFactoryRoots, ModuleLoaderFactory, StorageKeyResolver,
+    LibWorkerFactoryRoots, ModuleLoaderFactory, StorageKeyResolver, create_isolate_create_params,
 };
 use deno_media_type::MediaType;
 use deno_resolver::cjs::CjsTrackerRc;
@@ -37,47 +37,20 @@ use crate::runtime::module_loader::PackageAwareModuleLoader;
 use crate::runtime::native_addon_host;
 use crate::types::error::BindingError;
 
-struct PackageWorkerSnapshotOptions {
-    startup_snapshot: Option<&'static [u8]>,
-    residual_lazy_js_sources: &'static [(&'static str, &'static str)],
-    residual_lazy_esm_sources: &'static [(&'static str, &'static str)],
-    skip_op_registration: bool,
-}
-
-fn package_worker_snapshot_options(use_cli_snapshot: bool) -> PackageWorkerSnapshotOptions {
-    if use_cli_snapshot {
-        PackageWorkerSnapshotOptions {
-            startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
-            residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
-            residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
-            skip_op_registration: true,
-        }
-    } else {
-        PackageWorkerSnapshotOptions {
-            startup_snapshot: None,
-            residual_lazy_js_sources: &[],
-            residual_lazy_esm_sources: &[],
-            skip_op_registration: false,
-        }
-    }
-}
-
-pub(crate) struct PackageWorkerOptions {
-    pub argv: Vec<String>,
-    pub argv0: Option<String>,
-    pub use_cli_snapshot: bool,
-    pub js_runtime_options: JsRuntimeOptions,
-    pub runtime_worker_options: RuntimeWorkerOptions,
-}
-
 pub(crate) struct BoundPackageWorkerOptions {
     pub argv: Vec<String>,
     pub argv0: Option<String>,
-    pub use_cli_snapshot: bool,
     pub js_runtime_options: JsRuntimeOptions,
     pub runtime_worker_options: RuntimeWorkerOptions,
     pub main_source: Option<String>,
     pub header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+}
+
+struct PackageWorkerRunOptions {
+    argv: Vec<String>,
+    argv0: Option<String>,
+    js_runtime_options: JsRuntimeOptions,
+    runtime_worker_options: RuntimeWorkerOptions,
 }
 
 pub(crate) async fn create_bound_package_worker(
@@ -87,12 +60,20 @@ pub(crate) async fn create_bound_package_worker(
     options: BoundPackageWorkerOptions,
     roots: &LibWorkerFactoryRoots,
 ) -> Result<LibMainWorker, BindingError> {
+    let BoundPackageWorkerOptions {
+        argv,
+        argv0,
+        js_runtime_options,
+        runtime_worker_options,
+        main_source,
+        header_overrides,
+    } = options;
     let state = Arc::new(
         prepare_package_runtime(
             context.clone(),
             main_module.clone(),
-            options.main_source,
-            options.header_overrides,
+            main_source,
+            header_overrides,
         )
         .await
         .map_err(map_package_environment_error)?,
@@ -102,12 +83,11 @@ pub(crate) async fn create_bound_package_worker(
         context,
         cwd,
         main_module,
-        PackageWorkerOptions {
-            argv: options.argv,
-            argv0: options.argv0,
-            use_cli_snapshot: options.use_cli_snapshot,
-            js_runtime_options: options.js_runtime_options,
-            runtime_worker_options: options.runtime_worker_options,
+        PackageWorkerRunOptions {
+            argv,
+            argv0,
+            js_runtime_options,
+            runtime_worker_options,
         },
         roots,
     )
@@ -115,7 +95,6 @@ pub(crate) async fn create_bound_package_worker(
 
 fn default_lib_main_worker_options(
     cwd: &Path,
-    snapshot: PackageWorkerSnapshotOptions,
     argv: Vec<String>,
     argv0: Option<String>,
     runtime_worker_options: &RuntimeWorkerOptions,
@@ -144,12 +123,12 @@ fn default_lib_main_worker_options(
         origin_data_folder_path: None,
         seed: runtime_worker_options.seed(),
         unsafely_ignore_certificate_errors,
-        skip_op_registration: snapshot.skip_op_registration,
+        skip_op_registration: deno_snapshots::CLI_SNAPSHOT.is_some(),
         node_ipc_init: None,
         no_legacy_abort: true,
-        startup_snapshot: snapshot.startup_snapshot,
-        residual_lazy_js_sources: snapshot.residual_lazy_js_sources,
-        residual_lazy_esm_sources: snapshot.residual_lazy_esm_sources,
+        startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+        residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+        residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
         serve_port: None,
         serve_host: None,
         close_on_idle: true,
@@ -162,14 +141,20 @@ fn default_lib_main_worker_options(
     }
 }
 
-pub(crate) fn create_package_worker(
+fn create_package_worker(
     state: Arc<PackageRuntimeState>,
     context: Rc<EmbedContext>,
     cwd: PathBuf,
     main_module: ModuleSpecifier,
-    options: PackageWorkerOptions,
+    options: PackageWorkerRunOptions,
     roots: &LibWorkerFactoryRoots,
 ) -> Result<LibMainWorker, BindingError> {
+    let PackageWorkerRunOptions {
+        argv,
+        argv0,
+        js_runtime_options,
+        runtime_worker_options,
+    } = options;
     let resolver_factory = context.resolver_factory();
     let npm_resolver = resolver_factory
         .npm_resolver()
@@ -190,15 +175,12 @@ pub(crate) fn create_package_worker(
     });
     let permissions = PermissionsContainer::new(
         Arc::new(RuntimePermissionDescriptorParser::new(EmbedSys::default())),
-        options
-            .runtime_worker_options
+        runtime_worker_options
             .permissions()
             .to_permissions()
             .map_err(BindingError::runtime)?,
     );
-    let snapshot_options = package_worker_snapshot_options(options.use_cli_snapshot);
-    let unconfigured_runtime =
-        create_unconfigured_runtime(&snapshot_options, &options.js_runtime_options, roots)?;
+    let unconfigured_runtime = create_unconfigured_runtime(&js_runtime_options, roots)?;
     let main_module_url = url::Url::parse(main_module.as_str())
         .map_err(|error| BindingError::runtime(error.to_string()))?;
     native_addon_host::ensure_symbols_visible()?;
@@ -219,10 +201,9 @@ pub(crate) fn create_package_worker(
         EmbedSys::default(),
         default_lib_main_worker_options(
             &cwd,
-            snapshot_options,
-            options.argv,
-            options.argv0,
-            &options.runtime_worker_options,
+            argv,
+            argv0,
+            &runtime_worker_options,
             context.unsafely_ignore_certificate_errors(),
         ),
         roots.clone(),
@@ -242,30 +223,33 @@ pub(crate) fn create_package_worker(
 }
 
 fn create_unconfigured_runtime(
-    snapshot: &PackageWorkerSnapshotOptions,
     js_runtime_options: &JsRuntimeOptions,
     roots: &LibWorkerFactoryRoots,
 ) -> Result<Option<deno_runtime::UnconfiguredRuntime>, BindingError> {
-    let Some(create_params) = js_runtime_options
+    let custom_params = js_runtime_options
         .to_create_params()
-        .map_err(BindingError::runtime)?
-    else {
+        .map_err(BindingError::runtime)?;
+    let Some(startup_snapshot) = deno_snapshots::CLI_SNAPSHOT else {
+        if custom_params.is_some() {
+            return Err(BindingError::runtime(
+                "Belgie was built without the Deno CLI snapshot; custom V8 memory options are unavailable",
+            ));
+        }
         return Ok(None);
     };
-    let Some(startup_snapshot) = snapshot.startup_snapshot else {
-        return Err(BindingError::runtime(
-            "Package worker V8 memory options require the Deno CLI snapshot to be available",
-        ));
-    };
+
+    let create_params =
+        custom_params.or_else(|| create_isolate_create_params(&EmbedSys::default()));
+
     Ok(Some(deno_runtime::UnconfiguredRuntime::new::<
         DenoInNpmPackageChecker,
         NpmResolver<EmbedSys>,
         EmbedSys,
     >(UnconfiguredRuntimeOptions {
         startup_snapshot,
-        residual_lazy_js_sources: snapshot.residual_lazy_js_sources,
-        residual_lazy_esm_sources: snapshot.residual_lazy_esm_sources,
-        create_params: Some(create_params),
+        residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+        residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
+        create_params,
         shared_array_buffer_store: Some(roots.shared_array_buffer_store.clone()),
         compiled_wasm_module_store: Some(roots.compiled_wasm_module_store.clone()),
         additional_extensions: Vec::new(),
@@ -400,25 +384,15 @@ mod tests {
 
     use deno_runtime::WorkerLogLevel;
 
-    use crate::options::{JsRuntimeOptions, RuntimePermissionOptions, RuntimeWorkerOptions};
+    use crate::options::{RuntimePermissionOptions, RuntimeWorkerOptions};
 
-    use super::{
-        create_unconfigured_runtime, default_lib_main_worker_options,
-        package_worker_snapshot_options,
-    };
+    use super::default_lib_main_worker_options;
 
     #[test]
-    fn package_worker_snapshot_options_enable_snapshot_and_skip_op_registration() {
-        let snapshot = package_worker_snapshot_options(true);
+    fn uses_cli_snapshot_in_worker_options() {
         let worker_options = RuntimeWorkerOptions::default();
-        let options = default_lib_main_worker_options(
-            Path::new("."),
-            snapshot,
-            vec![],
-            None,
-            &worker_options,
-            None,
-        );
+        let options =
+            default_lib_main_worker_options(Path::new("."), vec![], None, &worker_options, None);
         assert!(options.startup_snapshot.is_some());
         assert!(!options.residual_lazy_js_sources.is_empty());
         assert!(!options.residual_lazy_esm_sources.is_empty());
@@ -426,26 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn package_worker_snapshot_options_disable_snapshot_and_op_skip_when_unavailable() {
-        let snapshot = package_worker_snapshot_options(false);
-        let worker_options = RuntimeWorkerOptions::default();
-        let options = default_lib_main_worker_options(
-            Path::new("."),
-            snapshot,
-            vec![],
-            None,
-            &worker_options,
-            None,
-        );
-        assert!(options.startup_snapshot.is_none());
-        assert!(options.residual_lazy_js_sources.is_empty());
-        assert!(options.residual_lazy_esm_sources.is_empty());
-        assert!(!options.skip_op_registration);
-    }
-
-    #[test]
     fn lib_main_worker_options_apply_runtime_worker_options() {
-        let snapshot = package_worker_snapshot_options(false);
         let location = url::Url::parse("https://example.com/app").unwrap();
         let worker_options = RuntimeWorkerOptions::new(
             RuntimePermissionOptions::AllowAll,
@@ -460,7 +415,6 @@ mod tests {
 
         let options = default_lib_main_worker_options(
             Path::new("."),
-            snapshot,
             vec![],
             None,
             &worker_options,
@@ -478,21 +432,5 @@ mod tests {
             options.unsafely_ignore_certificate_errors,
             Some(vec!["localhost".to_string()])
         );
-    }
-
-    #[test]
-    fn custom_v8_params_report_missing_snapshot() {
-        let snapshot = package_worker_snapshot_options(false);
-        let roots = deno_lib::worker::LibWorkerFactoryRoots::default();
-        let result = create_unconfigured_runtime(
-            &snapshot,
-            &JsRuntimeOptions::new(Some(64), None, None),
-            &roots,
-        );
-
-        let Err(error) = result else {
-            panic!("expected missing snapshot error");
-        };
-        assert!(error.message().contains("CLI snapshot"));
     }
 }

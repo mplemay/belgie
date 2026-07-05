@@ -1,25 +1,16 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use deno_lib::worker::LibWorkerFactoryRoots;
 
 use crate::command::CommandSource;
-use crate::runtime::bound_runtime::{BoundPackageEnvironment, ImplicitPackageEnvironment};
+use crate::embed::init::ensure_initialized;
+use crate::runtime::bound_runtime::BoundPackageEnvironment;
 use crate::runtime::{
     BoundRuntime, CommandExecutionHandle, CommandExecutionOptions, DenoExecutionHandle, DenoRuntime,
 };
 use crate::script::ScriptSource;
 use crate::types::error::BindingError;
-
-struct PendingScriptBind<'a> {
-    counter: &'a AtomicUsize,
-}
-
-impl Drop for PendingScriptBind<'_> {
-    fn drop(&mut self) {
-        self.counter.fetch_sub(1, Ordering::AcqRel);
-    }
-}
 
 pub(crate) struct RuntimeSession {
     runtime: DenoRuntime,
@@ -27,7 +18,6 @@ pub(crate) struct RuntimeSession {
     active: AtomicBool,
     scripts: Mutex<Vec<DenoExecutionHandle>>,
     commands: Mutex<Vec<CommandExecutionHandle>>,
-    pending_script_binds: AtomicUsize,
     worker_factory_roots: LibWorkerFactoryRoots,
 }
 
@@ -37,16 +27,13 @@ impl std::fmt::Debug for RuntimeSession {
             .debug_struct("RuntimeSession")
             .field("runtime", &self.runtime)
             .field("active", &self.active.load(Ordering::Acquire))
-            .field(
-                "pending_script_binds",
-                &self.pending_script_binds.load(Ordering::Acquire),
-            )
             .finish_non_exhaustive()
     }
 }
 
 impl RuntimeSession {
     pub(crate) fn activate(runtime: DenoRuntime) -> Result<Arc<Self>, BindingError> {
+        ensure_initialized();
         let package_environment = match BoundPackageEnvironment::from_isolated_runtime(&runtime)? {
             Some(BoundPackageEnvironment::Isolated(active))
                 if active.needs_package_environment(runtime.worker_options()) =>
@@ -61,7 +48,6 @@ impl RuntimeSession {
             active: AtomicBool::new(true),
             scripts: Mutex::new(Vec::new()),
             commands: Mutex::new(Vec::new()),
-            pending_script_binds: AtomicUsize::new(0),
             worker_factory_roots: LibWorkerFactoryRoots::default(),
         }))
     }
@@ -72,13 +58,9 @@ impl RuntimeSession {
     ) -> Result<DenoExecutionHandle, BindingError> {
         session.ensure_active()?;
         let bound = session.runtime.bind(script);
-        session.pending_script_binds.fetch_add(1, Ordering::AcqRel);
-        let _pending_script_bind = PendingScriptBind {
-            counter: &session.pending_script_binds,
-        };
         let package_environment = session.package_environment_for_script(&bound)?;
         let bound = bound.with_package_environment(package_environment);
-        let handle = DenoExecutionHandle::new(bound, Arc::clone(session));
+        let handle = DenoExecutionHandle::new(bound, session.worker_factory_roots.clone());
         session
             .scripts
             .lock()
@@ -111,7 +93,7 @@ impl RuntimeSession {
             runtime_root: session.runtime.cwd().to_path_buf(),
             command,
             argv,
-            session: Arc::clone(&session),
+            worker_factory_roots: session.worker_factory_roots.clone(),
         });
         session
             .commands
@@ -175,23 +157,7 @@ impl RuntimeSession {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn package_environment_for_script(
-        &self,
-        bound: &BoundRuntime,
-    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
-        self.resolve_package_environment_for_script(bound)
-    }
-
-    #[cfg(not(test))]
     fn package_environment_for_script(
-        &self,
-        bound: &BoundRuntime,
-    ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
-        self.resolve_package_environment_for_script(bound)
-    }
-
-    fn resolve_package_environment_for_script(
         &self,
         bound: &BoundRuntime,
     ) -> Result<Option<BoundPackageEnvironment>, BindingError> {
@@ -212,24 +178,10 @@ impl RuntimeSession {
 
         let environment = match BoundPackageEnvironment::from_isolated_runtime(&self.runtime)? {
             Some(environment) => environment,
-            None => BoundPackageEnvironment::Implicit(Arc::new(ImplicitPackageEnvironment::new(
-                self.runtime.cwd(),
-            )?)),
+            None => BoundPackageEnvironment::implicit_for_cwd(self.runtime.cwd())?,
         };
         *package_environment = Some(environment.clone());
         Ok(Some(environment))
-    }
-
-    pub(crate) fn worker_factory_roots(&self) -> &LibWorkerFactoryRoots {
-        &self.worker_factory_roots
-    }
-
-    pub(crate) fn cli_snapshot_eligible(&self) -> bool {
-        let scripts = self
-            .scripts
-            .lock()
-            .expect("runtime script handle lock should not be poisoned");
-        scripts.is_empty() && self.pending_script_binds.load(Ordering::Acquire) == 0
     }
 }
 
@@ -241,9 +193,7 @@ impl Drop for RuntimeSession {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
-    use std::sync::{Arc, Barrier};
-    use std::thread;
+    use std::sync::Arc;
 
     use crate::options::{RuntimeOptions, ScriptOptions};
     use crate::runtime::DenoRuntime;
@@ -255,49 +205,6 @@ mod tests {
         let cwd = std::env::current_dir().expect("current dir should be available");
         RuntimeSession::activate(DenoRuntime::new(RuntimeOptions::new(cwd)))
             .expect("runtime session should activate")
-    }
-
-    #[test]
-    fn cli_snapshot_eligible_when_no_scripts_are_bound() {
-        let session = test_session();
-        assert!(session.cli_snapshot_eligible());
-    }
-
-    #[test]
-    fn cli_snapshot_ineligible_while_script_bind_is_pending() {
-        let session = test_session();
-        let start_barrier = Arc::new(Barrier::new(2));
-        let finish_barrier = Arc::new(Barrier::new(2));
-        let session_for_thread = session.clone();
-        let start_barrier_for_thread = start_barrier.clone();
-        let finish_barrier_for_thread = finish_barrier.clone();
-
-        let pending = thread::spawn(move || {
-            session_for_thread
-                .pending_script_binds
-                .fetch_add(1, Ordering::AcqRel);
-            start_barrier_for_thread.wait();
-            finish_barrier_for_thread.wait();
-            session_for_thread
-                .pending_script_binds
-                .fetch_sub(1, Ordering::AcqRel);
-        });
-
-        start_barrier.wait();
-        assert!(!session.cli_snapshot_eligible());
-        finish_barrier.wait();
-        pending.join().expect("pending bind thread should finish");
-        assert!(session.cli_snapshot_eligible());
-    }
-
-    #[test]
-    fn cli_snapshot_ineligible_after_script_is_bound() {
-        let session = test_session();
-        let script = ScriptSource::from_options(ScriptOptions::inline(
-            "export default function run() { return 'ok'; }".to_string(),
-        ));
-        RuntimeSession::bind_script(&session, script).expect("script should bind");
-        assert!(!session.cli_snapshot_eligible());
     }
 
     #[test]
@@ -362,10 +269,14 @@ mod tests {
             Some(BoundPackageEnvironment::Implicit(_))
         ));
 
-        let bound = session.runtime.bind(simple_script);
-        let assigned = session
-            .package_environment_for_script(&bound)
-            .expect("package environment should resolve");
+        let _ = session.runtime.bind(simple_script);
+        let assigned = BoundPackageEnvironment::for_script_without_package_loader(
+            session
+                .package_environment
+                .lock()
+                .expect("runtime package environment lock should not be poisoned")
+                .as_ref(),
+        );
         assert!(assigned.is_none());
     }
 }

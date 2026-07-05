@@ -6,20 +6,24 @@ use std::{
 };
 
 use deno_core::{
-    JsRuntime, ModuleId, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions, error::CoreError,
-    v8,
+    ExternalOpsTracker, JsRuntime, ModuleId, ModuleSpecifier, PollEventLoopOptions, RuntimeOptions,
+    error::CoreError, v8,
 };
 use deno_lib::worker::{LibMainWorker, LibWorkerFactoryRoots};
-use tokio::sync::oneshot;
+#[cfg(test)]
+use deno_runtime::tokio_util::create_and_run_current_thread;
+use deno_runtime::tokio_util::create_basic_runtime;
+use tokio::sync::{Notify, oneshot};
 
 use crate::{
-    embed::runtime::ts_content_type_header_overrides,
+    embed::{init::spawn_v8_worker, runtime::ts_content_type_header_overrides},
     runtime::{module_loader, package_worker, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
 };
 
-use super::{BoundRuntime, RuntimeSession};
+use super::BoundRuntime;
+use crate::runtime::bound_runtime::BoundPackageEnvironment;
 
 type ExecutionResult<T> = Result<T, BindingError>;
 
@@ -32,6 +36,7 @@ pub(crate) struct DenoExecutionHandle {
 struct DenoExecutionHandleInner {
     sender: mpsc::Sender<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
+    shutdown: Arc<Notify>,
     join_handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
@@ -45,17 +50,26 @@ enum ExecutionCommand {
 }
 
 impl DenoExecutionHandle {
-    pub(crate) fn new(bound: BoundRuntime, session: Arc<RuntimeSession>) -> Self {
+    pub(crate) fn new(bound: BoundRuntime, worker_factory_roots: LibWorkerFactoryRoots) -> Self {
         let (sender, receiver) = mpsc::channel();
         let isolate_handle = Arc::new(Mutex::new(None));
         let worker_isolate_handle = isolate_handle.clone();
-        let join_handle = thread::spawn(move || {
-            run_worker_thread(bound, session, receiver, worker_isolate_handle)
+        let shutdown = Arc::new(Notify::new());
+        let worker_shutdown = shutdown.clone();
+        let join_handle = spawn_v8_worker(move || {
+            run_worker_thread(
+                bound,
+                worker_factory_roots,
+                receiver,
+                worker_isolate_handle,
+                worker_shutdown,
+            )
         });
         Self {
             inner: Arc::new(DenoExecutionHandleInner {
                 sender,
                 isolate_handle,
+                shutdown,
                 join_handle: Mutex::new(Some(join_handle)),
             }),
         }
@@ -145,6 +159,7 @@ impl DenoExecutionHandleInner {
         {
             handle.terminate_execution();
         }
+        self.shutdown.notify_one();
         let _ = self.sender.send(ExecutionCommand::Shutdown);
     }
 }
@@ -165,36 +180,15 @@ impl Drop for DenoExecutionHandleInner {
 
 fn run_worker_thread(
     bound: BoundRuntime,
-    session: Arc<RuntimeSession>,
+    worker_factory_roots: LibWorkerFactoryRoots,
     receiver: mpsc::Receiver<ExecutionCommand>,
     isolate_handle: Arc<Mutex<Option<v8::IsolateHandle>>>,
+    shutdown: Arc<Notify>,
 ) {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            let init_error =
-                BindingError::runtime(format!("Creating Deno execution runtime failed: {error}"));
-            while let Ok(command) = receiver.recv() {
-                match command {
-                    ExecutionCommand::Invoke { respond_to, .. } => {
-                        let _ = respond_to.send(Err(init_error.clone()));
-                    }
-                    ExecutionCommand::Shutdown => break,
-                }
-            }
-            return;
-        }
-    };
+    let runtime = create_basic_runtime();
     let mut context = {
         let _process_context = process_context::blocking_guard();
-        match runtime.block_on(DenoExecutionContext::new(
-            bound,
-            session.cli_snapshot_eligible(),
-            session.worker_factory_roots(),
-        )) {
+        match runtime.block_on(DenoExecutionContext::new(bound, &worker_factory_roots)) {
             Ok(context) => context,
             Err(error) => {
                 while let Ok(command) = receiver.recv() {
@@ -221,7 +215,14 @@ fn run_worker_thread(
                 respond_to,
             } => {
                 let _process_context = process_context::blocking_guard();
-                let result = runtime.block_on(context.invoke(arguments));
+                let result = runtime.block_on(async {
+                    tokio::select! {
+                        result = context.invoke(arguments) => result,
+                        () = shutdown.notified() => {
+                            Err(BindingError::runtime("Deno execution was cancelled"))
+                        }
+                    }
+                });
                 let _ = respond_to.send(result);
             }
             ExecutionCommand::Shutdown => break,
@@ -236,6 +237,24 @@ enum ExecutionBackend {
     Package(Box<LibMainWorker>),
 }
 
+struct InvocationKeepalive {
+    tracker: ExternalOpsTracker,
+}
+
+impl InvocationKeepalive {
+    fn new(runtime: &JsRuntime) -> Self {
+        let tracker = runtime.op_state().borrow().external_ops_tracker.clone();
+        tracker.ref_op();
+        Self { tracker }
+    }
+}
+
+impl Drop for InvocationKeepalive {
+    fn drop(&mut self) {
+        self.tracker.unref_op();
+    }
+}
+
 struct DenoExecutionContext {
     bound: BoundRuntime,
     backend: ExecutionBackend,
@@ -246,11 +265,17 @@ struct DenoExecutionContext {
 impl DenoExecutionContext {
     async fn new(
         bound: BoundRuntime,
-        use_cli_snapshot: bool,
         worker_factory_roots: &LibWorkerFactoryRoots,
     ) -> ExecutionResult<Self> {
         let main_module = main_module_specifier(&bound)?;
-        let backend = if let Some(package_environment) = bound.package_environment() {
+        let needs_package_worker = bound.package_environment().is_some()
+            || deno_snapshots::CLI_SNAPSHOT.is_some()
+            || bound.script().needs_package_loader();
+        let backend = if needs_package_worker {
+            let package_environment = match bound.package_environment() {
+                Some(environment) => environment.clone(),
+                None => BoundPackageEnvironment::implicit_for_cwd(bound.cwd())?,
+            };
             let context = package_environment.embed_context_rc(bound.worker_options())?;
             ExecutionBackend::Package(Box::new(
                 package_worker::create_bound_package_worker(
@@ -260,7 +285,6 @@ impl DenoExecutionContext {
                     package_worker::BoundPackageWorkerOptions {
                         argv: Vec::new(),
                         argv0: None,
-                        use_cli_snapshot,
                         js_runtime_options: bound.js_runtime_options().clone(),
                         runtime_worker_options: bound.worker_options().clone(),
                         main_source: Some(bound.script().content().to_string()),
@@ -299,6 +323,7 @@ impl DenoExecutionContext {
             deno_core::scope!(scope, self.js_runtime());
             arguments.to_v8_globals(scope, run_signature.as_ref())?
         };
+        let _keepalive = InvocationKeepalive::new(self.js_runtime());
         let call = self.js_runtime().call_with_args(&run_function, &args);
         let result = self
             .js_runtime()
@@ -391,6 +416,51 @@ fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
             .map_err(BindingError::runtime)?,
         ..Default::default()
     }))
+}
+
+#[cfg(test)]
+pub(crate) fn with_test_js_runtime<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut JsRuntime) -> R + Send + 'static,
+    R: Send + 'static,
+{
+    spawn_v8_worker(move || {
+        if deno_snapshots::CLI_SNAPSHOT.is_some() {
+            create_and_run_current_thread(async move {
+                let cwd = std::env::current_dir().expect("current dir should be available");
+                let package_environment = BoundPackageEnvironment::implicit_for_cwd(&cwd)
+                    .expect("implicit package environment should initialize");
+                let worker_options = crate::options::RuntimeWorkerOptions::default();
+                let context = package_environment
+                    .embed_context_rc(&worker_options)
+                    .expect("embed context should initialize");
+                let main_module = ModuleSpecifier::from_file_path(cwd.join("__belgie_test__.ts"))
+                    .expect("test module path should convert to file URL");
+                let mut worker = package_worker::create_bound_package_worker(
+                    context,
+                    cwd,
+                    main_module.clone(),
+                    package_worker::BoundPackageWorkerOptions {
+                        argv: Vec::new(),
+                        argv0: None,
+                        js_runtime_options: Default::default(),
+                        runtime_worker_options: Default::default(),
+                        main_source: Some("export {}".to_string()),
+                        header_overrides: ts_content_type_header_overrides(main_module),
+                    },
+                    &LibWorkerFactoryRoots::default(),
+                )
+                .await
+                .expect("package worker should initialize for tests");
+                f(worker.js_runtime())
+            })
+        } else {
+            let mut runtime = JsRuntime::new(RuntimeOptions::default());
+            f(&mut runtime)
+        }
+    })
+    .join()
+    .expect("v8 worker thread should not panic")
 }
 
 fn resolve_run_function(

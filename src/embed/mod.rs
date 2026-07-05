@@ -1,6 +1,6 @@
 mod context;
 mod graph;
-mod init;
+pub(crate) mod init;
 mod install;
 mod memory;
 pub(crate) mod runtime;

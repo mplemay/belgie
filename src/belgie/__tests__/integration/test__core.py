@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from belgie import Environment, EnvironmentOptions, Runtime, RuntimeOptions, RuntimePermissions, Script
+from belgie import Command, Environment, EnvironmentOptions, Runtime, RuntimeOptions, RuntimePermissions, Script
+from belgie.__tests__.helpers.local_package import write_local_package_with_bin
 from belgie.__tests__.integration.conftest import assert_installed_package_dir, write_worker_main
 from belgie.errors import BelgieJavaScriptError, BelgieModuleError, BelgieRuntimeError
 
@@ -413,7 +414,7 @@ export default function run() {
         runtime(Script(source))()
 
 
-def test_package_worker_reports_memory_options_without_cli_snapshot(tmp_path: Path):
+def test_package_worker_applies_memory_options_with_cli_snapshot(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir()
 
@@ -423,9 +424,8 @@ def test_package_worker_reports_memory_options_without_cli_snapshot(tmp_path: Pa
             env=env,
             options=RuntimeOptions(max_old_generation_size_mb=64, seed=1),
         ) as runtime,
-        pytest.raises(BelgieRuntimeError, match="V8 memory options require the Deno CLI snapshot"),
     ):
-        runtime(Script("export default () => 'package-memory';"))()
+        assert runtime(Script("export default () => 'package-memory';"))() == "package-memory"
 
 
 def test_executes_script_loaded_from_file(tmp_path: Path, write_script):
@@ -638,6 +638,57 @@ export default function run() {
 
     assert result.dependencies == 1
     assert list(tmp_path.iterdir()) == []
+
+
+def test_installed_environment_runs_trivial_inline_script(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    with Environment({"react": "19.2.6"}, path=project) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script("export default () => 42"))() == 42
+
+
+async def test_installed_environment_runs_trivial_inline_script_async(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    async with Environment({"react": "19.2.6"}, path=project) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            assert await runtime(Script("export default async () => 42"))() == 42
+
+
+def test_environment_runtime_keeps_all_script_and_command_workers_snapshot_backed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    with Environment({"semver": "7.7.2"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script("export default () => 41"))() == 41
+            assert runtime(Script("export default () => 42"))() == 42
+            assert runtime(Command("semver"))("--help") is None
+            assert runtime(Script("export default async () => 43"))() == 43
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_environment_runtime_runs_local_file_package_script_and_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    write_local_package_with_bin(tmp_path, bin_name="local-pkg")
+
+    source = 'import { answer } from "local-pkg"; export default () => answer;'
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == 42
+            assert runtime(Command("local-pkg"))() is None
+
+    assert (tmp_path / "local-command.txt").read_text(encoding="utf-8") == "ok\n"
 
 
 def test_environment_runtime_resolves_dynamic_npm_import(tmp_path: Path, monkeypatch):

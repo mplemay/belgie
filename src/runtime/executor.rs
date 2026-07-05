@@ -33,10 +33,11 @@ mod tests {
     use super::{execute_async, execute_sync};
     use crate::{
         options::{RuntimeOptions, ScriptOptions},
-        runtime::{BoundRuntime, DenoExecutionHandle, DenoRuntime, RuntimeSession},
+        runtime::{BoundRuntime, DenoExecutionHandle, DenoRuntime},
         script::ScriptSource,
         types::runner::RunnerArguments,
     };
+    use deno_lib::worker::LibWorkerFactoryRoots;
     use pyo3::{
         Python,
         types::{PyDict, PyDictMethods, PyTuple},
@@ -78,10 +79,7 @@ mod tests {
     }
 
     fn handle(bound: BoundRuntime) -> DenoExecutionHandle {
-        let cwd = env::current_dir().expect("current dir should be available");
-        let session =
-            RuntimeSession::activate(DenoRuntime::new(RuntimeOptions::new(cwd))).expect("session");
-        DenoExecutionHandle::new(bound, session)
+        DenoExecutionHandle::new(bound, LibWorkerFactoryRoots::default())
     }
 
     fn bound_inline(source: &str) -> BoundRuntime {
