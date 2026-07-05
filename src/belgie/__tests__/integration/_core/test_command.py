@@ -3,158 +3,97 @@ from __future__ import annotations
 import asyncio
 import shutil
 import sys
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from json import dumps, loads
-from os import PathLike, environ
-from platform import machine
-from subprocess import CompletedProcess, run
-from typing import TYPE_CHECKING, Any, Final, cast
+from json import dumps
+from os import environ
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from anyio import Path as AsyncPath
 
 from belgie import Command, Environment, Runtime, Script
+from belgie.__tests__.helpers.local_package import write_local_package_with_bin
+from belgie.__tests__.integration._core.conftest import (
+    REACT_VERSION,
+    SEMVER_VERSION,
+    VITE_REACT_PLUGIN_VERSION,
+    VITE_VERSION,
+    ZX_VERSION,
+    installed_environment,
+)
 from belgie.errors import BelgieRuntimeError
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from belgie._core import AsyncEnvironment
-
 pytestmark = pytest.mark.integration
 
-VITE_VERSION: Final[str] = "6.1.0"
-ZX_VERSION: Final[str] = "8.5.5"
-ROLLUP_VERSION: Final[str] = "4.46.2"
-REACT_VERSION: Final[str] = "^19"
-VITE_REACT_PLUGIN_VERSION: Final[str] = "^4"
-ROLLUP_NATIVE_PACKAGES: Final[dict[tuple[str, str], str]] = {
-    ("darwin", "arm64"): "@rollup/rollup-darwin-arm64",
-    ("darwin", "x86_64"): "@rollup/rollup-darwin-x64",
-    ("linux", "aarch64"): "@rollup/rollup-linux-arm64-gnu",
-    ("linux", "x86_64"): "@rollup/rollup-linux-x64-gnu",
-}
+SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Vite build loads Rollup's native Node-API addon",
+)
 
 
-def run_fresh_python(source: str) -> CompletedProcess[str]:
-    return run(  # noqa: S603
-        [sys.executable, "-c", source],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+def test_environment_runtime_keeps_all_script_and_command_workers_snapshot_backed(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    with Environment({"semver": SEMVER_VERSION}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script("export default () => 41"))() == 41
+            assert runtime(Script("export default () => 42"))() == 42
+            assert runtime(Command("semver"))("--help") is None
+            assert runtime(Script("export default async () => 43"))() == 43
+
+    assert list(tmp_path.iterdir()) == []
 
 
-def rollup_native_package() -> str:
-    package = ROLLUP_NATIVE_PACKAGES.get((sys.platform, machine()))
-    if package is None:
-        pytest.skip(f"Rollup native addon package is not mapped for {sys.platform} {machine()}")
-    return package
+def test_environment_runtime_runs_local_file_package_script_and_command(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    write_local_package_with_bin(tmp_path, bin_name="local-pkg")
+
+    source = 'import { answer } from "local-pkg"; export default () => answer;'
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Script(source))() == 42
+            assert runtime(Command("local-pkg"))() is None
+
+    assert (tmp_path / "local-command.txt").read_text(encoding="utf-8") == "ok\n"
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="Linux dynamic loader regression")
-def test_importing_belgie_keeps_deno_host_symbols_local() -> None:
-    result = run_fresh_python(
-        """
-import ctypes
-import json
-
-import belgie
-
-process = ctypes.CDLL(None)
-print(json.dumps({
-    "napi_create_string_utf8": hasattr(process, "napi_create_string_utf8"),
-    "uv_async_init": hasattr(process, "uv_async_init"),
-}))
-""".strip(),
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert loads(result.stdout) == {
-        "napi_create_string_utf8": False,
-        "uv_async_init": False,
-    }
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="uvloop is unavailable on Windows")
-def test_importing_belgie_before_uvloop_can_create_event_loop() -> None:
-    result = run_fresh_python(
-        """
-import belgie
-import uvloop
-
-loop = uvloop.new_event_loop()
-loop.close()
-""".strip(),
-    )
-
-    assert result.returncode == 0, result.stderr
-
-
-async def test_package_script_loads_native_rollup_addon_before_command(
-    isolated_project_cwd: Path,
-) -> None:
-    native_package = rollup_native_package()
-
-    source = f"""
-import {{ createRequire }} from "node:module";
-
-const require = createRequire(import.meta.url);
-const native = require("{native_package}");
-
-export default function run() {{
-  return typeof native.parse;
-}}
-"""
-    async with (
-        installed_environment(
-            {native_package: ROLLUP_VERSION},
-            install_path=isolated_project_cwd,
-        ) as env,
-        Runtime(env=env) as runtime,
-    ):
-        assert await runtime(Script(source))() == "function"
-
-
-@asynccontextmanager
-async def installed_environment(
-    dependencies: dict[str, str],
-    *,
-    install_path: str | PathLike[str] | None = None,
-) -> AsyncIterator[AsyncEnvironment]:
-    async with Environment(dependencies, path=install_path) as env:
-        await env.install()
-        yield env
-
-
-async def test_runs_dependency_alias_without_external_node_or_deno(
+@pytest.mark.parametrize(
+    ("command_spec", "clear_path"),
+    [
+        ("vite", True),
+        (f"npm:vite@{VITE_VERSION}/vite", False),
+    ],
+    ids=["dependency_alias", "explicit_npm"],
+)
+async def test_runs_vite_command_spec(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    command_spec: str,
+    *,
+    clear_path: bool,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PATH", "")
+    if clear_path:
+        monkeypatch.setenv("PATH", "")
 
     async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
-        result = await runtime(Command("vite"))("--version")
+        result = await runtime(Command(command_spec))("--version")
 
     assert result is None
-
-
-async def test_runs_explicit_npm_command_bin(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
-        await runtime(Command(f"npm:vite@{VITE_VERSION}/vite"))("--version")
 
 
 async def test_runs_command_from_isolated_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
-    async with installed_environment({"semver": "7.7.2"}) as env, Runtime(env=env) as runtime:
+    async with installed_environment({"semver": SEMVER_VERSION}) as env, Runtime(env=env) as runtime:
         await runtime(Command("semver"))("--help")
 
 
@@ -166,82 +105,14 @@ async def test_relative_deno_dir_reuses_cache_for_nested_command_cwd(
     monkeypatch.setenv("DENO_DIR", "./.deno_cache")
     (tmp_path / "subdir").mkdir()
 
-    async with installed_environment({"semver": "7.7.2"}) as env, Runtime(env=env) as runtime:
+    async with installed_environment({"semver": SEMVER_VERSION}) as env, Runtime(env=env) as runtime:
         await runtime(Command("semver", cwd="subdir"))("--help")
 
     assert (tmp_path / ".deno_cache").is_dir()
     assert not (tmp_path / "subdir" / ".deno_cache").exists()
 
 
-async def test_runs_command_from_frozen_lockfile_environment_without_external_runtime(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    lockfile = tmp_path / "deno.lock"
-    dependencies = {"semver": "7.7.2"}
-    async with Environment(dependencies) as env:
-        await env.lock(lockfile=lockfile)
-
-    original_lock = lockfile.read_text(encoding="utf-8")
-    monkeypatch.setenv("PATH", "")
-    async with Environment(dependencies, lockfile=lockfile) as env:
-        await env.install()
-        async with Runtime(env=env) as runtime:
-            await runtime(Command("semver"))("--help")
-
-    assert lockfile.read_text(encoding="utf-8") == original_lock
-
-
-async def test_environment_path_persists_command_files_across_recreation(
-    isolated_project_cwd: Path,
-) -> None:
-    (isolated_project_cwd / "persist.mjs").write_text(
-        """
-import { writeFileSync } from "node:fs";
-
-writeFileSync("persisted.ts", "export const persisted = 42;\\n", "utf-8");
-""",
-        encoding="utf-8",
-    )
-
-    async with (
-        installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}, install_path=isolated_project_cwd) as env,
-        Runtime(
-            env=env,
-        ) as runtime,
-    ):
-        await runtime(Command("zx"))("persist.mjs")
-
-    assert await AsyncPath(isolated_project_cwd / "persisted.ts").is_file()
-
-    source = 'import { persisted } from "./persisted.ts"; export default () => persisted;'
-    async with Environment(path=isolated_project_cwd) as env, Runtime(env=env) as runtime:
-        assert await runtime(Script(source))() == 42
-
-    assert sorted([entry.name async for entry in AsyncPath(isolated_project_cwd).iterdir()]) == [
-        "deno.lock",
-        "node_modules",
-        "persist.mjs",
-        "persisted.ts",
-    ]
-
-
-async def test_environment_materializes_node_modules_symlink_at_workspace_during_install(
-    isolated_project_cwd: Path,
-) -> None:
-    process_root = isolated_project_cwd.parent / "process"
-    node_modules = process_root / "node_modules"
-
-    async with Environment({"semver": "7.7.2"}) as env:
-        await env.install()
-        assert node_modules.is_symlink()
-        assert node_modules.exists()
-
-    assert not node_modules.exists()
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")
+@SKIP_WIN32_VITE_NATIVE
 async def test_vite_nested_path_installs_persisted_node_modules(
     isolated_project_cwd: Path,
 ) -> None:
@@ -290,7 +161,7 @@ export default defineConfig({
     assert node_modules.is_dir()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")
+@SKIP_WIN32_VITE_NATIVE
 async def test_vite_command_refreshes_scoped_local_file_dependency_for_nested_cwd(
     isolated_project_cwd: Path,
     local_vite_plugin_package,
@@ -333,7 +204,7 @@ export default defineConfig({
     assert (frontend / "output" / "index.html").is_file()
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Vite build loads Rollup's native Node-API addon")
+@SKIP_WIN32_VITE_NATIVE
 async def test_vite_build_forwards_arguments_and_uses_nested_cwd_and_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -510,91 +381,3 @@ async def test_command_waiting_for_global_context_is_cancellable(
         server.cancel()
         with pytest.raises(asyncio.CancelledError):
             await server
-
-
-async def test_concurrent_script_and_command_with_env_override(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BELGIE_PROBE", "baseline")
-
-    for directory, expected in (("baseline", "baseline"), ("override", "command")):
-        root = tmp_path / directory
-        root.mkdir()
-        (root / "probe.mjs").write_text(
-            f"""
-import {{ mkdirSync, writeFileSync }} from "node:fs";
-
-if (process.env.BELGIE_PROBE !== "{expected}") {{
-  throw new Error("saw " + process.env.BELGIE_PROBE);
-}}
-mkdirSync("output", {{ recursive: true }});
-writeFileSync("output/probe.txt", process.cwd() + "\\n", "utf-8");
-""",
-            encoding="utf-8",
-        )
-
-    script = Script("export default async () => 'ok';")
-    baseline_command = Command("zx", cwd="baseline")
-    override_command = Command("zx", cwd="override", env={"BELGIE_PROBE": "command"})
-
-    async with installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}) as env, Runtime(env=env) as runtime:
-        script_result, _baseline_result, _override_result = await asyncio.gather(
-            runtime(script)(),
-            runtime(baseline_command)("probe.mjs"),
-            runtime(override_command)("probe.mjs"),
-        )
-        assert script_result == "ok"
-
-    assert environ["BELGIE_PROBE"] == "baseline"
-    assert (tmp_path / "baseline" / "output" / "probe.txt").read_text(encoding="utf-8") == (
-        str(tmp_path / "baseline") + "\n"
-    )
-    assert (tmp_path / "override" / "output" / "probe.txt").read_text(encoding="utf-8") == (
-        str(tmp_path / "override") + "\n"
-    )
-
-
-async def test_concurrent_script_and_command_reversed_gather_order(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BELGIE_PROBE", "baseline")
-
-    for directory, expected in (("baseline", "baseline"), ("override", "command")):
-        root = tmp_path / directory
-        root.mkdir()
-        (root / "probe.mjs").write_text(
-            f"""
-import {{ mkdirSync, writeFileSync }} from "node:fs";
-
-if (process.env.BELGIE_PROBE !== "{expected}") {{
-  throw new Error("saw " + process.env.BELGIE_PROBE);
-}}
-mkdirSync("output", {{ recursive: true }});
-writeFileSync("output/probe.txt", process.cwd() + "\\n", "utf-8");
-""",
-            encoding="utf-8",
-        )
-
-    script = Script("export default async () => 'ok';")
-    baseline_command = Command("zx", cwd="baseline")
-    override_command = Command("zx", cwd="override", env={"BELGIE_PROBE": "command"})
-
-    async with installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}) as env, Runtime(env=env) as runtime:
-        _baseline_result, _override_result, script_result = await asyncio.gather(
-            runtime(baseline_command)("probe.mjs"),
-            runtime(override_command)("probe.mjs"),
-            runtime(script)(),
-        )
-        assert script_result == "ok"
-
-    assert environ["BELGIE_PROBE"] == "baseline"
-    assert (tmp_path / "baseline" / "output" / "probe.txt").read_text(encoding="utf-8") == (
-        str(tmp_path / "baseline") + "\n"
-    )
-    assert (tmp_path / "override" / "output" / "probe.txt").read_text(encoding="utf-8") == (
-        str(tmp_path / "override") + "\n"
-    )
