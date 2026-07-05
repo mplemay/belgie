@@ -1,4 +1,4 @@
-from belgie.__tests__._core.conftest import (
+from belgie.__tests__.integration.conftest import (
     free_port,
 )
 

@@ -78,7 +78,7 @@ jobs:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             manylinux: "2_28"
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             manylinux: "2_28"
           - runner: macos-15-intel
@@ -211,7 +211,7 @@ jobs:
           cargo metadata --locked --format-version 1 --no-deps >/dev/null
 
       - name: Set up QEMU
-        if: startsWith(matrix.target, 'aarch64-unknown-linux-')
+        if: matrix.target == 'aarch64-unknown-linux-musl'
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         with:
           platforms: arm64
@@ -237,26 +237,13 @@ jobs:
 
             export LIBCLANG_PATH="$(llvm-config --libdir)"
 
-            case "${{ matrix.target }}" in
-              aarch64-unknown-linux-gnu)
-                # deno_snapshots build.rs build-depends on deno_runtime for the HOST
-                # during cross-compilation, which pulls in aws-lc-sys. The manylinux
-                # cross image sets TARGET_CC to the aarch64 cross compiler; aws-lc-sys
-                # incorrectly applies that to CC_x86_64_unknown_linux_gnu for host tests.
-                unset TARGET_CC TARGET_CXX
+            if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
+              unset TARGET_CC TARGET_CXX
 
-                cross_gcc=aarch64-unknown-linux-gnu-gcc
-                sysroot="$($cross_gcc -print-sysroot)"
-                export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include -I$sysroot/usr/include/aarch64-linux-gnu"
-                ;;
-              aarch64-unknown-linux-musl)
-                unset TARGET_CC TARGET_CXX
-
-                cross_gcc=aarch64-unknown-linux-musl-gcc
-                sysroot="$($cross_gcc -print-sysroot)"
-                export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include"
-                ;;
-            esac
+              cross_gcc=aarch64-unknown-linux-musl-gcc
+              sysroot="$($cross_gcc -print-sysroot)"
+              export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot -I$sysroot/usr/include"
+            fi
           args: --release --locked --compatibility pypi --out dist
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

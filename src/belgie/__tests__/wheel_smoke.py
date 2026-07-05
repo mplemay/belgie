@@ -54,9 +54,9 @@ def run_smoke(root: Path, *, async_mode: bool) -> None:
     lockfile = root / "deno.lock"
     script_source = "export default async () => 42" if async_mode else "export default () => 42"
     react_source = (
-        'import React from "react"; export default async () => React.version;'
+        f'import react from "npm:react@{REACT_VERSION}"; export default async () => react.version;'
         if async_mode
-        else 'import React from "react"; export default () => React.version;'
+        else f'import react from "npm:react@{REACT_VERSION}"; export default () => react.version;'
     )
     local_source = (
         'import { answer } from "local-pkg"; export default async () => answer;'
@@ -128,9 +128,9 @@ async def _async_smoke_runtime(
 
 def main() -> None:
     with TemporaryDirectory(prefix="belgie-wheel-sync-") as tmp:
-        run_smoke(Path(tmp), async_mode=False)
+        run_smoke(Path(tmp).resolve(), async_mode=False)
     with TemporaryDirectory(prefix="belgie-wheel-async-") as tmp:
-        run_smoke(Path(tmp), async_mode=True)
+        run_smoke(Path(tmp).resolve(), async_mode=True)
 
 
 if __name__ == "__main__":
