@@ -8,7 +8,7 @@ PATH.
 - **Isolated packages:** Use `Environment` for lockfiles, custom cache/options, local packages, and commands.
 - **CLI tools:** Run npm binaries (Vite, esbuild, etc.) through `Command`.
 - **Simple data bridge:** Pass JSON-safe dicts, lists, and primitives across the boundary.
-- **Pydantic AI:** Add belgie as a capability so agents get a `run_code` tool for sandboxed JS/TS.
+- **Pydantic AI & LangChain:** Expose a sandboxed `run_code` tool for JS/TS when Python is not the best fit.
 
 ## Installation
 
@@ -43,10 +43,11 @@ asyncio.run(main())
 
 ## Pydantic AI
 
-`belgie.pydantic_ai.BelgieCapability` is a Pydantic AI capability that gives the agent a `run_code` tool.
-The model writes a `belgie.Script` module and Belgie runs it in the embedded Deno sandbox.
+Add `BelgieCapability()` to a Pydantic AI agent to expose a sandboxed `run_code` tool. The agent can execute
+TypeScript or JavaScript in belgie's embedded Deno runtime—useful for npm packages, data fetching, and JS-side
+transforms.
 
-Install the optional extra with `uv add "belgie[pydantic-ai]"`. Set `OPENAI_API_KEY`, then:
+Install with `uv add "belgie[pydantic-ai]"`, set `OPENAI_API_KEY`, then:
 
 ```python
 from pydantic_ai import Agent
@@ -56,8 +57,7 @@ from belgie.pydantic_ai import BelgieCapability
 agent = Agent("openai:gpt-5", capabilities=[BelgieCapability()])
 
 result = agent.run_sync(
-    "Use run_code with a TypeScript belgie.Script module that imports npm:camelcase "
-    "and returns camelCase('foo-bar').",
+    "Convert 'foo-bar' to camelCase using TypeScript and the camelcase npm package.",
 )
 print(result.output)
 ```
@@ -66,10 +66,10 @@ See the full runnable project in [examples/pydantic-ai](examples/pydantic-ai).
 
 ## LangChain
 
-`belgie.langchain.BelgieMiddleware` is a LangChain agent middleware that gives the agent a `run_code`
-tool. The model writes a `belgie.Script` module and Belgie runs it in the embedded Deno sandbox.
+Attach `BelgieMiddleware()` to a LangChain agent to expose the same sandboxed `run_code` tool for JS/TS execution.
+Deno is bundled—no Node install required.
 
-Install the optional extra with `uv add "belgie[langchain]"`. Set `OPENAI_API_KEY`, then:
+Install with `uv add "belgie[langchain]"`, set `OPENAI_API_KEY`, then:
 
 ```python
 from langchain.agents import create_agent
@@ -88,8 +88,7 @@ result = agent.invoke(
         "messages": [
             (
                 "user",
-                "Use run_code with a TypeScript belgie.Script module that imports npm:camelcase "
-                "and returns camelCase('foo-bar').",
+                "Convert 'foo-bar' to camelCase using TypeScript and the camelcase npm package.",
             ),
         ],
     },
@@ -111,6 +110,6 @@ single capability.
   `[tool.belgie.dependencies]`.
 - **[environment](examples/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
-- **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with the `BelgieCapability` capability and `run_code` tool.
+- **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS execution.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
