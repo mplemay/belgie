@@ -20,6 +20,10 @@ pydantic-ai = [
 langchain = [
     "langchain>=1,<2",
 ]
+mcp = [
+    "mcp>=2.0.0b1",
+    "mcp-types>=2.0.0b1",
+]
 
 [project.scripts]
 belgie = "belgie.cli.__main__:main"
@@ -55,7 +59,7 @@ features = ["extension-module"]
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 exclude-newer = "7 days"
-exclude-newer-package = { pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false }
+exclude-newer-package = { pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false, mcp = false, mcp-types = false }
 
 [tool.ruff]
 target-version = "py312"
