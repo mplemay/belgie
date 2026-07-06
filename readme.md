@@ -8,7 +8,7 @@ PATH.
 - **Isolated packages:** Use `Environment` for lockfiles, custom cache/options, local packages, and commands.
 - **CLI tools:** Run npm binaries (Vite, esbuild, etc.) through `Command`.
 - **Simple data bridge:** Pass JSON-safe dicts, lists, and primitives across the boundary.
-- **Pydantic AI & LangChain:** Give agents a sandboxed `run_code` tool when JS/TS is a better fit than Python.
+- **Pydantic AI & LangChain:** Expose a sandboxed `run_code` tool for JS/TS when Python is not the best fit.
 
 ## Installation
 
@@ -43,9 +43,9 @@ asyncio.run(main())
 
 ## Pydantic AI
 
-Building a Pydantic AI agent that needs to fetch data, call npm packages, or run JS transforms? Add
-`BelgieCapability()` to your agent—it registers a `run_code` tool that runs the agent's TypeScript/JavaScript in
-belgie's embedded Deno sandbox.
+Add `BelgieCapability()` to a Pydantic AI agent to expose a sandboxed `run_code` tool. The agent can execute
+TypeScript or JavaScript in belgie's embedded Deno runtime—useful for npm packages, data fetching, and JS-side
+transforms.
 
 Install with `uv add "belgie[pydantic-ai]"`, set `OPENAI_API_KEY`, then:
 
@@ -66,8 +66,8 @@ See the full runnable project in [examples/pydantic-ai](examples/pydantic-ai).
 
 ## LangChain
 
-For LangChain agents, drop in `BelgieMiddleware()` when you want the model to write and run JS/TS on the fly. It adds
-the same sandboxed `run_code` tool via middleware—no Node install required.
+Attach `BelgieMiddleware()` to a LangChain agent to expose the same sandboxed `run_code` tool for JS/TS execution.
+Deno is bundled—no Node install required.
 
 Install with `uv add "belgie[langchain]"`, set `OPENAI_API_KEY`, then:
 
@@ -110,6 +110,6 @@ single capability.
   `[tool.belgie.dependencies]`.
 - **[environment](examples/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
-- **[pydantic-ai](examples/pydantic-ai):** Agent with `BelgieCapability()` and sandboxed JS/TS execution.
+- **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS execution.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
