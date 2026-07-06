@@ -1,0 +1,44 @@
+body {
+  color: #172033;
+  font-family:
+    Inter,
+    system-ui,
+    sans-serif;
+  margin: 0;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.main {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.action {
+  border: 1px solid #d8deea;
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.notice {
+  padding: 1rem;
+}
+
+.server-time {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}

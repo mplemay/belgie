@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "name": "@belgie/widget",
+  "type": "module",
+  "version": "0.0.0"
+}
