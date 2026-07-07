@@ -10,6 +10,7 @@ from typing import Final
 import pytest
 
 from belgie.mcp import _extension
+from belgie.mcp._builder import WidgetBuildResult, WidgetRenderManifest
 
 EXAMPLES_ROOT: Final[Path] = Path(__file__).resolve().parents[4] / "examples"
 
@@ -67,13 +68,19 @@ def langchain_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 
 @pytest.fixture
 def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
-    def build_widget_html(**kwargs: object) -> str:
+    def build_widget(**kwargs: object) -> WidgetBuildResult:
         assert kwargs
-        return "<!doctype html><html><body>mcp</body></html>"
+        return WidgetBuildResult(
+            html="<!doctype html><html><body>mcp</body></html>",
+            manifest=WidgetRenderManifest(
+                render_package_name="@belgie/widget",
+                render_package_version="0.0.0",
+            ),
+        )
 
     monkeypatch.setattr(
         _extension,
-        "build_widget_html",
-        build_widget_html,
+        "build_widget",
+        build_widget,
     )
     yield from _load_example_main(EXAMPLES_ROOT / "mcp", "mcp_app")

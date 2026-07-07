@@ -5,7 +5,7 @@ from typing import Any, Final, TypeVar
 from mcp.server.apps import EXTENSION_ID, Apps, ResourceCsp, ResourcePermissions, Visibility
 from mcp.server.extension import Extension, ResourceBinding, ToolBinding
 
-from belgie.mcp._builder import build_widget_html
+from belgie.mcp._builder import build_widget
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 
@@ -42,10 +42,10 @@ class BelgieExtension(Extension):
         def decorator(fn: CallableT) -> CallableT:
             tool_name = name or getattr(fn, "__name__", "tool")
             uri = resource_uri or f"{UI_URI_PREFIX}{tool_name}"
-            html = build_widget_html(root=self._root, path=widget_path)
+            result = build_widget(root=self._root, path=widget_path)
             self._apps.add_html_resource(
                 uri,
-                html,
+                result.html,
                 name=tool_name,
                 title=title,
                 description=description,

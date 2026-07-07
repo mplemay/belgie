@@ -1,15 +1,18 @@
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { build, type Plugin } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
 import { renderDocument, renderWidgetBootstrap } from "./html.ts";
+import { WIDGET_RENDER_MANIFEST, type WidgetRenderManifest } from "./manifest.ts";
 
 const VIRTUAL_HTML_PATH = "__belgie_virtual__/index.html";
 const VIRTUAL_WIDGET_ENTRY_ID = "belgie:widget-entry";
 const VIRTUAL_SOURCE_WIDGET_ID = "belgie:source-widget";
 const RESOLVED_WIDGET_ENTRY_ID = "\0belgie:widget-entry";
+const WIDGET_RUNTIME_ID = "@belgie/widget";
 const EXTERNAL_ASSET_PATTERNS = [
   'src="/assets/',
   'href="/assets/',
@@ -35,6 +38,11 @@ type BuildOutput = {
   output: Array<OutputAsset | OutputChunk>;
 };
 
+export type WidgetBuildResult = {
+  html: string;
+  manifest: WidgetRenderManifest;
+};
+
 function toVitePath(path: string): string {
   return path.replaceAll("\\", "/");
 }
@@ -44,20 +52,45 @@ function resolveDependency(projectRoot: string, specifier: string): string {
   return toVitePath(require.resolve(specifier));
 }
 
+function stripNpmPackageVersion(packageSpecifier: string): string {
+  const versionIndex = packageSpecifier.startsWith("@")
+    ? packageSpecifier.lastIndexOf("@")
+    : packageSpecifier.indexOf("@");
+  if (versionIndex <= 0) {
+    return packageSpecifier;
+  }
+  return packageSpecifier.slice(0, versionIndex);
+}
+
+function denoNpmSpecifierToBare(specifier: string): string | null {
+  if (!specifier.startsWith("npm:")) {
+    return null;
+  }
+
+  const npmSpecifier = specifier.slice("npm:".length);
+  const packagePathIndex = npmSpecifier.startsWith("@")
+    ? npmSpecifier.indexOf("/", npmSpecifier.indexOf("/") + 1)
+    : npmSpecifier.indexOf("/");
+  const packageSpecifier = packagePathIndex === -1 ? npmSpecifier : npmSpecifier.slice(0, packagePathIndex);
+  const packageSubpath = packagePathIndex === -1 ? "" : npmSpecifier.slice(packagePathIndex);
+  return `${stripNpmPackageVersion(packageSpecifier)}${packageSubpath}`;
+}
+
 function belgieVirtualInputPlugin(options: {
   projectRoot: string;
   virtualHtmlId: string;
   widgetFileId: string;
+  widgetRuntimeId: string;
 }): Plugin {
-  const widgetRuntimeId = toVitePath(
-    join(options.projectRoot, "node_modules", "@belgie", "widget", "src", "index.tsx"),
-  );
-
   return {
     name: "belgie:virtual-widget-input",
     enforce: "pre",
     resolveId(id) {
       const normalizedId = toVitePath(id);
+      const bareNpmSpecifier = denoNpmSpecifierToBare(id);
+      if (bareNpmSpecifier) {
+        return resolveDependency(options.projectRoot, bareNpmSpecifier);
+      }
       if (normalizedId === options.virtualHtmlId) {
         return options.virtualHtmlId;
       }
@@ -67,8 +100,8 @@ function belgieVirtualInputPlugin(options: {
       if (id === VIRTUAL_SOURCE_WIDGET_ID) {
         return options.widgetFileId;
       }
-      if (id === "@belgie/widget") {
-        return widgetRuntimeId;
+      if (id === WIDGET_RUNTIME_ID) {
+        return options.widgetRuntimeId;
       }
     },
     load(id) {
@@ -116,10 +149,11 @@ function extractHtml(buildResult: unknown): string {
   return html;
 }
 
-export async function buildWidgetHtml(projectRoot: string, sourceRoot: string, widgetPath: string): Promise<string> {
+export async function buildWidget(projectRoot: string, sourceRoot: string, widgetPath: string): Promise<WidgetBuildResult> {
   const normalizedProjectRoot = toVitePath(projectRoot);
   const virtualHtmlId = toVitePath(join(projectRoot, VIRTUAL_HTML_PATH));
   const widgetFileId = toVitePath(resolve(sourceRoot, widgetPath));
+  const widgetRuntimeId = toVitePath(fileURLToPath(new URL("./index.tsx", import.meta.url)));
   const buildResult = await build({
     root: normalizedProjectRoot,
     configFile: false,
@@ -144,6 +178,7 @@ export async function buildWidgetHtml(projectRoot: string, sourceRoot: string, w
         projectRoot: normalizedProjectRoot,
         virtualHtmlId,
         widgetFileId,
+        widgetRuntimeId,
       }),
       react(),
       viteSingleFile(),
@@ -157,5 +192,12 @@ export async function buildWidgetHtml(projectRoot: string, sourceRoot: string, w
       },
     },
   });
-  return extractHtml(buildResult);
+  return {
+    html: extractHtml(buildResult),
+    manifest: WIDGET_RENDER_MANIFEST,
+  };
+}
+
+export async function buildWidgetHtml(projectRoot: string, sourceRoot: string, widgetPath: string): Promise<string> {
+  return (await buildWidget(projectRoot, sourceRoot, widgetPath)).html;
 }

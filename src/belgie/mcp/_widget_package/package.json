@@ -1,10 +1,4 @@
 {
-  "dependencies": {
-    "@modelcontextprotocol/ext-apps": "latest",
-    "@modelcontextprotocol/sdk": "latest",
-    "react": "^19",
-    "react-dom": "^19"
-  },
   "exports": {
     ".": {
       "default": "./src/index.tsx",

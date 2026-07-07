@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from belgie.mcp._builder import build_widget_html
+from belgie.mcp import _builder
+from belgie.mcp._builder import build_widget
 
 pytestmark = pytest.mark.integration
 
@@ -24,10 +25,12 @@ def test_build_widget_html_returns_inline_html_document(tmp_path: Path) -> None:
     (widget_dir / "widget.tsx").write_text(
         """
 import { render } from "@belgie/widget";
+import { useState } from "npm:react@^19";
 import "./global.css";
 
 function App() {
-  return <p className="message">Hello from Belgie</p>;
+  const [message] = useState("Hello from Belgie");
+  return <p className="message">{message}</p>;
 }
 
 export default function widget() {
@@ -37,7 +40,8 @@ export default function widget() {
         encoding="utf-8",
     )
 
-    html = build_widget_html(root=root, path=Path("hello/widget.tsx"))
+    result = build_widget(root=root, path=Path("hello/widget.tsx"))
+    html = result.html
 
     assert "<!doctype html>" in html
     assert '<script type="module"' in html
@@ -47,3 +51,6 @@ export default function widget() {
     assert 'href="/assets/' not in html
     assert not (root / "dist").exists()
     assert not (root / "node_modules").exists()
+    assert result.manifest.render_package_name == "@belgie/widget"
+    assert result.manifest.render_package_version == "0.0.0"
+    assert not hasattr(_builder, "BUILD_DEPENDENCIES")

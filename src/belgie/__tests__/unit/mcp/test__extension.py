@@ -5,6 +5,7 @@ from mcp.server.apps import APP_MIME_TYPE
 from mcp.server.mcpserver.resources import TextResource
 
 from belgie.mcp import BelgieExtension
+from belgie.mcp._builder import WidgetBuildResult, WidgetRenderManifest
 
 
 def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -14,11 +15,17 @@ def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypat
     html = "<!doctype html><html><body>ok</body></html>"
     build_calls: list[tuple[Path, Path]] = []
 
-    def build_widget_html(*, root: Path, path: Path) -> str:
+    def build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
         build_calls.append((root, path))
-        return html
+        return WidgetBuildResult(
+            html=html,
+            manifest=WidgetRenderManifest(
+                render_package_name="@belgie/widget",
+                render_package_version="0.0.0",
+            ),
+        )
 
-    monkeypatch.setattr("belgie.mcp._extension.build_widget_html", build_widget_html)
+    monkeypatch.setattr("belgie.mcp._extension.build_widget", build_widget)
     extension = BelgieExtension(root=tmp_path)
 
     @extension.tool(
@@ -60,12 +67,18 @@ def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata(
     (tmp_path / "clock").mkdir()
     (tmp_path / "clock" / "widget.tsx").write_text("export default function widget() {}\n", encoding="utf-8")
 
-    def fake_build_widget_html(*, root: Path, path: Path) -> str:
-        return "<!doctype html><html></html>"
+    def fake_build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
+        return WidgetBuildResult(
+            html="<!doctype html><html></html>",
+            manifest=WidgetRenderManifest(
+                render_package_name="@belgie/widget",
+                render_package_version="0.0.0",
+            ),
+        )
 
     monkeypatch.setattr(
-        "belgie.mcp._extension.build_widget_html",
-        fake_build_widget_html,
+        "belgie.mcp._extension.build_widget",
+        fake_build_widget,
     )
     extension = BelgieExtension(root=tmp_path)
 

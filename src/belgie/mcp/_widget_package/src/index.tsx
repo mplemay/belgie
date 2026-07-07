@@ -1,6 +1,8 @@
 import { createRoot } from "react-dom/client";
 import type { ReactNode } from "react";
 
+import { WIDGET_RENDER_MANIFEST, type WidgetRenderManifest } from "./manifest.ts";
+
 export type WidgetMetadata = {
   title?: string;
 };
@@ -12,6 +14,7 @@ export type RenderOptions = {
 };
 
 export type RenderResult = {
+  manifest: WidgetRenderManifest;
   metadata?: WidgetMetadata;
 };
 
@@ -21,7 +24,7 @@ export function render({ metadata, root, widget }: RenderOptions): RenderResult 
   }
 
   createRoot(resolveRoot(root)).render(widget);
-  return { metadata };
+  return { manifest: WIDGET_RENDER_MANIFEST, metadata };
 }
 
 function resolveRoot(root: HTMLElement | string | null | undefined): HTMLElement {
