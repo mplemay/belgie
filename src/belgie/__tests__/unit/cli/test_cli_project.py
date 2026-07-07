@@ -69,13 +69,13 @@ def test_load_project_reads_tool_belgie_source(tmp_path: Path) -> None:
 name = "demo"
 
 [tool.belgie]
-source = "src/app/widgets"
+source = "src/app/views"
 """,
     )
 
     project = load_project(tmp_path)
 
-    assert project.source == Path("src/app/widgets")
+    assert project.source == Path("src/app/views")
 
 
 def test_set_dependency_creates_tool_tables() -> None:

@@ -12,7 +12,7 @@ belgie = BelgieExtension()
 
 @belgie.tool(
     name="get-time",
-    path=Path("get-time/widget.tsx"),
+    path=Path("widgets/get-time/widget.tsx"),
     title="Get Time",
     description="Get the current server time in ISO 8601 format.",
 )

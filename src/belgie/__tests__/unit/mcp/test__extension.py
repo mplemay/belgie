@@ -190,12 +190,12 @@ def test_extension_uses_pyproject_source_for_widget_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    widgets_root = tmp_path / "src" / "app" / "widgets"
-    write_widget(widgets_root, "clock/widget.tsx")
+    views_root = tmp_path / "src" / "app" / "views"
+    write_widget(views_root, "widgets/clock/widget.tsx")
     (tmp_path / "pyproject.toml").write_text(
         """
 [tool.belgie]
-source = "src/app/widgets"
+source = "src/app/views"
 """.lstrip(),
         encoding="utf-8",
     )
@@ -205,15 +205,15 @@ source = "src/app/widgets"
 
     extension = BelgieExtension(project=tmp_path)
 
-    @extension.tool(path=Path("clock/widget.tsx"))
+    @extension.tool(path=Path("widgets/clock/widget.tsx"))
     def get_time() -> str:
         return "now"
 
     assert get_time() == "now"
     assert build_calls == [
         {
-            "root": widgets_root.resolve(),
-            "path": Path("clock/widget.tsx"),
+            "root": views_root.resolve(),
+            "path": Path("widgets/clock/widget.tsx"),
             "environment": None,
             "project_path": tmp_path.resolve(),
         },

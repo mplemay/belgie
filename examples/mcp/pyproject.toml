@@ -27,7 +27,7 @@ exclude-newer-package = { belgie = false, mcp = false, mcp-types = false, uvicor
 belgie = { path = "../../", editable = true }
 
 [tool.belgie]
-source = "src/mcp_app/views/widgets"
+source = "src/mcp_app/views"
 
 [tool.belgie.dependencies]
 "@belgie/widget" = "file:../../../src/belgie/mcp/_widget_package"

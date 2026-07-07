@@ -27,13 +27,13 @@ def test_parse_belgie_tool_config_reads_source() -> None:
         {
             "tool": {
                 "belgie": {
-                    "source": "src/mcp_app/views/widgets",
+                    "source": "src/mcp_app/views",
                 },
             },
         },
     )
 
-    assert config.source == Path("src/mcp_app/views/widgets")
+    assert config.source == Path("src/mcp_app/views")
 
 
 @pytest.mark.parametrize(
