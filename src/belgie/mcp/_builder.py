@@ -1,3 +1,4 @@
+from functools import cache
 from importlib.resources import as_file, files
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -59,12 +60,13 @@ def build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
                 )
 
 
-def build_widget_html(*, root: Path, path: Path) -> str:
-    return build_widget(root=root, path=path).html
-
-
 def _load_build_dependencies() -> dict[str, str]:
-    document = read_pyproject_toml(MCP_PYPROJECT_PATH)
+    return _load_build_dependencies_for(MCP_PYPROJECT_PATH)
+
+
+@cache
+def _load_build_dependencies_for(pyproject_path: Path) -> dict[str, str]:
+    document = read_pyproject_toml(pyproject_path)
     dependencies = parse_tool_table(document, *MCP_BUILD_DEPENDENCIES_TABLE)
     if not dependencies:
         raise PyprojectError(MISSING_MCP_BUILD_DEPENDENCIES_ERROR)
