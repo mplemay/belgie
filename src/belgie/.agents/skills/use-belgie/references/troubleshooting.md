@@ -21,6 +21,10 @@ Classify the issue before editing:
    - Missing environment or install step.
    - Shell-style argument string.
    - Nonzero binary exit code.
+5. **Pyproject / MCP widget failure**
+   - Missing `[tool.belgie.dependencies]` entries.
+   - Missing `deno.lock` (run `belgie lock` / `belgie install`).
+   - Widget `path=` not aligned with `[tool.belgie.source]`.
 
 If belgie is not wired yet, use [quickstart.md](quickstart.md) and [adoption.md](adoption.md) first.
 
@@ -113,6 +117,10 @@ asyncio.run(main())
 | `Commands require an active Environment with package dependencies` | `Command` without env/install | `Environment` + `install()` + `Runtime(env=)` | Inspect command setup |
 | JS error message (e.g. `boom`) | Thrown JavaScript exception | Fix JS logic | Inspect `BelgieJavaScriptError` message |
 | Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
+| `No [tool.belgie.dependencies] entries found` | MCP widget build without declared JS deps | Add `[tool.belgie.dependencies]` to pyproject | Inspect pyproject tables |
+| `Missing Belgie lockfile` | Widget build before `belgie install` | Run `belgie lock` then `belgie install` | Confirm `deno.lock` exists at project root |
+| `Widget paths must be relative` | Absolute widget `path=` | Use a path relative to `[tool.belgie.source]` | Inspect `@tool(path=...)` |
+| `must stay inside the BelgieExtension root` | Widget `path=` escapes source root | Fix `path=` or `[tool.belgie.source]` | Confirm resolved file exists under source |
 
 ## Structured diagnosis flow
 
@@ -127,6 +135,7 @@ asyncio.run(main())
 - Inline script returns the expected value inside `with Runtime() as run:`.
 - Direct `npm:` / `jsr:` script imports run inside `Runtime()`.
 - Commands and dependency-map imports run after `env.install()` inside nested contexts.
+- MCP widget builds run after `belgie lock` and `belgie install` with `[tool.belgie.source]` aligned to widget paths.
 - `Command` returns `None` on success.
 - Thrown JS errors surface as `BelgieJavaScriptError`, not silent failures.
 
