@@ -2,32 +2,32 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Final, TypeVar
 
-from mcp.server.apps import EXTENSION_ID, Apps, ResourceCsp, ResourcePermissions, Visibility
-from mcp.server.extension import Extension, ResourceBinding, ToolBinding
+from mcp.server.apps import Apps, ResourceCsp, ResourcePermissions, Visibility
+from mcp_types import Icon, ToolAnnotations
 
 from belgie.mcp._builder import build_widget
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 
-UI_URI_PREFIX: Final[str] = "ui://"
 ABSOLUTE_WIDGET_PATH_ERROR: Final[str] = "Widget paths must be relative to the BelgieExtension root"
 PARENT_WIDGET_PATH_ERROR: Final[str] = "Widget paths cannot contain '..'"
 
 
-class BelgieExtension(Extension):
-    identifier = EXTENSION_ID
-
+class BelgieExtension(Apps):
     def __init__(self, *, root: str | Path | None = None) -> None:
+        super().__init__()
         self._root: Final[Path] = (Path.cwd() if root is None else Path(root)).resolve()
-        self._apps: Final[Apps] = Apps()
 
-    def tool(  # noqa: PLR0913
+    def tool(  # noqa: PLR0913  # ty: ignore[invalid-method-override]
         self,
         path: str | Path,
         *,
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
+        structured_output: bool | None = None,
         resource_uri: str | None = None,
         visibility: Sequence[Visibility] | None = None,
         meta: dict[str, Any] | None = None,
@@ -40,9 +40,9 @@ class BelgieExtension(Extension):
 
         def decorator(fn: CallableT) -> CallableT:
             tool_name = name or getattr(fn, "__name__", "tool")
-            uri = resource_uri or f"{UI_URI_PREFIX}{tool_name}"
+            uri = resource_uri or f"ui://{tool_name}"
             result = build_widget(root=self._root, path=widget_path)
-            self._apps.add_html_resource(
+            self.add_html_resource(
                 uri,
                 result.html,
                 name=tool_name,
@@ -53,24 +53,20 @@ class BelgieExtension(Extension):
                 domain=domain,
                 prefers_border=prefers_border,
             )
-            tool_kwargs = {
-                key: value
-                for key, value in {
-                    "name": tool_name,
-                    "title": title,
-                    "description": description,
-                }.items()
-                if value is not None
-            }
-            return self._apps.tool(resource_uri=uri, visibility=visibility, meta=meta, **tool_kwargs)(fn)
+            return Apps.tool(
+                self,
+                resource_uri=uri,
+                visibility=visibility,
+                meta=meta,
+                name=tool_name,
+                title=title,
+                description=description,
+                annotations=annotations,
+                icons=icons,
+                structured_output=structured_output,
+            )(fn)
 
         return decorator
-
-    def tools(self) -> Sequence[ToolBinding]:
-        return self._apps.tools()
-
-    def resources(self) -> Sequence[ResourceBinding]:
-        return self._apps.resources()
 
     def _validate_widget_path(self, path: str | Path) -> Path:
         widget_path = Path(path)

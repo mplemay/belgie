@@ -59,10 +59,6 @@ def build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
                 )
 
 
-def build_widget_html(*, root: Path, path: Path) -> str:
-    return build_widget(root=root, path=path).html
-
-
 def _load_build_dependencies() -> dict[str, str]:
     document = read_pyproject_toml(MCP_PYPROJECT_PATH)
     dependencies = parse_tool_table(document, *MCP_BUILD_DEPENDENCIES_TABLE)

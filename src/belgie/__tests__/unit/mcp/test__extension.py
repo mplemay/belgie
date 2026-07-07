@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from mcp.server.apps import APP_MIME_TYPE
 from mcp.server.mcpserver.resources import TextResource
+from mcp_types import Icon, ToolAnnotations
 
 from belgie.__tests__.unit.mcp.conftest import patch_build_widget, write_widget
 from belgie.mcp import BelgieExtension
@@ -34,6 +35,9 @@ def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypat
         "name": "get-time",
         "title": "Get Time",
         "description": "Get the current server time.",
+        "annotations": None,
+        "icons": None,
+        "structured_output": None,
     }
     assert tools[0].meta == {"ui": {"resourceUri": "ui://get-time"}}
     assert len(resources) == 1
@@ -73,6 +77,35 @@ def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata(
             "domain": "https://example.com",
             "prefersBorder": True,
         },
+    }
+
+
+def test_tool_forwards_annotations_icons_and_structured_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_widget(tmp_path, "clock/widget.tsx")
+    patch_build_widget(monkeypatch)
+    extension = BelgieExtension(root=tmp_path)
+    annotations = ToolAnnotations(destructive_hint=True)
+    icons = [Icon(src="https://example.com/icon.png")]
+
+    @extension.tool(
+        path=Path("clock/widget.tsx"),
+        annotations=annotations,
+        icons=icons,
+        structured_output=False,
+    )
+    def get_time() -> str:
+        return "now"
+
+    assert extension.tools()[0].kwargs == {
+        "name": "get_time",
+        "title": None,
+        "description": None,
+        "annotations": annotations,
+        "icons": icons,
+        "structured_output": False,
     }
 
 
