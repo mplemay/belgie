@@ -73,8 +73,8 @@ def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
         return WidgetBuildResult(
             html="<!doctype html><html><body>mcp</body></html>",
             manifest=WidgetRenderManifest(
-                render_package_name="@belgie/widget",
-                render_package_version="0.0.0",
+                package_name="@belgie/widget",
+                package_version="0.0.0",
             ),
         )
 

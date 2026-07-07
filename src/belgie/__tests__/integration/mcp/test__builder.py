@@ -51,6 +51,6 @@ export default function widget() {
     assert 'href="/assets/' not in html
     assert not (root / "dist").exists()
     assert not (root / "node_modules").exists()
-    assert result.manifest.render_package_name == "@belgie/widget"
-    assert result.manifest.render_package_version == "0.0.0"
+    assert result.manifest.package_name == "@belgie/widget"
+    assert result.manifest.package_version == "0.0.0"
     assert not hasattr(_builder, "BUILD_DEPENDENCIES")

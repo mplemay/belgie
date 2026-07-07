@@ -1,8 +1,8 @@
 import packageJson from "../package.json" with { type: "json" };
 
 export type WidgetRenderManifest = {
-  renderPackageName: string;
-  renderPackageVersion: string;
+  packageName: string;
+  packageVersion: string;
 };
 
 type PackageJson = {
@@ -17,6 +17,6 @@ function packageString(value: unknown, fallback: string): string {
 const widgetPackage = packageJson as PackageJson;
 
 export const WIDGET_RENDER_MANIFEST: WidgetRenderManifest = {
-  renderPackageName: packageString(widgetPackage.name, "@belgie/widget"),
-  renderPackageVersion: packageString(widgetPackage.version, "0.0.0"),
+  packageName: packageString(widgetPackage.name, "@belgie/widget"),
+  packageVersion: packageString(widgetPackage.version, "0.0.0"),
 };

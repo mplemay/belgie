@@ -15,8 +15,8 @@ INVALID_WIDGET_BUILD_DEPENDENCIES_ERROR: Final[str] = "Widget build dependencies
 class WidgetRenderManifest(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
-    render_package_name: str = Field(validation_alias="renderPackageName")
-    render_package_version: str = Field(validation_alias="renderPackageVersion")
+    package_name: str = Field(validation_alias="packageName")
+    package_version: str = Field(validation_alias="packageVersion")
 
 
 class WidgetBuildResult(BaseModel):

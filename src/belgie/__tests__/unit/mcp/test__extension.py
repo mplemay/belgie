@@ -20,8 +20,8 @@ def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypat
         return WidgetBuildResult(
             html=html,
             manifest=WidgetRenderManifest(
-                render_package_name="@belgie/widget",
-                render_package_version="0.0.0",
+                package_name="@belgie/widget",
+                package_version="0.0.0",
             ),
         )
 
@@ -71,8 +71,8 @@ def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata(
         return WidgetBuildResult(
             html="<!doctype html><html></html>",
             manifest=WidgetRenderManifest(
-                render_package_name="@belgie/widget",
-                render_package_version="0.0.0",
+                package_name="@belgie/widget",
+                package_version="0.0.0",
             ),
         )
 
