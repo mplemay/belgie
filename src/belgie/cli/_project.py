@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 import rtoml
 
-from belgie._pyproject import PyprojectError, parse_tool_table
+from belgie._pyproject import PyprojectError, discover_pyproject_root, parse_belgie_tool_config, parse_tool_table
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 LOCKFILE_NAME: Final[str] = "deno.lock"
 PYPROJECT_NAME: Final[str] = "pyproject.toml"
@@ -28,6 +28,7 @@ class BelgieProject:
     root: Path
     dependencies: dict[str, str]
     pyproject: dict[str, Any]
+    source: Path
 
     @property
     def has_dependencies(self) -> bool:
@@ -128,19 +129,18 @@ def discover_project(*, project: Path | None = None, start: Path | None = None) 
     if project is not None:
         return load_project(project.resolve())
 
-    start_path = (start or Path.cwd()).resolve()
-    if start_path.is_file():
-        start_path = start_path.parent
+    try:
+        root = discover_pyproject_root(start=start)
+    except PyprojectError as exc:
+        raise ProjectError(str(exc)) from exc
+    return load_project(root)
 
-    searched: list[str] = []
-    for directory in (start_path, *start_path.parents):
-        pyproject_path = directory / PYPROJECT_NAME
-        searched.append(str(pyproject_path))
-        if pyproject_path.is_file():
-            return load_project(directory)
 
-    msg = f"Could not find pyproject.toml. Searched: {', '.join(searched)}"
-    raise ProjectError(msg)
+def _parse_source(document: dict[str, Any]) -> Path:
+    try:
+        return parse_belgie_tool_config(document).source
+    except PyprojectError as exc:
+        raise ProjectError(str(exc)) from exc
 
 
 def _load_project_from_document(root: Path, document: dict[str, Any]) -> BelgieProject:
@@ -148,4 +148,5 @@ def _load_project_from_document(root: Path, document: dict[str, Any]) -> BelgieP
         root=root.resolve(),
         dependencies=_parse_dependencies(document),
         pyproject=document,
+        source=_parse_source(document),
     )

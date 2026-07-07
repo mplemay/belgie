@@ -1,17 +1,78 @@
 from __future__ import annotations
 
 import tomllib
-from typing import TYPE_CHECKING, Any, Final
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Final
 
 TOOL_TABLE: Final[str] = "tool"
+BELGIE_TABLE: Final[str] = "belgie"
 PYPROJECT_NAME: Final[str] = "pyproject.toml"
+DEFAULT_SOURCE: Final[Path] = Path()
+SOURCE_TABLE_PATH: Final[str] = "[tool.belgie].source"
+ABSOLUTE_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a relative path"
+PARENT_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} cannot contain '..'"
+EMPTY_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a non-empty string"
+INVALID_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a string"
 
 
 class PyprojectError(Exception):
     pass
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class BelgieToolConfig:
+    source: Path = DEFAULT_SOURCE
+
+
+def discover_pyproject_root(*, start: Path | None = None) -> Path:
+    start_path = (start or Path.cwd()).resolve()
+    if start_path.is_file():
+        start_path = start_path.parent
+
+    searched: list[str] = []
+    for directory in (start_path, *start_path.parents):
+        pyproject_path = directory / PYPROJECT_NAME
+        searched.append(str(pyproject_path))
+        if pyproject_path.is_file():
+            return directory.resolve()
+
+    msg = f"Could not find pyproject.toml. Searched: {', '.join(searched)}"
+    raise PyprojectError(msg)
+
+
+def parse_belgie_tool_config(document: dict[str, Any]) -> BelgieToolConfig:
+    tool = document.get(TOOL_TABLE)
+    if tool is None:
+        return BelgieToolConfig()
+    if not isinstance(tool, dict):
+        msg = "[tool] must be a table"
+        raise PyprojectError(msg)
+
+    belgie = tool.get(BELGIE_TABLE)
+    if belgie is None:
+        return BelgieToolConfig()
+    if not isinstance(belgie, dict):
+        msg = "[tool.belgie] must be a table"
+        raise PyprojectError(msg)
+
+    source = belgie.get("source")
+    if source is None:
+        return BelgieToolConfig()
+    if not isinstance(source, str) or not source.strip():
+        raise PyprojectError(EMPTY_SOURCE_PATH_ERROR if isinstance(source, str) else INVALID_SOURCE_PATH_ERROR)
+
+    source_path = Path(source)
+    if source_path.is_absolute():
+        raise PyprojectError(ABSOLUTE_SOURCE_PATH_ERROR)
+    if any(part == ".." for part in source_path.parts):
+        raise PyprojectError(PARENT_SOURCE_PATH_ERROR)
+    return BelgieToolConfig(source=source_path)
+
+
+def load_belgie_tool_config(project_root: Path) -> BelgieToolConfig:
+    document = read_pyproject_toml(project_root / PYPROJECT_NAME)
+    return parse_belgie_tool_config(document)
 
 
 def read_pyproject_toml(path: Path) -> dict[str, Any]:

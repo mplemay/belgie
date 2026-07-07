@@ -126,7 +126,7 @@ def test_tool_forwards_annotations_icons_and_structured_output(
     ],
 )
 def test_tool_rejects_invalid_widget_paths(tmp_path: Path, path: str | Path) -> None:
-    extension = BelgieExtension()
+    extension = BelgieExtension(root=tmp_path)
     widget_path = tmp_path / "widget.tsx" if path == "absolute" else path
 
     with pytest.raises(ValueError, match="Widget paths"):
@@ -182,5 +182,39 @@ def test_extension_forwards_environment_to_build_widget(
             "path": Path("clock/widget.tsx"),
             "environment": environment,
             "project_path": tmp_path,
+        },
+    ]
+
+
+def test_extension_uses_pyproject_source_for_widget_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    widgets_root = tmp_path / "src" / "app" / "widgets"
+    write_widget(widgets_root, "clock/widget.tsx")
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[tool.belgie]
+source = "src/app/widgets"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    build_calls: list[dict[str, object]] = []
+    patch_build_widget(monkeypatch, record=build_calls)
+    monkeypatch.chdir(tmp_path)
+
+    extension = BelgieExtension(project=tmp_path)
+
+    @extension.tool(path=Path("clock/widget.tsx"))
+    def get_time() -> str:
+        return "now"
+
+    assert get_time() == "now"
+    assert build_calls == [
+        {
+            "root": widgets_root.resolve(),
+            "path": Path("clock/widget.tsx"),
+            "environment": None,
+            "project_path": tmp_path.resolve(),
         },
     ]
