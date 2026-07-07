@@ -9,7 +9,7 @@ license: MIT
 compatibility: Requires Python >=3.12,<3.15
 allowed-tools: Bash(uv *)
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   author: belgie
 ---
 
@@ -28,11 +28,13 @@ Invoke this skill when:
 - Wiring sync or async `with Runtime()` / `async with Runtime()` context managers
 - Bridging JSON data between Python and JavaScript
 - Diagnosing `BelgieRuntimeError`, `BelgieModuleError`, or `BelgieJavaScriptError` failures
+- Building MCP Apps with `BelgieExtension` and `belgie[mcp]`
+- Configuring `[tool.belgie.source]` or `[tool.belgie.dependencies]` in pyproject
 - Code imports `belgie`, `Runtime`, `Script`, `Environment`, or `Command`
 
 Do **not** use this skill for:
 
-- Generic React, MCP widget, or web-server work without belgie as the embedding layer (use `use-gdansk` for gdansk)
+- Generic React or web-server work without belgie as the embedding layer (use `use-gdansk` for gdansk as an alternative)
 - Inspecting belgie internals when the public API or emitted error already explains the task
 
 ## Principles
@@ -127,23 +129,27 @@ asyncio.run(main())
 | Isolated npm/JSR dependencies | [references/environment.md](references/environment.md) |
 | Inline or file-based scripts | [references/scripts.md](references/scripts.md) |
 | npm package binaries | [references/commands.md](references/commands.md) |
+| Pyproject JS deps or widget source root | [references/pyproject.md](references/pyproject.md) |
+| MCP Apps with React widgets | [references/mcp.md](references/mcp.md) |
 | Embed in async apps or build pipelines | [references/integrations.md](references/integrations.md) |
 | Add belgie to another repository | [references/adoption.md](references/adoption.md) |
 | Something broken | [references/troubleshooting.md](references/troubleshooting.md) |
 
 ## Agent Workflow
 
-1. **Classify** the request: inline script / file script / environment deps / command / debug.
-2. **Install:** `uv add belgie` in the consumer project.
+1. **Classify** the request: inline script / file script / environment deps / command / pyproject / MCP / debug.
+2. **Install:** `uv add belgie` in the consumer project (`belgie[mcp]` for MCP, `belgie[cli]` for CLI).
 3. **Choose constructor:** `Runtime()`, `Runtime.from_folder()`, or `Runtime(env=env)` — see
    [rules/runtime-selection.md](rules/runtime-selection.md).
 4. **Inline deps:** for script packages, prefer direct `import ... from "npm:..."` or `import ... from "jsr:..."`.
 5. **Environment:** use `Environment({...})` and `install()` for commands, local `file:` packages, dependency aliases,
    or explicit lock/cache/options.
-6. **Enter contexts:** nest `Runtime` inside an active `Environment` when `env=` is used.
-7. **Bind and call:** `runner = run(Script(...))` or `run(Command(...))`, then call with JSON-safe args.
-8. **On failure:** match the error text in [references/troubleshooting.md](references/troubleshooting.md).
-9. **After fix:** re-run inside active contexts with `install()` when commands or explicit environments are involved.
+6. **Pyproject deps:** when `[tool.belgie.dependencies]` is present, run `belgie lock` and `belgie install` before
+   MCP widget builds or shared lockfile usage.
+7. **Enter contexts:** nest `Runtime` inside an active `Environment` when `env=` is used.
+8. **Bind and call:** `runner = run(Script(...))` or `run(Command(...))`, then call with JSON-safe args.
+9. **On failure:** match the error text in [references/troubleshooting.md](references/troubleshooting.md).
+10. **After fix:** re-run inside active contexts with `install()` when commands or explicit environments are involved.
 
 ## Task Routing Table
 
@@ -156,6 +162,8 @@ Load only the most relevant reference first. Read additional references only if 
 | Manage npm/JSR dependencies | [references/environment.md](references/environment.md) |
 | Run inline or file-based JS/TS scripts | [references/scripts.md](references/scripts.md) |
 | Run npm package binaries | [references/commands.md](references/commands.md) |
+| Declare JS deps or widget source in pyproject | [references/pyproject.md](references/pyproject.md) |
+| Build MCP Apps with React widgets | [references/mcp.md](references/mcp.md) |
 | Integrate with async apps or CI pipelines | [references/integrations.md](references/integrations.md) |
 | Check compatibility and adoption checklist | [references/adoption.md](references/adoption.md) |
 | Fix errors or runtime failures | [references/troubleshooting.md](references/troubleshooting.md) |
@@ -164,9 +172,11 @@ Load only the most relevant reference first. Read additional references only if 
 
 - Use the public integration surface: `Runtime`, `Script`, `Environment`, `Command`, `RuntimeOptions`,
   `EnvironmentOptions`.
-- Install with `uv add belgie`.
+- Install with `uv add belgie` (`belgie[mcp]` for MCP, `belgie[cli]` for CLI).
 - Import script packages inline with `npm:`, `jsr:`, or URL specifiers; do not put JavaScript dependencies in Python
-  `pyproject.toml`.
+  `[project.dependencies]`.
+- Use `[tool.belgie.dependencies]` for Belgie-managed JS packages and `[tool.belgie.source]` for MCP widget roots.
+- Run `belgie lock` and `belgie install` before `BelgieExtension` widget builds.
 - Export a callable from every JS module (`export default function run(...)` or `export default () => ...`).
 - Call `env.install()` before commands, local `file:` package aliases, or explicit dependency-map imports.
 - Use `Runtime.from_folder()` for inline `./` imports or a fixed project cwd; `Script.from_file()` resolves
@@ -185,9 +195,12 @@ Agents commonly make these mistakes with belgie:
 - Using `Runtime.from_folder()` for `Script.from_file()` when only the script directory matters for `./` imports.
 - Exporting non-callable values from JS modules (`callable run function`, `not callable`).
 - Passing shell command strings to `Command` instead of separate argv (`argument 0 must be str`).
-- Putting JavaScript dependencies in Python `pyproject.toml` instead of inline script imports or `Environment`.
+- Putting JavaScript dependencies in Python `[project.dependencies]` instead of inline script imports, `Environment`,
+  or `[tool.belgie.dependencies]`.
+- Starting an MCP server without `belgie install` when `[tool.belgie.dependencies]` is declared.
+- Using widget `path=` relative to the project root instead of `[tool.belgie.source]`.
 - Calling a bound runner after the runtime context exits (`closed`).
 - Passing non-JSON Python objects across the boundary (`Only JSON-serializable`).
 - Importing `BelgieRuntimeError` from top-level `belgie` instead of `belgie.errors`.
 - Treating successful `Command` calls as returning output; they return `None` on success.
-- Using belgie for MCP widget apps when gdansk is the intended integration layer.
+- Pointing `[tool.belgie.source]` at an absolute path or a path containing `..`.

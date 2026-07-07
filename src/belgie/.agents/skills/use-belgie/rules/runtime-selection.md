@@ -140,4 +140,5 @@ with Environment({"vite": "^6"}) as env:
         run(Command("vite"))("--version")
 ```
 
-Do not put JavaScript dependencies in the Python project's `pyproject.toml`.
+Do not put JavaScript dependencies in Python `[project.dependencies]`. For persisted Belgie-managed JS packages, use
+`[tool.belgie.dependencies]` — see [references/pyproject.md](../references/pyproject.md).

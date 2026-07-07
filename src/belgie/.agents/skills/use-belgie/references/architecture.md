@@ -52,6 +52,19 @@ imports from the script file's directory without `from_folder()`. Scripts may im
 `Runtime.from_folder()` does not read `pyproject.toml`. Use `Environment` for persisted lockfiles, custom Deno cache or
 resolver options, local `file:` package aliases, and npm package binaries.
 
+## MCP Apps extension
+
+`BelgieExtension` discovers `pyproject.toml` and resolves widget paths from `[tool.belgie.source]`:
+
+```text
+pyproject.toml
+  └─ [tool.belgie.source] → widget root
+       └─ @tool(path=widgets/...) → build_widget → inline HTML resource
+```
+
+Widget builds load `[tool.belgie.dependencies]` and require `belgie install` at the project root. This path resolution
+is separate from `Runtime.from_folder()`. See [mcp.md](mcp.md) and [pyproject.md](pyproject.md).
+
 ## Binding and calling
 
 ```python
@@ -102,6 +115,7 @@ Use async when integrating with `asyncio`, FastAPI, or other async Python apps.
 | `EnvironmentInstallResult` | Return type of `lock()` / `install()` (`.lockfile`, `.dependencies`) |
 | `EnvironmentUpdateResult` | Return type of `update()` (`.lockfile`, `.changes`) |
 | `Command` | npm package binary resolved from an environment |
+| `BelgieExtension` | MCP Apps extension; discovers pyproject source and builds widgets |
 | `JsonInput` / `JsonOutput` | JSON-serializable Python ↔ JS boundary types |
 
 ## Error hierarchy

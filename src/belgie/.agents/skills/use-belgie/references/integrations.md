@@ -76,16 +76,16 @@ Design the JS `run` function to accept and return JSON-friendly dicts and lists.
 
 ## gdansk and other consumers
 
-[gdansk](https://github.com/mplemay/gdansk) runs Vite internally through belgie `Environment`, `Runtime`, and `Command`.
-If the task is MCP widget apps with React frontends, use the `use-gdansk` skill instead. Use `use-belgie` when belgie is
-the direct integration surface.
+gdansk runs Vite internally through belgie `Environment`, `Runtime`, and `Command`.
+For MCP Apps with React widgets, use `belgie[mcp]` and `BelgieExtension` directly — see [mcp.md](mcp.md). gdansk is a
+higher-level alternative when it already fits the project.
 
 ## What belgie does not provide
 
 | Need | Use instead |
 | --- | --- |
 | HTTP server or routing | FastAPI, Starlette, etc. |
-| MCP server or widgets | gdansk or MCP SDK directly |
+| MCP Apps with React widgets | `belgie[mcp]` + `BelgieExtension` (see [mcp.md](mcp.md)); or gdansk |
 | Shell command strings | Pass argv as separate `str` args to `Command` |
 | Subprocess to external `node`/`deno` | belgie's embedded runtime |
 | Output capture for commands | Process stdio directly or wrap externally |
@@ -101,6 +101,8 @@ the direct integration surface.
 | npm/JSR/URL imports in scripts | Direct specifiers with `Runtime()` or `Runtime.from_folder()` |
 | Dependency aliases, local packages, lock/cache options | `Environment` + `Runtime(env=)` |
 | npm CLI binary | `Environment` + `Runtime(env=)` + `Command` |
+| MCP Apps with React widgets | `belgie[mcp]` + `BelgieExtension` (see [mcp.md](mcp.md)) |
+| Pyproject-managed JS deps | `[tool.belgie.dependencies]` + `belgie lock` / `belgie install` (see [pyproject.md](pyproject.md)) |
 | Async service integration | `async with Runtime` / `await runner(...)` |
 | V8 memory tuning | `RuntimeOptions` |
 

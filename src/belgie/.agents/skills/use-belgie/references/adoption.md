@@ -44,7 +44,35 @@ my-app/
 └── main.py
 ```
 
-JavaScript packages are declared in `Environment({...})`, not in `pyproject.toml`.
+MCP Apps with React widgets:
+
+```text
+my-mcp-app/
+├── pyproject.toml
+├── deno.lock
+└── src/
+    └── mcp_app/
+        ├── __main__.py
+        └── views/
+            └── widgets/
+                └── get-time/
+                    └── widget.tsx
+```
+
+```toml
+[tool.belgie]
+source = "src/mcp_app/views"
+
+[tool.belgie.dependencies]
+"@belgie/widget" = "file:path/to/belgie-widget-package"  # bundled with belgie[mcp]
+react = "npm:react@^19"
+vite = "npm:vite@6.1.0"
+```
+
+Declare `@belgie/widget` as a `file:` dependency pointing at the widget package shipped with `belgie[mcp]`.
+
+JavaScript packages for scripts belong in `Environment({...})` or `[tool.belgie.dependencies]`, not in Python
+`[project.dependencies]`.
 
 ## Python dependency baseline
 
@@ -62,6 +90,7 @@ Before finishing adoption, confirm:
 
 - [ ] `Environment` and `Runtime` are used as context managers (`with` / `async with`)
 - [ ] Script packages use direct `npm:` / `jsr:` / URL imports, or `env.install()` runs for aliases and commands
+- [ ] MCP projects set `[tool.belgie.source]` and run `belgie lock` / `belgie install` before widget builds
 - [ ] JS modules export a callable (`export default function run(...)` or `export default () => ...`)
 - [ ] Python ↔ JS data is JSON-serializable (dicts, lists, primitives)
 - [ ] Errors are imported from `belgie.errors`

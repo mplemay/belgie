@@ -45,6 +45,7 @@ camelcase = "npm:camelcase@8.0.0"
         "std_path": "jsr:@std/path@^1",
         "camelcase": "npm:camelcase@8.0.0",
     }
+    assert project.source == Path()
     assert project.lockfile_path == tmp_path / "deno.lock"
 
 
@@ -57,6 +58,24 @@ def test_discover_project_walks_up_to_nearest_pyproject(tmp_path: Path) -> None:
 
     assert project.root == tmp_path.resolve()
     assert project.dependencies == {}
+    assert project.source == Path()
+
+
+def test_load_project_reads_tool_belgie_source(tmp_path: Path) -> None:
+    write_pyproject(
+        tmp_path,
+        """
+[project]
+name = "demo"
+
+[tool.belgie]
+source = "src/app/views"
+""",
+    )
+
+    project = load_project(tmp_path)
+
+    assert project.source == Path("src/app/views")
 
 
 def test_set_dependency_creates_tool_tables() -> None:
