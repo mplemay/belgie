@@ -76,4 +76,4 @@ def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
         "build_widget_html",
         build_widget_html,
     )
-    yield from _load_example_main(EXAMPLES_ROOT / "mcp", "mcp_example")
+    yield from _load_example_main(EXAMPLES_ROOT / "mcp", "mcp_app")

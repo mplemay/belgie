@@ -1,5 +1,5 @@
 [project]
-name = "mcp-example"
+name = "mcp-app"
 version = "0.1.0"
 description = "MCP widget example for belgie"
 readme = "readme.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-main = "mcp_example.__main__:main"
+main = "mcp_app.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]

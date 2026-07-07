@@ -5,7 +5,7 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
-def test_mcp_example_defines_get_time_widget(mcp_module) -> None:
+def test_mcp_app_defines_get_time_widget(mcp_module) -> None:
     tools = mcp_module.belgie.tools()
     resources = mcp_module.belgie.resources()
     result = mcp_module.get_time()
