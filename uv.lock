@@ -73,6 +73,7 @@ langchain = [
 mcp = [
     { name = "mcp" },
     { name = "mcp-types" },
+    { name = "pydantic" },
 ]
 pydantic-ai = [
     { name = "pydantic-ai-slim", extra = ["openai"] },
@@ -102,6 +103,7 @@ requires-dist = [
     { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0.0b1" },
     { name = "mcp-types", marker = "extra == 'mcp'", specifier = ">=2.0.0b1" },
+    { name = "pydantic", marker = "extra == 'mcp'", specifier = ">=2,<3" },
     { name = "pydantic-ai-slim", extras = ["openai"], marker = "extra == 'pydantic-ai'", specifier = ">=2,<3" },
     { name = "rtoml", marker = "extra == 'cli'", specifier = ">=0.13,<1" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.20,<1" },

@@ -1,26 +1,27 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from belgie import Environment, Runtime, Script
 
 WIDGET_PATH_OUTSIDE_ROOT_ERROR: Final[str] = "Widget path must stay inside the BelgieExtension root"
 INVALID_WIDGET_BUILD_DEPENDENCIES_ERROR: Final[str] = "Widget build dependencies must map strings to strings"
-INVALID_WIDGET_BUILD_RESULT_ERROR: Final[str] = "Widget build result must include html and manifest data"
-INVALID_WIDGET_BUILD_MANIFEST_ERROR: Final[str] = "Widget build manifest must include render package metadata"
 
 
-@dataclass(slots=True, kw_only=True, frozen=True)
-class WidgetRenderManifest:
-    render_package_name: str
-    render_package_version: str
+class WidgetRenderManifest(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    render_package_name: str = Field(validation_alias="renderPackageName")
+    render_package_version: str = Field(validation_alias="renderPackageVersion")
 
 
-@dataclass(slots=True, kw_only=True, frozen=True)
-class WidgetBuildResult:
+class WidgetBuildResult(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
     html: str
     manifest: WidgetRenderManifest
 
@@ -44,7 +45,7 @@ def build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
         with Environment(dependencies, path=project_path) as env:
             env.install()
             with Runtime(env=env) as runtime:
-                return _parse_build_result(
+                return WidgetBuildResult.model_validate(
                     runtime(build_script)(str(project_path), str(root_path), relative_widget_path.as_posix()),
                 )
 
@@ -66,29 +67,3 @@ def _load_build_dependencies(widget_package_path: Path) -> dict[str, str]:
             raise TypeError(INVALID_WIDGET_BUILD_DEPENDENCIES_ERROR)
         dependencies[alias] = specifier
     return dependencies
-
-
-def _parse_build_result(payload: object) -> WidgetBuildResult:
-    if not isinstance(payload, Mapping):
-        raise TypeError(INVALID_WIDGET_BUILD_RESULT_ERROR)
-
-    html = payload.get("html")
-    if not isinstance(html, str):
-        raise TypeError(INVALID_WIDGET_BUILD_RESULT_ERROR)
-
-    manifest = payload.get("manifest")
-    if not isinstance(manifest, Mapping):
-        raise TypeError(INVALID_WIDGET_BUILD_RESULT_ERROR)
-
-    render_package_name = manifest.get("renderPackageName")
-    render_package_version = manifest.get("renderPackageVersion")
-    if not isinstance(render_package_name, str) or not isinstance(render_package_version, str):
-        raise TypeError(INVALID_WIDGET_BUILD_MANIFEST_ERROR)
-
-    return WidgetBuildResult(
-        html=html,
-        manifest=WidgetRenderManifest(
-            render_package_name=render_package_name,
-            render_package_version=render_package_version,
-        ),
-    )

@@ -23,6 +23,7 @@ langchain = [
 mcp = [
     "mcp>=2.0.0b1",
     "mcp-types>=2.0.0b1",
+    "pydantic>=2,<3",
 ]
 
 [project.scripts]
