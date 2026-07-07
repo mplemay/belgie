@@ -40,7 +40,8 @@ def test_parse_belgie_tool_config_reads_source() -> None:
     ("document", "match"),
     [
         pytest.param({"tool": {"belgie": {"source": ""}}}, "non-empty string", id="empty"),
-        pytest.param({"tool": {"belgie": {"source": "/abs/widgets"}}}, "relative path", id="absolute"),
+        pytest.param({"tool": {"belgie": {"source": "/abs/widgets"}}}, "relative path", id="absolute-posix"),
+        pytest.param({"tool": {"belgie": {"source": "C:/abs/widgets"}}}, "relative path", id="absolute-windows"),
         pytest.param({"tool": {"belgie": {"source": "../widgets"}}}, "cannot contain", id="parent"),
         pytest.param({"tool": {"belgie": {"source": 1}}}, "must be a string", id="non-string"),
     ],

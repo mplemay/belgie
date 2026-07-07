@@ -5,7 +5,7 @@ from typing import Any, Final, TypeVar
 from mcp.server.apps import Apps, ResourceCsp, ResourcePermissions, Visibility
 from mcp_types import Icon, ToolAnnotations
 
-from belgie._pyproject import discover_pyproject_root, load_belgie_tool_config
+from belgie._pyproject import discover_pyproject_root, is_absolute_config_path, load_belgie_tool_config
 from belgie.mcp._builder import BelgieEnvironment, build_widget
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
@@ -83,7 +83,7 @@ class BelgieExtension(Apps):
 
     def _validate_widget_path(self, path: str | Path) -> Path:
         widget_path = Path(path)
-        if widget_path.is_absolute():
+        if is_absolute_config_path(widget_path.as_posix()):
             raise ValueError(ABSOLUTE_WIDGET_PATH_ERROR)
         if any(part == ".." for part in widget_path.parts):
             raise ValueError(PARENT_WIDGET_PATH_ERROR)

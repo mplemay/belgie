@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Final
 
 TOOL_TABLE: Final[str] = "tool"
@@ -23,6 +23,10 @@ class PyprojectError(Exception):
 @dataclass(slots=True, kw_only=True, frozen=True)
 class BelgieToolConfig:
     source: Path = DEFAULT_SOURCE
+
+
+def is_absolute_config_path(source: str) -> bool:
+    return PurePosixPath(source).is_absolute() or PureWindowsPath(source).is_absolute()
 
 
 def discover_pyproject_root(*, start: Path | None = None) -> Path:
@@ -63,7 +67,7 @@ def parse_belgie_tool_config(document: dict[str, Any]) -> BelgieToolConfig:
         raise PyprojectError(EMPTY_SOURCE_PATH_ERROR if isinstance(source, str) else INVALID_SOURCE_PATH_ERROR)
 
     source_path = Path(source)
-    if source_path.is_absolute():
+    if is_absolute_config_path(source):
         raise PyprojectError(ABSOLUTE_SOURCE_PATH_ERROR)
     if any(part == ".." for part in source_path.parts):
         raise PyprojectError(PARENT_SOURCE_PATH_ERROR)
