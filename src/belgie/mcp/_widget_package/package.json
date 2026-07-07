@@ -1,5 +1,8 @@
 {
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "latest",
+    "@modelcontextprotocol/sdk": "latest",
+    "esbuild-wasm": "0.24.2",
     "react": "^19",
     "react-dom": "^19"
   },
@@ -7,7 +10,8 @@
     ".": {
       "default": "./src/index.tsx",
       "types": "./src/index.tsx"
-    }
+    },
+    "./build": "./src/build.ts"
   },
   "name": "@belgie/widget",
   "type": "module",

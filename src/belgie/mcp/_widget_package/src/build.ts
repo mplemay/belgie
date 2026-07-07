@@ -1,4 +1,5 @@
-import * as esbuild from "esbuild-wasm-browser";
+// Pinned esbuild-wasm subpath via npm: import; node_modules subpath resolution is unreliable here.
+import * as esbuild from "npm:esbuild-wasm@0.24.2/esm/browser.js";
 
 import { renderDocument } from "./html.ts";
 
@@ -219,3 +220,5 @@ function join(...parts: string[]): string {
 function resolvePath(base: string, specifier: string): string {
   return decodeURIComponent(new URL(specifier, `file://${base}/`).pathname);
 }
+
+export default buildWidgetHtml;
