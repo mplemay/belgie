@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Final
 
 import rtoml
 
+from belgie._pyproject import PyprojectError, parse_tool_table
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -111,40 +113,11 @@ def _ensure_dependencies_table(document: dict[str, Any]) -> dict[str, Any]:
     return dependencies
 
 
-def _read_dependencies_table(document: dict[str, Any]) -> dict[str, Any] | None:
-    tool = document.get(TOOL_TABLE)
-    if tool is None:
-        return None
-    if not isinstance(tool, dict):
-        msg = "[tool] must be a table"
-        raise ProjectError(msg)
-    belgie = tool.get(BELGIE_TABLE)
-    if belgie is None:
-        return None
-    if not isinstance(belgie, dict):
-        msg = "[tool.belgie] must be a table"
-        raise ProjectError(msg)
-    dependencies = belgie.get(DEPENDENCIES_TABLE)
-    if dependencies is None:
-        return None
-    if not isinstance(dependencies, dict):
-        msg = "[tool.belgie.dependencies] must be a table"
-        raise ProjectError(msg)
-    return dependencies
-
-
 def _parse_dependencies(document: dict[str, Any]) -> dict[str, str]:
-    table = _read_dependencies_table(document)
-    if table is None:
-        return {}
-
-    dependencies: dict[str, str] = {}
-    for alias, value in table.items():
-        if not isinstance(alias, str) or not alias.strip() or not isinstance(value, str) or not value.strip():
-            msg = "[tool.belgie.dependencies] entries must map non-empty strings to non-empty strings"
-            raise ProjectError(msg)
-        dependencies[alias] = value
-    return dependencies
+    try:
+        return parse_tool_table(document, BELGIE_TABLE, DEPENDENCIES_TABLE)
+    except PyprojectError as exc:
+        raise ProjectError(str(exc)) from exc
 
 
 def load_project(root: Path) -> BelgieProject:

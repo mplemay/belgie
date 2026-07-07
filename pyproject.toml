@@ -57,7 +57,10 @@ module-name = "belgie._core"
 python-packages = ["belgie"]
 python-source = "src"
 exclude = ["**/__tests__/**"]
-include = [{ path = "src/belgie/mcp/_widget_package/**/*", format = "wheel" }]
+include = [
+    { path = "src/belgie/mcp/_widget_package/**/*", format = "wheel" },
+    { path = "src/belgie/mcp/pyproject.toml", format = "wheel" },
+]
 features = ["extension-module"]
 
 [tool.uv]

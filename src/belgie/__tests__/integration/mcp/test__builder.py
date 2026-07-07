@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from belgie.mcp import _builder
-from belgie.mcp._builder import build_widget
+from belgie.mcp._builder import MCP_PACKAGE_DIR, _load_build_dependencies, build_widget
 
 pytestmark = pytest.mark.integration
 
@@ -53,4 +52,8 @@ export default function widget() {
     assert not (root / "node_modules").exists()
     assert result.manifest.package_name == "@belgie/widget"
     assert result.manifest.package_version == "0.0.0"
-    assert not hasattr(_builder, "BUILD_DEPENDENCIES")
+    dependencies = _load_build_dependencies()
+    widget_dependency = dependencies["@belgie/widget"]
+    assert widget_dependency.startswith("file:")
+    assert widget_dependency.endswith("_widget_package")
+    assert (MCP_PACKAGE_DIR / "_widget_package").resolve().as_posix() in widget_dependency

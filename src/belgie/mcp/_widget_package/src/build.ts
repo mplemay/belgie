@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { build, type Plugin } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
@@ -12,7 +11,6 @@ const VIRTUAL_HTML_PATH = "__belgie_virtual__/index.html";
 const VIRTUAL_WIDGET_ENTRY_ID = "belgie:widget-entry";
 const VIRTUAL_SOURCE_WIDGET_ID = "belgie:source-widget";
 const RESOLVED_WIDGET_ENTRY_ID = "\0belgie:widget-entry";
-const WIDGET_RUNTIME_ID = "@belgie/widget";
 const EXTERNAL_ASSET_PATTERNS = [
   'src="/assets/',
   'href="/assets/',
@@ -80,7 +78,6 @@ function belgieVirtualInputPlugin(options: {
   projectRoot: string;
   virtualHtmlId: string;
   widgetFileId: string;
-  widgetRuntimeId: string;
 }): Plugin {
   return {
     name: "belgie:virtual-widget-input",
@@ -99,9 +96,6 @@ function belgieVirtualInputPlugin(options: {
       }
       if (id === VIRTUAL_SOURCE_WIDGET_ID) {
         return options.widgetFileId;
-      }
-      if (id === WIDGET_RUNTIME_ID) {
-        return options.widgetRuntimeId;
       }
     },
     load(id) {
@@ -153,13 +147,13 @@ export async function buildWidget(projectRoot: string, sourceRoot: string, widge
   const normalizedProjectRoot = toVitePath(projectRoot);
   const virtualHtmlId = toVitePath(join(projectRoot, VIRTUAL_HTML_PATH));
   const widgetFileId = toVitePath(resolve(sourceRoot, widgetPath));
-  const widgetRuntimeId = toVitePath(fileURLToPath(new URL("./index.tsx", import.meta.url)));
   const buildResult = await build({
     root: normalizedProjectRoot,
     configFile: false,
     logLevel: "error",
     resolve: {
       alias: [
+        { find: /^@belgie\/widget$/, replacement: resolveDependency(projectRoot, "@belgie/widget") },
         { find: /^react$/, replacement: resolveDependency(projectRoot, "react") },
         { find: /^react-dom$/, replacement: resolveDependency(projectRoot, "react-dom") },
         {
@@ -178,7 +172,6 @@ export async function buildWidget(projectRoot: string, sourceRoot: string, widge
         projectRoot: normalizedProjectRoot,
         virtualHtmlId,
         widgetFileId,
-        widgetRuntimeId,
       }),
       react(),
       viteSingleFile(),

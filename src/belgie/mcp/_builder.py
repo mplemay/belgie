@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from importlib.resources import as_file, files
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,9 +6,19 @@ from typing import Final
 from pydantic import BaseModel, ConfigDict, Field
 
 from belgie import Environment, Runtime, Script
+from belgie._pyproject import (
+    PyprojectError,
+    parse_tool_table,
+    read_pyproject_toml,
+    resolve_file_dependency_paths,
+)
+
+MCP_PACKAGE_DIR: Final[Path] = Path(__file__).resolve().parent
+MCP_BUILD_DEPENDENCIES_TABLE: Final[tuple[str, ...]] = ("belgie", "mcp", "build-dependencies")
+MCP_PYPROJECT_PATH: Final[Path] = MCP_PACKAGE_DIR / "pyproject.toml"
 
 WIDGET_PATH_OUTSIDE_ROOT_ERROR: Final[str] = "Widget path must stay inside the BelgieExtension root"
-INVALID_WIDGET_BUILD_DEPENDENCIES_ERROR: Final[str] = "Widget build dependencies must map strings to strings"
+MISSING_MCP_BUILD_DEPENDENCIES_ERROR: Final[str] = "[tool.belgie.mcp.build-dependencies] must define at least one entry"
 
 
 class WidgetRenderManifest(BaseModel):
@@ -41,7 +50,7 @@ def build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
     ):
         project_path = Path(temp_dir)
         build_script = Script.from_file(widget_package_path / "run-build.ts")
-        dependencies = _load_build_dependencies(widget_package_path)
+        dependencies = _load_build_dependencies()
         with Environment(dependencies, path=project_path) as env:
             env.install()
             with Runtime(env=env) as runtime:
@@ -54,16 +63,9 @@ def build_widget_html(*, root: Path, path: Path) -> str:
     return build_widget(root=root, path=path).html
 
 
-def _load_build_dependencies(widget_package_path: Path) -> dict[str, str]:
-    with Runtime() as runtime:
-        payload = runtime(Script.from_file(widget_package_path / "src" / "dependencies.ts"))()
-
-    if not isinstance(payload, Mapping):
-        raise TypeError(INVALID_WIDGET_BUILD_DEPENDENCIES_ERROR)
-
-    dependencies: dict[str, str] = {}
-    for alias, specifier in payload.items():
-        if not isinstance(alias, str) or not isinstance(specifier, str):
-            raise TypeError(INVALID_WIDGET_BUILD_DEPENDENCIES_ERROR)
-        dependencies[alias] = specifier
-    return dependencies
+def _load_build_dependencies() -> dict[str, str]:
+    document = read_pyproject_toml(MCP_PYPROJECT_PATH)
+    dependencies = parse_tool_table(document, *MCP_BUILD_DEPENDENCIES_TABLE)
+    if not dependencies:
+        raise PyprojectError(MISSING_MCP_BUILD_DEPENDENCIES_ERROR)
+    return resolve_file_dependency_paths(dependencies, MCP_PACKAGE_DIR)
