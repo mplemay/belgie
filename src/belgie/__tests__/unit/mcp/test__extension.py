@@ -122,3 +122,37 @@ def test_tool_rejects_paths_with_parent_segments(path: Path) -> None:
 
     with pytest.raises(ValueError, match="Widget paths"):
         extension.tool(path=path)
+
+
+def test_extension_resolves_relative_root_at_construction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    widgets_root = tmp_path / "widgets"
+    widget_path = widgets_root / "clock" / "widget.tsx"
+    widget_path.parent.mkdir(parents=True)
+    widget_path.write_text("export default function widget() {}\n", encoding="utf-8")
+    build_calls: list[tuple[Path, Path]] = []
+
+    def fake_build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
+        build_calls.append((root, path))
+        return WidgetBuildResult(
+            html="<!doctype html><html></html>",
+            manifest=WidgetRenderManifest(
+                package_name="@belgie/widget",
+                package_version="0.0.0",
+            ),
+        )
+
+    monkeypatch.chdir(tmp_path)
+    extension = BelgieExtension(root=Path("widgets"))
+    monkeypatch.chdir(tmp_path.parent)
+
+    monkeypatch.setattr("belgie.mcp._extension.build_widget", fake_build_widget)
+
+    @extension.tool(path=Path("clock/widget.tsx"))
+    def get_time() -> str:
+        return "now"
+
+    assert get_time() == "now"
+    assert build_calls == [(widgets_root.resolve(), Path("clock/widget.tsx"))]

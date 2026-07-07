@@ -17,9 +17,8 @@ PARENT_WIDGET_PATH_ERROR: Final[str] = "Widget paths cannot contain '..'"
 class BelgieExtension(Extension):
     identifier = EXTENSION_ID
 
-    def __init__(self, *, root: str | Path | None = None, watch: bool | None = None) -> None:
-        self._root: Final[Path] = Path.cwd() if root is None else Path(root)
-        self._watch: Final[bool | None] = watch
+    def __init__(self, *, root: str | Path | None = None) -> None:
+        self._root: Final[Path] = (Path.cwd() if root is None else Path(root)).resolve()
         self._apps: Final[Apps] = Apps()
 
     def tool(  # noqa: PLR0913
