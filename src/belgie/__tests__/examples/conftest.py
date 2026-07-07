@@ -9,6 +9,9 @@ from typing import Final
 
 import pytest
 
+from belgie.mcp import _extension
+from belgie.mcp._builder import WidgetBuildResult, WidgetRenderManifest
+
 EXAMPLES_ROOT: Final[Path] = Path(__file__).resolve().parents[4] / "examples"
 
 
@@ -61,3 +64,23 @@ def pydantic_ai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 def langchain_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     yield from _load_example_main(EXAMPLES_ROOT / "langchain", "langchain_example")
+
+
+@pytest.fixture
+def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    def build_widget(**kwargs: object) -> WidgetBuildResult:
+        assert kwargs
+        return WidgetBuildResult(
+            html="<!doctype html><html><body>mcp</body></html>",
+            manifest=WidgetRenderManifest(
+                package_name="@belgie/widget",
+                package_version="0.0.0",
+            ),
+        )
+
+    monkeypatch.setattr(
+        _extension,
+        "build_widget",
+        build_widget,
+    )
+    yield from _load_example_main(EXAMPLES_ROOT / "mcp", "mcp_app")

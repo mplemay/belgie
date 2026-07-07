@@ -111,5 +111,6 @@ single capability.
 - **[environment](examples/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
 - **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS execution.
+- **[mcp](examples/mcp):** MCP Apps extension with a React widget built through Belgie.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.

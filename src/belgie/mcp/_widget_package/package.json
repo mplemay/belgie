@@ -1,0 +1,15 @@
+{
+  "exports": {
+    ".": {
+      "default": "./src/index.tsx",
+      "types": "./src/index.tsx"
+    },
+    "./build": {
+      "default": "./build.ts",
+      "types": "./build.ts"
+    }
+  },
+  "name": "@belgie/widget",
+  "type": "module",
+  "version": "0.0.0"
+}
