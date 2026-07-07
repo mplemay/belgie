@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Final, TypeVar
 
 from mcp.server.apps import Apps, ResourceCsp, ResourcePermissions, Visibility
+from mcp_types import Icon, ToolAnnotations
 
 from belgie.mcp._builder import build_widget
 
@@ -24,6 +25,9 @@ class BelgieExtension(Apps):
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
+        structured_output: bool | None = None,
         resource_uri: str | None = None,
         visibility: Sequence[Visibility] | None = None,
         meta: dict[str, Any] | None = None,
@@ -49,16 +53,18 @@ class BelgieExtension(Apps):
                 domain=domain,
                 prefers_border=prefers_border,
             )
-            tool_kwargs = {
-                key: value
-                for key, value in {
-                    "name": tool_name,
-                    "title": title,
-                    "description": description,
-                }.items()
-                if value is not None
-            }
-            return Apps.tool(self, resource_uri=uri, visibility=visibility, meta=meta, **tool_kwargs)(fn)
+            return Apps.tool(
+                self,
+                resource_uri=uri,
+                visibility=visibility,
+                meta=meta,
+                name=tool_name,
+                title=title,
+                description=description,
+                annotations=annotations,
+                icons=icons,
+                structured_output=structured_output,
+            )(fn)
 
         return decorator
 
