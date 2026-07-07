@@ -5,6 +5,7 @@ from mcp.server.apps import APP_MIME_TYPE
 from mcp.server.mcpserver.resources import TextResource
 from mcp_types import Icon, ToolAnnotations
 
+from belgie import Environment
 from belgie.__tests__.unit.mcp.conftest import patch_build_widget, write_widget
 from belgie.mcp import BelgieExtension
 
@@ -12,7 +13,7 @@ from belgie.mcp import BelgieExtension
 def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_widget(tmp_path, "get-time/widget.tsx")
     html = "<!doctype html><html><body>ok</body></html>"
-    build_calls: list[tuple[Path, Path]] = []
+    build_calls: list[dict[str, object]] = []
     patch_build_widget(monkeypatch, html=html, record=build_calls)
     extension = BelgieExtension(root=tmp_path)
 
@@ -28,7 +29,14 @@ def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypat
     tools = extension.tools()
     resources = extension.resources()
 
-    assert build_calls == [(tmp_path, Path("get-time/widget.tsx"))]
+    assert build_calls == [
+        {
+            "root": tmp_path,
+            "path": Path("get-time/widget.tsx"),
+            "environment": None,
+            "project_path": None,
+        },
+    ]
     assert len(tools) == 1
     assert tools[0].fn is get_time
     assert tools[0].kwargs == {
@@ -131,7 +139,7 @@ def test_extension_resolves_relative_root_at_construction(
 ) -> None:
     widgets_root = tmp_path / "widgets"
     write_widget(widgets_root, "clock/widget.tsx")
-    build_calls: list[tuple[Path, Path]] = []
+    build_calls: list[dict[str, object]] = []
     patch_build_widget(monkeypatch, record=build_calls)
 
     monkeypatch.chdir(tmp_path)
@@ -143,4 +151,38 @@ def test_extension_resolves_relative_root_at_construction(
         return "now"
 
     assert get_time() == "now"
-    assert build_calls == [(widgets_root.resolve(), Path("clock/widget.tsx"))]
+    assert build_calls == [
+        {
+            "root": widgets_root.resolve(),
+            "path": Path("clock/widget.tsx"),
+            "environment": None,
+            "project_path": None,
+        },
+    ]
+
+
+def test_extension_forwards_environment_and_path_to_build_widget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_widget(tmp_path, "clock/widget.tsx")
+    build_calls: list[dict[str, object]] = []
+    patch_build_widget(monkeypatch, record=build_calls)
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    environment = Environment()
+    extension = BelgieExtension(root=tmp_path, environment=environment, path=project_path)
+
+    @extension.tool(path=Path("clock/widget.tsx"))
+    def get_time() -> str:
+        return "now"
+
+    assert get_time() == "now"
+    assert build_calls == [
+        {
+            "root": tmp_path,
+            "path": Path("clock/widget.tsx"),
+            "environment": environment,
+            "project_path": project_path,
+        },
+    ]

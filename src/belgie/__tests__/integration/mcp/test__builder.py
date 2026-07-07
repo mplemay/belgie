@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sys
+from importlib.resources import as_file, files
 from pathlib import Path
 
 import pytest
 
-from belgie.mcp._builder import MCP_PACKAGE_DIR, _load_build_dependencies, build_widget
+from belgie import Environment
+from belgie.mcp._builder import build_widget
 
 pytestmark = pytest.mark.integration
 
@@ -14,9 +16,46 @@ SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
     reason="Vite build loads Rollup's native Node-API addon",
 )
 
+VITE_VERSION = "6.1.0"
+REACT_VERSION = "^19"
+VITE_REACT_PLUGIN_VERSION = "^4"
+
+
+def widget_dependencies() -> dict[str, str]:
+    with as_file(files("belgie.mcp._widget_package")) as widget_package_path:
+        return {
+            "@belgie/widget": f"file:{widget_package_path.resolve().as_posix()}",
+            "@vitejs/plugin-react": f"npm:@vitejs/plugin-react@{VITE_REACT_PLUGIN_VERSION}",
+            "react": f"npm:react@{REACT_VERSION}",
+            "react-dom": f"npm:react-dom@{REACT_VERSION}",
+            "react-dom/client": f"npm:react-dom@{REACT_VERSION}/client",
+            "vite": f"npm:vite@{VITE_VERSION}",
+            "vite-plugin-singlefile": "npm:vite-plugin-singlefile@^2",
+        }
+
+
+def write_project_pyproject(project: Path, dependencies: dict[str, str]) -> None:
+    lines = ["[tool.belgie.dependencies]"]
+    lines.extend(
+        f'"{name}" = "{specifier}"' if "/" in name or name.startswith("@") else f'{name} = "{specifier}"'
+        for name, specifier in dependencies.items()
+    )
+    (project / "pyproject.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def install_widget_project(project: Path) -> None:
+    dependencies = widget_dependencies()
+    write_project_pyproject(project, dependencies)
+    with Environment(dependencies, path=project) as env:
+        env.install()
+
 
 @SKIP_WIN32_VITE_NATIVE
 def test_build_widget_html_returns_inline_html_document(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+
     root = tmp_path / "widgets"
     widget_dir = root / "hello"
     widget_dir.mkdir(parents=True)
@@ -39,7 +78,7 @@ export default function widget() {
         encoding="utf-8",
     )
 
-    result = build_widget(root=root, path=Path("hello/widget.tsx"))
+    result = build_widget(root=root, path=Path("hello/widget.tsx"), project_path=project)
     html = result.html
 
     assert "<!doctype html>" in html
@@ -50,10 +89,6 @@ export default function widget() {
     assert 'href="/assets/' not in html
     assert not (root / "dist").exists()
     assert not (root / "node_modules").exists()
+    assert (project / "deno.lock").is_file()
     assert result.manifest.package_name == "@belgie/widget"
     assert result.manifest.package_version == "0.0.0"
-    dependencies = _load_build_dependencies()
-    widget_dependency = dependencies["@belgie/widget"]
-    assert widget_dependency.startswith("file:")
-    assert widget_dependency.endswith("_widget_package")
-    assert (MCP_PACKAGE_DIR / "_widget_package").resolve().as_posix() in widget_dependency

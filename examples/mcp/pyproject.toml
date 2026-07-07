@@ -25,3 +25,14 @@ exclude-newer-package = { belgie = false, mcp = false, mcp-types = false, uvicor
 
 [tool.uv.sources]
 belgie = { path = "../../", editable = true }
+
+[tool.belgie.dependencies]
+"@belgie/widget" = "file:../../../src/belgie/mcp/_widget_package"
+"@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"
+"@modelcontextprotocol/sdk" = "npm:@modelcontextprotocol/sdk@latest"
+"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^4"
+react = "npm:react@^19"
+"react-dom" = "npm:react-dom@^19"
+"react-dom/client" = "npm:react-dom@^19/client"
+vite = "npm:vite@6.1.0"
+"vite-plugin-singlefile" = "npm:vite-plugin-singlefile@^2"

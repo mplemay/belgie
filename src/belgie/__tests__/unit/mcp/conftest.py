@@ -1,10 +1,11 @@
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from belgie.mcp import _extension
-from belgie.mcp._builder import WidgetBuildResult, WidgetRenderManifest
+from belgie.mcp._builder import BelgieEnvironment, WidgetBuildResult, WidgetRenderManifest
 
 WIDGET_STUB_SOURCE: str = "export default function widget() {}\n"
 DEFAULT_WIDGET_HTML: str = "<!doctype html><html></html>"
@@ -31,11 +32,24 @@ def patch_build_widget(
     monkeypatch: pytest.MonkeyPatch,
     *,
     html: str = DEFAULT_WIDGET_HTML,
-    record: list[tuple[Path, Path]] | None = None,
+    record: list[dict[str, Any]] | None = None,
 ) -> Callable[..., WidgetBuildResult]:
-    def stub(*, root: Path, path: Path) -> WidgetBuildResult:
+    def stub(
+        *,
+        root: Path,
+        path: Path,
+        environment: BelgieEnvironment | None = None,
+        project_path: Path | None = None,
+    ) -> WidgetBuildResult:
         if record is not None:
-            record.append((root, path))
+            record.append(
+                {
+                    "root": root,
+                    "path": path,
+                    "environment": environment,
+                    "project_path": project_path,
+                },
+            )
         return widget_build_result(html=html)
 
     monkeypatch.setattr(_extension, "build_widget", stub)

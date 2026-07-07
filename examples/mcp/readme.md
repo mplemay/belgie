@@ -4,6 +4,13 @@ Runs a small MCP server with a React app resource built by `BelgieExtension`.
 
 Requires `belgie[mcp]` (included in this example's dependencies).
 
+Install the widget build dependencies before starting the server:
+
+```bash
+uv run belgie lock
+uv run belgie install
+```
+
 ## Run
 
 ```bash
