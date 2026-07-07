@@ -53,11 +53,15 @@ class BelgieExtension(Extension):
                 domain=domain,
                 prefers_border=prefers_border,
             )
-            tool_kwargs: dict[str, Any] = {"name": tool_name}
-            if title is not None:
-                tool_kwargs["title"] = title
-            if description is not None:
-                tool_kwargs["description"] = description
+            tool_kwargs = {
+                key: value
+                for key, value in {
+                    "name": tool_name,
+                    "title": title,
+                    "description": description,
+                }.items()
+                if value is not None
+            }
             return self._apps.tool(resource_uri=uri, visibility=visibility, meta=meta, **tool_kwargs)(fn)
 
         return decorator

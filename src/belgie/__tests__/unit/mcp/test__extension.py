@@ -4,28 +4,15 @@ import pytest
 from mcp.server.apps import APP_MIME_TYPE
 from mcp.server.mcpserver.resources import TextResource
 
+from belgie.__tests__.unit.mcp.conftest import patch_build_widget, write_widget
 from belgie.mcp import BelgieExtension
-from belgie.mcp._builder import WidgetBuildResult, WidgetRenderManifest
 
 
 def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    widget_path = tmp_path / "get-time" / "widget.tsx"
-    widget_path.parent.mkdir()
-    widget_path.write_text("export default function widget() {}\n", encoding="utf-8")
+    write_widget(tmp_path, "get-time/widget.tsx")
     html = "<!doctype html><html><body>ok</body></html>"
     build_calls: list[tuple[Path, Path]] = []
-
-    def build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
-        build_calls.append((root, path))
-        return WidgetBuildResult(
-            html=html,
-            manifest=WidgetRenderManifest(
-                package_name="@belgie/widget",
-                package_version="0.0.0",
-            ),
-        )
-
-    monkeypatch.setattr("belgie.mcp._extension.build_widget", build_widget)
+    patch_build_widget(monkeypatch, html=html, record=build_calls)
     extension = BelgieExtension(root=tmp_path)
 
     @extension.tool(
@@ -64,22 +51,8 @@ def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "clock").mkdir()
-    (tmp_path / "clock" / "widget.tsx").write_text("export default function widget() {}\n", encoding="utf-8")
-
-    def fake_build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
-        return WidgetBuildResult(
-            html="<!doctype html><html></html>",
-            manifest=WidgetRenderManifest(
-                package_name="@belgie/widget",
-                package_version="0.0.0",
-            ),
-        )
-
-    monkeypatch.setattr(
-        "belgie.mcp._extension.build_widget",
-        fake_build_widget,
-    )
+    write_widget(tmp_path, "clock/widget.tsx")
+    patch_build_widget(monkeypatch)
     extension = BelgieExtension(root=tmp_path)
 
     @extension.tool(
@@ -103,25 +76,20 @@ def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata(
     }
 
 
-def test_tool_rejects_absolute_widget_paths(tmp_path: Path) -> None:
-    extension = BelgieExtension()
-
-    with pytest.raises(ValueError, match="Widget paths"):
-        extension.tool(path=tmp_path / "widget.tsx")
-
-
 @pytest.mark.parametrize(
     "path",
     [
+        pytest.param("absolute", id="absolute"),
         Path("../widget.tsx"),
         Path("clock/../widget.tsx"),
     ],
 )
-def test_tool_rejects_paths_with_parent_segments(path: Path) -> None:
+def test_tool_rejects_invalid_widget_paths(tmp_path: Path, path: str | Path) -> None:
     extension = BelgieExtension()
+    widget_path = tmp_path / "widget.tsx" if path == "absolute" else path
 
     with pytest.raises(ValueError, match="Widget paths"):
-        extension.tool(path=path)
+        extension.tool(path=widget_path)
 
 
 def test_extension_resolves_relative_root_at_construction(
@@ -129,26 +97,13 @@ def test_extension_resolves_relative_root_at_construction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     widgets_root = tmp_path / "widgets"
-    widget_path = widgets_root / "clock" / "widget.tsx"
-    widget_path.parent.mkdir(parents=True)
-    widget_path.write_text("export default function widget() {}\n", encoding="utf-8")
+    write_widget(widgets_root, "clock/widget.tsx")
     build_calls: list[tuple[Path, Path]] = []
-
-    def fake_build_widget(*, root: Path, path: Path) -> WidgetBuildResult:
-        build_calls.append((root, path))
-        return WidgetBuildResult(
-            html="<!doctype html><html></html>",
-            manifest=WidgetRenderManifest(
-                package_name="@belgie/widget",
-                package_version="0.0.0",
-            ),
-        )
+    patch_build_widget(monkeypatch, record=build_calls)
 
     monkeypatch.chdir(tmp_path)
     extension = BelgieExtension(root=Path("widgets"))
     monkeypatch.chdir(tmp_path.parent)
-
-    monkeypatch.setattr("belgie.mcp._extension.build_widget", fake_build_widget)
 
     @extension.tool(path=Path("clock/widget.tsx"))
     def get_time() -> str:
