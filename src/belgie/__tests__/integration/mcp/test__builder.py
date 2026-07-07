@@ -24,7 +24,7 @@ def test_build_widget_html_returns_inline_html_document(tmp_path: Path) -> None:
     (widget_dir / "widget.tsx").write_text(
         """
 import { render } from "@belgie/widget";
-import { useState } from "npm:react@^19";
+import { useState } from "react";
 import "./global.css";
 
 function App() {

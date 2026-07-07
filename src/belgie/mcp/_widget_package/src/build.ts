@@ -45,37 +45,21 @@ function toVitePath(path: string): string {
   return path.replaceAll("\\", "/");
 }
 
-function resolveDependency(projectRoot: string, specifier: string): string {
+function resolveFromProjectNodeModules(projectRoot: string, specifier: string): string {
   const require = createRequire(join(projectRoot, "package.json"));
   return toVitePath(require.resolve(specifier));
 }
 
-function stripNpmPackageVersion(packageSpecifier: string): string {
-  const versionIndex = packageSpecifier.startsWith("@")
-    ? packageSpecifier.lastIndexOf("@")
-    : packageSpecifier.indexOf("@");
-  if (versionIndex <= 0) {
-    return packageSpecifier;
-  }
-  return packageSpecifier.slice(0, versionIndex);
-}
-
-function denoNpmSpecifierToBare(specifier: string): string | null {
-  if (!specifier.startsWith("npm:")) {
-    return null;
-  }
-
-  const npmSpecifier = specifier.slice("npm:".length);
-  const packagePathIndex = npmSpecifier.startsWith("@")
-    ? npmSpecifier.indexOf("/", npmSpecifier.indexOf("/") + 1)
-    : npmSpecifier.indexOf("/");
-  const packageSpecifier = packagePathIndex === -1 ? npmSpecifier : npmSpecifier.slice(0, packagePathIndex);
-  const packageSubpath = packagePathIndex === -1 ? "" : npmSpecifier.slice(packagePathIndex);
-  return `${stripNpmPackageVersion(packageSpecifier)}${packageSubpath}`;
+function isBarePackageSpecifier(specifier: string): boolean {
+  return (
+    !specifier.startsWith(".") &&
+    !specifier.startsWith("/") &&
+    !specifier.startsWith("\0") &&
+    !specifier.includes(":")
+  );
 }
 
 function belgieVirtualInputPlugin(options: {
-  projectRoot: string;
   virtualHtmlId: string;
   widgetFileId: string;
 }): Plugin {
@@ -84,10 +68,6 @@ function belgieVirtualInputPlugin(options: {
     enforce: "pre",
     resolveId(id) {
       const normalizedId = toVitePath(id);
-      const bareNpmSpecifier = denoNpmSpecifierToBare(id);
-      if (bareNpmSpecifier) {
-        return resolveDependency(options.projectRoot, bareNpmSpecifier);
-      }
       if (normalizedId === options.virtualHtmlId) {
         return options.virtualHtmlId;
       }
@@ -113,6 +93,31 @@ function belgieVirtualInputPlugin(options: {
           "",
         ].join("\n");
       }
+    },
+  };
+}
+
+function belgieWidgetDependencyPlugin(options: {
+  projectRoot: string;
+  widgetSourceRoot: string;
+}): Plugin {
+  return {
+    name: "belgie:widget-dependencies",
+    enforce: "pre",
+    async resolveId(id, importer, resolveOptions) {
+      if (!importer || !isBarePackageSpecifier(id)) {
+        return null;
+      }
+      const normalizedImporter = toVitePath(importer);
+      const normalizedWidgetRoot = toVitePath(options.widgetSourceRoot);
+      if (!normalizedImporter.startsWith(normalizedWidgetRoot)) {
+        return null;
+      }
+      const resolved = await this.resolve(id, importer, { ...resolveOptions, skipSelf: true });
+      if (resolved) {
+        return resolved;
+      }
+      return resolveFromProjectNodeModules(options.projectRoot, id);
     },
   };
 }
@@ -152,26 +157,16 @@ export async function buildWidget(projectRoot: string, sourceRoot: string, widge
     configFile: false,
     logLevel: "error",
     resolve: {
-      alias: [
-        { find: /^@belgie\/widget$/, replacement: resolveDependency(projectRoot, "@belgie/widget") },
-        { find: /^react$/, replacement: resolveDependency(projectRoot, "react") },
-        { find: /^react-dom$/, replacement: resolveDependency(projectRoot, "react-dom") },
-        {
-          find: /^react-dom\/client$/,
-          replacement: resolveDependency(projectRoot, "react-dom/client"),
-        },
-        {
-          find: /^react\/jsx-runtime$/,
-          replacement: resolveDependency(projectRoot, "react/jsx-runtime"),
-        },
-      ],
       dedupe: ["react", "react-dom"],
     },
     plugins: [
       belgieVirtualInputPlugin({
-        projectRoot: normalizedProjectRoot,
         virtualHtmlId,
         widgetFileId,
+      }),
+      belgieWidgetDependencyPlugin({
+        projectRoot: normalizedProjectRoot,
+        widgetSourceRoot: toVitePath(sourceRoot),
       }),
       react(),
       viteSingleFile(),

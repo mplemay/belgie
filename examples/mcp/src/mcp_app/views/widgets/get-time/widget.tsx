@@ -1,7 +1,7 @@
 import { render } from "@belgie/widget";
-import { useApp } from "npm:@modelcontextprotocol/ext-apps@latest/react";
-import type { CallToolResult } from "npm:@modelcontextprotocol/sdk@latest/types.js";
-import { useState } from "npm:react@^19";
+import { useApp } from "@modelcontextprotocol/ext-apps/react";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { useState } from "react";
 
 import "./global.css";
 
