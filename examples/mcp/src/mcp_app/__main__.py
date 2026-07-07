@@ -8,14 +8,14 @@ from mcp_types import TextContent
 
 from belgie.mcp import BelgieExtension
 
-WIDGETS_ROOT: Final[Path] = Path(__file__).parent / "views" / "widgets"
+PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
-belgie = BelgieExtension(root=WIDGETS_ROOT)
+belgie = BelgieExtension(root=PROJECT_ROOT)
 
 
 @belgie.tool(
     name="get-time",
-    path=Path("get-time/widget.tsx"),
+    path=Path("src/mcp_app/views/widgets/get-time/widget.tsx"),
     title="Get Time",
     description="Get the current server time in ISO 8601 format.",
 )

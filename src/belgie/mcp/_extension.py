@@ -19,12 +19,10 @@ class BelgieExtension(Apps):
         *,
         root: str | Path | None = None,
         environment: BelgieEnvironment | None = None,
-        path: str | Path | None = None,
     ) -> None:
         super().__init__()
         self._root: Final[Path] = (Path.cwd() if root is None else Path(root)).resolve()
         self._environment = environment
-        self._path = None if path is None else Path(path)
 
     def tool(  # noqa: PLR0913  # ty: ignore[invalid-method-override]
         self,
@@ -53,7 +51,7 @@ class BelgieExtension(Apps):
                 root=self._root,
                 path=widget_path,
                 environment=self._environment,
-                project_path=self._path,
+                project_path=self._root,
             )
             self.add_html_resource(
                 uri,

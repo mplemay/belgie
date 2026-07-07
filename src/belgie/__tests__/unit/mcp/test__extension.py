@@ -34,7 +34,7 @@ def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypat
             "root": tmp_path,
             "path": Path("get-time/widget.tsx"),
             "environment": None,
-            "project_path": None,
+            "project_path": tmp_path,
         },
     ]
     assert len(tools) == 1
@@ -156,22 +156,20 @@ def test_extension_resolves_relative_root_at_construction(
             "root": widgets_root.resolve(),
             "path": Path("clock/widget.tsx"),
             "environment": None,
-            "project_path": None,
+            "project_path": widgets_root.resolve(),
         },
     ]
 
 
-def test_extension_forwards_environment_and_path_to_build_widget(
+def test_extension_forwards_environment_to_build_widget(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     write_widget(tmp_path, "clock/widget.tsx")
     build_calls: list[dict[str, object]] = []
     patch_build_widget(monkeypatch, record=build_calls)
-    project_path = tmp_path / "project"
-    project_path.mkdir()
     environment = Environment()
-    extension = BelgieExtension(root=tmp_path, environment=environment, path=project_path)
+    extension = BelgieExtension(root=tmp_path, environment=environment)
 
     @extension.tool(path=Path("clock/widget.tsx"))
     def get_time() -> str:
@@ -183,6 +181,6 @@ def test_extension_forwards_environment_and_path_to_build_widget(
             "root": tmp_path,
             "path": Path("clock/widget.tsx"),
             "environment": environment,
-            "project_path": project_path,
+            "project_path": tmp_path,
         },
     ]

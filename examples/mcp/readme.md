@@ -25,9 +25,9 @@ The server listens on port `3001`. An MCP Apps-capable client can render the `ge
 `BelgieExtension` binds the Python tool to a widget path:
 
 ```python
-belgie = BelgieExtension(root=WIDGETS_ROOT)
+belgie = BelgieExtension(root=PROJECT_ROOT)
 
-@belgie.tool(name="get-time", path=Path("get-time/widget.tsx"))
+@belgie.tool(name="get-time", path=Path("src/mcp_app/views/widgets/get-time/widget.tsx"))
 def get_time() -> list[TextContent]:
     time_str = datetime.now(tz=UTC).isoformat()
     return [TextContent(type="text", text=time_str)]
