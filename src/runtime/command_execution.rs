@@ -164,7 +164,7 @@ async fn run_command(
         .embed_context_rc(&options.runtime_worker_options)?;
     let (command_name, bin) =
         resolve_command(context.clone(), &command_cwd, options.command.name()).await?;
-    let result = match bin {
+    match bin {
         BinValue::Executable(path) if is_native_binary(&path) => {
             run_native_command(path, command_cwd, options.argv, &mut cancel_rx).await
         }
@@ -179,8 +179,7 @@ async fn run_command(
             )
             .await
         }
-    };
-    result.map_err(map_windows_native_addon_error)
+    }
 }
 
 async fn resolve_command(
@@ -473,24 +472,6 @@ fn is_native_binary(path: &Path) -> bool {
     };
     let mut bytes = [0; 4];
     file.read_exact(&mut bytes).is_ok() && node_resolver::is_binary(&bytes)
-}
-
-fn map_windows_native_addon_error(error: BindingError) -> BindingError {
-    #[cfg(windows)]
-    {
-        let message = error.message();
-        let lowercase = message.to_ascii_lowercase();
-        if lowercase.contains("node-api")
-            || lowercase.contains("napi")
-            || lowercase.contains(".node")
-            || lowercase.contains("loadlibrary")
-        {
-            return BindingError::runtime(format!(
-                "Native Node-API package commands are not supported by Belgie on Windows without a separate executable host: {message}"
-            ));
-        }
-    }
-    error
 }
 
 struct CurrentDirGuard {
