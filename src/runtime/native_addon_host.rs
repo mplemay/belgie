@@ -89,6 +89,7 @@ mod imp {
         GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         GetModuleFileNameW, GetModuleHandleExW, GetProcAddress, LoadLibraryW,
     };
+    use windows_sys::core::PCWSTR;
 
     use crate::types::error::BindingError;
 
@@ -127,8 +128,8 @@ mod imp {
     }
 
     fn current_library_path() -> Result<PathBuf, String> {
-        let mut handle = 0;
-        let symbol = load_libnode_forwarder as *const () as *const std::ffi::c_void;
+        let mut handle: HMODULE = std::ptr::null_mut();
+        let symbol = load_libnode_forwarder as *const () as PCWSTR;
         // SAFETY: symbol is a function in the loaded extension and out handle is valid.
         let found = unsafe {
             GetModuleHandleExW(
@@ -138,7 +139,7 @@ mod imp {
                 &mut handle,
             )
         };
-        if found == 0 || handle == 0 {
+        if found == 0 || handle.is_null() {
             return Err(
                 "Could not locate the loaded Belgie runtime library on Windows".to_string(),
             );
@@ -162,7 +163,7 @@ mod imp {
         let wide = wide_path(path)?;
         // SAFETY: wide path is null-terminated UTF-16 for LoadLibraryW.
         let handle = unsafe { LoadLibraryW(wide.as_ptr()) };
-        if handle == 0 {
+        if handle.is_null() {
             return Err(format!(
                 "Could not load {} for native npm addons",
                 path.display()
@@ -174,7 +175,7 @@ mod imp {
     fn probe_napi_symbol(handle: HMODULE, path: &Path) -> Result<(), String> {
         // SAFETY: handle is a loaded module and the symbol name is static.
         let symbol = unsafe { GetProcAddress(handle, NAPI_PROBE_SYMBOL.as_ptr()) };
-        if symbol == 0 {
+        if symbol.is_none() {
             return Err(format!(
                 "Loaded {} but could not resolve Node-API exports",
                 path.display()
@@ -190,8 +191,6 @@ mod imp {
         }
         Ok(wide)
     }
-
-    use std::ffi::OsString;
 }
 
 #[cfg(not(any(
