@@ -145,3 +145,56 @@ export default function widget() {
     assert not (root / "dist").exists()
     assert not (project / "vite.config.ts").exists()
     assert not (project / "vite.config.js").exists()
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_build_widget_applies_render_plugins_from_async_default(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+
+    root = tmp_path / "widgets"
+    widget_dir = root / "with-async-plugin"
+    widget_dir.mkdir(parents=True)
+    (widget_dir / "widget.tsx").write_text(
+        """
+import { render } from "@belgie/widget";
+import type { Plugin } from "vite";
+
+function markerPlugin(): Plugin {
+  return {
+    name: "belgie-test-marker",
+    transformIndexHtml(html) {
+      return html.replace(
+        "</head>",
+        '<style id="belgie-plugin-marker">.plugin-marker{color:tomato}</style></head>',
+      );
+    },
+  };
+}
+
+function App() {
+  return <p className="plugin-marker">Async plugin widget</p>;
+}
+
+export default async function widget() {
+  return render({
+    plugins: [markerPlugin()],
+    metadata: { title: "Async Plugin" },
+    widget: <App />,
+  });
+}
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = build_widget(root=root, path=Path("with-async-plugin/widget.tsx"), project_path=project)
+    html = result.html
+
+    assert 'id="belgie-plugin-marker"' in html
+    assert ".plugin-marker{color:tomato}" in html
+    assert "Async plugin widget" in html
+    assert 'src="/assets/' not in html
+    assert not (root / "dist").exists()
+    assert not (project / "vite.config.ts").exists()
+    assert not (project / "vite.config.js").exists()

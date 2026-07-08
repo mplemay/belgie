@@ -37,10 +37,12 @@ type BuildOutput = {
   output: Array<OutputAsset | OutputChunk>;
 };
 
+type WidgetModuleResult = {
+  plugins?: PluginOption[];
+};
+
 type WidgetModule = {
-  default: () => {
-    plugins?: PluginOption[];
-  };
+  default: () => WidgetModuleResult | Promise<WidgetModuleResult>;
 };
 
 export type WidgetBuildResult = {
@@ -257,7 +259,7 @@ async function discoverWidgetPlugins(options: {
     if (typeof widgetModule.default !== "function") {
       throw new Error("Belgie widget module must export a default function.");
     }
-    const result = widgetModule.default();
+    const result = await widgetModule.default();
     return flattenPlugins(result?.plugins);
   } finally {
     await server.close();
