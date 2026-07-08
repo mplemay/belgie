@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import react from "@vitejs/plugin-react";
-import { build, type Plugin } from "vite";
+import { build, createServer, type Plugin, type PluginOption } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
 import { renderDocument, renderWidgetBootstrap } from "./html.ts";
@@ -11,6 +11,7 @@ const VIRTUAL_HTML_PATH = "__belgie_virtual__/index.html";
 const VIRTUAL_WIDGET_ENTRY_ID = "belgie:widget-entry";
 const VIRTUAL_SOURCE_WIDGET_ID = "belgie:source-widget";
 const RESOLVED_WIDGET_ENTRY_ID = "\0belgie:widget-entry";
+const VITE_PLUGIN_STUB_PREFIX = "\0belgie:vite-plugin-stub:";
 const EXTERNAL_ASSET_PATTERNS = [
   'src="/assets/',
   'href="/assets/',
@@ -36,6 +37,12 @@ type BuildOutput = {
   output: Array<OutputAsset | OutputChunk>;
 };
 
+type WidgetModule = {
+  default: () => {
+    plugins?: PluginOption[];
+  };
+};
+
 export type WidgetBuildResult = {
   html: string;
   manifest: WidgetRenderManifest;
@@ -57,6 +64,22 @@ function isBarePackageSpecifier(specifier: string): boolean {
     !specifier.startsWith("\0") &&
     !specifier.includes(":")
   );
+}
+
+function isVitePluginPackageSpecifier(specifier: string): boolean {
+  if (!isBarePackageSpecifier(specifier)) {
+    return false;
+  }
+  if (specifier === "@vitejs/plugin-react" || specifier.startsWith("@vitejs/plugin-react/")) {
+    return false;
+  }
+  if (specifier.startsWith("vite-plugin-")) {
+    return true;
+  }
+  if (specifier.endsWith("/vite") || specifier.includes("/vite/")) {
+    return true;
+  }
+  return false;
 }
 
 function belgieVirtualInputPlugin(options: {
@@ -122,6 +145,50 @@ function belgieWidgetDependencyPlugin(options: {
   };
 }
 
+function belgieStubVitePluginsForClient(): Plugin {
+  return {
+    name: "belgie:stub-vite-plugins",
+    enforce: "pre",
+    resolveId(id) {
+      if (!isVitePluginPackageSpecifier(id)) {
+        return null;
+      }
+      return `${VITE_PLUGIN_STUB_PREFIX}${id}`;
+    },
+    load(id) {
+      if (!id.startsWith(VITE_PLUGIN_STUB_PREFIX)) {
+        return null;
+      }
+      return [
+        'export default function stub() {',
+        '  return { name: "belgie:stub" };',
+        "}",
+        "export const __belgieVitePluginStub = true;",
+        "",
+      ].join("\n");
+    },
+  };
+}
+
+function sharedPlugins(options: {
+  projectRoot: string;
+  sourceRoot: string;
+  virtualHtmlId: string;
+  widgetFileId: string;
+}): Plugin[] {
+  return [
+    belgieVirtualInputPlugin({
+      virtualHtmlId: options.virtualHtmlId,
+      widgetFileId: options.widgetFileId,
+    }),
+    belgieWidgetDependencyPlugin({
+      projectRoot: options.projectRoot,
+      widgetSourceRoot: toVitePath(options.sourceRoot),
+    }),
+    react(),
+  ];
+}
+
 function collectOutput(buildResult: unknown): Array<OutputAsset | OutputChunk> {
   const outputs = Array.isArray(buildResult) ? buildResult : [buildResult];
   return outputs.flatMap((result) => (result as BuildOutput).output ?? []);
@@ -148,10 +215,66 @@ function extractHtml(buildResult: unknown): string {
   return html;
 }
 
+function flattenPlugins(plugins: PluginOption[] | undefined): PluginOption[] {
+  if (!plugins) {
+    return [];
+  }
+  return plugins.flatMap((plugin) => {
+    if (plugin == null || plugin === false) {
+      return [];
+    }
+    if (Array.isArray(plugin)) {
+      return flattenPlugins(plugin);
+    }
+    return [plugin];
+  });
+}
+
+async function discoverWidgetPlugins(options: {
+  projectRoot: string;
+  sourceRoot: string;
+  virtualHtmlId: string;
+  widgetFileId: string;
+}): Promise<PluginOption[]> {
+  const server = await createServer({
+    root: options.projectRoot,
+    configFile: false,
+    logLevel: "error",
+    appType: "custom",
+    resolve: {
+      dedupe: ["react", "react-dom"],
+    },
+    plugins: sharedPlugins(options),
+    server: {
+      middlewareMode: true,
+      hmr: false,
+      watch: null,
+      ws: false,
+    },
+  });
+  try {
+    const widgetModule = (await server.ssrLoadModule(options.widgetFileId)) as WidgetModule;
+    if (typeof widgetModule.default !== "function") {
+      throw new Error("Belgie widget module must export a default function.");
+    }
+    const result = widgetModule.default();
+    return flattenPlugins(result?.plugins);
+  } finally {
+    await server.close();
+  }
+}
+
 export async function buildWidget(projectRoot: string, sourceRoot: string, widgetPath: string): Promise<WidgetBuildResult> {
   const normalizedProjectRoot = toVitePath(projectRoot);
   const virtualHtmlId = toVitePath(join(projectRoot, VIRTUAL_HTML_PATH));
   const widgetFileId = toVitePath(resolve(sourceRoot, widgetPath));
+  const shared = {
+    projectRoot: normalizedProjectRoot,
+    sourceRoot,
+    virtualHtmlId,
+    widgetFileId,
+  };
+  const userPlugins = await discoverWidgetPlugins(shared);
   const buildResult = await build({
     root: normalizedProjectRoot,
     configFile: false,
@@ -160,15 +283,9 @@ export async function buildWidget(projectRoot: string, sourceRoot: string, widge
       dedupe: ["react", "react-dom"],
     },
     plugins: [
-      belgieVirtualInputPlugin({
-        virtualHtmlId,
-        widgetFileId,
-      }),
-      belgieWidgetDependencyPlugin({
-        projectRoot: normalizedProjectRoot,
-        widgetSourceRoot: toVitePath(sourceRoot),
-      }),
-      react(),
+      ...sharedPlugins(shared),
+      belgieStubVitePluginsForClient(),
+      ...userPlugins,
       viteSingleFile(),
     ],
     build: {

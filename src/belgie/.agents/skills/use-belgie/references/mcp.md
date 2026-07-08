@@ -88,12 +88,31 @@ function App() {
 }
 
 export default function run() {
-  render({ widget: <App /> });
+  return render({ widget: <App /> });
 }
 ```
 
-Belgie bundles the widget with Vite through the local `@belgie/widget` package into inline HTML served as an MCP app
-resource.
+Pass extra Vite plugins through `render({ plugins })` (for example Tailwind). Add the plugin packages under
+`[tool.belgie.dependencies]` the same way as other widget build deps:
+
+```tsx
+import tailwindcss from "@tailwindcss/vite";
+import { render } from "@belgie/widget";
+
+function App() {
+  return <div className="text-red-500">Hello</div>;
+}
+
+export default function widget() {
+  return render({
+    plugins: [tailwindcss()],
+    widget: <App />,
+  });
+}
+```
+
+Belgie discovers those plugins via Vite SSR, then bundles the widget with Vite through the local `@belgie/widget`
+package into inline HTML served as an MCP app resource. No `vite.config` file or temp project directory is written.
 
 ## Path overrides
 

@@ -92,3 +92,56 @@ export default function widget() {
     assert (project / "deno.lock").is_file()
     assert result.manifest.package_name == "@belgie/widget"
     assert result.manifest.package_version == "0.0.0"
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_build_widget_applies_render_plugins(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+
+    root = tmp_path / "widgets"
+    widget_dir = root / "with-plugin"
+    widget_dir.mkdir(parents=True)
+    (widget_dir / "widget.tsx").write_text(
+        """
+import { render } from "@belgie/widget";
+import type { Plugin } from "vite";
+
+function markerPlugin(): Plugin {
+  return {
+    name: "belgie-test-marker",
+    transformIndexHtml(html) {
+      return html.replace(
+        "</head>",
+        '<style id="belgie-plugin-marker">.plugin-marker{color:tomato}</style></head>',
+      );
+    },
+  };
+}
+
+function App() {
+  return <p className="plugin-marker">Plugin widget</p>;
+}
+
+export default function widget() {
+  return render({
+    plugins: [markerPlugin()],
+    metadata: { title: "Plugin" },
+    widget: <App />,
+  });
+}
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = build_widget(root=root, path=Path("with-plugin/widget.tsx"), project_path=project)
+    html = result.html
+
+    assert 'id="belgie-plugin-marker"' in html
+    assert ".plugin-marker{color:tomato}" in html
+    assert "Plugin widget" in html
+    assert 'src="/assets/' not in html
+    assert not (root / "dist").exists()
+    assert not (project / "vite.config.ts").exists()
+    assert not (project / "vite.config.js").exists()
