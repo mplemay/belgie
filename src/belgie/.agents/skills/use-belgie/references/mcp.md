@@ -22,10 +22,6 @@ uv run belgie install
 `BelgieExtension` loads `[tool.belgie.dependencies]` from the nearest `pyproject.toml` and requires an installed
 `deno.lock` at the project root. Widget builds fail without both.
 
-On Windows, Belgie installs Rollup's WASM build (`@rollup/wasm-node`) instead of the native addon. Vite 6.1 depends on
-Rollup, and native Rollup binaries require Node-API symbols from the host executable. Belgie's embedded Deno runtime
-runs inside a Python extension module, so the native addon cannot resolve those symbols on Windows.
-
 ## Project layout
 
 ```text

@@ -384,6 +384,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
+ "cc",
  "chrono",
  "deno_ast",
  "deno_cache_dir",
@@ -429,6 +430,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "windows-sys 0.59.0",
  "yaml_parser",
 ]
 

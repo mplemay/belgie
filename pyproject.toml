@@ -59,11 +59,12 @@ python-source = "src"
 exclude = ["**/__tests__/**"]
 include = [
     { path = "src/belgie/mcp/_widget_package/**/*", format = "wheel" },
+    { path = "libnode.dll", from = "out-dir", to = "belgie/", crate-name = "belgie", format = "wheel" },
 ]
 features = ["extension-module"]
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }, { file = "build.rs" }, { file = "napi/**/*" }]
 exclude-newer = "7 days"
 exclude-newer-package = { pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false, mcp = false, mcp-types = false }
 

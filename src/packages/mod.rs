@@ -16,8 +16,6 @@ use crate::embed::sys::EmbedSys;
 use crate::utils::symlink::remove_symlink_if_present;
 
 pub(crate) const EMPTY_DENO_LOCK: &str = "{\"version\":\"5\"}\n";
-#[cfg(windows)]
-pub(crate) const ROLLUP_WASM_NODE_OVERRIDE: &str = "npm:@rollup/wasm-node";
 pub(crate) const BELGIE_DIR: &str = ".belgie";
 const LOCAL_FILE_DEPS_STATE: &str = "local-file-deps.json";
 const LOCAL_PACKAGE_MARKER: &str = ".belgie-local-package";
@@ -560,68 +558,6 @@ fn remove_legacy_local_file_state(install_root: &Path) -> Result<(), AnyError> {
     Ok(())
 }
 
-pub(crate) fn ensure_windows_rollup_wasm_override(
-    install_root: &Path,
-) -> Result<Option<PathBuf>, AnyError> {
-    #[cfg(not(windows))]
-    {
-        let _ = install_root;
-        Ok(None)
-    }
-
-    #[cfg(windows)]
-    {
-        let package_json_path = install_root.join("package.json");
-        let mut value = if package_json_path.is_file() {
-            let text = std::fs::read_to_string(&package_json_path)
-                .with_context(|| format!("Reading {}", package_json_path.display()))?;
-            serde_json::from_str(&text)
-                .with_context(|| format!("Parsing {}", package_json_path.display()))?
-        } else {
-            serde_json::json!({
-                "private": true,
-                "overrides": {
-                    "rollup": ROLLUP_WASM_NODE_OVERRIDE,
-                },
-            })
-        };
-
-        if package_json_path.is_file() {
-            let Some(obj) = value.as_object_mut() else {
-                bail!(
-                    "Invalid package.json at {}: expected a JSON object",
-                    package_json_path.display()
-                );
-            };
-            let overrides = obj
-                .entry("overrides".to_string())
-                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-            let Some(overrides_obj) = overrides.as_object_mut() else {
-                bail!(
-                    "Invalid package.json at {}: \"overrides\" must be an object",
-                    package_json_path.display()
-                );
-            };
-            overrides_obj.insert(
-                "rollup".to_string(),
-                serde_json::Value::String(ROLLUP_WASM_NODE_OVERRIDE.to_string()),
-            );
-        }
-
-        std::fs::create_dir_all(install_root)
-            .with_context(|| format!("Creating {}", install_root.display()))?;
-        let serialized =
-            serde_json::to_string_pretty(&value).context("Serializing package.json overrides")?;
-        std::fs::write(&package_json_path, format!("{serialized}\n"))
-            .with_context(|| format!("Writing {}", package_json_path.display()))?;
-
-        let absolute = std::path::absolute(&package_json_path)
-            .map(deno_path_util::strip_unc_prefix)
-            .with_context(|| format!("Resolving {}", package_json_path.display()))?;
-        Ok(Some(absolute))
-    }
-}
-
 fn is_legacy_belgie_synthetic_package_json(value: &serde_json::Value) -> bool {
     let Some(obj) = value.as_object() else {
         return false;
@@ -1085,66 +1021,6 @@ mod tests {
         remove_legacy_synthetic_package_json(&package_json_path).unwrap();
 
         assert_eq!(fs::read_to_string(package_json_path).unwrap(), contents);
-    }
-
-    #[test]
-    fn ensure_windows_rollup_wasm_override_is_noop_off_windows() {
-        #[cfg(not(windows))]
-        {
-            let temp_dir = tempfile::tempdir().unwrap();
-            assert!(
-                ensure_windows_rollup_wasm_override(temp_dir.path())
-                    .unwrap()
-                    .is_none()
-            );
-            assert!(!temp_dir.path().join("package.json").exists());
-        }
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn ensure_windows_rollup_wasm_override_writes_private_manifest() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let package_json_path = ensure_windows_rollup_wasm_override(temp_dir.path())
-            .unwrap()
-            .expect("windows override manifest");
-
-        let value: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&package_json_path).unwrap()).unwrap();
-        assert_eq!(value["private"], serde_json::Value::Bool(true));
-        assert_eq!(
-            value["overrides"]["rollup"],
-            serde_json::Value::String(ROLLUP_WASM_NODE_OVERRIDE.to_string())
-        );
-        assert!(!is_legacy_belgie_synthetic_package_json(&value));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn ensure_windows_rollup_wasm_override_merges_existing_manifest() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let package_json_path = temp_dir.path().join("package.json");
-        fs::write(
-            &package_json_path,
-            r#"{
-  "name": "project",
-  "dependencies": {
-    "vite": "6.1.0"
-  }
-}
-"#,
-        )
-        .unwrap();
-
-        ensure_windows_rollup_wasm_override(temp_dir.path()).unwrap();
-
-        let value: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(package_json_path).unwrap()).unwrap();
-        assert_eq!(value["name"], "project");
-        assert_eq!(
-            value["overrides"]["rollup"],
-            serde_json::Value::String(ROLLUP_WASM_NODE_OVERRIDE.to_string())
-        );
     }
 
     #[test]

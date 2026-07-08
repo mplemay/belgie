@@ -88,7 +88,6 @@ export default function widget() {
     assert result.manifest.package_version == "0.0.0"
 
 
-@SKIP_WIN32_VITE_NATIVE
 def test_build_widget_applies_render_plugins(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
@@ -141,7 +140,6 @@ export default function widget() {
     assert not (project / "vite.config.js").exists()
 
 
-@SKIP_WIN32_VITE_NATIVE
 def test_build_widget_applies_render_plugins_from_async_default(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()

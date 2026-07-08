@@ -26,6 +26,7 @@ ROLLUP_NATIVE_PACKAGES: Final[dict[tuple[str, str], str]] = {
     ("darwin", "x86_64"): "@rollup/rollup-darwin-x64",
     ("linux", "aarch64"): "@rollup/rollup-linux-arm64-gnu",
     ("linux", "x86_64"): "@rollup/rollup-linux-x64-gnu",
+    ("win32", "AMD64"): "@rollup/rollup-win32-x64-msvc",
 }
 
 

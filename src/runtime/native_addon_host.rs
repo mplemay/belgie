@@ -77,7 +77,127 @@ mod imp {
     }
 }
 
-#[cfg(not(all(unix, feature = "extension-module")))]
+#[cfg(all(windows, feature = "extension-module"))]
+mod imp {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Path, PathBuf};
+    use std::sync::OnceLock;
+
+    use windows_sys::Win32::Foundation::HMODULE;
+    use windows_sys::Win32::System::LibraryLoader::{
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        GetModuleFileNameW, GetModuleHandleExW, GetProcAddress, LoadLibraryW,
+    };
+
+    use crate::types::error::BindingError;
+
+    const LIBNODE_DLL: &str = "libnode.dll";
+    const NAPI_PROBE_SYMBOL: &[u8] = b"napi_create_int32\0";
+
+    static LOAD_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
+
+    pub(crate) fn ensure_symbols_visible() -> Result<(), BindingError> {
+        match LOAD_RESULT.get_or_init(load_libnode_forwarder) {
+            Ok(()) => Ok(()),
+            Err(message) => Err(BindingError::runtime(message.clone())),
+        }
+    }
+
+    fn load_libnode_forwarder() -> Result<(), String> {
+        let core_path = current_library_path()?;
+        let libnode_path = core_path
+            .parent()
+            .ok_or_else(|| {
+                format!(
+                    "Could not resolve parent directory for Belgie runtime at {}",
+                    core_path.display()
+                )
+            })?
+            .join(LIBNODE_DLL);
+        if !libnode_path.is_file() {
+            return Err(format!(
+                "Missing {LIBNODE_DLL} next to Belgie runtime at {}",
+                core_path.display()
+            ));
+        }
+        let handle = load_library(&libnode_path)?;
+        probe_napi_symbol(handle, &libnode_path)?;
+        Ok(())
+    }
+
+    fn current_library_path() -> Result<PathBuf, String> {
+        let mut handle = 0;
+        let symbol = load_libnode_forwarder as *const () as *const std::ffi::c_void;
+        // SAFETY: symbol is a function in the loaded extension and out handle is valid.
+        let found = unsafe {
+            GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                    | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                symbol,
+                &mut handle,
+            )
+        };
+        if found == 0 || handle == 0 {
+            return Err(
+                "Could not locate the loaded Belgie runtime library on Windows".to_string(),
+            );
+        }
+        module_path(handle)
+    }
+
+    fn module_path(handle: HMODULE) -> Result<PathBuf, String> {
+        let mut buffer = vec![0u16; 32_768];
+        // SAFETY: handle came from GetModuleHandleExW and buffer is valid.
+        let length =
+            unsafe { GetModuleFileNameW(handle, buffer.as_mut_ptr(), buffer.len() as u32) };
+        if length == 0 || length as usize >= buffer.len() {
+            return Err("Could not resolve Belgie runtime path on Windows".to_string());
+        }
+        buffer.truncate(length as usize);
+        Ok(PathBuf::from(OsString::from_wide(&buffer)))
+    }
+
+    fn load_library(path: &Path) -> Result<HMODULE, String> {
+        let wide = wide_path(path)?;
+        // SAFETY: wide path is null-terminated UTF-16 for LoadLibraryW.
+        let handle = unsafe { LoadLibraryW(wide.as_ptr()) };
+        if handle == 0 {
+            return Err(format!(
+                "Could not load {} for native npm addons",
+                path.display()
+            ));
+        }
+        Ok(handle)
+    }
+
+    fn probe_napi_symbol(handle: HMODULE, path: &Path) -> Result<(), String> {
+        // SAFETY: handle is a loaded module and the symbol name is static.
+        let symbol = unsafe { GetProcAddress(handle, NAPI_PROBE_SYMBOL.as_ptr()) };
+        if symbol == 0 {
+            return Err(format!(
+                "Loaded {} but could not resolve Node-API exports",
+                path.display()
+            ));
+        }
+        Ok(())
+    }
+
+    fn wide_path(path: &Path) -> Result<Vec<u16>, String> {
+        let mut wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+        if wide.len() == 1 {
+            return Err(format!("Invalid library path {}", path.display()));
+        }
+        Ok(wide)
+    }
+
+    use std::ffi::OsString;
+}
+
+#[cfg(not(any(
+    all(unix, feature = "extension-module"),
+    all(windows, feature = "extension-module")
+)))]
 mod imp {
     use crate::types::error::BindingError;
 

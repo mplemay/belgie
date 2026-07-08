@@ -15,9 +15,8 @@ use crate::options::{EnvironmentOptions, RuntimeWorkerOptions};
 use crate::packages::{
     DependencyLayout, EMPTY_DENO_LOCK, EnvironmentInstallResult, EnvironmentUpdateRequest,
     EnvironmentUpdateResult, PackageDependency, dependencies_from_mapping,
-    ensure_windows_rollup_wasm_override, has_legacy_local_file_state, install_environment_packages,
-    local_file_dependency_install_roots, specified_import_map, sync_local_file_dependencies,
-    update_environment_packages,
+    has_legacy_local_file_state, install_environment_packages, local_file_dependency_install_roots,
+    specified_import_map, sync_local_file_dependencies, update_environment_packages,
 };
 
 #[derive(Clone, Debug)]
@@ -418,10 +417,6 @@ fn prepare_install_layout(
             &definition.workspace,
             definition.cache.as_ref(),
         )?);
-    }
-
-    if let Some(package_json) = ensure_windows_rollup_wasm_override(install_root)? {
-        embed_options.config_discovery_package_json = Some(package_json);
     }
 
     Ok(InstallLayout {
@@ -979,38 +974,6 @@ mod tests {
             Some(deno_config::deno_json::NewestDependencyDate::Disabled),
         ));
         assert!(install_root.join("package-lock.json").is_file());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn install_layout_enables_rollup_wasm_override_on_windows() {
-        let folder = tempfile::tempdir().unwrap();
-        let workspace = folder.path().join("workspace");
-        let install_root = folder.path().join("install");
-        std::fs::create_dir_all(&workspace).unwrap();
-        std::fs::create_dir_all(&install_root).unwrap();
-        let definition = EnvironmentDefinition::from_mapping(
-            workspace,
-            None,
-            BTreeMap::from([("vite".to_string(), "npm:vite@6.1.0".to_string())]),
-            None,
-            None,
-        )
-        .unwrap();
-
-        let layout = prepare_install_layout(&install_root, &definition).unwrap();
-
-        let package_json = layout
-            .embed_options
-            .config_discovery_package_json
-            .expect("windows config discovery package.json");
-        assert!(package_json.is_file());
-        let value: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(package_json).unwrap()).unwrap();
-        assert_eq!(
-            value["overrides"]["rollup"],
-            serde_json::Value::String(crate::packages::ROLLUP_WASM_NODE_OVERRIDE.to_string())
-        );
     }
 
     #[test]
