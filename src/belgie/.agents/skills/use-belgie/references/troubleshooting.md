@@ -25,6 +25,8 @@ Classify the issue before editing:
    - Missing `[tool.belgie.dependencies]` entries.
    - Missing `deno.lock` (run `belgie lock` / `belgie install`).
    - Widget `path=` not aligned with `[tool.belgie.source]`.
+   - On Windows, Vite/Rollup widget builds require Belgie's Rollup WASM override (handled automatically during
+     `install()`).
 
 If belgie is not wired yet, use [quickstart.md](quickstart.md) and [adoption.md](adoption.md) first.
 
@@ -119,6 +121,7 @@ asyncio.run(main())
 | Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
 | `No [tool.belgie.dependencies] entries found` | MCP widget build without declared JS deps | Add `[tool.belgie.dependencies]` to pyproject | Inspect pyproject tables |
 | `Missing Belgie lockfile` | Widget build before `belgie install` | Run `belgie lock` then `belgie install` | Confirm `deno.lock` exists at project root |
+| `parseAsync is not a function` / `Node-API symbol` (Windows, non-Vite) | Native npm addon under embedded Python host | Use a WASM/JS alternative or run outside Belgie | Confirm package loads a `.node` binary |
 | `Widget paths must be relative` | Absolute widget `path=` | Use a path relative to `[tool.belgie.source]` | Inspect `@tool(path=...)` |
 | `must stay inside the BelgieExtension root` | Widget `path=` escapes source root | Fix `path=` or `[tool.belgie.source]` | Confirm resolved file exists under source |
 

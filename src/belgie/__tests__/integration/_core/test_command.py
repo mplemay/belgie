@@ -26,11 +26,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.integration
 
-SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="Vite build loads Rollup's native Node-API addon",
-)
-
 
 def test_environment_runtime_keeps_all_script_and_command_workers_snapshot_backed(
     tmp_path,
@@ -112,7 +107,6 @@ async def test_relative_deno_dir_reuses_cache_for_nested_command_cwd(
     assert not (tmp_path / "subdir" / ".deno_cache").exists()
 
 
-@SKIP_WIN32_VITE_NATIVE
 async def test_vite_nested_path_installs_persisted_node_modules(
     isolated_project_cwd: Path,
 ) -> None:
@@ -161,7 +155,6 @@ export default defineConfig({
     assert node_modules.is_dir()
 
 
-@SKIP_WIN32_VITE_NATIVE
 async def test_vite_command_refreshes_scoped_local_file_dependency_for_nested_cwd(
     isolated_project_cwd: Path,
     local_vite_plugin_package,
@@ -204,7 +197,6 @@ export default defineConfig({
     assert (frontend / "output" / "index.html").is_file()
 
 
-@SKIP_WIN32_VITE_NATIVE
 async def test_vite_build_forwards_arguments_and_uses_nested_cwd_and_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -232,8 +224,8 @@ export default {};
     assert environ["BELGIE_COMMAND_TEST"] == "original"
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific command cwd normalization")
-async def test_windows_vite_build_reaches_rollup_with_normalized_cwd_before_node_api_host_limit(
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific Vite build path normalization")
+async def test_windows_vite_build_completes_with_normalized_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capfd: pytest.CaptureFixture[str],
@@ -243,13 +235,11 @@ async def test_windows_vite_build_reaches_rollup_with_normalized_cwd_before_node
     capfd.readouterr()
 
     async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
-        with pytest.raises(BelgieRuntimeError):
-            await runtime(Command("vite"))("build")
+        await runtime(Command("vite"))("build", "--outDir", "output")
 
     stderr = capfd.readouterr().err.replace("\\", "/")
-    assert "Node-API symbol" in stderr
-    assert "parseAsync is not a function" in stderr
     assert "/?/C:/" not in stderr
+    assert (tmp_path / "output" / "index.html").is_file()
 
 
 async def test_missing_command_and_nonzero_exit_raise_runtime_errors(

@@ -230,6 +230,7 @@ pub(crate) struct EmbedContextOptions {
     pub unsafely_ignore_certificate_errors: Option<Vec<String>>,
     pub specified_import_map: Option<SpecifiedImportMap>,
     pub install_graph_roots: Vec<ModuleSpecifier>,
+    pub config_discovery_package_json: Option<PathBuf>,
 }
 
 impl Default for EmbedContextOptions {
@@ -256,6 +257,7 @@ impl Default for EmbedContextOptions {
             unsafely_ignore_certificate_errors: None,
             specified_import_map: None,
             install_graph_roots: Vec::new(),
+            config_discovery_package_json: None,
         }
     }
 }
@@ -330,11 +332,17 @@ impl EmbedContext {
             }
         });
 
+        let config_discovery = options
+            .config_discovery_package_json
+            .clone()
+            .map(ConfigDiscoveryOption::Path)
+            .unwrap_or(ConfigDiscoveryOption::Disabled);
+
         let workspace_factory = Arc::new(WorkspaceFactory::new(
             sys.clone(),
             cwd.clone(),
             WorkspaceFactoryOptions {
-                config_discovery: ConfigDiscoveryOption::Disabled,
+                config_discovery,
                 lock_arg: Some(lockfile.clone()),
                 is_package_manager_subcommand: options.is_package_manager_subcommand,
                 frozen_lockfile: options.frozen_lockfile,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from importlib.resources import as_file, files
 from pathlib import Path
 
@@ -11,10 +10,6 @@ from belgie.mcp._builder import build_widget
 
 pytestmark = pytest.mark.integration
 
-SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="Vite build loads Rollup's native Node-API addon",
-)
 
 VITE_VERSION = "6.1.0"
 REACT_VERSION = "^19"
@@ -50,7 +45,6 @@ def install_widget_project(project: Path) -> None:
         env.install()
 
 
-@SKIP_WIN32_VITE_NATIVE
 def test_build_widget_html_returns_inline_html_document(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
