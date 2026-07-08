@@ -116,44 +116,103 @@ fn link_libnode_forwarder(def_path: &Path, output_path: &Path) -> Result<(), Str
 fn find_msvc_link_exe() -> Result<PathBuf, String> {
     let host = env::var("HOST").unwrap_or_default();
     let target = env::var("TARGET").unwrap_or_default();
-    let mut search_dirs = Vec::new();
-    if let Ok(path) = env::var("PATH") {
-        search_dirs.extend(env::split_paths(&path));
-    }
-    for key in ["VCINSTALLDIR", "VCToolsInstallDir"] {
-        if let Ok(root) = env::var(key) {
-            search_dirs.push(PathBuf::from(root));
-        }
+
+    if let Some(linker) = find_link_exe_via_cc(&host, &target) {
+        return Ok(linker);
     }
 
-    for dir in search_dirs {
-        let candidate = dir.join("link.exe");
+    for candidate in msvc_link_candidates_from_vc_env(&host, &target) {
         if candidate.is_file() {
             return Ok(candidate);
         }
     }
 
+    if let Ok(path) = env::var("PATH") {
+        for dir in env::split_paths(&path) {
+            let candidate = dir.join("link.exe");
+            if candidate.is_file() && is_msvc_link_exe(&candidate) {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    Err(format!(
+        "Could not find MSVC link.exe (host={host}, target={target})"
+    ))
+}
+
+fn find_link_exe_via_cc(host: &str, target: &str) -> Option<PathBuf> {
     let mut cc_builder = cc::Build::new();
-    cc_builder.target(&target);
-    cc_builder.host(&host);
+    cc_builder.target(target);
+    cc_builder.host(host);
     let compiler = cc_builder.get_compiler();
     let compiler_path = PathBuf::from(compiler.path());
-    let tool_root = compiler_path.parent().ok_or_else(|| {
-        format!(
-            "Could not determine MSVC tool directory from {}",
-            compiler_path.display()
-        )
-    })?;
+    let tool_root = compiler_path.parent()?;
     let linker = tool_root.join(if compiler.is_like_msvc() {
         "link.exe"
     } else {
         "lld-link.exe"
     });
-    if linker.is_file() {
-        return Ok(linker);
+    linker.is_file().then_some(linker)
+}
+
+fn msvc_link_candidates_from_vc_env(host: &str, target: &str) -> Vec<PathBuf> {
+    let host_arch = msvc_arch_name(host);
+    let target_arch = msvc_arch_name(target);
+    let relative_bins = [
+        PathBuf::from(format!("bin/Host{host_arch}/{target_arch}/link.exe")),
+        PathBuf::from(format!("bin/Host{host_arch}/{host_arch}/link.exe")),
+        PathBuf::from("bin/Hostx64/x64/link.exe"),
+        PathBuf::from("bin/Hostx86/x86/link.exe"),
+    ];
+
+    let mut candidates = Vec::new();
+    for key in ["VCToolsInstallDir", "VCINSTALLDIR"] {
+        let Ok(root) = env::var(key) else {
+            continue;
+        };
+        let root = PathBuf::from(root);
+        for relative in &relative_bins {
+            candidates.push(root.join(relative));
+        }
+        // VCINSTALLDIR points at the VC root; tools live under Tools\MSVC\<ver>\.
+        if key == "VCINSTALLDIR" {
+            let tools_msvc = root.join("Tools").join("MSVC");
+            if let Ok(entries) = fs::read_dir(&tools_msvc) {
+                for entry in entries.flatten() {
+                    let version_root = entry.path();
+                    for relative in &relative_bins {
+                        candidates.push(version_root.join(relative));
+                    }
+                }
+            }
+        }
     }
-    Err(format!(
-        "Could not find MSVC link.exe (compiler path: {})",
-        compiler_path.display()
-    ))
+    candidates
+}
+
+fn msvc_arch_name(triple: &str) -> &'static str {
+    match triple.split('-').next().unwrap_or(triple) {
+        "aarch64" | "arm64" => "arm64",
+        "i686" | "i586" | "x86" => "x86",
+        _ => "x64",
+    }
+}
+
+fn is_msvc_link_exe(path: &Path) -> bool {
+    let normalized = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    // Git for Windows ships GNU coreutils link.exe on PATH; reject it and similar traps.
+    if normalized.contains("\\git\\usr\\bin\\") || normalized.contains("\\git\\bin\\") {
+        return false;
+    }
+    if normalized.contains("\\vc\\tools\\msvc\\") {
+        return true;
+    }
+    // Accept PATH entries that sit next to cl.exe (typical developer command prompt layout).
+    path.parent()
+        .map(|dir| dir.join("cl.exe").is_file())
+        .unwrap_or(false)
 }
