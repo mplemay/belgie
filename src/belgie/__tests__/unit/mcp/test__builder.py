@@ -9,7 +9,7 @@ from belgie.mcp._builder import (
     _load_project_dependencies,
     _normalize_base_url,
     _require_installed,
-    _resolve_mcp_package_path,
+    _require_mcp_package,
     _resolve_project_path,
 )
 
@@ -76,7 +76,7 @@ def test_resolve_project_path_resolves_explicit_path(tmp_path: Path) -> None:
     assert _resolve_project_path(project) == project.resolve()
 
 
-def test_resolve_mcp_package_path_reads_file_dependency(tmp_path: Path) -> None:
+def test_require_mcp_package_accepts_file_dependency(tmp_path: Path) -> None:
     mcp_dir = tmp_path / "packages" / "mcp"
     mcp_dir.mkdir(parents=True)
     (tmp_path / "pyproject.toml").write_text(
@@ -88,10 +88,23 @@ react = "npm:react@^19"
         encoding="utf-8",
     )
 
-    assert _resolve_mcp_package_path(tmp_path) == mcp_dir.resolve()
+    _require_mcp_package(tmp_path)
 
 
-def test_resolve_mcp_package_path_rejects_missing_dependency(tmp_path: Path) -> None:
+def test_require_mcp_package_accepts_npm_dependency(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[tool.belgie.dependencies]
+"@belgie/mcp" = "npm:@belgie/mcp@0.1.0"
+react = "npm:react@^19"
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    _require_mcp_package(tmp_path)
+
+
+def test_require_mcp_package_rejects_missing_dependency(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
         """
 [tool.belgie.dependencies]
@@ -101,20 +114,7 @@ react = "npm:react@^19"
     )
 
     with pytest.raises(PyprojectError, match="@belgie/mcp"):
-        _resolve_mcp_package_path(tmp_path)
-
-
-def test_resolve_mcp_package_path_rejects_non_file_dependency(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[tool.belgie.dependencies]
-"@belgie/mcp" = "npm:@belgie/mcp@0.0.0"
-""".lstrip(),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(PyprojectError, match="must be a file: dependency"):
-        _resolve_mcp_package_path(tmp_path)
+        _require_mcp_package(tmp_path)
 
 
 def test_normalize_base_url_accepts_http_urls() -> None:

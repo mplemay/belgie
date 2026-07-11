@@ -175,7 +175,7 @@ Load only the most relevant reference first. Read additional references only if 
 - Install with `uv add belgie` (`belgie[mcp]` for MCP, `belgie[cli]` for CLI).
 - Import script packages inline with `npm:`, `jsr:`, or URL specifiers; do not put JavaScript dependencies in Python
   `[project.dependencies]`.
-- Use `[tool.belgie.dependencies]` for Belgie-managed JS packages (including `@belgie/mcp` as a `file:` dep).
+- Use `[tool.belgie.dependencies]` for Belgie-managed JS packages (including `@belgie/mcp` as an npm or `file:` dep).
 - Add `belgie()` from `@belgie/mcp/vite` to `vite.config.ts`; run `belgie lock` / `belgie install` then `vite build`
   before `BelgieExtension(base_url=...)`.
 - Export a callable from every JS module (`export default function run(...)` or `export default () => ...`).

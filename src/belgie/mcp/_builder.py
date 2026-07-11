@@ -23,13 +23,14 @@ MCP_PACKAGE_NAME: Final[str] = "@belgie/mcp"
 MISSING_PROJECT_DEPENDENCIES_ERROR: Final[str] = "No [tool.belgie.dependencies] entries found in {pyproject}"
 MISSING_LOCKFILE_ERROR: Final[str] = "Missing Belgie lockfile at {lockfile}; run `belgie install`"
 MISSING_MCP_PACKAGE_ERROR: Final[str] = (
-    "Missing {package} file: dependency in [tool.belgie.dependencies]; "
-    "declare it as a local path to the @belgie/mcp package"
-)
-INVALID_MCP_PACKAGE_ERROR: Final[str] = (
-    "{package} must be a file: dependency pointing at the local @belgie/mcp package, got {specifier!r}"
+    "Missing {package} in [tool.belgie.dependencies]; declare an npm or file: dependency"
 )
 INVALID_BASE_URL_ERROR: Final[str] = "base_url must be an absolute http(s) URL, got {base_url!r}"
+MANIFEST_SCRIPT: Final[str] = (
+    'import { loadWidgetManifest } from "@belgie/mcp/manifest";\n'
+    "export default (projectRoot: string, baseUrl: string) => "
+    "loadWidgetManifest(projectRoot, baseUrl);\n"
+)
 
 
 class WidgetEntry(BaseModel):
@@ -54,14 +55,13 @@ def load_widget_manifest(
 ) -> WidgetManifest:
     normalized_base_url = _normalize_base_url(base_url)
     resolved_project_path = _resolve_project_path(project_path)
-    mcp_package_path = _resolve_mcp_package_path(resolved_project_path)
+    _require_mcp_package(resolved_project_path)
     with (
         _use_environment(environment, project_path=resolved_project_path) as env,
         Runtime(env=env) as runtime,
     ):
-        manifest_script = Script.from_file(mcp_package_path / "run-manifest.ts")
         return WidgetManifest.model_validate(
-            runtime(manifest_script)(
+            runtime(Script(MANIFEST_SCRIPT))(
                 str(resolved_project_path),
                 normalized_base_url,
             ),
@@ -80,20 +80,11 @@ def _resolve_project_path(path: Path | None) -> Path:
     return (Path.cwd() if path is None else Path(path)).resolve()
 
 
-def _resolve_mcp_package_path(project_path: Path) -> Path:
+def _require_mcp_package(project_path: Path) -> None:
     dependencies = _load_project_dependencies(project_path)
-    specifier = dependencies.get(MCP_PACKAGE_NAME)
-    if specifier is None:
+    if MCP_PACKAGE_NAME not in dependencies:
         msg = MISSING_MCP_PACKAGE_ERROR.format(package=MCP_PACKAGE_NAME)
         raise PyprojectError(msg)
-    if not specifier.startswith("file:"):
-        msg = INVALID_MCP_PACKAGE_ERROR.format(package=MCP_PACKAGE_NAME, specifier=specifier)
-        raise PyprojectError(msg)
-    path = Path(specifier.removeprefix("file:"))
-    if not path.is_dir():
-        msg = INVALID_MCP_PACKAGE_ERROR.format(package=MCP_PACKAGE_NAME, specifier=specifier)
-        raise PyprojectError(msg)
-    return path
 
 
 def _load_project_dependencies(project_path: Path) -> dict[str, str]:

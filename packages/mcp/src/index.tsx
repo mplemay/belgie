@@ -17,7 +17,7 @@ export type RenderResult = {
 
 export function render({ metadata, root, widget }: RenderOptions): RenderResult {
   if (typeof document === "undefined" || typeof window === "undefined") {
-    return { metadata };
+    return metadata === undefined ? {} : { metadata };
   }
 
   if (metadata?.title) {
@@ -25,7 +25,7 @@ export function render({ metadata, root, widget }: RenderOptions): RenderResult 
   }
 
   createRoot(resolveRoot(root)).render(widget);
-  return { metadata };
+  return metadata === undefined ? {} : { metadata };
 }
 
 function resolveRoot(root: HTMLElement | string | null | undefined): HTMLElement {

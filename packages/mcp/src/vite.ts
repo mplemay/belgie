@@ -1,26 +1,50 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
+import type { Plugin, ResolvedConfig, UserConfig } from "vite";
+
 import { buildVirtualEntry, renderWidgetHtmlDocument } from "./html.js";
 import {
   assertUniqueWidgetNames,
   discoverWidgetsSync,
   scanWidgetsSync,
+  type WidgetCandidate,
 } from "./scan-widgets.js";
 import { hasDefaultExport } from "./validate-widget.js";
 
 const VIRTUAL_PREFIX = "/_belgie/widget/";
 const VIRTUAL_MODULE_PREFIX = "\0belgie:widget:";
 
-function getWidgetEntryPattern(srcDir) {
+export type BelgiePluginOptions = {
+  srcDir?: string;
+};
+
+type ViteManifestChunk = {
+  file: string;
+  css?: string[];
+  isEntry?: boolean;
+};
+
+type ViteManifest = Record<string, ViteManifestChunk>;
+
+type RollupInput = string | string[] | Record<string, string>;
+
+type WriteWidgetHtmlOptions = {
+  outDir: string;
+  base: string;
+  widgets: WidgetCandidate[];
+  manifest: ViteManifest;
+};
+
+function getWidgetEntryPattern(srcDir: string): RegExp {
   const escaped = srcDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(
     `${escaped}\\/(?:[^/]+\\.(?:jsx|tsx)|[^/]+\\/index\\.(?:tsx|jsx))(?:\\?.*)?$`,
   );
 }
 
-function mergeRollupInput(existing, widgets) {
-  const input = {};
+function mergeRollupInput(existing: RollupInput | undefined, widgets: WidgetCandidate[]): Record<string, string> {
+  const input: Record<string, string> = {};
   if (typeof existing === "string") {
     input.main = existing;
   } else if (Array.isArray(existing)) {
@@ -36,7 +60,7 @@ function mergeRollupInput(existing, widgets) {
   return input;
 }
 
-function assetHref(fileName, base) {
+function assetHref(fileName: string, base: string): string {
   const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
   const path = fileName.startsWith("/") ? fileName : `/${fileName}`;
   if (!normalizedBase || normalizedBase === ".") {
@@ -45,7 +69,7 @@ function assetHref(fileName, base) {
   return `${normalizedBase}${path}`;
 }
 
-function writeWidgetHtmlFiles(options) {
+function writeWidgetHtmlFiles(options: WriteWidgetHtmlOptions): void {
   for (const widget of options.widgets) {
     const chunk =
       options.manifest[`${widget.name}.js`] ??
@@ -65,21 +89,21 @@ function writeWidgetHtmlFiles(options) {
   }
 }
 
-export function belgie(options = {}) {
+export function belgie(options: BelgiePluginOptions = {}): Plugin {
   const rawSrcDir = options.srcDir ?? "src/widgets";
   let resolvedSrcDir = "";
   let projectRoot = "";
   let outDir = "";
   let base = "/";
-  let widgetMap = new Map();
-  let widgetEntryPattern;
+  let widgetMap = new Map<string, WidgetCandidate>();
+  let widgetEntryPattern: RegExp | undefined;
 
   return {
     name: "belgie",
     enforce: "pre",
     api: { srcDir: rawSrcDir },
 
-    config(config) {
+    config(config: UserConfig) {
       projectRoot = config.root || process.cwd();
       resolvedSrcDir = isAbsolute(rawSrcDir) ? rawSrcDir : resolve(projectRoot, rawSrcDir);
       widgetEntryPattern = getWidgetEntryPattern(resolvedSrcDir);
@@ -87,7 +111,7 @@ export function belgie(options = {}) {
       const widgets = discoverWidgetsSync(resolvedSrcDir);
       widgetMap = new Map(widgets.map((widget) => [widget.name, widget]));
 
-      const existingInput = config.build?.rollupOptions?.input;
+      const existingInput = config.build?.rollupOptions?.input as RollupInput | undefined;
       const input = mergeRollupInput(existingInput, widgets);
 
       return {
@@ -112,7 +136,7 @@ export function belgie(options = {}) {
       };
     },
 
-    configResolved(config) {
+    configResolved(config: ResolvedConfig) {
       projectRoot = config.root;
       outDir = config.build.outDir;
       base = config.base;
@@ -154,7 +178,7 @@ export function belgie(options = {}) {
       }
       const source = manifestAsset.source;
       const manifestJson = typeof source === "string" ? source : new TextDecoder().decode(source);
-      const manifest = JSON.parse(manifestJson);
+      const manifest = JSON.parse(manifestJson) as ViteManifest;
       writeWidgetHtmlFiles({
         outDir,
         base,
@@ -172,7 +196,7 @@ export function belgie(options = {}) {
       }
 
       server.watcher.add(resolvedSrcDir);
-      let knownInvalid = new Set();
+      let knownInvalid = new Set<string>();
       const rescan = () => {
         try {
           const { valid, invalid } = scanWidgetsSync(resolvedSrcDir);

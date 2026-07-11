@@ -61,13 +61,13 @@ my-mcp-app/
 
 ```toml
 [tool.belgie.dependencies]
-"@belgie/mcp" = "file:path/to/packages/mcp"
+"@belgie/mcp" = "npm:@belgie/mcp@^0.1.0"
 react = "npm:react@^19"
 vite = "npm:vite@6.1.0"
 "@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^4"
 ```
 
-Declare `@belgie/mcp` as a `file:` dependency pointing at the local `@belgie/mcp` package. Add `belgie()` to
+Declare `@belgie/mcp` as an npm dependency (or a `file:` path to a built local package). Add `belgie()` to
 `vite.config.ts`, run `vite build`, then serve `dist` (for example with FastAPI `app.frontend()`).
 
 JavaScript packages for scripts belong in `Environment({...})` or `[tool.belgie.dependencies]`, not in Python

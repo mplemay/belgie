@@ -3,7 +3,21 @@ import { basename, dirname, parse, resolve } from "node:path";
 
 import { hasDefaultExport } from "./validate-widget.js";
 
-export function scanWidgetsSync(srcDir) {
+export type WidgetCandidate = {
+  name: string;
+  filePath: string;
+};
+
+export type InvalidWidget = {
+  filePath: string;
+};
+
+export type WidgetScanResult = {
+  valid: WidgetCandidate[];
+  invalid: InvalidWidget[];
+};
+
+export function scanWidgetsSync(srcDir: string): WidgetScanResult {
   const flatPattern = resolve(srcDir, "*.{tsx,jsx}");
   const dirPattern = resolve(srcDir, "*/index.{tsx,jsx}");
 
@@ -19,8 +33,8 @@ export function scanWidgetsSync(srcDir) {
 
   const candidates = [...flatFiles, ...dirFiles].filter((widget) => widget.name !== "index");
 
-  const valid = [];
-  const invalid = [];
+  const valid: WidgetCandidate[] = [];
+  const invalid: InvalidWidget[] = [];
   for (const candidate of candidates) {
     const code = readFileSync(candidate.filePath, "utf-8");
     if (hasDefaultExport(code)) {
@@ -33,8 +47,8 @@ export function scanWidgetsSync(srcDir) {
   return { valid, invalid };
 }
 
-export function assertUniqueWidgetNames(widgets) {
-  const nameMap = new Map();
+export function assertUniqueWidgetNames(widgets: WidgetCandidate[]): void {
+  const nameMap = new Map<string, string[]>();
   for (const widget of widgets) {
     const paths = nameMap.get(widget.name) ?? [];
     paths.push(widget.filePath);
@@ -50,7 +64,7 @@ export function assertUniqueWidgetNames(widgets) {
   }
 }
 
-export function discoverWidgetsSync(srcDir) {
+export function discoverWidgetsSync(srcDir: string): WidgetCandidate[] {
   const { valid } = scanWidgetsSync(srcDir);
   assertUniqueWidgetNames(valid);
   return valid;

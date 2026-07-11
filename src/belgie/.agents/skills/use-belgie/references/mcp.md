@@ -35,9 +35,9 @@ uv run belgie install
 3. Build widgets with Vite (for example via `belgie.Command("vite")("build")`). Output lands under `dist/widgets/` and
    `dist/assets/`.
 
-`BelgieExtension` loads `[tool.belgie.dependencies]` from the nearest `pyproject.toml` when resolving the local
-`@belgie/mcp` package for the manifest `Script`. A `deno.lock` at the project root is required unless you pass an
-already-configured `environment=`.
+`BelgieExtension` loads `[tool.belgie.dependencies]` from the nearest `pyproject.toml` when resolving `@belgie/mcp`
+for the manifest `Script` (imports `@belgie/mcp/manifest`). A `deno.lock` at the project root is required unless you
+pass an already-configured `environment=`.
 
 ## Project layout
 
@@ -61,19 +61,26 @@ my-mcp-app/
 
 ```toml
 [tool.belgie.dependencies]
-"@belgie/mcp" = "file:path/to/packages/mcp"
+"@belgie/mcp" = "npm:@belgie/mcp@^0.1.0"
 "@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"
 react = "npm:react@^19"
 "vite" = "npm:vite@6.1.0"
 "@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^4"
 ```
 
+For monorepo development, use a `file:` path to a built local package (`cd packages/mcp && npm run build` first):
+
+```toml
+"@belgie/mcp" = "file:path/to/packages/mcp"
+```
+
 Widgets live under `src/widgets` by default (`*.tsx` / `*/index.tsx`). Override with `belgie({ srcDir: "..." })`.
 
 ## BelgieExtension
 
-Pass the public origin that serves `dist` (FastAPI `app.frontend`) as `base_url`. The extension runs a Belgie `Script`
-that returns a JSON widget manifest (HTML with absolute asset URLs) — Python does not read widget files from disk:
+Pass the public origin that serves `dist` (FastAPI `app.frontend`) as `base_url`. The extension imports
+`loadWidgetManifest` from `@belgie/mcp/manifest` via a Belgie `Script` and returns a JSON widget manifest (HTML with
+absolute asset URLs) — Python does not read widget files from disk:
 
 ```python
 from datetime import UTC, datetime

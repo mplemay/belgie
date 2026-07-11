@@ -22,8 +22,10 @@ Classify the issue before editing:
    - Shell-style argument string.
    - Nonzero binary exit code.
 5. **Pyproject / MCP widget failure**
-   - Missing `[tool.belgie.dependencies]` entries (including `@belgie/mcp` `file:`).
+   - Missing `[tool.belgie.dependencies]` entries (including `@belgie/mcp`).
    - Missing `deno.lock` (run `belgie lock` / `belgie install`).
+   - Local `file:` `@belgie/mcp` without a prior `npm run build` in `packages/mcp` (exports point at `dist/` /
+     `types/`).
    - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(base_url=...)`.
    - Wrong or missing `base_url` (must be absolute `http(s)` origin that serves `dist`).
 

@@ -1,4 +1,9 @@
-export function buildVirtualEntry(widgetFilePath) {
+export type WidgetHtmlDocumentOptions = {
+  scripts: string[];
+  styles: string[];
+};
+
+export function buildVirtualEntry(widgetFilePath: string): string {
   const normalized = widgetFilePath.replace(/\\/g, "/");
   return [
     `import widget from ${JSON.stringify(normalized)};`,
@@ -8,7 +13,7 @@ export function buildVirtualEntry(widgetFilePath) {
   ].join("\n");
 }
 
-export function renderWidgetHtmlDocument(options) {
+export function renderWidgetHtmlDocument(options: WidgetHtmlDocumentOptions): string {
   const head = [
     '<meta charset="utf-8" />',
     ...options.styles.map((href) => `<link rel="stylesheet" crossorigin href="${href}">`),

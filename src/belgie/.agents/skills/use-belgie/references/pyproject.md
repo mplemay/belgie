@@ -24,7 +24,7 @@ Maps JavaScript import aliases to package specifiers:
 [tool.belgie.dependencies]
 std_path = "jsr:@std/path@^1"
 react = "npm:react@^19"
-"@belgie/mcp" = "file:path/to/packages/mcp"
+"@belgie/mcp" = "npm:@belgie/mcp@^0.1.0"
 ```
 
 Use this table when:
@@ -32,7 +32,7 @@ Use this table when:
 - MCP widget builds need Vite, React, and other build-time packages
 - Project JavaScript dependencies should persist in a shared `deno.lock`
 - Multiple scripts or commands share the same dependency set
-- `BelgieExtension(base_url=...)` needs to resolve the local `@belgie/mcp` package for the manifest `Script`
+- `BelgieExtension(base_url=...)` needs `@belgie/mcp` so the manifest `Script` can import `@belgie/mcp/manifest`
 
 For one-off scripts, prefer direct `npm:` / `jsr:` imports in `Script` source or ephemeral `Environment({...})`
 instead.
@@ -63,6 +63,6 @@ uv run belgie install
 | Shared project JS deps + lockfile | `[tool.belgie.dependencies]` + `belgie lock` / `install` |
 | One-off inline script with `npm:` / `jsr:` import | `Runtime()` + `Script("...")` |
 | npm binary (`vite`, etc.) | `Environment` + `install()` + `Command` |
-| MCP widgets | `[tool.belgie.dependencies]` including `@belgie/mcp` `file:` + `vite.config.ts` with `belgie()` |
+| MCP widgets | `[tool.belgie.dependencies]` including `@belgie/mcp` + `vite.config.ts` with `belgie()` |
 
 For MCP Apps details, see [mcp.md](mcp.md).
