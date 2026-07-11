@@ -7,6 +7,7 @@ import pytest
 from belgie._pyproject import PyprojectError, parse_tool_table, read_pyproject_toml, resolve_file_dependency_paths
 from belgie.mcp._builder import (
     _load_project_dependencies,
+    _normalize_base_url,
     _require_installed,
     _resolve_mcp_package_path,
     _resolve_project_path,
@@ -114,6 +115,15 @@ def test_resolve_mcp_package_path_rejects_non_file_dependency(tmp_path: Path) ->
 
     with pytest.raises(PyprojectError, match="must be a file: dependency"):
         _resolve_mcp_package_path(tmp_path)
+
+
+def test_normalize_base_url_accepts_http_urls() -> None:
+    assert _normalize_base_url("http://127.0.0.1:3001/") == "http://127.0.0.1:3001"
+
+
+def test_normalize_base_url_rejects_relative_urls() -> None:
+    with pytest.raises(ValueError, match="absolute http"):
+        _normalize_base_url("/assets")
 
 
 def test_parse_tool_table_reads_nested_belgie_dependencies(tmp_path: Path) -> None:

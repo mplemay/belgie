@@ -8,73 +8,88 @@ Use this file when building MCP Apps with React widgets through `BelgieExtension
 uv add "belgie[mcp]"
 ```
 
-For CLI dependency management, also install `belgie[cli]`.
+For CLI dependency management, also install `belgie[cli]`. Serve built widget assets with FastAPI (or another static
+file server); this example path uses FastAPI `app.frontend()`.
 
 ## Prerequisites
 
-Before starting the MCP server, lock and install widget build dependencies:
+1. Add a `vite.config.ts` that includes the Belgie plugin:
+
+```ts
+import { belgie } from "@belgie/mcp/vite"
+import react from "@vitejs/plugin-react"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [belgie(), react()],
+})
+```
+
+2. Lock and install widget build dependencies:
 
 ```bash
 uv run belgie lock
 uv run belgie install
 ```
 
-`BelgieExtension` loads `[tool.belgie.dependencies]` from the nearest `pyproject.toml` and requires an installed
-`deno.lock` at the project root. Widget builds fail without both.
+3. Build widgets with Vite (for example via `belgie.Command("vite")("build")`). Output lands under `dist/widgets/` and
+   `dist/assets/`.
+
+`BelgieExtension` loads `[tool.belgie.dependencies]` from the nearest `pyproject.toml` when resolving the local
+`@belgie/mcp` package for the manifest `Script`. A `deno.lock` at the project root is required unless you pass an
+already-configured `environment=`.
 
 ## Project layout
 
 ```text
 my-mcp-app/
 ├── pyproject.toml
+├── vite.config.ts
 ├── deno.lock                  # created by `belgie lock` / `belgie install`
+├── dist/                      # created by `vite build`
+│   ├── widgets/
+│   │   └── get-time/
+│   │       └── index.html
+│   └── assets/
 └── src/
+    ├── widgets/
+    │   └── get-time/
+    │       └── index.tsx
     └── mcp_app/
-        ├── __main__.py
-        └── views/
-            └── widgets/
-                └── get-time/
-                    └── widget.tsx
+        └── __main__.py
 ```
 
 ```toml
-[tool.belgie]
-source = "src/mcp_app/views"
-
 [tool.belgie.dependencies]
 "@belgie/mcp" = "file:path/to/packages/mcp"
 "@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"
 react = "npm:react@^19"
 "vite" = "npm:vite@6.1.0"
+"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^4"
 ```
 
-Point `source` at the `views` directory. Tool paths start with `widgets/`.
+Widgets live under `src/widgets` by default (`*.tsx` / `*/index.tsx`). Override with `belgie({ srcDir: "..." })`.
 
 ## BelgieExtension
 
-`BelgieExtension()` discovers the nearest `pyproject.toml`, reads `[tool.belgie.source]`, and resolves widget
-`path=` arguments relative to that source root:
+Pass the public origin that serves `dist` (FastAPI `app.frontend`) as `base_url`. The extension runs a Belgie `Script`
+that returns a JSON widget manifest (HTML with absolute asset URLs) — Python does not read widget files from disk:
 
 ```python
 from datetime import UTC, datetime
-from pathlib import Path
 
 from belgie.mcp import BelgieExtension
 from mcp_types import TextContent
 
-belgie = BelgieExtension()
+belgie = BelgieExtension(base_url="http://127.0.0.1:3001")
 
-@belgie.tool(name="get-time", path=Path("widgets/get-time/widget.tsx"))
+@belgie.tool(widget="get-time", name="get-time")
 def get_time() -> list[TextContent]:
     time_str = datetime.now(tz=UTC).isoformat()
     return [TextContent(type="text", text=time_str)]
 ```
 
-Widget paths must be:
-
-- Relative to `[tool.belgie.source]` (not the project root)
-- Non-absolute
-- Free of `..` segments
+You can also pass a preloaded `manifest=WidgetManifest(...)` and skip the Script call.
 
 ## Widget module contract
 
@@ -92,53 +107,49 @@ export default function run() {
 }
 ```
 
-Pass extra Vite plugins through `render({ plugins })` (for example Tailwind). Add the plugin packages under
-`[tool.belgie.dependencies]` the same way as other widget build deps:
+Put Vite plugins (React, Tailwind, etc.) in `vite.config.ts`, not in `render()`.
 
-```tsx
-import tailwindcss from "@tailwindcss/vite";
-import { render } from "@belgie/mcp";
+## Serving assets
 
-function App() {
-  return <div className="text-red-500">Hello</div>;
-}
+MCP host iframes load widget JS/CSS from your HTTP server. Serve the Vite `dist` output, for example with FastAPI:
 
-export default function widget() {
-  return render({
-    plugins: [tailwindcss()],
-    widget: <App />,
-  });
-}
+```python
+from pathlib import Path
+
+from fastapi import FastAPI
+from mcp.server import MCPServer
+
+from belgie.mcp import BelgieExtension
+
+belgie = BelgieExtension(base_url="http://127.0.0.1:3001")
+mcp = MCPServer(name="Demo", extensions=[belgie])
+
+app = FastAPI()
+app.mount("/mcp", mcp.streamable_http_app(streamable_http_path="/"))
+app.frontend("/", directory=Path("dist"), check_dir=False)
 ```
 
-Belgie discovers those plugins via Vite SSR, then bundles the widget with Vite through the local `@belgie/mcp`
-package into inline HTML served as an MCP app resource. No `vite.config` file or temp project directory is written.
+See [FastAPI frontend](https://fastapi.tiangolo.com/tutorial/frontend/).
 
 ## Path overrides
 
-Override discovery only when needed:
-
 | Constructor | Behavior |
 | --- | --- |
-| `BelgieExtension()` | Discover `pyproject.toml` from cwd; source from `[tool.belgie.source]` |
-| `BelgieExtension(project=path)` | Use `path` as project root; source from its `[tool.belgie.source]` |
-| `BelgieExtension(root=path)` | Use `path` as widget root directly (no pyproject source lookup) |
-| `BelgieExtension(project=path, root=path)` | Explicit project root and widget root |
-
-Prefer default discovery with `[tool.belgie.source]` in production projects.
+| `BelgieExtension(base_url=...)` | Discover `pyproject.toml` from cwd; load manifest via Script |
+| `BelgieExtension(base_url=..., project=path)` | Use `path` as project root for deps + `dist/` |
+| `BelgieExtension(manifest=...)` | Use a prebuilt in-memory manifest (no Script / no pyproject) |
 
 ## Build flow
 
 ```text
-pyproject.toml
-  ├─ [tool.belgie.source]     → widget root for path= resolution
-  └─ [tool.belgie.dependencies] → build-time JS packages
+vite.config.ts + belgie()
+  └─ vite build → dist/widgets/**/index.html + dist/assets/*
         ↓
-  belgie lock → belgie install → deno.lock
+  BelgieExtension(base_url=...) → Script → WidgetManifest JSON
         ↓
-  BelgieExtension() + @tool(path=widgets/...)
+  @tool(widget=...) → add_html_resource (absolute asset URLs + CSP)
         ↓
-  build_widget (Vite via @belgie/mcp) → inline HTML resource
+  app.frontend("/", directory="dist") serves JS/CSS
 ```
 
 For pyproject table details, see [pyproject.md](pyproject.md).

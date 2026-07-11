@@ -6,8 +6,8 @@ from typing import Final
 
 import pytest
 
-from belgie import Environment
-from belgie.mcp._builder import build_widget
+from belgie import Command, Environment, Runtime
+from belgie.mcp._builder import load_widget_manifest
 
 pytestmark = pytest.mark.integration
 
@@ -20,6 +20,7 @@ VITE_VERSION = "6.1.0"
 REACT_VERSION = "^19"
 VITE_REACT_PLUGIN_VERSION = "^4"
 MCP_PACKAGE_PATH: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "mcp"
+BASE_URL: Final[str] = "http://127.0.0.1:3001"
 
 
 def widget_dependencies() -> dict[str, str]:
@@ -30,7 +31,6 @@ def widget_dependencies() -> dict[str, str]:
         "react-dom": f"npm:react-dom@{REACT_VERSION}",
         "react-dom/client": f"npm:react-dom@{REACT_VERSION}/client",
         "vite": f"npm:vite@{VITE_VERSION}",
-        "vite-plugin-singlefile": "npm:vite-plugin-singlefile@^2",
     }
 
 
@@ -50,17 +50,26 @@ def install_widget_project(project: Path) -> None:
         env.install()
 
 
-@SKIP_WIN32_VITE_NATIVE
-def test_build_widget_html_returns_inline_html_document(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    install_widget_project(project)
+def write_vite_config(project: Path) -> None:
+    (project / "vite.config.ts").write_text(
+        """
+import { belgie } from "@belgie/mcp/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
-    root = tmp_path / "widgets"
-    widget_dir = root / "hello"
+export default defineConfig({
+  plugins: [belgie(), react()],
+});
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+
+def write_hello_widget(project: Path) -> None:
+    widget_dir = project / "src" / "widgets" / "hello"
     widget_dir.mkdir(parents=True)
     (widget_dir / "global.css").write_text(".message { color: rebeccapurple; }\n", encoding="utf-8")
-    (widget_dir / "widget.tsx").write_text(
+    (widget_dir / "index.tsx").write_text(
         """
 import { render } from "@belgie/mcp";
 import { useState } from "react";
@@ -78,123 +87,38 @@ export default function widget() {
         encoding="utf-8",
     )
 
-    result = build_widget(root=root, path=Path("hello/widget.tsx"), project_path=project)
-    html = result.html
 
+def build_widgets(project: Path) -> None:
+    dependencies = widget_dependencies()
+    with (
+        Environment(dependencies, path=project, lockfile=project / "deno.lock") as env,
+        Runtime(env=env) as run,
+    ):
+        run(Command("vite", cwd=str(project)))("build")
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_vite_plugin_build_and_manifest_script(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    write_vite_config(project)
+    write_hello_widget(project)
+    build_widgets(project)
+
+    html_path = project / "dist" / "widgets" / "hello" / "index.html"
+    assert html_path.is_file()
+    built_html = html_path.read_text(encoding="utf-8")
+    assert "<!doctype html>" in built_html
+    assert 'src="/assets/' in built_html or 'href="/assets/' in built_html
+    assert (project / "dist" / "assets").is_dir()
+    assert any((project / "dist" / "assets").iterdir())
+
+    manifest = load_widget_manifest(base_url=BASE_URL, project_path=project)
+    assert manifest.base_url == BASE_URL
+    assert "hello" in manifest.widgets
+    html = manifest.widgets["hello"].html
     assert "<!doctype html>" in html
-    assert '<script type="module"' in html
-    assert "<style" in html
-    assert "Hello from Belgie" in html
+    assert f'src="{BASE_URL}/assets/' in html or f'href="{BASE_URL}/assets/' in html
     assert 'src="/assets/' not in html
-    assert 'href="/assets/' not in html
-    assert not (root / "dist").exists()
-    assert not (root / "node_modules").exists()
-    assert (project / "deno.lock").is_file()
-    assert result.manifest.package_name == "@belgie/mcp"
-    assert result.manifest.package_version == "0.0.0"
-
-
-@SKIP_WIN32_VITE_NATIVE
-def test_build_widget_applies_render_plugins(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    install_widget_project(project)
-
-    root = tmp_path / "widgets"
-    widget_dir = root / "with-plugin"
-    widget_dir.mkdir(parents=True)
-    (widget_dir / "widget.tsx").write_text(
-        """
-import { render } from "@belgie/mcp";
-import type { Plugin } from "vite";
-
-function markerPlugin(): Plugin {
-  return {
-    name: "belgie-test-marker",
-    transformIndexHtml(html) {
-      return html.replace(
-        "</head>",
-        '<style id="belgie-plugin-marker">.plugin-marker{color:tomato}</style></head>',
-      );
-    },
-  };
-}
-
-function App() {
-  return <p className="plugin-marker">Plugin widget</p>;
-}
-
-export default function widget() {
-  return render({
-    plugins: [markerPlugin()],
-    metadata: { title: "Plugin" },
-    widget: <App />,
-  });
-}
-""".lstrip(),
-        encoding="utf-8",
-    )
-
-    result = build_widget(root=root, path=Path("with-plugin/widget.tsx"), project_path=project)
-    html = result.html
-
-    assert 'id="belgie-plugin-marker"' in html
-    assert ".plugin-marker{color:tomato}" in html
-    assert "Plugin widget" in html
-    assert 'src="/assets/' not in html
-    assert not (root / "dist").exists()
-    assert not (project / "vite.config.ts").exists()
-    assert not (project / "vite.config.js").exists()
-
-
-@SKIP_WIN32_VITE_NATIVE
-def test_build_widget_applies_render_plugins_from_async_default(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    install_widget_project(project)
-
-    root = tmp_path / "widgets"
-    widget_dir = root / "with-async-plugin"
-    widget_dir.mkdir(parents=True)
-    (widget_dir / "widget.tsx").write_text(
-        """
-import { render } from "@belgie/mcp";
-import type { Plugin } from "vite";
-
-function markerPlugin(): Plugin {
-  return {
-    name: "belgie-test-marker",
-    transformIndexHtml(html) {
-      return html.replace(
-        "</head>",
-        '<style id="belgie-plugin-marker">.plugin-marker{color:tomato}</style></head>',
-      );
-    },
-  };
-}
-
-function App() {
-  return <p className="plugin-marker">Async plugin widget</p>;
-}
-
-export default async function widget() {
-  return render({
-    plugins: [markerPlugin()],
-    metadata: { title: "Async Plugin" },
-    widget: <App />,
-  });
-}
-""".lstrip(),
-        encoding="utf-8",
-    )
-
-    result = build_widget(root=root, path=Path("with-async-plugin/widget.tsx"), project_path=project)
-    html = result.html
-
-    assert 'id="belgie-plugin-marker"' in html
-    assert ".plugin-marker{color:tomato}" in html
-    assert "Async plugin widget" in html
-    assert 'src="/assets/' not in html
-    assert not (root / "dist").exists()
-    assert not (project / "vite.config.ts").exists()
-    assert not (project / "vite.config.js").exists()
+    assert "Hello from Belgie" not in html  # source text lives in the JS chunk, not the HTML shell

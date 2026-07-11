@@ -1,34 +1,45 @@
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Final, TypeVar
+from urllib.parse import urlparse
 
 from mcp.server.apps import Apps, ResourceCsp, ResourcePermissions, Visibility
 from mcp_types import Icon, ToolAnnotations
 
-from belgie._pyproject import discover_pyproject_root, is_absolute_config_path, load_belgie_tool_config
-from belgie.mcp._builder import BelgieEnvironment, build_widget
+from belgie._pyproject import discover_pyproject_root
+from belgie.mcp._builder import BelgieEnvironment, WidgetEntry, WidgetManifest, load_widget_manifest
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 
-ABSOLUTE_WIDGET_PATH_ERROR: Final[str] = "Widget paths must be relative to the BelgieExtension root"
-PARENT_WIDGET_PATH_ERROR: Final[str] = "Widget paths cannot contain '..'"
+UNKNOWN_WIDGET_ERROR: Final[str] = "Unknown widget {widget!r}; known widgets: {known}"
 
 
 class BelgieExtension(Apps):
     def __init__(
         self,
         *,
-        root: str | Path | None = None,
+        manifest: WidgetManifest | None = None,
+        base_url: str | None = None,
         project: str | Path | None = None,
         environment: BelgieEnvironment | None = None,
     ) -> None:
         super().__init__()
-        self._project_path, self._root = _resolve_extension_paths(root=root, project=project)
-        self._environment = environment
+        if manifest is not None:
+            self._manifest = manifest
+        elif base_url is not None:
+            project_path = Path(project).resolve() if project is not None else discover_pyproject_root()
+            self._manifest = load_widget_manifest(
+                base_url=base_url,
+                project_path=project_path,
+                environment=environment,
+            )
+        else:
+            msg = "BelgieExtension requires manifest= or base_url="
+            raise ValueError(msg)
 
     def tool(  # noqa: PLR0913  # ty: ignore[invalid-method-override]
         self,
-        path: str | Path,
+        widget: str,
         *,
         name: str | None = None,
         title: str | None = None,
@@ -44,24 +55,18 @@ class BelgieExtension(Apps):
         domain: str | None = None,
         prefers_border: bool | None = None,
     ) -> Callable[[CallableT], CallableT]:
-        widget_path = self._validate_widget_path(path)
+        entry = self._require_widget(widget)
 
         def decorator(fn: CallableT) -> CallableT:
             tool_name = name or getattr(fn, "__name__", "tool")
             uri = resource_uri or f"ui://{tool_name}"
-            result = build_widget(
-                root=self._root,
-                path=widget_path,
-                environment=self._environment,
-                project_path=self._project_path,
-            )
             self.add_html_resource(
                 uri,
-                result.html,
+                entry.html,
                 name=tool_name,
                 title=title,
                 description=description,
-                csp=csp,
+                csp=_merge_resource_csp(csp, self._manifest.base_url),
                 permissions=permissions,
                 domain=domain,
                 prefers_border=prefers_border,
@@ -81,31 +86,30 @@ class BelgieExtension(Apps):
 
         return decorator
 
-    def _validate_widget_path(self, path: str | Path) -> Path:
-        widget_path = Path(path)
-        if is_absolute_config_path(widget_path.as_posix()):
-            raise ValueError(ABSOLUTE_WIDGET_PATH_ERROR)
-        if any(part == ".." for part in widget_path.parts):
-            raise ValueError(PARENT_WIDGET_PATH_ERROR)
-        return widget_path
+    def _require_widget(self, widget: str) -> WidgetEntry:
+        entry = self._manifest.widgets.get(widget)
+        if entry is None:
+            known = ", ".join(sorted(self._manifest.widgets)) or "(none)"
+            msg = UNKNOWN_WIDGET_ERROR.format(widget=widget, known=known)
+            raise KeyError(msg)
+        return entry
 
 
-def _resolve_extension_paths(
-    *,
-    root: str | Path | None,
-    project: str | Path | None,
-) -> tuple[Path, Path]:
-    if project is not None:
-        project_path = Path(project).resolve()
-        if root is not None:
-            return project_path, Path(root).resolve()
-        config = load_belgie_tool_config(project_path)
-        return project_path, (project_path / config.source).resolve()
+def _merge_resource_csp(csp: ResourceCsp | None, base_url: str) -> ResourceCsp:
+    origin = _origin_from_base_url(base_url)
+    if csp is None:
+        return ResourceCsp(resource_domains=[origin])
+    resource_domains = list(csp.resource_domains or [])
+    if origin not in resource_domains:
+        resource_domains.append(origin)
+    return ResourceCsp(
+        connect_domains=csp.connect_domains,
+        resource_domains=resource_domains,
+        frame_domains=csp.frame_domains,
+        base_uri_domains=csp.base_uri_domains,
+    )
 
-    if root is not None:
-        resolved_root = Path(root).resolve()
-        return resolved_root, resolved_root
 
-    project_path = discover_pyproject_root()
-    config = load_belgie_tool_config(project_path)
-    return project_path, (project_path / config.source).resolve()
+def _origin_from_base_url(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    return f"{parsed.scheme}://{parsed.netloc}"

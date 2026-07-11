@@ -54,16 +54,18 @@ resolver options, local `file:` package aliases, and npm package binaries.
 
 ## MCP Apps extension
 
-`BelgieExtension` discovers `pyproject.toml` and resolves widget paths from `[tool.belgie.source]`:
+`BelgieExtension` loads a JSON widget manifest (via `Script`) and registers HTML resources. Vite builds widgets through
+the `@belgie/mcp` plugin:
 
 ```text
-pyproject.toml
-  └─ [tool.belgie.source] → widget root
-       └─ @tool(path=widgets/...) → build_widget → inline HTML resource
+vite.config.ts + belgie()
+  └─ vite build → dist/widgets/** + dist/assets/*
+       └─ BelgieExtension(base_url=...) → Script → WidgetManifest
+            └─ @tool(widget=...) → HTML resource (absolute asset URLs)
 ```
 
-Widget builds load `[tool.belgie.dependencies]` and require `belgie install` at the project root. This path resolution
-is separate from `Runtime.from_folder()`. See [mcp.md](mcp.md) and [pyproject.md](pyproject.md).
+Asset files are served by the user's HTTP stack (for example FastAPI `app.frontend`). See [mcp.md](mcp.md) and
+[pyproject.md](pyproject.md).
 
 ## Binding and calling
 

@@ -1,15 +1,28 @@
 # MCP
 
-Runs a small MCP server with a React app resource built by `BelgieExtension`.
+Runs a small MCP server with a React app resource built by the `@belgie/mcp` Vite plugin and served through
+`BelgieExtension`.
 
 Requires `belgie[mcp]` (included in this example's dependencies).
 
-Install the widget build dependencies before starting the server:
+## Setup
+
+Install Python and widget build dependencies, then build widgets:
 
 ```bash
+uv sync
 uv run belgie lock
 uv run belgie install
 ```
+
+Build widgets:
+
+```bash
+uv run build-widgets
+```
+
+`vite build` writes HTML under `dist/widgets/` and shared assets under `dist/assets/`. FastAPI serves that `dist`
+directory with `app.frontend()`.
 
 ## Run
 
@@ -17,28 +30,41 @@ uv run belgie install
 uv run main
 ```
 
-The server listens on port `3001`. An MCP Apps-capable client can render the `get-time` widget and call the matching
-`get-time` server tool.
+The server listens on port `3001`. MCP is mounted at `/mcp`. An MCP Apps-capable client can render the `get-time`
+widget and call the matching `get-time` server tool. Widget JS/CSS load from the same origin via FastAPI frontend
+routes.
 
 ## What's Happening
 
-`BelgieExtension` discovers the nearest `pyproject.toml`, installs widget build dependencies from
-`[tool.belgie.dependencies]` at the project root, and resolves widget paths relative to `[tool.belgie.source]`.
-Point `source` at the package `views` directory; tool paths typically start with `widgets/`:
+`vite.config.ts` uses the Belgie Vite plugin:
 
-```toml
-[tool.belgie]
-source = "src/mcp_app/views"
+```ts
+import { belgie } from "@belgie/mcp/vite"
+import react from "@vitejs/plugin-react"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [belgie(), react()],
+})
 ```
+
+Widgets live under `src/widgets` by default (`get-time` → `src/widgets/get-time/index.tsx`).
+
+At runtime, `BelgieExtension(base_url=...)` loads a JSON widget manifest through a Belgie `Script` (no Python
+filesystem reads of widget HTML). Tools reference widgets by name:
 
 ```python
-belgie = BelgieExtension()
+belgie = BelgieExtension(base_url="http://127.0.0.1:3001")
 
-@belgie.tool(name="get-time", path=Path("widgets/get-time/widget.tsx"))
+@belgie.tool(widget="get-time", name="get-time")
 def get_time() -> list[TextContent]:
-    time_str = datetime.now(tz=UTC).isoformat()
-    return [TextContent(type="text", text=time_str)]
+    ...
 ```
 
-The widget default export calls `render({ widget: <App /> })`, which Belgie bundles with Vite through the local
-`@belgie/mcp` package into a complete inline HTML document served as an MCP app resource.
+Serve the Vite `dist` output yourself (this example uses FastAPI `app.frontend`):
+
+```python
+app = FastAPI()
+app.mount("/mcp", mcp.streamable_http_app(streamable_http_path="/"))
+app.frontend("/", directory="dist", check_dir=False)
+```

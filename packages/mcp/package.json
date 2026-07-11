@@ -4,9 +4,9 @@
       "default": "./src/index.tsx",
       "types": "./src/index.tsx"
     },
-    "./build": {
-      "default": "./build.ts",
-      "types": "./build.ts"
+    "./vite": {
+      "default": "./src/plugin.js",
+      "types": "./src/plugin.js"
     }
   },
   "name": "@belgie/mcp",

@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,7 +20,6 @@ type BelgieEnvironment = Environment | SyncEnvironment | AsyncEnvironment
 LOCKFILE_NAME: Final[str] = "deno.lock"
 DEPENDENCIES_TABLE: Final[tuple[str, ...]] = ("belgie", "dependencies")
 MCP_PACKAGE_NAME: Final[str] = "@belgie/mcp"
-WIDGET_PATH_OUTSIDE_ROOT_ERROR: Final[str] = "Widget path must stay inside the BelgieExtension root"
 MISSING_PROJECT_DEPENDENCIES_ERROR: Final[str] = "No [tool.belgie.dependencies] entries found in {pyproject}"
 MISSING_LOCKFILE_ERROR: Final[str] = "Missing Belgie lockfile at {lockfile}; run `belgie install`"
 MISSING_MCP_PACKAGE_ERROR: Final[str] = (
@@ -29,50 +29,51 @@ MISSING_MCP_PACKAGE_ERROR: Final[str] = (
 INVALID_MCP_PACKAGE_ERROR: Final[str] = (
     "{package} must be a file: dependency pointing at the local @belgie/mcp package, got {specifier!r}"
 )
+INVALID_BASE_URL_ERROR: Final[str] = "base_url must be an absolute http(s) URL, got {base_url!r}"
 
 
-class WidgetRenderManifest(BaseModel):
+class WidgetEntry(BaseModel):
     model_config = ConfigDict(frozen=True, populate_by_name=True)
 
-    package_name: str = Field(validation_alias="packageName")
-    package_version: str = Field(validation_alias="packageVersion")
-
-
-class WidgetBuildResult(BaseModel):
-    model_config = ConfigDict(frozen=True, populate_by_name=True)
-
+    name: str
     html: str
-    manifest: WidgetRenderManifest
 
 
-def build_widget(
+class WidgetManifest(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    base_url: str = Field(validation_alias="baseUrl")
+    widgets: dict[str, WidgetEntry]
+
+
+def load_widget_manifest(
     *,
-    root: Path,
-    path: Path,
-    environment: BelgieEnvironment | None = None,
+    base_url: str,
     project_path: Path | None = None,
-) -> WidgetBuildResult:
-    root_path = root.resolve(strict=True)
-    widget_path = (root_path / path).resolve(strict=True)
-    try:
-        relative_widget_path = widget_path.relative_to(root_path)
-    except ValueError as error:
-        raise ValueError(WIDGET_PATH_OUTSIDE_ROOT_ERROR) from error
-
+    environment: BelgieEnvironment | None = None,
+) -> WidgetManifest:
+    normalized_base_url = _normalize_base_url(base_url)
     resolved_project_path = _resolve_project_path(project_path)
     mcp_package_path = _resolve_mcp_package_path(resolved_project_path)
     with (
         _use_environment(environment, project_path=resolved_project_path) as env,
         Runtime(env=env) as runtime,
     ):
-        build_script = Script.from_file(mcp_package_path / "run-build.ts")
-        return WidgetBuildResult.model_validate(
-            runtime(build_script)(
+        manifest_script = Script.from_file(mcp_package_path / "run-manifest.ts")
+        return WidgetManifest.model_validate(
+            runtime(manifest_script)(
                 str(resolved_project_path),
-                str(root_path),
-                relative_widget_path.as_posix(),
+                normalized_base_url,
             ),
         )
+
+
+def _normalize_base_url(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        msg = INVALID_BASE_URL_ERROR.format(base_url=base_url)
+        raise ValueError(msg)
+    return base_url.rstrip("/")
 
 
 def _resolve_project_path(path: Path | None) -> Path:

@@ -1,44 +1,20 @@
 # Pyproject Configuration
 
-Use this file when a project declares Belgie-managed JavaScript dependencies or MCP widget source roots in
-`pyproject.toml`.
+Use this file when a project declares Belgie-managed JavaScript dependencies in `pyproject.toml`.
 
 ## Tables
 
-Belgie reads two optional tables under `[tool.belgie]`:
+Belgie reads an optional table under `[tool.belgie]`:
 
 | Table | Purpose |
 | --- | --- |
-| `[tool.belgie.source]` | Relative path from the project root to the MCP widget source directory |
 | `[tool.belgie.dependencies]` | Maps JS import aliases to npm, JSR, or `file:` specifiers |
 
-These tables are separate from Python `[project.dependencies]`. Do not put JavaScript packages in Python
+This table is separate from Python `[project.dependencies]`. Do not put JavaScript packages in Python
 `[project.dependencies]`.
 
-## `[tool.belgie.source]`
-
-Optional. Defaults to the project root when omitted.
-
-- Must be a **relative** path from the directory containing `pyproject.toml`
-- Cannot be absolute or contain `..`
-- Sets the root for `BelgieExtension` widget `path=` arguments
-
-Convention: point `source` at a `views/` directory; tool paths typically start with `widgets/`:
-
-```toml
-[tool.belgie]
-source = "src/mcp_app/views"
-```
-
-```python
-from pathlib import Path
-
-@belgie.tool(name="get-time", path=Path("widgets/get-time/widget.tsx"))
-def get_time() -> str:
-    return "now"
-```
-
-The resolved widget file is `project_root / source / path` → `src/mcp_app/views/widgets/get-time/widget.tsx`.
+MCP widget source roots are configured in `vite.config.ts` via `belgie({ srcDir })` (default `src/widgets`), not in
+`pyproject.toml`.
 
 ## `[tool.belgie.dependencies]`
 
@@ -56,6 +32,7 @@ Use this table when:
 - MCP widget builds need Vite, React, and other build-time packages
 - Project JavaScript dependencies should persist in a shared `deno.lock`
 - Multiple scripts or commands share the same dependency set
+- `BelgieExtension(base_url=...)` needs to resolve the local `@belgie/mcp` package for the manifest `Script`
 
 For one-off scripts, prefer direct `npm:` / `jsr:` imports in `Script` source or ephemeral `Environment({...})`
 instead.
@@ -77,21 +54,15 @@ uv run belgie lock
 uv run belgie install
 ```
 
-- `belgie lock` resolves `[tool.belgie.dependencies]` and writes `deno.lock` at the project root
-- `belgie install` installs from the lockfile into the project directory
-- `belgie install --frozen` requires an existing `deno.lock`
+`belgie lock` writes `deno.lock`. `belgie install` materializes install state for `Command` / `Script` use.
 
-MCP widget builds require both tables populated and `belgie install` completed before the server starts. See
-[mcp.md](mcp.md).
+## Choosing a dependency style
 
-## When to use pyproject vs `Environment`
-
-| Need | Approach |
+| Need | Prefer |
 | --- | --- |
+| Shared project JS deps + lockfile | `[tool.belgie.dependencies]` + `belgie lock` / `install` |
 | One-off inline script with `npm:` / `jsr:` import | `Runtime()` + `Script("...")` |
-| Ephemeral deps without lockfile persistence | `Environment({...})` + `install()` |
-| Shared lockfile across scripts or CI | `[tool.belgie.dependencies]` + `belgie lock` / `belgie install` |
-| MCP widget builds | `[tool.belgie.dependencies]` + `[tool.belgie.source]` + `belgie install` |
+| npm binary (`vite`, etc.) | `Environment` + `install()` + `Command` |
+| MCP widgets | `[tool.belgie.dependencies]` including `@belgie/mcp` `file:` + `vite.config.ts` with `belgie()` |
 
-For environment lifecycle details, see [environment.md](environment.md).
-For MCP widget wiring, see [mcp.md](mcp.md).
+For MCP Apps details, see [mcp.md](mcp.md).

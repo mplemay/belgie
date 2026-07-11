@@ -1,8 +1,5 @@
 import { createRoot } from "react-dom/client";
 import type { ReactNode } from "react";
-import type { PluginOption } from "vite";
-
-import { WIDGET_RENDER_MANIFEST, type WidgetRenderManifest } from "./manifest.ts";
 
 export type WidgetMetadata = {
   title?: string;
@@ -10,20 +7,17 @@ export type WidgetMetadata = {
 
 export type RenderOptions = {
   metadata?: WidgetMetadata;
-  plugins?: PluginOption[];
   root?: HTMLElement | string | null;
   widget: ReactNode;
 };
 
 export type RenderResult = {
-  manifest: WidgetRenderManifest;
   metadata?: WidgetMetadata;
-  plugins?: PluginOption[];
 };
 
-export function render({ metadata, plugins, root, widget }: RenderOptions): RenderResult {
-  if (!isBrowserEnvironment()) {
-    return { manifest: WIDGET_RENDER_MANIFEST, metadata, plugins };
+export function render({ metadata, root, widget }: RenderOptions): RenderResult {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return { metadata };
   }
 
   if (metadata?.title) {
@@ -31,11 +25,7 @@ export function render({ metadata, plugins, root, widget }: RenderOptions): Rend
   }
 
   createRoot(resolveRoot(root)).render(widget);
-  return { manifest: WIDGET_RENDER_MANIFEST, metadata, plugins };
-}
-
-function isBrowserEnvironment(): boolean {
-  return typeof document !== "undefined" && typeof window !== "undefined";
+  return { metadata };
 }
 
 function resolveRoot(root: HTMLElement | string | null | undefined): HTMLElement {
