@@ -15,7 +15,7 @@ def widget_build_result(*, html: str = DEFAULT_WIDGET_HTML) -> WidgetBuildResult
     return WidgetBuildResult(
         html=html,
         manifest=WidgetRenderManifest(
-            package_name="@belgie/widget",
+            package_name="@belgie/mcp",
             package_version="0.0.0",
         ),
     )

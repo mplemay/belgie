@@ -42,7 +42,7 @@ my-mcp-app/
 source = "src/mcp_app/views"
 
 [tool.belgie.dependencies]
-"@belgie/widget" = "file:path/to/belgie-widget-package"  # bundled with belgie[mcp]
+"@belgie/mcp" = "file:path/to/packages/mcp"
 "@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"
 react = "npm:react@^19"
 "vite" = "npm:vite@6.1.0"
@@ -81,7 +81,7 @@ Widget paths must be:
 Widget modules export a default that calls `render({ widget: <App /> })`:
 
 ```tsx
-import { render } from "@belgie/widget";
+import { render } from "@belgie/mcp";
 
 function App() {
   return <div>Hello</div>;
@@ -97,7 +97,7 @@ Pass extra Vite plugins through `render({ plugins })` (for example Tailwind). Ad
 
 ```tsx
 import tailwindcss from "@tailwindcss/vite";
-import { render } from "@belgie/widget";
+import { render } from "@belgie/mcp";
 
 function App() {
   return <div className="text-red-500">Hello</div>;
@@ -111,7 +111,7 @@ export default function widget() {
 }
 ```
 
-Belgie discovers those plugins via Vite SSR, then bundles the widget with Vite through the local `@belgie/widget`
+Belgie discovers those plugins via Vite SSR, then bundles the widget with Vite through the local `@belgie/mcp`
 package into inline HTML served as an MCP app resource. No `vite.config` file or temp project directory is written.
 
 ## Path overrides
@@ -138,7 +138,7 @@ pyproject.toml
         ↓
   BelgieExtension() + @tool(path=widgets/...)
         ↓
-  build_widget (Vite via @belgie/widget) → inline HTML resource
+  build_widget (Vite via @belgie/mcp) → inline HTML resource
 ```
 
 For pyproject table details, see [pyproject.md](pyproject.md).

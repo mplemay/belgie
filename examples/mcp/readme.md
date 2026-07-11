@@ -41,4 +41,4 @@ def get_time() -> list[TextContent]:
 ```
 
 The widget default export calls `render({ widget: <App /> })`, which Belgie bundles with Vite through the local
-`@belgie/widget` package into a complete inline HTML document served as an MCP app resource.
+`@belgie/mcp` package into a complete inline HTML document served as an MCP app resource.

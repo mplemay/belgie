@@ -17,6 +17,6 @@ function packageString(value: unknown, fallback: string): string {
 const widgetPackage = packageJson as PackageJson;
 
 export const WIDGET_RENDER_MANIFEST: WidgetRenderManifest = {
-  packageName: packageString(widgetPackage.name, "@belgie/widget"),
+  packageName: packageString(widgetPackage.name, "@belgie/mcp"),
   packageVersion: packageString(widgetPackage.version, "0.0.0"),
 };

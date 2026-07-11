@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import sys
-from importlib.resources import as_file, files
 from pathlib import Path
+from typing import Final
 
 import pytest
 
@@ -19,19 +19,19 @@ SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
 VITE_VERSION = "6.1.0"
 REACT_VERSION = "^19"
 VITE_REACT_PLUGIN_VERSION = "^4"
+MCP_PACKAGE_PATH: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "mcp"
 
 
 def widget_dependencies() -> dict[str, str]:
-    with as_file(files("belgie.mcp._widget_package")) as widget_package_path:
-        return {
-            "@belgie/widget": f"file:{widget_package_path.resolve().as_posix()}",
-            "@vitejs/plugin-react": f"npm:@vitejs/plugin-react@{VITE_REACT_PLUGIN_VERSION}",
-            "react": f"npm:react@{REACT_VERSION}",
-            "react-dom": f"npm:react-dom@{REACT_VERSION}",
-            "react-dom/client": f"npm:react-dom@{REACT_VERSION}/client",
-            "vite": f"npm:vite@{VITE_VERSION}",
-            "vite-plugin-singlefile": "npm:vite-plugin-singlefile@^2",
-        }
+    return {
+        "@belgie/mcp": f"file:{MCP_PACKAGE_PATH.resolve().as_posix()}",
+        "@vitejs/plugin-react": f"npm:@vitejs/plugin-react@{VITE_REACT_PLUGIN_VERSION}",
+        "react": f"npm:react@{REACT_VERSION}",
+        "react-dom": f"npm:react-dom@{REACT_VERSION}",
+        "react-dom/client": f"npm:react-dom@{REACT_VERSION}/client",
+        "vite": f"npm:vite@{VITE_VERSION}",
+        "vite-plugin-singlefile": "npm:vite-plugin-singlefile@^2",
+    }
 
 
 def write_project_pyproject(project: Path, dependencies: dict[str, str]) -> None:
@@ -62,7 +62,7 @@ def test_build_widget_html_returns_inline_html_document(tmp_path: Path) -> None:
     (widget_dir / "global.css").write_text(".message { color: rebeccapurple; }\n", encoding="utf-8")
     (widget_dir / "widget.tsx").write_text(
         """
-import { render } from "@belgie/widget";
+import { render } from "@belgie/mcp";
 import { useState } from "react";
 import "./global.css";
 
@@ -90,7 +90,7 @@ export default function widget() {
     assert not (root / "dist").exists()
     assert not (root / "node_modules").exists()
     assert (project / "deno.lock").is_file()
-    assert result.manifest.package_name == "@belgie/widget"
+    assert result.manifest.package_name == "@belgie/mcp"
     assert result.manifest.package_version == "0.0.0"
 
 
@@ -105,7 +105,7 @@ def test_build_widget_applies_render_plugins(tmp_path: Path) -> None:
     widget_dir.mkdir(parents=True)
     (widget_dir / "widget.tsx").write_text(
         """
-import { render } from "@belgie/widget";
+import { render } from "@belgie/mcp";
 import type { Plugin } from "vite";
 
 function markerPlugin(): Plugin {
@@ -158,7 +158,7 @@ def test_build_widget_applies_render_plugins_from_async_default(tmp_path: Path) 
     widget_dir.mkdir(parents=True)
     (widget_dir / "widget.tsx").write_text(
         """
-import { render } from "@belgie/widget";
+import { render } from "@belgie/mcp";
 import type { Plugin } from "vite";
 
 function markerPlugin(): Plugin {

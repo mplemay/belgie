@@ -64,12 +64,12 @@ my-mcp-app/
 source = "src/mcp_app/views"
 
 [tool.belgie.dependencies]
-"@belgie/widget" = "file:path/to/belgie-widget-package"  # bundled with belgie[mcp]
+"@belgie/mcp" = "file:path/to/packages/mcp"
 react = "npm:react@^19"
 vite = "npm:vite@6.1.0"
 ```
 
-Declare `@belgie/widget` as a `file:` dependency pointing at the widget package shipped with `belgie[mcp]`.
+Declare `@belgie/mcp` as a `file:` dependency pointing at the local `@belgie/mcp` package.
 
 JavaScript packages for scripts belong in `Environment({...})` or `[tool.belgie.dependencies]`, not in Python
 `[project.dependencies]`.

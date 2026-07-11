@@ -48,7 +48,7 @@ Maps JavaScript import aliases to package specifiers:
 [tool.belgie.dependencies]
 std_path = "jsr:@std/path@^1"
 react = "npm:react@^19"
-"@belgie/widget" = "file:path/to/belgie-widget-package"  # bundled with belgie[mcp]
+"@belgie/mcp" = "file:path/to/packages/mcp"
 ```
 
 Use this table when:

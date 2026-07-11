@@ -1,4 +1,4 @@
-import { render } from "@belgie/widget";
+import { render } from "@belgie/mcp";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
