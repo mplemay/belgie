@@ -184,6 +184,12 @@ fn dependency_imports(
         match &dep.kind {
             PackageDependencyKind::ImportMap { specifier } => {
                 imports.insert(dep.alias.clone(), specifier.clone());
+                // Deno import maps need a trailing-slash prefix for subpath imports
+                // (e.g. `@belgie/mcp/manifest` → `npm:@belgie/mcp@0.1.0/manifest`).
+                imports.insert(
+                    format!("{}/", dep.alias),
+                    format!("{}/", specifier.trim_end_matches('/')),
+                );
             }
             PackageDependencyKind::LocalFile {
                 target_path,
@@ -812,11 +818,23 @@ mod tests {
     #[test]
     fn import_map_contains_registry_imports() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let dependencies = vec![normalize_dependency(temp_dir.path(), "react", "^19").unwrap()];
+        let dependencies = vec![
+            normalize_dependency(temp_dir.path(), "react", "^19").unwrap(),
+            normalize_dependency(temp_dir.path(), "@belgie/mcp", "npm:@belgie/mcp@0.1.0").unwrap(),
+        ];
 
         let import_map = import_map_value(&dependencies).unwrap();
 
         assert_eq!(import_map["imports"]["react"], "npm:react@^19");
+        assert_eq!(import_map["imports"]["react/"], "npm:react@^19/");
+        assert_eq!(
+            import_map["imports"]["@belgie/mcp"],
+            "npm:@belgie/mcp@0.1.0"
+        );
+        assert_eq!(
+            import_map["imports"]["@belgie/mcp/"],
+            "npm:@belgie/mcp@0.1.0/"
+        );
     }
 
     #[test]

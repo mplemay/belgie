@@ -5,8 +5,8 @@ import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 
 import { buildVirtualEntry, renderWidgetHtmlDocument } from "./html.js";
 import {
+  assertNoInvalidWidgets,
   assertUniqueWidgetNames,
-  discoverWidgetsSync,
   scanWidgetsSync,
   type WidgetCandidate,
 } from "./scan-widgets.js";
@@ -103,16 +103,20 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
     enforce: "pre",
     api: { srcDir: rawSrcDir },
 
-    config(config: UserConfig) {
+    config(config: UserConfig, { command }) {
       projectRoot = config.root || process.cwd();
       resolvedSrcDir = isAbsolute(rawSrcDir) ? rawSrcDir : resolve(projectRoot, rawSrcDir);
       widgetEntryPattern = getWidgetEntryPattern(resolvedSrcDir);
 
-      const widgets = discoverWidgetsSync(resolvedSrcDir);
-      widgetMap = new Map(widgets.map((widget) => [widget.name, widget]));
+      const { valid, invalid } = scanWidgetsSync(resolvedSrcDir);
+      assertUniqueWidgetNames(valid);
+      if (command === "build") {
+        assertNoInvalidWidgets(invalid);
+      }
+      widgetMap = new Map(valid.map((widget) => [widget.name, widget]));
 
       const existingInput = config.build?.rollupOptions?.input as RollupInput | undefined;
-      const input = mergeRollupInput(existingInput, widgets);
+      const input = mergeRollupInput(existingInput, valid);
 
       return {
         resolve: {

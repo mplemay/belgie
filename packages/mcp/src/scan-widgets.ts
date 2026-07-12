@@ -64,6 +64,16 @@ export function assertUniqueWidgetNames(widgets: WidgetCandidate[]): void {
   }
 }
 
+export function assertNoInvalidWidgets(invalid: InvalidWidget[]): void {
+  if (invalid.length === 0) {
+    return;
+  }
+  const paths = invalid.map((widget) => widget.filePath).join("\n  - ");
+  throw new Error(
+    `belgie: widget file(s) missing a default export:\n  - ${paths}\nAdd a default export so the widget can be built.`,
+  );
+}
+
 export function discoverWidgetsSync(srcDir: string): WidgetCandidate[] {
   const { valid } = scanWidgetsSync(srcDir);
   assertUniqueWidgetNames(valid);

@@ -469,7 +469,7 @@ jobs:
 
   publish-npm:
     name: publish to npm
-    needs: check
+    needs: [check, publish]
     runs-on: ubuntu-latest
     environment:
       name: npm

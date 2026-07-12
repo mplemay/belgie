@@ -7,6 +7,7 @@ from typing import Final
 import pytest
 
 from belgie import Command, Environment, Runtime
+from belgie.errors import BelgieRuntimeError
 from belgie.mcp._builder import load_widget_manifest
 
 pytestmark = pytest.mark.integration
@@ -126,3 +127,26 @@ def test_vite_plugin_build_and_manifest_script(tmp_path: Path) -> None:
     assert f'src="{BASE_URL}/assets/' in html or f'href="{BASE_URL}/assets/' in html
     assert 'src="/assets/' not in html
     assert "Hello from Belgie" not in html  # source text lives in the JS chunk, not the HTML shell
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_vite_plugin_build_rejects_missing_default_export(
+    tmp_path: Path,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    write_vite_config(project)
+    widget_dir = project / "src" / "widgets" / "broken"
+    widget_dir.mkdir(parents=True)
+    (widget_dir / "index.tsx").write_text(
+        "export function Broken() {\n  return <p>broken</p>;\n}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BelgieRuntimeError, match=r"exit|status|failed"):
+        build_widgets(project)
+
+    stderr = capfd.readouterr().err
+    assert "missing a default export" in stderr
