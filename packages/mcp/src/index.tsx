@@ -1,42 +1,39 @@
-import { createRoot } from "react-dom/client";
-import type { ReactNode } from "react";
+import { StrictMode, useEffect, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
 
-export type WidgetMetadata = {
+export type BelgieProps = {
+  children: ReactNode;
   title?: string;
 };
 
-export type RenderOptions = {
-  metadata?: WidgetMetadata;
-  root?: HTMLElement | string | null;
-  widget: ReactNode;
-};
+let rootInstance: Root | null = null;
 
-export type RenderResult = {
-  metadata?: WidgetMetadata;
-};
+export function Belgie({ children, title }: BelgieProps) {
+  useEffect(() => {
+    if (title !== undefined) {
+      document.title = title;
+    }
+  }, [title]);
 
-export function render({ metadata, root, widget }: RenderOptions): RenderResult {
-  if (typeof document === "undefined" || typeof window === "undefined") {
-    return metadata === undefined ? {} : { metadata };
-  }
-
-  if (metadata?.title) {
-    document.title = metadata.title;
-  }
-
-  createRoot(resolveRoot(root)).render(widget);
-  return metadata === undefined ? {} : { metadata };
+  return <StrictMode>{children}</StrictMode>;
 }
 
-function resolveRoot(root: HTMLElement | string | null | undefined): HTMLElement {
-  if (root instanceof HTMLElement) {
-    return root;
+export function mountWidget(node: ReactNode): void {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return;
   }
 
-  const selector = root ?? "#root";
-  const element = document.querySelector(selector);
+  if (!rootInstance) {
+    rootInstance = createRoot(resolveRoot());
+  }
+
+  rootInstance.render(node);
+}
+
+function resolveRoot(): HTMLElement {
+  const element = document.querySelector("#root");
   if (!(element instanceof HTMLElement)) {
-    throw new Error(`Belgie widget root ${selector} was not found`);
+    throw new Error("Belgie widget root #root was not found");
   }
   return element;
 }

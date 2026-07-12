@@ -6,9 +6,11 @@ export type WidgetHtmlDocumentOptions = {
 export function buildVirtualEntry(widgetFilePath: string): string {
   const normalized = widgetFilePath.replace(/\\/g, "/");
   return [
-    `import widget from ${JSON.stringify(normalized)};`,
+    `import { createElement } from "react";`,
+    `import { mountWidget } from "@belgie/mcp";`,
+    `import Widget from ${JSON.stringify(normalized)};`,
     "",
-    "widget();",
+    "mountWidget(createElement(Widget));",
     "",
   ].join("\n");
 }

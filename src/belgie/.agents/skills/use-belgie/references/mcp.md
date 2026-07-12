@@ -100,21 +100,26 @@ You can also pass a preloaded `manifest=WidgetManifest(...)` and skip the Script
 
 ## Widget module contract
 
-Widget modules export a default that calls `render({ widget: <App /> })`:
+Widget modules export a default React component wrapped in `<Belgie>`:
 
 ```tsx
-import { render } from "@belgie/mcp";
+import { Belgie } from "@belgie/mcp";
 
 function App() {
   return <div>Hello</div>;
 }
 
-export default function run() {
-  return render({ widget: <App /> });
+export default function Widget() {
+  return (
+    <Belgie title="Hello">
+      <App />
+    </Belgie>
+  );
 }
 ```
 
-Put Vite plugins (React, Tailwind, etc.) in `vite.config.ts`, not in `render()`.
+Put Vite plugins (React, Tailwind, etc.) in `vite.config.ts`. The Belgie Vite plugin mounts the default export into
+`#root`.
 
 ## Serving assets
 
