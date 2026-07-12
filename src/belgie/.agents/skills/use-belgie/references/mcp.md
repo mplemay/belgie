@@ -101,45 +101,34 @@ You can also pass a preloaded `manifest=WidgetManifest(...)` and skip the Script
 
 ## Widget module contract
 
-Widget modules export a default React component. Use `useApp` when you need the connected `App` (pass it as a prop to
-children):
+Widget modules construct an MCP `App`, pass it to `<Belgie>`, and read it in children with `useApp()`. `<Belgie>` calls
+`app.connect()` and shows optional `fallback` (connecting) / `error` (failure UI, `ReactNode` or
+`(error) => ReactNode`) until the handshake completes:
 
 ```tsx
-import { useApp, type App } from "@belgie/mcp";
+import { App } from "@modelcontextprotocol/ext-apps";
+import { Belgie, useApp } from "@belgie/mcp";
+import { useState } from "react";
 
-function AppView({ app }: { app: App }) {
+function AppView() {
+  const app = useApp();
   return <div>Hello</div>;
 }
 
 export default function Widget() {
-  const { app, error } = useApp({
-    appInfo: { name: "Hello", version: "1.0.0" },
-    capabilities: {},
+  const [app] = useState(() => {
+    const created = new App({ name: "Hello", version: "1.0.0" }, {});
+    created.onerror = console.error;
+    return created;
   });
 
-  if (error) return <div>Error: {error.message}</div>;
-  if (!app) return <div>Connecting...</div>;
-
-  return <AppView app={app} />;
-}
-```
-
-Or pass `useApp` options to `<Belgie>` and it owns the connection (for UI that does not need `App`).
-Optional `fallback` (connecting) and `error` (failure UI, `ReactNode` or `(error) => ReactNode`) override the
-defaults:
-
-```tsx
-import { Belgie } from "@belgie/mcp";
-
-export default function Widget() {
   return (
     <Belgie
-      appInfo={{ name: "Hello", version: "1.0.0" }}
-      capabilities={{}}
+      app={app}
       fallback={<div>Connecting...</div>}
       error={(err) => <div>Error: {err.message}</div>}
     >
-      <div>Hello</div>
+      <AppView />
     </Belgie>
   );
 }

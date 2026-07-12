@@ -1,10 +1,12 @@
-import { useApp, type App } from "@belgie/mcp";
+import { App } from "@modelcontextprotocol/ext-apps";
+import { Belgie, useApp } from "@belgie/mcp";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 
 import "./global.css";
 
-function AppView({ app }: { app: App }) {
+function AppView() {
+  const app = useApp();
   const [toolResult, setToolResult] = useState<CallToolResult | null>(null);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
@@ -82,24 +84,23 @@ function AppView({ app }: { app: App }) {
 }
 
 export default function Widget() {
-  const { app, error } = useApp({
-    appInfo: { name: "Get Time", version: "1.0.0" },
-    capabilities: {},
-    onAppCreated: (createdApp) => {
-      createdApp.onerror = console.error;
-    },
+  const [app] = useState(() => {
+    const created = new App({ name: "Get Time", version: "1.0.0" }, {});
+    created.onerror = console.error;
+    return created;
   });
 
-  if (error) {
-    return (
-      <div className="notice">
-        <strong>ERROR:</strong> {error.message}
-      </div>
-    );
-  }
-  if (!app) {
-    return <div className="notice">Connecting...</div>;
-  }
-
-  return <AppView app={app} />;
+  return (
+    <Belgie
+      app={app}
+      fallback={<div className="notice">Connecting...</div>}
+      error={(err) => (
+        <div className="notice">
+          <strong>ERROR:</strong> {err.message}
+        </div>
+      )}
+    >
+      <AppView />
+    </Belgie>
+  );
 }
