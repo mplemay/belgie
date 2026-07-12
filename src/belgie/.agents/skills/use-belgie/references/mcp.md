@@ -101,12 +101,13 @@ You can also pass a preloaded `manifest=WidgetManifest(...)` and skip the Script
 
 ## Widget module contract
 
-Widget modules export a default React component wrapped in `<Belgie>`:
+Widget modules export a default React component. Use `useApp` when you need the connected `App` (pass it as a prop to
+children):
 
 ```tsx
-import { Belgie, useApp } from "@belgie/mcp";
+import { useApp, type App } from "@belgie/mcp";
 
-function App() {
+function AppView({ app }: { app: App }) {
   return <div>Hello</div>;
 }
 
@@ -119,15 +120,11 @@ export default function Widget() {
   if (error) return <div>Error: {error.message}</div>;
   if (!app) return <div>Connecting...</div>;
 
-  return (
-    <Belgie app={app}>
-      <App />
-    </Belgie>
-  );
+  return <AppView app={app} />;
 }
 ```
 
-Or pass `useApp` options directly to `<Belgie>` and it owns the connection:
+Or pass `useApp` options to `<Belgie>` and it owns the connection (for UI that does not need `App`):
 
 ```tsx
 import { Belgie } from "@belgie/mcp";

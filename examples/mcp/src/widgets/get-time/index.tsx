@@ -1,11 +1,10 @@
-import { Belgie, useApp, useBelgieApp } from "@belgie/mcp";
+import { useApp, type App } from "@belgie/mcp";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 
 import "./global.css";
 
-function App() {
-  const app = useBelgieApp();
+function AppView({ app }: { app: App }) {
   const [toolResult, setToolResult] = useState<CallToolResult | null>(null);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
@@ -102,9 +101,5 @@ export default function Widget() {
     return <div className="notice">Connecting...</div>;
   }
 
-  return (
-    <Belgie app={app}>
-      <App />
-    </Belgie>
-  );
+  return <AppView app={app} />;
 }
