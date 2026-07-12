@@ -1,4 +1,3 @@
-import { App } from "@modelcontextprotocol/ext-apps";
 import { Belgie, useApp } from "@belgie/mcp";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
@@ -84,15 +83,12 @@ function AppView() {
 }
 
 export default function Widget() {
-  const [app] = useState(() => {
-    const created = new App({ name: "Get Time", version: "1.0.0" }, {});
-    created.onerror = console.error;
-    return created;
-  });
-
   return (
     <Belgie
-      app={app}
+      metadata={{ name: "Get Time", version: "1.0.0" }}
+      hooks={{
+        error: console.error,
+      }}
       fallback={<div className="notice">Connecting...</div>}
       error={(err) => (
         <div className="notice">

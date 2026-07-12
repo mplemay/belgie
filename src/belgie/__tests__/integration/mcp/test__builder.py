@@ -73,7 +73,6 @@ def write_hello_widget(project: Path) -> None:
     (widget_dir / "global.css").write_text(".message { color: rebeccapurple; }\n", encoding="utf-8")
     (widget_dir / "index.tsx").write_text(
         """
-import { App } from "@modelcontextprotocol/ext-apps";
 import { Belgie } from "@belgie/mcp";
 import { useState } from "react";
 import "./global.css";
@@ -84,10 +83,8 @@ function Hello() {
 }
 
 export default function Widget() {
-  const [app] = useState(() => new App({ name: "Hello", version: "1.0.0" }, {}));
-
   return (
-    <Belgie app={app}>
+    <Belgie metadata={{ name: "Hello", version: "1.0.0" }}>
       <Hello />
     </Belgie>
   );

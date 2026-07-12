@@ -101,14 +101,13 @@ You can also pass a preloaded `manifest=WidgetManifest(...)` and skip the Script
 
 ## Widget module contract
 
-Widget modules construct an MCP `App`, pass it to `<Belgie>`, and read it in children with `useApp()`. `<Belgie>` calls
-`app.connect()` and shows optional `fallback` (connecting) / `error` (failure UI, `ReactNode` or
-`(error) => ReactNode`) until the handshake completes:
+Widget modules wrap UI in `<Belgie>` with `metadata` (name/version and optional capabilities). `<Belgie>` creates and
+connects the MCP `App`. Children read it with `useApp()`. Optional `hooks` (`before`, `after`, `error`, `toolInput`,
+`toolInputPartial`, `toolResult`, `toolCancelled`, `hostContextChanged`, `teardown`) run around connect or map to App
+events without exposing the instance. Optional `fallback` / `error` customize connecting and connection-failure UI:
 
 ```tsx
-import { App } from "@modelcontextprotocol/ext-apps";
 import { Belgie, useApp } from "@belgie/mcp";
-import { useState } from "react";
 
 function AppView() {
   const app = useApp();
@@ -116,15 +115,12 @@ function AppView() {
 }
 
 export default function Widget() {
-  const [app] = useState(() => {
-    const created = new App({ name: "Hello", version: "1.0.0" }, {});
-    created.onerror = console.error;
-    return created;
-  });
-
   return (
     <Belgie
-      app={app}
+      metadata={{ name: "Hello", version: "1.0.0" }}
+      hooks={{
+        error: console.error,
+      }}
       fallback={<div>Connecting...</div>}
       error={(err) => <div>Error: {err.message}</div>}
     >

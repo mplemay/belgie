@@ -3,16 +3,42 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
 } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { App } from "@modelcontextprotocol/ext-apps";
+import {
+  App,
+  type AppEventMap,
+  type AppOptions,
+  type McpUiAppCapabilities,
+} from "@modelcontextprotocol/ext-apps";
+
+export type BelgieMetadata = {
+  name: string;
+  version: string;
+  title?: string;
+  capabilities?: McpUiAppCapabilities;
+} & Pick<AppOptions, "autoResize" | "strict">;
+
+export type BelgieHooks = {
+  before?: () => void | Promise<void>;
+  after?: () => void | Promise<void>;
+  error?: (error: Error) => void;
+  toolInput?: (params: AppEventMap["toolinput"]) => void;
+  toolInputPartial?: (params: AppEventMap["toolinputpartial"]) => void;
+  toolResult?: (params: AppEventMap["toolresult"]) => void;
+  toolCancelled?: (params: AppEventMap["toolcancelled"]) => void;
+  hostContextChanged?: (params: AppEventMap["hostcontextchanged"]) => void;
+  teardown?: NonNullable<App["onteardown"]>;
+};
 
 export type BelgieProps = {
-  app: App;
+  metadata: BelgieMetadata;
   children: ReactNode;
+  hooks?: BelgieHooks;
   fallback?: ReactNode;
   error?: ReactNode | ((error: Error) => ReactNode);
 };
@@ -27,36 +53,102 @@ export function useApp(): App {
   return app;
 }
 
+function applyHooks(app: App, hooks: BelgieHooks | undefined): void {
+  if (!hooks) {
+    return;
+  }
+  if (hooks.error) {
+    app.onerror = hooks.error;
+  }
+  if (hooks.toolInput) {
+    app.ontoolinput = hooks.toolInput;
+  }
+  if (hooks.toolInputPartial) {
+    app.ontoolinputpartial = hooks.toolInputPartial;
+  }
+  if (hooks.toolResult) {
+    app.ontoolresult = hooks.toolResult;
+  }
+  if (hooks.toolCancelled) {
+    app.ontoolcancelled = hooks.toolCancelled;
+  }
+  if (hooks.hostContextChanged) {
+    app.onhostcontextchanged = hooks.hostContextChanged;
+  }
+  if (hooks.teardown) {
+    app.onteardown = hooks.teardown;
+  }
+}
+
 let rootInstance: Root | null = null;
 
-export function Belgie({ app, children, fallback, error: errorUI }: BelgieProps) {
+export function Belgie({
+  metadata,
+  children,
+  hooks,
+  fallback,
+  error: errorUI,
+}: BelgieProps) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const appRef = useRef<App | null>(null);
+  const initRef = useRef<{ metadata: BelgieMetadata; hooks: BelgieHooks | undefined } | null>(
+    null,
+  );
+  if (initRef.current == null) {
+    initRef.current = { metadata, hooks };
+  }
 
   useEffect(() => {
     let cancelled = false;
-    app
-      .connect()
-      .then(() => {
-        if (!cancelled) {
-          setConnected(true);
-        }
-      })
-      .catch((err: unknown) => {
+    const { metadata: meta, hooks: initHooks } = initRef.current!;
+    const { capabilities, autoResize, strict, name, version, title } = meta;
+    const options: AppOptions = {};
+    if (autoResize !== undefined) {
+      options.autoResize = autoResize;
+    }
+    if (strict !== undefined) {
+      options.strict = strict;
+    }
+    const app = new App(
+      title === undefined ? { name, version } : { name, version, title },
+      capabilities ?? {},
+      options,
+    );
+    appRef.current = app;
+    applyHooks(app, initHooks);
+
+    void (async () => {
+      try {
+        await initHooks?.before?.();
         if (cancelled) {
           return;
         }
-        // Strict Mode remount can hit connect twice; treat already-connected as success
-        if (err instanceof Error && err.message.includes("already connected")) {
-          setConnected(true);
+        try {
+          await app.connect();
+        } catch (err: unknown) {
+          if (!(err instanceof Error && err.message.includes("already connected"))) {
+            throw err;
+          }
+        }
+        if (cancelled) {
           return;
         }
-        setError(err instanceof Error ? err : new Error(String(err)));
-      });
+        await initHooks?.after?.();
+        if (!cancelled) {
+          setConnected(true);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, [app]);
+  }, []);
 
   if (error) {
     if (typeof errorUI === "function") return errorUI(error);
@@ -67,11 +159,13 @@ export function Belgie({ app, children, fallback, error: errorUI }: BelgieProps)
       </div>
     );
   }
-  if (!connected) {
+  if (!connected || appRef.current == null) {
     return fallback ?? <div>Connecting...</div>;
   }
 
-  return <BelgieAppContext.Provider value={app}>{children}</BelgieAppContext.Provider>;
+  return (
+    <BelgieAppContext.Provider value={appRef.current}>{children}</BelgieAppContext.Provider>
+  );
 }
 
 export function mountWidget(Widget: ComponentType): void {
