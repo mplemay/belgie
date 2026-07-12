@@ -1,11 +1,11 @@
-import { Belgie, useApp } from "@belgie/mcp";
+import { Widget, useWidget } from "@belgie/mcp";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 
 import "./global.css";
 
 function AppView() {
-  const app = useApp();
+  const app = useWidget();
   const [toolResult, setToolResult] = useState<CallToolResult | null>(null);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
@@ -82,9 +82,9 @@ function AppView() {
   );
 }
 
-export default function Widget() {
+export default function GetTime() {
   return (
-    <Belgie
+    <Widget
       metadata={{ name: "Get Time", version: "1.0.0" }}
       hooks={{
         error: console.error,
@@ -97,6 +97,6 @@ export default function Widget() {
       )}
     >
       <AppView />
-    </Belgie>
+    </Widget>
   );
 }

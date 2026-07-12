@@ -16,14 +16,14 @@ import {
   type McpUiAppCapabilities,
 } from "@modelcontextprotocol/ext-apps";
 
-export type BelgieMetadata = {
+export type WidgetMetadata = {
   name: string;
   version: string;
   title?: string;
   capabilities?: McpUiAppCapabilities;
 } & Pick<AppOptions, "autoResize" | "strict">;
 
-export type BelgieHooks = {
+export type WidgetHooks = {
   before?: () => void | Promise<void>;
   after?: () => void | Promise<void>;
   error?: (error: Error) => void;
@@ -35,25 +35,25 @@ export type BelgieHooks = {
   teardown?: NonNullable<App["onteardown"]>;
 };
 
-export type BelgieProps = {
-  metadata: BelgieMetadata;
+export type WidgetProps = {
+  metadata: WidgetMetadata;
   children: ReactNode;
-  hooks?: BelgieHooks;
+  hooks?: WidgetHooks;
   fallback?: ReactNode;
   error?: ReactNode | ((error: Error) => ReactNode);
 };
 
-const BelgieAppContext = createContext<App | null>(null);
+const WidgetContext = createContext<App | null>(null);
 
-export function useApp(): App {
-  const app = useContext(BelgieAppContext);
+export function useWidget(): App {
+  const app = useContext(WidgetContext);
   if (app == null) {
-    throw new Error("useApp must be used within a connected <Belgie>");
+    throw new Error("useWidget must be used within a connected <Widget>");
   }
   return app;
 }
 
-function applyHooks(app: App, hooks: BelgieHooks | undefined): void {
+function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
   if (!hooks) {
     return;
   }
@@ -82,17 +82,17 @@ function applyHooks(app: App, hooks: BelgieHooks | undefined): void {
 
 let rootInstance: Root | null = null;
 
-export function Belgie({
+export function Widget({
   metadata,
   children,
   hooks,
   fallback,
   error: errorUI,
-}: BelgieProps) {
+}: WidgetProps) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const appRef = useRef<App | null>(null);
-  const initRef = useRef<{ metadata: BelgieMetadata; hooks: BelgieHooks | undefined } | null>(
+  const initRef = useRef<{ metadata: WidgetMetadata; hooks: WidgetHooks | undefined } | null>(
     null,
   );
   if (initRef.current == null) {
@@ -168,7 +168,7 @@ export function Belgie({
   }
 
   return (
-    <BelgieAppContext.Provider value={appRef.current}>{children}</BelgieAppContext.Provider>
+    <WidgetContext.Provider value={appRef.current}>{children}</WidgetContext.Provider>
   );
 }
 
@@ -176,7 +176,7 @@ export function mountWidget(Widget: ComponentType): void {
   if (!rootInstance) {
     const element = document.querySelector("#root");
     if (!(element instanceof HTMLElement)) {
-      throw new Error("Belgie widget root #root was not found");
+      throw new Error("Widget root #root was not found");
     }
     rootInstance = createRoot(element);
   }

@@ -73,7 +73,7 @@ def write_hello_widget(project: Path) -> None:
     (widget_dir / "global.css").write_text(".message { color: rebeccapurple; }\n", encoding="utf-8")
     (widget_dir / "index.tsx").write_text(
         """
-import { Belgie } from "@belgie/mcp";
+import { Widget } from "@belgie/mcp";
 import { useState } from "react";
 import "./global.css";
 
@@ -82,11 +82,11 @@ function Hello() {
   return <p className="message">{message}</p>;
 }
 
-export default function Widget() {
+export default function HelloWidget() {
   return (
-    <Belgie metadata={{ name: "Hello", version: "1.0.0" }}>
+    <Widget metadata={{ name: "Hello", version: "1.0.0" }}>
       <Hello />
-    </Belgie>
+    </Widget>
   );
 }
 """.lstrip(),

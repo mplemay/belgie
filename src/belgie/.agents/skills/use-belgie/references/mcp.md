@@ -101,22 +101,22 @@ You can also pass a preloaded `manifest=WidgetManifest(...)` and skip the Script
 
 ## Widget module contract
 
-Widget modules wrap UI in `<Belgie>` with `metadata` (name/version and optional capabilities). `<Belgie>` creates and
-connects the MCP `App`. Children read it with `useApp()`. Optional `hooks` (`before`, `after`, `error`, `toolInput`,
+Widget modules wrap UI in `<Widget>` with `metadata` (name/version and optional capabilities). `<Widget>` creates and
+connects the MCP `App`. Children read it with `useWidget()`. Optional `hooks` (`before`, `after`, `error`, `toolInput`,
 `toolInputPartial`, `toolResult`, `toolCancelled`, `hostContextChanged`, `teardown`) run around connect or map to App
 events without exposing the instance. Optional `fallback` / `error` customize connecting and connection-failure UI:
 
 ```tsx
-import { Belgie, useApp } from "@belgie/mcp";
+import { Widget, useWidget } from "@belgie/mcp";
 
 function AppView() {
-  const app = useApp();
+  const app = useWidget();
   return <div>Hello</div>;
 }
 
-export default function Widget() {
+export default function Hello() {
   return (
-    <Belgie
+    <Widget
       metadata={{ name: "Hello", version: "1.0.0" }}
       hooks={{
         error: console.error,
@@ -125,7 +125,7 @@ export default function Widget() {
       error={(err) => <div>Error: {err.message}</div>}
     >
       <AppView />
-    </Belgie>
+    </Widget>
   );
 }
 ```
