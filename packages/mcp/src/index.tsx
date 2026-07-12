@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, type ReactNode } from "react";
+import { StrictMode, useEffect, type ComponentType, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 export type BelgieProps = {
@@ -15,25 +15,21 @@ export function Belgie({ children, title }: BelgieProps) {
     }
   }, [title]);
 
-  return <StrictMode>{children}</StrictMode>;
+  return children;
 }
 
-export function mountWidget(node: ReactNode): void {
-  if (typeof document === "undefined" || typeof window === "undefined") {
-    return;
-  }
-
+export function mountWidget(Widget: ComponentType): void {
   if (!rootInstance) {
-    rootInstance = createRoot(resolveRoot());
+    const element = document.querySelector("#root");
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("Belgie widget root #root was not found");
+    }
+    rootInstance = createRoot(element);
   }
 
-  rootInstance.render(node);
-}
-
-function resolveRoot(): HTMLElement {
-  const element = document.querySelector("#root");
-  if (!(element instanceof HTMLElement)) {
-    throw new Error("Belgie widget root #root was not found");
-  }
-  return element;
+  rootInstance.render(
+    <StrictMode>
+      <Widget />
+    </StrictMode>,
+  );
 }
