@@ -101,20 +101,31 @@ You can also pass a preloaded `manifest=WidgetManifest(...)` and skip the Script
 
 ## Widget module contract
 
-Widget modules export a default React component wrapped in `<Belgie>`:
+Widget modules wrap UI in `<Widget>` with `metadata` (name/version and optional capabilities). `<Widget>` creates and
+connects the MCP `App`. Children read it with `useWidget()`. Optional `hooks` (`before`, `after`, `error`, `toolInput`,
+`toolInputPartial`, `toolResult`, `toolCancelled`, `hostContextChanged`, `teardown`) run around connect or map to App
+events without exposing the instance. Optional `fallback` / `error` customize connecting and connection-failure UI:
 
 ```tsx
-import { Belgie } from "@belgie/mcp";
+import { Widget, useWidget } from "@belgie/mcp";
 
-function App() {
+function AppView() {
+  const app = useWidget();
   return <div>Hello</div>;
 }
 
-export default function Widget() {
+export default function Hello() {
   return (
-    <Belgie title="Hello">
-      <App />
-    </Belgie>
+    <Widget
+      metadata={{ name: "Hello", version: "1.0.0" }}
+      hooks={{
+        error: console.error,
+      }}
+      fallback={<div>Connecting...</div>}
+      error={(err) => <div>Error: {err.message}</div>}
+    >
+      <AppView />
+    </Widget>
   );
 }
 ```

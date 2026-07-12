@@ -1,34 +1,15 @@
-import { Belgie } from "@belgie/mcp";
-import { useApp } from "@modelcontextprotocol/ext-apps/react";
+import { Widget, useWidget } from "@belgie/mcp";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 
 import "./global.css";
 
-function App() {
+function AppView() {
+  const app = useWidget();
   const [toolResult, setToolResult] = useState<CallToolResult | null>(null);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
-
-  const { app, error } = useApp({
-    appInfo: { name: "Get Time", version: "1.0.0" },
-    capabilities: {},
-    onAppCreated: (createdApp) => {
-      createdApp.onerror = console.error;
-    },
-  });
-
-  if (error) {
-    return (
-      <div className="notice">
-        <strong>ERROR:</strong> {error.message}
-      </div>
-    );
-  }
-  if (!app) {
-    return <div className="notice">Connecting...</div>;
-  }
 
   const serverTime = (() => {
     const text = toolResult?.content?.find((content): content is { type: "text"; text: string } => {
@@ -101,10 +82,21 @@ function App() {
   );
 }
 
-export default function Widget() {
+export default function GetTime() {
   return (
-    <Belgie title="Get Time">
-      <App />
-    </Belgie>
+    <Widget
+      metadata={{ name: "Get Time", version: "1.0.0" }}
+      hooks={{
+        error: console.error,
+      }}
+      fallback={<div className="notice">Connecting...</div>}
+      error={(err) => (
+        <div className="notice">
+          <strong>ERROR:</strong> {err.message}
+        </div>
+      )}
+    >
+      <AppView />
+    </Widget>
   );
 }

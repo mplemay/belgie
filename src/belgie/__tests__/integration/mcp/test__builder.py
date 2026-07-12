@@ -27,6 +27,7 @@ BASE_URL: Final[str] = "http://127.0.0.1:3001"
 def widget_dependencies() -> dict[str, str]:
     return {
         "@belgie/mcp": f"file:{MCP_PACKAGE_PATH.resolve().as_posix()}",
+        "@modelcontextprotocol/ext-apps": "npm:@modelcontextprotocol/ext-apps@latest",
         "@vitejs/plugin-react": f"npm:@vitejs/plugin-react@{VITE_REACT_PLUGIN_VERSION}",
         "react": f"npm:react@{REACT_VERSION}",
         "react-dom": f"npm:react-dom@{REACT_VERSION}",
@@ -72,20 +73,20 @@ def write_hello_widget(project: Path) -> None:
     (widget_dir / "global.css").write_text(".message { color: rebeccapurple; }\n", encoding="utf-8")
     (widget_dir / "index.tsx").write_text(
         """
-import { Belgie } from "@belgie/mcp";
+import { Widget } from "@belgie/mcp";
 import { useState } from "react";
 import "./global.css";
 
-function App() {
+function Hello() {
   const [message] = useState("Hello from Belgie");
   return <p className="message">{message}</p>;
 }
 
-export default function Widget() {
+export default function HelloWidget() {
   return (
-    <Belgie title="Hello">
-      <App />
-    </Belgie>
+    <Widget metadata={{ name: "Hello", version: "1.0.0" }}>
+      <Hello />
+    </Widget>
   );
 }
 """.lstrip(),
