@@ -124,14 +124,21 @@ export default function Widget() {
 }
 ```
 
-Or pass `useApp` options to `<Belgie>` and it owns the connection (for UI that does not need `App`):
+Or pass `useApp` options to `<Belgie>` and it owns the connection (for UI that does not need `App`).
+Optional `fallback` (connecting) and `error` (failure UI, `ReactNode` or `(error) => ReactNode`) override the
+defaults:
 
 ```tsx
 import { Belgie } from "@belgie/mcp";
 
 export default function Widget() {
   return (
-    <Belgie appInfo={{ name: "Hello", version: "1.0.0" }} capabilities={{}}>
+    <Belgie
+      appInfo={{ name: "Hello", version: "1.0.0" }}
+      capabilities={{}}
+      fallback={<div>Connecting...</div>}
+      error={(err) => <div>Error: {err.message}</div>}
+    >
       <div>Hello</div>
     </Belgie>
   );

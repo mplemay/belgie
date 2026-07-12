@@ -9,14 +9,25 @@ import {
 export type { App } from "@modelcontextprotocol/ext-apps";
 export { useApp, type AppState, type UseAppOptions } from "@modelcontextprotocol/ext-apps/react";
 
-export type BelgieProps = UseAppOptions & { children: ReactNode };
+export type BelgieProps = UseAppOptions & {
+  children: ReactNode;
+  fallback?: ReactNode;
+  error?: ReactNode | ((error: Error) => ReactNode);
+};
 
 let rootInstance: Root | null = null;
 
-export function Belgie({ children, ...options }: BelgieProps) {
+export function Belgie({
+  children,
+  fallback,
+  error: errorUI,
+  ...options
+}: BelgieProps) {
   const { app, error }: AppState = useApp(options);
 
   if (error) {
+    if (typeof errorUI === "function") return errorUI(error);
+    if (errorUI !== undefined) return errorUI;
     return (
       <div>
         <strong>ERROR:</strong> {error.message}
@@ -24,7 +35,7 @@ export function Belgie({ children, ...options }: BelgieProps) {
     );
   }
   if (!app) {
-    return <div>Connecting...</div>;
+    return fallback ?? <div>Connecting...</div>;
   }
 
   return children;
