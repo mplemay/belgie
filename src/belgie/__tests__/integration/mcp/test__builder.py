@@ -27,6 +27,7 @@ BASE_URL: Final[str] = "http://127.0.0.1:3001"
 def widget_dependencies() -> dict[str, str]:
     return {
         "@belgie/mcp": f"file:{MCP_PACKAGE_PATH.resolve().as_posix()}",
+        "@modelcontextprotocol/ext-apps": "npm:@modelcontextprotocol/ext-apps@latest",
         "@vitejs/plugin-react": f"npm:@vitejs/plugin-react@{VITE_REACT_PLUGIN_VERSION}",
         "react": f"npm:react@{REACT_VERSION}",
         "react-dom": f"npm:react-dom@{REACT_VERSION}",
@@ -83,7 +84,7 @@ function App() {
 
 export default function Widget() {
   return (
-    <Belgie title="Hello">
+    <Belgie appInfo={{ name: "Hello", version: "1.0.0" }} capabilities={{}}>
       <App />
     </Belgie>
   );

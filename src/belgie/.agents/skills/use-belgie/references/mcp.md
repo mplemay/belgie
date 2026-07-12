@@ -104,16 +104,38 @@ You can also pass a preloaded `manifest=WidgetManifest(...)` and skip the Script
 Widget modules export a default React component wrapped in `<Belgie>`:
 
 ```tsx
-import { Belgie } from "@belgie/mcp";
+import { Belgie, useApp } from "@belgie/mcp";
 
 function App() {
   return <div>Hello</div>;
 }
 
 export default function Widget() {
+  const { app, error } = useApp({
+    appInfo: { name: "Hello", version: "1.0.0" },
+    capabilities: {},
+  });
+
+  if (error) return <div>Error: {error.message}</div>;
+  if (!app) return <div>Connecting...</div>;
+
   return (
-    <Belgie title="Hello">
+    <Belgie app={app}>
       <App />
+    </Belgie>
+  );
+}
+```
+
+Or pass `useApp` options directly to `<Belgie>` and it owns the connection:
+
+```tsx
+import { Belgie } from "@belgie/mcp";
+
+export default function Widget() {
+  return (
+    <Belgie appInfo={{ name: "Hello", version: "1.0.0" }} capabilities={{}}>
+      <div>Hello</div>
     </Belgie>
   );
 }
