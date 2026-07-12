@@ -12,6 +12,8 @@ import {
 } from "./scan-widgets.js";
 import { hasDefaultExport } from "./validate-widget.js";
 
+export { renderWidget, type RenderWidgetOptions } from "./render-widget.js";
+
 const VIRTUAL_PREFIX = "/_belgie/widget/";
 const VIRTUAL_MODULE_PREFIX = "\0belgie:widget:";
 

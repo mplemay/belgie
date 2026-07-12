@@ -63,12 +63,13 @@ my-mcp-app/
 [tool.belgie.dependencies]
 "@belgie/mcp" = "npm:@belgie/mcp@^0.1.0"
 react = "npm:react@^19"
-vite = "npm:vite@6.1.0"
+vite = "npm:vite@^8"
 "@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^4"
 ```
 
-Declare `@belgie/mcp` as an npm dependency (or a `file:` path to a built local package). Add `belgie()` to
-`vite.config.ts`, run `belgie run vite build`, then serve `dist` (for example with FastAPI `app.frontend()`).
+Declare `@belgie/mcp` as an npm dependency (or a `file:` path to a built local package), install the environment, and
+pass `Script` widgets directly to `BelgieExtension.tool`. A `vite.config.ts` may provide plugins such as Tailwind.
+Use `belgie()` plus `belgie run vite build` only for the optional prebuilt/static workflow.
 
 JavaScript packages for scripts belong in `Environment({...})` or `[tool.belgie.dependencies]`, not in Python
 `[project.dependencies]`.
@@ -89,8 +90,7 @@ Before finishing adoption, confirm:
 
 - [ ] `Environment` and `Runtime` are used as context managers (`with` / `async with`)
 - [ ] Script packages use direct `npm:` / `jsr:` / URL imports, or `env.install()` runs for aliases and commands
-- [ ] MCP projects declare `[tool.belgie.dependencies]`, use `belgie()` in `vite.config.ts`, and run
-      `belgie lock` / `belgie install` before `belgie run vite build`
+- [ ] MCP projects declare Vite 8 and `@belgie/mcp`, then run `belgie lock` / `belgie install` before rendering Scripts
 - [ ] JS modules export a callable (`export default function run(...)` or `export default () => ...`)
 - [ ] Python ↔ JS data is JSON-serializable (dicts, lists, primitives)
 - [ ] Errors are imported from `belgie.errors`

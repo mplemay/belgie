@@ -1,13 +1,12 @@
 # MCP
 
-Runs a small MCP server with a React app resource built by the `@belgie/mcp` Vite plugin and served through
-`BelgieExtension`.
+Runs an MCP server whose React widget is bundled from a Belgie `Script` into one self-contained HTML resource.
 
 Requires `belgie[mcp,cli]` (included in this example's dependencies).
 
 ## Setup
 
-Install Python and widget build dependencies, then build widgets:
+Install Python and widget dependencies once:
 
 ```bash
 uv sync
@@ -15,28 +14,50 @@ uv run belgie lock
 uv run belgie install
 ```
 
-Build widgets:
-
-```bash
-uv run belgie run vite build
-```
-
-`belgie run vite build` writes HTML under `dist/widgets/` and shared assets under `dist/assets/`. FastAPI serves that
-`dist` directory with `app.frontend()`.
-
 ## Run
 
 ```bash
 uv run main
 ```
 
-The server listens on port `3001`. MCP is mounted at `/mcp`. An MCP Apps-capable client can render the `get-time`
-widget and call the matching `get-time` server tool. Widget JS/CSS load from the same origin via FastAPI frontend
-routes.
+The server listens on port `3001`. An MCP Apps-capable client can render the `get-time` widget and call its tool.
+No Vite process, `dist` directory, or static asset server is required.
 
-## What's Happening
+## Embedded Script rendering
 
-`vite.config.ts` uses the Belgie Vite plugin:
+The widget remains ordinary TSX using the public `Widget` component:
+
+```tsx
+import { Widget } from "@belgie/mcp"
+
+export default function GetTime() {
+  return (
+    <Widget metadata={{ name: "Get Time", version: "1.0.0" }}>
+      <AppView />
+    </Widget>
+  )
+}
+```
+
+Python loads that source as a `Script` and passes it directly to the tool decorator:
+
+```python
+from belgie import Script
+from belgie.mcp import BelgieExtension
+
+widget = Script.from_file("src/widgets/get-time/index.tsx")
+belgie = BelgieExtension(project=PROJECT_ROOT)
+
+@belgie.tool(widget=widget, name="get-time")
+def get_time() -> list[TextContent]:
+    ...
+```
+
+At registration time, `BelgieExtension` runs Vite 8 inside the Deno sandbox with an in-memory entry and
+`build.write = false`. JavaScript, CSS, and imported assets are inlined into the registered HTML resource.
+
+`vite.config.ts` is optional. When present, the embedded renderer reuses safe transformation settings and user plugins
+such as React or Tailwind while retaining control of the single-file output:
 
 ```ts
 import { belgie } from "@belgie/mcp/vite"
@@ -48,23 +69,16 @@ export default defineConfig({
 })
 ```
 
-Widgets live under `src/widgets` by default (`get-time` → `src/widgets/get-time/index.tsx`).
+The filesystem-oriented `belgie()` plugin is excluded from embedded builds; other plugins are retained.
 
-At runtime, `BelgieExtension(base_url=...)` loads a JSON widget manifest through a Belgie `Script` (no Python
-filesystem reads of widget HTML). Tools reference widgets by name:
-
-```python
-belgie = BelgieExtension(base_url="http://127.0.0.1:3001")
-
-@belgie.tool(widget="get-time", name="get-time")
-def get_time() -> list[TextContent]:
-    ...
-```
-
-Serve the Vite `dist` output yourself (this example uses FastAPI `app.frontend`):
+For inline source with relative imports, provide a virtual filename:
 
 ```python
-app = FastAPI()
-app.mount("/mcp", mcp.streamable_http_app(streamable_http_path="/"))
-app.frontend("/", directory="dist", check_dir=False)
+widget = Script(SOURCE, filename="src/widgets/generated.tsx")
 ```
+
+## Prebuilt widgets
+
+The existing static workflow remains available. Run `belgie run vite build`, serve `dist`, and construct
+`BelgieExtension(base_url=..., project=...)`. In that mode, tools continue to use manifest names such as
+`@belgie.tool(widget="get-time")`.

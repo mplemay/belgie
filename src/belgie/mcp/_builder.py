@@ -1,12 +1,12 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal, cast
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from belgie import Environment, Runtime, Script
+from belgie import Environment, Runtime, RuntimeOptions, RuntimePermissions, Script
 from belgie._core import AsyncEnvironment, SyncEnvironment
 from belgie._pyproject import (
     PyprojectError,
@@ -16,20 +16,37 @@ from belgie._pyproject import (
 )
 
 type BelgieEnvironment = Environment | SyncEnvironment | AsyncEnvironment
+type ViteConfig = str | Path | Literal[False] | None
 
 LOCKFILE_NAME: Final[str] = "deno.lock"
 DEPENDENCIES_TABLE: Final[tuple[str, ...]] = ("belgie", "dependencies")
 MCP_PACKAGE_NAME: Final[str] = "@belgie/mcp"
+VITE_PACKAGE_NAME: Final[str] = "vite"
 MISSING_PROJECT_DEPENDENCIES_ERROR: Final[str] = "No [tool.belgie.dependencies] entries found in {pyproject}"
 MISSING_LOCKFILE_ERROR: Final[str] = "Missing Belgie lockfile at {lockfile}; run `belgie install`"
 MISSING_MCP_PACKAGE_ERROR: Final[str] = (
     "Missing {package} in [tool.belgie.dependencies]; declare an npm or file: dependency"
+)
+MISSING_RENDER_PACKAGE_ERROR: Final[str] = (
+    "Missing {package} in [tool.belgie.dependencies]; embedded widgets require an installed dependency"
 )
 INVALID_BASE_URL_ERROR: Final[str] = "base_url must be an absolute http(s) URL, got {base_url!r}"
 MANIFEST_SCRIPT: Final[str] = (
     'import { loadWidgetManifest } from "@belgie/mcp/manifest";\n'
     "export default (projectRoot: string, baseUrl: string) => "
     "loadWidgetManifest(projectRoot, baseUrl);\n"
+)
+RENDER_WIDGET_SCRIPT: Final[str] = (
+    'import { renderWidget } from "@belgie/mcp/vite";\nexport default (options) => renderWidget(options);\n'
+)
+RENDER_WIDGET_FILENAME: Final[str] = "__belgie_widget__.tsx"
+RENDER_RUNTIME_OPTIONS: Final[RuntimeOptions] = RuntimeOptions(
+    permissions=RuntimePermissions(
+        allow_env=[],
+        allow_ffi=[],
+        allow_read=[],
+        allow_sys=[],
+    ),
 )
 
 
@@ -68,6 +85,32 @@ def load_widget_manifest(
         )
 
 
+def build_widget_script(
+    script: Script,
+    *,
+    project_path: Path | None = None,
+    environment: BelgieEnvironment | None = None,
+    vite_config: ViteConfig = None,
+) -> str:
+    resolved_project_path = _resolve_project_path(project_path)
+    if environment is None:
+        _require_render_packages(resolved_project_path)
+    options: dict[str, object] = {
+        "filename": str(script.filename or RENDER_WIDGET_FILENAME),
+        "root": str(resolved_project_path),
+        "source": script.content,
+    }
+    if vite_config is False:
+        options["configFile"] = False
+    elif vite_config is not None:
+        options["configFile"] = str(vite_config)
+    with (
+        _use_environment(environment, project_path=resolved_project_path) as env,
+        Runtime(env=env, options=RENDER_RUNTIME_OPTIONS) as runtime,
+    ):
+        return cast("str", runtime(Script(RENDER_WIDGET_SCRIPT))(options))
+
+
 def _normalize_base_url(base_url: str) -> str:
     parsed = urlparse(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -85,6 +128,14 @@ def _require_mcp_package(project_path: Path) -> None:
     if MCP_PACKAGE_NAME not in dependencies:
         msg = MISSING_MCP_PACKAGE_ERROR.format(package=MCP_PACKAGE_NAME)
         raise PyprojectError(msg)
+
+
+def _require_render_packages(project_path: Path) -> None:
+    dependencies = _load_project_dependencies(project_path)
+    for package in (MCP_PACKAGE_NAME, VITE_PACKAGE_NAME):
+        if package not in dependencies:
+            msg = MISSING_RENDER_PACKAGE_ERROR.format(package=package)
+            raise PyprojectError(msg)
 
 
 def _load_project_dependencies(project_path: Path) -> dict[str, str]:

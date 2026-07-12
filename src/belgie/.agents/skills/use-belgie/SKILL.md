@@ -144,9 +144,8 @@ asyncio.run(main())
 4. **Inline deps:** for script packages, prefer direct `import ... from "npm:..."` or `import ... from "jsr:..."`.
 5. **Environment:** use `Environment({...})` and `install()` for commands, local `file:` packages, dependency aliases,
    or explicit lock/cache/options.
-6. **Pyproject deps:** when `[tool.belgie.dependencies]` is present, run `belgie lock` and `belgie install` before
-   MCP widget builds or shared lockfile usage; use `belgie run` to execute project binaries (for example
-   `belgie run vite build`).
+6. **Pyproject deps:** when `[tool.belgie.dependencies]` is present, run `belgie lock` and `belgie install` before MCP
+   Script rendering, static widget builds, or shared lockfile usage.
 7. **Enter contexts:** nest `Runtime` inside an active `Environment` when `env=` is used.
 8. **Bind and call:** `runner = run(Script(...))` or `run(Command(...))`, then call with JSON-safe args.
 9. **On failure:** match the error text in [references/troubleshooting.md](references/troubleshooting.md).
@@ -177,8 +176,8 @@ Load only the most relevant reference first. Read additional references only if 
 - Import script packages inline with `npm:`, `jsr:`, or URL specifiers; do not put JavaScript dependencies in Python
   `[project.dependencies]`.
 - Use `[tool.belgie.dependencies]` for Belgie-managed JS packages (including `@belgie/mcp` as an npm or `file:` dep).
-- Add `belgie()` from `@belgie/mcp/vite` to `vite.config.ts`; run `belgie lock` / `belgie install` then
-  `belgie run vite build` before `BelgieExtension(base_url=...)`.
+- Pass MCP widget Scripts directly to `@tool(widget=...)` for embedded single-file HTML; use `belgie()` plus
+  `belgie run vite build` only for the optional prebuilt/static workflow.
 - Export a callable from every JS module (`export default function run(...)` or `export default () => ...`).
 - Call `env.install()` before commands, local `file:` package aliases, or explicit dependency-map imports.
 - Use `Runtime.from_folder()` for inline `./` imports or a fixed project cwd; `Script.from_file()` resolves
@@ -199,7 +198,7 @@ Agents commonly make these mistakes with belgie:
 - Passing shell command strings to `Command` instead of separate argv (`argument 0 must be str`).
 - Putting JavaScript dependencies in Python `[project.dependencies]` instead of inline script imports, `Environment`,
   or `[tool.belgie.dependencies]`.
-- Starting an MCP server without `belgie run vite build` / `belgie install` when widgets are declared.
+- Rendering an MCP Script widget before `belgie install`, or using a string widget name without a manifest/base URL.
 - Using `@tool(path=...)` instead of `@tool(widget=...)` with a prebuilt manifest / `base_url`.
 - Calling a bound runner after the runtime context exits (`closed`).
 - Passing non-JSON Python objects across the boundary (`Only JSON-serializable`).

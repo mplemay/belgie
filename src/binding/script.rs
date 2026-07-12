@@ -13,9 +13,10 @@ pub struct PyScript {
 #[pymethods]
 impl PyScript {
     #[new]
-    pub fn new(content: String) -> Self {
+    #[pyo3(signature = (content, *, filename = None))]
+    pub fn new(content: String, filename: Option<PathBuf>) -> Self {
         Self {
-            source: ScriptSource::from_options(ScriptOptions::inline(content)),
+            source: ScriptSource::from_options(ScriptOptions::inline(content, filename)),
         }
     }
 
@@ -29,6 +30,16 @@ impl PyScript {
 
     fn __repr__(&self) -> String {
         format!("Script({})", self.source.description())
+    }
+
+    #[getter]
+    fn content(&self) -> &str {
+        self.source.content()
+    }
+
+    #[getter]
+    fn filename(&self) -> Option<PathBuf> {
+        self.source.filename().map(PathBuf::from)
     }
 }
 

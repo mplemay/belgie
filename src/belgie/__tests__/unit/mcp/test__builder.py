@@ -10,6 +10,7 @@ from belgie.mcp._builder import (
     _normalize_base_url,
     _require_installed,
     _require_mcp_package,
+    _require_render_packages,
     _resolve_project_path,
 )
 
@@ -117,6 +118,29 @@ react = "npm:react@^19"
         _require_mcp_package(tmp_path)
 
 
+def test_require_render_packages_requires_mcp_and_vite(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[tool.belgie.dependencies]
+"@belgie/mcp" = "npm:@belgie/mcp@0.1.0"
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PyprojectError, match="vite"):
+        _require_render_packages(tmp_path)
+
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[tool.belgie.dependencies]
+"@belgie/mcp" = "npm:@belgie/mcp@0.1.0"
+vite = "npm:vite@8.1.3"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _require_render_packages(tmp_path)
+
+
 def test_normalize_base_url_accepts_http_urls() -> None:
     assert _normalize_base_url("http://127.0.0.1:3001/") == "http://127.0.0.1:3001"
 
@@ -131,7 +155,7 @@ def test_parse_tool_table_reads_nested_belgie_dependencies(tmp_path: Path) -> No
     pyproject_path.write_text(
         """
 [tool.belgie.dependencies]
-vite = "npm:vite@6.1.0"
+vite = "npm:vite@8.1.3"
 "@belgie/mcp" = "file:./widget"
 """.lstrip(),
         encoding="utf-8",
@@ -140,7 +164,7 @@ vite = "npm:vite@6.1.0"
 
     dependencies = parse_tool_table(document, "belgie", "dependencies")
 
-    assert dependencies["vite"] == "npm:vite@6.1.0"
+    assert dependencies["vite"] == "npm:vite@8.1.3"
     assert dependencies["@belgie/mcp"] == "file:./widget"
 
 

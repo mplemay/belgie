@@ -193,6 +193,26 @@ export default function run(input) {
         assert runtime(Script.from_file(path))({"name": "belgie"}) == "BELGIE"
 
 
+def test_inline_script_filename_enables_tsx_media_type(tmp_path: Path) -> None:
+    source = """
+const React = { createElement: (type: string) => ({ type }) };
+export default () => (<main />).type;
+"""
+
+    with Runtime.from_folder(tmp_path) as runtime:
+        assert runtime(Script(source, filename="widget.tsx"))() == "main"
+
+
+def test_inline_script_filename_sets_relative_import_base(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "message.ts").write_text('export const message = "relative";\n', encoding="utf-8")
+    source = 'import { message } from "./message.ts"; export default () => message;'
+
+    with Runtime.from_folder(tmp_path) as runtime:
+        assert runtime(Script(source, filename="src/widget.ts"))() == "relative"
+
+
 def test_transpiles_relative_typescript_imports_from_script_file(tmp_path: Path, write_script):
     write_script(
         """

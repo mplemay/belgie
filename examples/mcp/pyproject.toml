@@ -9,7 +9,6 @@ authors = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "belgie[mcp,cli]",
-    "fastapi>=0.128.0",
     "uvicorn>=0.38,<1",
 ]
 
@@ -22,7 +21,7 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { belgie = false, mcp = false, mcp-types = false, uvicorn = false, fastapi = false }
+exclude-newer-package = { belgie = false, mcp = false, mcp-types = false, uvicorn = false }
 
 [tool.uv.sources]
 belgie = { path = "../../", editable = true }
@@ -35,4 +34,4 @@ belgie = { path = "../../", editable = true }
 react = "npm:react@^19"
 "react-dom" = "npm:react-dom@^19"
 "react-dom/client" = "npm:react-dom@^19/client"
-vite = "npm:vite@6.1.0"
+vite = "npm:vite@8.1.3"

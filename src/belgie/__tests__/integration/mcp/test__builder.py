@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 import pytest
 
-from belgie import Command, Environment, Runtime
-from belgie.errors import BelgieRuntimeError
-from belgie.mcp._builder import load_widget_manifest
+from belgie import Command, Environment, Runtime, Script
+from belgie.errors import BelgieJavaScriptError, BelgieRuntimeError
+from belgie.mcp._builder import build_widget_script, load_widget_manifest
 
 pytestmark = pytest.mark.integration
 
@@ -17,9 +17,10 @@ SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
     reason="Vite build loads Rollup's native Node-API addon",
 )
 
-VITE_VERSION = "6.1.0"
+VITE_VERSION = "8.1.3"
 REACT_VERSION = "^19"
 VITE_REACT_PLUGIN_VERSION = "^4"
+TAILWIND_VERSION = "4.3.0"
 MCP_PACKAGE_PATH: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "mcp"
 BASE_URL: Final[str] = "http://127.0.0.1:3001"
 
@@ -28,10 +29,12 @@ def widget_dependencies() -> dict[str, str]:
     return {
         "@belgie/mcp": f"file:{MCP_PACKAGE_PATH.resolve().as_posix()}",
         "@modelcontextprotocol/ext-apps": "npm:@modelcontextprotocol/ext-apps@latest",
+        "@tailwindcss/vite": f"npm:@tailwindcss/vite@{TAILWIND_VERSION}",
         "@vitejs/plugin-react": f"npm:@vitejs/plugin-react@{VITE_REACT_PLUGIN_VERSION}",
         "react": f"npm:react@{REACT_VERSION}",
         "react-dom": f"npm:react-dom@{REACT_VERSION}",
         "react-dom/client": f"npm:react-dom@{REACT_VERSION}/client",
+        "tailwindcss": f"npm:tailwindcss@{TAILWIND_VERSION}",
         "vite": f"npm:vite@{VITE_VERSION}",
     }
 
@@ -70,7 +73,10 @@ export default defineConfig({
 def write_hello_widget(project: Path) -> None:
     widget_dir = project / "src" / "widgets" / "hello"
     widget_dir.mkdir(parents=True)
-    (widget_dir / "global.css").write_text(".message { color: rebeccapurple; }\n", encoding="utf-8")
+    (widget_dir / "global.css").write_text(
+        '.message { color: rebeccapurple; }\n.message::after { content: "</style>"; }\n',
+        encoding="utf-8",
+    )
     (widget_dir / "index.tsx").write_text(
         """
 import { Widget } from "@belgie/mcp";
@@ -79,7 +85,8 @@ import "./global.css";
 
 function Hello() {
   const [message] = useState("Hello from Belgie");
-  return <p className="message">{message}</p>;
+  const marker = "</script>";
+  return <p className="message" data-marker={marker}>{message}</p>;
 }
 
 export default function HelloWidget() {
@@ -101,6 +108,19 @@ def build_widgets(project: Path) -> None:
         Runtime(env=env) as run,
     ):
         run(Command("vite", cwd=str(project)))("build")
+
+
+def render_widget_script(
+    project: Path,
+    script: Script,
+    *,
+    vite_config: str | Path | Literal[False] | None = None,
+) -> str:
+    return build_widget_script(
+        script,
+        project_path=project,
+        vite_config=vite_config,
+    )
 
 
 @SKIP_WIN32_VITE_NATIVE
@@ -151,3 +171,180 @@ def test_vite_plugin_build_rejects_missing_default_export(
 
     stderr = capfd.readouterr().err
     assert "missing a default export" in stderr
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_embedded_widget_builds_inline_html_without_writing_files(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    write_vite_config(project)
+    write_hello_widget(project)
+    before = {path.relative_to(project) for path in project.rglob("*")}
+
+    html = render_widget_script(project, Script.from_file(project / "src" / "widgets" / "hello" / "index.tsx"))
+
+    after = {path.relative_to(project) for path in project.rglob("*")}
+    assert after == before
+    assert "<!doctype html>" in html.lower()
+    assert '<script type="module">' in html
+    assert "<style>" in html
+    assert "#639" in html
+    assert "Hello from Belgie" in html
+    assert "<\\/script>" in html
+    assert "<\\/style>" in html
+    assert html.count("</script>") == 1
+    assert html.count("</style>") == 1
+    assert '<script type="module" src=' not in html
+    assert '<link rel="stylesheet"' not in html
+    assert not (project / "dist").exists()
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_embedded_widget_inherits_safe_vite_config(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    (project / "src").mkdir()
+    (project / "src" / "message.ts").write_text('export default "from alias";\n', encoding="utf-8")
+    (project / "src" / "lazy.ts").write_text('export const value = "lazy-value";\n', encoding="utf-8")
+    (project / "src" / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"embedded-asset" * 1024)
+    config_dir = project / "configs"
+    config_dir.mkdir()
+    (config_dir / "widget.ts").write_text(
+        """
+import { resolve } from "node:path";
+import { belgie } from "@belgie/mcp/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  define: { __BUILD_LABEL__: JSON.stringify("from define") },
+  plugins: [
+    belgie(),
+    { name: "override-output", config: () => ({ build: { outDir: "plugin-output", write: true } }) },
+  ],
+  resolve: { alias: { "@message": resolve(import.meta.dirname, "../src/message.ts") } },
+  build: { outDir: "should-not-exist", write: true },
+});
+""".lstrip(),
+        encoding="utf-8",
+    )
+    script = Script(
+        """
+import { Widget } from "@belgie/mcp";
+import message from "@message";
+import imageUrl from "./image.png";
+
+declare const __BUILD_LABEL__: string;
+
+export default function Demo() {
+  return (
+    <Widget metadata={{ name: "Demo", version: "1.0.0" }}>
+      <button onClick={() => void import("./lazy.ts")}>{message} {__BUILD_LABEL__}</button>
+      <img src={imageUrl} alt="Embedded" />
+    </Widget>
+  );
+}
+""".lstrip(),
+        filename="src/demo.tsx",
+    )
+
+    html = render_widget_script(project, script, vite_config=Path("configs/widget.ts"))
+
+    assert "from alias" in html
+    assert "from define" in html
+    assert "lazy-value" in html
+    assert "data:image/png;base64," in html
+    assert not (project / "should-not-exist").exists()
+    assert not (project / "plugin-output").exists()
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_embedded_widget_denies_plugin_filesystem_writes(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    (project / "vite.config.ts").write_text(
+        """
+import { writeFileSync } from "node:fs";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [{
+    name: "attempt-write",
+    buildStart() {
+      writeFileSync(new URL("./forbidden.txt", import.meta.url), "forbidden");
+    },
+  }],
+});
+""".lstrip(),
+        encoding="utf-8",
+    )
+    script = Script("export default function Demo() { return <main>demo</main>; }", filename="src/demo.tsx")
+
+    with pytest.raises(BelgieJavaScriptError, match=r"write|permission|Requires"):
+        render_widget_script(project, script)
+
+    assert not (project / "forbidden.txt").exists()
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_embedded_widget_uses_tailwind_plugin_from_vite_config(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    src = project / "src"
+    src.mkdir()
+    (src / "styles.css").write_text('@import "tailwindcss";\n', encoding="utf-8")
+    widget_path = src / "demo.tsx"
+    widget_path.write_text(
+        """
+import "./styles.css";
+
+export default function Demo() {
+  return <p className="font-bold text-red-500">Tailwind</p>;
+}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (project / "vite.config.ts").write_text(
+        """
+import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({ plugins: [tailwindcss()] });
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    html = render_widget_script(project, Script.from_file(widget_path))
+
+    assert ".font-bold" in html
+    assert ".text-red-500" in html
+    assert '<link rel="stylesheet"' not in html
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_embedded_widget_rejects_plugin_emitted_assets(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    (project / "vite.config.ts").write_text(
+        """
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [{
+    name: "emit-asset",
+    buildStart() {
+      this.emitFile({ type: "asset", name: "extra.txt", source: "extra" });
+    },
+  }],
+});
+""".lstrip(),
+        encoding="utf-8",
+    )
+    script = Script("export default function Demo() { return <main>demo</main>; }", filename="src/demo.tsx")
+
+    with pytest.raises(BelgieJavaScriptError, match="non-CSS assets"):
+        render_widget_script(project, script)

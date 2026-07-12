@@ -54,18 +54,19 @@ resolver options, local `file:` package aliases, and npm package binaries.
 
 ## MCP Apps extension
 
-`BelgieExtension` loads a JSON widget manifest (via `Script`) and registers HTML resources. Vite builds widgets through
-the `@belgie/mcp` plugin:
+`BelgieExtension` renders direct TSX `Script` widgets through Vite 8 inside the Deno sandbox and registers one inline
+HTML resource. The static manifest path remains optional:
 
 ```text
-vite.config.ts + belgie()
-  └─ belgie run vite build → dist/widgets/** + dist/assets/*
-       └─ BelgieExtension(base_url=...) → Script → WidgetManifest
-            └─ @tool(widget=...) → HTML resource (absolute asset URLs)
+Script(TSX) + optional vite.config.ts
+  └─ Vite build(write=false) → inline HTML
+       └─ @tool(widget=script) → HTML resource
+
+vite.config.ts + belgie() → dist/** → BelgieExtension(base_url=...) → named manifest widget
 ```
 
-Asset files are served by the user's HTTP stack (for example FastAPI `app.frontend`). See [mcp.md](mcp.md) and
-[pyproject.md](pyproject.md).
+Direct Script widgets need no asset server. Static manifest widgets are served by the user's HTTP stack. See
+[mcp.md](mcp.md) and [pyproject.md](pyproject.md).
 
 ## Binding and calling
 
