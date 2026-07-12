@@ -15,26 +15,24 @@ pub(crate) struct ScriptSource {
 
 #[derive(Clone, Debug)]
 enum ScriptSourceKind {
-    Inline { filename: Option<PathBuf> },
+    Inline,
     File { path: PathBuf },
 }
 
 impl ScriptSource {
     pub(crate) fn from_options(options: ScriptOptions) -> Self {
-        let filename = options.filename().map(Path::to_path_buf);
-        let from_file = options.is_from_file();
+        let path = options.path().map(Path::to_path_buf);
         let content = options.into_content();
-        let media_type = media_type_for_script(filename.as_deref());
+        let media_type = media_type_for_script(path.as_deref());
         let parsed = signature::parse_script_module(&content, media_type);
         let needs_package_loader = parsed
             .as_ref()
             .filter(|_| content_may_have_resolver_imports(&content))
             .is_some_and(analyze_parsed_script_dependencies);
         let run_signature = parsed.as_ref().and_then(run_signature_from_parsed);
-        let kind = match (from_file, filename) {
-            (true, Some(path)) => ScriptSourceKind::File { path },
-            (false, filename) => ScriptSourceKind::Inline { filename },
-            (true, None) => unreachable!("file scripts always have a filename"),
+        let kind = match path {
+            Some(path) => ScriptSourceKind::File { path },
+            None => ScriptSourceKind::Inline,
         };
         Self {
             content,
@@ -51,7 +49,7 @@ impl ScriptSource {
 
     pub(crate) fn filename(&self) -> Option<&Path> {
         match &self.kind {
-            ScriptSourceKind::Inline { filename } => filename.as_deref(),
+            ScriptSourceKind::Inline => None,
             ScriptSourceKind::File { path } => Some(path),
         }
     }
@@ -71,14 +69,7 @@ impl ScriptSource {
     pub(crate) fn description(&self) -> String {
         match &self.kind {
             ScriptSourceKind::File { path } => format!("file script at {}", path.display()),
-            ScriptSourceKind::Inline {
-                filename: Some(filename),
-            } => format!(
-                "inline script at {} ({} bytes)",
-                filename.display(),
-                self.content().len(),
-            ),
-            ScriptSourceKind::Inline { filename: None } => {
+            ScriptSourceKind::Inline => {
                 format!("inline script ({} bytes)", self.content().len())
             }
         }
@@ -95,7 +86,6 @@ mod tests {
     fn creates_inline_sources_from_inline_options() {
         let source = ScriptSource::from_options(ScriptOptions::inline(
             "export default () => 'inline';".to_string(),
-            None,
         ));
 
         assert_eq!(source.content(), "export default () => 'inline';");
@@ -126,7 +116,6 @@ mod tests {
         let source = ScriptSource::from_options(ScriptOptions::inline(
             r#"import isNumber from "npm:is-number@7.0.0"; export default () => isNumber(1);"#
                 .to_string(),
-            None,
         ));
 
         assert!(source.needs_package_loader());

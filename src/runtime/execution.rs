@@ -397,16 +397,10 @@ fn map_core_error(error: CoreError) -> BindingError {
 }
 
 fn main_module_specifier(bound: &BoundRuntime) -> ExecutionResult<ModuleSpecifier> {
-    let path = bound.script().filename().map_or_else(
-        || inline_module_path(bound),
-        |filename| {
-            if filename.is_absolute() {
-                PathBuf::from(filename)
-            } else {
-                bound.cwd().join(filename)
-            }
-        },
-    );
+    let path = bound
+        .script()
+        .filename()
+        .map_or_else(|| inline_module_path(bound), PathBuf::from);
     ModuleSpecifier::from_file_path(&path).map_err(|_| {
         BindingError::module_load(format!("Could not convert {} to file URL", path.display()))
     })

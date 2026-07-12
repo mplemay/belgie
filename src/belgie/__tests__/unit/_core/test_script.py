@@ -32,16 +32,6 @@ def test_script_loads_from_file(write_script: Callable[[str, str], Path], named_
     assert script.filename == path
 
 
-def test_script_accepts_virtual_filename() -> None:
-    source = "export default function Widget() { return <main />; }"
-
-    script = Script(source, filename="src/widgets/demo.tsx")
-
-    assert script.content == source
-    assert script.filename == Path("src/widgets/demo.tsx")
-    assert "inline script at src/widgets/demo.tsx" in repr(script)
-
-
 def test_script_loads_source_from_str_and_pathlike_files(write_script: Callable[[str, str], Path]) -> None:
     path = write_script("export default function run() { return 42; }", "main.ts")
 

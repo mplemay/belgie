@@ -70,30 +70,37 @@ complete event surface.
 
 ## Embedded Script widgets
 
-Load file-backed or inline TSX as a `Script` and pass it directly to the tool decorator:
+Pass widget source as an inline `Script`, or load a multi-file widget with `Script.from_file`:
 
 ```python
 from belgie import Script
 from belgie.mcp import BelgieExtension
 
-widget = Script.from_file("src/widgets/get-time/index.tsx")
+SOURCE = """
+import { Widget } from "@belgie/mcp"
+
+export default function Hello() {
+  return (
+    <Widget metadata={{ name: "Hello", version: "1.0.0" }}>
+      <AppView />
+    </Widget>
+  )
+}
+"""
+
 belgie = BelgieExtension(project=".")
 
-@belgie.tool(widget=widget, name="get-time")
+@belgie.tool(widget=Script(SOURCE), name="get-time")
 def get_time() -> str:
     return "now"
 ```
 
-For inline source with relative imports, provide a virtual filename so Vite resolves from the intended directory:
-
-```python
-widget = Script(SOURCE, filename="src/widgets/generated.tsx")
-```
+Relative imports resolve from the file directory when using `Script.from_file(...)`.
 
 The extension bundles the Script during tool registration. Vite runs inside the Deno sandbox with an in-memory entry,
 filesystem writes and network access denied, and `build.write = false`. The registered MCP HTML resource contains its
-JavaScript and CSS directly; it needs no `dist` directory or static asset server. Equivalent Script source/filename
-pairs are built once per extension.
+JavaScript and CSS directly; it needs no `dist` directory or static asset server. Equivalent Script sources are built
+once per extension.
 
 ## Vite configuration
 

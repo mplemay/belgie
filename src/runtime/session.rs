@@ -215,12 +215,10 @@ mod tests {
         let npm_script = ScriptSource::from_options(ScriptOptions::inline(
             r#"import isNumber from "npm:is-number@7.0.0"; export default () => isNumber(1);"#
                 .to_string(),
-            None,
         ));
         let jsr_script = ScriptSource::from_options(ScriptOptions::inline(
             r#"import { assertEquals } from "jsr:@std/assert@1"; export default () => 1;"#
                 .to_string(),
-            None,
         ));
 
         RuntimeSession::bind_script(&session, npm_script).expect("npm script should bind");
@@ -256,11 +254,9 @@ mod tests {
         let npm_script = ScriptSource::from_options(ScriptOptions::inline(
             r#"import isNumber from "npm:is-number@7.0.0"; export default () => isNumber(1);"#
                 .to_string(),
-            None,
         ));
         let simple_script = ScriptSource::from_options(ScriptOptions::inline(
             "export default () => 'ok';".to_string(),
-            None,
         ));
 
         RuntimeSession::bind_script(&session, npm_script).expect("npm script should bind");

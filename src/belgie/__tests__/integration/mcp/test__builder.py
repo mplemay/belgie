@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Final, Literal
+from typing import Final
 
 import pytest
 
@@ -110,19 +110,6 @@ def build_widgets(project: Path) -> None:
         run(Command("vite", cwd=str(project)))("build")
 
 
-def render_widget_script(
-    project: Path,
-    script: Script,
-    *,
-    vite_config: str | Path | Literal[False] | None = None,
-) -> str:
-    return build_widget_script(
-        script,
-        project_path=project,
-        vite_config=vite_config,
-    )
-
-
 @SKIP_WIN32_VITE_NATIVE
 def test_vite_plugin_build_and_manifest_script(tmp_path: Path) -> None:
     project = tmp_path / "project"
@@ -182,7 +169,10 @@ def test_embedded_widget_builds_inline_html_without_writing_files(tmp_path: Path
     write_hello_widget(project)
     before = {path.relative_to(project) for path in project.rglob("*")}
 
-    html = render_widget_script(project, Script.from_file(project / "src" / "widgets" / "hello" / "index.tsx"))
+    html = build_widget_script(
+        Script.from_file(project / "src" / "widgets" / "hello" / "index.tsx"),
+        project_path=project,
+    )
 
     after = {path.relative_to(project) for path in project.rglob("*")}
     assert after == before
@@ -229,7 +219,8 @@ export default defineConfig({
 """.lstrip(),
         encoding="utf-8",
     )
-    script = Script(
+    widget_path = project / "src" / "demo.tsx"
+    widget_path.write_text(
         """
 import { Widget } from "@belgie/mcp";
 import message from "@message";
@@ -246,10 +237,14 @@ export default function Demo() {
   );
 }
 """.lstrip(),
-        filename="src/demo.tsx",
+        encoding="utf-8",
     )
 
-    html = render_widget_script(project, script, vite_config=Path("configs/widget.ts"))
+    html = build_widget_script(
+        Script.from_file(widget_path),
+        project_path=project,
+        vite_config=Path("configs/widget.ts"),
+    )
 
     assert "from alias" in html
     assert "from define" in html
@@ -280,10 +275,10 @@ export default defineConfig({
 """.lstrip(),
         encoding="utf-8",
     )
-    script = Script("export default function Demo() { return <main>demo</main>; }", filename="src/demo.tsx")
+    script = Script("export default function Demo() { return <main>demo</main>; }")
 
     with pytest.raises(BelgieJavaScriptError, match=r"write|permission|Requires"):
-        render_widget_script(project, script)
+        build_widget_script(script, project_path=project)
 
     assert not (project / "forbidden.txt").exists()
 
@@ -317,7 +312,7 @@ export default defineConfig({ plugins: [tailwindcss()] });
         encoding="utf-8",
     )
 
-    html = render_widget_script(project, Script.from_file(widget_path))
+    html = build_widget_script(Script.from_file(widget_path), project_path=project)
 
     assert ".font-bold" in html
     assert ".text-red-500" in html
@@ -344,7 +339,7 @@ export default defineConfig({
 """.lstrip(),
         encoding="utf-8",
     )
-    script = Script("export default function Demo() { return <main>demo</main>; }", filename="src/demo.tsx")
+    script = Script("export default function Demo() { return <main>demo</main>; }")
 
     with pytest.raises(BelgieJavaScriptError, match="non-CSS assets"):
-        render_widget_script(project, script)
+        build_widget_script(script, project_path=project)

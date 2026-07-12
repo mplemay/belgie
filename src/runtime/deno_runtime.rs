@@ -61,7 +61,6 @@ mod tests {
         let runtime = DenoRuntime::new(RuntimeOptions::new(cwd.clone()));
         let script = ScriptSource::from_options(ScriptOptions::inline(
             "export default () => 42;".to_string(),
-            None,
         ));
 
         let bound = runtime.bind(script);

@@ -25,9 +25,13 @@ No Vite process, `dist` directory, or static asset server is required.
 
 ## Embedded Script rendering
 
-The widget remains ordinary TSX using the public `Widget` component:
+Pass widget source as an inline `Script` to the tool decorator:
 
-```tsx
+```python
+from belgie import Script
+from belgie.mcp import BelgieExtension
+
+SOURCE = """
 import { Widget } from "@belgie/mcp"
 
 export default function GetTime() {
@@ -37,21 +41,16 @@ export default function GetTime() {
     </Widget>
   )
 }
-```
+"""
 
-Python loads that source as a `Script` and passes it directly to the tool decorator:
-
-```python
-from belgie import Script
-from belgie.mcp import BelgieExtension
-
-widget = Script.from_file("src/widgets/get-time/index.tsx")
 belgie = BelgieExtension(project=PROJECT_ROOT)
 
-@belgie.tool(widget=widget, name="get-time")
+@belgie.tool(widget=Script(SOURCE), name="get-time")
 def get_time() -> list[TextContent]:
     ...
 ```
+
+Multi-file widgets can use `Script.from_file(...)` instead; relative imports then resolve from the file's directory.
 
 At registration time, `BelgieExtension` runs Vite 8 inside the Deno sandbox with an in-memory entry and
 `build.write = false`. JavaScript, CSS, and imported assets are inlined into the registered HTML resource.
@@ -70,12 +69,6 @@ export default defineConfig({
 ```
 
 The filesystem-oriented `belgie()` plugin is excluded from embedded builds; other plugins are retained.
-
-For inline source with relative imports, provide a virtual filename:
-
-```python
-widget = Script(SOURCE, filename="src/widgets/generated.tsx")
-```
 
 ## Prebuilt widgets
 

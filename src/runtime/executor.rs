@@ -85,7 +85,7 @@ mod tests {
     fn bound_inline(source: &str) -> BoundRuntime {
         let cwd = env::current_dir().expect("current dir should be available");
         let runtime = DenoRuntime::new(RuntimeOptions::new(cwd));
-        let script = ScriptSource::from_options(ScriptOptions::inline(source.to_string(), None));
+        let script = ScriptSource::from_options(ScriptOptions::inline(source.to_string()));
         runtime.bind(script)
     }
 

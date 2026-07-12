@@ -151,13 +151,13 @@ def test_tool_builds_script_widget_once_without_manifest_csp(
 
     monkeypatch.setattr(extension_module, "build_widget_script", build_script)
     extension = BelgieExtension(project=tmp_path, vite_config=False)
-    script = Script("export default function Demo() { return <main />; }", filename="src/demo.tsx")
+    script = Script("export default function Demo() { return <main />; }")
 
     @extension.tool(widget=script, name="first")
     def first() -> str:
         return "first"
 
-    @extension.tool(widget=Script(script.content, filename=script.filename), name="second")
+    @extension.tool(widget=Script(script.content), name="second")
     def second() -> str:
         return "second"
 
