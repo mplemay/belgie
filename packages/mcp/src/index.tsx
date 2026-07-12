@@ -122,6 +122,7 @@ export function Belgie({
       try {
         await initHooks?.before?.();
         if (cancelled) {
+          void app.close();
           return;
         }
         try {
@@ -132,12 +133,15 @@ export function Belgie({
           }
         }
         if (cancelled) {
+          void app.close();
           return;
         }
         await initHooks?.after?.();
-        if (!cancelled) {
-          setConnected(true);
+        if (cancelled) {
+          void app.close();
+          return;
         }
+        setConnected(true);
       } catch (err: unknown) {
         if (!cancelled) {
           setError(err instanceof Error ? err : new Error(String(err)));
@@ -147,6 +151,10 @@ export function Belgie({
 
     return () => {
       cancelled = true;
+      void app.close();
+      if (appRef.current === app) {
+        appRef.current = null;
+      }
     };
   }, []);
 
