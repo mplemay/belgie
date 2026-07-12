@@ -126,4 +126,4 @@ jobs:
           save-if: false
 
       - name: Run Rust tests
-        run: cargo test --package belgie --all-targets
+        run: cargo test --package belgie --all-targets --all-features
