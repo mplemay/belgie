@@ -9,7 +9,8 @@ from typing import Final
 
 import pytest
 
-from belgie.__tests__.unit.mcp.conftest import patch_build_widget
+from belgie.__tests__.unit.mcp.conftest import widget_manifest
+from belgie.mcp import _extension
 
 EXAMPLES_ROOT: Final[Path] = Path(__file__).resolve().parents[4] / "examples"
 
@@ -67,5 +68,12 @@ def langchain_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 
 @pytest.fixture
 def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
-    patch_build_widget(monkeypatch, html="<!doctype html><html><body>mcp</body></html>")
+    html = "<!doctype html><html><body>mcp</body></html>"
+    monkeypatch.setattr(
+        _extension,
+        "load_widget_manifest",
+        lambda **_kwargs: widget_manifest(html=html, widget="get-time"),
+    )
+    # Example imports FastAPI; skip if unavailable in the test env.
+    pytest.importorskip("fastapi")
     yield from _load_example_main(EXAMPLES_ROOT / "mcp", "mcp_app")

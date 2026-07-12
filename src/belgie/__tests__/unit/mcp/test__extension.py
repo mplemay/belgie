@@ -1,25 +1,20 @@
-from pathlib import Path
-
 import pytest
-from mcp.server.apps import APP_MIME_TYPE
+from mcp.server.apps import APP_MIME_TYPE, ResourceCsp
 from mcp.server.mcpserver.resources import TextResource
 from mcp_types import Icon, ToolAnnotations
 
-from belgie import Environment
-from belgie.__tests__.unit.mcp.conftest import patch_build_widget, write_widget
+from belgie.__tests__.unit.mcp.conftest import widget_manifest
 from belgie.mcp import BelgieExtension
+from belgie.mcp._builder import WidgetEntry, WidgetManifest
 
 
-def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    write_widget(tmp_path, "get-time/widget.tsx")
+def test_tool_registers_matching_tool_and_app_resource() -> None:
     html = "<!doctype html><html><body>ok</body></html>"
-    build_calls: list[dict[str, object]] = []
-    patch_build_widget(monkeypatch, html=html, record=build_calls)
-    extension = BelgieExtension(root=tmp_path)
+    extension = BelgieExtension(manifest=widget_manifest(html=html, widget="get-time"))
 
     @extension.tool(
+        widget="get-time",
         name="get-time",
-        path=Path("get-time/widget.tsx"),
         title="Get Time",
         description="Get the current server time.",
     )
@@ -29,14 +24,6 @@ def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypat
     tools = extension.tools()
     resources = extension.resources()
 
-    assert build_calls == [
-        {
-            "root": tmp_path,
-            "path": Path("get-time/widget.tsx"),
-            "environment": None,
-            "project_path": tmp_path,
-        },
-    ]
     assert len(tools) == 1
     assert tools[0].fn is get_time
     assert tools[0].kwargs == {
@@ -57,19 +44,21 @@ def test_tool_registers_matching_tool_and_app_resource(tmp_path: Path, monkeypat
     assert resource.description == "Get the current server time."
     assert resource.mime_type == APP_MIME_TYPE
     assert resource.text == html
+    assert resources[0].resource.meta == {
+        "ui": {
+            "csp": {
+                "resourceDomains": ["http://127.0.0.1:3001"],
+            },
+        },
+    }
 
 
-def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    write_widget(tmp_path, "clock/widget.tsx")
-    patch_build_widget(monkeypatch)
-    extension = BelgieExtension(root=tmp_path)
+def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata() -> None:
+    extension = BelgieExtension(manifest=widget_manifest(widget="clock"))
 
     @extension.tool(
+        widget="clock",
         name="get-time",
-        path=Path("clock/widget.tsx"),
         resource_uri="ui://clock",
         domain="https://example.com",
         prefers_border=True,
@@ -82,24 +71,22 @@ def test_tool_accepts_custom_resource_uri_and_resource_ui_metadata(
     assert extension.resources()[0].resource.uri == "ui://clock"
     assert extension.resources()[0].resource.meta == {
         "ui": {
+            "csp": {
+                "resourceDomains": ["http://127.0.0.1:3001"],
+            },
             "domain": "https://example.com",
             "prefersBorder": True,
         },
     }
 
 
-def test_tool_forwards_annotations_icons_and_structured_output(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    write_widget(tmp_path, "clock/widget.tsx")
-    patch_build_widget(monkeypatch)
-    extension = BelgieExtension(root=tmp_path)
+def test_tool_forwards_annotations_icons_and_structured_output() -> None:
+    extension = BelgieExtension(manifest=widget_manifest(widget="clock"))
     annotations = ToolAnnotations(destructive_hint=True)
     icons = [Icon(src="https://example.com/icon.png")]
 
     @extension.tool(
-        path=Path("clock/widget.tsx"),
+        widget="clock",
         annotations=annotations,
         icons=icons,
         structured_output=False,
@@ -117,104 +104,56 @@ def test_tool_forwards_annotations_icons_and_structured_output(
     }
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        pytest.param("absolute", id="absolute"),
-        Path("../widget.tsx"),
-        Path("clock/../widget.tsx"),
-    ],
-)
-def test_tool_rejects_invalid_widget_paths(tmp_path: Path, path: str | Path) -> None:
-    extension = BelgieExtension(root=tmp_path)
-    widget_path = tmp_path / "widget.tsx" if path == "absolute" else path
+def test_tool_rejects_unknown_widget() -> None:
+    extension = BelgieExtension(manifest=widget_manifest(widget="clock"))
 
-    with pytest.raises(ValueError, match="Widget paths"):
-        extension.tool(path=widget_path)
+    with pytest.raises(KeyError, match="Unknown widget"):
+        extension.tool(widget="missing")
 
 
-def test_extension_resolves_relative_root_at_construction(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    widgets_root = tmp_path / "widgets"
-    write_widget(widgets_root, "clock/widget.tsx")
-    build_calls: list[dict[str, object]] = []
-    patch_build_widget(monkeypatch, record=build_calls)
+def test_tool_merges_csp_resource_domains() -> None:
+    extension = BelgieExtension(manifest=widget_manifest(widget="clock"))
 
-    monkeypatch.chdir(tmp_path)
-    extension = BelgieExtension(root=Path("widgets"))
-    monkeypatch.chdir(tmp_path.parent)
-
-    @extension.tool(path=Path("clock/widget.tsx"))
-    def get_time() -> str:
-        return "now"
-
-    assert get_time() == "now"
-    assert build_calls == [
-        {
-            "root": widgets_root.resolve(),
-            "path": Path("clock/widget.tsx"),
-            "environment": None,
-            "project_path": widgets_root.resolve(),
-        },
-    ]
-
-
-def test_extension_forwards_environment_to_build_widget(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    write_widget(tmp_path, "clock/widget.tsx")
-    build_calls: list[dict[str, object]] = []
-    patch_build_widget(monkeypatch, record=build_calls)
-    environment = Environment()
-    extension = BelgieExtension(root=tmp_path, environment=environment)
-
-    @extension.tool(path=Path("clock/widget.tsx"))
-    def get_time() -> str:
-        return "now"
-
-    assert get_time() == "now"
-    assert build_calls == [
-        {
-            "root": tmp_path,
-            "path": Path("clock/widget.tsx"),
-            "environment": environment,
-            "project_path": tmp_path,
-        },
-    ]
-
-
-def test_extension_uses_pyproject_source_for_widget_root(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    views_root = tmp_path / "src" / "app" / "views"
-    write_widget(views_root, "widgets/clock/widget.tsx")
-    (tmp_path / "pyproject.toml").write_text(
-        """
-[tool.belgie]
-source = "src/app/views"
-""".lstrip(),
-        encoding="utf-8",
+    @extension.tool(
+        widget="clock",
+        csp=ResourceCsp(resource_domains=["https://cdn.example.com"], connect_domains=["https://api.example.com"]),
     )
-    build_calls: list[dict[str, object]] = []
-    patch_build_widget(monkeypatch, record=build_calls)
-    monkeypatch.chdir(tmp_path)
-
-    extension = BelgieExtension(project=tmp_path)
-
-    @extension.tool(path=Path("widgets/clock/widget.tsx"))
     def get_time() -> str:
         return "now"
 
-    assert get_time() == "now"
-    assert build_calls == [
-        {
-            "root": views_root.resolve(),
-            "path": Path("widgets/clock/widget.tsx"),
-            "environment": None,
-            "project_path": tmp_path.resolve(),
+    assert extension.resources()[0].resource.meta == {
+        "ui": {
+            "csp": {
+                "connectDomains": ["https://api.example.com"],
+                "resourceDomains": ["https://cdn.example.com", "http://127.0.0.1:3001"],
+            },
         },
-    ]
+    }
+
+
+def test_extension_requires_manifest_or_base_url() -> None:
+    with pytest.raises(ValueError, match="manifest= or base_url="):
+        BelgieExtension()
+
+
+def test_extension_accepts_prebuilt_manifest() -> None:
+    manifest = WidgetManifest(
+        base_url="https://widgets.example.com",
+        widgets={"demo": WidgetEntry(name="demo", html="<html></html>")},
+    )
+    extension = BelgieExtension(manifest=manifest)
+
+    @extension.tool(widget="demo")
+    def demo() -> str:
+        return "ok"
+
+    resource = extension.resources()[0].resource
+    assert isinstance(resource, TextResource)
+    assert resource.text == "<html></html>"
+    assert resource.meta == {
+        "ui": {
+            "csp": {
+                "resourceDomains": ["https://widgets.example.com"],
+            },
+        },
+    }

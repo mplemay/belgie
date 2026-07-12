@@ -22,7 +22,13 @@ except ImportError as exc:
     print(CLI_REQUIRED_MESSAGE, file=sys.stderr)  # noqa: T201
     raise SystemExit(1) from exc
 
-from belgie.cli._operations import add_dependency, install_project, lock_project, update_project  # noqa: E402
+from belgie.cli._operations import (  # noqa: E402
+    add_dependency,
+    install_project,
+    lock_project,
+    run_command,
+    update_project,
+)
 from belgie.cli._project import ProjectError, discover_project  # noqa: E402
 from belgie.errors import BelgieRuntimeError  # noqa: E402
 
@@ -114,6 +120,22 @@ def list_dependencies(project: ProjectDir = None) -> None:
         return
     for alias, specifier in discovered.dependencies.items():
         typer.echo(f"{alias} = {specifier}")
+
+
+@app.command(
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def run(
+    ctx: typer.Context,
+    project: ProjectDir = None,
+    cwd: Annotated[
+        Path | None,
+        typer.Option("--cwd", help="Working directory for the command"),
+    ] = None,
+    frozen: Annotated[bool, typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock")] = True,  # noqa: FBT002
+) -> None:
+    discovered = discover_project(project=project)
+    run_command(discovered, ctx.args, cwd=cwd, frozen=frozen)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

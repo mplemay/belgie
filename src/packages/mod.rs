@@ -184,6 +184,12 @@ fn dependency_imports(
         match &dep.kind {
             PackageDependencyKind::ImportMap { specifier } => {
                 imports.insert(dep.alias.clone(), specifier.clone());
+                // Deno import maps need a trailing-slash prefix for subpath imports
+                // (e.g. `@belgie/mcp/manifest` → `npm:@belgie/mcp@0.1.0/manifest`).
+                imports.insert(
+                    format!("{}/", dep.alias),
+                    format!("{}/", specifier.trim_end_matches('/')),
+                );
             }
             PackageDependencyKind::LocalFile {
                 target_path,
@@ -201,6 +207,12 @@ fn dependency_imports(
                     dep.alias.clone(),
                     format!("./node_modules/{}/{}", dep.alias, entrypoint_path),
                 );
+                for (subpath, file_path) in local_file_export_subpaths(target_path)? {
+                    imports.insert(
+                        format!("{}{}", dep.alias, subpath),
+                        format!("./node_modules/{}/{}", dep.alias, file_path),
+                    );
+                }
                 imports.insert(
                     format!("{}/", dep.alias),
                     format!("./node_modules/{}/", dep.alias),
@@ -209,6 +221,45 @@ fn dependency_imports(
         }
     }
     Ok(imports)
+}
+
+fn local_file_export_subpaths(target_path: &Path) -> Result<Vec<(String, String)>, AnyError> {
+    let package_json_path = target_path.join("package.json");
+    if !package_json_path.is_file() {
+        return Ok(Vec::new());
+    }
+    let sys = EmbedSys::default();
+    let Some(package_json) =
+        PackageJson::load_from_path(&sys, None, &package_json_path).map_err(AnyError::from)?
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(exports) = package_json.exports.as_ref() else {
+        return Ok(Vec::new());
+    };
+
+    let mut subpaths = Vec::new();
+    for (key, value) in exports {
+        if key == "." {
+            continue;
+        }
+        let Some(entrypoint) = package_export_entrypoint(value) else {
+            continue;
+        };
+        let subpath = if let Some(rest) = key.strip_prefix("./") {
+            format!("/{rest}")
+        } else if let Some(rest) = key.strip_prefix('/') {
+            format!("/{rest}")
+        } else {
+            format!("/{key}")
+        };
+        let file_path = entrypoint
+            .strip_prefix("./")
+            .unwrap_or(entrypoint)
+            .to_string();
+        subpaths.push((subpath, file_path));
+    }
+    Ok(subpaths)
 }
 
 pub(crate) fn local_file_dependency_install_roots(
@@ -767,11 +818,23 @@ mod tests {
     #[test]
     fn import_map_contains_registry_imports() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let dependencies = vec![normalize_dependency(temp_dir.path(), "react", "^19").unwrap()];
+        let dependencies = vec![
+            normalize_dependency(temp_dir.path(), "react", "^19").unwrap(),
+            normalize_dependency(temp_dir.path(), "@belgie/mcp", "npm:@belgie/mcp@0.1.0").unwrap(),
+        ];
 
         let import_map = import_map_value(&dependencies).unwrap();
 
         assert_eq!(import_map["imports"]["react"], "npm:react@^19");
+        assert_eq!(import_map["imports"]["react/"], "npm:react@^19/");
+        assert_eq!(
+            import_map["imports"]["@belgie/mcp"],
+            "npm:@belgie/mcp@0.1.0"
+        );
+        assert_eq!(
+            import_map["imports"]["@belgie/mcp/"],
+            "npm:@belgie/mcp@0.1.0/"
+        );
     }
 
     #[test]
@@ -789,6 +852,56 @@ mod tests {
         assert_eq!(
             import_map["imports"]["local-pkg/"],
             "./node_modules/local-pkg/"
+        );
+    }
+
+    #[test]
+    fn import_map_contains_file_dependency_export_subpaths() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let local_pkg = temp_dir.path().join("local-pkg");
+        std::fs::create_dir_all(local_pkg.join("dist")).unwrap();
+        std::fs::write(
+            local_pkg.join("package.json"),
+            r#"{
+  "name": "local-pkg",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    },
+    "./manifest": {
+      "import": "./dist/manifest.js"
+    },
+    "./vite": {
+      "import": "./dist/vite.js"
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(local_pkg.join("dist").join("index.js"), "export {};\n").unwrap();
+        let dependencies =
+            vec![normalize_dependency(temp_dir.path(), "@belgie/mcp", "file:./local-pkg").unwrap()];
+
+        let import_map = import_map_value(&dependencies).unwrap();
+
+        assert_eq!(
+            import_map["imports"]["@belgie/mcp"],
+            "./node_modules/@belgie/mcp/dist/index.js"
+        );
+        assert_eq!(
+            import_map["imports"]["@belgie/mcp/manifest"],
+            "./node_modules/@belgie/mcp/dist/manifest.js"
+        );
+        assert_eq!(
+            import_map["imports"]["@belgie/mcp/vite"],
+            "./node_modules/@belgie/mcp/dist/vite.js"
+        );
+        assert_eq!(
+            import_map["imports"]["@belgie/mcp/"],
+            "./node_modules/@belgie/mcp/"
         );
     }
 

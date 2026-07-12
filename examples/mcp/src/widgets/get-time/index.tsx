@@ -1,4 +1,4 @@
-import { render } from "@belgie/widget";
+import { Belgie } from "@belgie/mcp";
 import { useApp } from "@modelcontextprotocol/ext-apps/react";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
@@ -101,6 +101,10 @@ function App() {
   );
 }
 
-export default function widget() {
-  return render({ metadata: { title: "Get Time" }, widget: <App /> });
+export default function Widget() {
+  return (
+    <Belgie title="Get Time">
+      <App />
+    </Belgie>
+  );
 }
