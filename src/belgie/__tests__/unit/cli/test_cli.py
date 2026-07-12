@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from belgie.cli.__main__ import CLI_REQUIRED_MESSAGE, app, main
+from belgie.cli._project import ProjectError
 
 runner = CliRunner()
 
@@ -39,6 +40,66 @@ def test_list_command_reports_empty_dependency_table(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "No [tool.belgie.dependencies] entries found." in result.output
+
+
+def test_run_command_requires_a_command(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+
+[tool.belgie.dependencies]
+semver = "npm:semver@7.7.2"
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "deno.lock").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["run", "-C", str(tmp_path)])
+
+    assert exc_info.value.code == 1
+    assert "Missing command" in capsys.readouterr().err
+
+
+def test_run_command_requires_dependencies(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    (tmp_path / "deno.lock").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["run", "-C", str(tmp_path), "semver", "1.0.0"])
+
+    assert exc_info.value.code == 1
+    assert "No [tool.belgie.dependencies] entries found" in capsys.readouterr().err
+
+
+def test_run_command_requires_lockfile_when_frozen(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+
+[tool.belgie.dependencies]
+semver = "npm:semver@7.7.2"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["run", "-C", str(tmp_path), "semver", "1.0.0"])
+
+    assert exc_info.value.code == 1
+    assert isinstance(exc_info.value.__cause__, ProjectError)
+    assert "Missing Belgie lockfile" in capsys.readouterr().err
 
 
 def test_main_handles_project_error(

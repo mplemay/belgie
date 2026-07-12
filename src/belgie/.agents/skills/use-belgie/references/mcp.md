@@ -25,15 +25,16 @@ export default defineConfig({
 })
 ```
 
-2. Lock and install widget build dependencies:
+2. Lock and install widget build dependencies, then build widgets:
 
 ```bash
 uv run belgie lock
 uv run belgie install
+uv run belgie run vite build
 ```
 
-3. Build widgets with Vite (for example via `belgie.Command("vite")("build")`). Output lands under `dist/widgets/` and
-   `dist/assets/`.
+Output lands under `dist/widgets/` and `dist/assets/`. For the programmatic equivalent, use
+`belgie.Command("vite")("build")`.
 
 `BelgieExtension` loads `[tool.belgie.dependencies]` from the nearest `pyproject.toml` when resolving `@belgie/mcp`
 for the manifest `Script` (imports `@belgie/mcp/manifest`). A `deno.lock` at the project root is required unless you
@@ -46,7 +47,7 @@ my-mcp-app/
 ├── pyproject.toml
 ├── vite.config.ts
 ├── deno.lock                  # created by `belgie lock` / `belgie install`
-├── dist/                      # created by `vite build`
+├── dist/                      # created by `belgie run vite build`
 │   ├── widgets/
 │   │   └── get-time/
 │   │       └── index.html
@@ -155,7 +156,7 @@ See [FastAPI frontend](https://fastapi.tiangolo.com/tutorial/frontend/).
 
 ```text
 vite.config.ts + belgie()
-  └─ vite build → dist/widgets/**/index.html + dist/assets/*
+  └─ belgie run vite build → dist/widgets/**/index.html + dist/assets/*
         ↓
   BelgieExtension(base_url=...) → Script → WidgetManifest JSON
         ↓

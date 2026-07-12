@@ -26,7 +26,8 @@ Classify the issue before editing:
    - Missing `deno.lock` (run `belgie lock` / `belgie install`).
    - Local `file:` `@belgie/mcp` without a prior `npm run build` in `packages/mcp` (exports point at `dist/` /
      `types/`).
-   - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(base_url=...)`.
+   - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(base_url=...)` (run
+     `belgie run vite build`).
    - Wrong or missing `base_url` (must be absolute `http(s)` origin that serves `dist`).
 
 If belgie is not wired yet, use [quickstart.md](quickstart.md) and [adoption.md](adoption.md) first.
@@ -122,7 +123,7 @@ asyncio.run(main())
 | Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
 | `No [tool.belgie.dependencies] entries found` | MCP manifest load without declared JS deps | Add `[tool.belgie.dependencies]` to pyproject | Inspect pyproject tables |
 | `Missing Belgie lockfile` | Manifest Script before `belgie install` | Run `belgie lock` then `belgie install` | Confirm `deno.lock` exists at project root |
-| `No widget HTML found under .../dist/widgets` | Manifest load before `vite build` | Run `vite build` with `belgie()` plugin | Confirm `dist/widgets/*/index.html` |
+| `No widget HTML found under .../dist/widgets` | Manifest load before `vite build` | Run `belgie run vite build` with `belgie()` plugin | Confirm `dist/widgets/*/index.html` |
 | `Unknown widget` | `@tool(widget=...)` name missing from manifest | Fix widget name or rebuild | Inspect `manifest.widgets` keys |
 | `base_url must be an absolute http(s) URL` | Relative or non-http base URL | Pass `http://...` or `https://...` | Inspect `BelgieExtension(base_url=...)` |
 
@@ -139,7 +140,7 @@ asyncio.run(main())
 - Inline script returns the expected value inside `with Runtime() as run:`.
 - Direct `npm:` / `jsr:` script imports run inside `Runtime()`.
 - Commands and dependency-map imports run after `env.install()` inside nested contexts.
-- MCP widgets: `vite build` with `belgie()` after `belgie lock` / `belgie install`, then
+- MCP widgets: `belgie run vite build` with `belgie()` after `belgie lock` / `belgie install`, then
   `BelgieExtension(base_url=...)` with FastAPI (or similar) serving `dist`.
 - `Command` returns `None` on success.
 - Thrown JS errors surface as `BelgieJavaScriptError`, not silent failures.

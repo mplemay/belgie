@@ -52,9 +52,11 @@ uv run belgie list
 uv run belgie add is-number npm:is-number@7.0.0
 uv run belgie lock
 uv run belgie install
+uv run belgie run vite build
 ```
 
 `belgie lock` writes `deno.lock`. `belgie install` materializes install state for `Command` / `Script` use.
+`belgie run` executes a dependency binary from the project environment (for example `vite build`).
 
 ## Choosing a dependency style
 
@@ -62,7 +64,7 @@ uv run belgie install
 | --- | --- |
 | Shared project JS deps + lockfile | `[tool.belgie.dependencies]` + `belgie lock` / `install` |
 | One-off inline script with `npm:` / `jsr:` import | `Runtime()` + `Script("...")` |
-| npm binary (`vite`, etc.) | `Environment` + `install()` + `Command` |
+| npm binary (`vite`, etc.) | `belgie run` (CLI) or `Environment` + `install()` + `Command` |
 | MCP widgets | `[tool.belgie.dependencies]` including `@belgie/mcp` + `vite.config.ts` with `belgie()` |
 
 For MCP Apps details, see [mcp.md](mcp.md).

@@ -59,7 +59,7 @@ the `@belgie/mcp` plugin:
 
 ```text
 vite.config.ts + belgie()
-  └─ vite build → dist/widgets/** + dist/assets/*
+  └─ belgie run vite build → dist/widgets/** + dist/assets/*
        └─ BelgieExtension(base_url=...) → Script → WidgetManifest
             └─ @tool(widget=...) → HTML resource (absolute asset URLs)
 ```

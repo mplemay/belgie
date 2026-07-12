@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
-from belgie import Environment
+from belgie import Command, Environment, Runtime
 from belgie.cli._project import (
     PYPROJECT_NAME,
     BelgieProject,
@@ -17,6 +17,7 @@ from belgie.cli._specifiers import manifest_dependency_value
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
     from belgie import EnvironmentInstallResult, EnvironmentUpdateResult
 
@@ -50,6 +51,24 @@ def lock_project(project: BelgieProject) -> EnvironmentInstallResult:
 def install_project(project: BelgieProject, *, frozen: bool) -> EnvironmentInstallResult:
     with create_environment(project, frozen=frozen) as environment:
         return environment.install()
+
+
+def run_command(
+    project: BelgieProject,
+    command: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    frozen: bool,
+) -> None:
+    if not command:
+        msg = "Missing command"
+        raise ProjectError(msg)
+
+    name, *args = command
+    with create_environment(project, frozen=frozen) as environment:
+        environment.install()
+        with Runtime(env=environment) as runtime:
+            runtime(Command(name, cwd=str(cwd or project.root)))(*args)
 
 
 def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> EnvironmentInstallResult:

@@ -68,7 +68,7 @@ vite = "npm:vite@6.1.0"
 ```
 
 Declare `@belgie/mcp` as an npm dependency (or a `file:` path to a built local package). Add `belgie()` to
-`vite.config.ts`, run `vite build`, then serve `dist` (for example with FastAPI `app.frontend()`).
+`vite.config.ts`, run `belgie run vite build`, then serve `dist` (for example with FastAPI `app.frontend()`).
 
 JavaScript packages for scripts belong in `Environment({...})` or `[tool.belgie.dependencies]`, not in Python
 `[project.dependencies]`.
@@ -90,7 +90,7 @@ Before finishing adoption, confirm:
 - [ ] `Environment` and `Runtime` are used as context managers (`with` / `async with`)
 - [ ] Script packages use direct `npm:` / `jsr:` / URL imports, or `env.install()` runs for aliases and commands
 - [ ] MCP projects declare `[tool.belgie.dependencies]`, use `belgie()` in `vite.config.ts`, and run
-      `belgie lock` / `belgie install` before `vite build`
+      `belgie lock` / `belgie install` before `belgie run vite build`
 - [ ] JS modules export a callable (`export default function run(...)` or `export default () => ...`)
 - [ ] Python ↔ JS data is JSON-serializable (dicts, lists, primitives)
 - [ ] Errors are imported from `belgie.errors`

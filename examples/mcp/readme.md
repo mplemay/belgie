@@ -3,7 +3,7 @@
 Runs a small MCP server with a React app resource built by the `@belgie/mcp` Vite plugin and served through
 `BelgieExtension`.
 
-Requires `belgie[mcp]` (included in this example's dependencies).
+Requires `belgie[mcp,cli]` (included in this example's dependencies).
 
 ## Setup
 
@@ -18,11 +18,11 @@ uv run belgie install
 Build widgets:
 
 ```bash
-uv run build-widgets
+uv run belgie run vite build
 ```
 
-`vite build` writes HTML under `dist/widgets/` and shared assets under `dist/assets/`. FastAPI serves that `dist`
-directory with `app.frontend()`.
+`belgie run vite build` writes HTML under `dist/widgets/` and shared assets under `dist/assets/`. FastAPI serves that
+`dist` directory with `app.frontend()`.
 
 ## Run
 
