@@ -23,7 +23,7 @@ def write_script(tmp_path: Path):
     def write_script_file(source: str, name: str = "main.js") -> Path:
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(source, encoding="utf-8")
+        path.write_text(source, encoding="utf-8", newline="\n")
         return path
 
     return write_script_file
