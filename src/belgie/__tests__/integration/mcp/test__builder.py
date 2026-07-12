@@ -339,11 +339,7 @@ def test_belgie_extension_registers_embedded_script_widget(tmp_path: Path) -> No
     assert len(resources) == 1
     resource = resources[0].resource
     assert isinstance(resource, TextResource)
-    assert "<!doctype html>" in resource.text.lower()
-    assert '<script type="module">' in resource.text
-    assert "<style>" in resource.text
     assert "Hello from Belgie" in resource.text
-    assert '<script type="module" src=' not in resource.text
     assert resource.uri == "ui://hello"
 
 

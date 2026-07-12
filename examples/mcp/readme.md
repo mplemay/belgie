@@ -54,9 +54,8 @@ Multi-file widgets can use `Script.from_file(...)` instead; relative imports the
 
 At registration time, `BelgieExtension` runs Vite 8 inside the Deno sandbox with an in-memory entry and
 `build.write = false`. FFI is limited to the project's `node_modules`; filesystem writes, network, and subprocesses are
-denied. Read, environment, and sys access are fully allowed because Vite walks parent directories with `existsSync`,
-probes CI detection variables, and calls OS helpers during CSS config lookup. JavaScript, CSS, and imported assets are
-inlined into the registered HTML resource.
+denied. Read, environment, and sys access are fully allowed. JavaScript, CSS, and imported assets are inlined into the
+registered HTML resource.
 
 `vite.config.ts` is optional. When present, the embedded renderer reuses safe transformation settings and user plugins
 such as React or Tailwind while retaining control of the single-file output:

@@ -99,10 +99,9 @@ Relative imports resolve from the file directory when using `Script.from_file(..
 
 The extension bundles the Script during tool registration. Vite runs inside the Deno sandbox with an in-memory entry
 and `build.write = false`. FFI is limited to the project's `node_modules`; filesystem writes, network, and subprocesses
-are denied. Read, environment, and sys access are fully allowed because Vite walks parent directories with `existsSync`,
-probes CI detection variables, and calls OS helpers during CSS config lookup (Deno rejects scoped `allow_read` for
-those parent probes). The registered MCP HTML resource contains its JavaScript and CSS directly; it needs no `dist`
-directory or static asset server. Equivalent Script sources are built once per extension.
+are denied. Read, environment, and sys access are fully allowed. The registered MCP HTML resource contains its
+JavaScript and CSS directly; it needs no `dist` directory or static asset server. Equivalent Script sources are built
+once per extension.
 
 ## Vite configuration
 
