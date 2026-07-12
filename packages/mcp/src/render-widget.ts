@@ -4,6 +4,7 @@ import {
   build,
   loadConfigFromFile,
   mergeConfig,
+  normalizePath,
   version as viteVersion,
   type InlineConfig,
   type Plugin,
@@ -46,6 +47,7 @@ export type RenderWidgetOptions = {
 };
 
 function embeddedWidgetPlugin(source: string, filename: string): Plugin {
+  const normalizedFilename = normalizePath(filename);
   return {
     name: "belgie:embedded-widget",
     enforce: "pre",
@@ -53,16 +55,16 @@ function embeddedWidgetPlugin(source: string, filename: string): Plugin {
       if (id === VIRTUAL_ENTRY_ID) {
         return RESOLVED_VIRTUAL_ENTRY_ID;
       }
-      if (id === filename) {
-        return filename;
+      if (normalizePath(id) === normalizedFilename) {
+        return normalizedFilename;
       }
       return null;
     },
     load(id) {
       if (id === RESOLVED_VIRTUAL_ENTRY_ID) {
-        return buildVirtualEntry(filename);
+        return buildVirtualEntry(normalizedFilename);
       }
-      if (id === filename) {
+      if (normalizePath(id) === normalizedFilename) {
         return source;
       }
       return null;
@@ -255,7 +257,7 @@ export async function renderWidget(options: RenderWidgetOptions): Promise<string
     throw new Error(`Belgie embedded widgets require Vite 8 or newer; found ${viteVersion}.`);
   }
   const root = resolve(options.root);
-  const filename = resolve(root, options.filename ?? DEFAULT_WIDGET_FILENAME);
+  const filename = normalizePath(resolve(root, options.filename ?? DEFAULT_WIDGET_FILENAME));
   const user = await loadUserConfig(root, options.configFile);
   const controlled = controlledConfig(root);
   controlled.plugins = [

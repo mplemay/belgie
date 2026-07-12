@@ -40,14 +40,6 @@ RENDER_WIDGET_SCRIPT: Final[str] = (
     'import { renderWidget } from "@belgie/mcp/vite";\nexport default (options) => renderWidget(options);\n'
 )
 RENDER_WIDGET_FILENAME: Final[str] = "__belgie_widget__.tsx"
-RENDER_RUNTIME_OPTIONS: Final[RuntimeOptions] = RuntimeOptions(
-    permissions=RuntimePermissions(
-        allow_env=[],
-        allow_ffi=[],
-        allow_read=[],
-        allow_sys=[],
-    ),
-)
 
 
 class WidgetEntry(BaseModel):
@@ -106,9 +98,24 @@ def build_widget_script(
         options["configFile"] = str(vite_config)
     with (
         _use_environment(environment, project_path=resolved_project_path) as env,
-        Runtime(env=env, options=RENDER_RUNTIME_OPTIONS) as runtime,
+        Runtime(env=env, options=_render_runtime_options(resolved_project_path)) as runtime,
     ):
         return cast("str", runtime(Script(RENDER_WIDGET_SCRIPT))(options))
+
+
+def _render_runtime_options(project_path: Path) -> RuntimeOptions:
+    # Empty allow_env/allow_read/allow_sys lists are Deno allow-all: Vite probes CI env vars,
+    # walks parent directories with existsSync, and calls os.homedir/uid during CSS config lookup.
+    # Scoped allow_read fails those probes under Deno. FFI stays limited to the project's
+    # node_modules; write/net/run remain denied by omission.
+    return RuntimeOptions(
+        permissions=RuntimePermissions(
+            allow_read=[],
+            allow_ffi=[str(project_path / "node_modules")],
+            allow_env=[],
+            allow_sys=[],
+        ),
+    )
 
 
 def _normalize_base_url(base_url: str) -> str:

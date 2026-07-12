@@ -193,7 +193,7 @@ export default function run(input) {
         assert runtime(Script.from_file(path))({"name": "belgie"}) == "BELGIE"
 
 
-def test_inline_script_jsx_requires_file_extension(tmp_path: Path) -> None:
+def test_script_from_file_transpiles_tsx(tmp_path: Path) -> None:
     path = tmp_path / "widget.tsx"
     path.write_text(
         """

@@ -5,9 +5,11 @@ from pathlib import Path
 from typing import Final
 
 import pytest
+from mcp.server.mcpserver.resources import TextResource
 
 from belgie import Command, Environment, Runtime, Script
 from belgie.errors import BelgieJavaScriptError, BelgieRuntimeError
+from belgie.mcp import BelgieExtension
 from belgie.mcp._builder import build_widget_script, load_widget_manifest
 
 pytestmark = pytest.mark.integration
@@ -51,6 +53,10 @@ def write_project_pyproject(project: Path, dependencies: dict[str, str]) -> None
 def install_widget_project(project: Path) -> None:
     dependencies = widget_dependencies()
     write_project_pyproject(project, dependencies)
+    (project / "package.json").write_text(
+        '{"name": "belgie-widget-test", "private": true}\n',
+        encoding="utf-8",
+    )
     with Environment(dependencies, path=project) as env:
         env.install()
 
@@ -277,10 +283,68 @@ export default defineConfig({
     )
     script = Script("export default function Demo() { return <main>demo</main>; }")
 
-    with pytest.raises(BelgieJavaScriptError, match=r"write|permission|Requires"):
+    with pytest.raises(BelgieJavaScriptError, match=r"Requires.*(write|write access)"):
         build_widget_script(script, project_path=project)
 
     assert not (project / "forbidden.txt").exists()
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_embedded_widget_denies_ffi_outside_node_modules(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    outside_lib = tmp_path / "outside.dylib"
+    outside_lib.write_bytes(b"not-a-real-dylib")
+    (project / "vite.config.ts").write_text(
+        f"""
+import {{ defineConfig }} from "vite";
+
+export default defineConfig({{
+  plugins: [{{
+    name: "attempt-outside-ffi",
+    buildStart() {{
+      Deno.dlopen({str(outside_lib.resolve())!r}, {{}});
+    }},
+  }}],
+}});
+""".lstrip(),
+        encoding="utf-8",
+    )
+    script = Script("export default function Demo() { return <main>demo</main>; }")
+
+    with pytest.raises(BelgieJavaScriptError, match=r"Requires.*(ffi|ffi access)|dlopen|NotCapable"):
+        build_widget_script(script, project_path=project)
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_belgie_extension_registers_embedded_script_widget(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    write_vite_config(project)
+    write_hello_widget(project)
+    before = {path.relative_to(project) for path in project.rglob("*")}
+    widget = Script.from_file(project / "src" / "widgets" / "hello" / "index.tsx")
+    extension = BelgieExtension(project=project)
+
+    @extension.tool(widget=widget, name="hello")
+    def hello() -> str:
+        return "ok"
+
+    after = {path.relative_to(project) for path in project.rglob("*")}
+    assert after == before
+    assert not (project / "dist").exists()
+    resources = extension.resources()
+    assert len(resources) == 1
+    resource = resources[0].resource
+    assert isinstance(resource, TextResource)
+    assert "<!doctype html>" in resource.text.lower()
+    assert '<script type="module">' in resource.text
+    assert "<style>" in resource.text
+    assert "Hello from Belgie" in resource.text
+    assert '<script type="module" src=' not in resource.text
+    assert resource.uri == "ui://hello"
 
 
 @SKIP_WIN32_VITE_NATIVE
