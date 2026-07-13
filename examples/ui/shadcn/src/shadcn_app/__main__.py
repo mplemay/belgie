@@ -10,7 +10,9 @@ from belgie import Script
 from belgie.mcp import BelgieExtension
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
-WIDGET: Final[Script] = Script.from_file(PROJECT_ROOT / "src" / "widgets" / "get-time" / "index.tsx")
+WIDGET: Final[Script] = Script.from_file(
+    PROJECT_ROOT / "src" / "shadcn_app" / "views" / "widgets" / "get-time" / "index.tsx",
+)
 
 belgie = BelgieExtension(project=PROJECT_ROOT)
 

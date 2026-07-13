@@ -30,7 +30,16 @@ The widget uses shadcn/ui components (`Button`, `Card`, `Input`, `Textarea`, `Fi
 `@tailwindcss/vite`. Belgie embeds the widget the same way as the [mcp](../mcp) example — pass `Script.from_file(...)`
 to `@belgie.tool(widget=...)`.
 
-`vite.config.ts` enables React, Tailwind, and the `@/` path alias used by shadcn imports:
+UI lives under `src/shadcn_app/views`:
+
+```text
+src/shadcn_app/views/
+├── lib/utils.ts
+├── components/ui/
+└── widgets/get-time/
+```
+
+`vite.config.ts` enables React, Tailwind, the widget `srcDir`, and the `@/` path alias (views root):
 
 ```ts
 import path from "node:path"
@@ -41,17 +50,20 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
-const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "src")
+const viewsDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "src/shadcn_app/views",
+)
 
 export default defineConfig({
-  plugins: [belgie(), react(), tailwindcss()],
+  plugins: [belgie({ srcDir: "src/shadcn_app/views/widgets" }), react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": srcDir,
+      "@": viewsDir,
     },
   },
 })
 ```
 
-UI components live under `src/components/ui` and are installed with the shadcn CLI against the official `@shadcn`
-registry. JavaScript packages are declared in `[tool.belgie.dependencies]` and installed with `belgie install`.
+Components are installed with the shadcn CLI against the official `@shadcn` registry. JavaScript packages are declared
+in `[tool.belgie.dependencies]` and installed with `belgie install`.

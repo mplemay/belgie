@@ -6,13 +6,16 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "src");
+const viewsDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "src/shadcn_app/views",
+);
 
 export default defineConfig({
-  plugins: [belgie(), react(), tailwindcss()],
+  plugins: [belgie({ srcDir: "src/shadcn_app/views/widgets" }), react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": srcDir,
+      "@": viewsDir,
     },
   },
 });
