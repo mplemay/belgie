@@ -103,3 +103,36 @@
 2. `uv run prek run --all-files` (note: if the linter fails, restart from step 1)
 3. `git commit`
 4. `git push`
+
+## Cursor Cloud specific instructions
+
+The VM snapshot already provides `uv`, Rust (stable), Node, Python 3.12, plus two things
+required by the Rust build that are easy to miss:
+
+- **`net.git-fetch-with-cli = true`** is set in the global cargo config (`$CARGO_HOME/config.toml`).
+  The `_core` crate pins Deno crates from `github.com/denoland/deno` (a git dependency), and cargo
+  needs the git CLI to fetch them. Without this, `uv sync` / `cargo` builds fail to resolve deps.
+- **`libpython3.12-dev`** is installed. `uv sync` builds `_core` with the `extension-module` feature
+  (no libpython link) and works without it, but `cargo test --package belgie --all-targets` links a
+  test binary against `-lpython3.12`, which needs the unversioned `libpython3.12.so` symlink from
+  the `-dev` package. If Rust tests fail with `unable to find library -lpython3.12`, reinstall it.
+
+Startup / run notes:
+
+- The update script runs `uv sync`, which builds the `_core` Rust extension via maturin. The first
+  cold build compiles the whole embedded Deno runtime (~10 min); warm rebuilds are near-instant
+  because `[tool.uv].cache-keys` in `pyproject.toml` keys the cached wheel on the Rust/Cargo sources.
+  After a `uv sync` rebuild the new `.so` is picked up on the next `python`/`uv run` invocation
+  (no hot reload for the compiled extension).
+- **Full `uv run pytest` requires the `@belgie/mcp` npm package to be built** (MCP tests import its
+  `dist/`). Build it with `cd packages/mcp && npm install && npm run build` (see `.github/workflows/test.yml`).
+  This is a build step, not part of the update script; the built `dist/` persists in the snapshot,
+  so rebuild only after changing `packages/mcp` sources.
+- Standard commands live in the sections above and in `.github/workflows/test.yml`: Python tests
+  `uv run pytest`, Rust tests `cargo test --package belgie --all-targets`, lint
+  `uv run prek run --all-files`.
+- Deno is bundled inside the compiled extension — no external Deno/Node runtime is needed to run the
+  `belgie` library itself (Node is only used to build `@belgie/mcp`).
+- API gotcha: the README quick-start shows `Script[[str], str](...)`, but the current
+  `belgie._core.Script` is not subscriptable — construct scripts with `Script(...)` or
+  `Script.from_file(...)` (see `examples/simple`).
