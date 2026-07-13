@@ -62,7 +62,7 @@ result = agent.run_sync(
 print(result.output)
 ```
 
-See the full runnable project in [examples/pydantic-ai](examples/pydantic-ai).
+See the full runnable project in [examples/ai/pydantic-ai](examples/ai/pydantic-ai).
 
 ## LangChain
 
@@ -96,21 +96,21 @@ result = agent.invoke(
 print(result["messages"][-1].content)
 ```
 
-See the full runnable project in [examples/langchain](examples/langchain).
+See the full runnable project in [examples/ai/langchain](examples/ai/langchain).
 
 ## Examples
 
 Want to learn more about Belgie's features? The examples below are small, runnable projects — each one focuses on a
 single capability.
 
-- **[simple](examples/simple):** Async `Runtime` with a TypeScript file on disk.
-- **[inline-deps](examples/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a script.
-- **[jsr-deps](examples/jsr-deps):** JSR packages declared through an explicit `Environment`.
-- **[pyproject](examples/pyproject):** Manage project package dependencies with `belgie[cli]` and
+- **[simple](examples/basic/simple):** Async `Runtime` with a TypeScript file on disk.
+- **[inline-deps](examples/basic/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a script.
+- **[jsr-deps](examples/basic/jsr-deps):** JSR packages declared through an explicit `Environment`.
+- **[pyproject](examples/basic/pyproject):** Manage project package dependencies with `belgie[cli]` and
   `[tool.belgie.dependencies]`.
-- **[environment](examples/environment):** Sync and async `Environment` setup with `path`.
-- **[commands](examples/commands):** npm package binaries via `Runtime` and `Command`.
-- **[pydantic-ai](examples/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS execution.
-- **[mcp](examples/mcp):** MCP Apps extension with a React widget built through Belgie.
+- **[environment](examples/basic/environment):** Sync and async `Environment` setup with `path`.
+- **[commands](examples/basic/commands):** npm package binaries via `Runtime` and `Command`.
+- **[pydantic-ai](examples/ai/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS execution.
+- **[mcp](examples/ui/mcp):** MCP Apps extension with a React widget built through Belgie.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.

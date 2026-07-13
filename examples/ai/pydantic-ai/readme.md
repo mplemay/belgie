@@ -39,5 +39,5 @@ result = agent.run_sync(
 print(result.output)
 ```
 
-See also the [Pydantic AI section](../../readme.md#pydantic-ai) in the root readme for `defer_loading`, tool approval,
-and production hardening.
+See also the [Pydantic AI section](../../../readme.md#pydantic-ai) in the root readme for `defer_loading`, tool
+approval, and production hardening.

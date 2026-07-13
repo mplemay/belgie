@@ -26,4 +26,4 @@ exclude-newer = "7 days"
 exclude-newer-package = { belgie = false }
 
 [tool.uv.sources]
-belgie = { path = "../../", editable = true }
+belgie = { path = "../../../", editable = true }

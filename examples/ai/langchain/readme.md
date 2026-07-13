@@ -49,4 +49,4 @@ result = agent.invoke(
 print(result["messages"][-1].content)
 ```
 
-See also the [LangChain section](../../readme.md#langchain) in the root readme.
+See also the [LangChain section](../../../readme.md#langchain) in the root readme.
