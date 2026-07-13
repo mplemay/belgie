@@ -5,7 +5,7 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
-def test_shadcn_app_defines_get_time_widget(shadcn_module) -> None:
+def test_shadcn_defines_get_time_widget(shadcn_module) -> None:
     tools = shadcn_module.belgie.tools()
     resources = shadcn_module.belgie.resources()
     result = shadcn_module.get_time()

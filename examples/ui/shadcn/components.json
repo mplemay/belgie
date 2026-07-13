@@ -17,7 +17,7 @@
   "tailwind": {
     "baseColor": "neutral",
     "config": "",
-    "css": "src/shadcn_app/views/widgets/get-time/global.css",
+    "css": "src/shadcn/views/widgets/get-time/global.css",
     "cssVariables": true,
     "prefix": ""
   },

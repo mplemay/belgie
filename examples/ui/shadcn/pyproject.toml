@@ -1,5 +1,5 @@
 [project]
-name = "shadcn-app"
+name = "shadcn"
 version = "0.1.0"
 description = "MCP widget example for belgie using shadcn/ui"
 readme = "readme.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-main = "shadcn_app.__main__:main"
+main = "shadcn.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]

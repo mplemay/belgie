@@ -30,10 +30,10 @@ The widget uses shadcn/ui components (`Button`, `Card`, `Input`, `Textarea`, `Fi
 `@tailwindcss/vite`. Belgie embeds the widget the same way as the [mcp](../mcp) example — pass `Script.from_file(...)`
 to `@belgie.tool(widget=...)`.
 
-UI lives under `src/shadcn_app/views`:
+UI lives under `src/shadcn/views`:
 
 ```text
-src/shadcn_app/views/
+src/shadcn/views/
 ├── lib/utils.ts
 ├── components/ui/
 └── widgets/get-time/
@@ -52,11 +52,11 @@ import { defineConfig } from "vite"
 
 const viewsDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "src/shadcn_app/views",
+  "src/shadcn/views",
 )
 
 export default defineConfig({
-  plugins: [belgie({ srcDir: "src/shadcn_app/views/widgets" }), react(), tailwindcss()],
+  plugins: [belgie({ srcDir: "src/shadcn/views/widgets" }), react(), tailwindcss()],
   resolve: {
     alias: {
       "@": viewsDir,

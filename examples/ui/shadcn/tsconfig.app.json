@@ -19,7 +19,7 @@
     "noUnusedParameters": true,
     "paths": {
       "@/*": [
-        "./src/shadcn_app/views/*"
+        "./src/shadcn/views/*"
       ]
     },
     "skipLibCheck": true,

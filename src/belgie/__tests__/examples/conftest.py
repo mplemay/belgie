@@ -84,4 +84,4 @@ def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
         "build_widget_script",
         lambda *_args, **_kwargs: html,
     )
-    yield from _load_example_main(EXAMPLES_ROOT / "ui" / "shadcn", "shadcn_app")
+    yield from _load_example_main(EXAMPLES_ROOT / "ui" / "shadcn", "shadcn")
