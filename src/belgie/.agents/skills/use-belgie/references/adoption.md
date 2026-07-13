@@ -64,7 +64,7 @@ my-mcp-app/
 "@belgie/mcp" = "npm:@belgie/mcp@^0.1.0"
 react = "npm:react@^19"
 vite = "npm:vite@^8"
-"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^4"
+"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6"
 ```
 
 Declare `@belgie/mcp` as an npm dependency (or a `file:` path to a built local package), install the environment, and

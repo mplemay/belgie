@@ -25,44 +25,44 @@ def _load_example_main(example_dir: Path, package: str) -> Iterator[ModuleType]:
 
 @pytest.fixture
 def simple_module() -> Iterator[ModuleType]:
-    yield from _load_example_main(EXAMPLES_ROOT / "simple", "simple")
+    yield from _load_example_main(EXAMPLES_ROOT / "basic" / "simple", "simple")
 
 
 @pytest.fixture
 def jsr_deps_module() -> Iterator[ModuleType]:
-    yield from _load_example_main(EXAMPLES_ROOT / "jsr-deps", "jsr_deps")
+    yield from _load_example_main(EXAMPLES_ROOT / "basic" / "jsr-deps", "jsr_deps")
 
 
 @pytest.fixture
 def inline_deps_module() -> Iterator[ModuleType]:
-    yield from _load_example_main(EXAMPLES_ROOT / "inline-deps", "inline_deps")
+    yield from _load_example_main(EXAMPLES_ROOT / "basic" / "inline-deps", "inline_deps")
 
 
 @pytest.fixture
 def command_module() -> Iterator[ModuleType]:
-    yield from _load_example_main(EXAMPLES_ROOT / "commands", "commands_example")
+    yield from _load_example_main(EXAMPLES_ROOT / "basic" / "commands", "commands_example")
 
 
 @pytest.fixture
 def pyproject_module() -> Iterator[ModuleType]:
-    yield from _load_example_main(EXAMPLES_ROOT / "pyproject", "pyproject")
+    yield from _load_example_main(EXAMPLES_ROOT / "basic" / "pyproject", "pyproject")
 
 
 @pytest.fixture
 def environment_module() -> Iterator[ModuleType]:
-    yield from _load_example_main(EXAMPLES_ROOT / "environment", "environment")
+    yield from _load_example_main(EXAMPLES_ROOT / "basic" / "environment", "environment")
 
 
 @pytest.fixture
 def pydantic_ai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    yield from _load_example_main(EXAMPLES_ROOT / "pydantic-ai", "pydantic_ai_example")
+    yield from _load_example_main(EXAMPLES_ROOT / "ai" / "pydantic-ai", "pydantic_ai_example")
 
 
 @pytest.fixture
 def langchain_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    yield from _load_example_main(EXAMPLES_ROOT / "langchain", "langchain_example")
+    yield from _load_example_main(EXAMPLES_ROOT / "ai" / "langchain", "langchain_example")
 
 
 @pytest.fixture
@@ -73,4 +73,15 @@ def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
         "build_widget_script",
         lambda *_args, **_kwargs: html,
     )
-    yield from _load_example_main(EXAMPLES_ROOT / "mcp", "mcp_app")
+    yield from _load_example_main(EXAMPLES_ROOT / "ui" / "mcp", "mcp_app")
+
+
+@pytest.fixture
+def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    html = "<!doctype html><html><body>shadcn</body></html>"
+    monkeypatch.setattr(
+        _extension,
+        "build_widget_script",
+        lambda *_args, **_kwargs: html,
+    )
+    yield from _load_example_main(EXAMPLES_ROOT / "ui" / "shadcn", "shadcn")
