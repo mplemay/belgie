@@ -23,6 +23,43 @@ uv run main
 The server listens on port `3001`. An MCP Apps-capable client can render the `get-time` widget and call its tool.
 No Vite process, `dist` directory, or static asset server is required.
 
+## What's happening
+
+UI lives under `src/mcp_app/views`:
+
+```text
+src/mcp_app/views/
+├── global.css
+└── widgets/get-time/
+```
+
+`vite.config.ts` enables React, the widget `srcDir`, and the `@/` path alias (views root):
+
+```ts
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+import { belgie } from "@belgie/mcp/vite"
+import react from "@vitejs/plugin-react"
+import { defineConfig } from "vite"
+
+const viewsDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "src/mcp_app/views",
+)
+
+export default defineConfig({
+  plugins: [belgie({ srcDir: "src/mcp_app/views/widgets" }), react()],
+  resolve: {
+    alias: {
+      "@": viewsDir,
+    },
+  },
+})
+```
+
+Widgets import shared assets with `@/` (for example `import "@/global.css"`).
+
 ## Embedded Script rendering
 
 Pass widget source as an inline `Script` to the tool decorator:
@@ -61,12 +98,25 @@ registered HTML resource.
 such as React or Tailwind while retaining control of the single-file output:
 
 ```ts
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
 import { belgie } from "@belgie/mcp/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
+const viewsDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "src/mcp_app/views",
+)
+
 export default defineConfig({
-  plugins: [belgie(), react()],
+  plugins: [belgie({ srcDir: "src/mcp_app/views/widgets" }), react()],
+  resolve: {
+    alias: {
+      "@": viewsDir,
+    },
+  },
 })
 ```
 
