@@ -3,8 +3,9 @@ from mcp.server.apps import APP_MIME_TYPE, ResourceCsp
 from mcp.server.mcpserver.resources import TextResource
 from mcp_types import Icon, ToolAnnotations
 
+from belgie import Script
 from belgie.__tests__.unit.mcp.conftest import widget_manifest
-from belgie.mcp import BelgieExtension
+from belgie.mcp import BelgieExtension, _extension as extension_module
 from belgie.mcp._builder import WidgetEntry, WidgetManifest
 
 
@@ -131,9 +132,48 @@ def test_tool_merges_csp_resource_domains() -> None:
     }
 
 
-def test_extension_requires_manifest_or_base_url() -> None:
-    with pytest.raises(ValueError, match="manifest= or base_url="):
-        BelgieExtension()
+def test_extension_without_manifest_rejects_string_widget() -> None:
+    extension = BelgieExtension()
+
+    with pytest.raises(ValueError, match="String widget names require"):
+        extension.tool(widget="clock")
+
+
+def test_tool_builds_script_widget_once_without_manifest_csp(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[Script, dict[str, object]]] = []
+
+    def build_script(script: Script, **kwargs: object) -> str:
+        calls.append((script, kwargs))
+        return "<!doctype html><html><body>embedded</body></html>"
+
+    monkeypatch.setattr(extension_module, "build_widget_script", build_script)
+    extension = BelgieExtension(project=tmp_path, vite_config=False)
+    script = Script("export default function Demo() { return <main />; }")
+
+    @extension.tool(widget=script, name="first")
+    def first() -> str:
+        return "first"
+
+    @extension.tool(widget=Script(script.content), name="second")
+    def second() -> str:
+        return "second"
+
+    assert len(calls) == 1
+    assert calls[0][0] is script
+    assert calls[0][1] == {
+        "project_path": tmp_path.resolve(),
+        "environment": None,
+        "vite_config": False,
+    }
+    resources = extension.resources()
+    assert len(resources) == 2
+    for registration in resources:
+        assert isinstance(registration.resource, TextResource)
+        assert registration.resource.text == "<!doctype html><html><body>embedded</body></html>"
+        assert registration.resource.meta is None
 
 
 def test_extension_accepts_prebuilt_manifest() -> None:

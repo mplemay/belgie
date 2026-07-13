@@ -193,6 +193,30 @@ export default function run(input) {
         assert runtime(Script.from_file(path))({"name": "belgie"}) == "BELGIE"
 
 
+def test_script_from_file_transpiles_tsx(tmp_path: Path) -> None:
+    path = tmp_path / "widget.tsx"
+    path.write_text(
+        """
+const React = { createElement: (type: string) => ({ type }) };
+export default () => (<main />).type;
+""",
+        encoding="utf-8",
+    )
+
+    with Runtime.from_folder(tmp_path) as runtime:
+        assert runtime(Script.from_file(path))() == "main"
+
+
+def test_inline_script_relative_imports_use_from_folder(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "message.ts").write_text('export const message = "relative";\n', encoding="utf-8")
+    source = 'import { message } from "./src/message.ts"; export default () => message;'
+
+    with Runtime.from_folder(tmp_path) as runtime:
+        assert runtime(Script(source))() == "relative"
+
+
 def test_transpiles_relative_typescript_imports_from_script_file(tmp_path: Path, write_script):
     write_script(
         """

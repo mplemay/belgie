@@ -8,6 +8,7 @@ use crate::options::ScriptOptions;
 pub(crate) struct ScriptSource {
     content: String,
     kind: ScriptSourceKind,
+    media_type: deno_ast::MediaType,
     needs_package_loader: bool,
     run_signature: Option<RunSignature>,
 }
@@ -36,6 +37,7 @@ impl ScriptSource {
         Self {
             content,
             kind,
+            media_type,
             needs_package_loader,
             run_signature,
         }
@@ -45,11 +47,15 @@ impl ScriptSource {
         &self.content
     }
 
-    pub(crate) fn path(&self) -> Option<&Path> {
+    pub(crate) fn filename(&self) -> Option<&Path> {
         match &self.kind {
             ScriptSourceKind::Inline => None,
             ScriptSourceKind::File { path } => Some(path),
         }
+    }
+
+    pub(crate) fn media_type(&self) -> deno_ast::MediaType {
+        self.media_type
     }
 
     pub(crate) fn needs_package_loader(&self) -> bool {
@@ -61,9 +67,11 @@ impl ScriptSource {
     }
 
     pub(crate) fn description(&self) -> String {
-        match self.path() {
-            Some(path) => format!("file script at {}", path.display()),
-            None => format!("inline script ({} bytes)", self.content().len()),
+        match &self.kind {
+            ScriptSourceKind::File { path } => format!("file script at {}", path.display()),
+            ScriptSourceKind::Inline => {
+                format!("inline script ({} bytes)", self.content().len())
+            }
         }
     }
 }
@@ -81,7 +89,7 @@ mod tests {
         ));
 
         assert_eq!(source.content(), "export default () => 'inline';");
-        assert_eq!(source.path(), None);
+        assert_eq!(source.filename(), None);
         assert!(!source.needs_package_loader());
         assert_eq!(source.description(), "inline script (30 bytes)");
     }
@@ -95,7 +103,7 @@ mod tests {
         ));
 
         assert_eq!(source.content(), "export default () => 'file';");
-        assert_eq!(source.path(), Some(path.as_path()));
+        assert_eq!(source.filename(), Some(path.as_path()));
         assert!(!source.needs_package_loader());
         assert_eq!(
             source.description(),

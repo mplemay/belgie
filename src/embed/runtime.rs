@@ -97,16 +97,25 @@ pub(crate) async fn prepare_package_runtime(
 pub(crate) fn js_content_type_header_overrides(
     main_module: ModuleSpecifier,
 ) -> HashMap<ModuleSpecifier, HashMap<String, String>> {
-    content_type_header_overrides(main_module, "text/javascript")
+    content_type_header_override(main_module, "text/javascript")
 }
 
-pub(crate) fn ts_content_type_header_overrides(
+pub(crate) fn content_type_header_overrides(
     main_module: ModuleSpecifier,
+    media_type: deno_ast::MediaType,
 ) -> HashMap<ModuleSpecifier, HashMap<String, String>> {
-    content_type_header_overrides(main_module, "text/typescript")
+    let content_type = match media_type {
+        deno_ast::MediaType::JavaScript | deno_ast::MediaType::Mjs | deno_ast::MediaType::Cjs => {
+            "text/javascript"
+        }
+        deno_ast::MediaType::Jsx => "text/jsx",
+        deno_ast::MediaType::Tsx => "text/tsx",
+        _ => "text/typescript",
+    };
+    content_type_header_override(main_module, content_type)
 }
 
-fn content_type_header_overrides(
+fn content_type_header_override(
     main_module: ModuleSpecifier,
     content_type: &str,
 ) -> HashMap<ModuleSpecifier, HashMap<String, String>> {

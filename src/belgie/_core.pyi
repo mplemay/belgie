@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Coroutine, Iterable, Mapping
 from os import PathLike
+from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal, Self, overload
 
@@ -64,6 +65,10 @@ class AsyncEnvironment:
 
 class Script[**P, R]:
     def __init__(self, content: str) -> None: ...
+    @property
+    def content(self) -> str: ...
+    @property
+    def filename(self) -> Path | None: ...
     @classmethod
     def from_file(cls: type[Self], path: str | PathLike[str]) -> Self: ...
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -9,13 +10,14 @@ from belgie.__tests__.unit._core.conftest import StringPath
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 
 def test_script_accepts_inline_source(default_export_source: str) -> None:
     script = Script(default_export_source)
 
     assert isinstance(script, Script)
+    assert script.content == default_export_source
+    assert script.filename is None
     assert repr(script).startswith("Script(inline script")
     assert "Script" in repr(script)
 
@@ -26,6 +28,8 @@ def test_script_loads_from_file(write_script: Callable[[str, str], Path], named_
     script = Script.from_file(path)
 
     assert isinstance(script, Script)
+    assert script.content == named_run_source
+    assert script.filename == path
 
 
 def test_script_loads_source_from_str_and_pathlike_files(write_script: Callable[[str, str], Path]) -> None:

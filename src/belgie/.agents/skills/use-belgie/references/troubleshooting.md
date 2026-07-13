@@ -22,13 +22,15 @@ Classify the issue before editing:
    - Shell-style argument string.
    - Nonzero binary exit code.
 5. **Pyproject / MCP widget failure**
-   - Missing `[tool.belgie.dependencies]` entries (including `@belgie/mcp`).
+   - Missing `[tool.belgie.dependencies]` entries (including `@belgie/mcp` and Vite 8).
    - Missing `deno.lock` (run `belgie lock` / `belgie install`).
    - Local `file:` `@belgie/mcp` without a prior `npm run build` in `packages/mcp` (exports point at `dist/` /
      `types/`).
    - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(base_url=...)` (run
      `belgie run vite build`).
    - Wrong or missing `base_url` (must be absolute `http(s)` origin that serves `dist`).
+   - String widget name used without a prebuilt manifest/base URL; pass a `Script` for embedded rendering.
+   - Embedded Vite plugin attempts filesystem writes; embedded builds intentionally deny write permission.
 
 If belgie is not wired yet, use [quickstart.md](quickstart.md) and [adoption.md](adoption.md) first.
 
@@ -121,8 +123,9 @@ asyncio.run(main())
 | `Commands require an active Environment with package dependencies` | `Command` without env/install | `Environment` + `install()` + `Runtime(env=)` | Inspect command setup |
 | JS error message (e.g. `boom`) | Thrown JavaScript exception | Fix JS logic | Inspect `BelgieJavaScriptError` message |
 | Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
-| `No [tool.belgie.dependencies] entries found` | MCP manifest load without declared JS deps | Add `[tool.belgie.dependencies]` to pyproject | Inspect pyproject tables |
-| `Missing Belgie lockfile` | Manifest Script before `belgie install` | Run `belgie lock` then `belgie install` | Confirm `deno.lock` exists at project root |
+| `No [tool.belgie.dependencies] entries found` | MCP rendering without declared JS deps | Add `[tool.belgie.dependencies]` to pyproject | Inspect pyproject tables |
+| `Missing Belgie lockfile` | MCP Script before `belgie install` | Run `belgie lock` then `belgie install` | Confirm `deno.lock` exists at project root |
+| `String widget names require...` | Named widget without manifest/base URL | Pass `Script(...)` or configure the static manifest workflow | Inspect `BelgieExtension` constructor |
 | `No widget HTML found under .../dist/widgets` | Manifest load before `vite build` | Run `belgie run vite build` with `belgie()` plugin | Confirm `dist/widgets/*/index.html` |
 | `Unknown widget` | `@tool(widget=...)` name missing from manifest | Fix widget name or rebuild | Inspect `manifest.widgets` keys |
 | `base_url must be an absolute http(s) URL` | Relative or non-http base URL | Pass `http://...` or `https://...` | Inspect `BelgieExtension(base_url=...)` |
@@ -140,8 +143,8 @@ asyncio.run(main())
 - Inline script returns the expected value inside `with Runtime() as run:`.
 - Direct `npm:` / `jsr:` script imports run inside `Runtime()`.
 - Commands and dependency-map imports run after `env.install()` inside nested contexts.
-- MCP widgets: `belgie run vite build` with `belgie()` after `belgie lock` / `belgie install`, then
-  `BelgieExtension(base_url=...)` with FastAPI (or similar) serving `dist`.
+- MCP widgets: after `belgie lock` / `belgie install`, pass `Script` directly for embedded HTML; only static widgets
+  need `belgie run vite build`, `base_url`, and a `dist` asset server.
 - `Command` returns `None` on success.
 - Thrown JS errors surface as `BelgieJavaScriptError`, not silent failures.
 

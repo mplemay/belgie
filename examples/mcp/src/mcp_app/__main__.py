@@ -1,22 +1,22 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Final
 
 import uvicorn
-from fastapi import FastAPI
 from mcp.server import MCPServer
 from mcp_types import TextContent
 
+from belgie import Script
 from belgie.mcp import BelgieExtension
 
-PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
-DIST_DIR: Path = PROJECT_ROOT / "dist"
-BASE_URL: str = "http://127.0.0.1:3001"
+PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
+WIDGET: Final[Script] = Script.from_file(PROJECT_ROOT / "src" / "widgets" / "get-time" / "index.tsx")
 
-belgie = BelgieExtension(base_url=BASE_URL, project=PROJECT_ROOT)
+belgie = BelgieExtension(project=PROJECT_ROOT)
 
 
 @belgie.tool(
-    widget="get-time",
+    widget=WIDGET,
     name="get-time",
     title="Get Time",
     description="Get the current server time in ISO 8601 format.",
@@ -28,13 +28,9 @@ def get_time() -> list[TextContent]:
 
 mcp = MCPServer(name="Get Time Server", extensions=[belgie])
 
-app = FastAPI()
-app.mount("/mcp", mcp.streamable_http_app(streamable_http_path="/"))
-app.frontend("/", directory=DIST_DIR, check_dir=False)
-
 
 def main() -> None:
-    uvicorn.run(app, host="127.0.0.1", port=3001)
+    uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=3001)
 
 
 if __name__ == "__main__":

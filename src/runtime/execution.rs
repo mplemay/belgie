@@ -16,7 +16,7 @@ use deno_runtime::tokio_util::create_basic_runtime;
 use tokio::sync::{Notify, oneshot};
 
 use crate::{
-    embed::{init::spawn_v8_worker, runtime::ts_content_type_header_overrides},
+    embed::{init::spawn_v8_worker, runtime::content_type_header_overrides},
     runtime::{module_loader, package_worker, process_context},
     types::{error::BindingError, runner::RunnerArguments, value::PyJsValue},
     utils::cancel_guard::Cancel,
@@ -288,7 +288,10 @@ impl DenoExecutionContext {
                         js_runtime_options: bound.js_runtime_options().clone(),
                         runtime_worker_options: bound.worker_options().clone(),
                         main_source: Some(bound.script().content().to_string()),
-                        header_overrides: ts_content_type_header_overrides(main_module.clone()),
+                        header_overrides: content_type_header_overrides(
+                            main_module.clone(),
+                            bound.script().media_type(),
+                        ),
                     },
                     worker_factory_roots,
                 )
@@ -396,7 +399,7 @@ fn map_core_error(error: CoreError) -> BindingError {
 fn main_module_specifier(bound: &BoundRuntime) -> ExecutionResult<ModuleSpecifier> {
     let path = bound
         .script()
-        .path()
+        .filename()
         .map_or_else(|| inline_module_path(bound), PathBuf::from);
     ModuleSpecifier::from_file_path(&path).map_err(|_| {
         BindingError::module_load(format!("Could not convert {} to file URL", path.display()))
@@ -446,7 +449,10 @@ where
                         js_runtime_options: Default::default(),
                         runtime_worker_options: Default::default(),
                         main_source: Some("export {}".to_string()),
-                        header_overrides: ts_content_type_header_overrides(main_module),
+                        header_overrides: content_type_header_overrides(
+                            main_module,
+                            deno_ast::MediaType::TypeScript,
+                        ),
                     },
                     &LibWorkerFactoryRoots::default(),
                 )

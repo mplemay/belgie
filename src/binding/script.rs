@@ -30,6 +30,16 @@ impl PyScript {
     fn __repr__(&self) -> String {
         format!("Script({})", self.source.description())
     }
+
+    #[getter]
+    fn content(&self) -> &str {
+        self.source.content()
+    }
+
+    #[getter]
+    fn filename(&self) -> Option<PathBuf> {
+        self.source.filename().map(PathBuf::from)
+    }
 }
 
 impl PyScript {
