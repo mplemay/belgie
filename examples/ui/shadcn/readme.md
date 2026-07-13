@@ -34,6 +34,7 @@ UI lives under `src/shadcn/views`:
 
 ```text
 src/shadcn/views/
+├── global.css
 ├── lib/utils.ts
 ├── components/ui/
 └── widgets/get-time/
