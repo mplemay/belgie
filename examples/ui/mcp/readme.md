@@ -95,31 +95,7 @@ denied. Read, environment, and sys access are fully allowed. JavaScript, CSS, an
 registered HTML resource.
 
 `vite.config.ts` is optional. When present, the embedded renderer reuses safe transformation settings and user plugins
-such as React or Tailwind while retaining control of the single-file output:
-
-```ts
-import path from "node:path"
-import { fileURLToPath } from "node:url"
-
-import { belgie } from "@belgie/mcp/vite"
-import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
-
-const viewsDir = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "src/mcp_app/views",
-)
-
-export default defineConfig({
-  plugins: [belgie({ srcDir: "src/mcp_app/views/widgets" }), react()],
-  resolve: {
-    alias: {
-      "@": viewsDir,
-    },
-  },
-})
-```
-
+from the example config shown above (React, `srcDir`, `@/` alias) while retaining control of the single-file output.
 The filesystem-oriented `belgie()` plugin is excluded from embedded builds; other plugins are retained.
 
 ## Prebuilt widgets
