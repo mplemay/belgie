@@ -103,6 +103,8 @@ See the full runnable project in [examples/ai/langchain](examples/ai/langchain).
 Want to learn more about Belgie's features? The examples below are small, runnable projects — each one focuses on a
 single capability.
 
+### Basic
+
 - **[simple](examples/basic/simple):** Async `Runtime` with a TypeScript file on disk.
 - **[inline-deps](examples/basic/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a script.
 - **[jsr-deps](examples/basic/jsr-deps):** JSR packages declared through an explicit `Environment`.
@@ -110,7 +112,15 @@ single capability.
   `[tool.belgie.dependencies]`.
 - **[environment](examples/basic/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/basic/commands):** npm package binaries via `Runtime` and `Command`.
+
+### AI
+
 - **[pydantic-ai](examples/ai/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS execution.
+- **[langchain](examples/ai/langchain):** LangChain agent with `BelgieMiddleware()` for sandboxed JS/TS execution.
+
+### UI
+
 - **[mcp](examples/ui/mcp):** MCP Apps extension with a React widget built through Belgie.
+- **[shadcn](examples/ui/shadcn):** MCP Apps widget styled with Tailwind CSS and shadcn/ui.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.

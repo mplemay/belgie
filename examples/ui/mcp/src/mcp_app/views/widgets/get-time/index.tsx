@@ -2,7 +2,7 @@ import { Widget, useWidget } from "@belgie/mcp";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 
-import "./global.css";
+import "@/global.css";
 
 function AppView() {
   const app = useWidget();

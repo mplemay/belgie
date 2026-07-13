@@ -11,7 +11,7 @@ from belgie.mcp import BelgieExtension
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 WIDGET: Final[Script] = Script.from_file(
-    PROJECT_ROOT / "src" / "mcp_app" / "views" / "widgets" / "get-time" / "index.tsx",
+    PROJECT_ROOT / "src" / "shadcn" / "views" / "widgets" / "get-time" / "index.tsx",
 )
 
 belgie = BelgieExtension(project=PROJECT_ROOT)
@@ -32,7 +32,7 @@ mcp = MCPServer(name="Get Time Server", extensions=[belgie])
 
 
 def main() -> None:
-    uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=3001)
+    uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=3002)
 
 
 if __name__ == "__main__":
