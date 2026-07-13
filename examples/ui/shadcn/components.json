@@ -3,9 +3,9 @@
   "aliases": {
     "components": "@/components",
     "hooks": "@/hooks",
-    "lib": "@/lib",
+    "lib": "@",
     "ui": "@/components/ui",
-    "utils": "@/lib/utils"
+    "utils": "@/utils"
   },
   "iconLibrary": "lucide",
   "menuAccent": "subtle",
@@ -17,7 +17,7 @@
   "tailwind": {
     "baseColor": "neutral",
     "config": "",
-    "css": "src/index.css",
+    "css": "src/widgets/get-time/global.css",
     "cssVariables": true,
     "prefix": ""
   },

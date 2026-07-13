@@ -121,5 +121,6 @@ single capability.
 ### UI
 
 - **[mcp](examples/ui/mcp):** MCP Apps extension with a React widget built through Belgie.
+- **[shadcn](examples/ui/shadcn):** MCP Apps widget styled with Tailwind CSS and shadcn/ui.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.

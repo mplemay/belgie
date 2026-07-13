@@ -52,3 +52,6 @@ export default defineConfig({
   },
 })
 ```
+
+UI components live under `src/components/ui` and are installed with the shadcn CLI against the official `@shadcn`
+registry. JavaScript packages are declared in `[tool.belgie.dependencies]` and installed with `belgie install`.
