@@ -117,6 +117,63 @@ def test_write_pyproject_document_round_trips_with_rtoml(tmp_path: Path) -> None
     assert rtoml.load(tmp_path / "pyproject.toml") == document
 
 
+def test_write_pyproject_document_allows_authors_before_dependencies(tmp_path: Path) -> None:
+    document: dict[str, object] = {
+        "project": {
+            "name": "x",
+            "authors": [{"name": "A", "email": "a@b.c"}],
+            "dependencies": ["pkg"],
+        },
+    }
+
+    write_pyproject_document(tmp_path, document)
+
+    assert rtoml.load(tmp_path / "pyproject.toml") == document
+
+
+def test_write_pyproject_document_round_trips_example_shaped_pyproject(tmp_path: Path) -> None:
+    document: dict[str, object] = {
+        "project": {
+            "name": "pyproject",
+            "version": "0.1.0",
+            "description": "pyproject.toml dependency management with the belgie CLI",
+            "readme": "readme.md",
+            "authors": [{"name": "Matt LeMay", "email": "mplemay@users.noreply.github.com"}],
+            "requires-python": ">=3.12,<3.15",
+            "dependencies": ["belgie[cli]"],
+            "scripts": {"main": "pyproject.__main__:main"},
+        },
+        "build-system": {
+            "requires": ["uv_build>=0.11,<0.12"],
+            "build-backend": "uv_build",
+        },
+        "tool": {
+            "belgie": {
+                "dependencies": {
+                    "std_path": "jsr:@std/path@^1",
+                },
+            },
+            "uv": {
+                "exclude-newer": "7 days",
+                "exclude-newer-package": {"belgie": False},
+                "sources": {
+                    "belgie": {"path": "../../", "editable": True},
+                },
+            },
+        },
+    }
+    set_dependency_in_document(document, "camelcase", "npm:camelcase@8.0.0")
+
+    write_pyproject_document(tmp_path, document)
+
+    loaded = rtoml.load(tmp_path / "pyproject.toml")
+    assert loaded == document
+    assert loaded["tool"]["belgie"]["dependencies"] == {
+        "std_path": "jsr:@std/path@^1",
+        "camelcase": "npm:camelcase@8.0.0",
+    }
+
+
 def test_preserve_file_on_error_keeps_new_contents_on_success(tmp_path: Path) -> None:
     path = tmp_path / "deno.lock"
     path.write_text("original", encoding="utf-8")
