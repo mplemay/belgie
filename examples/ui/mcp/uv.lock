@@ -59,7 +59,7 @@ wheels = [
 [[package]]
 name = "belgie"
 version = "0.1.1"
-source = { editable = "../../" }
+source = { editable = "../../../" }
 
 [package.optional-dependencies]
 cli = [
@@ -373,7 +373,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "belgie", extras = ["mcp", "cli"], editable = "../../" },
+    { name = "belgie", extras = ["mcp", "cli"], editable = "../../../" },
     { name = "uvicorn", specifier = ">=0.38,<1" },
 ]
 

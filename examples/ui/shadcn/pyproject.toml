@@ -33,7 +33,7 @@ belgie = { path = "../../../", editable = true }
 "@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"
 "@modelcontextprotocol/sdk" = "npm:@modelcontextprotocol/sdk@latest"
 "@tailwindcss/vite" = "npm:@tailwindcss/vite@4.3.0"
-"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^4"
+"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6"
 "class-variance-authority" = "npm:class-variance-authority@^0.7.1"
 clsx = "npm:clsx@^2.1.1"
 "lucide-react" = "npm:lucide-react@^1.24.0"
