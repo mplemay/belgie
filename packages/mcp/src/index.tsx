@@ -54,7 +54,7 @@ export function useWidget(): App {
 }
 
 function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
-  app.onerror = hooks?.error ?? console.error;
+  app.onerror = hooks?.error ?? ((error) => console.error(error));
   if (!hooks) {
     return;
   }
