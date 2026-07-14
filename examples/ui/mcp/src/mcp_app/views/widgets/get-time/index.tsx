@@ -86,9 +86,6 @@ export default function GetTime() {
   return (
     <Widget
       metadata={{ name: "Get Time", version: "1.0.0" }}
-      hooks={{
-        error: console.error,
-      }}
       fallback={<div className="notice">Connecting...</div>}
       error={(err) => (
         <div className="notice">
