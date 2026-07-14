@@ -54,11 +54,9 @@ export function useWidget(): App {
 }
 
 function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
+  app.onerror = hooks?.error ?? console.error;
   if (!hooks) {
     return;
-  }
-  if (hooks.error) {
-    app.onerror = hooks.error;
   }
   if (hooks.toolInput) {
     app.ontoolinput = hooks.toolInput;
