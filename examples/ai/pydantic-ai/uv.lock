@@ -45,7 +45,7 @@ wheels = [
 [[package]]
 name = "belgie"
 version = "0.1.1"
-source = { editable = "../../" }
+source = { editable = "../../../" }
 
 [package.optional-dependencies]
 pydantic-ai = [
@@ -401,7 +401,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "belgie", extras = ["pydantic-ai"], editable = "../../" }]
+requires-dist = [{ name = "belgie", extras = ["pydantic-ai"], editable = "../../../" }]
 
 [[package]]
 name = "pydantic-ai-slim"
