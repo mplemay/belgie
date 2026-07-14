@@ -79,7 +79,28 @@ def read_pyproject_document(root: Path) -> dict[str, Any]:
 def write_pyproject_document(root: Path, document: dict[str, Any]) -> None:
     path = root / PYPROJECT_NAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+    path.write_text(rtoml.dumps(_reorder_for_rtoml(document), pretty=True), encoding="utf-8")
+
+
+def _is_table_like(value: object) -> bool:
+    if isinstance(value, dict):
+        return True
+    return isinstance(value, list) and bool(value) and all(isinstance(item, dict) for item in value)
+
+
+def _reorder_for_rtoml(value: object) -> object:
+    # rtoml emits list[dict] as [[array-of-tables]]; TOML requires those after
+    # sibling key/values, so put nested tables / AoTs last within each table.
+    if isinstance(value, dict):
+        values: list[tuple[str, object]] = []
+        tables: list[tuple[str, object]] = []
+        for key, item in value.items():
+            reordered = _reorder_for_rtoml(item)
+            (tables if _is_table_like(item) else values).append((str(key), reordered))
+        return dict([*values, *tables])
+    if isinstance(value, list):
+        return [_reorder_for_rtoml(item) for item in value]
+    return value
 
 
 def set_dependency_in_document(
