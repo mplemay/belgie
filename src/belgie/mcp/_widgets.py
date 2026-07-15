@@ -78,7 +78,9 @@ def load_development_widget(dev_url: str, widget: Path) -> str:
         with urlopen(url, timeout=DEV_REQUEST_TIMEOUT_SECONDS) as response:  # noqa: S310  # URL scheme validated above.
             html = response.read().decode("utf-8")
     except HTTPError as error:
-        msg = DEV_WIDGET_HTTP_ERROR.format(url=url, code=error.code)
+        code = error.code
+        error.close()
+        msg = DEV_WIDGET_HTTP_ERROR.format(url=url, code=code)
         raise RuntimeError(msg) from error
     except (URLError, TimeoutError) as error:
         msg = DEV_WIDGET_ERROR.format(url=url)

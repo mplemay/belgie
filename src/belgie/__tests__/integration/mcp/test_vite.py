@@ -220,8 +220,12 @@ async def test_vite_dev_returns_404_for_unknown_widget(tmp_path: Path, free_port
         await wait_for_url(widget_url)
         with pytest.raises(HTTPError) as error:
             await asyncio.to_thread(urlopen, missing_url, timeout=1)  # Test URL is a fixed local HTTP origin.
-        assert error.value.code == 404
-        assert "Unknown widget: missing" in error.value.read().decode("utf-8")
+        exc = error.value
+        try:
+            assert exc.code == 404
+            assert "Unknown widget: missing" in exc.read().decode("utf-8")
+        finally:
+            exc.close()
 
 
 @SKIP_WIN32_VITE_NATIVE
