@@ -124,7 +124,8 @@ asyncio.run(main())
 | `Commands require an active Environment with package dependencies` | `Command` without env/install | `Environment` + `install()` + `Runtime(env=)` | Inspect command setup |
 | JS error message (e.g. `boom`) | Thrown JavaScript exception | Fix JS logic | Inspect `BelgieJavaScriptError` message |
 | Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
-| `Unable to load development widget` | Vite is not reachable at `http://127.0.0.1:<dev_port>` | Start `belgie run vite` before the MCP server | Open `/widgets/<name>/index.html` |
+| `Unable to load development widget` + `Start the Vite server` | Vite is not reachable at `http://127.0.0.1:<dev_port>` | Start `belgie run vite` before the MCP server | Open `/widgets/<name>/index.html` |
+| `Unable to load development widget` + `Vite returned HTTP` | Vite responded but the widget route failed (unknown name, invalid widget, or server error) | Confirm `src/widgets/<name>/widget.tsx` exists, has a default export, and is discovered by the belgie plugin | Open `/widgets/<name>/index.html` and check the status |
 | `dev_url must be an absolute http(s) URL` | Internal origin construction failed | Pass a valid `dev_port` | Inspect `BelgieExtension(dev_port=...)` |
 | `widget must be a pathlib.Path` | Legacy string widget name | Pass a `Path` to `widget.tsx` | Inspect `@tool(widget=...)` |
 | `Widget file does not exist` | Path is missing or resolves from the wrong project | Fix `project` or the `Path` | Confirm the source file exists |

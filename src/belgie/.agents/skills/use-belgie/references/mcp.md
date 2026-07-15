@@ -119,7 +119,8 @@ def get_time() -> str:
 
 Relative widget paths resolve from `project`. The path must exist, remain inside the project, and end in the exact name
 `widget.tsx`. `dev=True` is the default; `dev_port` defaults to `5173` and selects the Vite development server on
-`127.0.0.1`. Registration fails with a start-Vite message when the page is unavailable.
+`127.0.0.1`. Registration fails with a start-Vite message when Vite is unreachable, or with an HTTP-status message when
+Vite is up but the widget route returns an error (for example an unknown widget name).
 
 The development HTML receives an absolute `<base>` tag. Belgie adds the Vite HTTP and WebSocket origins to the widget
 CSP while preserving caller-provided domains.

@@ -360,8 +360,14 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
           const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
           const match = /^\/widgets\/([^/]+)\/index\.html$/.exec(pathname);
           const name = match?.[1] === undefined ? undefined : decodeURIComponent(match[1]);
-          if (name === undefined || !widgetMap.has(name)) {
+          if (name === undefined) {
             next();
+            return;
+          }
+          if (!widgetMap.has(name)) {
+            response.statusCode = 404;
+            response.setHeader("Content-Type", "text/plain; charset=utf-8");
+            response.end(`Unknown widget: ${name}`);
             return;
           }
           const transformedHtml = await server.transformIndexHtml(

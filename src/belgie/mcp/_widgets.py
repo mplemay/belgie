@@ -20,6 +20,10 @@ DEV_WIDGET_ERROR: Final[str] = (
     "Unable to load development widget {url}. "
     "Start the Vite server with `belgie run vite` before starting the MCP server."
 )
+DEV_WIDGET_HTTP_ERROR: Final[str] = (
+    "Unable to load development widget {url}: Vite returned HTTP {code}. "
+    "Confirm the widget exists under the configured srcDir and is discovered by the belgie Vite plugin."
+)
 MISSING_HEAD_ERROR: Final[str] = "Vite widget HTML is missing a <head> element: {url}"
 
 
@@ -73,7 +77,10 @@ def load_development_widget(dev_url: str, widget: Path) -> str:
     try:
         with urlopen(url, timeout=DEV_REQUEST_TIMEOUT_SECONDS) as response:  # noqa: S310  # URL scheme validated above.
             html = response.read().decode("utf-8")
-    except (HTTPError, URLError, TimeoutError) as error:
+    except HTTPError as error:
+        msg = DEV_WIDGET_HTTP_ERROR.format(url=url, code=error.code)
+        raise RuntimeError(msg) from error
+    except (URLError, TimeoutError) as error:
         msg = DEV_WIDGET_ERROR.format(url=url)
         raise RuntimeError(msg) from error
     return inject_base_url(html, dev_url=dev_url, source_url=url)

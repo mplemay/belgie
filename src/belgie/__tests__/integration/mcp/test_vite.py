@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from time import monotonic
 from typing import Final
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 import pytest
@@ -195,6 +195,45 @@ async def test_vite_dev_serves_widget_route_before_python_registration(tmp_path:
                 process.kill()
                 await process.wait()
     assert not (project / "dist").exists()
+
+
+@SKIP_WIN32_VITE_NATIVE
+async def test_vite_dev_returns_404_for_unknown_widget(tmp_path: Path, free_port: int) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    write_vite_config(project)
+    write_hello_widget(project)
+    dev_url = f"http://127.0.0.1:{free_port}"
+    widget_url = f"{dev_url}/widgets/hello/index.html"
+    missing_url = f"{dev_url}/widgets/missing/index.html"
+
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "belgie.cli",
+        "run",
+        "vite",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(free_port),
+        cwd=project,
+    )
+    try:
+        await wait_for_url(widget_url)
+        with pytest.raises(HTTPError) as error:
+            await asyncio.to_thread(fetch_text, missing_url)
+        assert error.value.code == 404
+        assert "Unknown widget: missing" in error.value.read().decode("utf-8")
+    finally:
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
 
 
 @SKIP_WIN32_VITE_NATIVE

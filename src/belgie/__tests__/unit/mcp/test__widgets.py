@@ -1,6 +1,7 @@
+from email.message import EmailMessage
 from pathlib import Path
 from typing import Never
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -105,3 +106,21 @@ def test_load_development_widget_reports_unavailable_vite(
 
     with pytest.raises(RuntimeError, match="Start the Vite server"):
         load_development_widget("http://127.0.0.1:5173", widget)
+
+
+def test_load_development_widget_reports_http_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    widget = write_widget(tmp_path)
+    widget_url = "http://127.0.0.1:5173/widgets/clock/index.html"
+    not_found_msg = "Not Found"
+
+    def not_found(*_args: object, **_kwargs: object) -> Never:
+        raise HTTPError(widget_url, 404, not_found_msg, EmailMessage(), None)
+
+    monkeypatch.setattr(widgets_module, "urlopen", not_found)
+
+    with pytest.raises(RuntimeError, match="Vite returned HTTP 404") as error:
+        load_development_widget("http://127.0.0.1:5173", widget)
+    assert "Start the Vite server" not in str(error.value)
