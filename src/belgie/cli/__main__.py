@@ -22,6 +22,7 @@ except ImportError as exc:
     print(CLI_REQUIRED_MESSAGE, file=sys.stderr)  # noqa: T201
     raise SystemExit(1) from exc
 
+from belgie.cli._generate import generate_tool_types  # noqa: E402
 from belgie.cli._operations import (  # noqa: E402
     add_dependency,
     install_project,
@@ -45,7 +46,7 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
     name="belgie",
-    help="Belgie project dependency tooling",
+    help="Belgie project tooling",
 )
 
 
@@ -136,6 +137,19 @@ def run(
 ) -> None:
     discovered = discover_project(project=project)
     run_command(discovered, ctx.args, cwd=cwd, frozen=frozen)
+
+
+@app.command()
+def generate(
+    target: Annotated[str, typer.Argument(help="Python target as module:attribute")],
+    output: Annotated[Path, typer.Option("-o", "--output", help="Generated TypeScript output path")],
+    project: ProjectDir = None,
+    frozen: Annotated[bool, typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock")] = True,  # noqa: FBT002
+) -> None:
+    discovered = discover_project(project=project)
+    result = generate_tool_types(discovered, target=target, output=output, frozen=frozen)
+    status = "Generated" if result.changed else "Unchanged"
+    typer.echo(f"{status} {result.tools} tool types: {result.path}")
 
 
 def main(argv: Sequence[str] | None = None) -> None:

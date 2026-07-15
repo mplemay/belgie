@@ -26,6 +26,9 @@ exclude-newer-package = { belgie = false, mcp = false, mcp-types = false, uvicor
 [tool.uv.sources]
 belgie = { path = "../../../", editable = true }
 
+[tool.belgie]
+source = "src"
+
 [tool.belgie.dependencies]
 "@belgie/mcp" = "file:../../../packages/mcp"
 "@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"

@@ -7,6 +7,7 @@ from mcp.server.mcpserver.resources import TextResource
 from mcp_types import Icon, ToolAnnotations
 
 from belgie.mcp import BelgieExtension, _extension as extension_module
+from belgie.mcp._extension import TYPE_GENERATION_WIDGET_HTML, generate_tool_types_context
 
 DEFAULT_WIDGET_HTML: str = "<!doctype html><html><body>ok</body></html>"
 
@@ -225,3 +226,49 @@ def test_tool_reads_production_path_once_across_extensions(tmp_path: Path) -> No
         "<!doctype html><html><body>production</body></html>",
     ]
     assert all(registration.resource.meta is None for registration in resources)
+
+
+def test_type_generation_registers_tools_without_loading_widget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_load_widget(dev_url: str, path: Path) -> str:
+        pytest.fail(f"unexpected widget load from {dev_url}: {path}")
+
+    monkeypatch.setattr(extension_module, "load_development_widget", fail_load_widget)
+    extension = BelgieExtension(project=tmp_path)
+
+    with generate_tool_types_context():
+
+        @extension.tool(widget=tmp_path / "missing" / "widget.tsx", name="generated")
+        def generated() -> str:
+            return "never called"
+
+    assert extension.tools()[0].fn is generated
+    resource = extension.resources()[0].resource
+    assert isinstance(resource, TextResource)
+    assert resource.text == TYPE_GENERATION_WIDGET_HTML
+
+
+def test_type_generation_context_restores_normal_widget_loading(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    widget = write_widget(tmp_path)
+    calls: list[tuple[str, Path]] = []
+
+    def load_widget(dev_url: str, path: Path) -> str:
+        calls.append((dev_url, path))
+        return DEFAULT_WIDGET_HTML
+
+    monkeypatch.setattr(extension_module, "load_development_widget", load_widget)
+    with generate_tool_types_context():
+        pass
+
+    extension = BelgieExtension(project=tmp_path)
+
+    @extension.tool(widget=widget)
+    def clock() -> str:
+        return "now"
+
+    assert calls == [("http://127.0.0.1:5173", widget.resolve())]

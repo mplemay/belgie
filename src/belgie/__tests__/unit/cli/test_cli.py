@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from belgie.cli.__main__ import CLI_REQUIRED_MESSAGE, app, main
+from belgie.cli._generate import GenerateResult
 from belgie.cli._project import ProjectError
 
 runner = CliRunner()
@@ -63,6 +64,39 @@ semver = "npm:semver@7.7.2"
 
     assert exc_info.value.code == 1
     assert "Missing command" in capsys.readouterr().err
+
+
+def test_generate_command_forwards_target_output_project_and_frozen(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    generated_path = tmp_path / "generated" / "tools.ts"
+    calls: list[tuple[str, Path, bool]] = []
+
+    def generate_tool_types(project, *, target: str, output: Path, frozen: bool) -> GenerateResult:
+        assert project.root == tmp_path
+        calls.append((target, output, frozen))
+        return GenerateResult(path=generated_path, tools=2, changed=True)
+
+    monkeypatch.setattr("belgie.cli.__main__.generate_tool_types", generate_tool_types)
+
+    result = runner.invoke(
+        app,
+        [
+            "generate",
+            "demo:server",
+            "--output",
+            "generated/tools.ts",
+            "--no-frozen",
+            "-C",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls == [("demo:server", Path("generated/tools.ts"), False)]
+    assert f"Generated 2 tool types: {generated_path}" in result.output
 
 
 def test_run_command_requires_dependencies(

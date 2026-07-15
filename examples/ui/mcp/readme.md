@@ -14,6 +14,15 @@ uv run belgie lock
 uv run belgie install
 ```
 
+Generate and commit the TypeScript contract for the registered server tools:
+
+```bash
+uv run belgie generate mcp_app.__main__:mcp --output src/mcp_app/views/generated/belgie-tools.ts
+```
+
+Generation imports the target under a schema-only context, reads `MCPServer.list_tools()`, and does not start Vite or
+execute any tool function. The output binds exact tool names to their inferred input and structured output types.
+
 ## Development
 
 Run Vite and the Python server in separate terminals:
@@ -35,6 +44,8 @@ UI lives under `src/mcp_app/views`:
 
 ```text
 src/mcp_app/views/
+├── generated/
+│   └── belgie-tools.ts
 ├── global.css
 └── widgets/
     └── get-time/
@@ -87,6 +98,20 @@ def get_time() -> list[TextContent]:
 
 Relative widget paths resolve from `project`. A path must exist, stay inside the project, and be named exactly
 `widget.tsx`.
+
+The generated registry is bound once in the widget and then inferred from the tool name:
+
+```ts
+import { createUseTool } from "@belgie/mcp"
+import type { Tools } from "@/generated/belgie-tools"
+
+const useTool = createUseTool<Tools>()
+
+function AppView() {
+  const { call, data, error, loading } = useTool("get-time")
+  // call() and data are inferred from the Python tool schemas.
+}
+```
 
 ## Production
 

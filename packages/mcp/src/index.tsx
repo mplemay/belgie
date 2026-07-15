@@ -1,7 +1,5 @@
 import {
   StrictMode,
-  createContext,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -15,6 +13,11 @@ import {
   type AppOptions,
   type McpUiAppCapabilities,
 } from "@modelcontextprotocol/ext-apps";
+
+import { WidgetContext } from "./widget-context";
+
+export { createUseTool, type ToolContract, type UseToolResult } from "./use-tool";
+export { useWidget } from "./widget-context";
 
 export type WidgetMetadata = {
   name: string;
@@ -42,16 +45,6 @@ export type WidgetProps = {
   fallback?: ReactNode;
   error?: ReactNode | ((error: Error) => ReactNode);
 };
-
-const WidgetContext = createContext<App | null>(null);
-
-export function useWidget(): App {
-  const app = useContext(WidgetContext);
-  if (app == null) {
-    throw new Error("useWidget must be used within a connected <Widget>");
-  }
-  return app;
-}
 
 function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
   app.onerror = hooks?.error ?? ((error) => console.error(error));

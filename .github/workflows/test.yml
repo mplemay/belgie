@@ -90,6 +90,10 @@ jobs:
           npm install
           npm run build
 
+      - name: Test @belgie/mcp
+        working-directory: packages/mcp
+        run: npm test
+
       - name: Run tests
         run: uv run pytest
 
