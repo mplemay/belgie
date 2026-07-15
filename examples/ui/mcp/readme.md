@@ -1,6 +1,6 @@
 # MCP
 
-Runs an MCP server whose React widget is bundled from a Belgie `Script` into one self-contained HTML resource.
+Runs an MCP server whose React widget is served and built by Vite from a conventional `widget.tsx` entry.
 
 Requires `belgie[mcp,cli]` (included in this example's dependencies).
 
@@ -14,26 +14,35 @@ uv run belgie lock
 uv run belgie install
 ```
 
-## Run
+## Development
+
+Run Vite and the Python server in separate terminals:
+
+```bash
+uv run belgie run vite
+```
 
 ```bash
 uv run main
 ```
 
-The server listens on port `3001`. An MCP Apps-capable client can render the `get-time` widget and call its tool.
-No Vite process, `dist` directory, or static asset server is required.
+Vite serves the widget at `http://127.0.0.1:5173/widgets/get-time/index.html` with React refresh and HMR. The MCP
+server listens on port `3001`; `BelgieExtension` fetches the Vite page when the tool is registered.
 
-## What's happening
+## Project convention
 
 UI lives under `src/mcp_app/views`:
 
 ```text
 src/mcp_app/views/
 ├── global.css
-└── widgets/get-time/
+└── widgets/
+    └── get-time/
+        └── widget.tsx
 ```
 
-`vite.config.ts` enables React, the widget `srcDir`, and the `@/` path alias (views root):
+`belgie()` discovers only direct `<name>/widget.tsx` children of its `srcDir`. `vite.config.ts` enables React and the
+`@/` alias used for shared assets:
 
 ```ts
 import path from "node:path"
@@ -58,48 +67,38 @@ export default defineConfig({
 })
 ```
 
-Widgets import shared assets with `@/` (for example `import "@/global.css"`).
-
-## Embedded Script rendering
-
-Pass widget source as an inline `Script` to the tool decorator:
+Python passes the source path directly:
 
 ```python
-from belgie import Script
+from pathlib import Path
+
 from belgie.mcp import BelgieExtension
 
-SOURCE = """
-import { Widget } from "@belgie/mcp"
-
-export default function GetTime() {
-  return (
-    <Widget metadata={{ name: "Get Time", version: "1.0.0" }}>
-      <AppView />
-    </Widget>
-  )
-}
-"""
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+WIDGET = PROJECT_ROOT / "src" / "mcp_app" / "views" / "widgets" / "get-time" / "widget.tsx"
 
 belgie = BelgieExtension(project=PROJECT_ROOT)
 
-@belgie.tool(widget=Script(SOURCE), name="get-time")
+
+@belgie.tool(widget=WIDGET, name="get-time")
 def get_time() -> list[TextContent]:
     ...
 ```
 
-Multi-file widgets can use `Script.from_file(...)` instead; relative imports then resolve from the file's directory.
+Relative widget paths resolve from `project`. A path must exist, stay inside the project, and be named exactly
+`widget.tsx`.
 
-At registration time, `BelgieExtension` runs Vite 8 inside the Deno sandbox with an in-memory entry and
-`build.write = false`. FFI is limited to the project's `node_modules`; filesystem writes, network, and subprocesses are
-denied. Read, environment, and sys access are fully allowed. JavaScript, CSS, and imported assets are inlined into the
-registered HTML resource.
+## Production
 
-`vite.config.ts` is optional. When present, the embedded renderer reuses safe transformation settings and user plugins
-from the example config shown above (React, `srcDir`, `@/` alias) while retaining control of the single-file output.
-The filesystem-oriented `belgie()` plugin is excluded from embedded builds; other plugins are retained.
+Build every discovered widget before starting the MCP server:
 
-## Prebuilt widgets
+```bash
+uv run belgie run vite build
+```
 
-The existing static workflow remains available. Run `belgie run vite build`, serve `dist`, and construct
-`BelgieExtension(base_url=..., project=...)`. In that mode, tools continue to use manifest names such as
-`@belgie.tool(widget="get-time")`.
+Vite writes a self-contained `dist/widgets/get-time/index.html`. Configure the production process with
+`BelgieExtension(project=PROJECT_ROOT, dev=False)`; it reads that file once and caches the HTML in memory. No static
+asset server is needed because imported JavaScript, CSS, fonts, images, and dynamic imports are inlined.
+
+The hosted string workflow remains available for existing deployments: serve `dist`, construct
+`BelgieExtension(base_url=..., project=...)`, and pass a widget name such as `widget="get-time"`.

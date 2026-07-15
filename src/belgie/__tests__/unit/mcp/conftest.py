@@ -1,4 +1,4 @@
-from belgie.mcp._builder import WidgetEntry, WidgetManifest
+from belgie.mcp._manifest import WidgetEntry, WidgetManifest
 
 DEFAULT_WIDGET_HTML: str = "<!doctype html><html></html>"
 DEFAULT_BASE_URL: str = "http://127.0.0.1:3001"

@@ -6,13 +6,10 @@ import uvicorn
 from mcp.server import MCPServer
 from mcp_types import TextContent
 
-from belgie import Script
 from belgie.mcp import BelgieExtension
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
-WIDGET: Final[Script] = Script.from_file(
-    PROJECT_ROOT / "src" / "mcp_app" / "views" / "widgets" / "get-time" / "index.tsx",
-)
+WIDGET: Final[Path] = PROJECT_ROOT / "src" / "mcp_app" / "views" / "widgets" / "get-time" / "widget.tsx"
 
 belgie = BelgieExtension(project=PROJECT_ROOT)
 

@@ -8,12 +8,13 @@ Use this file when building MCP Apps with React widgets through `BelgieExtension
 uv add "belgie[mcp,cli]"
 ```
 
-Declare and install the JavaScript dependencies used by the widget and embedded renderer:
+Declare and install the JavaScript dependencies used by Vite and the widget:
 
 ```toml
 [tool.belgie.dependencies]
 "@belgie/mcp" = "npm:@belgie/mcp@^0.1.0"
 "@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"
+"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6"
 react = "npm:react@^19"
 "react-dom" = "npm:react-dom@^19"
 vite = "npm:vite@^8"
@@ -31,16 +32,19 @@ Vite 8 or newer is required. A built local `file:` dependency may replace the pu
 ```text
 my-mcp-app/
 ├── pyproject.toml
-├── vite.config.ts             # optional build plugins/settings
+├── vite.config.ts
 ├── deno.lock
 └── src/
     ├── widgets/
     │   └── get-time/
-    │       ├── index.tsx
+    │       ├── widget.tsx
     │       └── global.css
     └── mcp_app/
         └── __main__.py
 ```
+
+`belgie()` discovers only direct `<name>/widget.tsx` children of its `srcDir` (`src/widgets` by default). Each widget
+must default-export a component.
 
 ## Widget module contract
 
@@ -68,90 +72,114 @@ export default function Hello() {
 Optional `hooks`, `fallback`, and `error` props configure connection lifecycle and UI. See the package types for the
 complete event surface.
 
-## Embedded Script widgets
-
-Pass widget source as an inline `Script`, or load a multi-file widget with `Script.from_file`:
-
-```python
-from belgie import Script
-from belgie.mcp import BelgieExtension
-
-SOURCE = """
-import { Widget } from "@belgie/mcp"
-
-export default function Hello() {
-  return (
-    <Widget metadata={{ name: "Hello", version: "1.0.0" }}>
-      <AppView />
-    </Widget>
-  )
-}
-"""
-
-belgie = BelgieExtension(project=".")
-
-@belgie.tool(widget=Script(SOURCE), name="get-time")
-def get_time() -> str:
-    return "now"
-```
-
-Relative imports resolve from the file directory when using `Script.from_file(...)`.
-
-The extension bundles the Script during tool registration. Vite runs inside the Deno sandbox with an in-memory entry
-and `build.write = false`. FFI is limited to the project's `node_modules`; filesystem writes, network, and subprocesses
-are denied. Read, environment, and sys access are fully allowed. The registered MCP HTML resource contains its
-JavaScript and CSS directly; it needs no `dist` directory or static asset server. Equivalent Script sources are built
-once per extension.
-
 ## Vite configuration
 
-`vite_config=None` discovers the standard `vite.config.*` under the project root. Pass `vite_config=False` to disable
-discovery or an explicit relative/absolute path to select another config.
-
-Belgie loads configs with Vite's native loader and inherits plugins, aliases, defines, CSS/JSON settings, transform
-options, targets, and minification. Belgie owns the root, virtual entry, output, sourcemaps, public directory,
-manifests, watching, and code splitting. The filesystem-oriented `belgie()` plugin is ignored during embedded builds;
-plugins such as React and Tailwind remain active.
+Add `belgie()` to the project's normal Vite config. User plugins and settings remain active for widget development and
+production builds, including React, Tailwind, aliases, defines, CSS transforms, and imported assets.
 
 ```ts
 import tailwindcss from "@tailwindcss/vite"
 import { belgie } from "@belgie/mcp/vite"
+import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [belgie(), tailwindcss()],
+  plugins: [belgie(), react(), tailwindcss()],
 })
 ```
 
-Plugins that attempt filesystem writes fail with the Deno permission error. Extra chunks and non-inlineable emitted
-assets also fail registration rather than producing a partial HTML resource.
+## Development
 
-## Prebuilt/static widgets
+Start Vite before the Python MCP server and keep both processes running:
 
-The earlier manifest workflow remains supported when a separate frontend build and asset server are desired:
+```bash
+uv run belgie run vite
+```
+
+```bash
+uv run main
+```
+
+Vite serves a discovered widget at `/widgets/<name>/index.html` with its normal HTML transforms, React refresh, and
+HMR. Python passes the source path to the tool decorator:
+
+```python
+from pathlib import Path
+
+from belgie.mcp import BelgieExtension
+
+WIDGET = Path("src/widgets/get-time/widget.tsx")
+belgie = BelgieExtension(project=".")
+
+
+@belgie.tool(widget=WIDGET, name="get-time")
+def get_time() -> str:
+    return "now"
+```
+
+Relative widget paths resolve from `project`. The path must exist, remain inside the project, and end in the exact name
+`widget.tsx`. `dev=True` is the default; `dev_url` defaults to `http://127.0.0.1:5173` and can select a different Vite
+origin. Registration fails with a start-Vite message when the page is unavailable.
+
+The development HTML receives an absolute `<base>` tag. Belgie adds the Vite HTTP and WebSocket origins to the widget
+CSP while preserving caller-provided domains.
+
+## Production
+
+Build all discovered widgets with the normal Vite command:
 
 ```bash
 uv run belgie run vite build
 ```
 
+The plugin builds each widget as an isolated single entry and writes only:
+
+```text
+dist/widgets/<name>/index.html
+```
+
+JavaScript, CSS, dynamic imports, fonts, images, and other imported assets are inlined. Builds fail if a widget has no
+default export or if unsupported chunks or assets remain.
+
+Start production with filesystem mode disabled:
+
 ```python
-belgie = BelgieExtension(base_url="http://127.0.0.1:3001", project=".")
+belgie = BelgieExtension(project=".", dev=False)
+
+
+@belgie.tool(widget=Path("src/widgets/get-time/widget.tsx"), name="get-time")
+def get_time() -> str:
+    return "now"
+```
+
+The extension reads `dist/widgets/get-time/index.html` once and caches it by resolved widget path for the process
+lifetime. It does not need an asset server.
+
+## Hosted string widgets
+
+The existing hosted workflow remains supported when `dist` is served from an HTTP origin:
+
+```python
+belgie = BelgieExtension(base_url="https://widgets.example.com", project=".")
+
 
 @belgie.tool(widget="get-time")
 def get_time() -> str:
     return "now"
 ```
 
-In this mode, `belgie()` writes `dist/widgets/**` plus shared assets, `BelgieExtension` loads the manifest, and the
-application must serve `dist`. `BelgieExtension(manifest=...)` remains available for a preloaded manifest.
+In this mode, Python reads the conventional `dist/widgets/*/index.html` files into a manifest, preserves `base_url`
+asset rewriting, and resolves string widget names. `BelgieExtension(manifest=...)` remains available for a preloaded
+manifest.
 
 ## Constructor behavior
 
 | Constructor | Behavior |
 | --- | --- |
-| `BelgieExtension(project=...)` | Accept direct `Script` widgets and discover the project Vite config |
-| `BelgieExtension(project=..., vite_config=False)` | Accept direct Scripts without a user Vite config |
-| `BelgieExtension(base_url=..., project=...)` | Load the prebuilt widget manifest and use string widget names |
-| `BelgieExtension(manifest=...)` | Use a preloaded manifest |
+| `BelgieExtension(project=...)` | Fetch `Path` widgets from the default Vite development server |
+| `BelgieExtension(project=..., dev_url=...)` | Fetch `Path` widgets from a custom Vite development origin |
+| `BelgieExtension(project=..., dev=False)` | Read and cache conventional production HTML from `dist/widgets` |
+| `BelgieExtension(base_url=..., project=...)` | Load hosted widget HTML and use string widget names |
+| `BelgieExtension(manifest=...)` | Use a preloaded manifest with string widget names |
 
 For dependency-table details, see [pyproject.md](pyproject.md).

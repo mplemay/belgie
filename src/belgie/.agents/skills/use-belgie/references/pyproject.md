@@ -29,10 +29,10 @@ react = "npm:react@^19"
 
 Use this table when:
 
-- MCP Script rendering or static widget builds need Vite 8, React, and other build-time packages
+- MCP widget development and production builds need Vite 8, React, and other build-time packages
 - Project JavaScript dependencies should persist in a shared `deno.lock`
 - Multiple scripts or commands share the same dependency set
-- `BelgieExtension(base_url=...)` needs `@belgie/mcp` so the manifest `Script` can import `@belgie/mcp/manifest`
+- `belgie()` needs `@belgie/mcp` to serve and build conventional widget entries
 
 For one-off scripts, prefer direct `npm:` / `jsr:` imports in `Script` source or ephemeral `Environment({...})`
 instead.
@@ -65,6 +65,6 @@ uv run belgie run vite build
 | Shared project JS deps + lockfile | `[tool.belgie.dependencies]` + `belgie lock` / `install` |
 | One-off inline script with `npm:` / `jsr:` import | `Runtime()` + `Script("...")` |
 | npm binary (`vite`, etc.) | `belgie run` (CLI) or `Environment` + `install()` + `Command` |
-| MCP widgets | `[tool.belgie.dependencies]` including `@belgie/mcp` + Vite 8; config is optional for direct Scripts |
+| MCP widgets | `[tool.belgie.dependencies]` including `@belgie/mcp` + Vite 8; configure `belgie()` in Vite |
 
 For MCP Apps details, see [mcp.md](mcp.md).

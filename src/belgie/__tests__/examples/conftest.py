@@ -70,7 +70,7 @@ def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     html = "<!doctype html><html><body>mcp</body></html>"
     monkeypatch.setattr(
         _extension,
-        "build_widget_script",
+        "load_development_widget",
         lambda *_args, **_kwargs: html,
     )
     yield from _load_example_main(EXAMPLES_ROOT / "ui" / "mcp", "mcp_app")
@@ -81,7 +81,7 @@ def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     html = "<!doctype html><html><body>shadcn</body></html>"
     monkeypatch.setattr(
         _extension,
-        "build_widget_script",
+        "load_development_widget",
         lambda *_args, **_kwargs: html,
     )
     yield from _load_example_main(EXAMPLES_ROOT / "ui" / "shadcn", "shadcn")

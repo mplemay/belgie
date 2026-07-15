@@ -1,12 +1,13 @@
+from pathlib import Path
+
 import pytest
 from mcp.server.apps import APP_MIME_TYPE, ResourceCsp
 from mcp.server.mcpserver.resources import TextResource
 from mcp_types import Icon, ToolAnnotations
 
-from belgie import Script
 from belgie.__tests__.unit.mcp.conftest import widget_manifest
 from belgie.mcp import BelgieExtension, _extension as extension_module
-from belgie.mcp._builder import WidgetEntry, WidgetManifest
+from belgie.mcp._manifest import WidgetEntry, WidgetManifest
 
 
 def test_tool_registers_matching_tool_and_app_resource() -> None:
@@ -139,41 +140,90 @@ def test_extension_without_manifest_rejects_string_widget() -> None:
         extension.tool(widget="clock")
 
 
-def test_tool_builds_script_widget_once_without_manifest_csp(
+def test_tool_loads_development_path_and_merges_dev_csp(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[tuple[Script, dict[str, object]]] = []
+    widget = tmp_path / "src" / "widgets" / "clock" / "widget.tsx"
+    widget.parent.mkdir(parents=True)
+    widget.write_text("export default function Clock() {}\n", encoding="utf-8")
+    calls: list[tuple[str, Path]] = []
 
-    def build_script(script: Script, **kwargs: object) -> str:
-        calls.append((script, kwargs))
-        return "<!doctype html><html><body>embedded</body></html>"
+    def load_widget(dev_url: str, path: Path) -> str:
+        calls.append((dev_url, path))
+        return "<!doctype html><html><body>development</body></html>"
 
-    monkeypatch.setattr(extension_module, "build_widget_script", build_script)
-    extension = BelgieExtension(project=tmp_path, vite_config=False)
-    script = Script("export default function Demo() { return <main />; }")
+    monkeypatch.setattr(extension_module, "load_development_widget", load_widget)
+    extension = BelgieExtension(project=tmp_path, dev_url="http://127.0.0.1:4173")
+    csp = ResourceCsp(
+        connect_domains=["https://api.example.com"],
+        resource_domains=["https://cdn.example.com"],
+        base_uri_domains=["https://base.example.com"],
+    )
 
-    @extension.tool(widget=script, name="first")
+    @extension.tool(widget=widget, name="first", csp=csp)
     def first() -> str:
         return "first"
 
-    @extension.tool(widget=Script(script.content), name="second")
+    @extension.tool(widget=widget.relative_to(tmp_path), name="second", csp=csp)
     def second() -> str:
         return "second"
 
-    assert len(calls) == 1
-    assert calls[0][0] is script
-    assert calls[0][1] == {
-        "project_path": tmp_path.resolve(),
-        "environment": None,
-        "vite_config": False,
-    }
+    assert calls == [
+        ("http://127.0.0.1:4173", widget.resolve()),
+        ("http://127.0.0.1:4173", widget.resolve()),
+    ]
     resources = extension.resources()
     assert len(resources) == 2
     for registration in resources:
         assert isinstance(registration.resource, TextResource)
-        assert registration.resource.text == "<!doctype html><html><body>embedded</body></html>"
-        assert registration.resource.meta is None
+        assert registration.resource.text == "<!doctype html><html><body>development</body></html>"
+        assert registration.resource.meta == {
+            "ui": {
+                "csp": {
+                    "connectDomains": [
+                        "https://api.example.com",
+                        "http://127.0.0.1:4173",
+                        "ws://127.0.0.1:4173",
+                    ],
+                    "resourceDomains": ["https://cdn.example.com", "http://127.0.0.1:4173"],
+                    "baseUriDomains": ["https://base.example.com", "http://127.0.0.1:4173"],
+                },
+            },
+        }
+
+
+def test_tool_reads_production_path_once_without_adding_csp(tmp_path) -> None:
+    widget = tmp_path / "src" / "widgets" / "clock" / "widget.tsx"
+    widget.parent.mkdir(parents=True)
+    widget.write_text("export default function Clock() {}\n", encoding="utf-8")
+    html_path = tmp_path / "dist" / "widgets" / "clock" / "index.html"
+    html_path.parent.mkdir(parents=True)
+    html_path.write_text("<!doctype html><html><body>production</body></html>", encoding="utf-8")
+    extension = BelgieExtension(project=tmp_path, dev=False)
+
+    @extension.tool(widget=widget, name="first")
+    def first() -> str:
+        return "first"
+
+    html_path.write_text("changed", encoding="utf-8")
+
+    second_extension = BelgieExtension(project=tmp_path, dev=False)
+
+    @second_extension.tool(widget=widget, name="second")
+    def second() -> str:
+        return "second"
+
+    resources = [*extension.resources(), *second_extension.resources()]
+    texts: list[str] = []
+    for registration in resources:
+        assert isinstance(registration.resource, TextResource)
+        texts.append(registration.resource.text)
+    assert texts == [
+        "<!doctype html><html><body>production</body></html>",
+        "<!doctype html><html><body>production</body></html>",
+    ]
+    assert all(registration.resource.meta is None for registration in resources)
 
 
 def test_extension_accepts_prebuilt_manifest() -> None:

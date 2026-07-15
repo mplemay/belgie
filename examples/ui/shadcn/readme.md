@@ -1,7 +1,6 @@
 # Shadcn
 
-Runs an MCP server whose React widget is built with Tailwind CSS and shadcn/ui, then bundled from a Belgie `Script`
-into one self-contained HTML resource.
+Runs an MCP server whose conventional React widget uses Tailwind CSS and shadcn/ui.
 
 Requires `belgie[mcp,cli]` (included in this example's dependencies).
 
@@ -15,20 +14,25 @@ uv run belgie lock
 uv run belgie install
 ```
 
-## Run
+## Development
+
+Run Vite and the Python server in separate terminals:
+
+```bash
+uv run belgie run vite
+```
 
 ```bash
 uv run main
 ```
 
-The server listens on port `3002`. An MCP Apps-capable client can render the `get-time` widget and call its tool.
-No Vite process, `dist` directory, or static asset server is required.
+Vite serves `http://127.0.0.1:5173/widgets/get-time/index.html` with React refresh and HMR. The MCP server listens on
+port `3002` and registers the fetched page as its widget resource.
 
 ## What's happening
 
 The widget uses shadcn/ui components (`Button`, `Card`, `Input`, `Textarea`, `Field`) with Tailwind v4 via
-`@tailwindcss/vite`. Belgie embeds the widget the same way as the [mcp](../mcp) example — pass `Script.from_file(...)`
-to `@belgie.tool(widget=...)`.
+`@tailwindcss/vite`. Python passes the widget's `Path` to `@belgie.tool(widget=...)`.
 
 UI lives under `src/shadcn/views`:
 
@@ -37,10 +41,12 @@ src/shadcn/views/
 ├── global.css
 ├── lib/utils.ts
 ├── components/ui/
-└── widgets/get-time/
+└── widgets/
+    └── get-time/
+        └── widget.tsx
 ```
 
-`vite.config.ts` enables React, Tailwind, the widget `srcDir`, and the `@/` path alias (views root):
+`vite.config.ts` enables React, Tailwind, the widget `srcDir`, and the `@/` path alias:
 
 ```ts
 import path from "node:path"
@@ -68,3 +74,9 @@ export default defineConfig({
 
 Components are installed with the shadcn CLI against the official `@shadcn` registry. JavaScript packages are declared
 in `[tool.belgie.dependencies]` and installed with `belgie install`.
+
+## Production
+
+Run `uv run belgie run vite build`, then start the server with `BelgieExtension(project=PROJECT_ROOT, dev=False)`.
+The production process reads and caches `dist/widgets/get-time/index.html`; the file contains the compiled React,
+Tailwind, font, and component assets inline.
