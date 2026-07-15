@@ -168,7 +168,7 @@ async def test_vite_dev_serves_widget_route_before_python_registration(tmp_path:
         assert "@react-refresh" in html
         assert "/_belgie/widget/hello" in html
 
-        extension = BelgieExtension(project=project, dev_url=dev_url)
+        extension = BelgieExtension(project=project, dev_port=free_port)
 
         @extension.tool(widget=widget, name="hello")
         def hello() -> str:

@@ -156,7 +156,7 @@ def test_tool_loads_development_path_and_merges_dev_csp(
         return "<!doctype html><html><body>development</body></html>"
 
     monkeypatch.setattr(extension_module, "load_development_widget", load_widget)
-    extension = BelgieExtension(project=tmp_path, dev_url="http://127.0.0.1:4173")
+    extension = BelgieExtension(project=tmp_path, dev_port=4173)
     csp = ResourceCsp(
         connect_domains=["https://api.example.com"],
         resource_domains=["https://cdn.example.com"],

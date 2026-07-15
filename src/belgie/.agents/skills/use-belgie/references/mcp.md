@@ -118,8 +118,8 @@ def get_time() -> str:
 ```
 
 Relative widget paths resolve from `project`. The path must exist, remain inside the project, and end in the exact name
-`widget.tsx`. `dev=True` is the default; `dev_url` defaults to `http://127.0.0.1:5173` and can select a different Vite
-origin. Registration fails with a start-Vite message when the page is unavailable.
+`widget.tsx`. `dev=True` is the default; `dev_port` defaults to `5173` and selects the Vite development server on
+`127.0.0.1`. Registration fails with a start-Vite message when the page is unavailable.
 
 The development HTML receives an absolute `<base>` tag. Belgie adds the Vite HTTP and WebSocket origins to the widget
 CSP while preserving caller-provided domains.
@@ -160,7 +160,7 @@ lifetime. It does not need an asset server. Restart the Python process after reb
 | Constructor | Behavior |
 | --- | --- |
 | `BelgieExtension(project=...)` | Fetch `Path` widgets from the default Vite development server |
-| `BelgieExtension(project=..., dev_url=...)` | Fetch `Path` widgets from a custom Vite development origin |
+| `BelgieExtension(project=..., dev_port=...)` | Fetch `Path` widgets from Vite on `127.0.0.1` at a custom port |
 | `BelgieExtension(project=..., dev=False)` | Read and cache conventional production HTML from `dist/widgets` |
 
 For dependency-table details, see [pyproject.md](pyproject.md).

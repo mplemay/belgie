@@ -11,7 +11,8 @@ from belgie.mcp._widgets import load_development_widget, normalize_dev_url, read
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 
-DEFAULT_DEV_URL: Final[str] = "http://127.0.0.1:5173"
+DEFAULT_DEV_HOST: Final[str] = "127.0.0.1"
+DEFAULT_DEV_PORT: Final[int] = 5173
 INVALID_WIDGET_TYPE_ERROR: Final[str] = "widget must be a pathlib.Path pointing to widget.tsx, got {widget_type}"
 
 
@@ -21,12 +22,12 @@ class BelgieExtension(Apps):
         *,
         project: str | Path | None = None,
         dev: bool = True,
-        dev_url: str = DEFAULT_DEV_URL,
+        dev_port: int = DEFAULT_DEV_PORT,
     ) -> None:
         super().__init__()
         self._project_path = Path(project).resolve() if project is not None else None
         self._dev = dev
-        self._dev_url = normalize_dev_url(dev_url)
+        self._dev_url = normalize_dev_url(f"http://{DEFAULT_DEV_HOST}:{dev_port}")
 
     def tool(  # noqa: PLR0913  # ty: ignore[invalid-method-override]
         self,

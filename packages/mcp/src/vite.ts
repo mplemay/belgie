@@ -130,11 +130,16 @@ function ensureReactRefreshPreamble(html: string, base: string, enabled: boolean
 }
 
 async function buildWidget(widget: WidgetCandidate, config: ResolvedConfig): Promise<void> {
+  if (!config.configFile) {
+    throw new Error(
+      "belgie: isolated widget builds require a Vite config file; inline configs are not supported",
+    );
+  }
   const previousWidgetPath = process.env[INTERNAL_WIDGET_PATH_ENV];
   process.env[INTERNAL_WIDGET_PATH_ENV] = widget.filePath;
   try {
     await build({
-      configFile: config.configFile ?? false,
+      configFile: config.configFile,
       configLoader: "native",
       root: config.root,
       mode: config.mode,
@@ -296,6 +301,11 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
     async closeBundle() {
       if (!isBuildCommand || requestedWidgetPath !== undefined || resolvedConfig === undefined || widgetMap.size === 0) {
         return;
+      }
+      if (!resolvedConfig.configFile) {
+        throw new Error(
+          "belgie: isolated widget builds require a Vite config file; inline configs are not supported",
+        );
       }
       rmSync(resolve(projectRoot, "dist", "widgets"), { recursive: true, force: true });
       for (const widget of widgetMap.values()) {
