@@ -1,5 +1,5 @@
 import { globSync, readFileSync } from "node:fs";
-import { basename, dirname, parse, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import { hasDefaultExport } from "./validate-widget.js";
 
@@ -18,20 +18,11 @@ export type WidgetScanResult = {
 };
 
 export function scanWidgetsSync(srcDir: string): WidgetScanResult {
-  const flatPattern = resolve(srcDir, "*.{tsx,jsx}");
-  const dirPattern = resolve(srcDir, "*/index.{tsx,jsx}");
-
-  const flatFiles = globSync(flatPattern).map((file) => ({
-    name: parse(file).name,
-    filePath: file,
-  }));
-
-  const dirFiles = globSync(dirPattern).map((file) => ({
+  const pattern = resolve(srcDir, "*/widget.tsx");
+  const candidates = globSync(pattern).map((file) => ({
     name: basename(dirname(file)),
     filePath: file,
   }));
-
-  const candidates = [...flatFiles, ...dirFiles].filter((widget) => widget.name !== "index");
 
   const valid: WidgetCandidate[] = [];
   const invalid: InvalidWidget[] = [];

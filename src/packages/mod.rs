@@ -185,7 +185,7 @@ fn dependency_imports(
             PackageDependencyKind::ImportMap { specifier } => {
                 imports.insert(dep.alias.clone(), specifier.clone());
                 // Deno import maps need a trailing-slash prefix for subpath imports
-                // (e.g. `@belgie/mcp/manifest` → `npm:@belgie/mcp@0.1.0/manifest`).
+                // (e.g. `@belgie/mcp/vite` → `npm:@belgie/mcp@0.1.0/vite`).
                 imports.insert(
                     format!("{}/", dep.alias),
                     format!("{}/", specifier.trim_end_matches('/')),
@@ -870,9 +870,6 @@ mod tests {
     ".": {
       "import": "./dist/index.js"
     },
-    "./manifest": {
-      "import": "./dist/manifest.js"
-    },
     "./vite": {
       "import": "./dist/vite.js"
     }
@@ -890,10 +887,6 @@ mod tests {
         assert_eq!(
             import_map["imports"]["@belgie/mcp"],
             "./node_modules/@belgie/mcp/dist/index.js"
-        );
-        assert_eq!(
-            import_map["imports"]["@belgie/mcp/manifest"],
-            "./node_modules/@belgie/mcp/dist/manifest.js"
         );
         assert_eq!(
             import_map["imports"]["@belgie/mcp/vite"],

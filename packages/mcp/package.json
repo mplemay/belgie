@@ -19,10 +19,6 @@
       "import": "./dist/index.js",
       "types": "./types/index.d.ts"
     },
-    "./manifest": {
-      "import": "./dist/manifest.js",
-      "types": "./types/manifest.d.ts"
-    },
     "./vite": {
       "import": "./dist/vite.js",
       "types": "./types/vite.d.ts"

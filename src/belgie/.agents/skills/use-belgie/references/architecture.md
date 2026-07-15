@@ -54,19 +54,17 @@ resolver options, local `file:` package aliases, and npm package binaries.
 
 ## MCP Apps extension
 
-`BelgieExtension` renders direct TSX `Script` widgets through Vite 8 inside the Deno sandbox and registers one inline
-HTML resource. The static manifest path remains optional:
+`BelgieExtension` registers conventional TSX widget paths. Vite owns the development page and production bundle; the
+Python extension validates paths and loads HTML:
 
 ```text
-Script(TSX) + optional vite.config.ts
-  └─ Vite build(write=false) → inline HTML
-       └─ @tool(widget=script) → HTML resource
-
-vite.config.ts + belgie() → dist/** → BelgieExtension(base_url=...) → named manifest widget
+src/widgets/<name>/widget.tsx + vite.config.ts
+  ├─ Vite dev → /widgets/<name>/index.html → BelgieExtension(dev=True)
+  └─ Vite build → dist/widgets/<name>/index.html → BelgieExtension(dev=False)
 ```
 
-Direct Script widgets need no asset server. Static manifest widgets are served by the user's HTTP stack. See
-[mcp.md](mcp.md) and [pyproject.md](pyproject.md).
+Production widgets need no asset server because Vite emits self-contained HTML. See [mcp.md](mcp.md) and
+[pyproject.md](pyproject.md).
 
 ## Binding and calling
 
@@ -118,7 +116,7 @@ Use async when integrating with `asyncio`, FastAPI, or other async Python apps.
 | `EnvironmentInstallResult` | Return type of `lock()` / `install()` (`.lockfile`, `.dependencies`) |
 | `EnvironmentUpdateResult` | Return type of `update()` (`.lockfile`, `.changes`) |
 | `Command` | npm package binary resolved from an environment |
-| `BelgieExtension` | MCP Apps extension; discovers pyproject source and builds widgets |
+| `BelgieExtension` | MCP Apps extension; validates widget paths and registers development or production HTML |
 | `JsonInput` / `JsonOutput` | JSON-serializable Python ↔ JS boundary types |
 
 ## Error hierarchy

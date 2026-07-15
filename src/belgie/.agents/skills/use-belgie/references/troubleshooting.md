@@ -26,11 +26,12 @@ Classify the issue before editing:
    - Missing `deno.lock` (run `belgie lock` / `belgie install`).
    - Local `file:` `@belgie/mcp` without a prior `npm run build` in `packages/mcp` (exports point at `dist/` /
      `types/`).
-   - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(base_url=...)` (run
-     `belgie run vite build`).
-   - Wrong or missing `base_url` (must be absolute `http(s)` origin that serves `dist`).
-   - String widget name used without a prebuilt manifest/base URL; pass a `Script` for embedded rendering.
-   - Embedded Vite plugin attempts filesystem writes; embedded builds intentionally deny write permission.
+   - Vite development server not running before a `Path` widget is registered with `dev=True`.
+   - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(dev=False)` (run `belgie run vite
+     build`).
+   - Wrong `dev_port`; Vite must be reachable at `http://127.0.0.1:<dev_port>`.
+   - String widget name passed instead of a `Path`.
+   - Widget path is outside the project, does not exist, or is not named exactly `widget.tsx`.
 
 If belgie is not wired yet, use [quickstart.md](quickstart.md) and [adoption.md](adoption.md) first.
 
@@ -123,12 +124,13 @@ asyncio.run(main())
 | `Commands require an active Environment with package dependencies` | `Command` without env/install | `Environment` + `install()` + `Runtime(env=)` | Inspect command setup |
 | JS error message (e.g. `boom`) | Thrown JavaScript exception | Fix JS logic | Inspect `BelgieJavaScriptError` message |
 | Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
-| `No [tool.belgie.dependencies] entries found` | MCP rendering without declared JS deps | Add `[tool.belgie.dependencies]` to pyproject | Inspect pyproject tables |
-| `Missing Belgie lockfile` | MCP Script before `belgie install` | Run `belgie lock` then `belgie install` | Confirm `deno.lock` exists at project root |
-| `String widget names require...` | Named widget without manifest/base URL | Pass `Script(...)` or configure the static manifest workflow | Inspect `BelgieExtension` constructor |
-| `No widget HTML found under .../dist/widgets` | Manifest load before `vite build` | Run `belgie run vite build` with `belgie()` plugin | Confirm `dist/widgets/*/index.html` |
-| `Unknown widget` | `@tool(widget=...)` name missing from manifest | Fix widget name or rebuild | Inspect `manifest.widgets` keys |
-| `base_url must be an absolute http(s) URL` | Relative or non-http base URL | Pass `http://...` or `https://...` | Inspect `BelgieExtension(base_url=...)` |
+| `Unable to load development widget` + `Start the Vite server` | Vite is not reachable at `http://127.0.0.1:<dev_port>` | Start `belgie run vite` before the MCP server | Open `/widgets/<name>/index.html` |
+| `Unable to load development widget` + `Vite returned HTTP` | Vite responded but the widget route failed (unknown name, invalid widget, or server error) | Confirm `src/widgets/<name>/widget.tsx` exists, has a default export, and is discovered by the belgie plugin | Open `/widgets/<name>/index.html` and check the status |
+| `dev_url must be an absolute http(s) URL` | Internal origin construction failed | Pass a valid `dev_port` | Inspect `BelgieExtension(dev_port=...)` |
+| `widget must be a pathlib.Path` | Legacy string widget name | Pass a `Path` to `widget.tsx` | Inspect `@tool(widget=...)` |
+| `Widget file does not exist` | Path is missing or resolves from the wrong project | Fix `project` or the `Path` | Confirm the source file exists |
+| `Widget path must point to a file named widget.tsx` | Old or unsupported widget entry name | Rename the direct entry to `widget.tsx` | Inspect the source filename |
+| `Built widget HTML does not exist` | Production path registered before `vite build` | Run `belgie run vite build` | Confirm the conventional HTML path |
 
 ## Structured diagnosis flow
 
@@ -143,8 +145,8 @@ asyncio.run(main())
 - Inline script returns the expected value inside `with Runtime() as run:`.
 - Direct `npm:` / `jsr:` script imports run inside `Runtime()`.
 - Commands and dependency-map imports run after `env.install()` inside nested contexts.
-- MCP widgets: after `belgie lock` / `belgie install`, pass `Script` directly for embedded HTML; only static widgets
-  need `belgie run vite build`, `base_url`, and a `dist` asset server.
+- MCP widgets: after `belgie lock` / `belgie install`, start Vite before development registration. For production, run
+  `belgie run vite build` and use `BelgieExtension(dev=False)`.
 - `Command` returns `None` on success.
 - Thrown JS errors surface as `BelgieJavaScriptError`, not silent failures.
 

@@ -8,7 +8,6 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         index: "src/index.tsx",
-        manifest: "src/manifest.ts",
         vite: "src/vite.ts",
       },
       output: {

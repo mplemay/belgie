@@ -145,7 +145,7 @@ asyncio.run(main())
 5. **Environment:** use `Environment({...})` and `install()` for commands, local `file:` packages, dependency aliases,
    or explicit lock/cache/options.
 6. **Pyproject deps:** when `[tool.belgie.dependencies]` is present, run `belgie lock` and `belgie install` before MCP
-   Script rendering, static widget builds, or shared lockfile usage.
+   widget development, production builds, or shared lockfile usage.
 7. **Enter contexts:** nest `Runtime` inside an active `Environment` when `env=` is used.
 8. **Bind and call:** `runner = run(Script(...))` or `run(Command(...))`, then call with JSON-safe args.
 9. **On failure:** match the error text in [references/troubleshooting.md](references/troubleshooting.md).
@@ -176,8 +176,8 @@ Load only the most relevant reference first. Read additional references only if 
 - Import script packages inline with `npm:`, `jsr:`, or URL specifiers; do not put JavaScript dependencies in Python
   `[project.dependencies]`.
 - Use `[tool.belgie.dependencies]` for Belgie-managed JS packages (including `@belgie/mcp` as an npm or `file:` dep).
-- Pass MCP widget Scripts directly to `@tool(widget=...)` for embedded single-file HTML; use `belgie()` plus
-  `belgie run vite build` only for the optional prebuilt/static workflow.
+- Put MCP entries at direct `<name>/widget.tsx` paths, pass a `Path` to `@tool(widget=...)`, and run Vite alongside
+  Python in development. Use `belgie run vite build` with `BelgieExtension(dev=False)` in production.
 - Export a callable from every JS module (`export default function run(...)` or `export default () => ...`).
 - Call `env.install()` before commands, local `file:` package aliases, or explicit dependency-map imports.
 - Use `Runtime.from_folder()` for inline `./` imports or a fixed project cwd; `Script.from_file()` resolves
@@ -198,7 +198,8 @@ Agents commonly make these mistakes with belgie:
 - Passing shell command strings to `Command` instead of separate argv (`argument 0 must be str`).
 - Putting JavaScript dependencies in Python `[project.dependencies]` instead of inline script imports, `Environment`,
   or `[tool.belgie.dependencies]`.
-- Rendering an MCP Script widget before `belgie install`, or using a string widget name without a manifest/base URL.
+- Starting an MCP path widget before Vite in development, skipping the production build, or using a string widget name
+  without a manifest/base URL.
 - Using `@tool(path=...)` instead of `@tool(widget=...)` with a prebuilt manifest / `base_url`.
 - Calling a bound runner after the runtime context exits (`closed`).
 - Passing non-JSON Python objects across the boundary (`Only JSON-serializable`).
