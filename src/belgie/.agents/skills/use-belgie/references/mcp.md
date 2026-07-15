@@ -152,25 +152,8 @@ def get_time() -> str:
     return "now"
 ```
 
-The extension reads `dist/widgets/get-time/index.html` once and caches it by resolved widget path for the process
-lifetime. It does not need an asset server.
-
-## Hosted string widgets
-
-The existing hosted workflow remains supported when `dist` is served from an HTTP origin:
-
-```python
-belgie = BelgieExtension(base_url="https://widgets.example.com", project=".")
-
-
-@belgie.tool(widget="get-time")
-def get_time() -> str:
-    return "now"
-```
-
-In this mode, Python reads the conventional `dist/widgets/*/index.html` files into a manifest, preserves `base_url`
-asset rewriting, and resolves string widget names. `BelgieExtension(manifest=...)` remains available for a preloaded
-manifest.
+The extension reads `dist/widgets/get-time/index.html` once and caches it by resolved HTML path for the process
+lifetime. It does not need an asset server. Restart the Python process after rebuilding to load the new HTML.
 
 ## Constructor behavior
 
@@ -179,7 +162,5 @@ manifest.
 | `BelgieExtension(project=...)` | Fetch `Path` widgets from the default Vite development server |
 | `BelgieExtension(project=..., dev_url=...)` | Fetch `Path` widgets from a custom Vite development origin |
 | `BelgieExtension(project=..., dev=False)` | Read and cache conventional production HTML from `dist/widgets` |
-| `BelgieExtension(base_url=..., project=...)` | Load hosted widget HTML and use string widget names |
-| `BelgieExtension(manifest=...)` | Use a preloaded manifest with string widget names |
 
 For dependency-table details, see [pyproject.md](pyproject.md).

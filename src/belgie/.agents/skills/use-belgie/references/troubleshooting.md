@@ -27,10 +27,10 @@ Classify the issue before editing:
    - Local `file:` `@belgie/mcp` without a prior `npm run build` in `packages/mcp` (exports point at `dist/` /
      `types/`).
    - Vite development server not running before a `Path` widget is registered with `dev=True`.
-   - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(dev=False)` or `base_url=...` (run
-     `belgie run vite build`).
-   - Wrong or missing `base_url` (must be absolute `http(s)` origin that serves `dist`).
-   - String widget name used without a prebuilt manifest/base URL; pass a `Path` for development or production files.
+   - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(dev=False)` (run `belgie run vite
+     build`).
+   - Invalid `dev_url`; it must be an absolute `http(s)` origin for the Vite development server.
+   - String widget name passed instead of a `Path`.
    - Widget path is outside the project, does not exist, or is not named exactly `widget.tsx`.
 
 If belgie is not wired yet, use [quickstart.md](quickstart.md) and [adoption.md](adoption.md) first.
@@ -125,13 +125,11 @@ asyncio.run(main())
 | JS error message (e.g. `boom`) | Thrown JavaScript exception | Fix JS logic | Inspect `BelgieJavaScriptError` message |
 | Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
 | `Unable to load development widget` | Vite is not reachable at `dev_url` | Start `belgie run vite` before the MCP server | Open `/widgets/<name>/index.html` |
+| `dev_url must be an absolute http(s) URL` | Relative or non-http Vite URL | Pass `http://...` or `https://...` | Inspect `BelgieExtension(dev_url=...)` |
+| `widget must be a pathlib.Path` | Legacy string widget name | Pass a `Path` to `widget.tsx` | Inspect `@tool(widget=...)` |
 | `Widget file does not exist` | Path is missing or resolves from the wrong project | Fix `project` or the `Path` | Confirm the source file exists |
 | `Widget path must point to a file named widget.tsx` | Old or unsupported widget entry name | Rename the direct entry to `widget.tsx` | Inspect the source filename |
-| `String widget names require...` | Named widget without manifest/base URL | Pass a `Path` or configure the hosted workflow | Inspect `BelgieExtension` constructor |
-| `No widget HTML found under .../dist/widgets` | Manifest load before `vite build` | Run `belgie run vite build` with `belgie()` plugin | Confirm `dist/widgets/*/index.html` |
 | `Built widget HTML does not exist` | Production path registered before `vite build` | Run `belgie run vite build` | Confirm the conventional HTML path |
-| `Unknown widget` | `@tool(widget=...)` name missing from manifest | Fix widget name or rebuild | Inspect `manifest.widgets` keys |
-| `base_url must be an absolute http(s) URL` | Relative or non-http base URL | Pass `http://...` or `https://...` | Inspect `BelgieExtension(base_url=...)` |
 
 ## Structured diagnosis flow
 

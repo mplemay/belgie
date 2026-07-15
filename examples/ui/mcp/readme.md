@@ -98,7 +98,5 @@ uv run belgie run vite build
 
 Vite writes a self-contained `dist/widgets/get-time/index.html`. Configure the production process with
 `BelgieExtension(project=PROJECT_ROOT, dev=False)`; it reads that file once and caches the HTML in memory. No static
-asset server is needed because imported JavaScript, CSS, fonts, images, and dynamic imports are inlined.
-
-The hosted string workflow remains available for existing deployments: serve `dist`, construct
-`BelgieExtension(base_url=..., project=...)`, and pass a widget name such as `widget="get-time"`.
+asset server is needed because imported JavaScript, CSS, fonts, images, and dynamic imports are inlined. Restart the
+Python process after rebuilding so the extension loads the new HTML.

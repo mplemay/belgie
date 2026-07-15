@@ -14,7 +14,6 @@ from mcp.server.mcpserver.resources import TextResource
 from belgie import Command, Environment, Runtime
 from belgie.errors import BelgieRuntimeError
 from belgie.mcp import BelgieExtension
-from belgie.mcp._manifest import load_widget_manifest
 
 pytestmark = pytest.mark.integration
 
@@ -28,7 +27,6 @@ REACT_VERSION: Final[str] = "^19"
 VITE_REACT_PLUGIN_VERSION: Final[str] = "^6"
 TAILWIND_VERSION: Final[str] = "4.3.0"
 MCP_PACKAGE_PATH: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "mcp"
-BASE_URL: Final[str] = "http://127.0.0.1:3001"
 
 
 def widget_dependencies() -> dict[str, str]:
@@ -232,11 +230,15 @@ def test_vite_build_emits_standalone_html_for_each_widget(tmp_path: Path) -> Non
     assert not (project / "dist" / "assets").exists()
     assert not (project / "dist" / "widgets" / "old").exists()
     assert not (project / "dist" / "widgets" / "child").exists()
-    manifest = load_widget_manifest(base_url=BASE_URL, project_path=project)
-    assert set(manifest.widgets) == {"hello", "second"}
-    assert manifest.widgets["hello"].html == (project / "dist" / "widgets" / "hello" / "index.html").read_text(
-        encoding="utf-8",
-    )
+    extension = BelgieExtension(project=project, dev=False)
+
+    @extension.tool(widget=project / "src" / "widgets" / "hello" / "widget.tsx", name="hello")
+    def hello() -> str:
+        return "ok"
+
+    resource = extension.resources()[0].resource
+    assert isinstance(resource, TextResource)
+    assert resource.text == (project / "dist" / "widgets" / "hello" / "index.html").read_text(encoding="utf-8")
 
 
 @SKIP_WIN32_VITE_NATIVE

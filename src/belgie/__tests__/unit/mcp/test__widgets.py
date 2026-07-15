@@ -10,6 +10,7 @@ from belgie.mcp._widgets import (
     development_widget_url,
     inject_base_url,
     load_development_widget,
+    normalize_dev_url,
     read_built_widget,
     resolve_widget_path,
     widget_name,
@@ -76,6 +77,13 @@ def test_development_widget_url_and_base_tag_use_dev_origin(tmp_path: Path) -> N
         dev_url="http://127.0.0.1:5173",
         source_url="http://127.0.0.1:5173/widgets/get%20time/index.html",
     ) == ('<!doctype html><html><head>\n<base href="http://127.0.0.1:5173/" /></head><body></body></html>')
+
+
+def test_normalize_dev_url_accepts_http_urls_and_rejects_relative_urls() -> None:
+    assert normalize_dev_url("http://127.0.0.1:5173/") == "http://127.0.0.1:5173"
+
+    with pytest.raises(ValueError, match="absolute http"):
+        normalize_dev_url("/assets")
 
 
 def test_inject_base_url_rejects_invalid_html() -> None:
