@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from time import monotonic
 from typing import Final
@@ -140,6 +142,32 @@ async def wait_for_url(url: str) -> str:
     pytest.fail(f"Vite server did not become available at {url}")
 
 
+@asynccontextmanager
+async def run_vite_dev(project: Path, port: int) -> AsyncIterator[None]:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "belgie.cli",
+        "run",
+        "vite",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        cwd=project,
+    )
+    try:
+        yield
+    finally:
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+
+
 @SKIP_WIN32_VITE_NATIVE
 async def test_vite_dev_serves_widget_route_before_python_registration(tmp_path: Path, free_port: int) -> None:
     project = tmp_path / "project"
@@ -150,19 +178,7 @@ async def test_vite_dev_serves_widget_route_before_python_registration(tmp_path:
     dev_url = f"http://127.0.0.1:{free_port}"
     widget_url = f"{dev_url}/widgets/hello/index.html"
 
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "belgie.cli",
-        "run",
-        "vite",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(free_port),
-        cwd=project,
-    )
-    try:
+    async with run_vite_dev(project, free_port):
         html = await wait_for_url(widget_url)
         assert "/@vite/client" in html
         assert "@react-refresh" in html
@@ -186,14 +202,6 @@ async def test_vite_dev_serves_widget_route_before_python_registration(tmp_path:
                 },
             },
         }
-    finally:
-        if process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
     assert not (project / "dist").exists()
 
 
@@ -208,32 +216,12 @@ async def test_vite_dev_returns_404_for_unknown_widget(tmp_path: Path, free_port
     widget_url = f"{dev_url}/widgets/hello/index.html"
     missing_url = f"{dev_url}/widgets/missing/index.html"
 
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "belgie.cli",
-        "run",
-        "vite",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(free_port),
-        cwd=project,
-    )
-    try:
+    async with run_vite_dev(project, free_port):
         await wait_for_url(widget_url)
         with pytest.raises(HTTPError) as error:
-            await asyncio.to_thread(fetch_text, missing_url)
+            await asyncio.to_thread(urlopen, missing_url, timeout=1)  # Test URL is a fixed local HTTP origin.
         assert error.value.code == 404
         assert "Unknown widget: missing" in error.value.read().decode("utf-8")
-    finally:
-        if process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
 
 
 @SKIP_WIN32_VITE_NATIVE

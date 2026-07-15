@@ -113,11 +113,10 @@ def test_load_development_widget_reports_http_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     widget = write_widget(tmp_path)
-    widget_url = "http://127.0.0.1:5173/widgets/clock/index.html"
-    not_found_msg = "Not Found"
 
     def not_found(*_args: object, **_kwargs: object) -> Never:
-        raise HTTPError(widget_url, 404, not_found_msg, EmailMessage(), None)
+        url = "http://127.0.0.1:5173/widgets/clock/index.html"
+        raise HTTPError(url, 404, "Not Found", EmailMessage(), None)
 
     monkeypatch.setattr(widgets_module, "urlopen", not_found)
 
