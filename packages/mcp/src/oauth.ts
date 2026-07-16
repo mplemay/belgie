@@ -137,6 +137,7 @@ export async function startOAuthCallbackServer(state: string): Promise<CallbackS
     if (code === null || code.length === 0) {
       response.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
       response.end("Missing OAuth authorization code");
+      rejectCode?.(new Error("Missing OAuth authorization code"));
       return;
     }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
