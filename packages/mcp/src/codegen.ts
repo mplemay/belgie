@@ -76,7 +76,7 @@ function renderToolTypes(tools: Tool[]): string {
   }
 
   const hasRawTools = tools.some((tool) => tool.outputSchema === undefined);
-  const imports = ["createUseTool", "defineToolRegistry"];
+  const imports = ["createCallTool", "createUseTool", "defineToolRegistry"];
   const typeImports = hasRawTools ? ", type RawToolResult" : "";
   const registryMembers: string[] = [];
   for (const tool of tools) {
@@ -112,6 +112,8 @@ function renderToolTypes(tools: Tool[]): string {
     "export const tools = defineToolRegistry<McpTools>({",
     modes,
     "});",
+    "",
+    "export const callTool = createCallTool(tools);",
     "",
     "export const useTool = createUseTool(tools);",
     "",

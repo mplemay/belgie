@@ -13,11 +13,18 @@ import {
   type AppOptions,
   type McpUiAppCapabilities,
 } from "@modelcontextprotocol/ext-apps";
-import { WidgetContext, useWidget } from "./widget-context";
+import {
+  WidgetContext,
+  activateWidget,
+  deactivateWidget,
+  useWidget,
+} from "./widget-context";
 
 export {
+  createCallTool,
   createUseTool,
   defineToolRegistry,
+  type CallTool,
   type DefinedToolRegistry,
   type RawToolResult,
   type ToolContract,
@@ -80,9 +87,6 @@ function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
   if (hooks.hostContextChanged) {
     app.onhostcontextchanged = hooks.hostContextChanged;
   }
-  if (hooks.teardown) {
-    app.onteardown = hooks.teardown;
-  }
 }
 
 let rootInstance: Root | null = null;
@@ -106,6 +110,7 @@ export function Widget({
 
   useEffect(() => {
     let cancelled = false;
+    let active = false;
     const { metadata: meta, hooks: initHooks } = initRef.current!;
     const { capabilities, autoResize, strict, name, version, title } = meta;
     const options: AppOptions = {};
@@ -122,6 +127,13 @@ export function Widget({
     );
     appRef.current = app;
     applyHooks(app, initHooks);
+    app.onteardown = async (params, extra) => {
+      if (active) {
+        deactivateWidget(app);
+        active = false;
+      }
+      return (await initHooks?.teardown?.(params, extra)) ?? {};
+    };
 
     void (async () => {
       try {
@@ -139,11 +151,20 @@ export function Widget({
         if (cancelled) {
           return;
         }
+        activateWidget(app);
+        active = true;
         await initHooks?.after?.();
         if (!cancelled) {
           setConnected(true);
+        } else {
+          deactivateWidget(app);
+          active = false;
         }
       } catch (err: unknown) {
+        if (active) {
+          deactivateWidget(app);
+          active = false;
+        }
         if (!cancelled) {
           setError(err instanceof Error ? err : new Error(String(err)));
         }
@@ -152,6 +173,10 @@ export function Widget({
 
     return () => {
       cancelled = true;
+      if (active) {
+        deactivateWidget(app);
+        active = false;
+      }
       void app.close();
       if (appRef.current === app) {
         appRef.current = null;

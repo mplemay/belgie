@@ -478,7 +478,9 @@ test("CLI writes and checks generated files with direct and environment headers"
     assert.match(missing.stderr, /stale or missing/u);
     const generated = await runCli(args, { TEST_MCP_TOKEN: "Bearer secret" });
     assert.equal(generated.code, 0, generated.stderr);
-    assert.match(await readFile(output, "utf8"), /export const useTool/u);
+    const generatedSource = await readFile(output, "utf8");
+    assert.match(generatedSource, /export const callTool/u);
+    assert.match(generatedSource, /export const useTool/u);
     assert(observedHeaders.some((headers) => headers["x-direct"] === "direct-value"));
     assert(observedHeaders.some((headers) => headers.authorization === "Bearer secret"));
 

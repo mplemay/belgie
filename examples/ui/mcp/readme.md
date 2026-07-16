@@ -39,26 +39,33 @@ uv run belgie run belgie-mcp generate \
   --output src/mcp_app/views/widgets/tools.ts
 ```
 
-Widgets import the generated `useTool` hook. Tool names, required inputs, argument shapes, and structured outputs are
-then checked by TypeScript while calls continue to use the MCP Apps transport.
+Widgets import the generated `useTool` hook and `callTool` function. Tool names, required inputs, argument shapes, and
+structured outputs are then checked by TypeScript while calls continue to use the MCP Apps transport.
 
-The hook stays idle until `mutate()` or `mutateAsync()` is called, so tool inputs can be supplied from an event:
+Each hook instance calls its tool once after mounting. Renders with new inputs do not call it again; `mutate()`
+explicitly refreshes that instance with its latest rendered input:
 
 ```ts
-const search = useTool("search")
-const recent = useTool("recent")
-const getTime = useTool("get-time")
+const { data, error, isLoading, mutate } = useTool("search", {
+  query: "Belgie",
+})
 
-search.mutate({ query: "Belgie" })
-const result = await recent.mutateAsync({ limit: 10 })
+const refreshed = await mutate()
 ```
 
-The generated input type makes the mutation argument required, optional, or omitted for each tool. The literal tool
-name selects the corresponding generated input and output types while remaining available for runtime MCP dispatch.
-Import the generated hook through the widget alias:
+Use the generated fetch-style caller from helpers or event handlers after `<Widget>` connects. Every call is an
+independent request and does not update hook state:
 
 ```ts
-import { useTool } from "@widgets/tools"
+const recent = await callTool("recent", { limit: 10 })
+```
+
+The generated input type makes the hook and caller input required, optional, or omitted for each tool. The literal
+tool name selects the corresponding generated input and output types while remaining available for runtime MCP
+dispatch. Import both APIs through the widget alias:
+
+```ts
+import { callTool, useTool } from "@widgets/tools"
 ```
 
 Check the committed registry for server drift in CI without writing it:

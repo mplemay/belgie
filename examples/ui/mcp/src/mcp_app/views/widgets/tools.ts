@@ -1,4 +1,4 @@
-import { createUseTool, defineToolRegistry } from "@belgie/mcp";
+import { createCallTool, createUseTool, defineToolRegistry } from "@belgie/mcp";
 
 export type GetTimeInput = Record<string, never>;
 
@@ -17,5 +17,7 @@ export type McpTools = {
 export const tools = defineToolRegistry<McpTools>({
   "get-time": "structured",
 });
+
+export const callTool = createCallTool(tools);
 
 export const useTool = createUseTool(tools);

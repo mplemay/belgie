@@ -1,4 +1,4 @@
-import { createUseTool, defineToolRegistry, type RawToolResult } from "@belgie/mcp";
+import { createCallTool, createUseTool, defineToolRegistry, type RawToolResult } from "@belgie/mcp";
 
 export type ModelToolInput = {
   "choices"?: readonly ("a" | "b")[];
@@ -44,5 +44,7 @@ export const tools = defineToolRegistry<McpTools>({
   "model-tool": "structured",
   "model_tool": "raw",
 });
+
+export const callTool = createCallTool(tools);
 
 export const useTool = createUseTool(tools);

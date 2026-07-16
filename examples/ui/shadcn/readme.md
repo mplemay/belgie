@@ -46,15 +46,18 @@ def get_time() -> list[TextContent]:
     ...
 ```
 
-The MCP SDK describes that result as structured content containing `result: TextContent[]`. The generated hook stays
-idle until the zero-input mutation is triggered and exposes the generated result shape:
+The MCP SDK describes that result as structured content containing `result: TextContent[]`. The generated hook calls
+the zero-input tool once when mounted, exposes the generated result shape, and can explicitly refresh it:
 
 ```ts
-import { useTool } from "@widgets/tools"
+import { callTool, useTool } from "@widgets/tools"
 
-const getTime = useTool("get-time")
-getTime.mutate()
-const text = getTime.data?.result[0]?.text
+const { data, error, isLoading, mutate } = useTool("get-time")
+const text = data?.result[0]?.text
+const refreshed = await mutate()
+
+// Independent fetch-style calls work after <Widget> connects.
+const current = await callTool("get-time")
 ```
 
 ## What's happening

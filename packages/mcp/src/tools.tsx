@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useWidget } from "./widget-context";
+import { getActiveWidget, useWidget } from "./widget-context";
 
 export type RawToolResult = Awaited<ReturnType<ReturnType<typeof useWidget>["callServerTool"]>>;
 
@@ -42,6 +42,11 @@ type ToolArguments<
   ? [input?: ToolInput<Tools, Name>]
   : [input: ToolInput<Tools, Name>];
 
+export type CallTool<Tools extends ToolRegistry> = <Name extends ToolName<Tools>>(
+  name: Name,
+  ...args: ToolArguments<Tools, Name>
+) => Promise<ToolOutput<Tools, Name>>;
+
 export type UseToolResult<
   Tools extends ToolRegistry,
   Name extends ToolName<Tools>,
@@ -50,18 +55,15 @@ export type UseToolResult<
   error: Error | null;
   status: UseToolStatus;
   isIdle: boolean;
-  isPending: boolean;
+  isLoading: boolean;
   isSuccess: boolean;
   isError: boolean;
-  mutate: (...args: ToolArguments<Tools, Name>) => void;
-  mutateAsync: (
-    ...args: ToolArguments<Tools, Name>
-  ) => Promise<ToolOutput<Tools, Name>>;
-  reset: () => void;
+  mutate: () => Promise<ToolOutput<Tools, Name>>;
 };
 
 export type UseTool<Tools extends ToolRegistry> = <Name extends ToolName<Tools>>(
   name: Name,
+  ...args: ToolArguments<Tools, Name>
 ) => UseToolResult<Tools, Name>;
 
 export function defineToolRegistry<Tools extends ToolRegistry>(
@@ -80,29 +82,73 @@ function toolError(result: RawToolResult): Error {
   return new Error(message || "The MCP tool returned an error");
 }
 
+async function executeTool<
+  Tools extends ToolRegistry,
+  Name extends ToolName<Tools>,
+>(
+  app: ReturnType<typeof useWidget>,
+  registry: DefinedToolRegistry<Tools>,
+  name: Name,
+  input: ToolInput<Tools, Name> | undefined,
+): Promise<ToolOutput<Tools, Name>> {
+  const response = await app.callServerTool({
+    name,
+    ...(input === undefined
+      ? {}
+      : { arguments: input as Record<string, unknown> }),
+  });
+  if (response.isError) {
+    throw toolError(response);
+  }
+
+  if (registry[name] === "raw") {
+    return response as ToolOutput<Tools, Name>;
+  }
+  if (
+    !("structuredContent" in response) ||
+    response.structuredContent === undefined
+  ) {
+    throw new Error(
+      `MCP tool ${JSON.stringify(name)} declared an output schema but returned no structuredContent`,
+    );
+  }
+  return response.structuredContent as ToolOutput<Tools, Name>;
+}
+
+export function createCallTool<Tools extends ToolRegistry>(
+  registry: DefinedToolRegistry<Tools>,
+): CallTool<Tools> {
+  return async function callTool<Name extends ToolName<Tools>>(
+    name: Name,
+    ...args: [input?: ToolInput<Tools, Name>]
+  ): Promise<ToolOutput<Tools, Name>> {
+    return executeTool(getActiveWidget(), registry, name, args[0]);
+  };
+}
+
 export function createUseTool<Tools extends ToolRegistry>(
   registry: DefinedToolRegistry<Tools>,
 ): UseTool<Tools> {
   return function useTool<Name extends ToolName<Tools>>(
     name: Name,
+    ...args: [input?: ToolInput<Tools, Name>]
   ): UseToolResult<Tools, Name> {
     const app = useWidget();
+    const request = useRef<{
+      name: Name;
+      input: ToolInput<Tools, Name> | undefined;
+    }>({ name, input: args[0] });
+    request.current = { name, input: args[0] };
     const [data, setData] = useState<ToolOutput<Tools, Name>>();
     const [error, setError] = useState<Error | null>(null);
     const [status, setStatus] = useState<UseToolStatus>("idle");
-    const mounted = useRef(true);
+    const mounted = useRef(false);
+    const started = useRef(false);
     const latestCall = useRef(0);
 
-    useEffect(() => {
-      mounted.current = true;
-      return () => {
-        mounted.current = false;
-      };
-    }, []);
-
-    const mutateAsync = useCallback(
-      async (...args: [input?: ToolInput<Tools, Name>]) => {
-        const input = args[0];
+    const mutate = useCallback(
+      async () => {
+        const { name: requestName, input } = request.current;
         const callId = ++latestCall.current;
         if (mounted.current) {
           setData(undefined);
@@ -111,30 +157,12 @@ export function createUseTool<Tools extends ToolRegistry>(
         }
 
         try {
-          const response = await app.callServerTool({
-            name,
-            ...(input === undefined
-              ? {}
-              : { arguments: input as Record<string, unknown> }),
-          });
-          if (response.isError) {
-            throw toolError(response);
-          }
-
-          const value = (() => {
-            if (registry[name] === "raw") {
-              return response;
-            }
-            if (
-              !("structuredContent" in response) ||
-              response.structuredContent === undefined
-            ) {
-              throw new Error(
-                `MCP tool ${JSON.stringify(name)} declared an output schema but returned no structuredContent`,
-              );
-            }
-            return response.structuredContent;
-          })() as ToolOutput<Tools, Name>;
+          const value = await executeTool(
+            app,
+            registry,
+            requestName,
+            input,
+          );
 
           if (mounted.current && latestCall.current === callId) {
             setData(value);
@@ -150,36 +178,29 @@ export function createUseTool<Tools extends ToolRegistry>(
           throw nextError;
         }
       },
-      [app, name, registry],
+      [app, registry],
     );
 
-    const mutate = useCallback(
-      (...args: [input?: ToolInput<Tools, Name>]) => {
-        void mutateAsync(...args).catch(() => undefined);
-      },
-      [mutateAsync],
-    );
-
-    const reset = useCallback(() => {
-      latestCall.current += 1;
-      if (mounted.current) {
-        setData(undefined);
-        setError(null);
-        setStatus("idle");
+    useEffect(() => {
+      mounted.current = true;
+      if (!started.current) {
+        started.current = true;
+        void mutate().catch(() => undefined);
       }
-    }, []);
+      return () => {
+        mounted.current = false;
+      };
+    }, [mutate]);
 
     return {
       data,
       error,
       status,
       isIdle: status === "idle",
-      isPending: status === "pending",
+      isLoading: status === "pending",
       isSuccess: status === "success",
       isError: status === "error",
       mutate,
-      mutateAsync,
-      reset,
     };
   };
 }

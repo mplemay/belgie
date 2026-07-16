@@ -10,7 +10,7 @@ function AppView() {
     mutate: getTime,
     data: timeData,
     error: timeError,
-    isPending: timePending,
+    isLoading: timeLoading,
   } = useTool("get-time");
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
@@ -27,10 +27,10 @@ function AppView() {
         </p>
         {timeError && <p className="notice">{timeError.message}</p>}
         <button
-          disabled={timePending}
-          onClick={() => getTime()}
+          disabled={timeLoading}
+          onClick={() => void getTime()}
         >
-          {timePending ? "Getting Server Time..." : "Get Server Time"}
+          {timeLoading ? "Getting Server Time..." : "Refresh Server Time"}
         </button>
       </div>
 
