@@ -33,23 +33,36 @@ export type ToolOutput<
   Name extends ToolName<Tools>,
 > = Tools[Name]["output"];
 
-export type UseToolState<
+export type UseToolStatus = "idle" | "pending" | "success" | "error";
+
+type ToolArguments<
+  Tools extends ToolRegistry,
+  Name extends ToolName<Tools>,
+> = {} extends ToolInput<Tools, Name>
+  ? [input?: ToolInput<Tools, Name>]
+  : [input: ToolInput<Tools, Name>];
+
+export type UseToolResult<
   Tools extends ToolRegistry,
   Name extends ToolName<Tools>,
 > = {
-  call: () => Promise<ToolOutput<Tools, Name>>;
-  result: ToolOutput<Tools, Name> | null;
+  data: ToolOutput<Tools, Name> | undefined;
   error: Error | null;
-  loading: boolean;
+  status: UseToolStatus;
+  isIdle: boolean;
+  isPending: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+  mutate: (...args: ToolArguments<Tools, Name>) => void;
+  mutateAsync: (
+    ...args: ToolArguments<Tools, Name>
+  ) => Promise<ToolOutput<Tools, Name>>;
   reset: () => void;
 };
 
 export type UseTool<Tools extends ToolRegistry> = <Name extends ToolName<Tools>>(
   name: Name,
-  ...args: {} extends ToolInput<Tools, Name>
-    ? [input?: ToolInput<Tools, Name>]
-    : [input: ToolInput<Tools, Name>]
-) => UseToolState<Tools, Name>;
+) => UseToolResult<Tools, Name>;
 
 export function defineToolRegistry<Tools extends ToolRegistry>(
   modes: { [Name in keyof Tools]: ToolResultMode },
@@ -72,13 +85,11 @@ export function createUseTool<Tools extends ToolRegistry>(
 ): UseTool<Tools> {
   return function useTool<Name extends ToolName<Tools>>(
     name: Name,
-    ...args: [input?: ToolInput<Tools, Name>]
-  ): UseToolState<Tools, Name> {
+  ): UseToolResult<Tools, Name> {
     const app = useWidget();
-    const input = args[0];
-    const [result, setResult] = useState<ToolOutput<Tools, Name> | null>(null);
+    const [data, setData] = useState<ToolOutput<Tools, Name>>();
     const [error, setError] = useState<Error | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [status, setStatus] = useState<UseToolStatus>("idle");
     const mounted = useRef(true);
     const latestCall = useRef(0);
 
@@ -89,13 +100,14 @@ export function createUseTool<Tools extends ToolRegistry>(
       };
     }, []);
 
-    const call = useCallback(
-      async () => {
+    const mutateAsync = useCallback(
+      async (...args: [input?: ToolInput<Tools, Name>]) => {
+        const input = args[0];
         const callId = ++latestCall.current;
         if (mounted.current) {
-          setResult(null);
+          setData(undefined);
           setError(null);
-          setLoading(true);
+          setStatus("pending");
         }
 
         try {
@@ -125,36 +137,48 @@ export function createUseTool<Tools extends ToolRegistry>(
           })() as ToolOutput<Tools, Name>;
 
           if (mounted.current && latestCall.current === callId) {
-            setResult(value);
-            setLoading(false);
+            setData(value);
+            setStatus("success");
           }
           return value;
         } catch (cause: unknown) {
           const nextError = cause instanceof Error ? cause : new Error(String(cause));
           if (mounted.current && latestCall.current === callId) {
             setError(nextError);
-            setLoading(false);
+            setStatus("error");
           }
           throw nextError;
         }
       },
-      [app, input, name, registry],
+      [app, name, registry],
+    );
+
+    const mutate = useCallback(
+      (...args: [input?: ToolInput<Tools, Name>]) => {
+        void mutateAsync(...args).catch(() => undefined);
+      },
+      [mutateAsync],
     );
 
     const reset = useCallback(() => {
       latestCall.current += 1;
       if (mounted.current) {
-        setResult(null);
+        setData(undefined);
         setError(null);
-        setLoading(false);
+        setStatus("idle");
       }
     }, []);
 
     return {
-      call,
-      result,
+      data,
       error,
-      loading,
+      status,
+      isIdle: status === "idle",
+      isPending: status === "pending",
+      isSuccess: status === "success",
+      isError: status === "error",
+      mutate,
+      mutateAsync,
       reset,
     };
   };

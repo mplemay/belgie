@@ -27,7 +27,8 @@ export {
   type ToolRegistry,
   type ToolResultMode,
   type UseTool,
-  type UseToolState,
+  type UseToolResult,
+  type UseToolStatus,
 } from "./tools";
 
 export { useWidget };

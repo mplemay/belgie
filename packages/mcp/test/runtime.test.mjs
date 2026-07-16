@@ -25,7 +25,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-async function renderHook(name, callServerTool, input) {
+async function renderHook(name, callServerTool) {
   const originalConnect = App.prototype.connect;
   const originalClose = App.prototype.close;
   const originalCall = App.prototype.callServerTool;
@@ -34,32 +34,25 @@ async function renderHook(name, callServerTool, input) {
   App.prototype.callServerTool = callServerTool;
 
   let state;
-  let currentInput = input;
   function Probe() {
-    state = useTool(name, currentInput);
+    state = useTool(name);
     return null;
   }
 
-  function element() {
-    return createElement(
-      Widget,
-      { metadata: { name: "Runtime test", version: "1.0.0" } },
-      createElement(Probe),
-    );
-  }
+  const element = createElement(
+    Widget,
+    { metadata: { name: "Runtime test", version: "1.0.0" } },
+    createElement(Probe),
+  );
 
   let renderer;
   await act(async () => {
-    renderer = create(element());
+    renderer = create(element);
   });
   assert(state);
   return {
     get state() {
       return state;
-    },
-    async setInput(nextInput) {
-      currentInput = nextInput;
-      await act(async () => renderer.update(element()));
     },
     async close() {
       await act(async () => renderer.unmount());
@@ -70,44 +63,61 @@ async function renderHook(name, callServerTool, input) {
   };
 }
 
-test("uses bound inputs, selects structured and raw tool results, and resets state", async () => {
-  const structured = await renderHook("structured", async ({ arguments: input }) => ({
-    content: [],
-    structuredContent: { value: input.value },
-  }), { value: 7 });
-  try {
-    let returned;
-    await act(async () => {
-      returned = await structured.state.call();
-    });
-    assert.deepEqual(returned, { value: 7 });
-    assert.deepEqual(structured.state.result, { value: 7 });
-    assert.equal(structured.state.error, null);
-    assert.equal(structured.state.loading, false);
-    await act(async () => structured.state.reset());
-    assert.equal(structured.state.result, null);
-  } finally {
-    await structured.close();
-  }
-
-  const response = { content: [{ type: "text", text: "raw" }] };
-  const raw = await renderHook("raw", async (request) => {
-    assert.equal("arguments" in request, false);
-    return response;
+test("stays idle until manually triggered and exposes mutation state", async () => {
+  let calls = 0;
+  const hook = await renderHook("structured", async ({ arguments: input }) => {
+    calls += 1;
+    return { content: [], structuredContent: { value: input.value } };
   });
   try {
+    assert.equal(calls, 0);
+    assert.equal(hook.state.status, "idle");
+    assert.equal(hook.state.isIdle, true);
+    assert.equal(hook.state.isPending, false);
+    assert.equal(hook.state.data, undefined);
+    assert.equal(hook.state.error, null);
+
     let returned;
     await act(async () => {
-      returned = await raw.state.call();
+      returned = await hook.state.mutateAsync({ value: 7 });
     });
-    assert.equal(returned, response);
-    assert.equal(raw.state.result, response);
+    assert.equal(calls, 1);
+    assert.deepEqual(returned, { value: 7 });
+    assert.deepEqual(hook.state.data, { value: 7 });
+    assert.equal(hook.state.status, "success");
+    assert.equal(hook.state.isSuccess, true);
+
+    await act(async () => hook.state.reset());
+    assert.equal(hook.state.status, "idle");
+    assert.equal(hook.state.data, undefined);
   } finally {
-    await raw.close();
+    await hook.close();
   }
 });
 
-test("turns MCP failures and missing structured content into hook errors", async (t) => {
+test("supports event-style mutate calls and raw tool results", async () => {
+  const response = deferred();
+  const rawResult = { content: [{ type: "text", text: "raw" }] };
+  const hook = await renderHook("raw", async (request) => {
+    assert.equal("arguments" in request, false);
+    return response.promise;
+  });
+  try {
+    await act(async () => hook.state.mutate());
+    assert.equal(hook.state.status, "pending");
+    assert.equal(hook.state.isPending, true);
+    response.resolve(rawResult);
+    await act(async () => {
+      await response.promise;
+    });
+    assert.equal(hook.state.data, rawResult);
+    assert.equal(hook.state.isSuccess, true);
+  } finally {
+    await hook.close();
+  }
+});
+
+test("turns MCP failures and missing structured content into mutation errors", async (t) => {
   await t.test("MCP error content", async () => {
     const hook = await renderHook("structured", async () => ({
       content: [
@@ -118,64 +128,92 @@ test("turns MCP failures and missing structured content into hook errors", async
     }));
     try {
       await act(async () => {
-        await assert.rejects(hook.state.call(), /first\nsecond/u);
+        await assert.rejects(hook.state.mutateAsync({}), /first\nsecond/u);
       });
       assert.match(hook.state.error.message, /first\nsecond/u);
-      assert.equal(hook.state.loading, false);
+      assert.equal(hook.state.status, "error");
+      assert.equal(hook.state.isError, true);
     } finally {
       await hook.close();
     }
   });
 
   await t.test("missing structured content", async () => {
-    const hook = await renderHook("structured", async () => ({ content: [] }), {});
+    const hook = await renderHook("structured", async () => ({ content: [] }));
     try {
       await act(async () => {
-        await assert.rejects(hook.state.call(), /returned no structuredContent/u);
+        await assert.rejects(
+          hook.state.mutateAsync({}),
+          /returned no structuredContent/u,
+        );
       });
       assert.match(hook.state.error.message, /returned no structuredContent/u);
+      assert.equal(hook.state.isError, true);
     } finally {
       await hook.close();
     }
   });
 });
 
-test("only the newest concurrent call updates hook state", async () => {
+test("only the newest concurrent mutation updates hook state", async () => {
   const first = deferred();
   const second = deferred();
   let calls = 0;
-  const hook = await renderHook(
-    "structured",
-    ({ arguments: input }) => {
-      calls += 1;
-      assert.equal(input.call, calls);
-      return calls === 1 ? first.promise : second.promise;
-    },
-    { call: 1 },
-  );
+  const hook = await renderHook("structured", ({ arguments: input }) => {
+    calls += 1;
+    assert.equal(input.call, calls);
+    return calls === 1 ? first.promise : second.promise;
+  });
   try {
     let firstPromise;
     let secondPromise;
     await act(async () => {
-      firstPromise = hook.state.call();
+      firstPromise = hook.state.mutateAsync({ call: 1 });
+      secondPromise = hook.state.mutateAsync({ call: 2 });
     });
-    await hook.setInput({ call: 2 });
-    await act(async () => {
-      secondPromise = hook.state.call();
-    });
-    assert.equal(hook.state.loading, true);
+    assert.equal(hook.state.isPending, true);
     second.resolve({ content: [], structuredContent: { call: 2 } });
     await act(async () => {
       assert.deepEqual(await secondPromise, { call: 2 });
     });
-    assert.deepEqual(hook.state.result, { call: 2 });
+    assert.deepEqual(hook.state.data, { call: 2 });
     first.resolve({ content: [], structuredContent: { call: 1 } });
     await act(async () => {
       assert.deepEqual(await firstPromise, { call: 1 });
     });
-    assert.deepEqual(hook.state.result, { call: 2 });
-    assert.equal(hook.state.loading, false);
+    assert.deepEqual(hook.state.data, { call: 2 });
+    assert.equal(hook.state.isSuccess, true);
   } finally {
     await hook.close();
   }
+});
+
+test("ignores in-flight results after reset and unmount", async () => {
+  const resetResponse = deferred();
+  const resetHook = await renderHook("structured", () => resetResponse.promise);
+  let resetPromise;
+  try {
+    await act(async () => {
+      resetPromise = resetHook.state.mutateAsync({});
+    });
+    await act(async () => resetHook.state.reset());
+    resetResponse.resolve({ content: [], structuredContent: { value: "late" } });
+    await act(async () => {
+      await resetPromise;
+    });
+    assert.equal(resetHook.state.status, "idle");
+    assert.equal(resetHook.state.data, undefined);
+  } finally {
+    await resetHook.close();
+  }
+
+  const unmountResponse = deferred();
+  const unmountHook = await renderHook("structured", () => unmountResponse.promise);
+  let unmountPromise;
+  await act(async () => {
+    unmountPromise = unmountHook.state.mutateAsync({});
+  });
+  await unmountHook.close();
+  unmountResponse.resolve({ content: [], structuredContent: { value: "late" } });
+  await unmountPromise;
 });

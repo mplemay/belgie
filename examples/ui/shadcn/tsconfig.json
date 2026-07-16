@@ -4,6 +4,9 @@
     "paths": {
       "@/*": [
         "./src/shadcn/views/*"
+      ],
+      "@widgets/*": [
+        "./src/shadcn/views/widgets/*"
       ]
     }
   },

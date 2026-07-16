@@ -10,11 +10,13 @@ const viewsDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "src/shadcn/views",
 );
+const widgetsDir = path.resolve(viewsDir, "widgets");
 
 export default defineConfig({
   plugins: [belgie({ srcDir: "src/shadcn/views/widgets" }), react(), tailwindcss()],
   resolve: {
     alias: {
+      "@widgets": widgetsDir,
       "@": viewsDir,
     },
   },

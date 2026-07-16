@@ -12,23 +12,23 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useTool } from "@/generated/mcp-tools";
+import { useTool } from "@widgets/tools";
 
 import "../../global.css";
 
 function AppView() {
   const app = useWidget();
   const {
-    call: getTime,
-    result: timeResult,
+    mutate: getTime,
+    data: timeData,
     error: timeError,
-    loading: timeLoading,
+    isPending: timePending,
   } = useTool("get-time");
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
 
-  const serverTime = timeResult?.result.find((content) => content.type === "text")?.text;
+  const serverTime = timeData?.result.find((content) => content.type === "text")?.text;
 
   return (
     <main className="flex flex-col gap-4 p-4">
@@ -45,10 +45,10 @@ function AppView() {
           </p>
           {timeError && <p className="text-sm text-destructive">{timeError.message}</p>}
           <Button
-            disabled={timeLoading}
-            onClick={() => void getTime()}
+            disabled={timePending}
+            onClick={() => getTime()}
           >
-            {timeLoading ? "Getting Server Time..." : "Get Server Time"}
+            {timePending ? "Getting Server Time..." : "Get Server Time"}
           </Button>
         </CardContent>
       </Card>

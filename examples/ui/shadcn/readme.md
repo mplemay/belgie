@@ -36,7 +36,7 @@ With the MCP server running, regenerate the committed TypeScript registry:
 ```bash
 uv run belgie run belgie-mcp generate \
   http://127.0.0.1:3002/mcp \
-  --output src/shadcn/views/generated/mcp-tools.ts
+  --output src/shadcn/views/widgets/tools.ts
 ```
 
 The Python tool keeps its content-returning signature:
@@ -46,13 +46,15 @@ def get_time() -> list[TextContent]:
     ...
 ```
 
-The MCP SDK describes that result as structured content containing `result: TextContent[]`. The generated hook keeps
-the zero-input call typed and exposes the generated result shape:
+The MCP SDK describes that result as structured content containing `result: TextContent[]`. The generated hook stays
+idle until the zero-input mutation is triggered and exposes the generated result shape:
 
 ```ts
+import { useTool } from "@widgets/tools"
+
 const getTime = useTool("get-time")
-await getTime.call()
-const text = getTime.result?.result[0]?.text
+getTime.mutate()
+const text = getTime.data?.result[0]?.text
 ```
 
 ## What's happening
@@ -64,16 +66,16 @@ UI lives under `src/shadcn/views`:
 
 ```text
 src/shadcn/views/
-├── generated/mcp-tools.ts
 ├── global.css
 ├── lib/utils.ts
 ├── components/ui/
 └── widgets/
+    ├── tools.ts
     └── get-time/
         └── widget.tsx
 ```
 
-`vite.config.ts` enables React, Tailwind, the widget `srcDir`, and the `@/` path alias:
+`vite.config.ts` enables React, Tailwind, the widget `srcDir`, and the `@/` and `@widgets/` path aliases:
 
 ```ts
 import path from "node:path"
@@ -88,11 +90,13 @@ const viewsDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "src/shadcn/views",
 )
+const widgetsDir = path.resolve(viewsDir, "widgets")
 
 export default defineConfig({
   plugins: [belgie({ srcDir: "src/shadcn/views/widgets" }), react(), tailwindcss()],
   resolve: {
     alias: {
+      "@widgets": widgetsDir,
       "@": viewsDir,
     },
   },

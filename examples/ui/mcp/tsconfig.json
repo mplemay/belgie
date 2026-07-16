@@ -4,6 +4,9 @@
     "paths": {
       "@/*": [
         "./src/mcp_app/views/*"
+      ],
+      "@widgets/*": [
+        "./src/mcp_app/views/widgets/*"
       ]
     }
   },

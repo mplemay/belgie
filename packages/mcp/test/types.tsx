@@ -29,28 +29,29 @@ const useTool = createUseTool(tools);
 export function TypeFixture() {
   const empty = useTool("empty");
   const optional = useTool("optional");
-  const limited = useTool("optional", { limit: 1 });
-  const required = useTool("required", { id: "example" });
+  const required = useTool("required");
 
-  void empty.call();
-  void optional.call();
-  void limited.call();
-  void required.call();
+  empty.mutate();
+  optional.mutate();
+  optional.mutate({ limit: 1 });
+  required.mutate({ id: "example" });
+  void required.mutateAsync({ id: "example" });
 
-  // @ts-expect-error required tool input cannot be omitted
-  useTool("required");
+  // @ts-expect-error inputs are supplied when the mutation is triggered
+  useTool("required", { id: "example" });
+  // @ts-expect-error required tool input cannot be omitted when triggering
+  required.mutate();
   // @ts-expect-error required input property has the wrong type
-  useTool("required", { id: 1 });
+  required.mutate({ id: 1 });
   // @ts-expect-error undeclared input properties are rejected
-  useTool("required", { id: "example", extra: true });
+  required.mutate({ id: "example", extra: true });
   // @ts-expect-error empty tool inputs reject undeclared properties
-  useTool("empty", { extra: true });
-  // @ts-expect-error inputs are bound when the hook is created
-  void required.call({ id: "example" });
+  empty.mutate({ extra: true });
   // @ts-expect-error unknown tool names are rejected
   useTool("missing");
 
-  const structured: number | undefined = required.result?.value;
-  const raw: RawToolResult | null = optional.result;
-  return <>{structured ?? raw?.content.length}</>;
+  const structured: number | undefined = required.data?.value;
+  const raw: RawToolResult | undefined = optional.data;
+  const pending: boolean = required.isPending;
+  return <>{structured ?? raw?.content.length ?? String(pending)}</>;
 }

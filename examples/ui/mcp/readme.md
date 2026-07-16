@@ -36,32 +36,37 @@ With the MCP server running, explicitly generate and commit the tool registry:
 ```bash
 uv run belgie run belgie-mcp generate \
   http://127.0.0.1:3001/mcp \
-  --output src/mcp_app/views/generated/mcp-tools.ts
+  --output src/mcp_app/views/widgets/tools.ts
 ```
 
 Widgets import the generated `useTool` hook. Tool names, required inputs, argument shapes, and structured outputs are
 then checked by TypeScript while calls continue to use the MCP Apps transport.
 
-Inputs are bound when the hook is created, and `call()` performs the request later:
+The hook stays idle until `mutate()` or `mutateAsync()` is called, so tool inputs can be supplied from an event:
 
 ```ts
-const search = useTool("search", { query: "Belgie" })
-const recent = useTool("recent", { limit: 10 })
-const allRecent = useTool("recent")
+const search = useTool("search")
+const recent = useTool("recent")
 const getTime = useTool("get-time")
 
-await search.call()
+search.mutate({ query: "Belgie" })
+const result = await recent.mutateAsync({ limit: 10 })
 ```
 
-The generated input type makes the second argument required, optional, or omitted for each tool. The literal tool name
-selects the corresponding generated input and output types while remaining available for runtime MCP dispatch.
+The generated input type makes the mutation argument required, optional, or omitted for each tool. The literal tool
+name selects the corresponding generated input and output types while remaining available for runtime MCP dispatch.
+Import the generated hook through the widget alias:
+
+```ts
+import { useTool } from "@widgets/tools"
+```
 
 Check the committed registry for server drift in CI without writing it:
 
 ```bash
 uv run belgie run belgie-mcp generate \
   http://127.0.0.1:3001/mcp \
-  --output src/mcp_app/views/generated/mcp-tools.ts \
+  --output src/mcp_app/views/widgets/tools.ts \
   --check \
   --no-open
 ```
@@ -76,16 +81,15 @@ UI lives under `src/mcp_app/views`:
 
 ```text
 src/mcp_app/views/
-├── generated/
-│   └── mcp-tools.ts
 ├── global.css
 └── widgets/
+    ├── tools.ts
     └── get-time/
         └── widget.tsx
 ```
 
 `belgie()` discovers only direct `<name>/widget.tsx` children of its `srcDir`. `vite.config.ts` enables React and the
-`@/` alias used for shared assets:
+`@/` alias used for shared assets plus the `@widgets/` alias used for generated tool contracts:
 
 ```ts
 import path from "node:path"
@@ -99,11 +103,13 @@ const viewsDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "src/mcp_app/views",
 )
+const widgetsDir = path.resolve(viewsDir, "widgets")
 
 export default defineConfig({
   plugins: [belgie({ srcDir: "src/mcp_app/views/widgets" }), react()],
   resolve: {
     alias: {
+      "@widgets": widgetsDir,
       "@": viewsDir,
     },
   },

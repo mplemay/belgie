@@ -2,15 +2,15 @@ import { Widget, useWidget } from "@belgie/mcp";
 import { useState } from "react";
 
 import "@/global.css";
-import { useTool } from "../../generated/mcp-tools";
+import { useTool } from "@widgets/tools";
 
 function AppView() {
   const app = useWidget();
   const {
-    call: getTime,
-    result: timeResult,
+    mutate: getTime,
+    data: timeData,
     error: timeError,
-    loading: timeLoading,
+    isPending: timePending,
   } = useTool("get-time");
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
@@ -23,14 +23,14 @@ function AppView() {
       <div className="action">
         <h3>Server Time</h3>
         <p>
-          <span className="server-time">{timeResult?.time ?? "No time fetched yet."}</span>
+          <span className="server-time">{timeData?.time ?? "No time fetched yet."}</span>
         </p>
         {timeError && <p className="notice">{timeError.message}</p>}
         <button
-          disabled={timeLoading}
-          onClick={() => void getTime()}
+          disabled={timePending}
+          onClick={() => getTime()}
         >
-          {timeLoading ? "Getting Server Time..." : "Get Server Time"}
+          {timePending ? "Getting Server Time..." : "Get Server Time"}
         </button>
       </div>
 
