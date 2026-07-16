@@ -14,6 +14,7 @@
     "target": "ES2023"
   },
   "include": [
+    "fixtures/*.ts",
     "types.tsx"
   ]
 }

@@ -1,5 +1,4 @@
 import { Widget, useWidget } from "@belgie/mcp";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -13,22 +12,23 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useTool } from "@/generated/mcp-tools";
 
 import "../../global.css";
 
 function AppView() {
   const app = useWidget();
-  const [toolResult, setToolResult] = useState<CallToolResult | null>(null);
+  const {
+    call: getTime,
+    result: timeResult,
+    error: timeError,
+    loading: timeLoading,
+  } = useTool("get-time");
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
 
-  const serverTime = (() => {
-    const text = toolResult?.content?.find((content): content is { type: "text"; text: string } => {
-      return content.type === "text";
-    });
-    return text?.text ?? null;
-  })();
+  const serverTime = timeResult?.result.find((content) => content.type === "text")?.text;
 
   return (
     <main className="flex flex-col gap-4 p-4">
@@ -43,13 +43,12 @@ function AppView() {
           <p className="font-mono text-sm text-muted-foreground">
             {serverTime ?? "No time fetched yet."}
           </p>
+          {timeError && <p className="text-sm text-destructive">{timeError.message}</p>}
           <Button
-            onClick={async () => {
-              const result = await app.callServerTool({ name: "get-time" });
-              setToolResult(result);
-            }}
+            disabled={timeLoading}
+            onClick={() => void getTime()}
           >
-            Get Server Time
+            {timeLoading ? "Getting Server Time..." : "Get Server Time"}
           </Button>
         </CardContent>
       </Card>

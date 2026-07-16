@@ -129,6 +129,12 @@ function parenthesize(type: string): string {
   return hasTopLevelOperator(type, " | ") ? `(${type})` : type;
 }
 
+function arrayElement(type: string): string {
+  return hasTopLevelOperator(type, " | ") || hasTopLevelOperator(type, " & ")
+    ? `(${type})`
+    : type;
+}
+
 function hasTopLevelOperator(type: string, operator: string): boolean {
   let depth = 0;
   let quote: string | undefined;
@@ -408,7 +414,7 @@ class SchemaCompiler {
           rest === undefined || rest === true
             ? "unknown"
             : this.compile(schemaObject(rest, `${location}.items`), `${location}.items`);
-        elements.push(`...${parenthesize(restType)}[]`);
+        elements.push(`...${arrayElement(restType)}[]`);
       }
       return `readonly [${elements.join(", ")}]`;
     }
@@ -427,7 +433,7 @@ class SchemaCompiler {
                 schemaObject(additional, `${location}.additionalItems`),
                 `${location}.additionalItems`,
               );
-        elements.push(`...${parenthesize(restType)}[]`);
+        elements.push(`...${arrayElement(restType)}[]`);
       }
       return `readonly [${elements.join(", ")}]`;
     }
@@ -442,7 +448,7 @@ class SchemaCompiler {
     if (items === false) {
       return "readonly never[]";
     }
-    return `readonly ${parenthesize(
+    return `readonly ${arrayElement(
       this.compile(schemaObject(items, `${location}.items`), `${location}.items`),
     )}[]`;
   }

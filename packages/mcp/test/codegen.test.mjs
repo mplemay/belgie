@@ -75,6 +75,91 @@ const SCHEMA_TOOLS = [
   },
 ];
 
+const TEXT_CONTENT_TOOL = {
+  name: "get-time",
+  description: "Get the current server time in ISO 8601 format.",
+  inputSchema: {
+    properties: {},
+    title: "get_timeArguments",
+    type: "object",
+  },
+  outputSchema: {
+    $defs: {
+      Annotations: {
+        description: "Optional annotations the client can use to inform how objects are used or displayed.",
+        properties: {
+          audience: {
+            anyOf: [
+              {
+                items: { enum: ["user", "assistant"], type: "string" },
+                type: "array",
+              },
+              { type: "null" },
+            ],
+            default: null,
+            title: "Audience",
+          },
+          priority: {
+            anyOf: [
+              { maximum: 1, minimum: 0, type: "number" },
+              { type: "null" },
+            ],
+            default: null,
+            title: "Priority",
+          },
+          lastModified: {
+            anyOf: [{ type: "string" }, { type: "null" }],
+            default: null,
+            title: "Lastmodified",
+          },
+        },
+        title: "Annotations",
+        type: "object",
+      },
+      TextContent: {
+        description: "Text provided to or from an LLM.",
+        properties: {
+          type: {
+            const: "text",
+            default: "text",
+            title: "Type",
+            type: "string",
+          },
+          text: { title: "Text", type: "string" },
+          annotations: {
+            anyOf: [
+              { $ref: "#/$defs/Annotations" },
+              { type: "null" },
+            ],
+            default: null,
+          },
+          _meta: {
+            anyOf: [
+              { additionalProperties: true, type: "object" },
+              { type: "null" },
+            ],
+            default: null,
+            title: "Meta",
+          },
+        },
+        required: ["text"],
+        title: "TextContent",
+        type: "object",
+      },
+    },
+    properties: {
+      result: {
+        items: { $ref: "#/$defs/TextContent" },
+        title: "Result",
+        type: "array",
+      },
+    },
+    required: ["result"],
+    title: "get_timeOutput",
+    type: "object",
+  },
+};
+
 async function startMcpServer(listTools, onRequest = () => {}) {
   const app = createMcpExpressApp({ host: "127.0.0.1" });
   app.post("/mcp", async (request, response) => {
@@ -272,6 +357,20 @@ test("generates deterministic types from every tools/list page", async () => {
     assert.equal(pages, 4);
     const golden = await readFile(new URL("./fixtures/codegen.golden.ts", import.meta.url), "utf8");
     assert.equal(first, golden);
+  } finally {
+    await server.close();
+  }
+});
+
+test("generates structured types for list[TextContent] tool results", async () => {
+  const server = await startMcpServer(async () => ({ tools: [TEXT_CONTENT_TOOL] }));
+  try {
+    const generated = await generateToolTypes({ url: server.url, oauth: false });
+    const golden = await readFile(
+      new URL("./fixtures/text-content.golden.ts", import.meta.url),
+      "utf8",
+    );
+    assert.equal(generated, golden);
   } finally {
     await server.close();
   }

@@ -29,6 +29,32 @@ uv run main
 Vite serves `http://127.0.0.1:5173/widgets/get-time/index.html` with React refresh and HMR. The MCP server listens on
 port `3002` and registers the fetched page as its widget resource.
 
+## Generate typed tools
+
+With the MCP server running, regenerate the committed TypeScript registry:
+
+```bash
+uv run belgie run belgie-mcp generate \
+  http://127.0.0.1:3002/mcp \
+  --output src/shadcn/views/generated/mcp-tools.ts
+```
+
+The Python tool keeps its content-returning signature:
+
+```python
+def get_time() -> list[TextContent]:
+    ...
+```
+
+The MCP SDK describes that result as structured content containing `result: TextContent[]`. The generated hook keeps
+the zero-input call typed and exposes the generated result shape:
+
+```ts
+const getTime = useTool("get-time")
+await getTime.call()
+const text = getTime.result?.result[0]?.text
+```
+
 ## What's happening
 
 The widget uses shadcn/ui components (`Button`, `Card`, `Input`, `Textarea`, `Field`) with Tailwind v4 via
@@ -38,6 +64,7 @@ UI lives under `src/shadcn/views`:
 
 ```text
 src/shadcn/views/
+├── generated/mcp-tools.ts
 ├── global.css
 ├── lib/utils.ts
 ├── components/ui/

@@ -37,11 +37,7 @@ export type UseToolState<
   Tools extends ToolRegistry,
   Name extends ToolName<Tools>,
 > = {
-  call: (
-    ...args: {} extends ToolInput<Tools, Name>
-      ? [input?: ToolInput<Tools, Name>]
-      : [input: ToolInput<Tools, Name>]
-  ) => Promise<ToolOutput<Tools, Name>>;
+  call: () => Promise<ToolOutput<Tools, Name>>;
   result: ToolOutput<Tools, Name> | null;
   error: Error | null;
   loading: boolean;
@@ -50,6 +46,9 @@ export type UseToolState<
 
 export type UseTool<Tools extends ToolRegistry> = <Name extends ToolName<Tools>>(
   name: Name,
+  ...args: {} extends ToolInput<Tools, Name>
+    ? [input?: ToolInput<Tools, Name>]
+    : [input: ToolInput<Tools, Name>]
 ) => UseToolState<Tools, Name>;
 
 export function defineToolRegistry<Tools extends ToolRegistry>(
@@ -73,8 +72,10 @@ export function createUseTool<Tools extends ToolRegistry>(
 ): UseTool<Tools> {
   return function useTool<Name extends ToolName<Tools>>(
     name: Name,
+    ...args: [input?: ToolInput<Tools, Name>]
   ): UseToolState<Tools, Name> {
     const app = useWidget();
+    const input = args[0];
     const [result, setResult] = useState<ToolOutput<Tools, Name> | null>(null);
     const [error, setError] = useState<Error | null>(null);
     const [loading, setLoading] = useState(false);
@@ -89,7 +90,7 @@ export function createUseTool<Tools extends ToolRegistry>(
     }, []);
 
     const call = useCallback(
-      async (...args: [input?: ToolInput<Tools, Name>]) => {
+      async () => {
         const callId = ++latestCall.current;
         if (mounted.current) {
           setResult(null);
@@ -98,7 +99,6 @@ export function createUseTool<Tools extends ToolRegistry>(
         }
 
         try {
-          const input = args[0];
           const response = await app.callServerTool({
             name,
             ...(input === undefined
@@ -138,7 +138,7 @@ export function createUseTool<Tools extends ToolRegistry>(
           throw nextError;
         }
       },
-      [app, name, registry],
+      [app, input, name, registry],
     );
 
     const reset = useCallback(() => {
@@ -151,7 +151,7 @@ export function createUseTool<Tools extends ToolRegistry>(
     }, []);
 
     return {
-      call: call as UseToolState<Tools, Name>["call"],
+      call,
       result,
       error,
       loading,

@@ -42,6 +42,20 @@ uv run belgie run belgie-mcp generate \
 Widgets import the generated `useTool` hook. Tool names, required inputs, argument shapes, and structured outputs are
 then checked by TypeScript while calls continue to use the MCP Apps transport.
 
+Inputs are bound when the hook is created, and `call()` performs the request later:
+
+```ts
+const search = useTool("search", { query: "Belgie" })
+const recent = useTool("recent", { limit: 10 })
+const allRecent = useTool("recent")
+const getTime = useTool("get-time")
+
+await search.call()
+```
+
+The generated input type makes the second argument required, optional, or omitted for each tool. The literal tool name
+selects the corresponding generated input and output types while remaining available for runtime MCP dispatch.
+
 Check the committed registry for server drift in CI without writing it:
 
 ```bash
