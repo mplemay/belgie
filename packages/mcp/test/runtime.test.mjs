@@ -266,6 +266,53 @@ test("ignores an in-flight mutation after unmount", async () => {
   assert.deepEqual(await promise, { value: "late" });
 });
 
+test("callTool accepts an explicit app without an active Widget", async () => {
+  await assert.rejects(
+    callTool("structured", { source: "before" }),
+    /active connected <Widget>/u,
+  );
+
+  const app = {
+    async callServerTool({ arguments: input }) {
+      return { content: [], structuredContent: { source: input.source } };
+    },
+  };
+
+  assert.deepEqual(await callTool("structured", { source: "explicit" }, { app }), {
+    source: "explicit",
+  });
+
+  await assert.rejects(
+    callTool("structured", { source: "after" }),
+    /active connected <Widget>/u,
+  );
+});
+
+test("useTool accepts an explicit app without Widget context", async () => {
+  const app = {
+    async callServerTool({ arguments: input }) {
+      return { content: [], structuredContent: { source: input.source } };
+    },
+  };
+
+  let state;
+  function Probe() {
+    state = useTool("structured", { source: "explicit" }, { app });
+    return null;
+  }
+
+  let renderer;
+  await act(async () => {
+    renderer = create(createElement(Probe));
+  });
+  try {
+    assert.deepEqual(state.data, { source: "explicit" });
+    assert.equal(state.status, "success");
+  } finally {
+    await act(async () => renderer.unmount());
+  }
+});
+
 test("callTool uses the active Widget independently without deduplication", async () => {
   await assert.rejects(
     callTool("structured", { source: "before" }),

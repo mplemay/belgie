@@ -60,6 +60,13 @@ independent request and does not update hook state:
 const recent = await callTool("recent", { limit: 10 })
 ```
 
+Outside a connected `<Widget>`, pass the MCP `App` explicitly as a trailing options argument:
+
+```ts
+await callTool("recent", { limit: 10 }, { app })
+useTool("get-time", undefined, { app })
+```
+
 The generated input type makes the hook and caller input required, optional, or omitted for each tool. The literal
 tool name selects the corresponding generated input and output types while remaining available for runtime MCP
 dispatch. Import both APIs through the widget alias:

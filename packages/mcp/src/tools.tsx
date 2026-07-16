@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getActiveWidget, useWidget } from "./widget-context";
+import type { App } from "@modelcontextprotocol/ext-apps";
 
-export type RawToolResult = Awaited<ReturnType<ReturnType<typeof useWidget>["callServerTool"]>>;
+import { getActiveWidget, useWidgetContext } from "./widget-context";
+
+export type RawToolResult = Awaited<ReturnType<App["callServerTool"]>>;
 
 export type ToolContract = {
   input: object;
@@ -12,6 +14,10 @@ export type ToolContract = {
 export type ToolRegistry = Record<string, ToolContract>;
 
 export type ToolResultMode = "raw" | "structured";
+
+export type ToolCallOptions = {
+  app?: App;
+};
 
 declare const TOOL_TYPES: unique symbol;
 
@@ -39,8 +45,8 @@ type ToolArguments<
   Tools extends ToolRegistry,
   Name extends ToolName<Tools>,
 > = {} extends ToolInput<Tools, Name>
-  ? [input?: ToolInput<Tools, Name>]
-  : [input: ToolInput<Tools, Name>];
+  ? [input?: ToolInput<Tools, Name>, options?: ToolCallOptions]
+  : [input: ToolInput<Tools, Name>, options?: ToolCallOptions];
 
 export type CallTool<Tools extends ToolRegistry> = <Name extends ToolName<Tools>>(
   name: Name,
@@ -86,7 +92,7 @@ async function executeTool<
   Tools extends ToolRegistry,
   Name extends ToolName<Tools>,
 >(
-  app: ReturnType<typeof useWidget>,
+  app: App,
   registry: DefinedToolRegistry<Tools>,
   name: Name,
   input: ToolInput<Tools, Name> | undefined,
@@ -120,9 +126,12 @@ export function createCallTool<Tools extends ToolRegistry>(
 ): CallTool<Tools> {
   return async function callTool<Name extends ToolName<Tools>>(
     name: Name,
-    ...args: [input?: ToolInput<Tools, Name>]
+    ...args: ToolArguments<Tools, Name>
   ): Promise<ToolOutput<Tools, Name>> {
-    return executeTool(getActiveWidget(), registry, name, args[0]);
+    const input = args[0] as ToolInput<Tools, Name> | undefined;
+    const options = args[1] as ToolCallOptions | undefined;
+    const app = options?.app ?? getActiveWidget();
+    return executeTool(app, registry, name, input);
   };
 }
 
@@ -131,14 +140,20 @@ export function createUseTool<Tools extends ToolRegistry>(
 ): UseTool<Tools> {
   return function useTool<Name extends ToolName<Tools>>(
     name: Name,
-    ...args: [input?: ToolInput<Tools, Name>]
+    ...args: ToolArguments<Tools, Name>
   ): UseToolResult<Tools, Name> {
-    const app = useWidget();
+    const input = args[0] as ToolInput<Tools, Name> | undefined;
+    const options = args[1] as ToolCallOptions | undefined;
+    const contextApp = useWidgetContext();
+    const app = options?.app ?? contextApp;
+    if (app == null) {
+      throw new Error("useTool must be used within a connected <Widget>");
+    }
     const request = useRef<{
       name: Name;
       input: ToolInput<Tools, Name> | undefined;
-    }>({ name, input: args[0] });
-    request.current = { name, input: args[0] };
+    }>({ name, input });
+    request.current = { name, input };
     const [data, setData] = useState<ToolOutput<Tools, Name>>();
     const [error, setError] = useState<Error | null>(null);
     const [status, setStatus] = useState<UseToolStatus>("idle");
@@ -148,7 +163,7 @@ export function createUseTool<Tools extends ToolRegistry>(
 
     const mutate = useCallback(
       async () => {
-        const { name: requestName, input } = request.current;
+        const { name: requestName, input: requestInput } = request.current;
         const callId = ++latestCall.current;
         if (mounted.current) {
           setData(undefined);
@@ -161,7 +176,7 @@ export function createUseTool<Tools extends ToolRegistry>(
             app,
             registry,
             requestName,
-            input,
+            requestInput,
           );
 
           if (mounted.current && latestCall.current === callId) {

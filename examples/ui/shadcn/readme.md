@@ -58,6 +58,10 @@ const refreshed = await mutate()
 
 // Independent fetch-style calls work after <Widget> connects.
 const current = await callTool("get-time")
+
+// Outside a connected <Widget>, pass the MCP App explicitly.
+await callTool("get-time", undefined, { app })
+useTool("get-time", undefined, { app })
 ```
 
 ## What's happening

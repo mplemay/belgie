@@ -26,8 +26,12 @@ export function getActiveWidget(): App {
   return activeWidget;
 }
 
+export function useWidgetContext(): App | null {
+  return useContext(WidgetContext);
+}
+
 export function useWidget(): App {
-  const app = useContext(WidgetContext);
+  const app = useWidgetContext();
   if (app == null) {
     throw new Error("useWidget must be used within a connected <Widget>");
   }

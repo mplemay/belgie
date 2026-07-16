@@ -27,6 +27,7 @@ export {
   type CallTool,
   type DefinedToolRegistry,
   type RawToolResult,
+  type ToolCallOptions,
   type ToolContract,
   type ToolInput,
   type ToolName,
