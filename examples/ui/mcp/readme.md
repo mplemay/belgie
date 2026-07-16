@@ -29,12 +29,41 @@ uv run main
 Vite serves the widget at `http://127.0.0.1:5173/widgets/get-time/index.html` with React refresh and HMR. The MCP
 server listens on port `3001`; `BelgieExtension` fetches the Vite page when the tool is registered.
 
+## Generate typed tools
+
+With the MCP server running, explicitly generate and commit the tool registry:
+
+```bash
+uv run belgie run belgie-mcp generate \
+  http://127.0.0.1:3001/mcp \
+  --output src/mcp_app/views/generated/mcp-tools.ts
+```
+
+Widgets import the generated `useTool` hook. Tool names, required inputs, argument shapes, and structured outputs are
+then checked by TypeScript while calls continue to use the MCP Apps transport.
+
+Check the committed registry for server drift in CI without writing it:
+
+```bash
+uv run belgie run belgie-mcp generate \
+  http://127.0.0.1:3001/mcp \
+  --output src/mcp_app/views/generated/mcp-tools.ts \
+  --check \
+  --no-open
+```
+
+Use repeatable `--header NAME:VALUE` options for non-sensitive headers or `--header-env NAME=ENV_VAR` for secrets.
+Add `--no-oauth` when the endpoint must not attempt automatic OAuth. Generation is never run by Vite or widget
+startup; the generated TypeScript file is the only artifact the widget needs offline.
+
 ## Project convention
 
 UI lives under `src/mcp_app/views`:
 
 ```text
 src/mcp_app/views/
+├── generated/
+│   └── mcp-tools.ts
 ├── global.css
 └── widgets/
     └── get-time/
@@ -81,7 +110,7 @@ belgie = BelgieExtension(project=PROJECT_ROOT)
 
 
 @belgie.tool(widget=WIDGET, name="get-time")
-def get_time() -> list[TextContent]:
+def get_time() -> TimeResult:
     ...
 ```
 

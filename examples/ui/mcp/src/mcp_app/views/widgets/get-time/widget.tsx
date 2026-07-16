@@ -1,22 +1,20 @@
 import { Widget, useWidget } from "@belgie/mcp";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { useState } from "react";
 
 import "@/global.css";
+import { useTool } from "../../generated/mcp-tools";
 
 function AppView() {
   const app = useWidget();
-  const [toolResult, setToolResult] = useState<CallToolResult | null>(null);
+  const {
+    call: getTime,
+    result: timeResult,
+    error: timeError,
+    loading: timeLoading,
+  } = useTool("get-time");
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
-
-  const serverTime = (() => {
-    const text = toolResult?.content?.find((content): content is { type: "text"; text: string } => {
-      return content.type === "text";
-    });
-    return text?.text ?? null;
-  })();
 
   return (
     <main className="main">
@@ -25,15 +23,14 @@ function AppView() {
       <div className="action">
         <h3>Server Time</h3>
         <p>
-          <span className="server-time">{serverTime ?? "No time fetched yet."}</span>
+          <span className="server-time">{timeResult?.time ?? "No time fetched yet."}</span>
         </p>
+        {timeError && <p className="notice">{timeError.message}</p>}
         <button
-          onClick={async () => {
-            const result = await app.callServerTool({ name: "get-time" });
-            setToolResult(result);
-          }}
+          disabled={timeLoading}
+          onClick={() => void getTime()}
         >
-          Get Server Time
+          {timeLoading ? "Getting Server Time..." : "Get Server Time"}
         </button>
       </div>
 

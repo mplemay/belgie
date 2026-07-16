@@ -1,10 +1,9 @@
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final
+from typing import Final, TypedDict
 
 import uvicorn
 from mcp.server import MCPServer
-from mcp_types import TextContent
 
 from belgie.mcp import BelgieExtension
 
@@ -14,15 +13,18 @@ WIDGET: Final[Path] = PROJECT_ROOT / "src" / "mcp_app" / "views" / "widgets" / "
 belgie = BelgieExtension(project=PROJECT_ROOT)
 
 
+class TimeResult(TypedDict):
+    time: str
+
+
 @belgie.tool(
     widget=WIDGET,
     name="get-time",
     title="Get Time",
     description="Get the current server time in ISO 8601 format.",
 )
-def get_time() -> list[TextContent]:
-    time_str = datetime.now(tz=UTC).isoformat()
-    return [TextContent(type="text", text=time_str)]
+def get_time() -> TimeResult:
+    return {"time": datetime.now(tz=UTC).isoformat()}
 
 
 mcp = MCPServer(name="Get Time Server", extensions=[belgie])

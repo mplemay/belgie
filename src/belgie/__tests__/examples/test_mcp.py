@@ -14,5 +14,4 @@ def test_mcp_app_defines_get_time_widget(mcp_module) -> None:
     assert tools[0].meta == {"ui": {"resourceUri": "ui://get-time"}}
     assert resources[0].resource.uri == "ui://get-time"
     assert resources[0].resource.text == "<!doctype html><html><body>mcp</body></html>"
-    assert result[0].type == "text"
-    assert result[0].text
+    assert result["time"]

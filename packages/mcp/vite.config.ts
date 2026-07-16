@@ -7,6 +7,8 @@ export default defineConfig({
     outDir: "dist",
     rolldownOptions: {
       input: {
+        cli: "src/cli.ts",
+        codegen: "src/codegen.ts",
         index: "src/index.tsx",
         vite: "src/vite.ts",
       },

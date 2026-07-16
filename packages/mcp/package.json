@@ -1,5 +1,10 @@
 {
+  "bin": {
+    "belgie-mcp": "./dist/cli.js"
+  },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "open": "^11.0.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
@@ -8,6 +13,7 @@
     "@types/node": "25.9.1",
     "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",
+    "react-test-renderer": "19.2.6",
     "typescript": "~6.0.3",
     "vite": "8.1.3"
   },
@@ -18,6 +24,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./types/index.d.ts"
+    },
+    "./codegen": {
+      "import": "./dist/codegen.js",
+      "types": "./types/codegen.d.ts"
     },
     "./vite": {
       "import": "./dist/vite.js",
@@ -41,8 +51,9 @@
     "url": "https://github.com/mplemay/belgie"
   },
   "scripts": {
-    "build": "vite build && node ./node_modules/typescript/bin/tsc",
-    "clean": "rm -rf dist types"
+    "build": "npm run clean && vite build && node ./node_modules/typescript/bin/tsc",
+    "clean": "rm -rf dist types",
+    "test": "npm run build && node --test test/*.test.mjs && node ./node_modules/typescript/bin/tsc --noEmit -p test/tsconfig.json"
   },
   "type": "module",
   "types": "types/index.d.ts",
