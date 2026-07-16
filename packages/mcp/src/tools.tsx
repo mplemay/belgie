@@ -48,6 +48,17 @@ type ToolArguments<
   ? [input?: ToolInput<Tools, Name>, options?: ToolCallOptions]
   : [input: ToolInput<Tools, Name>, options?: ToolCallOptions];
 
+function resolveToolArguments<
+  Tools extends ToolRegistry,
+  Name extends ToolName<Tools>,
+>(args: ToolArguments<Tools, Name>): {
+  input: ToolInput<Tools, Name> | undefined;
+  options: ToolCallOptions | undefined;
+} {
+  const [input, options] = args;
+  return { input, options };
+}
+
 export type CallTool<Tools extends ToolRegistry> = <Name extends ToolName<Tools>>(
   name: Name,
   ...args: ToolArguments<Tools, Name>
@@ -128,8 +139,7 @@ export function createCallTool<Tools extends ToolRegistry>(
     name: Name,
     ...args: ToolArguments<Tools, Name>
   ): Promise<ToolOutput<Tools, Name>> {
-    const input = args[0] as ToolInput<Tools, Name> | undefined;
-    const options = args[1] as ToolCallOptions | undefined;
+    const { input, options } = resolveToolArguments(args);
     const app = options?.app ?? getActiveWidget();
     return executeTool(app, registry, name, input);
   };
@@ -142,8 +152,7 @@ export function createUseTool<Tools extends ToolRegistry>(
     name: Name,
     ...args: ToolArguments<Tools, Name>
   ): UseToolResult<Tools, Name> {
-    const input = args[0] as ToolInput<Tools, Name> | undefined;
-    const options = args[1] as ToolCallOptions | undefined;
+    const { input, options } = resolveToolArguments(args);
     const contextApp = useWidgetContext();
     const app = options?.app ?? contextApp;
     if (app == null) {
