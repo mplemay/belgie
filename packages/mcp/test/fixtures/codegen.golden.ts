@@ -3,6 +3,10 @@ import { createCallTool, createUseTool, defineToolRegistry, type RawToolResult }
 export type ModelToolInput = {
   "choices"?: readonly ("a" | "b")[];
   "labels"?: Record<string, string>;
+  "metrics"?: {
+    "name": string;
+    [key: string]: string | number;
+  };
   "node": ModelToolInputNode;
   "pair": readonly [string, number];
   "value"?: "auto" | number | null;

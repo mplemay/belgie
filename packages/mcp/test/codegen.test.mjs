@@ -35,6 +35,12 @@ const SCHEMA_TOOLS = [
       properties: {
         choices: { type: "array", items: { enum: ["a", "b"] } },
         labels: { type: "object", additionalProperties: { type: "string" } },
+        metrics: {
+          type: "object",
+          properties: { name: { type: "string" } },
+          required: ["name"],
+          additionalProperties: { type: "number" },
+        },
         node: { $ref: "#/$defs/Node" },
         pair: {
           type: "array",

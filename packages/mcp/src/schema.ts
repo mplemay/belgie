@@ -370,6 +370,8 @@ class SchemaCompiler {
       }
     }
 
+    const propertyTypes: string[] = [];
+    let hasOptional = false;
     const members = Object.keys(properties)
       .sort()
       .map((name) => {
@@ -377,11 +379,13 @@ class SchemaCompiler {
         if (typeof property !== "boolean" && !isObject(property)) {
           throw new Error(`${location}.properties.${name} must be a JSON Schema`);
         }
-        const optional = required.has(name) ? "" : "?";
-        return `  ${JSON.stringify(name)}${optional}: ${indentType(
-          this.compile(property, `${location}.properties.${name}`),
-          2,
-        )};`;
+        const optional = !required.has(name);
+        if (optional) {
+          hasOptional = true;
+        }
+        const propertyType = this.compile(property, `${location}.properties.${name}`);
+        propertyTypes.push(propertyType);
+        return `  ${JSON.stringify(name)}${optional ? "?" : ""}: ${indentType(propertyType, 2)};`;
       });
     const objectType =
       members.length === 0 ? "Record<string, never>" : `{\n${members.join("\n")}\n}`;
@@ -397,8 +401,16 @@ class SchemaCompiler {
             schemaObject(additional, `${location}.additionalProperties`),
             `${location}.additionalProperties`,
           );
-    const dictionary = `Record<string, ${valueType}>`;
-    return members.length === 0 ? dictionary : `${objectType} & ${dictionary}`;
+    if (members.length === 0) {
+      return `Record<string, ${valueType}>`;
+    }
+    // Index signature must accept every named field type (and undefined if any are optional).
+    const indexTypes = [...propertyTypes, valueType];
+    if (hasOptional) {
+      indexTypes.push("undefined");
+    }
+    const indexType = union(indexTypes);
+    return `{\n${members.join("\n")}\n  [key: string]: ${indentType(indexType, 2)};\n}`;
   }
 
   array(schema: JsonObject, location: string): string {
