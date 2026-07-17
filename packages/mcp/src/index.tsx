@@ -20,12 +20,13 @@ import {
   useWidget,
 } from "./widget-context";
 
-export type {
+export {
   McpToolError,
-  RawToolResult,
-  ToolCallError,
-  ToolCallResult,
-} from "./internal";
+  type McpToolErrorResult,
+  type RawToolResult,
+  type ToolCallError,
+  type ToolCallResult,
+} from "./tool-error";
 
 export { useWidget };
 

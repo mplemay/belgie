@@ -1,6 +1,11 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
 
-import type { ToolCallError, ToolCallResult } from "@belgie/mcp";
+import {
+  McpToolError,
+  type RawToolResult,
+  type ToolCallError,
+  type ToolCallResult,
+} from "@belgie/mcp";
 import { createGeneratedTool } from "@belgie/mcp/internal";
 
 type EmptyOutput = { value: string };
@@ -41,11 +46,27 @@ const requiredCall: Promise<ToolCallResult<RequiredOutput>> = required({
   id: "example",
 });
 
+function narrowToolError(error: ToolCallError): void {
+  const standardError: Error = error;
+  if (error instanceof McpToolError) {
+    const toolName: string = error.toolName;
+    const result: RawToolResult = error.result;
+    const isError: true = error.result.isError;
+    const cause: unknown = error.cause;
+    void toolName;
+    void result;
+    void isError;
+    void cause;
+  }
+  void standardError;
+}
+
 async function narrowResult(): Promise<number> {
   const response = await required({ id: "example" });
   if (response.error !== undefined) {
     const error: ToolCallError = response.error;
     const result: undefined = response.result;
+    narrowToolError(error);
     void error;
     void result;
     return 0;

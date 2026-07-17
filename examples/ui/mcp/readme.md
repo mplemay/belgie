@@ -64,16 +64,25 @@ Every generated call resolves to exactly one of two branches and does not reject
 ```ts
 const response = await getTime()
 if (response.error) {
-  // Error, ZodError, or the original MCP isError result
-  console.error(response.error)
+  console.error(response.error.message)
 } else {
   console.log(response.result.time)
 }
 ```
 
 Successful `result` values are the Zod-validated `structuredContent`. Missing or invalid structured output, transport
-failures, context failures, and MCP errors are returned through `error`. Call `app.callServerTool` directly when the
-complete successful MCP response or unvalidated output is required.
+failures, context failures, and MCP errors are returned as `Error` instances. MCP `isError` responses become
+`McpToolError`; its `result` property retains the complete raw response when content or metadata is needed:
+
+```ts
+import { McpToolError } from "@belgie/mcp"
+
+if (response.error instanceof McpToolError) {
+  console.log(response.error.result._meta)
+}
+```
+
+Call `app.callServerTool` directly when the complete successful MCP response or unvalidated output is required.
 
 Check the committed tool module for server drift in CI without writing it:
 

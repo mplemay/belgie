@@ -61,8 +61,9 @@ const explicit = await getTime(undefined, app)
 ```
 
 Each call resolves to `{ result, error: undefined }` or `{ result: undefined, error }` and never rejects. Successful
-results are Zod-validated `structuredContent`; MCP `isError` responses are preserved, and context, transport, and
-validation failures are returned as errors. Use `app.callServerTool` directly when the full MCP response is needed.
+results are Zod-validated `structuredContent`; context, transport, and validation failures are returned as `Error`
+instances. MCP `isError` responses become display-ready `McpToolError` instances whose `result` property preserves the
+raw response. Use `app.callServerTool` directly when the full successful MCP response is needed.
 
 ## What's happening
 

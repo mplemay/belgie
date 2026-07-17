@@ -16,18 +16,6 @@ import { getTime, type GetTimeOutput } from "@widgets/tools";
 
 import "../../global.css";
 
-function toolErrorMessage(error: ToolCallError): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return (
-    error.content
-      .map((content) => (content.type === "text" ? content.text : ""))
-      .filter(Boolean)
-      .join("\n") || "The MCP tool returned an error"
-  );
-}
-
 function AppView() {
   const app = useWidget();
   const [timeData, setTimeData] = useState<GetTimeOutput>();
@@ -61,7 +49,7 @@ function AppView() {
             {serverTime ?? "No time fetched yet."}
           </p>
           {timeError && (
-            <p className="text-sm text-destructive">{toolErrorMessage(timeError)}</p>
+            <p className="text-sm text-destructive">{timeError.message}</p>
           )}
           <Button
             disabled={timeLoading}

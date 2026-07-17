@@ -4,18 +4,6 @@ import { useState } from "react";
 import "@/global.css";
 import { getTime, type GetTimeOutput } from "@widgets/tools";
 
-function toolErrorMessage(error: ToolCallError): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return (
-    error.content
-      .map((content) => (content.type === "text" ? content.text : ""))
-      .filter(Boolean)
-      .join("\n") || "The MCP tool returned an error"
-  );
-}
-
 function AppView() {
   const app = useWidget();
   const [timeData, setTimeData] = useState<GetTimeOutput>();
@@ -42,7 +30,7 @@ function AppView() {
         <p>
           <span className="server-time">{timeData?.time ?? "No time fetched yet."}</span>
         </p>
-        {timeError && <p className="notice">{toolErrorMessage(timeError)}</p>}
+        {timeError && <p className="notice">{timeError.message}</p>}
         <button
           disabled={timeLoading}
           onClick={() => void refreshTime()}

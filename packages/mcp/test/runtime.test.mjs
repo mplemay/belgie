@@ -6,7 +6,7 @@ import { createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { ZodError } from "zod";
 
-import { Widget } from "../dist/index.js";
+import { McpToolError, Widget } from "../dist/index.js";
 import { createGeneratedTool } from "../dist/internal.js";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -99,9 +99,13 @@ test("returns Zod errors for malformed or missing structured output", async (t) 
   });
 });
 
-test("preserves raw MCP error results", async () => {
+test("wraps MCP error results with a display-ready message", async () => {
   const rawError = {
-    content: [{ type: "text", text: "server failed" }],
+    content: [
+      { type: "text", text: "first failure" },
+      { type: "image", data: "example", mimeType: "image/png" },
+      { type: "text", text: "second failure" },
+    ],
     isError: true,
     _meta: { requestId: "example" },
   };
@@ -113,7 +117,30 @@ test("preserves raw MCP error results", async () => {
 
   const response = await getValue({}, app);
   assert.equal(response.result, undefined);
-  assert.equal(response.error, rawError);
+  assert(response.error instanceof McpToolError);
+  assert.equal(response.error.name, "McpToolError");
+  assert.equal(response.error.message, "first failure\nsecond failure");
+  assert.equal(response.error.toolName, "get-value");
+  assert.equal(response.error.result, rawError);
+  assert.equal(response.error.result._meta.requestId, "example");
+  assert.equal(response.error.cause, rawError);
+});
+
+test("uses a tool-specific fallback for MCP errors without text", async () => {
+  const rawError = {
+    content: [{ type: "image", data: "example", mimeType: "image/png" }],
+    isError: true,
+  };
+  const app = {
+    async callServerTool() {
+      return rawError;
+    },
+  };
+
+  const response = await getValue({}, app);
+  assert(response.error instanceof McpToolError);
+  assert.equal(response.error.message, 'MCP tool "get-value" returned an error');
+  assert.equal(response.error.result, rawError);
 });
 
 test("returns transport and context failures instead of rejecting", async (t) => {

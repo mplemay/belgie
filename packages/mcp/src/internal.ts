@@ -2,16 +2,12 @@ import type { App } from "@modelcontextprotocol/ext-apps";
 import { z } from "zod";
 
 import { getActiveWidget } from "./widget-context";
-
-export type RawToolResult = Awaited<ReturnType<App["callServerTool"]>>;
-
-export type McpToolError = RawToolResult & { isError: true };
-
-export type ToolCallError = Error | McpToolError;
-
-export type ToolCallResult<Output> =
-  | { result: Output; error: undefined }
-  | { result: undefined; error: ToolCallError };
+import {
+  McpToolError,
+  type McpToolErrorResult,
+  type ToolCallError,
+  type ToolCallResult,
+} from "./tool-error";
 
 type GeneratedTool<Input extends object, Output> = {} extends Input
   ? (input?: Input, app?: App) => Promise<ToolCallResult<Output>>
@@ -42,7 +38,9 @@ export function createGeneratedTool<Input extends object, Output>(
           : { arguments: input as Record<string, unknown> }),
       });
       if (response.isError) {
-        return errorResult(response as McpToolError);
+        return errorResult(
+          new McpToolError(name, response as McpToolErrorResult),
+        );
       }
 
       const parsed = schema.safeParse(response.structuredContent);
