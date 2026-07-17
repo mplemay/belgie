@@ -21,6 +21,16 @@ import {
 } from "./widget-context";
 
 export {
+  downloadFile,
+  openLink,
+  requestDisplayMode,
+  requestTeardown,
+  sendLog,
+  sendMessage,
+  updateModelContext,
+} from "./app";
+
+export {
   McpToolError,
   type McpToolErrorResult,
   type RawToolResult,

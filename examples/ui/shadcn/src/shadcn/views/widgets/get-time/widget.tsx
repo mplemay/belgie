@@ -1,4 +1,10 @@
-import { Widget, useWidget, type ToolCallError } from "@belgie/mcp";
+import {
+  Widget,
+  openLink,
+  sendLog,
+  sendMessage,
+  type ToolCallError,
+} from "@belgie/mcp";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -17,7 +23,6 @@ import { getTime, type GetTimeOutput } from "@widgets/tools";
 import "../../global.css";
 
 function AppView() {
-  const app = useWidget();
   const [timeData, setTimeData] = useState<GetTimeOutput>();
   const [timeError, setTimeError] = useState<ToolCallError>();
   const [timeLoading, setTimeLoading] = useState(false);
@@ -79,7 +84,7 @@ function AppView() {
             <Button
               onClick={() => {
                 if (message.trim()) {
-                  app.sendMessage({ role: "user", content: [{ type: "text", text: message }] });
+                  sendMessage({ role: "user", content: [{ type: "text", text: message }] });
                 }
               }}
             >
@@ -108,7 +113,7 @@ function AppView() {
             <Button
               onClick={() => {
                 if (logMessage.trim()) {
-                  app.sendLog({ level: "info", data: logMessage });
+                  sendLog({ level: "info", data: logMessage });
                 }
               }}
             >
@@ -137,7 +142,7 @@ function AppView() {
             <Button
               onClick={() => {
                 if (link.trim()) {
-                  app.openLink({ url: link });
+                  openLink({ url: link });
                 }
               }}
             >

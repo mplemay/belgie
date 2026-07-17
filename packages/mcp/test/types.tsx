@@ -2,6 +2,13 @@ import type { App } from "@modelcontextprotocol/ext-apps";
 
 import {
   McpToolError,
+  downloadFile,
+  openLink,
+  requestDisplayMode,
+  requestTeardown,
+  sendLog,
+  sendMessage,
+  updateModelContext,
   type RawToolResult,
   type ToolCallError,
   type ToolCallResult,
@@ -36,6 +43,27 @@ const required = createGeneratedTool<{ id: string }, RequiredOutput>("required",
 const raw = createGeneratedRawTool<{ query: string }>("raw");
 
 declare const app: App;
+
+const message = {
+  role: "user" as const,
+  content: [{ type: "text" as const, text: "hello" }],
+};
+const log = { level: "info" as const, data: "hello" };
+const modelContext = {
+  content: [{ type: "text" as const, text: "context" }],
+};
+const link = { url: "https://example.com" };
+const download = {
+  contents: [
+    {
+      type: "resource_link" as const,
+      uri: "https://example.com/file",
+      name: "file",
+    },
+  ],
+};
+const displayMode = { mode: "fullscreen" as const };
+const requestOptions = { signal: new AbortController().signal };
 
 type PublicMcpExports = keyof typeof import("@belgie/mcp");
 type GenericCallersAreAbsent = Extract<
@@ -84,6 +112,25 @@ async function narrowResult(): Promise<number> {
 }
 
 export function TypeFixture() {
+  const messageResult: ReturnType<App["sendMessage"]> = sendMessage(
+    message,
+    requestOptions,
+  );
+  const logResult: ReturnType<App["sendLog"]> = sendLog(log);
+  const modelContextResult: ReturnType<App["updateModelContext"]> =
+    updateModelContext(modelContext, requestOptions);
+  const openLinkResult: ReturnType<App["openLink"]> = openLink(
+    link,
+    requestOptions,
+  );
+  const downloadResult: ReturnType<App["downloadFile"]> = downloadFile(
+    download,
+    requestOptions,
+  );
+  const displayModeResult: ReturnType<App["requestDisplayMode"]> =
+    requestDisplayMode(displayMode, requestOptions);
+  const teardownResult: ReturnType<App["requestTeardown"]> = requestTeardown();
+
   void empty();
   void empty(undefined, app);
   void optional();
@@ -111,8 +158,29 @@ export function TypeFixture() {
   void required({ id: "example" }, { app });
   // @ts-expect-error a third argument is never accepted
   void required({ id: "example" }, app, app);
+  // @ts-expect-error context-bound helpers do not accept an explicit app
+  void sendMessage(message, app);
+  // @ts-expect-error context-bound helpers do not accept an explicit app
+  void sendLog(log, app);
+  // @ts-expect-error context-bound helpers do not accept an explicit app
+  void updateModelContext(modelContext, app);
+  // @ts-expect-error context-bound helpers do not accept an explicit app
+  void openLink(link, app);
+  // @ts-expect-error context-bound helpers do not accept an explicit app
+  void downloadFile(download, app);
+  // @ts-expect-error context-bound helpers do not accept an explicit app
+  void requestDisplayMode(displayMode, app);
+  // @ts-expect-error context-bound helpers do not accept an explicit app
+  void requestTeardown(undefined, app);
 
   void genericCallersAreAbsent;
+  void messageResult;
+  void logResult;
+  void modelContextResult;
+  void openLinkResult;
+  void downloadResult;
+  void displayModeResult;
+  void teardownResult;
   void requiredCall;
   void rawCall;
   void narrowResult();
