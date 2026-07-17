@@ -6,7 +6,10 @@ import {
   type ToolCallError,
   type ToolCallResult,
 } from "@belgie/mcp";
-import { createGeneratedTool } from "@belgie/mcp/internal";
+import {
+  createGeneratedRawTool,
+  createGeneratedTool,
+} from "@belgie/mcp/internal";
 
 type EmptyOutput = { value: string };
 type OptionalOutput = { count: number };
@@ -30,6 +33,7 @@ const required = createGeneratedTool<{ id: string }, RequiredOutput>("required",
   properties: { value: { type: "number" } },
   required: ["value"],
 });
+const raw = createGeneratedRawTool<{ query: string }>("raw");
 
 declare const app: App;
 
@@ -45,6 +49,7 @@ const genericCallersAreAbsent: GenericCallersAreAbsent = true;
 const requiredCall: Promise<ToolCallResult<RequiredOutput>> = required({
   id: "example",
 });
+const rawCall: Promise<ToolCallResult<RawToolResult>> = raw({ query: "example" });
 
 function narrowToolError(error: ToolCallError): void {
   const standardError: Error = error;
@@ -87,11 +92,15 @@ export function TypeFixture() {
   void optional(undefined, app);
   void required({ id: "example" });
   void required({ id: "example" }, app);
+  void raw({ query: "example" });
+  void raw({ query: "example" }, app);
 
   // @ts-expect-error required input cannot be omitted
   void required();
   // @ts-expect-error required input property has the wrong type
   void required({ id: 1 });
+  // @ts-expect-error raw callers preserve required input typing
+  void raw();
   // @ts-expect-error undeclared input properties are rejected
   void required({ id: "example", extra: true });
   // @ts-expect-error empty inputs reject undeclared properties
@@ -105,6 +114,7 @@ export function TypeFixture() {
 
   void genericCallersAreAbsent;
   void requiredCall;
+  void rawCall;
   void narrowResult();
   return null;
 }

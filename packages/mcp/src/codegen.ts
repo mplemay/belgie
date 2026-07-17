@@ -30,7 +30,7 @@ type ToolNames = {
   output: string;
 };
 
-type ToolWithOutput = Tool & { outputSchema: NonNullable<Tool["outputSchema"]> };
+type OutputSchema = NonNullable<Tool["outputSchema"]>;
 type ZodJsonSchema = Parameters<typeof z.fromJSONSchema>[0];
 
 function endpoint(value: string | URL): URL {
@@ -78,24 +78,18 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
-function renderSchema(schema: ToolWithOutput["outputSchema"]): string[] {
+function renderSchema(schema: OutputSchema): string[] {
   return JSON.stringify(canonicalize(schema), null, 2)
     .split("\n")
     .map((line) => `  ${line}`);
 }
 
-function requireOutputSchemas(tools: Tool[]): ToolWithOutput[] {
-  const missing = tools
-    .filter((tool) => tool.outputSchema === undefined)
-    .map((tool) => tool.name);
-  if (missing.length > 0) {
-    throw new Error(
-      `MCP tools must declare outputSchema: ${missing.map((name) => JSON.stringify(name)).join(", ")}`,
-    );
-  }
-
-  return tools.map((tool) => {
-    const outputSchema = tool.outputSchema!;
+function validateOutputSchemas(tools: Tool[]): void {
+  for (const tool of tools) {
+    const outputSchema = tool.outputSchema;
+    if (outputSchema === undefined) {
+      continue;
+    }
     try {
       z.fromJSONSchema(outputSchema as ZodJsonSchema);
     } catch (cause: unknown) {
@@ -105,12 +99,30 @@ function requireOutputSchemas(tools: Tool[]): ToolWithOutput[] {
         { cause },
       );
     }
-    return { ...tool, outputSchema };
-  });
+  }
+}
+
+function compileToolSchema(
+  tool: Tool,
+  schemaName: "inputSchema" | "outputSchema",
+  schema: unknown,
+  rootName: string,
+  allocator: IdentifierAllocator,
+): string[] {
+  try {
+    return compileSchema(schema, rootName, allocator).declarations;
+  } catch (cause: unknown) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(
+      `MCP tool ${JSON.stringify(tool.name)} has an ${schemaName} TypeScript cannot compile: ${message}`,
+      { cause },
+    );
+  }
 }
 
 function renderToolTypes(discoveredTools: Tool[]): string {
-  const tools = requireOutputSchemas(discoveredTools);
+  validateOutputSchemas(discoveredTools);
+  const tools = discoveredTools;
   const allocator = new IdentifierAllocator();
   const valueAllocator = new ValueIdentifierAllocator();
   const names = new Map<string, ToolNames>();
@@ -127,11 +139,27 @@ function renderToolTypes(discoveredTools: Tool[]): string {
   for (const tool of tools) {
     const toolNames = names.get(tool.name)!;
     declarations.push(
-      ...compileSchema(tool.inputSchema, toolNames.input, allocator).declarations,
+      ...compileToolSchema(
+        tool,
+        "inputSchema",
+        tool.inputSchema,
+        toolNames.input,
+        allocator,
+      ),
     );
-    declarations.push(
-      ...compileSchema(tool.outputSchema, toolNames.output, allocator).declarations,
-    );
+    if (tool.outputSchema === undefined) {
+      declarations.push(`export type ${toolNames.output} = RawToolResult;`);
+    } else {
+      declarations.push(
+        ...compileToolSchema(
+          tool,
+          "outputSchema",
+          tool.outputSchema,
+          toolNames.output,
+          allocator,
+        ),
+      );
+    }
   }
 
   const calls: string[] = [];
@@ -140,17 +168,34 @@ function renderToolTypes(discoveredTools: Tool[]): string {
       calls.push(...jsDoc(tool.description));
     }
     const toolNames = names.get(tool.name)!;
-    calls.push(
-      `export const ${toolNames.call} = createGeneratedTool<${toolNames.input}, ${toolNames.output}>(`,
-      `  ${JSON.stringify(tool.name)},`,
-      ...renderSchema(tool.outputSchema),
-      ");",
-      "",
-    );
+    if (tool.outputSchema === undefined) {
+      calls.push(
+        `export const ${toolNames.call} = createGeneratedRawTool<${toolNames.input}>(`,
+        `  ${JSON.stringify(tool.name)},`,
+        ");",
+        "",
+      );
+    } else {
+      calls.push(
+        `export const ${toolNames.call} = createGeneratedTool<${toolNames.input}, ${toolNames.output}>(`,
+        `  ${JSON.stringify(tool.name)},`,
+        ...renderSchema(tool.outputSchema),
+        ");",
+        "",
+      );
+    }
   }
 
+  const hasRawTools = tools.some((tool) => tool.outputSchema === undefined);
+  const hasStructuredTools = tools.some((tool) => tool.outputSchema !== undefined);
+  const factoryImports = [
+    ...(hasRawTools ? ["createGeneratedRawTool"] : []),
+    ...(hasStructuredTools ? ["createGeneratedTool"] : []),
+  ].join(", ");
+
   return [
-    'import { createGeneratedTool } from "@belgie/mcp/internal";',
+    ...(hasRawTools ? ['import type { RawToolResult } from "@belgie/mcp";'] : []),
+    `import { ${factoryImports} } from "@belgie/mcp/internal";`,
     "",
     ...declarations.flatMap((declaration) => [declaration, ""]),
     ...calls,

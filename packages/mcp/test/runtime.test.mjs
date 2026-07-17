@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { App } from "@modelcontextprotocol/ext-apps";
@@ -7,7 +8,10 @@ import { act, create } from "react-test-renderer";
 import { ZodError } from "zod";
 
 import { McpToolError, Widget } from "../dist/index.js";
-import { createGeneratedTool } from "../dist/internal.js";
+import {
+  createGeneratedRawTool,
+  createGeneratedTool,
+} from "../dist/internal.js";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -18,6 +22,17 @@ const outputSchema = {
   additionalProperties: false,
 };
 const getValue = createGeneratedTool("get-value", outputSchema);
+const pythonMcpV2Tools = JSON.parse(
+  await readFile(new URL("./fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
+);
+const contentBlocksSchema = pythonMcpV2Tools.find(
+  (tool) => tool.name === "content-blocks",
+)?.outputSchema;
+assert(contentBlocksSchema);
+const getContentBlocks = createGeneratedTool(
+  "content-blocks",
+  contentBlocksSchema,
+);
 
 function stubApp({ connect = async () => {}, close = async () => {}, call }) {
   const originals = {
@@ -73,6 +88,133 @@ test("omits arguments for an omitted optional input", async () => {
     error: undefined,
   });
   assert.deepEqual(request, { name: "get-empty" });
+});
+
+test("parses nested MCP content blocks from the Python SDK schema", async () => {
+  const structuredContent = {
+    result: [
+      {
+        type: "text",
+        text: "visible",
+        annotations: {
+          audience: ["user"],
+          priority: 0.5,
+          lastModified: "2026-07-16T00:00:00Z",
+        },
+        _meta: { textId: "example" },
+      },
+      { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+      { type: "audio", data: "YXVkaW8=", mimeType: "audio/wav" },
+      {
+        type: "resource_link",
+        uri: "https://example.com/resource",
+        name: "Resource",
+        icons: [
+          {
+            src: "https://example.com/icon.png",
+            sizes: ["32x32"],
+            theme: "dark",
+          },
+        ],
+      },
+      {
+        type: "resource",
+        resource: {
+          uri: "https://example.com/text",
+          text: "resource text",
+          mimeType: "text/plain",
+          _meta: { resourceId: "text" },
+        },
+      },
+      {
+        type: "resource",
+        resource: {
+          uri: "https://example.com/blob",
+          blob: "YmxvYg==",
+        },
+      },
+    ],
+  };
+  const app = {
+    async callServerTool() {
+      return { content: [], structuredContent };
+    },
+  };
+
+  const response = await getContentBlocks(undefined, app);
+  assert.equal(response.error, undefined);
+  assert.equal(response.result.result.length, 6);
+  assert.equal(response.result.result[0].text, "visible");
+  assert.equal(response.result.result[1].annotations, null);
+  assert.equal(response.result.result[3].icons[0].theme, "dark");
+  assert.equal(response.result.result[4].resource.text, "resource text");
+  assert.equal(response.result.result[5].resource.blob, "YmxvYg==");
+  assert.notEqual(response.result, structuredContent);
+});
+
+test("rejects malformed nested MCP content blocks", async () => {
+  const app = {
+    async callServerTool() {
+      return {
+        content: [],
+        structuredContent: {
+          result: [
+            {
+              type: "resource",
+              resource: {
+                uri: "https://example.com/blob",
+                blob: 42,
+              },
+            },
+          ],
+        },
+      };
+    },
+  };
+
+  const response = await getContentBlocks(undefined, app);
+  assert.equal(response.result, undefined);
+  assert(response.error instanceof ZodError);
+});
+
+test("returns the complete successful result for raw generated tools", async () => {
+  const callRaw = createGeneratedRawTool("call-raw");
+  const rawResult = {
+    content: [
+      { type: "text", text: "visible" },
+      { type: "image", data: "example", mimeType: "image/png" },
+    ],
+    structuredContent: { value: "unvalidated" },
+    _meta: { private: true },
+  };
+  const app = {
+    async callServerTool() {
+      return rawResult;
+    },
+  };
+
+  const response = await callRaw({ source: "explicit" }, app);
+  assert.deepEqual(response, { result: rawResult, error: undefined });
+  assert.equal(response.result, rawResult);
+});
+
+test("normalizes MCP errors for raw generated tools", async () => {
+  const callRaw = createGeneratedRawTool("call-raw");
+  const rawError = {
+    content: [{ type: "text", text: "raw failure" }],
+    isError: true,
+  };
+  const app = {
+    async callServerTool() {
+      return rawError;
+    },
+  };
+
+  const response = await callRaw({}, app);
+  assert.equal(response.result, undefined);
+  assert(response.error instanceof McpToolError);
+  assert.equal(response.error.message, "raw failure");
+  assert.equal(response.error.result, rawError);
 });
 
 test("returns Zod errors for malformed or missing structured output", async (t) => {

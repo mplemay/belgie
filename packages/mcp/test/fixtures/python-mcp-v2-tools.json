@@ -1,0 +1,1297 @@
+[
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "annotated_class_outputArguments",
+      "type": "object"
+    },
+    "name": "annotated-class-output",
+    "outputSchema": {
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "AnnotatedPoint",
+      "type": "object"
+    }
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "any_outputArguments",
+      "type": "object"
+    },
+    "name": "any-output"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "audio_helperArguments",
+      "type": "object"
+    },
+    "name": "audio-helper"
+  },
+  {
+    "inputSchema": {
+      "$defs": {
+        "Cat": {
+          "properties": {
+            "kind": {
+              "const": "cat",
+              "title": "Kind",
+              "type": "string"
+            },
+            "lives": {
+              "title": "Lives",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "lives"
+          ],
+          "title": "Cat",
+          "type": "object"
+        },
+        "Color": {
+          "enum": [
+            "red",
+            "blue"
+          ],
+          "title": "Color",
+          "type": "string"
+        },
+        "Dog": {
+          "properties": {
+            "good": {
+              "title": "Good",
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "dog",
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "good"
+          ],
+          "title": "Dog",
+          "type": "object"
+        },
+        "JsonValue": {},
+        "Node": {
+          "properties": {
+            "child": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Node"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "Node",
+          "type": "object"
+        },
+        "Payload": {
+          "properties": {
+            "count": {
+              "title": "Count",
+              "type": "integer"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "Payload",
+          "type": "object"
+        },
+        "Point": {
+          "properties": {
+            "x": {
+              "title": "X",
+              "type": "number"
+            },
+            "y": {
+              "title": "Y",
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "title": "Point",
+          "type": "object"
+        },
+        "Zoo": {
+          "properties": {
+            "pet": {
+              "discriminator": {
+                "mapping": {
+                  "cat": "#/$defs/Cat",
+                  "dog": "#/$defs/Dog"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Cat"
+                },
+                {
+                  "$ref": "#/$defs/Dog"
+                }
+              ],
+              "title": "Pet"
+            }
+          },
+          "required": [
+            "pet"
+          ],
+          "title": "Zoo",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Amount"
+        },
+        "anything": {
+          "additionalProperties": true,
+          "title": "Anything",
+          "type": "object"
+        },
+        "choice": {
+          "enum": [
+            "a",
+            "b"
+          ],
+          "title": "Choice",
+          "type": "string"
+        },
+        "clock": {
+          "format": "time",
+          "title": "Clock",
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/Color"
+        },
+        "constrained": {
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Constrained",
+          "type": "integer"
+        },
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "day": {
+          "format": "date",
+          "title": "Day",
+          "type": "string"
+        },
+        "delta": {
+          "format": "duration",
+          "title": "Delta",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "frozen": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Frozen",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "json_value": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "limit": {
+          "default": 10,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "mapping": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Mapping",
+          "type": "object"
+        },
+        "node": {
+          "$ref": "#/$defs/Node"
+        },
+        "optional": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Optional"
+        },
+        "pair": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Pair",
+          "type": "array"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/Payload"
+        },
+        "point": {
+          "$ref": "#/$defs/Point"
+        },
+        "ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ratio"
+        },
+        "raw": {
+          "format": "binary",
+          "title": "Raw",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "uid": {
+          "format": "uuid",
+          "title": "Uid",
+          "type": "string"
+        },
+        "url": {
+          "format": "uri",
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "variable": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Variable",
+          "type": "array"
+        },
+        "when": {
+          "format": "date-time",
+          "title": "When",
+          "type": "string"
+        },
+        "zoo": {
+          "$ref": "#/$defs/Zoo"
+        }
+      },
+      "required": [
+        "required",
+        "count",
+        "ratio",
+        "enabled",
+        "raw",
+        "items",
+        "tags",
+        "frozen",
+        "pair",
+        "variable",
+        "mapping",
+        "anything",
+        "choice",
+        "color",
+        "constrained",
+        "payload",
+        "point",
+        "node",
+        "zoo",
+        "json_value",
+        "when",
+        "day",
+        "clock",
+        "delta",
+        "amount",
+        "uid",
+        "path",
+        "url"
+      ],
+      "title": "common_inputsArguments",
+      "type": "object"
+    },
+    "name": "common-inputs",
+    "outputSchema": {
+      "$defs": {
+        "Cat": {
+          "properties": {
+            "kind": {
+              "const": "cat",
+              "title": "Kind",
+              "type": "string"
+            },
+            "lives": {
+              "title": "Lives",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "lives"
+          ],
+          "title": "Cat",
+          "type": "object"
+        },
+        "Dog": {
+          "properties": {
+            "good": {
+              "title": "Good",
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "dog",
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "good"
+          ],
+          "title": "Dog",
+          "type": "object"
+        },
+        "Node": {
+          "properties": {
+            "child": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Node"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "Node",
+          "type": "object"
+        },
+        "Payload": {
+          "properties": {
+            "count": {
+              "title": "Count",
+              "type": "integer"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "Payload",
+          "type": "object"
+        },
+        "Point": {
+          "properties": {
+            "x": {
+              "title": "X",
+              "type": "number"
+            },
+            "y": {
+              "title": "Y",
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "title": "Point",
+          "type": "object"
+        },
+        "StandardValues": {
+          "properties": {
+            "amount": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                  "type": "string"
+                }
+              ],
+              "title": "Amount"
+            },
+            "clock": {
+              "format": "time",
+              "title": "Clock",
+              "type": "string"
+            },
+            "day": {
+              "format": "date",
+              "title": "Day",
+              "type": "string"
+            },
+            "delta": {
+              "format": "duration",
+              "title": "Delta",
+              "type": "string"
+            },
+            "path": {
+              "format": "path",
+              "title": "Path",
+              "type": "string"
+            },
+            "uid": {
+              "format": "uuid",
+              "title": "Uid",
+              "type": "string"
+            },
+            "url": {
+              "format": "uri",
+              "minLength": 1,
+              "title": "Url",
+              "type": "string"
+            },
+            "when": {
+              "format": "date-time",
+              "title": "When",
+              "type": "string"
+            }
+          },
+          "required": [
+            "when",
+            "day",
+            "clock",
+            "delta",
+            "amount",
+            "uid",
+            "path",
+            "url"
+          ],
+          "title": "StandardValues",
+          "type": "object"
+        },
+        "Zoo": {
+          "properties": {
+            "pet": {
+              "discriminator": {
+                "mapping": {
+                  "cat": "#/$defs/Cat",
+                  "dog": "#/$defs/Dog"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Cat"
+                },
+                {
+                  "$ref": "#/$defs/Dog"
+                }
+              ],
+              "title": "Pet"
+            }
+          },
+          "required": [
+            "pet"
+          ],
+          "title": "Zoo",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "node": {
+          "$ref": "#/$defs/Node"
+        },
+        "payload": {
+          "$ref": "#/$defs/Payload"
+        },
+        "point": {
+          "$ref": "#/$defs/Point"
+        },
+        "standard": {
+          "$ref": "#/$defs/StandardValues"
+        },
+        "zoo": {
+          "$ref": "#/$defs/Zoo"
+        }
+      },
+      "required": [
+        "payload",
+        "point",
+        "node",
+        "zoo",
+        "standard"
+      ],
+      "title": "CommonOutput",
+      "type": "object"
+    }
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "content_blocksArguments",
+      "type": "object"
+    },
+    "name": "content-blocks",
+    "outputSchema": {
+      "$defs": {
+        "Annotations": {
+          "description": "Optional annotations the client can use to inform how objects are used or displayed.",
+          "properties": {
+            "audience": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "user",
+                      "assistant"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Audience"
+            },
+            "lastModified": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Lastmodified"
+            },
+            "priority": {
+              "anyOf": [
+                {
+                  "maximum": 1.0,
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Priority"
+            }
+          },
+          "title": "Annotations",
+          "type": "object"
+        },
+        "AudioContent": {
+          "description": "Audio provided to or from an LLM.",
+          "properties": {
+            "_meta": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Meta"
+            },
+            "annotations": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Annotations"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "data": {
+              "title": "Data",
+              "type": "string"
+            },
+            "mimeType": {
+              "title": "Mimetype",
+              "type": "string"
+            },
+            "type": {
+              "const": "audio",
+              "default": "audio",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "mimeType"
+          ],
+          "title": "AudioContent",
+          "type": "object"
+        },
+        "BlobResourceContents": {
+          "description": "Binary contents of a resource.",
+          "properties": {
+            "_meta": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Meta"
+            },
+            "blob": {
+              "title": "Blob",
+              "type": "string"
+            },
+            "mimeType": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mimetype"
+            },
+            "uri": {
+              "title": "Uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "blob"
+          ],
+          "title": "BlobResourceContents",
+          "type": "object"
+        },
+        "EmbeddedResource": {
+          "description": "The contents of a resource, embedded into a prompt or tool call result.\n\nIt is up to the client how best to render embedded resources for the benefit\nof the LLM and/or the user.",
+          "properties": {
+            "_meta": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Meta"
+            },
+            "annotations": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Annotations"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "resource": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TextResourceContents"
+                },
+                {
+                  "$ref": "#/$defs/BlobResourceContents"
+                }
+              ],
+              "title": "Resource"
+            },
+            "type": {
+              "const": "resource",
+              "default": "resource",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resource"
+          ],
+          "title": "EmbeddedResource",
+          "type": "object"
+        },
+        "Icon": {
+          "description": "An optionally-sized icon for display in a user interface (2025-11-25+).",
+          "properties": {
+            "mimeType": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mimetype"
+            },
+            "sizes": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Sizes"
+            },
+            "src": {
+              "title": "Src",
+              "type": "string"
+            },
+            "theme": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "light",
+                    "dark"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Theme"
+            }
+          },
+          "required": [
+            "src"
+          ],
+          "title": "Icon",
+          "type": "object"
+        },
+        "ImageContent": {
+          "description": "An image provided to or from an LLM.",
+          "properties": {
+            "_meta": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Meta"
+            },
+            "annotations": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Annotations"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "data": {
+              "title": "Data",
+              "type": "string"
+            },
+            "mimeType": {
+              "title": "Mimetype",
+              "type": "string"
+            },
+            "type": {
+              "const": "image",
+              "default": "image",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "mimeType"
+          ],
+          "title": "ImageContent",
+          "type": "object"
+        },
+        "ResourceLink": {
+          "description": "A resource that the server is capable of reading, included in a prompt or tool call result.\n\nNote: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.",
+          "properties": {
+            "_meta": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Meta"
+            },
+            "annotations": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Annotations"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
+            },
+            "icons": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/Icon"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Icons"
+            },
+            "mimeType": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mimetype"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "type": {
+              "const": "resource_link",
+              "default": "resource_link",
+              "title": "Type",
+              "type": "string"
+            },
+            "uri": {
+              "title": "Uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "uri"
+          ],
+          "title": "ResourceLink",
+          "type": "object"
+        },
+        "TextContent": {
+          "description": "Text provided to or from an LLM.",
+          "properties": {
+            "_meta": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Meta"
+            },
+            "annotations": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Annotations"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "text": {
+              "title": "Text",
+              "type": "string"
+            },
+            "type": {
+              "const": "text",
+              "default": "text",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "title": "TextContent",
+          "type": "object"
+        },
+        "TextResourceContents": {
+          "description": "Text contents of a resource.",
+          "properties": {
+            "_meta": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Meta"
+            },
+            "mimeType": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Mimetype"
+            },
+            "text": {
+              "title": "Text",
+              "type": "string"
+            },
+            "uri": {
+              "title": "Uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "text"
+          ],
+          "title": "TextResourceContents",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "result": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TextContent"
+              },
+              {
+                "$ref": "#/$defs/ImageContent"
+              },
+              {
+                "$ref": "#/$defs/AudioContent"
+              },
+              {
+                "$ref": "#/$defs/ResourceLink"
+              },
+              {
+                "$ref": "#/$defs/EmbeddedResource"
+              }
+            ]
+          },
+          "title": "Result",
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "content_blocksOutput",
+      "type": "object"
+    }
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "dataclass_outputArguments",
+      "type": "object"
+    },
+    "name": "dataclass-output",
+    "outputSchema": {
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "Point",
+      "type": "object"
+    }
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "dictionary_outputArguments",
+      "type": "object"
+    },
+    "name": "dictionary-output",
+    "outputSchema": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "dictionary_outputDictOutput",
+      "type": "object"
+    }
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "direct_resultArguments",
+      "type": "object"
+    },
+    "name": "direct-result"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "disabled_outputArguments",
+      "type": "object"
+    },
+    "name": "disabled-output"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "generic_outputArguments",
+      "type": "object"
+    },
+    "name": "generic-output",
+    "outputSchema": {
+      "properties": {
+        "result": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Result",
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "generic_outputOutput",
+      "type": "object"
+    }
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "image_helperArguments",
+      "type": "object"
+    },
+    "name": "image-helper"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "primitive_outputArguments",
+      "type": "object"
+    },
+    "name": "primitive-output",
+    "outputSchema": {
+      "properties": {
+        "result": {
+          "title": "Result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "primitive_outputOutput",
+      "type": "object"
+    }
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "title": "typed_dict_outputArguments",
+      "type": "object"
+    },
+    "name": "typed-dict-output",
+    "outputSchema": {
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "count"
+      ],
+      "title": "Payload",
+      "type": "object"
+    }
+  }
+]

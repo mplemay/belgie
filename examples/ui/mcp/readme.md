@@ -70,9 +70,49 @@ if (response.error) {
 }
 ```
 
-Successful `result` values are the Zod-validated `structuredContent`. Missing or invalid structured output, transport
-failures, context failures, and MCP errors are returned as `Error` instances. MCP `isError` responses become
-`McpToolError`; its `result` property retains the complete raw response when content or metadata is needed:
+The generator selects the result mode independently for every tool from its `tools/list` entry:
+
+- When the Python SDK publishes an `outputSchema`, the generated output type follows that schema and successful
+  `result` values are Zod-validated `structuredContent`.
+- When a tool has no `outputSchema`, its generated output type is `RawToolResult` and a successful `result` retains the
+  complete MCP response, including `content`, optional `structuredContent`, and `_meta`.
+
+For example, MCP Python v2 publishes a structured schema for annotated returns such as `list[TextContent]`:
+
+```python
+from mcp_types import TextContent
+
+
+@mcp.tool()
+def messages() -> list[TextContent]:
+    return [TextContent(type="text", text="Hello")]
+```
+
+The SDK wraps this non-object return in structured content under `result`, so the generated caller is fully typed:
+
+```ts
+const response = await messages()
+if (response.result) {
+  const first = response.result.result[0]
+  if (first?.type === "text") console.log(first.text)
+}
+```
+
+Direct `CallToolResult`, `Any`, the SDK `Image` and `Audio` helpers, and tools registered with
+`structured_output=False` do not publish an output schema in MCP Python v2. Their generated callers return
+`RawToolResult` instead:
+
+```ts
+const response = await screenshot()
+if (response.result) {
+  console.log(response.result.content)
+  console.log(response.result._meta)
+}
+```
+
+Mixed servers can contain both modes. Missing or invalid structured output for a schema-backed tool, transport
+failures, context failures, and MCP errors are returned as `Error` instances. In either mode, MCP `isError` responses
+become `McpToolError`; its `result` property retains the complete raw error response:
 
 ```ts
 import { McpToolError } from "@belgie/mcp"
@@ -81,8 +121,6 @@ if (response.error instanceof McpToolError) {
   console.log(response.error.result._meta)
 }
 ```
-
-Call `app.callServerTool` directly when the complete successful MCP response or unvalidated output is required.
 
 Check the committed tool module for server drift in CI without writing it:
 

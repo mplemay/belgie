@@ -171,6 +171,10 @@ const TEXT_CONTENT_TOOL = {
   },
 };
 
+const PYTHON_MCP_V2_TOOLS = JSON.parse(
+  await readFile(new URL("./fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
+);
+
 async function startMcpServer(listTools, onRequest = () => {}) {
   const app = createMcpExpressApp({ host: "127.0.0.1" });
   app.post("/mcp", async (request, response) => {
@@ -387,6 +391,20 @@ test("generates structured types for list[TextContent] tool results", async () =
   }
 });
 
+test("generates common Python MCP v2 tool types", async () => {
+  const server = await startMcpServer(async () => ({ tools: PYTHON_MCP_V2_TOOLS }));
+  try {
+    const generated = await generateToolTypes({ url: server.url, oauth: false });
+    const golden = await readFile(
+      new URL("./fixtures/python-mcp-v2.golden.ts", import.meta.url),
+      "utf8",
+    );
+    assert.equal(generated, golden);
+  } finally {
+    await server.close();
+  }
+});
+
 test("generates safe deterministic function identifiers", async () => {
   const server = await startMcpServer(async () => ({
     tools: [
@@ -460,24 +478,7 @@ test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
     try {
       await assert.rejects(
         generateToolTypes({ url: server.url, oauth: false }),
-        /unsupported JSON Schema keyword "not"/u,
-      );
-    } finally {
-      await server.close();
-    }
-  });
-
-  await t.test("missing output schema", async () => {
-    const server = await startMcpServer(async () => ({
-      tools: [
-        { name: "zeta", inputSchema: { type: "object", properties: {} } },
-        { name: "alpha", inputSchema: { type: "object", properties: {} } },
-      ],
-    }));
-    try {
-      await assert.rejects(
-        generateToolTypes({ url: server.url, oauth: false }),
-        /MCP tools must declare outputSchema: "alpha", "zeta"/u,
+        /MCP tool "unsafe" has an inputSchema TypeScript cannot compile:.*unsupported JSON Schema keyword "not"/u,
       );
     } finally {
       await server.close();
@@ -507,6 +508,62 @@ test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
       await server.close();
     }
   });
+});
+
+test("generates raw callers for tools without output schemas", async () => {
+  const server = await startMcpServer(async () => ({
+    tools: [
+      {
+        name: "raw-search",
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+          required: ["query"],
+        },
+      },
+      SCHEMA_TOOLS[1],
+    ],
+  }));
+  try {
+    const generated = await generateToolTypes({ url: server.url, oauth: false });
+    assert.match(generated, /import type \{ RawToolResult \} from "@belgie\/mcp";/u);
+    assert.match(
+      generated,
+      /import \{ createGeneratedRawTool, createGeneratedTool \} from "@belgie\/mcp\/internal";/u,
+    );
+    assert.match(generated, /export type RawSearchOutput = RawToolResult;/u);
+    assert.match(
+      generated,
+      /export const rawSearch = createGeneratedRawTool<RawSearchInput>\(/u,
+    );
+    assert.match(
+      generated,
+      /export const modelTool = createGeneratedTool<ModelToolInput, ModelToolOutput>\(/u,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("imports only the raw factory for a raw-only server", async () => {
+  const server = await startMcpServer(async () => ({
+    tools: [
+      {
+        name: "raw-only",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ],
+  }));
+  try {
+    const generated = await generateToolTypes({ url: server.url, oauth: false });
+    assert.match(
+      generated,
+      /import \{ createGeneratedRawTool \} from "@belgie\/mcp\/internal";/u,
+    );
+    assert.doesNotMatch(generated, /createGeneratedTool/u);
+  } finally {
+    await server.close();
+  }
 });
 
 test("validates malformed URLs and reports connection failures", async () => {

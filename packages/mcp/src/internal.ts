@@ -5,6 +5,7 @@ import { getActiveWidget } from "./widget-context";
 import {
   McpToolError,
   type McpToolErrorResult,
+  type RawToolResult,
   type ToolCallError,
   type ToolCallResult,
 } from "./tool-error";
@@ -19,12 +20,10 @@ function errorResult(error: ToolCallError): ToolCallResult<never> {
   return { result: undefined, error };
 }
 
-export function createGeneratedTool<Input extends object, Output>(
+function createGeneratedToolCaller<Input extends object, Output>(
   name: string,
-  outputSchema: OutputSchema,
+  success: (response: RawToolResult) => ToolCallResult<Output>,
 ): GeneratedTool<Input, Output> {
-  const schema = z.fromJSONSchema(outputSchema) as z.ZodType<Output>;
-
   return (async (
     input?: Input,
     explicitApp?: App,
@@ -42,16 +41,35 @@ export function createGeneratedTool<Input extends object, Output>(
           new McpToolError(name, response as McpToolErrorResult),
         );
       }
-
-      const parsed = schema.safeParse(response.structuredContent);
-      if (!parsed.success) {
-        return errorResult(parsed.error);
-      }
-      return { result: parsed.data, error: undefined };
+      return success(response);
     } catch (cause: unknown) {
       return errorResult(
         cause instanceof Error ? cause : new Error(String(cause)),
       );
     }
   }) as GeneratedTool<Input, Output>;
+}
+
+export function createGeneratedTool<Input extends object, Output>(
+  name: string,
+  outputSchema: OutputSchema,
+): GeneratedTool<Input, Output> {
+  const schema = z.fromJSONSchema(outputSchema) as z.ZodType<Output>;
+
+  return createGeneratedToolCaller(name, (response) => {
+    const parsed = schema.safeParse(response.structuredContent);
+    if (!parsed.success) {
+      return errorResult(parsed.error);
+    }
+    return { result: parsed.data, error: undefined };
+  });
+}
+
+export function createGeneratedRawTool<Input extends object>(
+  name: string,
+): GeneratedTool<Input, RawToolResult> {
+  return createGeneratedToolCaller(name, (response) => ({
+    result: response,
+    error: undefined,
+  }));
 }
