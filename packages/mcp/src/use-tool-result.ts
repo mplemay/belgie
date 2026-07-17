@@ -20,7 +20,6 @@ import {
 } from "./tool-result-source";
 import {
   useConnectedWidgetContext,
-  type WidgetContextValue,
   type WidgetToolLifecycle,
 } from "./widget-context";
 
@@ -46,16 +45,15 @@ type ResultSnapshot<Output> = {
   isFetching: boolean;
 };
 
-function sourceMismatchError<Input extends object, Output>(
-  adapter: ToolResultAdapter<Input, Output>,
-  context: WidgetContextValue,
+function sourceMismatchError(
+  expectedName: string,
+  actualName: string | undefined,
 ): Error | undefined {
-  const actualName = context.app.getHostContext()?.toolInfo?.tool.name;
-  if (actualName === undefined || actualName === adapter.name) {
+  if (actualName === undefined || actualName === expectedName) {
     return undefined;
   }
   return new Error(
-    `useToolResult expected opening tool ${JSON.stringify(adapter.name)}, received ${JSON.stringify(actualName)}`,
+    `useToolResult expected opening tool ${JSON.stringify(expectedName)}, received ${JSON.stringify(actualName)}`,
   );
 }
 
@@ -119,14 +117,18 @@ export function useToolResult<Input extends object, Output>(
 ): ToolResultState<Input, Output> {
   const context = useConnectedWidgetContext("useToolResult");
   const adapter = getToolResultAdapter(source);
+  const [hostToolName, setHostToolName] = useState<string | undefined>(
+    () => context.app.getHostContext()?.toolInfo?.tool.name,
+  );
   const mismatch = useMemo(
-    () => sourceMismatchError(adapter, context),
-    [adapter, context.app],
+    () => sourceMismatchError(adapter.name, hostToolName),
+    [adapter.name, hostToolName],
   );
   const [snapshot, setSnapshot] = useState<ResultSnapshot<Output>>(() =>
     openingSnapshot(adapter, context.tool, mismatch),
   );
   const hasExecutedRef = useRef(false);
+  const hasExplicitInputRef = useRef(false);
   const latestInputRef = useRef<Input | undefined>(
     context.tool.input as Input | undefined,
   );
@@ -142,7 +144,18 @@ export function useToolResult<Input extends object, Output>(
   }, []);
 
   useEffect(() => {
-    if (!hasExecutedRef.current && context.tool.inputReceived) {
+    const syncHostToolName = () => {
+      setHostToolName(context.app.getHostContext()?.toolInfo?.tool.name);
+    };
+    syncHostToolName();
+    context.app.addEventListener("hostcontextchanged", syncHostToolName);
+    return () => {
+      context.app.removeEventListener("hostcontextchanged", syncHostToolName);
+    };
+  }, [context.app]);
+
+  useEffect(() => {
+    if (!hasExplicitInputRef.current && context.tool.inputReceived) {
       latestInputRef.current = context.tool.input as Input | undefined;
     }
   }, [context.tool.input, context.tool.inputReceived]);
@@ -157,6 +170,7 @@ export function useToolResult<Input extends object, Output>(
     async (input?: Input): Promise<ToolCallResult<Output>> => {
       hasExecutedRef.current = true;
       if (input !== undefined) {
+        hasExplicitInputRef.current = true;
         latestInputRef.current = input;
       }
 

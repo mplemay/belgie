@@ -747,6 +747,138 @@ test("executes with reusable typed input and preserves stale data", async () => 
   }
 });
 
+test("picks up late opening input after an early execute", async () => {
+  const calls = [];
+  let app;
+  let resultState;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening-data" },
+      });
+    },
+    call: async ({ arguments: input }) => {
+      calls.push(input);
+      return {
+        content: [],
+        structuredContent: { value: `called-${calls.length}` },
+      };
+    },
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Late opening input", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    assert.deepEqual(resultState.data, { value: "opening-data" });
+
+    await act(async () => {
+      await resultState.execute();
+    });
+    assert.equal(calls[0], undefined);
+
+    await act(async () => {
+      restore.emit(app, "toolinput", { arguments: { value: "opening-input" } });
+    });
+
+    await act(async () => {
+      await resultState.execute();
+    });
+    assert.deepEqual(calls[1], { value: "opening-input" });
+    assert.deepEqual(resultState.data, { value: "called-2" });
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("recomputes opening mismatch after host context arrives", async () => {
+  let hostContext = {};
+  let app;
+  let resultState;
+  let renderer;
+  let calls = 0;
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening" },
+      });
+    },
+    call: async () => {
+      calls += 1;
+      return { content: [], structuredContent: { value: "called" } };
+    },
+    methods: {
+      getHostContext() {
+        return hostContext;
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Late mismatch", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    assert.deepEqual(resultState.data, { value: "opening" });
+    assert.equal(resultState.status, "success");
+
+    await act(async () => {
+      hostContext = { toolInfo: { tool: { name: "another-tool" } } };
+      restore.emit(app, "hostcontextchanged", hostContext);
+    });
+
+    assert.match(resultState.error.message, /expected opening tool/u);
+    assert.equal(resultState.status, "error");
+    assert.equal(resultState.data, undefined);
+
+    let response;
+    await act(async () => {
+      response = await resultState.execute({ value: "ignored" });
+    });
+    assert.match(response.error.message, /expected opening tool/u);
+    assert.equal(calls, 0);
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
 test("keeps only the latest execution in hook state", async () => {
   const pending = new Map();
   let resultState;
