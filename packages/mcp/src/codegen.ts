@@ -84,24 +84,6 @@ function renderSchema(schema: OutputSchema): string[] {
     .map((line) => `  ${line}`);
 }
 
-function validateOutputSchemas(tools: Tool[]): void {
-  for (const tool of tools) {
-    const outputSchema = tool.outputSchema;
-    if (outputSchema === undefined) {
-      continue;
-    }
-    try {
-      z.fromJSONSchema(outputSchema as ZodJsonSchema);
-    } catch (cause: unknown) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(
-        `MCP tool ${JSON.stringify(tool.name)} has an outputSchema Zod cannot compile: ${message}`,
-        { cause },
-      );
-    }
-  }
-}
-
 function compileToolSchema(
   tool: Tool,
   schemaName: "inputSchema" | "outputSchema",
@@ -120,9 +102,7 @@ function compileToolSchema(
   }
 }
 
-function renderToolTypes(discoveredTools: Tool[]): string {
-  validateOutputSchemas(discoveredTools);
-  const tools = discoveredTools;
+function renderToolTypes(tools: Tool[]): string {
   const allocator = new IdentifierAllocator();
   const valueAllocator = new ValueIdentifierAllocator();
   const names = new Map<string, ToolNames>();
@@ -135,6 +115,8 @@ function renderToolTypes(discoveredTools: Tool[]): string {
     });
   }
 
+  let hasRawTools = false;
+  let hasStructuredTools = false;
   const declarations: string[] = [];
   for (const tool of tools) {
     const toolNames = names.get(tool.name)!;
@@ -148,8 +130,19 @@ function renderToolTypes(discoveredTools: Tool[]): string {
       ),
     );
     if (tool.outputSchema === undefined) {
+      hasRawTools = true;
       declarations.push(`export type ${toolNames.output} = RawToolResult;`);
     } else {
+      hasStructuredTools = true;
+      try {
+        z.fromJSONSchema(tool.outputSchema as ZodJsonSchema);
+      } catch (cause: unknown) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        throw new Error(
+          `MCP tool ${JSON.stringify(tool.name)} has an outputSchema Zod cannot compile: ${message}`,
+          { cause },
+        );
+      }
       declarations.push(
         ...compileToolSchema(
           tool,
@@ -186,8 +179,6 @@ function renderToolTypes(discoveredTools: Tool[]): string {
     }
   }
 
-  const hasRawTools = tools.some((tool) => tool.outputSchema === undefined);
-  const hasStructuredTools = tools.some((tool) => tool.outputSchema !== undefined);
   const factoryImports = [
     ...(hasRawTools ? ["createGeneratedRawTool"] : []),
     ...(hasStructuredTools ? ["createGeneratedTool"] : []),

@@ -22,17 +22,21 @@ const outputSchema = {
   additionalProperties: false,
 };
 const getValue = createGeneratedTool("get-value", outputSchema);
-const pythonMcpV2Tools = JSON.parse(
-  await readFile(new URL("./fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
-);
-const contentBlocksSchema = pythonMcpV2Tools.find(
-  (tool) => tool.name === "content-blocks",
-)?.outputSchema;
-assert(contentBlocksSchema);
-const getContentBlocks = createGeneratedTool(
-  "content-blocks",
-  contentBlocksSchema,
-);
+
+let contentBlocksToolPromise;
+async function contentBlocksTool() {
+  contentBlocksToolPromise ??= (async () => {
+    const pythonMcpV2Tools = JSON.parse(
+      await readFile(new URL("./fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
+    );
+    const contentBlocksSchema = pythonMcpV2Tools.find(
+      (tool) => tool.name === "content-blocks",
+    )?.outputSchema;
+    assert(contentBlocksSchema);
+    return createGeneratedTool("content-blocks", contentBlocksSchema);
+  })();
+  return contentBlocksToolPromise;
+}
 
 function stubApp({ connect = async () => {}, close = async () => {}, call }) {
   const originals = {
@@ -91,6 +95,7 @@ test("omits arguments for an omitted optional input", async () => {
 });
 
 test("parses nested MCP content blocks from the Python SDK schema", async () => {
+  const getContentBlocks = await contentBlocksTool();
   const structuredContent = {
     result: [
       {
@@ -153,6 +158,7 @@ test("parses nested MCP content blocks from the Python SDK schema", async () => 
 });
 
 test("rejects malformed nested MCP content blocks", async () => {
+  const getContentBlocks = await contentBlocksTool();
   const app = {
     async callServerTool() {
       return {
