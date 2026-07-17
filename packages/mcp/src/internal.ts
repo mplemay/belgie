@@ -3,51 +3,47 @@ import { z } from "zod";
 
 import { getActiveWidget } from "./widget-context";
 import {
-  McpToolError,
-  type McpToolErrorResult,
   type RawToolResult,
-  type ToolCallError,
   type ToolCallResult,
 } from "./tool-error";
+import {
+  TOOL_RESULT_SOURCE,
+  createToolResultAdapter,
+  errorResult,
+  normalizeToolCallError,
+  type ToolResultSource,
+} from "./tool-result-source";
 
-type GeneratedTool<Input extends object, Output> = {} extends Input
+type GeneratedToolCall<Input extends object, Output> = {} extends Input
   ? (input?: Input, app?: App) => Promise<ToolCallResult<Output>>
   : (input: Input, app?: App) => Promise<ToolCallResult<Output>>;
 
-type OutputSchema = Parameters<typeof z.fromJSONSchema>[0];
+type GeneratedTool<Input extends object, Output> = GeneratedToolCall<
+  Input,
+  Output
+> &
+  ToolResultSource<Input, Output>;
 
-function errorResult(error: ToolCallError): ToolCallResult<never> {
-  return { result: undefined, error };
-}
+type OutputSchema = Parameters<typeof z.fromJSONSchema>[0];
 
 function createGeneratedToolCaller<Input extends object, Output>(
   name: string,
   success: (response: RawToolResult) => ToolCallResult<Output>,
 ): GeneratedTool<Input, Output> {
-  return (async (
+  const adapter = createToolResultAdapter<Input, Output>(name, success);
+  const caller = async (
     input?: Input,
     explicitApp?: App,
   ): Promise<ToolCallResult<Output>> => {
     try {
       const app = explicitApp ?? getActiveWidget();
-      const response = await app.callServerTool({
-        name,
-        ...(input === undefined
-          ? {}
-          : { arguments: input as Record<string, unknown> }),
-      });
-      if (response.isError) {
-        return errorResult(
-          new McpToolError(name, response as McpToolErrorResult),
-        );
-      }
-      return success(response);
+      return (await adapter.execute(input, app)).callResult;
     } catch (cause: unknown) {
-      return errorResult(
-        cause instanceof Error ? cause : new Error(String(cause)),
-      );
+      return errorResult(normalizeToolCallError(cause));
     }
-  }) as GeneratedTool<Input, Output>;
+  };
+  Object.defineProperty(caller, TOOL_RESULT_SOURCE, { value: adapter });
+  return caller as GeneratedTool<Input, Output>;
 }
 
 export function createGeneratedTool<Input extends object, Output>(

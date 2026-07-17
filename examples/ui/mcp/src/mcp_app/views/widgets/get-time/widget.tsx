@@ -3,28 +3,26 @@ import {
   openLink,
   sendLog,
   sendMessage,
-  type ToolCallError,
+  useToolResult,
 } from "@belgie/mcp";
 import { useState } from "react";
 
 import "@/global.css";
-import { getTime, type GetTimeOutput } from "@widgets/tools";
+import { getTime } from "@widgets/tools";
 
 function AppView() {
-  const [timeData, setTimeData] = useState<GetTimeOutput>();
-  const [timeError, setTimeError] = useState<ToolCallError>();
-  const [timeLoading, setTimeLoading] = useState(false);
+  const {
+    data: timeData,
+    error: timeError,
+    rawResult,
+    status,
+    isLoading,
+    isFetching,
+    execute,
+  } = useToolResult(getTime);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
-
-  async function refreshTime(): Promise<void> {
-    setTimeLoading(true);
-    const { result, error } = await getTime();
-    setTimeData(result);
-    setTimeError(error);
-    setTimeLoading(false);
-  }
 
   return (
     <main className="main">
@@ -33,14 +31,24 @@ function AppView() {
       <div className="action">
         <h3>Server Time</h3>
         <p>
-          <span className="server-time">{timeData?.time ?? "No time fetched yet."}</span>
+          <span className="server-time">
+            {timeData?.time ??
+              (isLoading ? "Waiting for the opening tool result..." : "No time returned.")}
+          </span>
         </p>
         {timeError && <p className="notice">{timeError.message}</p>}
+        <p>
+          Status: {status}; raw response content blocks: {rawResult?.content.length ?? 0}
+        </p>
         <button
-          disabled={timeLoading}
-          onClick={() => void refreshTime()}
+          disabled={isFetching}
+          onClick={() => void execute()}
         >
-          {timeLoading ? "Getting Server Time..." : "Refresh Server Time"}
+          {isLoading
+            ? "Waiting for Server Time..."
+            : isFetching
+              ? "Refreshing Server Time..."
+              : "Refresh Server Time"}
         </button>
       </div>
 

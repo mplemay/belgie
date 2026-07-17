@@ -18,6 +18,7 @@ import {
   activateWidget,
   deactivateWidget,
   useWidget,
+  type WidgetToolLifecycle,
 } from "./widget-context";
 
 export {
@@ -31,12 +32,19 @@ export {
 } from "./app";
 
 export {
+  McpToolCancelledError,
   McpToolError,
   type McpToolErrorResult,
   type RawToolResult,
   type ToolCallError,
   type ToolCallResult,
 } from "./tool-error";
+
+export {
+  useToolResult,
+  type ToolResultState,
+  type ToolResultStatus,
+} from "./use-tool-result";
 
 export { useWidget };
 
@@ -73,20 +81,31 @@ function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
     return;
   }
   if (hooks.toolInput) {
-    app.ontoolinput = hooks.toolInput;
+    app.addEventListener("toolinput", hooks.toolInput);
   }
   if (hooks.toolInputPartial) {
-    app.ontoolinputpartial = hooks.toolInputPartial;
+    app.addEventListener("toolinputpartial", hooks.toolInputPartial);
   }
   if (hooks.toolResult) {
-    app.ontoolresult = hooks.toolResult;
+    app.addEventListener("toolresult", hooks.toolResult);
   }
   if (hooks.toolCancelled) {
-    app.ontoolcancelled = hooks.toolCancelled;
+    app.addEventListener("toolcancelled", hooks.toolCancelled);
   }
   if (hooks.hostContextChanged) {
-    app.onhostcontextchanged = hooks.hostContextChanged;
+    app.addEventListener("hostcontextchanged", hooks.hostContextChanged);
   }
+}
+
+function initialToolLifecycle(): WidgetToolLifecycle {
+  return {
+    input: undefined,
+    inputReceived: false,
+    rawResult: undefined,
+    cancellationReason: undefined,
+    status: "pending",
+    version: 0,
+  };
 }
 
 let rootInstance: Root | null = null;
@@ -100,6 +119,7 @@ export function Widget({
 }: WidgetProps) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [toolLifecycle, setToolLifecycle] = useState(initialToolLifecycle);
   const appRef = useRef<App | null>(null);
   const initRef = useRef<{ metadata: WidgetMetadata; hooks: WidgetHooks | undefined } | null>(
     null,
@@ -126,6 +146,38 @@ export function Widget({
       options,
     );
     appRef.current = app;
+    setToolLifecycle(initialToolLifecycle());
+    app.addEventListener("toolinput", (params) => {
+      if (!cancelled) {
+        setToolLifecycle((current) => ({
+          ...current,
+          input: params.arguments,
+          inputReceived: true,
+        }));
+      }
+    });
+    app.addEventListener("toolresult", (params) => {
+      if (!cancelled) {
+        setToolLifecycle((current) => ({
+          ...current,
+          rawResult: params,
+          cancellationReason: undefined,
+          status: "result",
+          version: current.version + 1,
+        }));
+      }
+    });
+    app.addEventListener("toolcancelled", (params) => {
+      if (!cancelled) {
+        setToolLifecycle((current) => ({
+          ...current,
+          rawResult: undefined,
+          cancellationReason: params.reason,
+          status: "cancelled",
+          version: current.version + 1,
+        }));
+      }
+    });
     applyHooks(app, initHooks);
     app.onteardown = async (params, extra) => {
       if (active) {
@@ -198,7 +250,11 @@ export function Widget({
   }
 
   return (
-    <WidgetContext.Provider value={appRef.current}>{children}</WidgetContext.Provider>
+    <WidgetContext.Provider
+      value={{ app: appRef.current, tool: toolLifecycle }}
+    >
+      {children}
+    </WidgetContext.Provider>
   );
 }
 

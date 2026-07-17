@@ -28,6 +28,22 @@ export class McpToolError extends Error {
   }
 }
 
+export class McpToolCancelledError extends Error {
+  readonly toolName: string;
+  readonly reason: string | undefined;
+
+  constructor(toolName: string, reason?: string) {
+    super(
+      reason === undefined
+        ? `MCP tool ${JSON.stringify(toolName)} was cancelled`
+        : `MCP tool ${JSON.stringify(toolName)} was cancelled: ${reason}`,
+    );
+    this.name = "McpToolCancelledError";
+    this.toolName = toolName;
+    this.reason = reason;
+  }
+}
+
 export type ToolCallError = Error;
 
 export type ToolCallResult<Output> =

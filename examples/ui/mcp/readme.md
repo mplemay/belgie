@@ -79,6 +79,62 @@ const companies = await searchCompanies({ query: "Belgie" }, app)
 const currentTime = await getTime(undefined, app)
 ```
 
+## Consume the opening tool result
+
+The host sends the tool call that opened a widget through the MCP Apps
+[`ui/notifications/tool-result`](https://developers.openai.com/apps-sdk/reference#mcp-apps-ui-bridge) notification.
+`<Widget>` captures that one-shot notification before connecting, so child components can consume it without an event
+handler race:
+
+```tsx
+import { useToolResult } from "@belgie/mcp"
+
+import { getTime } from "@widgets/tools"
+
+function ServerTime() {
+  const {
+    data,
+    error,
+    rawResult,
+    status,
+    isLoading,
+    isFetching,
+    isSuccess,
+    isError,
+    execute,
+  } = useToolResult(getTime)
+
+  if (isLoading) return <p>Waiting for the tool result...</p>
+  if (isError && error) return <p>{error.message}</p>
+  if (!data || !rawResult) return <p>No result was returned.</p>
+
+  return (
+    <section>
+      <p>{data.time}</p>
+      <p>{rawResult.content.length} content blocks</p>
+      <p>Status: {status}; success: {String(isSuccess)}</p>
+      <button disabled={isFetching} onClick={() => void execute()}>
+        {isFetching ? "Refreshing..." : "Refresh"}
+      </button>
+    </section>
+  )
+}
+```
+
+The generated caller supplies both type parameters, so `data` follows the tool's output schema and is validated by the
+same Zod parser as a direct call. `rawResult` retains the complete latest MCP response, including `content` and `_meta`.
+For a schema-less tool, `data` itself is `RawToolResult`.
+
+`execute()` calls the same tool again with the latest arguments, beginning with the input that opened the widget.
+`execute(nextInput)` accepts the generated input type and reuses that replacement on later no-argument executions.
+Existing data stays visible while `isFetching` is true; `isLoading` is true only when a request is active without any
+successful data. Only the latest-started execution updates hook state, although every execution promise resolves with
+its own `ToolCallResult`.
+
+Opening MCP errors become `McpToolError`, cancellation becomes `McpToolCancelledError`, and malformed structured output
+returns its Zod error. Direct generated calls such as `getTime()` remain independent: they do not update hook state,
+and the hook does not add caching, deduplication, retries, or input-change revalidation.
+
 Every generated call resolves to exactly one of two branches and does not reject:
 
 ```ts

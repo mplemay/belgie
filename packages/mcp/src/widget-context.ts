@@ -1,8 +1,23 @@
 import { createContext, useContext } from "react";
 
 import type { App } from "@modelcontextprotocol/ext-apps";
+import type { RawToolResult } from "./tool-error";
 
-export const WidgetContext = createContext<App | null>(null);
+export type WidgetToolLifecycle = {
+  input: Record<string, unknown> | undefined;
+  inputReceived: boolean;
+  rawResult: RawToolResult | undefined;
+  cancellationReason: string | undefined;
+  status: "pending" | "result" | "cancelled";
+  version: number;
+};
+
+export type WidgetContextValue = {
+  app: App;
+  tool: WidgetToolLifecycle;
+};
+
+export const WidgetContext = createContext<WidgetContextValue | null>(null);
 
 let activeWidget: App | null = null;
 
@@ -26,14 +41,18 @@ export function getActiveWidget(): App {
   return activeWidget;
 }
 
-export function useWidgetContext(): App | null {
+export function useWidgetContext(): WidgetContextValue | null {
   return useContext(WidgetContext);
 }
 
-export function useWidget(): App {
-  const app = useWidgetContext();
-  if (app == null) {
-    throw new Error("useWidget must be used within a connected <Widget>");
+export function useConnectedWidgetContext(name: string): WidgetContextValue {
+  const context = useWidgetContext();
+  if (context == null) {
+    throw new Error(`${name} must be used within a connected <Widget>`);
   }
-  return app;
+  return context;
+}
+
+export function useWidget(): App {
+  return useConnectedWidgetContext("useWidget").app;
 }
