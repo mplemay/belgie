@@ -29,6 +29,26 @@ uv run main
 Vite serves `http://127.0.0.1:5173/widgets/get-time/index.html` with React refresh and HMR. The MCP server listens on
 port `3002` and registers the fetched page as its widget resource.
 
+## Use MCP app helpers
+
+Common MCP Apps operations use the active connected `<Widget>` automatically:
+
+```ts
+import { openLink, sendLog, sendMessage } from "@belgie/mcp"
+
+await sendMessage({ role: "user", content: [{ type: "text", text: "Hello" }] })
+await sendLog({ level: "info", data: "Sent a message" })
+await openLink({ url: "https://modelcontextprotocol.io" })
+```
+
+The same context-injected API is available for `updateModelContext`, `downloadFile`, `requestDisplayMode`, and
+`requestTeardown`. These helpers keep the MCP SDK method signatures and return values, but do not accept an `App`
+argument. When code already holds a specific app, call its method directly instead:
+
+```ts
+await app.sendMessage({ role: "user", content: [{ type: "text", text: "Hello" }] })
+```
+
 ## Generate typed tools
 
 With the MCP server running, regenerate the committed named tool module:

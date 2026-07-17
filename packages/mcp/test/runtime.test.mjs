@@ -7,7 +7,17 @@ import { createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { ZodError } from "zod";
 
-import { McpToolError, Widget } from "../dist/index.js";
+import {
+  McpToolError,
+  Widget,
+  downloadFile,
+  openLink,
+  requestDisplayMode,
+  requestTeardown,
+  sendLog,
+  sendMessage,
+  updateModelContext,
+} from "../dist/index.js";
 import {
   createGeneratedRawTool,
   createGeneratedTool,
@@ -38,21 +48,31 @@ async function contentBlocksTool() {
   return contentBlocksToolPromise;
 }
 
-function stubApp({ connect = async () => {}, close = async () => {}, call }) {
+function stubApp({
+  connect = async () => {},
+  close = async () => {},
+  call,
+  methods = {},
+}) {
   const originals = {
     connect: App.prototype.connect,
     close: App.prototype.close,
     callServerTool: App.prototype.callServerTool,
+    methods: Object.fromEntries(
+      Object.keys(methods).map((name) => [name, App.prototype[name]]),
+    ),
   };
   App.prototype.connect = connect;
   App.prototype.close = close;
   if (call !== undefined) {
     App.prototype.callServerTool = call;
   }
+  Object.assign(App.prototype, methods);
   return () => {
     App.prototype.connect = originals.connect;
     App.prototype.close = originals.close;
     App.prototype.callServerTool = originals.callServerTool;
+    Object.assign(App.prototype, originals.methods);
   };
 }
 
@@ -372,6 +392,107 @@ test("uses the active Widget after connection and clears it on teardown", async 
     assert.equal(afterTeardown.result, undefined);
     assert(afterTeardown.error instanceof Error);
     assert.match(afterTeardown.error.message, /active connected <Widget>/u);
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("forwards common app helpers through the active Widget", async () => {
+  let app;
+  let renderer;
+  const calls = {};
+  const results = Object.fromEntries(
+    [
+      "sendMessage",
+      "sendLog",
+      "updateModelContext",
+      "openLink",
+      "downloadFile",
+      "requestDisplayMode",
+      "requestTeardown",
+    ].map((name) => [name, Promise.resolve({ method: name })]),
+  );
+  const methods = Object.fromEntries(
+    Object.keys(results).map((name) => [
+      name,
+      function method(...args) {
+        calls[name] = { app: this, args };
+        return results[name];
+      },
+    ]),
+  );
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+    },
+    methods,
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "App helpers test", version: "1.0.0" } },
+          createElement("span", null, "connected"),
+        ),
+      );
+    });
+
+    const message = {
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+    };
+    const log = { level: "info", data: "hello" };
+    const modelContext = {
+      content: [{ type: "text", text: "context" }],
+    };
+    const link = { url: "https://example.com" };
+    const download = {
+      contents: [
+        {
+          type: "resource_link",
+          uri: "https://example.com/file",
+          name: "file",
+        },
+      ],
+    };
+    const displayMode = { mode: "fullscreen" };
+    const teardown = {};
+    const requestOptions = { timeout: 1_000 };
+
+    assert.equal(sendMessage(message, requestOptions), results.sendMessage);
+    assert.equal(sendLog(log), results.sendLog);
+    assert.equal(
+      updateModelContext(modelContext, requestOptions),
+      results.updateModelContext,
+    );
+    assert.equal(openLink(link, requestOptions), results.openLink);
+    assert.equal(downloadFile(download, requestOptions), results.downloadFile);
+    assert.equal(
+      requestDisplayMode(displayMode, requestOptions),
+      results.requestDisplayMode,
+    );
+    assert.equal(requestTeardown(teardown), results.requestTeardown);
+
+    assert.deepEqual(calls, {
+      sendMessage: { app, args: [message, requestOptions] },
+      sendLog: { app, args: [log] },
+      updateModelContext: { app, args: [modelContext, requestOptions] },
+      openLink: { app, args: [link, requestOptions] },
+      downloadFile: { app, args: [download, requestOptions] },
+      requestDisplayMode: { app, args: [displayMode, requestOptions] },
+      requestTeardown: { app, args: [teardown] },
+    });
+
+    await act(async () => renderer.unmount());
+    renderer = undefined;
+    assert.throws(
+      () => sendMessage(message),
+      /active connected <Widget>/u,
+    );
   } finally {
     if (renderer !== undefined) {
       await act(async () => renderer.unmount());
