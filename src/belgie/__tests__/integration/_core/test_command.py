@@ -65,6 +65,21 @@ def test_environment_runtime_runs_local_file_package_script_and_command(
     assert (tmp_path / "local-command.txt").read_text(encoding="utf-8") == "ok\n"
 
 
+def test_environment_runtime_resolves_local_file_package_by_bin_name(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    write_local_package_with_bin(tmp_path, bin_name="local-command")
+
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            assert runtime(Command("local-command"))() is None
+
+    assert (tmp_path / "local-command.txt").read_text(encoding="utf-8") == "ok\n"
+
+
 @pytest.mark.parametrize(
     ("command_spec", "clear_path"),
     [

@@ -29,6 +29,42 @@ uv run main
 Vite serves `http://127.0.0.1:5173/widgets/get-time/index.html` with React refresh and HMR. The MCP server listens on
 port `3002` and registers the fetched page as its widget resource.
 
+## Generate typed tools
+
+With the MCP server running, regenerate the committed named tool module:
+
+```bash
+uv run belgie run belgie-mcp generate \
+  http://127.0.0.1:3002/mcp \
+  --output src/shadcn/views/widgets/tools.ts
+```
+
+The Python tool keeps its content-returning signature:
+
+```python
+def get_time() -> list[TextContent]:
+    ...
+```
+
+The MCP SDK describes that result as structured content containing `result: TextContent[]`. Codegen exposes a named
+`getTime` function with that parsed result type. Rendering does not call the tool; the widget invokes it from its button
+handler:
+
+```ts
+import { getTime } from "@widgets/tools"
+
+const { result, error } = await getTime()
+const text = result?.result[0]?.text
+
+// Outside a connected <Widget>, pass the MCP App as the second argument.
+const explicit = await getTime(undefined, app)
+```
+
+Each call resolves to `{ result, error: undefined }` or `{ result: undefined, error }` and never rejects. Successful
+results are Zod-validated `structuredContent`; context, transport, and validation failures are returned as `Error`
+instances. MCP `isError` responses become display-ready `McpToolError` instances whose `result` property preserves the
+raw response. Use `app.callServerTool` directly when the full successful MCP response is needed.
+
 ## What's happening
 
 The widget uses shadcn/ui components (`Button`, `Card`, `Input`, `Textarea`, `Field`) with Tailwind v4 via
@@ -42,11 +78,12 @@ src/shadcn/views/
 ├── lib/utils.ts
 ├── components/ui/
 └── widgets/
+    ├── tools.ts
     └── get-time/
         └── widget.tsx
 ```
 
-`vite.config.ts` enables React, Tailwind, the widget `srcDir`, and the `@/` path alias:
+`vite.config.ts` enables React, Tailwind, the widget `srcDir`, and the `@/` and `@widgets/` path aliases:
 
 ```ts
 import path from "node:path"
@@ -61,11 +98,13 @@ const viewsDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "src/shadcn/views",
 )
+const widgetsDir = path.resolve(viewsDir, "widgets")
 
 export default defineConfig({
   plugins: [belgie({ srcDir: "src/shadcn/views/widgets" }), react(), tailwindcss()],
   resolve: {
     alias: {
+      "@widgets": widgetsDir,
       "@": viewsDir,
     },
   },

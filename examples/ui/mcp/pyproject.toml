@@ -30,6 +30,8 @@ belgie = { path = "../../../", editable = true }
 "@belgie/mcp" = "file:../../../packages/mcp"
 "@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"
 "@modelcontextprotocol/sdk" = "npm:@modelcontextprotocol/sdk@latest"
+"@types/react" = "npm:@types/react@^19"
+"@types/react-dom" = "npm:@types/react-dom@^19"
 "@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6"
 react = "npm:react@^19"
 "react-dom" = "npm:react-dom@^19"

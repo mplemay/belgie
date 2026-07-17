@@ -1,7 +1,5 @@
 import {
   StrictMode,
-  createContext,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -15,6 +13,22 @@ import {
   type AppOptions,
   type McpUiAppCapabilities,
 } from "@modelcontextprotocol/ext-apps";
+import {
+  WidgetContext,
+  activateWidget,
+  deactivateWidget,
+  useWidget,
+} from "./widget-context";
+
+export {
+  McpToolError,
+  type McpToolErrorResult,
+  type RawToolResult,
+  type ToolCallError,
+  type ToolCallResult,
+} from "./tool-error";
+
+export { useWidget };
 
 export type WidgetMetadata = {
   name: string;
@@ -43,16 +57,6 @@ export type WidgetProps = {
   error?: ReactNode | ((error: Error) => ReactNode);
 };
 
-const WidgetContext = createContext<App | null>(null);
-
-export function useWidget(): App {
-  const app = useContext(WidgetContext);
-  if (app == null) {
-    throw new Error("useWidget must be used within a connected <Widget>");
-  }
-  return app;
-}
-
 function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
   app.onerror = hooks?.error ?? ((error) => console.error(error));
   if (!hooks) {
@@ -72,9 +76,6 @@ function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
   }
   if (hooks.hostContextChanged) {
     app.onhostcontextchanged = hooks.hostContextChanged;
-  }
-  if (hooks.teardown) {
-    app.onteardown = hooks.teardown;
   }
 }
 
@@ -99,6 +100,7 @@ export function Widget({
 
   useEffect(() => {
     let cancelled = false;
+    let active = false;
     const { metadata: meta, hooks: initHooks } = initRef.current!;
     const { capabilities, autoResize, strict, name, version, title } = meta;
     const options: AppOptions = {};
@@ -115,6 +117,13 @@ export function Widget({
     );
     appRef.current = app;
     applyHooks(app, initHooks);
+    app.onteardown = async (params, extra) => {
+      if (active) {
+        deactivateWidget(app);
+        active = false;
+      }
+      return (await initHooks?.teardown?.(params, extra)) ?? {};
+    };
 
     void (async () => {
       try {
@@ -132,11 +141,20 @@ export function Widget({
         if (cancelled) {
           return;
         }
+        activateWidget(app);
+        active = true;
         await initHooks?.after?.();
         if (!cancelled) {
           setConnected(true);
+        } else {
+          deactivateWidget(app);
+          active = false;
         }
       } catch (err: unknown) {
+        if (active) {
+          deactivateWidget(app);
+          active = false;
+        }
         if (!cancelled) {
           setError(err instanceof Error ? err : new Error(String(err)));
         }
@@ -145,6 +163,10 @@ export function Widget({
 
     return () => {
       cancelled = true;
+      if (active) {
+        deactivateWidget(app);
+        active = false;
+      }
       void app.close();
       if (appRef.current === app) {
         appRef.current = null;

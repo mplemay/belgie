@@ -1,5 +1,4 @@
-import { Widget, useWidget } from "@belgie/mcp";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { Widget, useWidget, type ToolCallError } from "@belgie/mcp";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -13,22 +12,28 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { getTime, type GetTimeOutput } from "@widgets/tools";
 
 import "../../global.css";
 
 function AppView() {
   const app = useWidget();
-  const [toolResult, setToolResult] = useState<CallToolResult | null>(null);
+  const [timeData, setTimeData] = useState<GetTimeOutput>();
+  const [timeError, setTimeError] = useState<ToolCallError>();
+  const [timeLoading, setTimeLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
 
-  const serverTime = (() => {
-    const text = toolResult?.content?.find((content): content is { type: "text"; text: string } => {
-      return content.type === "text";
-    });
-    return text?.text ?? null;
-  })();
+  const serverTime = timeData?.result.find((content) => content.type === "text")?.text;
+
+  async function refreshTime(): Promise<void> {
+    setTimeLoading(true);
+    const { result, error } = await getTime();
+    setTimeData(result);
+    setTimeError(error);
+    setTimeLoading(false);
+  }
 
   return (
     <main className="flex flex-col gap-4 p-4">
@@ -43,13 +48,14 @@ function AppView() {
           <p className="font-mono text-sm text-muted-foreground">
             {serverTime ?? "No time fetched yet."}
           </p>
+          {timeError && (
+            <p className="text-sm text-destructive">{timeError.message}</p>
+          )}
           <Button
-            onClick={async () => {
-              const result = await app.callServerTool({ name: "get-time" });
-              setToolResult(result);
-            }}
+            disabled={timeLoading}
+            onClick={() => void refreshTime()}
           >
-            Get Server Time
+            {timeLoading ? "Getting Server Time..." : "Refresh Server Time"}
           </Button>
         </CardContent>
       </Card>

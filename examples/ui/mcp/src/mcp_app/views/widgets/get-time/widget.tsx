@@ -1,22 +1,25 @@
-import { Widget, useWidget } from "@belgie/mcp";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { Widget, useWidget, type ToolCallError } from "@belgie/mcp";
 import { useState } from "react";
 
 import "@/global.css";
+import { getTime, type GetTimeOutput } from "@widgets/tools";
 
 function AppView() {
   const app = useWidget();
-  const [toolResult, setToolResult] = useState<CallToolResult | null>(null);
+  const [timeData, setTimeData] = useState<GetTimeOutput>();
+  const [timeError, setTimeError] = useState<ToolCallError>();
+  const [timeLoading, setTimeLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
 
-  const serverTime = (() => {
-    const text = toolResult?.content?.find((content): content is { type: "text"; text: string } => {
-      return content.type === "text";
-    });
-    return text?.text ?? null;
-  })();
+  async function refreshTime(): Promise<void> {
+    setTimeLoading(true);
+    const { result, error } = await getTime();
+    setTimeData(result);
+    setTimeError(error);
+    setTimeLoading(false);
+  }
 
   return (
     <main className="main">
@@ -25,15 +28,14 @@ function AppView() {
       <div className="action">
         <h3>Server Time</h3>
         <p>
-          <span className="server-time">{serverTime ?? "No time fetched yet."}</span>
+          <span className="server-time">{timeData?.time ?? "No time fetched yet."}</span>
         </p>
+        {timeError && <p className="notice">{timeError.message}</p>}
         <button
-          onClick={async () => {
-            const result = await app.callServerTool({ name: "get-time" });
-            setToolResult(result);
-          }}
+          disabled={timeLoading}
+          onClick={() => void refreshTime()}
         >
-          Get Server Time
+          {timeLoading ? "Getting Server Time..." : "Refresh Server Time"}
         </button>
       </div>
 

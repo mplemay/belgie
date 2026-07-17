@@ -200,18 +200,31 @@ async fn resolve_command(
     let specifier = if explicit_npm_specifier {
         ModuleSpecifier::parse(command).map_err(map_package_environment_error)?
     } else {
-        match resolver_factory
+        let resolution = resolver_factory
             .workspace_resolver()
             .await
             .map_err(map_package_environment_error)?
             .resolve(command, &cwd_url, WorkspaceResolutionKind::Execution)
-            .map_err(map_package_environment_error)?
-        {
-            MappedResolution::Normal { specifier, .. } => specifier,
-            resolution => {
+            .map_err(map_package_environment_error);
+        match resolution {
+            Ok(MappedResolution::Normal { specifier, .. }) => specifier,
+            Ok(resolution) => {
                 return Err(BindingError::runtime(format!(
                     "Command {command:?} did not resolve to an npm package: {resolution:?}"
                 )));
+            }
+            Err(original_error) => {
+                let node_resolver = resolver_factory
+                    .node_resolver()
+                    .map_err(map_package_environment_error)?;
+                for package_folder in installed_package_folders(cwd)? {
+                    if let Ok(bin) =
+                        node_resolver.resolve_binary_export(&package_folder, Some(command))
+                    {
+                        return Ok((command.to_string(), bin));
+                    }
+                }
+                return Err(original_error);
             }
         }
     };
@@ -282,6 +295,48 @@ async fn resolve_command(
         },
         bin,
     ))
+}
+
+fn installed_package_folders(cwd: &Path) -> CommandResult<Vec<PathBuf>> {
+    let Some(node_modules) = cwd
+        .ancestors()
+        .map(|ancestor| ancestor.join("node_modules"))
+        .find(|path| path.is_dir())
+    else {
+        return Ok(Vec::new());
+    };
+    let mut packages = Vec::new();
+    for entry in std::fs::read_dir(&node_modules).map_err(|error| {
+        BindingError::runtime(format!(
+            "Reading {} failed: {error}",
+            node_modules.display()
+        ))
+    })? {
+        let entry = entry.map_err(|error| {
+            BindingError::runtime(format!(
+                "Reading {} failed: {error}",
+                node_modules.display()
+            ))
+        })?;
+        let name = entry.file_name();
+        let path = entry.path();
+        if name.to_string_lossy().starts_with('@') && path.is_dir() {
+            for scoped_entry in std::fs::read_dir(&path).map_err(|error| {
+                BindingError::runtime(format!("Reading {} failed: {error}", path.display()))
+            })? {
+                let scoped_entry = scoped_entry.map_err(|error| {
+                    BindingError::runtime(format!("Reading {} failed: {error}", path.display()))
+                })?;
+                if scoped_entry.path().join("package.json").is_file() {
+                    packages.push(scoped_entry.path());
+                }
+            }
+        } else if path.join("package.json").is_file() {
+            packages.push(path);
+        }
+    }
+    packages.sort();
+    Ok(packages)
 }
 
 async fn run_js_command(
