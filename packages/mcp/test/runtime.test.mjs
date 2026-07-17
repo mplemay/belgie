@@ -747,6 +747,81 @@ test("executes with reusable typed input and preserves stale data", async () => 
   }
 });
 
+test("execute(undefined) clears cached optional input", async () => {
+  const requests = [];
+  let app;
+  let resultState;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+      restore.emit(this, "toolinput", { arguments: { value: "opening-input" } });
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening-data" },
+      });
+    },
+    call: async (request) => {
+      requests.push(request);
+      return {
+        content: [],
+        structuredContent: { value: `called-${requests.length}` },
+      };
+    },
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Clear cached input", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    await act(async () => {
+      await resultState.execute();
+    });
+    assert.deepEqual(requests[0], {
+      name: "get-value",
+      arguments: { value: "opening-input" },
+    });
+
+    await act(async () => {
+      await resultState.execute(undefined);
+    });
+    assert.deepEqual(requests[1], { name: "get-value" });
+
+    await act(async () => {
+      restore.emit(app, "toolinput", {
+        arguments: { value: "late-opening-input" },
+      });
+    });
+
+    await act(async () => {
+      await resultState.execute();
+    });
+    assert.deepEqual(requests[2], { name: "get-value" });
+    assert.deepEqual(resultState.data, { value: "called-3" });
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
 test("picks up late opening input after an early execute", async () => {
   const calls = [];
   let app;

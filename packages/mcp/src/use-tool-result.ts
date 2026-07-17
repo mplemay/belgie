@@ -167,9 +167,9 @@ export function useToolResult<Input extends object, Output>(
   }, [adapter, context.tool, mismatch]);
 
   const execute = useCallback(
-    async (input?: Input): Promise<ToolCallResult<Output>> => {
+    async function execute(input?: Input): Promise<ToolCallResult<Output>> {
       hasExecutedRef.current = true;
-      if (input !== undefined) {
+      if (arguments.length > 0) {
         hasExplicitInputRef.current = true;
         latestInputRef.current = input;
       }
