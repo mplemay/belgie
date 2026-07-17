@@ -1,4 +1,4 @@
-import { createCallTool, createUseTool, defineToolRegistry } from "@belgie/mcp";
+import { createGeneratedTool } from "@belgie/mcp/internal";
 
 export type GetTimeInput = Record<string, never>;
 
@@ -6,18 +6,20 @@ export type GetTimeOutput = {
   "time": string;
 };
 
-export type McpTools = {
-  /** Get the current server time in ISO 8601 format. */
-  "get-time": {
-    input: GetTimeInput;
-    output: GetTimeOutput;
-  };
-};
-
-export const tools = defineToolRegistry<McpTools>({
-  "get-time": "structured",
-});
-
-export const callTool = createCallTool(tools);
-
-export const useTool = createUseTool(tools);
+/** Get the current server time in ISO 8601 format. */
+export const getTime = createGeneratedTool<GetTimeInput, GetTimeOutput>(
+  "get-time",
+  {
+    "properties": {
+      "time": {
+        "title": "Time",
+        "type": "string"
+      }
+    },
+    "required": [
+      "time"
+    ],
+    "title": "TimeResult",
+    "type": "object"
+  }
+);

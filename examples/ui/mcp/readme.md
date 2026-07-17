@@ -31,7 +31,7 @@ server listens on port `3001`; `BelgieExtension` fetches the Vite page when the 
 
 ## Generate typed tools
 
-With the MCP server running, explicitly generate and commit the tool registry:
+With the MCP server running, explicitly generate and commit the named tool module:
 
 ```bash
 uv run belgie run belgie-mcp generate \
@@ -39,43 +39,43 @@ uv run belgie run belgie-mcp generate \
   --output src/mcp_app/views/widgets/tools.ts
 ```
 
-Widgets import the generated `useTool` hook and `callTool` function. Tool names, required inputs, argument shapes, and
-structured outputs are then checked by TypeScript while calls continue to use the MCP Apps transport.
-
-Each hook instance calls its tool once after mounting. Renders with new inputs do not call it again; `mutate()`
-explicitly refreshes that instance with its latest rendered input:
+Widgets import one generated camelCase function per tool. Tool names, required inputs, argument shapes, and structured
+outputs are checked by TypeScript while calls continue to use the MCP Apps transport. Calls run only when the function
+is invoked; rendering a component does not make a request:
 
 ```ts
-const { data, error, isLoading, mutate } = useTool("search", {
-  query: "Belgie",
-})
+import { getTime, searchCompanies } from "@widgets/tools"
 
-const refreshed = await mutate()
+const { result, error } = await getTime()
+const companies = await searchCompanies({ query: "Belgie" })
 ```
 
-Use the generated fetch-style caller from helpers or event handlers after `<Widget>` connects. Every call is an
-independent request and does not update hook state:
+The function uses the active connected `<Widget>` by default, so it works naturally in event handlers. Pass an MCP
+`App` directly as the second argument when context is unavailable. A zero-input tool uses `undefined` to reach that
+second argument:
 
 ```ts
-const recent = await callTool("recent", { limit: 10 })
+const companies = await searchCompanies({ query: "Belgie" }, app)
+const currentTime = await getTime(undefined, app)
 ```
 
-Outside a connected `<Widget>`, pass the MCP `App` explicitly as a trailing options argument:
+Every generated call resolves to exactly one of two branches and does not reject:
 
 ```ts
-await callTool("recent", { limit: 10 }, { app })
-useTool("get-time", undefined, { app })
+const response = await getTime()
+if (response.error) {
+  // Error, ZodError, or the original MCP isError result
+  console.error(response.error)
+} else {
+  console.log(response.result.time)
+}
 ```
 
-The generated input type makes the hook and caller input required, optional, or omitted for each tool. The literal
-tool name selects the corresponding generated input and output types while remaining available for runtime MCP
-dispatch. Import both APIs through the widget alias:
+Successful `result` values are the Zod-validated `structuredContent`. Missing or invalid structured output, transport
+failures, context failures, and MCP errors are returned through `error`. Call `app.callServerTool` directly when the
+complete successful MCP response or unvalidated output is required.
 
-```ts
-import { callTool, useTool } from "@widgets/tools"
-```
-
-Check the committed registry for server drift in CI without writing it:
+Check the committed tool module for server drift in CI without writing it:
 
 ```bash
 uv run belgie run belgie-mcp generate \

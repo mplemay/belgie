@@ -21,7 +21,7 @@ export function deactivateWidget(app: App): void {
 
 export function getActiveWidget(): App {
   if (activeWidget === null) {
-    throw new Error("callTool requires an active connected <Widget>");
+    throw new Error("Tool calls require an active connected <Widget>");
   }
   return activeWidget;
 }

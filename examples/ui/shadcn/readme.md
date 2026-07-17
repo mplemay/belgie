@@ -31,7 +31,7 @@ port `3002` and registers the fetched page as its widget resource.
 
 ## Generate typed tools
 
-With the MCP server running, regenerate the committed TypeScript registry:
+With the MCP server running, regenerate the committed named tool module:
 
 ```bash
 uv run belgie run belgie-mcp generate \
@@ -46,23 +46,23 @@ def get_time() -> list[TextContent]:
     ...
 ```
 
-The MCP SDK describes that result as structured content containing `result: TextContent[]`. The generated hook calls
-the zero-input tool once when mounted, exposes the generated result shape, and can explicitly refresh it:
+The MCP SDK describes that result as structured content containing `result: TextContent[]`. Codegen exposes a named
+`getTime` function with that parsed result type. Rendering does not call the tool; the widget invokes it from its button
+handler:
 
 ```ts
-import { callTool, useTool } from "@widgets/tools"
+import { getTime } from "@widgets/tools"
 
-const { data, error, isLoading, mutate } = useTool("get-time")
-const text = data?.result[0]?.text
-const refreshed = await mutate()
+const { result, error } = await getTime()
+const text = result?.result[0]?.text
 
-// Independent fetch-style calls work after <Widget> connects.
-const current = await callTool("get-time")
-
-// Outside a connected <Widget>, pass the MCP App explicitly.
-await callTool("get-time", undefined, { app })
-useTool("get-time", undefined, { app })
+// Outside a connected <Widget>, pass the MCP App as the second argument.
+const explicit = await getTime(undefined, app)
 ```
+
+Each call resolves to `{ result, error: undefined }` or `{ result: undefined, error }` and never rejects. Successful
+results are Zod-validated `structuredContent`; MCP `isError` responses are preserved, and context, transport, and
+validation failures are returned as errors. Use `app.callServerTool` directly when the full MCP response is needed.
 
 ## What's happening
 

@@ -20,24 +20,12 @@ import {
   useWidget,
 } from "./widget-context";
 
-export {
-  createCallTool,
-  createUseTool,
-  defineToolRegistry,
-  type CallTool,
-  type DefinedToolRegistry,
-  type RawToolResult,
-  type ToolCallOptions,
-  type ToolContract,
-  type ToolInput,
-  type ToolName,
-  type ToolOutput,
-  type ToolRegistry,
-  type ToolResultMode,
-  type UseTool,
-  type UseToolResult,
-  type UseToolStatus,
-} from "./tools";
+export type {
+  McpToolError,
+  RawToolResult,
+  ToolCallError,
+  ToolCallResult,
+} from "./internal";
 
 export { useWidget };
 

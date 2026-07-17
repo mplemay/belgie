@@ -6,7 +6,8 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "open": "^11.0.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.4",
@@ -28,6 +29,10 @@
     "./codegen": {
       "import": "./dist/codegen.js",
       "types": "./types/codegen.d.ts"
+    },
+    "./internal": {
+      "import": "./dist/internal.js",
+      "types": "./types/internal.d.ts"
     },
     "./vite": {
       "import": "./dist/vite.js",

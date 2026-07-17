@@ -78,6 +78,11 @@ const SCHEMA_TOOLS = [
       type: "object",
       properties: { limit: { type: "integer", minimum: 1 } },
     },
+    outputSchema: {
+      type: "object",
+      properties: { count: { type: "integer" } },
+      required: ["count"],
+    },
   },
 ];
 
@@ -382,6 +387,36 @@ test("generates structured types for list[TextContent] tool results", async () =
   }
 });
 
+test("generates safe deterministic function identifiers", async () => {
+  const server = await startMcpServer(async () => ({
+    tools: [
+      {
+        name: "class",
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "1-search",
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "namespace",
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: { type: "object", properties: {} },
+      },
+    ],
+  }));
+  try {
+    const generated = await generateToolTypes({ url: server.url, oauth: false });
+    assert.match(generated, /export const tool1Search =/u);
+    assert.match(generated, /export const toolClass =/u);
+    assert.match(generated, /export const toolNamespace =/u);
+  } finally {
+    await server.close();
+  }
+});
+
 test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
   await t.test("empty", async () => {
     const server = await startMcpServer(async () => ({ tools: [] }));
@@ -418,6 +453,7 @@ test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
             type: "object",
             properties: { value: { not: { type: "string" } } },
           },
+          outputSchema: { type: "object", properties: {} },
         },
       ],
     }));
@@ -425,6 +461,47 @@ test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
       await assert.rejects(
         generateToolTypes({ url: server.url, oauth: false }),
         /unsupported JSON Schema keyword "not"/u,
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  await t.test("missing output schema", async () => {
+    const server = await startMcpServer(async () => ({
+      tools: [
+        { name: "zeta", inputSchema: { type: "object", properties: {} } },
+        { name: "alpha", inputSchema: { type: "object", properties: {} } },
+      ],
+    }));
+    try {
+      await assert.rejects(
+        generateToolTypes({ url: server.url, oauth: false }),
+        /MCP tools must declare outputSchema: "alpha", "zeta"/u,
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  await t.test("Zod-incompatible output schema", async () => {
+    const server = await startMcpServer(async () => ({
+      tools: [
+        {
+          name: "invalid-pattern",
+          inputSchema: { type: "object", properties: {} },
+          outputSchema: {
+            type: "object",
+            properties: { value: { type: "string" } },
+            unevaluatedProperties: false,
+          },
+        },
+      ],
+    }));
+    try {
+      await assert.rejects(
+        generateToolTypes({ url: server.url, oauth: false }),
+        /MCP tool "invalid-pattern" has an outputSchema Zod cannot compile/u,
       );
     } finally {
       await server.close();
@@ -485,8 +562,9 @@ test("CLI writes and checks generated files with direct and environment headers"
     const generated = await runCli(args, { TEST_MCP_TOKEN: "Bearer secret" });
     assert.equal(generated.code, 0, generated.stderr);
     const generatedSource = await readFile(output, "utf8");
-    assert.match(generatedSource, /export const callTool/u);
-    assert.match(generatedSource, /export const useTool/u);
+    assert.match(generatedSource, /export const modelTool =/u);
+    assert.doesNotMatch(generatedSource, /export const callTool/u);
+    assert.doesNotMatch(generatedSource, /export const useTool/u);
     assert(observedHeaders.some((headers) => headers["x-direct"] === "direct-value"));
     assert(observedHeaders.some((headers) => headers.authorization === "Bearer secret"));
 
@@ -553,7 +631,7 @@ test("completes dynamic OAuth registration, PKCE, state validation, and token us
     assert.equal(result.code, 0, result.stderr);
     await authorizationFetch;
     const generated = await readFile(output, "utf8");
-    assert.match(generated, /"model_tool": "raw"/u);
+    assert.match(generated, /export const modelTool =/u);
     assert.deepEqual(server.metrics(), {
       registrationCount: 1,
       tokenCount: 1,

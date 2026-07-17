@@ -4,13 +4,16 @@
     "npm:@modelcontextprotocol/ext-apps@latest": "1.7.4_@modelcontextprotocol+sdk@1.29.0__zod@4.4.3_react@19.2.6_react-dom@19.2.6__react@19.2.6_zod@4.4.3",
     "npm:@modelcontextprotocol/sdk@^1.29.0": "1.29.0_zod@4.4.3",
     "npm:@modelcontextprotocol/sdk@latest": "1.29.0_zod@4.4.3",
+    "npm:@types/react-dom@19": "19.2.3_@types+react@19.2.17",
+    "npm:@types/react@19": "19.2.17",
     "npm:@vitejs/plugin-react@6": "6.0.3_vite@8.1.3",
     "npm:open@11": "11.0.0",
     "npm:react-dom@19": "19.2.6_react@19.2.6",
     "npm:react-dom@19.2.6": "19.2.6_react@19.2.6",
     "npm:react@19": "19.2.6",
     "npm:react@19.2.6": "19.2.6",
-    "npm:vite@8.1.3": "8.1.3"
+    "npm:vite@8.1.3": "8.1.3",
+    "npm:zod@^4.4.3": "4.4.3"
   },
   "npm": {
     "@emnapi/core@1.11.1": {
@@ -176,6 +179,18 @@
         "tslib"
       ]
     },
+    "@types/react-dom@19.2.3_@types+react@19.2.17": {
+      "integrity": "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==",
+      "dependencies": [
+        "@types/react"
+      ]
+    },
+    "@types/react@19.2.17": {
+      "integrity": "sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==",
+      "dependencies": [
+        "csstype"
+      ]
+    },
     "@vitejs/plugin-react@6.0.3_vite@8.1.3": {
       "integrity": "sha512-vmFvco5/QuC2f9Oj+wTk0+9XeDFkHxSamwZKYc7MxYwKICfvUvlMhqKI0VuICPltGqh1neqBKDvO4kes1ya8vg==",
       "dependencies": [
@@ -274,6 +289,9 @@
         "shebang-command",
         "which"
       ]
+    },
+    "csstype@3.2.3": {
+      "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="
     },
     "debug@4.4.3": {
       "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",

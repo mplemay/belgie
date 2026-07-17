@@ -10,6 +10,7 @@ export default defineConfig({
         cli: "src/cli.ts",
         codegen: "src/codegen.ts",
         index: "src/index.tsx",
+        internal: "src/internal.ts",
         oauth: "src/oauth.ts",
         vite: "src/vite.ts",
       },

@@ -1,4 +1,4 @@
-import { createCallTool, createUseTool, defineToolRegistry, type RawToolResult } from "@belgie/mcp";
+import { createGeneratedTool } from "@belgie/mcp/internal";
 
 export type ModelToolInput = {
   "choices"?: readonly ("a" | "b")[];
@@ -29,26 +29,63 @@ export type ModelToolInput2 = {
   "limit"?: number;
 };
 
-export type McpTools = {
-  /**
-   * Build a model.
-   * This closes * / safely.
-   */
-  "model-tool": {
-    input: ModelToolInput;
-    output: ModelToolOutput;
-  };
-  "model_tool": {
-    input: ModelToolInput2;
-    output: RawToolResult;
-  };
+export type ModelToolOutput2 = {
+  "count": number;
 };
 
-export const tools = defineToolRegistry<McpTools>({
-  "model-tool": "structured",
-  "model_tool": "raw",
-});
+/**
+ * Build a model.
+ * This closes * / safely.
+ */
+export const modelTool = createGeneratedTool<ModelToolInput, ModelToolOutput>(
+  "model-tool",
+  {
+    "properties": {
+      "payload": {
+        "allOf": [
+          {
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "active"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "required": [
+      "payload"
+    ],
+    "type": "object"
+  }
+);
 
-export const callTool = createCallTool(tools);
-
-export const useTool = createUseTool(tools);
+export const modelTool2 = createGeneratedTool<ModelToolInput2, ModelToolOutput2>(
+  "model_tool",
+  {
+    "properties": {
+      "count": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "count"
+    ],
+    "type": "object"
+  }
+);

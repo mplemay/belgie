@@ -3,13 +3,19 @@ import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
 import {
   MemoryOAuthProvider,
   oauthState,
   startOAuthCallbackServer,
 } from "./oauth";
-import { compileSchema, IdentifierAllocator, typeIdentifier } from "./schema";
+import {
+  compileSchema,
+  IdentifierAllocator,
+  typeIdentifier,
+  ValueIdentifierAllocator,
+} from "./schema";
 
 export type GenerateToolTypesOptions = {
   url: string | URL;
@@ -19,9 +25,13 @@ export type GenerateToolTypesOptions = {
 };
 
 type ToolNames = {
+  call: string;
   input: string;
-  output: string | undefined;
+  output: string;
 };
+
+type ToolWithOutput = Tool & { outputSchema: NonNullable<Tool["outputSchema"]> };
+type ZodJsonSchema = Parameters<typeof z.fromJSONSchema>[0];
 
 function endpoint(value: string | URL): URL {
   let url: URL;
@@ -43,22 +53,73 @@ function jsDoc(description: string): string[] {
   const sanitized = description.replaceAll("*/", "* /").replaceAll("\r", "");
   const lines = sanitized.split("\n");
   if (lines.length === 1) {
-    return [`  /** ${lines[0]} */`];
+    return [`/** ${lines[0]} */`];
   }
-  return ["  /**", ...lines.map((line) => `   * ${line}`), "   */"];
+  return ["/**", ...lines.map((line) => ` * ${line}`), " */"];
 }
 
-function renderToolTypes(tools: Tool[]): string {
+function compareStrings(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => canonicalize(item));
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => compareStrings(left, right))
+        .map(([key, item]) => [key, canonicalize(item)]),
+    );
+  }
+  return value;
+}
+
+function renderSchema(schema: ToolWithOutput["outputSchema"]): string[] {
+  return JSON.stringify(canonicalize(schema), null, 2)
+    .split("\n")
+    .map((line) => `  ${line}`);
+}
+
+function requireOutputSchemas(tools: Tool[]): ToolWithOutput[] {
+  const missing = tools
+    .filter((tool) => tool.outputSchema === undefined)
+    .map((tool) => tool.name);
+  if (missing.length > 0) {
+    throw new Error(
+      `MCP tools must declare outputSchema: ${missing.map((name) => JSON.stringify(name)).join(", ")}`,
+    );
+  }
+
+  return tools.map((tool) => {
+    const outputSchema = tool.outputSchema!;
+    try {
+      z.fromJSONSchema(outputSchema as ZodJsonSchema);
+    } catch (cause: unknown) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(
+        `MCP tool ${JSON.stringify(tool.name)} has an outputSchema Zod cannot compile: ${message}`,
+        { cause },
+      );
+    }
+    return { ...tool, outputSchema };
+  });
+}
+
+function renderToolTypes(discoveredTools: Tool[]): string {
+  const tools = requireOutputSchemas(discoveredTools);
   const allocator = new IdentifierAllocator();
+  const valueAllocator = new ValueIdentifierAllocator();
   const names = new Map<string, ToolNames>();
   for (const tool of tools) {
     const base = typeIdentifier(tool.name);
     names.set(tool.name, {
+      call: valueAllocator.allocate(tool.name),
       input: allocator.allocate(`${base}Input`),
-      output:
-        tool.outputSchema === undefined
-          ? undefined
-          : allocator.allocate(`${base}Output`),
+      output: allocator.allocate(`${base}Output`),
     });
   }
 
@@ -68,55 +129,31 @@ function renderToolTypes(tools: Tool[]): string {
     declarations.push(
       ...compileSchema(tool.inputSchema, toolNames.input, allocator).declarations,
     );
-    if (tool.outputSchema !== undefined && toolNames.output !== undefined) {
-      declarations.push(
-        ...compileSchema(tool.outputSchema, toolNames.output, allocator).declarations,
-      );
-    }
-  }
-
-  const hasRawTools = tools.some((tool) => tool.outputSchema === undefined);
-  const imports = ["createCallTool", "createUseTool", "defineToolRegistry"];
-  const typeImports = hasRawTools ? ", type RawToolResult" : "";
-  const registryMembers: string[] = [];
-  for (const tool of tools) {
-    if (tool.description) {
-      registryMembers.push(...jsDoc(tool.description));
-    }
-    const toolNames = names.get(tool.name)!;
-    registryMembers.push(
-      `  ${JSON.stringify(tool.name)}: {`,
-      `    input: ${toolNames.input};`,
-      `    output: ${toolNames.output ?? "RawToolResult"};`,
-      "  };",
+    declarations.push(
+      ...compileSchema(tool.outputSchema, toolNames.output, allocator).declarations,
     );
   }
 
-  const modes = tools
-    .map(
-      (tool) =>
-        `  ${JSON.stringify(tool.name)}: ${JSON.stringify(
-          tool.outputSchema === undefined ? "raw" : "structured",
-        )},`,
-    )
-    .join("\n");
+  const calls: string[] = [];
+  for (const tool of tools) {
+    if (tool.description) {
+      calls.push(...jsDoc(tool.description));
+    }
+    const toolNames = names.get(tool.name)!;
+    calls.push(
+      `export const ${toolNames.call} = createGeneratedTool<${toolNames.input}, ${toolNames.output}>(`,
+      `  ${JSON.stringify(tool.name)},`,
+      ...renderSchema(tool.outputSchema),
+      ");",
+      "",
+    );
+  }
 
   return [
-    `import { ${imports.join(", ")}${typeImports} } from "@belgie/mcp";`,
+    'import { createGeneratedTool } from "@belgie/mcp/internal";',
     "",
     ...declarations.flatMap((declaration) => [declaration, ""]),
-    "export type McpTools = {",
-    ...registryMembers,
-    "};",
-    "",
-    "export const tools = defineToolRegistry<McpTools>({",
-    modes,
-    "});",
-    "",
-    "export const callTool = createCallTool(tools);",
-    "",
-    "export const useTool = createUseTool(tools);",
-    "",
+    ...calls,
   ].join("\n");
 }
 
@@ -160,11 +197,9 @@ async function discoverTools(client: Client): Promise<Tool[]> {
   if (tools.size === 0) {
     throw new Error("MCP server exposed no tools");
   }
-  return [...tools.values()].sort((left, right) => {
-    if (left.name < right.name) return -1;
-    if (left.name > right.name) return 1;
-    return 0;
-  });
+  return [...tools.values()].sort((left, right) =>
+    compareStrings(left.name, right.name),
+  );
 }
 
 export async function generateToolTypes(

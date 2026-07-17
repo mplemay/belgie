@@ -46,11 +46,102 @@ const STRUCTURAL_KEYWORDS = new Set([
   "type",
 ]);
 
+const RESERVED_VALUE_IDENTIFIERS = new Set([
+  "abstract",
+  "any",
+  "arguments",
+  "as",
+  "asserts",
+  "await",
+  "bigint",
+  "boolean",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "declare",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "eval",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "infer",
+  "intrinsic",
+  "instanceof",
+  "interface",
+  "is",
+  "keyof",
+  "let",
+  "module",
+  "namespace",
+  "never",
+  "new",
+  "null",
+  "number",
+  "object",
+  "out",
+  "override",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "readonly",
+  "require",
+  "return",
+  "satisfies",
+  "set",
+  "static",
+  "string",
+  "super",
+  "switch",
+  "symbol",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "type",
+  "typeof",
+  "undefined",
+  "unique",
+  "unknown",
+  "using",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+]);
+
 export class IdentifierAllocator {
   readonly #uses = new Map<string, number>();
 
   allocate(preferred: string): string {
     const safe = identifier(preferred);
+    const count = (this.#uses.get(safe) ?? 0) + 1;
+    this.#uses.set(safe, count);
+    return count === 1 ? safe : `${safe}${count}`;
+  }
+}
+
+export class ValueIdentifierAllocator {
+  readonly #uses = new Map<string, number>();
+
+  allocate(value: string): string {
+    const safe = valueIdentifier(value);
     const count = (this.#uses.get(safe) ?? 0) + 1;
     this.#uses.set(safe, count);
     return count === 1 ? safe : `${safe}${count}`;
@@ -85,13 +176,38 @@ function schemaArray(value: unknown, location: string): JsonSchema[] {
   });
 }
 
+function identifierWords(value: string): string[] {
+  return value.match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
 function identifier(value: string): string {
-  const words = value.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const words = identifierWords(value);
   const joined = words
     .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
     .join("");
   const result = joined || "Schema";
   return /^\p{N}/u.test(result) ? `Schema${result}` : result;
+}
+
+function valueIdentifier(value: string): string {
+  const words = identifierWords(value);
+  let result = words
+    .map((word, index) => {
+      const first = word.slice(0, 1);
+      const rest = word.slice(1);
+      return index === 0
+        ? `${first.toLocaleLowerCase("en-US")}${rest}`
+        : `${first.toLocaleUpperCase("en-US")}${rest}`;
+    })
+    .join("");
+  if (!result) {
+    result = "tool";
+  } else if (/^\p{N}/u.test(result)) {
+    result = `tool${result}`;
+  } else if (RESERVED_VALUE_IDENTIFIERS.has(result)) {
+    result = `tool${result.slice(0, 1).toLocaleUpperCase("en-US")}${result.slice(1)}`;
+  }
+  return result;
 }
 
 export function typeIdentifier(value: string): string {

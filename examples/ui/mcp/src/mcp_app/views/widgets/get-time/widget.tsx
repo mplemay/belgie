@@ -1,20 +1,37 @@
-import { Widget, useWidget } from "@belgie/mcp";
+import { Widget, useWidget, type ToolCallError } from "@belgie/mcp";
 import { useState } from "react";
 
 import "@/global.css";
-import { useTool } from "@widgets/tools";
+import { getTime, type GetTimeOutput } from "@widgets/tools";
+
+function toolErrorMessage(error: ToolCallError): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return (
+    error.content
+      .map((content) => (content.type === "text" ? content.text : ""))
+      .filter(Boolean)
+      .join("\n") || "The MCP tool returned an error"
+  );
+}
 
 function AppView() {
   const app = useWidget();
-  const {
-    mutate: getTime,
-    data: timeData,
-    error: timeError,
-    isLoading: timeLoading,
-  } = useTool("get-time");
+  const [timeData, setTimeData] = useState<GetTimeOutput>();
+  const [timeError, setTimeError] = useState<ToolCallError>();
+  const [timeLoading, setTimeLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
+
+  async function refreshTime(): Promise<void> {
+    setTimeLoading(true);
+    const { result, error } = await getTime();
+    setTimeData(result);
+    setTimeError(error);
+    setTimeLoading(false);
+  }
 
   return (
     <main className="main">
@@ -25,10 +42,10 @@ function AppView() {
         <p>
           <span className="server-time">{timeData?.time ?? "No time fetched yet."}</span>
         </p>
-        {timeError && <p className="notice">{timeError.message}</p>}
+        {timeError && <p className="notice">{toolErrorMessage(timeError)}</p>}
         <button
           disabled={timeLoading}
-          onClick={() => void getTime()}
+          onClick={() => void refreshTime()}
         >
           {timeLoading ? "Getting Server Time..." : "Refresh Server Time"}
         </button>

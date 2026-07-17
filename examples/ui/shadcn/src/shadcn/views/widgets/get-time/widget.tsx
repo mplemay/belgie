@@ -1,4 +1,4 @@
-import { Widget, useWidget } from "@belgie/mcp";
+import { Widget, useWidget, type ToolCallError } from "@belgie/mcp";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,23 +12,40 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useTool } from "@widgets/tools";
+import { getTime, type GetTimeOutput } from "@widgets/tools";
 
 import "../../global.css";
 
+function toolErrorMessage(error: ToolCallError): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return (
+    error.content
+      .map((content) => (content.type === "text" ? content.text : ""))
+      .filter(Boolean)
+      .join("\n") || "The MCP tool returned an error"
+  );
+}
+
 function AppView() {
   const app = useWidget();
-  const {
-    mutate: getTime,
-    data: timeData,
-    error: timeError,
-    isLoading: timeLoading,
-  } = useTool("get-time");
+  const [timeData, setTimeData] = useState<GetTimeOutput>();
+  const [timeError, setTimeError] = useState<ToolCallError>();
+  const [timeLoading, setTimeLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [logMessage, setLogMessage] = useState("");
   const [link, setLink] = useState("https://modelcontextprotocol.io");
 
   const serverTime = timeData?.result.find((content) => content.type === "text")?.text;
+
+  async function refreshTime(): Promise<void> {
+    setTimeLoading(true);
+    const { result, error } = await getTime();
+    setTimeData(result);
+    setTimeError(error);
+    setTimeLoading(false);
+  }
 
   return (
     <main className="flex flex-col gap-4 p-4">
@@ -43,10 +60,12 @@ function AppView() {
           <p className="font-mono text-sm text-muted-foreground">
             {serverTime ?? "No time fetched yet."}
           </p>
-          {timeError && <p className="text-sm text-destructive">{timeError.message}</p>}
+          {timeError && (
+            <p className="text-sm text-destructive">{toolErrorMessage(timeError)}</p>
+          )}
           <Button
             disabled={timeLoading}
-            onClick={() => void getTime()}
+            onClick={() => void refreshTime()}
           >
             {timeLoading ? "Getting Server Time..." : "Refresh Server Time"}
           </Button>
