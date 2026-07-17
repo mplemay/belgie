@@ -3,11 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { App } from "@modelcontextprotocol/ext-apps";
-import { createElement } from "react";
+import { StrictMode, createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { ZodError } from "zod";
 
 import {
+  McpToolCancelledError,
   McpToolError,
   Widget,
   downloadFile,
@@ -17,6 +18,7 @@ import {
   sendLog,
   sendMessage,
   updateModelContext,
+  useToolResult,
 } from "../dist/index.js";
 import {
   createGeneratedRawTool,
@@ -54,26 +56,58 @@ function stubApp({
   call,
   methods = {},
 }) {
+  const listeners = new WeakMap();
   const originals = {
+    addEventListener: App.prototype.addEventListener,
     connect: App.prototype.connect,
     close: App.prototype.close,
     callServerTool: App.prototype.callServerTool,
+    removeEventListener: App.prototype.removeEventListener,
     methods: Object.fromEntries(
       Object.keys(methods).map((name) => [name, App.prototype[name]]),
     ),
   };
   App.prototype.connect = connect;
   App.prototype.close = close;
+  App.prototype.addEventListener = function addEventListener(name, handler) {
+    let appListeners = listeners.get(this);
+    if (appListeners === undefined) {
+      appListeners = new Map();
+      listeners.set(this, appListeners);
+    }
+    const eventListeners = appListeners.get(name) ?? [];
+    eventListeners.push(handler);
+    appListeners.set(name, eventListeners);
+  };
+  App.prototype.removeEventListener = function removeEventListener(name, handler) {
+    const eventListeners = listeners.get(this)?.get(name);
+    if (eventListeners === undefined) return;
+    const index = eventListeners.indexOf(handler);
+    if (index !== -1) eventListeners.splice(index, 1);
+  };
   if (call !== undefined) {
     App.prototype.callServerTool = call;
   }
   Object.assign(App.prototype, methods);
-  return () => {
+  const restore = () => {
+    App.prototype.addEventListener = originals.addEventListener;
     App.prototype.connect = originals.connect;
     App.prototype.close = originals.close;
     App.prototype.callServerTool = originals.callServerTool;
+    App.prototype.removeEventListener = originals.removeEventListener;
     Object.assign(App.prototype, originals.methods);
   };
+  restore.emit = (app, name, params) => {
+    for (const handler of [...(listeners.get(app)?.get(name) ?? [])]) {
+      handler(params);
+    }
+  };
+  return restore;
+}
+
+function ResultProbe({ source, rendered }) {
+  rendered(useToolResult(source));
+  return createElement("span", null, "result");
 }
 
 test("parses successful structured output through an explicit app", async () => {
@@ -342,6 +376,775 @@ test("returns transport and context failures instead of rejecting", async (t) =>
     assert(response.error instanceof Error);
     assert.match(response.error.message, /active connected <Widget>/u);
   });
+});
+
+test("captures the opening tool result before Widget children mount", async () => {
+  const rawResult = {
+    content: [{ type: "text", text: "opening" }],
+    structuredContent: { value: "opening" },
+    _meta: { requestId: "opening" },
+  };
+  let resultState;
+  let inputHookCalls = 0;
+  let resultHookCalls = 0;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      restore.emit(this, "toolinput", { arguments: { value: "input" } });
+      restore.emit(this, "toolresult", rawResult);
+    },
+    methods: {
+      getHostContext() {
+        return {};
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          {
+            metadata: { name: "Opening result", version: "1.0.0" },
+            hooks: {
+              toolInput: () => {
+                inputHookCalls += 1;
+              },
+              toolResult: () => {
+                resultHookCalls += 1;
+              },
+            },
+          },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    assert.deepEqual(resultState.data, { value: "opening" });
+    assert.equal(resultState.rawResult, rawResult);
+    assert.equal(resultState.error, undefined);
+    assert.equal(resultState.status, "success");
+    assert.equal(resultState.isLoading, false);
+    assert.equal(resultState.isFetching, false);
+    assert.equal(resultState.isSuccess, true);
+    assert.equal(resultState.isError, false);
+    assert.equal(inputHookCalls, 1);
+    assert.equal(resultHookCalls, 1);
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("keeps an unresolved opening result pending and consumes later results", async () => {
+  let app;
+  let resultState;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+    },
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Pending result", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    assert.equal(resultState.status, "pending");
+    assert.equal(resultState.isLoading, true);
+    assert.equal(resultState.isFetching, true);
+
+    const rawResult = {
+      content: [],
+      structuredContent: { value: "later" },
+    };
+    await act(async () => {
+      restore.emit(app, "toolresult", rawResult);
+    });
+    assert.deepEqual(resultState.data, { value: "later" });
+    assert.equal(resultState.rawResult, rawResult);
+    assert.equal(resultState.status, "success");
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("normalizes opening raw, error, invalid, cancellation, and mismatch states", async (t) => {
+  async function renderOpening({ source, toolName, event, params }) {
+    let resultState;
+    let renderer;
+    let calls = 0;
+    const restore = stubApp({
+      connect: async function connect() {
+        restore.emit(this, event, params);
+      },
+      call: async () => {
+        calls += 1;
+        return { content: [], structuredContent: { value: "called" } };
+      },
+      methods: {
+        getHostContext() {
+          return { toolInfo: { tool: { name: toolName } } };
+        },
+      },
+    });
+    try {
+      await act(async () => {
+        renderer = create(
+          createElement(
+            Widget,
+            { metadata: { name: "Opening state", version: "1.0.0" } },
+            createElement(ResultProbe, {
+              source,
+              rendered: (state) => {
+                resultState = state;
+              },
+            }),
+          ),
+        );
+      });
+      return {
+        get resultState() {
+          return resultState;
+        },
+        get calls() {
+          return calls;
+        },
+        async cleanup() {
+          if (renderer !== undefined) {
+            await act(async () => renderer.unmount());
+          }
+          restore();
+        },
+      };
+    } catch (error) {
+      restore();
+      throw error;
+    }
+  }
+
+  await t.test("raw", async () => {
+    const rawTool = createGeneratedRawTool("raw-opening");
+    const rawResult = {
+      content: [{ type: "text", text: "raw" }],
+      structuredContent: { unvalidated: true },
+      _meta: { private: true },
+    };
+    const view = await renderOpening({
+      source: rawTool,
+      toolName: "raw-opening",
+      event: "toolresult",
+      params: rawResult,
+    });
+    try {
+      assert.equal(view.resultState.data, rawResult);
+      assert.equal(view.resultState.rawResult, rawResult);
+      assert.equal(view.resultState.status, "success");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  await t.test("MCP error", async () => {
+    const rawError = {
+      content: [{ type: "text", text: "opening failed" }],
+      isError: true,
+    };
+    const view = await renderOpening({
+      source: getValue,
+      toolName: "get-value",
+      event: "toolresult",
+      params: rawError,
+    });
+    try {
+      assert(view.resultState.error instanceof McpToolError);
+      assert.equal(view.resultState.rawResult, rawError);
+      assert.equal(view.resultState.status, "error");
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  await t.test("invalid structured output", async () => {
+    const malformed = { content: [], structuredContent: { value: 42 } };
+    const view = await renderOpening({
+      source: getValue,
+      toolName: "get-value",
+      event: "toolresult",
+      params: malformed,
+    });
+    try {
+      assert(view.resultState.error instanceof ZodError);
+      assert.equal(view.resultState.rawResult, malformed);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  await t.test("cancellation", async () => {
+    const view = await renderOpening({
+      source: getValue,
+      toolName: "get-value",
+      event: "toolcancelled",
+      params: { reason: "user action" },
+    });
+    try {
+      assert(view.resultState.error instanceof McpToolCancelledError);
+      assert.equal(view.resultState.error.toolName, "get-value");
+      assert.equal(view.resultState.error.reason, "user action");
+      assert.equal(view.resultState.isFetching, false);
+    } finally {
+      await view.cleanup();
+    }
+  });
+
+  await t.test("source mismatch", async () => {
+    const view = await renderOpening({
+      source: getValue,
+      toolName: "another-tool",
+      event: "toolresult",
+      params: { content: [], structuredContent: { value: "wrong" } },
+    });
+    try {
+      assert.match(view.resultState.error.message, /expected opening tool/u);
+      let response;
+      await act(async () => {
+        response = await view.resultState.execute({ value: "ignored" });
+      });
+      assert.match(response.error.message, /expected opening tool/u);
+      assert.equal(view.calls, 0);
+    } finally {
+      await view.cleanup();
+    }
+  });
+});
+
+test("executes with reusable typed input and preserves stale data", async () => {
+  const calls = [];
+  const pending = [];
+  let resultState;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      restore.emit(this, "toolinput", { arguments: { value: "opening-input" } });
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening-data" },
+      });
+    },
+    call: ({ arguments: input }) => {
+      calls.push(input);
+      return new Promise((resolve) => pending.push(resolve));
+    },
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Execute result", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    let firstPromise;
+    await act(async () => {
+      firstPromise = resultState.execute();
+      await Promise.resolve();
+    });
+    assert.deepEqual(calls[0], { value: "opening-input" });
+    assert.deepEqual(resultState.data, { value: "opening-data" });
+    assert.equal(resultState.isLoading, false);
+    assert.equal(resultState.isFetching, true);
+    assert.equal(resultState.status, "success");
+
+    await act(async () => {
+      pending.shift()({
+        content: [],
+        structuredContent: { value: "first-execution" },
+      });
+      await firstPromise;
+    });
+    assert.deepEqual(resultState.data, { value: "first-execution" });
+
+    let explicitPromise;
+    await act(async () => {
+      explicitPromise = resultState.execute({ value: "replacement" });
+      await Promise.resolve();
+    });
+    assert.deepEqual(calls[1], { value: "replacement" });
+    await act(async () => {
+      pending.shift()({
+        content: [],
+        structuredContent: { value: 42 },
+        _meta: { requestId: "invalid" },
+      });
+      await explicitPromise;
+    });
+    assert.deepEqual(resultState.data, { value: "first-execution" });
+    assert(resultState.error instanceof ZodError);
+    assert.equal(resultState.rawResult._meta.requestId, "invalid");
+    assert.equal(resultState.status, "error");
+
+    let retryPromise;
+    await act(async () => {
+      retryPromise = resultState.execute();
+      await Promise.resolve();
+    });
+    assert.deepEqual(calls[2], { value: "replacement" });
+    assert.equal(resultState.error, undefined);
+    assert.equal(resultState.isFetching, true);
+    await act(async () => {
+      pending.shift()({
+        content: [],
+        structuredContent: { value: "retry" },
+      });
+      await retryPromise;
+    });
+    assert.deepEqual(resultState.data, { value: "retry" });
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("execute(undefined) clears cached optional input", async () => {
+  const requests = [];
+  let app;
+  let resultState;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+      restore.emit(this, "toolinput", { arguments: { value: "opening-input" } });
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening-data" },
+      });
+    },
+    call: async (request) => {
+      requests.push(request);
+      return {
+        content: [],
+        structuredContent: { value: `called-${requests.length}` },
+      };
+    },
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Clear cached input", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    await act(async () => {
+      await resultState.execute();
+    });
+    assert.deepEqual(requests[0], {
+      name: "get-value",
+      arguments: { value: "opening-input" },
+    });
+
+    await act(async () => {
+      await resultState.execute(undefined);
+    });
+    assert.deepEqual(requests[1], { name: "get-value" });
+
+    await act(async () => {
+      restore.emit(app, "toolinput", {
+        arguments: { value: "late-opening-input" },
+      });
+    });
+
+    await act(async () => {
+      await resultState.execute();
+    });
+    assert.deepEqual(requests[2], { name: "get-value" });
+    assert.deepEqual(resultState.data, { value: "called-3" });
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("picks up late opening input after an early execute", async () => {
+  const calls = [];
+  let app;
+  let resultState;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening-data" },
+      });
+    },
+    call: async ({ arguments: input }) => {
+      calls.push(input);
+      return {
+        content: [],
+        structuredContent: { value: `called-${calls.length}` },
+      };
+    },
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Late opening input", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    assert.deepEqual(resultState.data, { value: "opening-data" });
+
+    await act(async () => {
+      await resultState.execute();
+    });
+    assert.equal(calls[0], undefined);
+
+    await act(async () => {
+      restore.emit(app, "toolinput", { arguments: { value: "opening-input" } });
+    });
+
+    await act(async () => {
+      await resultState.execute();
+    });
+    assert.deepEqual(calls[1], { value: "opening-input" });
+    assert.deepEqual(resultState.data, { value: "called-2" });
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("recomputes opening mismatch after host context arrives", async () => {
+  let hostContext = {};
+  let app;
+  let resultState;
+  let renderer;
+  let calls = 0;
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening" },
+      });
+    },
+    call: async () => {
+      calls += 1;
+      return { content: [], structuredContent: { value: "called" } };
+    },
+    methods: {
+      getHostContext() {
+        return hostContext;
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Late mismatch", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    assert.deepEqual(resultState.data, { value: "opening" });
+    assert.equal(resultState.status, "success");
+
+    await act(async () => {
+      hostContext = { toolInfo: { tool: { name: "another-tool" } } };
+      restore.emit(app, "hostcontextchanged", hostContext);
+    });
+
+    assert.match(resultState.error.message, /expected opening tool/u);
+    assert.equal(resultState.status, "error");
+    assert.equal(resultState.data, undefined);
+
+    let response;
+    await act(async () => {
+      response = await resultState.execute({ value: "ignored" });
+    });
+    assert.match(response.error.message, /expected opening tool/u);
+    assert.equal(calls, 0);
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("keeps only the latest execution in hook state", async () => {
+  const pending = new Map();
+  let resultState;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening" },
+      });
+    },
+    call: ({ arguments: input }) =>
+      new Promise((resolve) => pending.set(input.value, resolve)),
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Latest result", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    let olderPromise;
+    let newerPromise;
+    await act(async () => {
+      olderPromise = resultState.execute({ value: "older" });
+      newerPromise = resultState.execute({ value: "newer" });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      pending.get("newer")({
+        content: [],
+        structuredContent: { value: "newer" },
+      });
+      await newerPromise;
+    });
+    assert.deepEqual(resultState.data, { value: "newer" });
+    assert.equal(resultState.isFetching, false);
+
+    let olderResult;
+    await act(async () => {
+      pending.get("older")({
+        content: [],
+        structuredContent: { value: "older" },
+      });
+      olderResult = await olderPromise;
+    });
+    assert.deepEqual(olderResult.result, { value: "older" });
+    assert.deepEqual(resultState.data, { value: "newer" });
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("keeps direct generated calls independent from hook state", async () => {
+  let resultState;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      restore.emit(this, "toolresult", {
+        content: [],
+        structuredContent: { value: "opening" },
+      });
+    },
+    call: async () => ({
+      content: [],
+      structuredContent: { value: "direct" },
+    }),
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Independent result", version: "1.0.0" } },
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: (state) => {
+              resultState = state;
+            },
+          }),
+        ),
+      );
+    });
+
+    assert.deepEqual(await getValue({ value: "direct" }), {
+      result: { value: "direct" },
+      error: undefined,
+    });
+    assert.deepEqual(resultState.data, { value: "opening" });
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("does not duplicate tool result listeners across Strict Mode setup", async () => {
+  let app;
+  let resultState;
+  let resultHookCalls = 0;
+  let renderer;
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+    },
+    methods: {
+      getHostContext() {
+        return { toolInfo: { tool: { name: "get-value" } } };
+      },
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          StrictMode,
+          null,
+          createElement(
+            Widget,
+            {
+              metadata: { name: "Strict result", version: "1.0.0" },
+              hooks: {
+                toolResult: () => {
+                  resultHookCalls += 1;
+                },
+              },
+            },
+            createElement(ResultProbe, {
+              source: getValue,
+              rendered: (state) => {
+                resultState = state;
+              },
+            }),
+          ),
+        ),
+      );
+    });
+
+    await act(async () => {
+      restore.emit(app, "toolresult", {
+        content: [],
+        structuredContent: { value: "strict" },
+      });
+    });
+    assert.equal(resultHookCalls, 1);
+    assert.deepEqual(resultState.data, { value: "strict" });
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("requires useToolResult to run within Widget context", async () => {
+  await assert.rejects(
+    async () => {
+      await act(async () => {
+        create(
+          createElement(ResultProbe, {
+            source: getValue,
+            rendered: () => {},
+          }),
+        );
+      });
+    },
+    /useToolResult must be used within a connected <Widget>/u,
+  );
 });
 
 test("uses the active Widget after connection and clears it on teardown", async () => {

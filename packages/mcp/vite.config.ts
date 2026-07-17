@@ -12,6 +12,7 @@ export default defineConfig({
         index: "src/index.tsx",
         internal: "src/internal.ts",
         oauth: "src/oauth.ts",
+        "tool-result-source": "src/tool-result-source.ts",
         vite: "src/vite.ts",
       },
       output: {

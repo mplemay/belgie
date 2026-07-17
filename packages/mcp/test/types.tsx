@@ -1,6 +1,7 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
 
 import {
+  McpToolCancelledError,
   McpToolError,
   downloadFile,
   openLink,
@@ -9,9 +10,11 @@ import {
   sendLog,
   sendMessage,
   updateModelContext,
+  useToolResult,
   type RawToolResult,
   type ToolCallError,
   type ToolCallResult,
+  type ToolResultState,
 } from "@belgie/mcp";
 import {
   createGeneratedRawTool,
@@ -91,6 +94,12 @@ function narrowToolError(error: ToolCallError): void {
     void isError;
     void cause;
   }
+  if (error instanceof McpToolCancelledError) {
+    const toolName: string = error.toolName;
+    const reason: string | undefined = error.reason;
+    void toolName;
+    void reason;
+  }
   void standardError;
 }
 
@@ -112,6 +121,28 @@ async function narrowResult(): Promise<number> {
 }
 
 export function TypeFixture() {
+  const requiredResult = useToolResult(required);
+  const requiredResultState: ToolResultState<
+    { id: string },
+    RequiredOutput
+  > = requiredResult;
+  const requiredData: RequiredOutput | undefined = requiredResult.data;
+  const requiredExecution: Promise<ToolCallResult<RequiredOutput>> =
+    requiredResult.execute();
+  const requiredInputExecution: Promise<ToolCallResult<RequiredOutput>> =
+    requiredResult.execute({ id: "example" });
+  const rawResultState = useToolResult(raw);
+  const rawData: RawToolResult | undefined = rawResultState.data;
+  const ordinaryCaller = async (_input: { id: string }) => ({
+    result: { value: 1 },
+    error: undefined,
+  });
+
+  // @ts-expect-error execution input is inferred from the generated caller
+  void requiredResult.execute({ id: 1 });
+  // @ts-expect-error ordinary functions do not carry generated result metadata
+  void useToolResult(ordinaryCaller);
+
   const messageResult: ReturnType<App["sendMessage"]> = sendMessage(
     message,
     requestOptions,
@@ -183,6 +214,11 @@ export function TypeFixture() {
   void teardownResult;
   void requiredCall;
   void rawCall;
+  void requiredResultState;
+  void requiredData;
+  void requiredExecution;
+  void requiredInputExecution;
+  void rawData;
   void narrowResult();
   return null;
 }
