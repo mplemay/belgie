@@ -1,0 +1,139 @@
+import { useCallback, useMemo, useSyncExternalStore } from "react";
+
+import type {
+  App,
+  AppEventMap,
+  McpUiDisplayMode,
+  McpUiHostContext,
+  McpUiTheme,
+} from "@modelcontextprotocol/ext-apps";
+import { useConnectedWidgetContext } from "./widget-context";
+
+export type SafeAreaInsets = NonNullable<
+  McpUiHostContext["safeAreaInsets"]
+>;
+
+export type SafeArea = {
+  insets: SafeAreaInsets;
+};
+
+export type LayoutState = {
+  maxHeight: number | undefined;
+  safeArea: SafeArea;
+};
+
+export type DeviceType = "mobile" | "tablet" | "desktop" | "unknown";
+
+export type UserAgent = {
+  device: {
+    type: DeviceType;
+  };
+  capabilities: {
+    hover: boolean;
+    touch: boolean;
+  };
+};
+
+const DEFAULT_LOCALE = "en-US";
+const DEFAULT_SAFE_AREA_INSETS: SafeAreaInsets = {
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+};
+
+function useHostContextValue<K extends keyof McpUiHostContext>(
+  app: App,
+  key: K,
+): McpUiHostContext[K] {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const handleHostContextChanged = (
+        params: AppEventMap["hostcontextchanged"],
+      ) => {
+        if (key in params) {
+          onChange();
+        }
+      };
+
+      app.addEventListener("hostcontextchanged", handleHostContextChanged);
+      return () => {
+        app.removeEventListener("hostcontextchanged", handleHostContextChanged);
+      };
+    },
+    [app, key],
+  );
+  const getSnapshot = useCallback(
+    () => app.getHostContext()?.[key],
+    [app, key],
+  );
+
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+function normalizeLocale(locale: string): string {
+  try {
+    return new Intl.Locale(locale.replaceAll("_", "-")).toString();
+  } catch {
+    return DEFAULT_LOCALE;
+  }
+}
+
+export function useDisplayMode() {
+  const { app } = useConnectedWidgetContext("useDisplayMode");
+  const displayMode = useHostContextValue(app, "displayMode") ?? "inline";
+  const setDisplayMode = useCallback(
+    (mode: McpUiDisplayMode) => app.requestDisplayMode({ mode }),
+    [app],
+  );
+
+  return [displayMode, setDisplayMode] as const;
+}
+
+export function useLayout(): LayoutState {
+  const { app } = useConnectedWidgetContext("useLayout");
+  const containerDimensions = useHostContextValue(app, "containerDimensions");
+  const safeAreaInsets = useHostContextValue(app, "safeAreaInsets");
+  const safeArea = useMemo(
+    () => ({ insets: safeAreaInsets ?? DEFAULT_SAFE_AREA_INSETS }),
+    [safeAreaInsets],
+  );
+  const maxHeight =
+    containerDimensions !== undefined && "maxHeight" in containerDimensions
+      ? containerDimensions.maxHeight
+      : undefined;
+
+  return { maxHeight, safeArea };
+}
+
+export function useLocale(): string {
+  const { app } = useConnectedWidgetContext("useLocale");
+  const locale = useHostContextValue(app, "locale") ?? DEFAULT_LOCALE;
+
+  return useMemo(() => normalizeLocale(locale), [locale]);
+}
+
+export function useTheme(): McpUiTheme {
+  const { app } = useConnectedWidgetContext("useTheme");
+
+  return useHostContextValue(app, "theme") ?? "light";
+}
+
+export function useUserAgent(): UserAgent {
+  const { app } = useConnectedWidgetContext("useUserAgent");
+  const platform = useHostContextValue(app, "platform");
+  const deviceCapabilities = useHostContextValue(app, "deviceCapabilities");
+
+  return useMemo(
+    () => ({
+      device: {
+        type: platform === "web" ? "desktop" : (platform ?? "unknown"),
+      },
+      capabilities: {
+        hover: deviceCapabilities?.hover ?? true,
+        touch: deviceCapabilities?.touch ?? true,
+      },
+    }),
+    [deviceCapabilities, platform],
+  );
+}
