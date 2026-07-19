@@ -21,6 +21,8 @@ npm install --save-dev vite
 
 - `@belgie/mcp` exports `Widget`, `mountWidget`, widget host-context hooks, `useWidget`, `useToolResult`, context-bound
   App helpers, and MCP tool errors.
+- `@belgie/mcp/builder` exports the trusted programmatic `buildWidget()` compiler used by Python's isolated virtual
+  widget builder.
 - `@belgie/mcp/codegen` exports programmatic MCP tool-type generation.
 - `@belgie/mcp/internal` contains the runtime factories used by generated callers.
 - `@belgie/mcp/vite` exports the `belgie()` Vite plugin.
@@ -119,6 +121,10 @@ export default defineConfig({
   plugins: [belgie({ srcDir: "src/widgets" })],
 });
 ```
+
+Agent-authored widgets use Python's separate `belgie.widget.WidgetBuilder` API. It supplies source through virtual
+modules, disables Vite config discovery and disk output, and limits bare imports to dependencies chosen by the host.
+The path-based plugin above remains the normal workflow for checked-in widget projects.
 
 ## Development
 

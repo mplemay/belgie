@@ -6,6 +6,8 @@ have agents write code in a sandbox.
 - **MCP Apps:** Attach React widgets to Python MCP tools in one project.
 - **AI agents:** Sandboxed `run_code` so Pydantic AI and LangChain can run TypeScript and TSX.
 - **Inline React widgets:** Return self-contained HTML from `run_code` with `@belgie/render`.
+- **Isolated widgets:** Compile agent-authored virtual TSX projects into self-contained HTML without writing source
+  files or loading user Vite configuration.
 - **Sandbox:** Deno is bundled, so you do not need to install Node.js.
 
 ## Installation
@@ -210,6 +212,27 @@ intentionally unavailable, and Vite plugins run only during the server build bef
 expressions and plugin-only imports are removed from the browser bundle. This API is independent
 from `@belgie/mcp` and its path-based `widget.tsx` development and production flow.
 
+## Isolated widgets
+
+Use `WidgetBuilder` directly for an in-memory TSX project. The builder owns a temporary package environment, accepts
+only host-provided dependency aliases, and reuses the trusted compiler for multiple builds inside the context:
+
+```python
+from belgie.widget import WidgetBuilder, WidgetSource
+
+source = WidgetSource(
+    widget='import "./styles.css"; export default function Widget() { return <p className="hello">Hello</p>; }',
+    files={"styles.css": ".hello { color: rebeccapurple; }"},
+)
+
+with WidgetBuilder() as builder:
+    bundle = builder.build(source)
+```
+
+Passing `widget_builder=WidgetBuilder()` to `BelgieCapability` or `BelgieMiddleware` opts an agent into a separate
+`build_widget` tool. Pydantic AI keeps `WidgetBundle` in `ToolReturn.metadata`; LangChain keeps it in
+`ToolMessage.artifact`, so the model receives only a concise success summary.
+
 ## Examples
 
 Small, runnable projects. Each focuses on one capability.
@@ -220,6 +243,8 @@ Small, runnable projects. Each focuses on one capability.
 - **[shadcn](examples/ui/shadcn):** MCP Apps widget styled with Tailwind CSS and shadcn/ui.
 - **[tanstack](examples/ui/tanstack):** TanStack Start SPA and MCP widget served together through
   FastAPI.
+- **[widget-builder](examples/ui/widget_builder):** Isolated virtual weather widget with Pydantic AI and LangChain
+  artifact extraction.
 
 ### AI
 

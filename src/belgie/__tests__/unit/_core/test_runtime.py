@@ -16,6 +16,7 @@ def test_runtime_accepts_environment_and_reports_repr(tmp_path, monkeypatch: pyt
     env = Environment()
     runtime = Runtime(env=env)
 
+    assert env.workspace == tmp_path
     assert f"Environment(path=None, workspace={tmp_path}, dependencies=0, active=False)" == repr(env)
     assert f"Runtime(env=Environment(path=None, workspace={tmp_path}, dependencies=0))" == repr(runtime)
 
@@ -32,6 +33,16 @@ def test_runtime_folder_constructors_reject_missing_and_file_paths(tmp_path) -> 
 
 def test_environment_has_no_folder_constructor() -> None:
     assert not hasattr(Environment, "from_folder")
+
+
+def test_active_environments_expose_workspace_path(tmp_path) -> None:
+    with Environment(path=tmp_path) as environment:
+        assert environment.workspace == tmp_path
+
+
+async def test_active_async_environment_exposes_workspace_path(tmp_path) -> None:
+    async with Environment(path=tmp_path) as environment:
+        assert environment.workspace == tmp_path
 
 
 def test_runtime_from_folder_ignores_pyproject_dependency_tables(tmp_path) -> None:

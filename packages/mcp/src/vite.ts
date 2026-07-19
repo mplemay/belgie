@@ -5,6 +5,7 @@ import type { OutputOptions } from "rolldown";
 import { build, normalizePath } from "vite";
 import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 
+import { renderWidgetBundle, type BuildArtifact } from "./bundle.js";
 import { buildVirtualEntry, renderWidgetHtmlDocument } from "./html.js";
 import { assertNoInvalidWidgets, assertUniqueWidgetNames, scanWidgetsSync } from "./scan-widgets.js";
 import type { WidgetCandidate } from "./scan-widgets.js";
@@ -19,87 +20,9 @@ const INTERNAL_WIDGET_PATH_ENV = "BELGIE_INTERNAL_WIDGET_PATH";
 const MAX_INLINE_ASSET_SIZE = Number.MAX_SAFE_INTEGER;
 const MODULE_PACKAGE_TYPE = "module";
 const REACT_REFRESH_PLUGIN_NAME = "vite:react-refresh";
-const TEXT_DECODER = new TextDecoder();
 
 export interface BelgiePluginOptions {
   srcDir?: string;
-}
-
-interface BuildAsset {
-  fileName: string;
-  source: string | Uint8Array;
-  type: "asset";
-}
-
-interface BuildChunk {
-  code: string;
-  dynamicImports: string[];
-  facadeModuleId: string | null;
-  fileName: string;
-  imports: string[];
-  isEntry: boolean;
-  type: "chunk";
-  viteMetadata?: { importedCss?: Set<string> };
-}
-
-type BuildArtifact = BuildAsset | BuildChunk;
-
-function getWidgetEntryPattern(srcDir: string): RegExp {
-  const escaped = normalizePath(srcDir).replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-  return new RegExp(`${escaped}/[^/]+/widget\\.tsx(?:\\?.*)?$`);
-}
-
-function virtualWidgetName(id: string): string | undefined {
-  if (!id.startsWith(VIRTUAL_PREFIX)) {
-    return undefined;
-  }
-  return decodeURIComponent(id.slice(VIRTUAL_PREFIX.length).split("?", 1)[0] ?? "");
-}
-
-function readAsset(asset: BuildAsset): string {
-  return typeof asset.source === "string" ? asset.source : TEXT_DECODER.decode(asset.source);
-}
-
-function renderWidgetBundle(name: string, bundle: Record<string, BuildArtifact>): string {
-  const artifacts = Object.values(bundle);
-  const chunks = artifacts.filter((artifact): artifact is BuildChunk => artifact.type === "chunk");
-  const entries = chunks.filter((chunk) => chunk.isEntry);
-  if (entries.length !== 1) {
-    throw new Error(`belgie: expected one entry chunk for widget "${name}", received ${entries.length}`);
-  }
-
-  const entry = entries[0];
-  const extraChunks = chunks.filter((chunk) => chunk !== entry);
-  if (extraChunks.length > 0) {
-    throw new Error(
-      `belgie: widget "${name}" emitted extra chunks: ${extraChunks.map((chunk) => chunk.fileName).join(", ")}`,
-    );
-  }
-
-  const imports = [...entry.imports, ...entry.dynamicImports].filter((item) => item !== entry.fileName);
-  if (imports.length > 0) {
-    throw new Error(`belgie: widget "${name}" retained imports: ${imports.join(", ")}`);
-  }
-
-  const assets = artifacts.filter((artifact): artifact is BuildAsset => artifact.type === "asset");
-  const nonCssAssets = assets.filter((asset) => !asset.fileName.endsWith(".css"));
-  if (nonCssAssets.length > 0) {
-    throw new Error(
-      `belgie: widget "${name}" emitted non-CSS assets: ${nonCssAssets.map((asset) => asset.fileName).join(", ")}`,
-    );
-  }
-
-  const assetsByName = new Map(assets.map((asset) => [asset.fileName, asset]));
-  const importedCss = [...(entry.viteMetadata?.importedCss ?? [])];
-  const cssNames = importedCss.length > 0 ? importedCss : assets.map((asset) => asset.fileName).toSorted();
-  const styles = cssNames.map((cssName) => {
-    const asset = assetsByName.get(cssName);
-    if (asset === undefined) {
-      throw new Error(`belgie: widget "${name}" references missing CSS asset ${cssName}`);
-    }
-    return readAsset(asset);
-  });
-  return renderWidgetHtmlDocument({ inlineScript: entry.code, inlineStyles: styles });
 }
 
 function restoreEnvironment(name: string, previous: string | undefined): void {
@@ -358,7 +281,7 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
           if (widget === undefined) {
             throw new Error("belgie: isolated widget build lost its widget entry");
           }
-          const html = renderWidgetBundle(widget.name, bundle);
+          const html = renderWidgetBundle(widget.name, bundle as Record<string, BuildArtifact>);
           for (const fileName of Object.keys(bundle)) {
             delete bundle[fileName];
           }
