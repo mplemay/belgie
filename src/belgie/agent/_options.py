@@ -7,6 +7,7 @@ from belgie._core import AsyncEnvironment, Environment, SyncEnvironment
 
 if TYPE_CHECKING:
     from belgie import Runtime, RuntimeOptions
+    from belgie.widget import WidgetBuilder
 
 type BelgieEnvironment = Environment | SyncEnvironment | AsyncEnvironment
 
@@ -31,6 +32,7 @@ class BelgieOptionsKwargs(TypedDict):
     timeout: float | None
     defer_loading: bool
     capability_id: str | None
+    widget_builder: WidgetBuilder | None
 
 
 @dataclass(kw_only=True)
@@ -44,6 +46,7 @@ class BelgieOptions:
     timeout: float | None = None
     defer_loading: bool = False
     capability_id: str | None = None
+    widget_builder: WidgetBuilder | None = None
 
     def validate(self) -> None:
         if self.instructions is not None and self.dangerously_replace_instructions is not None:
@@ -64,4 +67,5 @@ class BelgieOptions:
             "timeout": self.timeout,
             "defer_loading": self.defer_loading,
             "capability_id": self.capability_id,
+            "widget_builder": self.widget_builder,
         }

@@ -9,6 +9,8 @@ PATH.
 - **CLI tools:** Run npm binaries (Vite, esbuild, etc.) through `Command`.
 - **Simple data bridge:** Pass JSON-safe dicts, lists, and primitives across the boundary.
 - **Pydantic AI & LangChain:** Expose a sandboxed `run_code` tool for JS/TS when Python is not the best fit.
+- **Isolated widgets:** Compile agent-authored virtual TSX projects into self-contained HTML without writing source
+  files or loading user Vite configuration.
 
 ## Installation
 
@@ -98,6 +100,27 @@ print(result["messages"][-1].content)
 
 See the full runnable project in [examples/ai/langchain](examples/ai/langchain).
 
+## Isolated widgets
+
+Use `WidgetBuilder` directly for an in-memory TSX project. The builder owns a temporary package environment, accepts
+only host-provided dependency aliases, and reuses the trusted compiler for multiple builds inside the context:
+
+```python
+from belgie.widget import WidgetBuilder, WidgetSource
+
+source = WidgetSource(
+    widget='import "./styles.css"; export default function Widget() { return <p className="hello">Hello</p>; }',
+    files={"styles.css": ".hello { color: rebeccapurple; }"},
+)
+
+with WidgetBuilder() as builder:
+    bundle = builder.build(source)
+```
+
+Passing `widget_builder=WidgetBuilder()` to `BelgieCapability` or `BelgieMiddleware` opts an agent into a separate
+`build_widget` tool. Pydantic AI keeps `WidgetBundle` in `ToolReturn.metadata`; LangChain keeps it in
+`ToolMessage.artifact`, so the model receives only a concise success summary.
+
 ## Examples
 
 Want to learn more about Belgie's features? The examples below are small, runnable projects — each one focuses on a
@@ -122,5 +145,7 @@ single capability.
 
 - **[mcp](examples/ui/mcp):** MCP Apps extension with a React widget built through Belgie.
 - **[shadcn](examples/ui/shadcn):** MCP Apps widget styled with Tailwind CSS and shadcn/ui.
+- **[widget-builder](examples/ui/widget_builder):** Isolated virtual weather widget with Pydantic AI and LangChain
+  artifact extraction.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.

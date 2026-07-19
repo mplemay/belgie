@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final, Self, cast
 
 import pytest
 from langchain.agents import create_agent
@@ -20,6 +20,7 @@ from langgraph.runtime import Runtime
 
 from belgie import Runtime as BelgieRuntime, RuntimeOptions, langchain as langchain_capability
 from belgie.agent import (
+    BUILD_WIDGET_TOOL_NAME,
     LOAD_BELGIE_TOOL_NAME,
     RUN_CODE_JSON_SCHEMA,
     RUN_CODE_METADATA,
@@ -33,6 +34,7 @@ from belgie.agent._run_code import (
 )
 from belgie.langchain import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieMiddleware
 from belgie.langchain._tools import build_run_code_tool
+from belgie.widget import WidgetBundle, WidgetSource
 
 if TYPE_CHECKING:
     from belgie.langchain._state import BelgieAgentState
@@ -104,6 +106,37 @@ export default function run() {{
             ],
         )
         return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+class FakeWidgetSession:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.error = error
+        self.sources: list[WidgetSource] = []
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+    async def build(self, source: WidgetSource) -> WidgetBundle:
+        self.sources.append(source)
+        if self.error is not None:
+            raise self.error
+        return WidgetBundle(html="<!doctype html><p>secret artifact</p>")
+
+
+class FakeWidgetBuilder:
+    timeout = None
+
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.error = error
+        self.sessions: list[FakeWidgetSession] = []
+
+    def new_async_session(self) -> FakeWidgetSession:
+        session = FakeWidgetSession(error=self.error)
+        self.sessions.append(session)
+        return session
 
 
 @pytest.fixture
@@ -194,6 +227,53 @@ def test_tool_definition_exposes_typescript_run_code_only(
     run_code_tool = next(tool for tool in captured[0] if isinstance(tool, BaseTool) and tool.name == RUN_CODE_TOOL_NAME)
     assert RUN_CODE_METADATA["code_arg_language"] in run_code_tool.description
     assert RUN_CODE_JSON_SCHEMA["required"] == ["code"]
+
+
+def test_widget_builder_is_opt_in_and_returns_html_as_tool_artifact() -> None:
+    fake_builder = FakeWidgetBuilder()
+    model = ToolCapableFakeChatModel(
+        messages=iter(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        ToolCall(
+                            name=BUILD_WIDGET_TOOL_NAME,
+                            args={"widget": "export default function Widget() { return <p>ok</p>; }"},
+                            id="call_widget",
+                        ),
+                    ],
+                ),
+                AIMessage(content="done"),
+            ],
+        ),
+    )
+    middleware = BelgieMiddleware(widget_builder=cast("Any", fake_builder))
+    agent = create_agent(model=model, tools=[external], middleware=[middleware])
+
+    result = agent.invoke({"messages": [("user", "build a widget")]})
+
+    assert {tool.name for tool in middleware.tools} == {RUN_CODE_TOOL_NAME, BUILD_WIDGET_TOOL_NAME}
+    tool_messages = [message for message in result["messages"] if isinstance(message, ToolMessage)]
+    assert len(tool_messages) == 1
+    assert tool_messages[0].name == BUILD_WIDGET_TOOL_NAME
+    assert "secret artifact" not in str(tool_messages[0].content)
+    assert tool_messages[0].artifact == WidgetBundle(html="<!doctype html><p>secret artifact</p>")
+    assert len(fake_builder.sessions) == 1
+    assert len(fake_builder.sessions[0].sources) == 1
+
+
+async def test_widget_builder_sessions_are_isolated_per_agent_run() -> None:
+    fake_builder = FakeWidgetBuilder()
+    middleware = BelgieMiddleware(widget_builder=cast("Any", fake_builder))
+
+    async with active_langchain_state(middleware):
+        pass
+    async with active_langchain_state(middleware):
+        pass
+
+    assert len(fake_builder.sessions) == 2
+    assert fake_builder.sessions[0] is not fake_builder.sessions[1]
 
 
 async def test_run_code_executes_typescript_script_module(
@@ -353,6 +433,32 @@ async def test_wrap_tool_call_maps_errors_to_tool_message(
     assert isinstance(result, ToolMessage)
     assert result.status == "error"
     assert result.content == "boom"
+
+
+def test_widget_build_errors_are_returned_for_model_retry() -> None:
+    middleware = BelgieMiddleware(widget_builder=cast("Any", FakeWidgetBuilder()))
+    build_widget_tool = next(tool for tool in middleware.tools if tool.name == BUILD_WIDGET_TOOL_NAME)
+    request = ToolCallRequest(
+        tool_call={
+            "name": BUILD_WIDGET_TOOL_NAME,
+            "args": {"widget": "export default ("},
+            "id": "call_widget",
+            "type": "tool_call",
+        },
+        tool=build_widget_tool,
+        state={"messages": []},
+        runtime=cast("Any", tool_runtime({"messages": []})),
+    )
+
+    def failing_handler(request: Any) -> ToolMessage:
+        message = "widget.tsx: expected expression"
+        raise ValueError(message)
+
+    result = middleware.wrap_tool_call(request, failing_handler)
+
+    assert isinstance(result, ToolMessage)
+    assert result.status == "error"
+    assert result.content == "Widget build failed:\nwidget.tsx: expected expression"
 
 
 def test_build_run_code_tool_requires_active_session() -> None:

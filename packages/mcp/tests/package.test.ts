@@ -16,6 +16,7 @@ test("publishes the expected ESM export map and declarations", async () => {
   const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
   assert.deepEqual(packageJson.exports, {
     ".": "./dist/index.js",
+    "./builder": "./dist/builder.js",
     "./codegen": "./dist/codegen.js",
     "./internal": "./dist/internal.js",
     "./vite": "./dist/vite.js",
@@ -27,7 +28,7 @@ test("publishes the expected ESM export map and declarations", async () => {
   assert.equal(packageJson.types, "./dist/index.d.ts");
   assert.equal(packageJson.publishConfig.access, "public");
 
-  for (const entry of ["index", "codegen", "internal", "vite", "cli"]) {
+  for (const entry of ["index", "builder", "codegen", "internal", "vite", "cli"]) {
     assert.equal(existsSync(`dist/${entry}.js`), true);
     assert.equal(existsSync(`dist/${entry}.d.ts`), true);
   }
@@ -39,6 +40,7 @@ test("publishes the expected ESM export map and declarations", async () => {
   assert.equal(typeof mcp.useTheme, "function");
   assert.equal(typeof mcp.useUserAgent, "function");
   assert.equal(typeof (await import("@belgie/mcp/codegen")).generateToolTypes, "function");
+  assert.equal(typeof (await import("@belgie/mcp/builder")).buildWidget, "function");
   assert.equal(typeof (await import("@belgie/mcp/internal")).createGeneratedTool, "function");
   assert.equal(typeof (await import("@belgie/mcp/vite")).belgie, "function");
 });
@@ -52,11 +54,12 @@ test("resolves declarations from every built package subpath", () => {
       [
         'import { Widget, type ToolCallResult } from "@belgie/mcp";',
         'import { generateToolTypes } from "@belgie/mcp/codegen";',
+        'import { buildWidget } from "@belgie/mcp/builder";',
         'import { createGeneratedRawTool } from "@belgie/mcp/internal";',
         'import { belgie } from "@belgie/mcp/vite";',
         'const result: ToolCallResult<string> = { result: "ok", error: undefined };',
         'void <Widget metadata={{ name: "fixture", version: "1.0.0" }}>{result.result}</Widget>;',
-        'void generateToolTypes; void createGeneratedRawTool; void belgie;',
+        'void buildWidget; void generateToolTypes; void createGeneratedRawTool; void belgie;',
       ].join("\n"),
     );
     const result = spawnSync(
