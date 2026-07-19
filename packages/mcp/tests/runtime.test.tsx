@@ -1,11 +1,14 @@
+// @vitest-environment jsdom
+
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import test from "node:test";
+import { describe, test } from "vitest";
 
 import { App } from "@modelcontextprotocol/ext-apps";
-import { StrictMode, createElement } from "react";
-import { act, create } from "react-test-renderer";
+import { StrictMode, act, createElement, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { ZodError } from "zod";
+
+import pythonMcpV2Tools from "./fixtures/python-mcp-v2-tools.json";
 
 import {
   McpToolCancelledError,
@@ -17,15 +20,40 @@ import {
   requestTeardown,
   sendLog,
   sendMessage,
+  mountWidget,
   updateModelContext,
   useToolResult,
-} from "../dist/index.js";
+  useWidget,
+} from "../src/index.tsx";
 import {
   createGeneratedRawTool,
   createGeneratedTool,
-} from "../dist/internal.js";
+} from "../src/internal.ts";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+type TestRenderer = {
+  root: Root;
+  container: HTMLDivElement;
+  unmount: () => void;
+  toJSON: () => string;
+};
+
+function create(node: ReactNode): TestRenderer {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  root.render(node);
+  return {
+    root,
+    container,
+    unmount() {
+      root.unmount();
+      container.remove();
+    },
+    toJSON: () => container.textContent ?? "",
+  };
+}
 
 const outputSchema = {
   type: "object",
@@ -38,9 +66,6 @@ const getValue = createGeneratedTool("get-value", outputSchema);
 let contentBlocksToolPromise;
 async function contentBlocksTool() {
   contentBlocksToolPromise ??= (async () => {
-    const pythonMcpV2Tools = JSON.parse(
-      await readFile(new URL("./fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
-    );
     const contentBlocksSchema = pythonMcpV2Tools.find(
       (tool) => tool.name === "content-blocks",
     )?.outputSchema;
@@ -277,8 +302,8 @@ test("normalizes MCP errors for raw generated tools", async () => {
   assert.equal(response.error.result, rawError);
 });
 
-test("returns Zod errors for malformed or missing structured output", async (t) => {
-  await t.test("malformed", async () => {
+describe("returns Zod errors for malformed or missing structured output", () => {
+  test("malformed", async () => {
     const app = {
       async callServerTool() {
         return { content: [], structuredContent: { value: 42 } };
@@ -289,7 +314,7 @@ test("returns Zod errors for malformed or missing structured output", async (t) 
     assert(response.error instanceof ZodError);
   });
 
-  await t.test("missing", async () => {
+  test("missing", async () => {
     const app = {
       async callServerTool() {
         return { content: [] };
@@ -345,8 +370,8 @@ test("uses a tool-specific fallback for MCP errors without text", async () => {
   assert.equal(response.error.result, rawError);
 });
 
-test("returns transport and context failures instead of rejecting", async (t) => {
-  await t.test("transport Error", async () => {
+describe("returns transport and context failures instead of rejecting", () => {
+  test("transport Error", async () => {
     const failure = new Error("transport failed");
     const app = {
       async callServerTool() {
@@ -358,7 +383,7 @@ test("returns transport and context failures instead of rejecting", async (t) =>
     assert.equal(response.error, failure);
   });
 
-  await t.test("non-Error rejection", async () => {
+  test("non-Error rejection", async () => {
     const app = {
       async callServerTool() {
         throw "protocol failed";
@@ -370,7 +395,7 @@ test("returns transport and context failures instead of rejecting", async (t) =>
     assert.equal(response.error.message, "protocol failed");
   });
 
-  await t.test("missing Widget context", async () => {
+  test("missing Widget context", async () => {
     const response = await getValue({});
     assert.equal(response.result, undefined);
     assert(response.error instanceof Error);
@@ -495,7 +520,7 @@ test("keeps an unresolved opening result pending and consumes later results", as
   }
 });
 
-test("normalizes opening raw, error, invalid, cancellation, and mismatch states", async (t) => {
+describe("normalizes opening raw, error, invalid, cancellation, and mismatch states", () => {
   async function renderOpening({ source, toolName, event, params }) {
     let resultState;
     let renderer;
@@ -549,7 +574,7 @@ test("normalizes opening raw, error, invalid, cancellation, and mismatch states"
     }
   }
 
-  await t.test("raw", async () => {
+  test("raw", async () => {
     const rawTool = createGeneratedRawTool("raw-opening");
     const rawResult = {
       content: [{ type: "text", text: "raw" }],
@@ -571,7 +596,7 @@ test("normalizes opening raw, error, invalid, cancellation, and mismatch states"
     }
   });
 
-  await t.test("MCP error", async () => {
+  test("MCP error", async () => {
     const rawError = {
       content: [{ type: "text", text: "opening failed" }],
       isError: true,
@@ -591,7 +616,7 @@ test("normalizes opening raw, error, invalid, cancellation, and mismatch states"
     }
   });
 
-  await t.test("invalid structured output", async () => {
+  test("invalid structured output", async () => {
     const malformed = { content: [], structuredContent: { value: 42 } };
     const view = await renderOpening({
       source: getValue,
@@ -607,7 +632,7 @@ test("normalizes opening raw, error, invalid, cancellation, and mismatch states"
     }
   });
 
-  await t.test("cancellation", async () => {
+  test("cancellation", async () => {
     const view = await renderOpening({
       source: getValue,
       toolName: "get-value",
@@ -624,7 +649,7 @@ test("normalizes opening raw, error, invalid, cancellation, and mismatch states"
     }
   });
 
-  await t.test("source mismatch", async () => {
+  test("source mismatch", async () => {
     const view = await renderOpening({
       source: getValue,
       toolName: "another-tool",
@@ -1404,4 +1429,239 @@ test("rejects a second concurrently connected Widget", async () => {
     }
     restore();
   }
+});
+
+test("forwards every optional Widget hook and exposes useWidget", async () => {
+  let app;
+  let hookApp;
+  let renderer;
+  const calls = [];
+  function WidgetProbe() {
+    hookApp = useWidget();
+    return createElement("span", null, "connected");
+  }
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          {
+            metadata: {
+              name: "All hooks",
+              version: "1.0.0",
+              title: "All Widget hooks",
+              capabilities: { tools: {} },
+              autoResize: false,
+              strict: true,
+            },
+            hooks: {
+              toolInput: () => calls.push("input"),
+              toolInputPartial: () => calls.push("partial"),
+              toolResult: () => calls.push("result"),
+              toolCancelled: () => calls.push("cancelled"),
+              hostContextChanged: () => calls.push("context"),
+            },
+          },
+          createElement(WidgetProbe),
+        ),
+      );
+    });
+    assert.equal(hookApp, app);
+    restore.emit(app, "toolinput", { arguments: {} });
+    restore.emit(app, "toolinputpartial", { arguments: {} });
+    restore.emit(app, "toolresult", { content: [] });
+    restore.emit(app, "toolcancelled", { reason: "cancelled" });
+    restore.emit(app, "hostcontextchanged", {});
+    assert.deepEqual(calls, ["input", "partial", "result", "cancelled", "context"]);
+    assert.deepEqual(await app.onteardown({}, {}), {});
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("uses the default error logger when no error hook is supplied", async () => {
+  let app;
+  let renderer;
+  const logged = [];
+  const originalError = console.error;
+  console.error = (...args) => logged.push(args);
+  const restore = stubApp({
+    connect: async function connect() {
+      app = this;
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          { metadata: { name: "Logger", version: "1.0.0" } },
+          createElement("span", null, "connected"),
+        ),
+      );
+    });
+    const error = new Error("logged");
+    app.onerror(error);
+    assert.deepEqual(logged, [[error]]);
+  } finally {
+    console.error = originalError;
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("tolerates an already-connected App and custom fallback", async () => {
+  let renderer;
+  let release;
+  const before = new Promise((resolve) => {
+    release = resolve;
+  });
+  const restore = stubApp({
+    connect: async () => {
+      throw new Error("App already connected");
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          {
+            metadata: { name: "Existing", version: "1.0.0" },
+            fallback: createElement("span", null, "Please wait"),
+            hooks: { before: () => before },
+          },
+          createElement("span", null, "connected"),
+        ),
+      );
+    });
+    assert.equal(renderer.toJSON(), "Please wait");
+    await act(async () => release());
+    assert.equal(renderer.toJSON(), "connected");
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test.each([
+  ["before", "before failure"],
+  ["connect", "connect failure"],
+])("renders the default error UI for %s failures", async (phase, message) => {
+  let renderer;
+  const restore = stubApp({
+    connect: async () => {
+      if (phase === "connect") throw message;
+    },
+  });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          {
+            metadata: { name: "Failure UI", version: "1.0.0" },
+            hooks: phase === "before" ? { before: () => { throw message; } } : undefined,
+          },
+          createElement("span", null, "connected"),
+        ),
+      );
+    });
+    assert.match(renderer.toJSON(), new RegExp(`ERROR: ${message}`, "u"));
+  } finally {
+    if (renderer !== undefined) {
+      await act(async () => renderer.unmount());
+    }
+    restore();
+  }
+});
+
+test("renders a static error element", async () => {
+  let renderer;
+  const restore = stubApp({ connect: async () => { throw new Error("failed"); } });
+  try {
+    await act(async () => {
+      renderer = create(
+        createElement(
+          Widget,
+          {
+            metadata: { name: "Static error", version: "1.0.0" },
+            error: createElement("span", null, "static failure"),
+          },
+          createElement("span", null, "connected"),
+        ),
+      );
+    });
+    assert.equal(renderer.toJSON(), "static failure");
+  } finally {
+    if (renderer !== undefined) await act(async () => renderer.unmount());
+    restore();
+  }
+});
+
+test.each(["before", "connect", "after"])(
+  "does not activate after unmount during %s",
+  async (phase) => {
+    let renderer;
+    let release;
+    const blocked = new Promise((resolve) => {
+      release = resolve;
+    });
+    const restore = stubApp({
+      connect: phase === "connect" ? () => blocked : async () => {},
+    });
+    try {
+      await act(async () => {
+        renderer = create(
+          createElement(
+            Widget,
+            {
+              metadata: { name: `Blocked ${phase}`, version: "1.0.0" },
+              hooks: {
+                ...(phase === "before" ? { before: () => blocked } : {}),
+                ...(phase === "after" ? { after: () => blocked } : {}),
+              },
+            },
+            createElement("span", null, "connected"),
+          ),
+        );
+      });
+      await act(async () => renderer.unmount());
+      renderer = undefined;
+      await act(async () => release());
+      const response = await getValue({});
+      assert.match(response.error?.message ?? "", /active connected <Widget>/u);
+    } finally {
+      if (renderer !== undefined) await act(async () => renderer.unmount());
+      restore();
+    }
+  },
+);
+
+test("mountWidget validates the root and reuses its React root", async () => {
+  document.body.replaceChildren();
+  assert.throws(() => mountWidget(() => createElement("span", null, "first")), /root #root was not found/u);
+  const root = document.createElement("div");
+  root.id = "root";
+  document.body.append(root);
+  await act(async () => {
+    mountWidget(() => createElement("span", null, "first"));
+  });
+  assert.equal(root.textContent, "first");
+  await act(async () => {
+    mountWidget(() => createElement("span", null, "second"));
+  });
+  assert.equal(root.textContent, "second");
 });

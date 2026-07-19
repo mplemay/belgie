@@ -1,6 +1,5 @@
 node_modules
 dist
-types
-package-lock.json
+coverage
 *.local
 .DS_Store

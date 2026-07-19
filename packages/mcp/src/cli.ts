@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { generateToolTypes } from "./codegen";
@@ -17,14 +19,14 @@ Options:
   --no-open                  Print the OAuth URL instead of opening a browser
 `;
 
-function values(value: string | string[] | undefined): string[] {
+export function values(value: string | string[] | undefined): string[] {
   if (value === undefined) {
     return [];
   }
   return Array.isArray(value) ? value : [value];
 }
 
-function parseHeader(value: string): [string, string] {
+export function parseHeader(value: string): [string, string] {
   const separator = value.indexOf(":");
   if (separator <= 0) {
     throw new Error(`Invalid --header ${JSON.stringify(value)}; expected NAME:VALUE`);
@@ -37,7 +39,7 @@ function parseHeader(value: string): [string, string] {
   return [name, headerValue];
 }
 
-function parseEnvironmentHeader(value: string): [string, string] {
+export function parseEnvironmentHeader(value: string): [string, string] {
   const separator = value.indexOf("=");
   if (separator <= 0 || separator === value.length - 1) {
     throw new Error(
@@ -59,8 +61,9 @@ function parseEnvironmentHeader(value: string): [string, string] {
   return [name, headerValue];
 }
 
-async function run(): Promise<void> {
+export async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
   const { positionals, values: options } = parseArgs({
+    args,
     allowPositionals: true,
     options: {
       check: { type: "boolean", default: false },
@@ -113,8 +116,26 @@ async function run(): Promise<void> {
   process.stdout.write(`Generated MCP tool types: ${output}\n`);
 }
 
-run().catch((cause: unknown) => {
+export function isDirectExecution(moduleUrl: string, executable: string | undefined): boolean {
+  if (executable === undefined) {
+    return false;
+  }
+  const executionPath = (value: string) => {
+    try {
+      return realpathSync(value);
+    } catch {
+      return resolve(value);
+    }
+  };
+  return executionPath(executable) === executionPath(fileURLToPath(moduleUrl));
+}
+
+export function reportCliError(cause: unknown): void {
   const message = cause instanceof Error ? cause.message : String(cause);
   process.stderr.write(`${message}\n`);
   process.exitCode = 1;
-});
+}
+
+if (isDirectExecution(import.meta.url, process.argv[1])) {
+  runCli().catch(reportCliError);
+}

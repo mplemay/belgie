@@ -129,17 +129,16 @@ function ensureReactRefreshPreamble(html: string, base: string, enabled: boolean
   return html.replace("<head>", `<head>\n${preamble}`);
 }
 
-async function buildWidget(widget: WidgetCandidate, config: ResolvedConfig): Promise<void> {
-  if (!config.configFile) {
-    throw new Error(
-      "belgie: isolated widget builds require a Vite config file; inline configs are not supported",
-    );
-  }
+async function buildWidget(
+  widget: WidgetCandidate,
+  config: ResolvedConfig,
+  configFile: string,
+): Promise<void> {
   const previousWidgetPath = process.env[INTERNAL_WIDGET_PATH_ENV];
   process.env[INTERNAL_WIDGET_PATH_ENV] = widget.filePath;
   try {
     await build({
-      configFile: config.configFile,
+      configFile,
       configLoader: "native",
       root: config.root,
       mode: config.mode,
@@ -309,7 +308,7 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
       }
       rmSync(resolve(projectRoot, "dist", "widgets"), { recursive: true, force: true });
       for (const widget of widgetMap.values()) {
-        await buildWidget(widget, resolvedConfig);
+        await buildWidget(widget, resolvedConfig, resolvedConfig.configFile);
       }
     },
 

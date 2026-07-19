@@ -17,7 +17,7 @@ from pydantic import AnyUrl, BaseModel, Field, JsonValue
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[5]
 PYTHON_MCP_V2_FIXTURE: Final[Path] = (
-    PROJECT_ROOT / "packages" / "mcp" / "test" / "fixtures" / "python-mcp-v2-tools.json"
+    PROJECT_ROOT / "packages" / "mcp" / "tests" / "fixtures" / "python-mcp-v2-tools.json"
 )
 
 pytestmark = pytest.mark.integration

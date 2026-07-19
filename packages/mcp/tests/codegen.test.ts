@@ -6,15 +6,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { mkdtemp } from "node:fs/promises";
-import test from "node:test";
+import { describe, test, vi } from "vitest";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import express from "express";
 
-import { generateToolTypes } from "../dist/codegen.js";
+import { generateToolTypes } from "../src/codegen.ts";
 
 const SCHEMA_TOOLS = [
   {
@@ -377,6 +378,27 @@ test("generates deterministic types from every tools/list page", async () => {
   }
 });
 
+test("accepts URL objects and explicit headers", async () => {
+  let authorization;
+  const server = await startMcpServer(
+    async () => ({ tools: [SCHEMA_TOOLS[0], SCHEMA_TOOLS[1]] }),
+    (request) => {
+      authorization = request.headers.authorization;
+    },
+  );
+  try {
+    const generated = await generateToolTypes({
+      url: new URL(server.url),
+      headers: { authorization: "Bearer direct" },
+      oauth: false,
+    });
+    assert.match(generated, /export const modelTool/u);
+    assert.equal(authorization, "Bearer direct");
+  } finally {
+    await server.close();
+  }
+});
+
 test("generates structured types for list[TextContent] tool results", async () => {
   const server = await startMcpServer(async () => ({ tools: [TEXT_CONTENT_TOOL] }));
   try {
@@ -435,8 +457,8 @@ test("generates safe deterministic function identifiers", async () => {
   }
 });
 
-test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
-  await t.test("empty", async () => {
+describe("rejects empty, duplicate, and unsupported tool schemas", () => {
+  test("empty", async () => {
     const server = await startMcpServer(async () => ({ tools: [] }));
     try {
       await assert.rejects(
@@ -448,7 +470,7 @@ test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
     }
   });
 
-  await t.test("duplicate", async () => {
+  test("duplicate", async () => {
     const server = await startMcpServer(async () => ({
       tools: [SCHEMA_TOOLS[0], SCHEMA_TOOLS[0]],
     }));
@@ -462,7 +484,23 @@ test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
     }
   });
 
-  await t.test("unsupported", async () => {
+  test("repeated pagination cursor", async () => {
+    const server = await startMcpServer(async (request) =>
+      request.params?.cursor === undefined
+        ? { tools: [SCHEMA_TOOLS[0]], nextCursor: "repeat" }
+        : { tools: [], nextCursor: "repeat" },
+    );
+    try {
+      await assert.rejects(
+        generateToolTypes({ url: server.url, oauth: false }),
+        /repeated tools\/list cursor "repeat"/u,
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("unsupported", async () => {
     const server = await startMcpServer(async () => ({
       tools: [
         {
@@ -485,7 +523,7 @@ test("rejects empty, duplicate, and unsupported tool schemas", async (t) => {
     }
   });
 
-  await t.test("Zod-incompatible output schema", async () => {
+  test("Zod-incompatible output schema", async () => {
     const server = await startMcpServer(async () => ({
       tools: [
         {
@@ -571,6 +609,18 @@ test("validates malformed URLs and reports connection failures", async () => {
     generateToolTypes({ url: "not a url", oauth: false }),
     /Invalid MCP URL/u,
   );
+  await assert.rejects(
+    generateToolTypes({ url: "ftp://example.com/mcp", oauth: false }),
+    /must use http or https/u,
+  );
+  await assert.rejects(
+    generateToolTypes({ url: "https://user:secret@example.com/mcp", oauth: false }),
+    /must not contain credentials/u,
+  );
+  await assert.rejects(
+    generateToolTypes({ url: "https://127.0.0.1:1/mcp", oauth: false }),
+    /Failed to generate MCP tool types/u,
+  );
   const unavailable = createHttpServer();
   await new Promise((resolve) => unavailable.listen(0, "127.0.0.1", resolve));
   const address = unavailable.address();
@@ -589,6 +639,20 @@ test("validates malformed URLs and reports connection failures", async () => {
   ]);
   assert.equal(cliFailure.code, 1);
   assert.match(cliFailure.stderr, /Failed to generate MCP tool types/u);
+});
+
+test("preserves non-Error connection failures", async () => {
+  const connect = vi.spyOn(Client.prototype, "connect").mockRejectedValue("raw failure");
+  const close = vi.spyOn(Client.prototype, "close").mockResolvedValue(undefined);
+  try {
+    await assert.rejects(
+      generateToolTypes({ url: "http://127.0.0.1:1/mcp", oauth: false }),
+      (cause) => cause === "raw failure",
+    );
+  } finally {
+    connect.mockRestore();
+    close.mockRestore();
+  }
 });
 
 test("CLI writes and checks generated files with direct and environment headers", async () => {
@@ -697,6 +761,36 @@ test("completes dynamic OAuth registration, PKCE, state validation, and token us
     assert(callbackUrl);
     await assert.rejects(fetch(callbackUrl), /fetch failed/u);
   } finally {
+    await server.close();
+  }
+});
+
+test("generates through the source OAuth authorization retry", async () => {
+  const server = await startOAuthMcpServer();
+  let authorizationFetch;
+  const write = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    const match = /https?:\/\/[^\s]+/u.exec(String(chunk));
+    if (match && authorizationFetch === undefined) {
+      authorizationFetch = fetch(new URL(match[0])).then((response) => {
+        assert.equal(response.status, 200);
+      });
+    }
+    return true;
+  });
+  try {
+    const generated = await generateToolTypes({
+      url: server.url,
+      openBrowser: false,
+    });
+    await authorizationFetch;
+    assert.match(generated, /export const modelTool/u);
+    assert.deepEqual(server.metrics(), {
+      registrationCount: 1,
+      tokenCount: 1,
+      authenticatedRequests: 3,
+    });
+  } finally {
+    write.mockRestore();
     await server.close();
   }
 });
