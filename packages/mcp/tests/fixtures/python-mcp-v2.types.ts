@@ -37,11 +37,11 @@ type Equal<Left, Right> =
     : false;
 type Assert<Value extends true> = Value;
 
-type AnyIsRaw = Assert<Equal<AnyOutputOutput, RawToolResult>>;
-type AudioIsRaw = Assert<Equal<AudioHelperOutput, RawToolResult>>;
-type DirectResultIsRaw = Assert<Equal<DirectResultOutput, RawToolResult>>;
-type DisabledIsRaw = Assert<Equal<DisabledOutputOutput, RawToolResult>>;
-type ImageIsRaw = Assert<Equal<ImageHelperOutput, RawToolResult>>;
+export type AnyIsRaw = Assert<Equal<AnyOutputOutput, RawToolResult>>;
+export type AudioIsRaw = Assert<Equal<AudioHelperOutput, RawToolResult>>;
+export type DirectResultIsRaw = Assert<Equal<DirectResultOutput, RawToolResult>>;
+export type DisabledIsRaw = Assert<Equal<DisabledOutputOutput, RawToolResult>>;
+export type ImageIsRaw = Assert<Equal<ImageHelperOutput, RawToolResult>>;
 
 declare const input: CommonInputsInput;
 declare const output: CommonInputsOutput;

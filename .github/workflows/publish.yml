@@ -495,7 +495,7 @@ jobs:
           package-manager-cache: false
 
       - name: Install deps
-        run: npm install
+        run: npm ci
 
       - name: Bump version
         run: npm version "$VERSION" --no-git-tag-version

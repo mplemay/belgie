@@ -84,11 +84,11 @@ jobs:
         with:
           node-version: 24
 
-      - name: Build @belgie/mcp
+      - name: Test @belgie/mcp
         working-directory: packages/mcp
         run: |
-          npm install
-          npm run build
+          npm ci
+          npm test
 
       - name: Run tests
         run: uv run pytest
