@@ -80,8 +80,9 @@ test("resolves declarations from every built package subpath", () => {
 });
 
 test("npm pack dry run contains only publishable package files", () => {
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const output = execFileSync(
-    "npm",
+    npm,
     ["pack", "--dry-run", "--json", "--ignore-scripts"],
     { encoding: "utf8" },
   );

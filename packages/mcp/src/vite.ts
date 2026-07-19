@@ -389,8 +389,9 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
     },
 
     transform(code, id) {
-      if (widgetEntryPattern?.test(id) && !hasDefaultExport(code)) {
-        this.warn(`Widget file "${id.split("/").pop()}" is missing a default export.`);
+      const normalizedId = normalizePath(id);
+      if (widgetEntryPattern?.test(normalizedId) && !hasDefaultExport(code)) {
+        this.warn(`Widget file "${normalizedId.split("/").pop()}" is missing a default export.`);
       }
       return null;
     },

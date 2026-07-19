@@ -86,7 +86,7 @@ describe("Vite configuration and virtual modules", () => {
     assert.equal(plugin.resolveId?.("ordinary"), null);
     assert.equal(plugin.resolveId?.("/_belgie/widget/weather?x=1"), "\0belgie:widget:weather");
     assert.equal(plugin.load?.("\0belgie:widget-build-orchestrator"), "export {};\n");
-    assert.match(String(plugin.load?.("\0belgie:widget:weather")), new RegExp(filePath.replaceAll("/", "\\/"), "u"));
+    assert.ok(String(plugin.load?.("\0belgie:widget:weather")).includes(filePath.replaceAll("\\", "/")));
     assert.equal(plugin.load?.("\0belgie:widget:missing"), null);
     assert.equal(plugin.load?.("ordinary"), null);
   });
