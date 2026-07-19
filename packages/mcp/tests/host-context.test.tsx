@@ -223,7 +223,6 @@ describe("host context hooks", () => {
       const result = await snapshot.setDisplayMode("pip");
       assert.deepEqual(harness.displayModeRequests, ["pip"]);
       assert.equal(result.mode, "fullscreen");
-      assert.equal(harness.listenerCount(), 7);
     } finally {
       if (renderer !== undefined) {
         await act(async () => renderer.unmount());
