@@ -10,11 +10,21 @@ import {
   sendLog,
   sendMessage,
   updateModelContext,
+  useDisplayMode,
+  useLayout,
+  useLocale,
+  useTheme,
   useToolResult,
+  useUserAgent,
+  type DeviceType,
+  type LayoutState,
   type RawToolResult,
+  type SafeArea,
+  type SafeAreaInsets,
   type ToolCallError,
   type ToolCallResult,
   type ToolResultState,
+  type UserAgent,
 } from "@belgie/mcp";
 import {
   createGeneratedRawTool,
@@ -75,8 +85,15 @@ type GenericCallersAreAbsent = Extract<
 > extends never
   ? true
   : false;
+type CombinedUserHookIsAbsent = Extract<
+  PublicMcpExports,
+  "useUser"
+> extends never
+  ? true
+  : false;
 
 const genericCallersAreAbsent: GenericCallersAreAbsent = true;
+const combinedUserHookIsAbsent: CombinedUserHookIsAbsent = true;
 const requiredCall: Promise<ToolCallResult<RequiredOutput>> = required({
   id: "example",
 });
@@ -121,6 +138,16 @@ async function narrowResult(): Promise<number> {
 }
 
 export function TypeFixture() {
+  const [hostDisplayMode, setHostDisplayMode] = useDisplayMode();
+  const layout: LayoutState = useLayout();
+  const locale: string = useLocale();
+  const theme: "light" | "dark" = useTheme();
+  const userAgent: UserAgent = useUserAgent();
+  const safeArea: SafeArea = layout.safeArea;
+  const safeAreaInsets: SafeAreaInsets = safeArea.insets;
+  const deviceType: DeviceType = userAgent.device.type;
+  const hostDisplayModeRequest: ReturnType<App["requestDisplayMode"]> =
+    setHostDisplayMode("fullscreen");
   const requiredResult = useToolResult(required);
   const requiredResultState: ToolResultState<
     { id: string },
@@ -142,6 +169,10 @@ export function TypeFixture() {
   void requiredResult.execute({ id: 1 });
   // @ts-expect-error ordinary functions do not carry generated result metadata
   void useToolResult(ordinaryCaller);
+  // @ts-expect-error modal is host-driven and cannot be requested
+  void setHostDisplayMode("modal");
+  // @ts-expect-error theme is intentionally split into useTheme
+  void layout.theme;
 
   const messageResult: ReturnType<App["sendMessage"]> = sendMessage(
     message,
@@ -205,6 +236,13 @@ export function TypeFixture() {
   void requestTeardown(undefined, app);
 
   void genericCallersAreAbsent;
+  void combinedUserHookIsAbsent;
+  void hostDisplayMode;
+  void hostDisplayModeRequest;
+  void locale;
+  void theme;
+  void safeAreaInsets;
+  void deviceType;
   void messageResult;
   void logResult;
   void modelContextResult;

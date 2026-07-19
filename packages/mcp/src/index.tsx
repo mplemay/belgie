@@ -46,6 +46,19 @@ export {
   type ToolResultStatus,
 } from "./use-tool-result";
 
+export {
+  useDisplayMode,
+  useLayout,
+  useLocale,
+  useTheme,
+  useUserAgent,
+  type DeviceType,
+  type LayoutState,
+  type SafeArea,
+  type SafeAreaInsets,
+  type UserAgent,
+} from "./host-context";
+
 export { useWidget };
 
 export type WidgetMetadata = {

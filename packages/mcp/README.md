@@ -19,8 +19,8 @@ npm install --save-dev vite
 
 ## Package exports
 
-- `@belgie/mcp` exports `Widget`, `mountWidget`, `useWidget`, `useToolResult`, context-bound App helpers, and MCP tool
-  errors.
+- `@belgie/mcp` exports `Widget`, `mountWidget`, widget host-context hooks, `useWidget`, `useToolResult`, context-bound
+  App helpers, and MCP tool errors.
 - `@belgie/mcp/codegen` exports programmatic MCP tool-type generation.
 - `@belgie/mcp/internal` contains the runtime factories used by generated callers.
 - `@belgie/mcp/vite` exports the `belgie()` Vite plugin.
@@ -68,6 +68,45 @@ function Weather() {
 
 mountWidget(Weather);
 ```
+
+## Read widget host context
+
+Host-context hooks read the current MCP Apps environment and update when the host changes it. Use them inside a
+connected `<Widget>` child:
+
+```tsx
+import {
+  useDisplayMode,
+  useLayout,
+  useLocale,
+  useTheme,
+  useUserAgent,
+} from "@belgie/mcp";
+
+function Environment() {
+  const [displayMode, setDisplayMode] = useDisplayMode();
+  const { maxHeight, safeArea } = useLayout();
+  const locale = useLocale();
+  const theme = useTheme();
+  const userAgent = useUserAgent();
+
+  return (
+    <section
+      data-theme={theme}
+      style={{ maxHeight, paddingTop: safeArea.insets.top }}
+    >
+      <p>{locale}</p>
+      <p>{userAgent.device.type}</p>
+      <button onClick={() => void setDisplayMode("fullscreen")}>
+        {displayMode === "fullscreen" ? "Fullscreen" : "Expand"}
+      </button>
+    </section>
+  );
+}
+```
+
+`useLayout()` contains only container height and safe-area information. Theme, locale, and the normalized device and
+input-capability value are exposed separately through `useTheme()`, `useLocale()`, and `useUserAgent()`.
 
 Add the plugin to a normal Vite configuration. Development serves each widget at `/widgets/<name>/index.html`;
 production emits a self-contained `dist/widgets/<name>/index.html` with JavaScript, CSS, and assets inlined.

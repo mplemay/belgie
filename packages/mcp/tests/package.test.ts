@@ -31,7 +31,13 @@ test("publishes the expected ESM export map and declarations", async () => {
     assert.equal(existsSync(`dist/${entry}.js`), true);
     assert.equal(existsSync(`dist/${entry}.d.ts`), true);
   }
-  assert.equal(typeof (await import("@belgie/mcp")).Widget, "function");
+  const mcp = await import("@belgie/mcp");
+  assert.equal(typeof mcp.Widget, "function");
+  assert.equal(typeof mcp.useDisplayMode, "function");
+  assert.equal(typeof mcp.useLayout, "function");
+  assert.equal(typeof mcp.useLocale, "function");
+  assert.equal(typeof mcp.useTheme, "function");
+  assert.equal(typeof mcp.useUserAgent, "function");
   assert.equal(typeof (await import("@belgie/mcp/codegen")).generateToolTypes, "function");
   assert.equal(typeof (await import("@belgie/mcp/internal")).createGeneratedTool, "function");
   assert.equal(typeof (await import("@belgie/mcp/vite")).belgie, "function");
