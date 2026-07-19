@@ -71,6 +71,35 @@ function useHostContextValue<K extends keyof McpUiHostContext>(
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+function useMaxHeight(app: App): number | undefined {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const handleHostContextChanged = (
+        params: AppEventMap["hostcontextchanged"],
+      ) => {
+        if ("containerDimensions" in params) {
+          onChange();
+        }
+      };
+
+      app.addEventListener("hostcontextchanged", handleHostContextChanged);
+      return () => {
+        app.removeEventListener("hostcontextchanged", handleHostContextChanged);
+      };
+    },
+    [app],
+  );
+  const getSnapshot = useCallback(() => {
+    const containerDimensions = app.getHostContext()?.containerDimensions;
+    return containerDimensions !== undefined &&
+      "maxHeight" in containerDimensions
+      ? containerDimensions.maxHeight
+      : undefined;
+  }, [app]);
+
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
 function normalizeLocale(locale: string): string {
   try {
     return new Intl.Locale(locale.replaceAll("_", "-")).toString();
@@ -92,25 +121,21 @@ export function useDisplayMode() {
 
 export function useLayout(): LayoutState {
   const { app } = useConnectedWidgetContext("useLayout");
-  const containerDimensions = useHostContextValue(app, "containerDimensions");
+  const maxHeight = useMaxHeight(app);
   const safeAreaInsets = useHostContextValue(app, "safeAreaInsets");
   const safeArea = useMemo(
     () => ({ insets: safeAreaInsets ?? DEFAULT_SAFE_AREA_INSETS }),
     [safeAreaInsets],
   );
-  const maxHeight =
-    containerDimensions !== undefined && "maxHeight" in containerDimensions
-      ? containerDimensions.maxHeight
-      : undefined;
 
-  return { maxHeight, safeArea };
+  return useMemo(() => ({ maxHeight, safeArea }), [maxHeight, safeArea]);
 }
 
 export function useLocale(): string {
   const { app } = useConnectedWidgetContext("useLocale");
   const locale = useHostContextValue(app, "locale") ?? DEFAULT_LOCALE;
 
-  return useMemo(() => normalizeLocale(locale), [locale]);
+  return normalizeLocale(locale);
 }
 
 export function useTheme(): McpUiTheme {
