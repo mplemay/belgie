@@ -84,7 +84,7 @@ test("npm pack dry run contains only publishable package files", () => {
   const output = execFileSync(
     npm,
     ["pack", "--dry-run", "--json", "--ignore-scripts"],
-    { encoding: "utf8" },
+    { encoding: "utf8", shell: true },
   );
   const result = JSON.parse(output)[0];
   const files = result.files.map((file: { path: string }) => file.path);
