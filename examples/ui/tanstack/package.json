@@ -1,0 +1,10 @@
+{
+  "name": "tanstack",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "typecheck": "tsc --noEmit"
+  },
+  "type": "module"
+}

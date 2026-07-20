@@ -85,3 +85,14 @@ def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
         lambda *_args, **_kwargs: html,
     )
     yield from _load_example_main(EXAMPLES_ROOT / "ui" / "shadcn", "shadcn")
+
+
+@pytest.fixture
+def tanstack_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
+    html = "<!doctype html><html><body>tanstack</body></html>"
+    monkeypatch.setattr(
+        _extension,
+        "load_development_widget",
+        lambda *_args, **_kwargs: html,
+    )
+    yield from _load_example_main(EXAMPLES_ROOT / "ui" / "tanstack", "tanstack")

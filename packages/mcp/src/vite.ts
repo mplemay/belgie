@@ -139,7 +139,8 @@ async function buildWidget(
   try {
     await build({
       configFile,
-      configLoader: "native",
+      // Bundle the project config so package subpath imports used by framework plugins resolve before Deno loads it.
+      configLoader: "bundle",
       root: config.root,
       mode: config.mode,
       ...(config.logLevel === undefined ? {} : { logLevel: config.logLevel }),
@@ -163,6 +164,7 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
   let widgetEntryPattern: RegExp | undefined;
   let usesOrchestrationEntry = false;
   let isBuildCommand = false;
+  let widgetsBuilt = false;
 
   return {
     name: "belgie",
@@ -192,28 +194,31 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
             );
           }
           widgetMap = new Map([[widget.name, widget]]);
+          const isolatedBuild = {
+            assetsInlineLimit: MAX_INLINE_ASSET_SIZE,
+            copyPublicDir: false,
+            cssCodeSplit: false,
+            emptyOutDir: false,
+            license: false,
+            manifest: false,
+            modulePreload: false,
+            outDir: "dist",
+            reportCompressedSize: false,
+            sourcemap: false,
+            ssrManifest: false,
+            watch: null,
+            write: true,
+            rolldownOptions: {
+              input: `${VIRTUAL_PREFIX}${encodeURIComponent(widget.name)}`,
+              output: { codeSplitting: false },
+            },
+          };
           return {
             appType: "custom",
+            // Vite's legacy programmatic build selects the client environment when a framework defines several.
+            environments: { client: { build: isolatedBuild } },
             resolve: { dedupe: ["react", "react-dom"] },
-            build: {
-              assetsInlineLimit: MAX_INLINE_ASSET_SIZE,
-              copyPublicDir: false,
-              cssCodeSplit: false,
-              emptyOutDir: false,
-              license: false,
-              manifest: false,
-              modulePreload: false,
-              outDir: "dist",
-              reportCompressedSize: false,
-              sourcemap: false,
-              ssrManifest: false,
-              watch: null,
-              write: true,
-              rolldownOptions: {
-                input: `${VIRTUAL_PREFIX}${encodeURIComponent(widget.name)}`,
-                output: { codeSplitting: false },
-              },
-            },
+            build: isolatedBuild,
           };
         }
 
@@ -298,7 +303,13 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
     },
 
     async closeBundle() {
-      if (!isBuildCommand || requestedWidgetPath !== undefined || resolvedConfig === undefined || widgetMap.size === 0) {
+      if (
+        !isBuildCommand ||
+        requestedWidgetPath !== undefined ||
+        resolvedConfig === undefined ||
+        widgetMap.size === 0 ||
+        widgetsBuilt
+      ) {
         return;
       }
       if (!resolvedConfig.configFile) {
@@ -310,6 +321,7 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
       for (const widget of widgetMap.values()) {
         await buildWidget(widget, resolvedConfig, resolvedConfig.configFile);
       }
+      widgetsBuilt = true;
     },
 
     configureServer(server) {

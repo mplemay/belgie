@@ -111,6 +111,8 @@ describe("Vite configuration and virtual modules", () => {
     assert.equal(result?.build?.rolldownOptions?.input, "/_belgie/widget/a%20name");
     assert.equal(result?.build?.assetsInlineLimit, Number.MAX_SAFE_INTEGER);
     assert.equal(result?.build?.rolldownOptions?.output?.codeSplitting, false);
+    assert.equal(result?.environments?.client?.build?.outDir, "dist");
+    assert.equal(result?.environments?.client?.build?.rolldownOptions?.input, "/_belgie/widget/a%20name");
   });
 
   test("rejects an unknown isolated widget path", () => {
@@ -406,6 +408,8 @@ describe("isolated production builds", () => {
       configFile,
       logLevel: "silent",
     } as never);
+    await plugin.closeBundle?.();
+    rmSync(configFile);
     await plugin.closeBundle?.();
     assert.equal(process.env[INTERNAL_WIDGET_PATH_ENV], undefined);
     const weather = readFileSync(resolve(root, "dist/widgets/weather/index.html"), "utf8");
