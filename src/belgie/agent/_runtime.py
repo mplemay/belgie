@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, field
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import TYPE_CHECKING, Final, Self, cast
 
@@ -16,6 +18,14 @@ if TYPE_CHECKING:
 DEFAULT_RUNTIME_OPTIONS: Final[RuntimeOptions] = RuntimeOptions(
     permissions=RuntimePermissions(allow_net=[]),
 )
+DEFAULT_VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
+    "homedir",
+    "uid",
+    "gid",
+    "cpus",
+    "osRelease",
+    "systemMemoryInfo",
+)
 SESSION_NOT_ENTERED_MESSAGE: Final[str] = "Belgie runtime session must be entered before running scripts."
 
 type AsyncExitArgs = tuple[
@@ -23,6 +33,22 @@ type AsyncExitArgs = tuple[
     BaseException | None,
     TracebackType | None,
 ]
+
+
+def _isolated_runtime_options(root: Path) -> RuntimeOptions:
+    return RuntimeOptions(
+        permissions=RuntimePermissions(
+            allow_ffi=[str(root / "node_modules")],
+            allow_net=[],
+            allow_read=[str(root)],
+            allow_sys=DEFAULT_VITE_SYS_PERMISSIONS,
+        ),
+    )
+
+
+def _temporary_workspace(stack: AsyncExitStack) -> Path:
+    directory = stack.enter_context(TemporaryDirectory(prefix="belgie-agent-"))
+    return Path(directory).resolve()
 
 
 @dataclass(kw_only=True)
@@ -57,21 +83,28 @@ class BelgieRuntimeSession(BelgieOptions):
         runner = self._active_runtime(Script(source))
         if self.timeout is None:
             return await runner()
+        task = asyncio.create_task(runner())
         try:
-            return await asyncio.wait_for(runner(), timeout=self.timeout)
+            return await asyncio.wait_for(asyncio.shield(task), timeout=self.timeout)
         except TimeoutError as error:
+            task.cancel()
+            with suppress(BaseException):
+                await task
             raise TimeoutError(SCRIPT_TIMEOUT_MESSAGE.format(timeout=self.timeout)) from error
 
     async def _enter_runtime(self, stack: AsyncExitStack) -> AsyncRuntime:
         if self.runtime is not None:
             return await stack.enter_async_context(self.runtime)
 
-        options = self.runtime_options or DEFAULT_RUNTIME_OPTIONS
         if self.environment is None:
-            active_environment = await stack.enter_async_context(Environment())
+            root = _temporary_workspace(stack)
+            active_environment = await stack.enter_async_context(Environment(path=root))
+            options = self.runtime_options or _isolated_runtime_options(root)
         elif isinstance(self.environment, Environment):
             active_environment = await stack.enter_async_context(self.environment)
+            options = self.runtime_options or DEFAULT_RUNTIME_OPTIONS
         else:
             active_environment = self.environment
+            options = self.runtime_options or DEFAULT_RUNTIME_OPTIONS
 
         return await stack.enter_async_context(Runtime(env=active_environment, options=options))

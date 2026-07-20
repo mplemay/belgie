@@ -7,7 +7,7 @@ agent = create_agent(
     tools=[],
     middleware=[BelgieMiddleware()],
     system_prompt=(
-        "You can execute JavaScript or TypeScript in a Deno sandbox with the run_code tool. "
+        "You can execute JavaScript, TypeScript, or TSX in a Deno sandbox with the run_code tool. "
         "Use it when fetching data or transforming values is easier in JS/TS than in Python."
     ),
 )

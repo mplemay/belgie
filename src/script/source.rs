@@ -1,8 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use deno_ast::MediaType;
+
 use super::dependencies::{analyze_parsed_script_dependencies, content_may_have_resolver_imports};
-use super::signature::{self, RunSignature, media_type_for_script, run_signature_from_parsed};
+use super::signature::{self, RunSignature, run_signature_from_parsed};
 use crate::options::ScriptOptions;
+
+const INLINE_REACT_IMPORT_SOURCE: &str = "npm:react@19.2.6";
 
 #[derive(Clone, Debug)]
 pub(crate) struct ScriptSource {
@@ -23,12 +27,12 @@ impl ScriptSource {
     pub(crate) fn from_options(options: ScriptOptions) -> Self {
         let path = options.path().map(Path::to_path_buf);
         let content = options.into_content();
-        let media_type = media_type_for_script(path.as_deref());
-        let parsed = signature::parse_script_module(&content, media_type);
-        let needs_package_loader = parsed
-            .as_ref()
-            .filter(|_| content_may_have_resolver_imports(&content))
-            .is_some_and(analyze_parsed_script_dependencies);
+        let (media_type, parsed) = parsed_source(&content, path.as_deref());
+        let needs_package_loader = media_type == MediaType::Tsx
+            || parsed
+                .as_ref()
+                .filter(|_| content_may_have_resolver_imports(&content))
+                .is_some_and(analyze_parsed_script_dependencies);
         let run_signature = parsed.as_ref().and_then(run_signature_from_parsed);
         let kind = match path {
             Some(path) => ScriptSourceKind::File { path },
@@ -58,6 +62,17 @@ impl ScriptSource {
         self.media_type
     }
 
+    pub(crate) fn execution_content(&self) -> String {
+        if matches!(&self.kind, ScriptSourceKind::Inline) && self.media_type == MediaType::Tsx {
+            format!(
+                "/** @jsxRuntime automatic */\n/** @jsxImportSource {INLINE_REACT_IMPORT_SOURCE} */\n{}",
+                self.content,
+            )
+        } else {
+            self.content.clone()
+        }
+    }
+
     pub(crate) fn needs_package_loader(&self) -> bool {
         self.needs_package_loader
     }
@@ -76,8 +91,32 @@ impl ScriptSource {
     }
 }
 
+fn parsed_source(
+    content: &str,
+    path: Option<&Path>,
+) -> (MediaType, Option<deno_ast::ParsedSource>) {
+    if let Some(path) = path {
+        let media_type = MediaType::from_path(path);
+        return (
+            media_type,
+            signature::parse_script_module(content, media_type),
+        );
+    }
+
+    if let Some(parsed) = signature::parse_script_module(content, MediaType::TypeScript) {
+        return (MediaType::TypeScript, Some(parsed));
+    }
+
+    (
+        MediaType::Tsx,
+        signature::parse_script_module(content, MediaType::Tsx),
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    use deno_ast::MediaType;
+
     use super::ScriptSource;
     use crate::options::ScriptOptions;
     use std::path::PathBuf;
@@ -119,5 +158,32 @@ mod tests {
         ));
 
         assert!(source.needs_package_loader());
+    }
+
+    #[test]
+    fn detects_inline_tsx_after_typescript_parse_fails() {
+        let source = ScriptSource::from_options(ScriptOptions::inline(
+            "export default () => <main>Hello</main>;".to_string(),
+        ));
+
+        assert_eq!(source.media_type(), MediaType::Tsx);
+        assert!(source.needs_package_loader());
+        assert!(source.execution_content().contains("@jsxRuntime automatic"));
+        assert!(
+            source
+                .execution_content()
+                .contains("@jsxImportSource npm:react@19.2.6"),
+        );
+    }
+
+    #[test]
+    fn preserves_typescript_generic_syntax_before_trying_tsx() {
+        let source = ScriptSource::from_options(ScriptOptions::inline(
+            "const identity = <T>(value: T): T => value; export default () => identity(42);"
+                .to_string(),
+        ));
+
+        assert_eq!(source.media_type(), MediaType::TypeScript);
+        assert!(!source.execution_content().contains("@jsxRuntime"));
     }
 }

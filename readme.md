@@ -8,7 +8,8 @@ PATH.
 - **Isolated packages:** Use `Environment` for lockfiles, custom cache/options, local packages, and commands.
 - **CLI tools:** Run npm binaries (Vite, esbuild, etc.) through `Command`.
 - **Simple data bridge:** Pass JSON-safe dicts, lists, and primitives across the boundary.
-- **Pydantic AI & LangChain:** Expose a sandboxed `run_code` tool for JS/TS when Python is not the best fit.
+- **Pydantic AI & LangChain:** Expose a sandboxed `run_code` tool for JS/TS/TSX when Python is not the best fit.
+- **Inline React widgets:** Return self-contained HTML from `run_code` with the isolated `@belgie/render` package.
 
 ## Installation
 
@@ -66,7 +67,7 @@ See the full runnable project in [examples/ai/pydantic-ai](examples/ai/pydantic-
 
 ## LangChain
 
-Attach `BelgieMiddleware()` to a LangChain agent to expose the same sandboxed `run_code` tool for JS/TS execution.
+Attach `BelgieMiddleware()` to a LangChain agent to expose the same sandboxed `run_code` tool for JS/TS/TSX execution.
 Deno is bundled—no Node install required.
 
 Install with `uv add "belgie[langchain]"`, set `OPENAI_API_KEY`, then:
@@ -98,6 +99,31 @@ print(result["messages"][-1].content)
 
 See the full runnable project in [examples/ai/langchain](examples/ai/langchain).
 
+## Inline widget rendering
+
+Pydantic AI and LangChain agents can return a complete inline React widget through the same `run_code` tool. The
+agent writes one TSX module and imports the standalone renderer:
+
+```tsx
+import { render } from "npm:@belgie/render";
+
+function Widget() {
+  return <main>Hello from Belgie</main>;
+}
+
+export default function run() {
+  return render({
+    widget: <Widget />,
+    plugins: [],
+  });
+}
+```
+
+`render()` runs Vite inside the active Deno worker and returns one self-contained HTML string with inline JavaScript,
+CSS, and assets. Package imports are supported. Relative host-file imports are intentionally unavailable, and Vite
+plugins run only during the server build before their expressions and plugin-only imports are removed from the browser
+bundle. This API is independent from `@belgie/mcp` and its path-based `widget.tsx` development and production flow.
+
 ## Examples
 
 Want to learn more about Belgie's features? The examples below are small, runnable projects — each one focuses on a
@@ -115,8 +141,9 @@ single capability.
 
 ### AI
 
-- **[pydantic-ai](examples/ai/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS execution.
-- **[langchain](examples/ai/langchain):** LangChain agent with `BelgieMiddleware()` for sandboxed JS/TS execution.
+- **[pydantic-ai](examples/ai/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS/TSX
+  execution.
+- **[langchain](examples/ai/langchain):** LangChain agent with `BelgieMiddleware()` for sandboxed JS/TS/TSX execution.
 
 ### UI
 

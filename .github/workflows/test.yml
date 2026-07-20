@@ -90,6 +90,12 @@ jobs:
           npm ci
           npm test
 
+      - name: Test @belgie/render
+        working-directory: packages/render
+        run: |
+          npm ci
+          npm test
+
       - name: Run tests
         run: uv run pytest
 

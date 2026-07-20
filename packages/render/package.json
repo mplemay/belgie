@@ -1,0 +1,62 @@
+{
+  "author": "Matt LeMay <mplemay@users.noreply.github.com>",
+  "bugs": {
+    "url": "https://github.com/mplemay/belgie/issues"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "magic-string": "^0.30.21",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "vite": "^8.1.3"
+  },
+  "description": "Self-contained inline React widget rendering for Belgie run_code tools.",
+  "devDependencies": {
+    "@arethetypeswrong/core": "^0.18.5",
+    "@types/node": "25.9.1",
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
+    "@vitest/coverage-v8": "^4.1.10",
+    "publint": "^0.3.21",
+    "tsdown": "^0.22.11",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "homepage": "https://github.com/mplemay/belgie#inline-widget-rendering",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "name": "@belgie/render",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "directory": "packages/render",
+    "type": "git",
+    "url": "https://github.com/mplemay/belgie"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "check": "tsc --noEmit",
+    "dev": "tsdown --watch",
+    "prepublishOnly": "npm test",
+    "test": "npm run build && npm run test:coverage && npm run check",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "version": "0.1.0",
+  "workspaces": []
+}
