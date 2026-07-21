@@ -1,10 +1,10 @@
-type BuildAsset = {
+interface BuildAsset {
   fileName: string;
   source: string | Uint8Array;
   type: "asset";
-};
+}
 
-type BuildChunk = {
+interface BuildChunk {
   code: string;
   dynamicImports: string[];
   fileName: string;
@@ -12,18 +12,18 @@ type BuildChunk = {
   isEntry: boolean;
   type: "chunk";
   viteMetadata?: { importedCss?: Set<string> };
-};
+}
 
 export type BuildArtifact = BuildAsset | BuildChunk;
 
 const TEXT_DECODER = new TextDecoder();
 
 export function escapeInlineScript(value: string): string {
-  return value.replace(/<\/script/giu, "<\\/script");
+  return value.replace(/<\/script/giu, String.raw`<\/script`);
 }
 
 export function escapeInlineStyle(value: string): string {
-  return value.replace(/<\/style/giu, "<\\/style");
+  return value.replace(/<\/style/giu, String.raw`<\/style`);
 }
 
 export function renderHtmlDocument(script: string, styles: string[]): string {
@@ -48,15 +48,18 @@ function readAsset(asset: BuildAsset): string {
   return typeof asset.source === "string" ? asset.source : TEXT_DECODER.decode(asset.source);
 }
 
-export function renderBundle(bundle: Record<string, BuildArtifact>): string {
-  const artifacts = Object.values(bundle);
+export function renderBundle(bundle: Record<string, BuildArtifact | object>): string {
+  const artifacts = Object.values(bundle) as BuildArtifact[];
   const chunks = artifacts.filter((artifact): artifact is BuildChunk => artifact.type === "chunk");
   const entries = chunks.filter((chunk) => chunk.isEntry);
   if (entries.length !== 1) {
     throw new Error(`@belgie/render: expected one entry chunk, received ${entries.length}`);
   }
 
-  const entry = entries[0]!;
+  const [entry] = entries;
+  if (entry === undefined) {
+    throw new Error("@belgie/render: expected one entry chunk, received 0");
+  }
   const extraChunks = chunks.filter((chunk) => chunk !== entry);
   if (extraChunks.length > 0) {
     throw new Error(
@@ -64,9 +67,7 @@ export function renderBundle(bundle: Record<string, BuildArtifact>): string {
     );
   }
 
-  const retainedImports = [...entry.imports, ...entry.dynamicImports].filter(
-    (item) => item !== entry.fileName,
-  );
+  const retainedImports = [...entry.imports, ...entry.dynamicImports].filter((item) => item !== entry.fileName);
   if (retainedImports.length > 0) {
     throw new Error(`@belgie/render: build retained imports: ${retainedImports.join(", ")}`);
   }
@@ -81,7 +82,7 @@ export function renderBundle(bundle: Record<string, BuildArtifact>): string {
 
   const assetsByName = new Map(assets.map((asset) => [asset.fileName, asset]));
   const importedCss = [...(entry.viteMetadata?.importedCss ?? [])];
-  const cssNames = importedCss.length > 0 ? importedCss : assets.map((asset) => asset.fileName).sort();
+  const cssNames = importedCss.length > 0 ? importedCss : assets.map((asset) => asset.fileName).toSorted();
   const styles = cssNames.map((name) => {
     const asset = assetsByName.get(name);
     if (asset === undefined) {

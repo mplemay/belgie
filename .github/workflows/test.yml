@@ -49,6 +49,10 @@ jobs:
         working-directory: packages/mcp
         run: npm ci
 
+      - name: Install @belgie/render dependencies
+        working-directory: packages/render
+        run: npm ci
+
       - name: Install tanstack example frontend dependencies
         working-directory: examples/ui/tanstack
         run: |

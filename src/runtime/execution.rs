@@ -440,20 +440,23 @@ impl DenoExecutionContext {
         let process = v8::Local::<v8::Object>::try_from(process_value)
             .map_err(|_| BindingError::runtime("Could not access process object"))?;
 
+        // Mutable in-memory sandbox: Vite assigns keys during builds, but must not
+        // touch Deno.env (host env stays sealed without allow_env).
         let environment = v8::Object::new(scope);
         for (name, value) in SAFE_PROCESS_ENVIRONMENT {
             let value = v8::String::new(scope, value).ok_or_else(|| {
                 BindingError::runtime("Could not create process environment value")
             })?;
-            define_context_property(scope, environment, name, value.into())?;
-        }
-        if !environment
-            .set_integrity_level(scope, v8::IntegrityLevel::Frozen)
-            .unwrap_or(false)
-        {
-            return Err(BindingError::runtime(
-                "Could not freeze process environment",
-            ));
+            let key = v8::String::new(scope, name)
+                .ok_or_else(|| BindingError::runtime("Could not create process environment key"))?;
+            if !environment
+                .set(scope, key.into(), value.into())
+                .unwrap_or(false)
+            {
+                return Err(BindingError::runtime(
+                    "Could not set process environment value",
+                ));
+            }
         }
 
         let environment_key = v8::String::new(scope, "env")

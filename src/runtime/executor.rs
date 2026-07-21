@@ -207,9 +207,18 @@ mod tests {
         let first_source = r#"export default function run() {
   const key = Symbol.for("@belgie/render/context");
   const context = globalThis[key];
-  let readOnly = false;
-  try { globalThis[key] = {}; } catch { readOnly = true; }
-  return [context.source.includes("first-marker"), context.url.endsWith(".ts"), Object.isFrozen(context), readOnly].join("|");
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+  const readOnly = descriptor !== undefined
+    && descriptor.writable === false
+    && descriptor.configurable === false;
+  const inlineUrl = typeof context.url === "string"
+    && context.url.includes("__deno_python_inline__.ts");
+  return [
+    context.source.includes("first-marker"),
+    inlineUrl,
+    Object.isFrozen(context),
+    readOnly,
+  ].join("|");
 }
 // first-marker"#;
         let second_source = r#"export default function run() {

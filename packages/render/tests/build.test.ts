@@ -1,4 +1,3 @@
-import { describe, expect, test, vi } from "vitest";
 import type { ResolvedConfig, Rollup } from "vite";
 
 import { invariantPlugin, readHtml } from "../src/build.ts";
@@ -16,7 +15,7 @@ function config(options: { configFile?: string; output?: unknown; write?: boolea
 }
 
 describe("build invariants", () => {
-  test.each([
+  it.each([
     ["config files", config({ configFile: "/vite.config.ts" }), "configuration files"],
     ["filesystem writes", config({ write: true }), "filesystem output"],
     ["output arrays", config({ output: [{ codeSplitting: false }] }), "code splitting"],
@@ -29,26 +28,46 @@ describe("build invariants", () => {
     expect(() => hook.call({} as never, resolved)).toThrow(message);
   });
 
-  test("reads string and byte HTML assets", () => {
+  it("reads string and byte HTML assets", () => {
     const stringOutput = {
-      output: [{ fileName: "widget.html", names: [], needsCodeReference: false, originalFileName: null, originalFileNames: [], source: "html", type: "asset" }],
+      output: [
+        {
+          fileName: "widget.html",
+          names: [],
+          needsCodeReference: false,
+          originalFileName: null,
+          originalFileNames: [],
+          source: "html",
+          type: "asset",
+        },
+      ],
     } as unknown as Rollup.RollupOutput;
     const byteOutput = {
-      output: [{ fileName: "widget.html", names: [], needsCodeReference: false, originalFileName: null, originalFileNames: [], source: new TextEncoder().encode("bytes"), type: "asset" }],
+      output: [
+        {
+          fileName: "widget.html",
+          names: [],
+          needsCodeReference: false,
+          originalFileName: null,
+          originalFileNames: [],
+          source: new TextEncoder().encode("bytes"),
+          type: "asset",
+        },
+      ],
     } as unknown as Rollup.RollupOutput;
 
     expect(readHtml(stringOutput)).toBe("html");
     expect(readHtml([byteOutput])).toBe("bytes");
   });
 
-  test("rejects missing and unexpected final artifacts", () => {
+  it("rejects missing and unexpected final artifacts", () => {
     expect(() => readHtml({ output: [] } as unknown as Rollup.RollupOutput)).toThrow("expected one HTML artifact");
-    expect(() => readHtml({ output: [{ fileName: "widget.js", type: "chunk" }] } as unknown as Rollup.RollupOutput)).toThrow(
-      "expected widget.html",
-    );
+    expect(() =>
+      readHtml({ output: [{ fileName: "widget.js", type: "chunk" }] } as unknown as Rollup.RollupOutput),
+    ).toThrow("expected widget.html");
   });
 
-  test("replaces the build bundle with one HTML asset", () => {
+  it("replaces the build bundle with one HTML asset", () => {
     const plugin = invariantPlugin();
     const hook = plugin.generateBundle;
     if (typeof hook !== "object" || typeof hook.handler !== "function") {
@@ -81,7 +100,7 @@ describe("build invariants", () => {
 
     hook.handler.call({ emitFile } as never, {} as never, bundle as never, false);
 
-    expect(bundle).toEqual({});
+    expect(bundle).toStrictEqual({});
     expect(emitFile).toHaveBeenCalledWith(expect.objectContaining({ fileName: "widget.html", type: "asset" }));
   });
 });

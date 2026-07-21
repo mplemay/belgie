@@ -1,27 +1,20 @@
-import { describe, expect, test } from "vitest";
-
-import {
-  escapeInlineScript,
-  escapeInlineStyle,
-  renderBundle,
-  renderHtmlDocument,
-  type BuildArtifact,
-} from "../src/html.ts";
+import { escapeInlineScript, escapeInlineStyle, renderBundle, renderHtmlDocument } from "../src/html.ts";
+import type { BuildArtifact } from "../src/html.ts";
 
 describe("HTML output", () => {
-  test("escapes inline closing tags and renders one complete document", () => {
+  it("escapes inline closing tags and renders one complete document", () => {
     const html = renderHtmlDocument('console.log("</ScRiPt>")', ["main::after { content: '</STYLE>' }"]);
 
-    expect(escapeInlineScript("</script>")).toBe("<\\/script>");
-    expect(escapeInlineStyle("</style>")).toBe("<\\/style>");
+    expect(escapeInlineScript("</script>")).toBe(String.raw`<\/script>`);
+    expect(escapeInlineStyle("</style>")).toBe(String.raw`<\/style>`);
     expect(html).toMatch(/^<!doctype html>/u);
     expect(html).toContain('<div id="root"></div>');
-    expect(html).toContain("<\\/script>");
-    expect(html).toContain("<\\/style>");
-    expect(html.endsWith("\n")).toBe(true);
+    expect(html).toContain(String.raw`<\/script>`);
+    expect(html).toContain(String.raw`<\/style>`);
+    expect(html.endsWith("\n")).toBeTruthy();
   });
 
-  test("inlines CSS assets in deterministic order", () => {
+  it("inlines CSS assets in deterministic order", () => {
     const html = renderBundle({
       "widget.js": {
         code: "console.log('widget')",
@@ -38,12 +31,8 @@ describe("HTML output", () => {
     expect(html.indexOf(".a{}")).toBeLessThan(html.indexOf(".z{}"));
   });
 
-  test.each([
-    [
-      "entry count",
-      {},
-      "expected one entry chunk",
-    ],
+  it.each([
+    ["entry count", {}, "expected one entry chunk"],
     [
       "extra chunks",
       {

@@ -41,6 +41,15 @@ VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
     "osRelease",
     "systemMemoryInfo",
 )
+VITE_READ_PATHS: Final[tuple[str, ...]] = (
+    ()
+    if sys.platform == "win32"
+    else (
+        "/etc",
+        "/proc",
+        "/usr/bin/ldd",
+    )
+)
 INLINE_WIDGET_SOURCE: Final[str] = """
 import { render } from "@belgie/render";
 
@@ -104,7 +113,7 @@ def secure_runtime_options(root: Path) -> RuntimeOptions:
         permissions=RuntimePermissions(
             allow_ffi=[str(root / "node_modules")],
             allow_net=[],
-            allow_read=[str(root)],
+            allow_read=[str(root), *VITE_READ_PATHS],
             allow_sys=VITE_SYS_PERMISSIONS,
         ),
     )

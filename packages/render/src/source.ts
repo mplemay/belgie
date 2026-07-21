@@ -1,5 +1,6 @@
 import MagicString from "magic-string";
-import { parseAst, type ESTree, type Plugin } from "vite";
+import { parseAst } from "vite";
+import type { ESTree, Plugin } from "vite";
 
 export const CLIENT_ENTRY_ID = "virtual:belgie-render/client-entry";
 export const CLIENT_SOURCE_ID = "virtual:belgie-render/caller";
@@ -17,20 +18,20 @@ type AstNode = ESTree.Node & {
 
 type ImportDeclaration = AstNode & {
   source: { value: string };
-  specifiers: Array<AstNode & { local: { name: string }; imported?: { name?: string; value?: string } }>;
+  specifiers: (AstNode & { local: { name: string }; imported?: { name?: string; value?: string } })[];
 };
 
-type RenderContext = {
+interface RenderContext {
   source: string;
   url: string;
   version: 1;
-};
+}
 
 function isNode(value: unknown): value is AstNode {
   return typeof value === "object" && value !== null && "type" in value && "start" in value && "end" in value;
 }
 
-function walk(node: AstNode, visit: (node: AstNode) => boolean | void): void {
+function walk(node: AstNode, visit: (node: AstNode) => boolean | undefined): void {
   if (visit(node) === false) {
     return;
   }
@@ -82,18 +83,23 @@ function collectIdentifiers(node: AstNode): Set<string> {
   return names;
 }
 
-function removeObjectProperty(
-  transformed: MagicString,
-  properties: AstNode[],
-  propertyIndex: number,
-): void {
-  const property = properties[propertyIndex]!;
+function removeObjectProperty(transformed: MagicString, properties: AstNode[], propertyIndex: number): void {
+  const property = properties[propertyIndex];
+  if (property === undefined) {
+    return;
+  }
   if (properties.length === 1) {
     transformed.remove(property.start, property.end);
   } else if (propertyIndex === 0) {
-    transformed.remove(property.start, properties[1]!.start);
+    const next = properties[1];
+    if (next !== undefined) {
+      transformed.remove(property.start, next.start);
+    }
   } else {
-    transformed.remove(properties[propertyIndex - 1]!.end, property.end);
+    const previous = properties[propertyIndex - 1];
+    if (previous !== undefined) {
+      transformed.remove(previous.end, property.end);
+    }
   }
 }
 
@@ -171,7 +177,10 @@ export function stripServerPlugins(source: string): string {
     if (propertyIndex === -1) {
       return;
     }
-    const property = properties[propertyIndex]!;
+    const property = properties[propertyIndex];
+    if (property === undefined) {
+      return;
+    }
     pluginProperties.push(property);
     if ("value" in property && isNode(property.value)) {
       for (const name of collectIdentifiers(property.value)) {
@@ -208,8 +217,7 @@ export function stripServerPlugins(source: string): string {
       continue;
     }
     const retained = declaration.specifiers.filter(
-      (specifier) =>
-        !pluginIdentifiers.has(specifier.local.name) || usedOutsidePlugins.has(specifier.local.name),
+      (specifier) => !pluginIdentifiers.has(specifier.local.name) || usedOutsidePlugins.has(specifier.local.name),
     );
     if (retained.length === declaration.specifiers.length) {
       continue;
@@ -270,7 +278,7 @@ const CLIENT_ENTRY_SOURCE = [
   'import { createRoot } from "react-dom/client";',
   `import * as caller from ${JSON.stringify(CLIENT_SOURCE_ID)};`,
   `import { assertRenderDefinition } from ${JSON.stringify(CLIENT_RENDER_ID)};`,
-  "const run = typeof caller.default === \"function\" ? caller.default : caller.run;",
+  'const run = typeof caller.default === "function" ? caller.default : caller.run;',
   'if (typeof run !== "function") throw new TypeError("@belgie/render: caller must export a default function or named run function");',
   "const definition = assertRenderDefinition(await run());",
   'if (!isValidElement(definition.widget)) throw new TypeError("@belgie/render: widget must be a React element");',

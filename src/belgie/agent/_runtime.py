@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,16 @@ DEFAULT_VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
     "osRelease",
     "systemMemoryInfo",
 )
+# Linux native loaders (detect-libc / lightningcss / rolldown) probe these paths.
+DEFAULT_VITE_READ_PATHS: Final[tuple[str, ...]] = (
+    ()
+    if sys.platform == "win32"
+    else (
+        "/etc",
+        "/proc",
+        "/usr/bin/ldd",
+    )
+)
 SESSION_NOT_ENTERED_MESSAGE: Final[str] = "Belgie runtime session must be entered before running scripts."
 
 type AsyncExitArgs = tuple[
@@ -40,7 +51,7 @@ def _isolated_runtime_options(root: Path) -> RuntimeOptions:
         permissions=RuntimePermissions(
             allow_ffi=[str(root / "node_modules")],
             allow_net=[],
-            allow_read=[str(root)],
+            allow_read=[str(root), *DEFAULT_VITE_READ_PATHS],
             allow_sys=DEFAULT_VITE_SYS_PERMISSIONS,
         ),
     )

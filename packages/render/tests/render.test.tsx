@@ -1,5 +1,4 @@
 import { createElement } from "react";
-import { afterEach, describe, expect, test } from "vitest";
 
 import { render } from "../src/index.ts";
 
@@ -16,16 +15,18 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, CONTEXT_SYMBOL);
 });
 
-describe("render", () => {
-  test("returns a self-contained HTML document and applies server-side plugins", async () => {
-    installContext([
-      'import { render } from "npm:@belgie/render";',
-      'import serverOnly from "jsr:@example/server-plugin";',
-      "function Widget() { return <main className=\"card\">plugin-target</main>; }",
-      "export default function run() {",
-      "  return render({ widget: <Widget />, plugins: [serverOnly()] });",
-      "}",
-    ].join("\n"));
+describe("@belgie/render", () => {
+  it("returns a self-contained HTML document and applies server-side plugins", async () => {
+    installContext(
+      [
+        'import { render } from "npm:@belgie/render";',
+        'import serverOnly from "jsr:@example/server-plugin";',
+        'function Widget() { return <main className="card">plugin-target</main>; }',
+        "export default function run() {",
+        "  return render({ widget: <Widget />, plugins: [serverOnly()] });",
+        "}",
+      ].join("\n"),
+    );
 
     const html = await render({
       widget: createElement("main", null, "plugin-target"),
@@ -47,16 +48,20 @@ describe("render", () => {
     expect(html).toContain('<div id="root"></div>');
   });
 
-  test("uses the default empty plugin list", async () => {
-    installContext('import { render } from "@belgie/render"; export default () => render({ widget: <main>plain</main> });');
+  it("uses the default empty plugin list", async () => {
+    installContext(
+      'import { render } from "@belgie/render"; export default () => render({ widget: <main>plain</main> });',
+    );
 
     const html = await render({ widget: createElement("main", null, "plain") });
 
     expect(html).toContain("plain");
   });
 
-  test("restores the process environment after a build", async () => {
-    installContext('import { render } from "@belgie/render"; export default () => render({ widget: <main>env</main> });');
+  it("restores the process environment after a build", async () => {
+    installContext(
+      'import { render } from "@belgie/render"; export default () => render({ widget: <main>env</main> });',
+    );
     const environment = process.env;
 
     await render({ widget: createElement("main", null, "env") });
@@ -64,12 +69,14 @@ describe("render", () => {
     expect(process.env).toBe(environment);
   });
 
-  test("inlines CSS emitted by a client dependency", async () => {
-    installContext([
-      'import { render } from "@belgie/render";',
-      'import "virtual:inline-style.css";',
-      "export const run = () => render({ widget: <main>styled</main> });",
-    ].join("\n"));
+  it("inlines CSS emitted by a client dependency", async () => {
+    installContext(
+      [
+        'import { render } from "@belgie/render";',
+        'import "virtual:inline-style.css";',
+        "export const run = () => render({ widget: <main>styled</main> });",
+      ].join("\n"),
+    );
 
     const html = await render({
       widget: createElement("main", null, "styled"),
@@ -90,7 +97,7 @@ describe("render", () => {
     expect(html.slice(0, html.indexOf("</head>"))).not.toContain("<link");
   });
 
-  test("rejects invalid inputs and missing runtime context", async () => {
+  it("rejects invalid inputs and missing runtime context", async () => {
     await expect(render({ widget: "not an element" as never })).rejects.toThrow("widget must be a React element");
     await expect(render({ widget: createElement("main") })).rejects.toThrow("missing Belgie inline script context");
 
@@ -100,7 +107,7 @@ describe("render", () => {
     );
   });
 
-  test.each([
+  it.each([
     ["filesystem output", { name: "write", config: () => ({ build: { write: true } }) }, "filesystem output"],
     [
       "code splitting",
@@ -112,7 +119,7 @@ describe("render", () => {
     await expect(render({ plugins: [plugin], widget: createElement("main") })).rejects.toThrow(message);
   });
 
-  test("rejects non-CSS build assets", async () => {
+  it("rejects non-CSS build assets", async () => {
     installContext('import { render } from "@belgie/render"; export default () => render({ widget: <main /> });');
     await expect(
       render({

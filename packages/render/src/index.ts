@@ -1,15 +1,24 @@
-import { isValidElement, type ReactElement } from "react";
+import { isValidElement } from "react";
+import type { ReactElement } from "react";
 import type { PluginOption } from "vite";
 
 import type { RenderContext } from "./build.js";
 
-export type RenderOptions = {
+export interface RenderOptions {
   plugins?: PluginOption[];
   widget: ReactElement;
-};
+}
 
 const CONTEXT_SYMBOL = Symbol.for("@belgie/render/context");
-const BUILD_ENVIRONMENT = Object.freeze({ APPVEYOR: "1", NODE_ENV: "production", TERM: "dumb" });
+const BUILD_ENVIRONMENT_SEED: Record<string, string> = {
+  APPVEYOR: "1",
+  NODE_ENV: "production",
+  TERM: "dumb",
+};
+
+function createBuildEnvironment(): Record<string, string> {
+  return { ...BUILD_ENVIRONMENT_SEED };
+}
 
 function readContext(): RenderContext {
   const context = (globalThis as Record<PropertyKey, unknown>)[CONTEXT_SYMBOL];
@@ -45,7 +54,7 @@ export async function render(options: RenderOptions): Promise<string> {
   const processEnvironment = Object.getOwnPropertyDescriptor(process, "env");
   Object.defineProperty(process, "env", {
     configurable: true,
-    value: BUILD_ENVIRONMENT,
+    value: createBuildEnvironment(),
   });
   try {
     const { buildInlineWidget } = await import("./build.js");
