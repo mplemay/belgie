@@ -18,6 +18,7 @@ use deno_resolver::cjs::CjsTrackerRc;
 use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
 use deno_runtime::deno_fs::RealFs;
 use deno_runtime::deno_node::NodeRequireLoader;
+use deno_runtime::deno_node::ops::ipc::ChildIpcSerialization;
 use deno_runtime::deno_permissions::PermissionsContainer;
 use deno_runtime::deno_tls::RootCertStoreProvider;
 use deno_runtime::deno_tls::rustls::RootCertStore;
@@ -44,6 +45,7 @@ pub(crate) struct BoundPackageWorkerOptions {
     pub runtime_worker_options: RuntimeWorkerOptions,
     pub main_source: Option<String>,
     pub header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
+    pub node_ipc_init: Option<(i64, ChildIpcSerialization)>,
 }
 
 struct PackageWorkerRunOptions {
@@ -51,6 +53,7 @@ struct PackageWorkerRunOptions {
     argv0: Option<String>,
     js_runtime_options: JsRuntimeOptions,
     runtime_worker_options: RuntimeWorkerOptions,
+    node_ipc_init: Option<(i64, ChildIpcSerialization)>,
 }
 
 pub(crate) async fn create_bound_package_worker(
@@ -67,6 +70,7 @@ pub(crate) async fn create_bound_package_worker(
         runtime_worker_options,
         main_source,
         header_overrides,
+        node_ipc_init,
     } = options;
     let state = Arc::new(
         prepare_package_runtime(
@@ -88,6 +92,7 @@ pub(crate) async fn create_bound_package_worker(
             argv0,
             js_runtime_options,
             runtime_worker_options,
+            node_ipc_init,
         },
         roots,
     )
@@ -99,6 +104,7 @@ fn default_lib_main_worker_options(
     argv0: Option<String>,
     runtime_worker_options: &RuntimeWorkerOptions,
     unsafely_ignore_certificate_errors: Option<Vec<String>>,
+    node_ipc_init: Option<(i64, ChildIpcSerialization)>,
 ) -> LibMainWorkerOptions {
     LibMainWorkerOptions {
         argv,
@@ -124,7 +130,7 @@ fn default_lib_main_worker_options(
         seed: runtime_worker_options.seed(),
         unsafely_ignore_certificate_errors,
         skip_op_registration: deno_snapshots::CLI_SNAPSHOT.is_some(),
-        node_ipc_init: None,
+        node_ipc_init,
         no_legacy_abort: true,
         startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
         residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
@@ -154,6 +160,7 @@ fn create_package_worker(
         argv0,
         js_runtime_options,
         runtime_worker_options,
+        node_ipc_init,
     } = options;
     let resolver_factory = context.resolver_factory();
     let npm_resolver = resolver_factory
@@ -205,6 +212,7 @@ fn create_package_worker(
             argv0,
             &runtime_worker_options,
             context.unsafely_ignore_certificate_errors(),
+            node_ipc_init,
         ),
         roots.clone(),
         None,
@@ -391,8 +399,14 @@ mod tests {
     #[test]
     fn uses_cli_snapshot_in_worker_options() {
         let worker_options = RuntimeWorkerOptions::default();
-        let options =
-            default_lib_main_worker_options(Path::new("."), vec![], None, &worker_options, None);
+        let options = default_lib_main_worker_options(
+            Path::new("."),
+            vec![],
+            None,
+            &worker_options,
+            None,
+            None,
+        );
         assert!(options.startup_snapshot.is_some());
         assert!(!options.residual_lazy_js_sources.is_empty());
         assert!(!options.residual_lazy_esm_sources.is_empty());
@@ -419,6 +433,7 @@ mod tests {
             None,
             &worker_options,
             Some(vec!["localhost".to_string()]),
+            None,
         );
 
         assert_eq!(options.seed, Some(123));

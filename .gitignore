@@ -285,7 +285,3 @@ $RECYCLE.BIN/
 
 ### Project ###
 node_modules/
-.belgie-tools/
-# Keep repo tooling scripts (venv template ignores [Ss]cripts globally above).
-!/scripts/
-!/scripts/**

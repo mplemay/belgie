@@ -47,8 +47,8 @@ hooks = [
   {
     id = "belgie-lock",
     name = "belgie lock",
-    entry = "bash -c 'uv run belgie lock && rm -rf node_modules'",
-    language = "system",
+    entry = "uv run belgie lock",
+    language = "python",
     files = '^(deno\.lock|pyproject\.toml)$',
     pass_filenames = false,
     require_serial = true,
@@ -56,8 +56,7 @@ hooks = [
   {
     id = "oxfmt",
     name = "oxfmt",
-    entry = "uv run python scripts/belgie_bin.py oxfmt",
-    args = ["--threads", "1"],
+    entry = "uv run belgie run oxfmt",
     language = "python",
     types_or = [
       "javascript",
@@ -70,8 +69,8 @@ hooks = [
   {
     id = "oxlint",
     name = "oxlint",
-    entry = "uv run python scripts/belgie_bin.py oxlint",
-    args = ["--threads", "1"],
+    entry = "uv run belgie run oxlint",
+    args = ["--fix"],
     language = "python",
     types_or = [
       "javascript",

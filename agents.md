@@ -18,7 +18,7 @@
     - **Never update the linter / formatter configs without explicit permission.**
     - JS/TS linting and formatting use Belgie-managed `oxlint` / `oxfmt`
       (`[tool.belgie.dependencies]` + root `deno.lock`); invoke them through
-      `uv run prek` (hooks call `scripts/belgie_bin.py`), not as standalone CLIs.
+      `uv run prek` (hooks call `belgie run`), not as standalone CLIs.
 - **`git`**: Version control
   - *Usage:* `git`
   - *Files:* [ignores (project)](.gitignore)

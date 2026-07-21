@@ -1,4 +1,5 @@
 pub(crate) mod blocking;
+pub(crate) mod child_process;
 pub(crate) mod command;
 pub(crate) mod environment;
 pub(crate) mod normalize;
@@ -7,6 +8,7 @@ pub(crate) mod runner;
 pub(crate) mod runtime;
 pub(crate) mod script;
 
+pub(crate) use child_process::run_node_child;
 pub(crate) use command::PyCommand;
 pub(crate) use environment::{
     PyAsyncEnvironment, PyEnvironment, PyEnvironmentOptions, PySyncEnvironment,

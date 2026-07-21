@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -23,8 +24,10 @@ use deno_npm_installer::NpmInstallerFactory;
 use deno_npm_installer::NpmInstallerFactoryOptions;
 use deno_npm_installer::graph::NpmCachingStrategy;
 use deno_npm_installer::lifecycle_scripts::NullLifecycleScriptsExecutor;
+use deno_npm_installer::process_state::{NpmProcessStateKind, NpmProcessStateLinkerMode};
 use deno_npmrc::RegistryConfig;
 use deno_resolver::factory::ConfigDiscoveryOption;
+use deno_resolver::factory::NpmProcessStateOptions;
 use deno_resolver::factory::ResolverFactory;
 use deno_resolver::factory::ResolverFactoryOptions;
 use deno_resolver::factory::SpecifiedImportMapProvider;
@@ -329,6 +332,7 @@ impl EmbedContext {
                 NodeModulesDirMode::None
             }
         });
+        let npm_process_state = deno_lib::args::npm_process_state(&sys);
 
         let workspace_factory = Arc::new(WorkspaceFactory::new(
             sys.clone(),
@@ -344,6 +348,17 @@ impl EmbedContext {
                 node_modules_linker: options.node_modules_linker,
                 no_npm: options.no_npm,
                 import_npm_lockfile: options.import_package_lockfile,
+                npm_process_state: npm_process_state.map(|state| NpmProcessStateOptions {
+                    node_modules_dir: state
+                        .local_node_modules_path
+                        .as_ref()
+                        .map(|path| Cow::Borrowed(path.as_str())),
+                    is_byonm: matches!(state.kind, NpmProcessStateKind::Byonm),
+                    linker_mode: Some(match state.linker_mode {
+                        NpmProcessStateLinkerMode::Isolated => NodeModulesLinkerMode::Isolated,
+                        NpmProcessStateLinkerMode::Hoisted => NodeModulesLinkerMode::Hoisted,
+                    }),
+                }),
                 root_node_modules_dir_override: options.node_modules_root,
                 ..Default::default()
             },
@@ -413,7 +428,9 @@ impl EmbedContext {
                 lifecycle_scripts_config: Default::default(),
                 production: options.production,
                 skip_types: options.skip_types,
-                resolve_npm_resolution_snapshot: Box::new(|| Ok(None)),
+                resolve_npm_resolution_snapshot: Box::new(|| {
+                    deno_lib::args::resolve_npm_resolution_snapshot(&EmbedSys::default())
+                }),
             },
         ));
 

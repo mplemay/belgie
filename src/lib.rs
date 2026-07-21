@@ -10,6 +10,8 @@ mod script;
 mod types;
 mod utils;
 
+use std::path::PathBuf;
+
 use pyo3::prelude::*;
 
 /// A Python module implemented in Rust. The name of this module must match
@@ -17,6 +19,14 @@ use pyo3::prelude::*;
 /// import the module.
 #[pymodule]
 fn _core(py: Python<'_>, m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> {
+    let scripts_dir = py
+        .import("sysconfig")?
+        .call_method1("get_path", ("scripts",))?
+        .extract::<PathBuf>()?;
+    runtime::child_process::set_executable(
+        scripts_dir.join(format!("belgie-runtime{}", std::env::consts::EXE_SUFFIX)),
+    );
+    m.add_function(wrap_pyfunction!(binding::run_node_child, m)?)?;
     m.add_class::<binding::PyCommand>()?;
     m.add_class::<binding::PyScript>()?;
     m.add_class::<binding::PyEnvironment>()?;

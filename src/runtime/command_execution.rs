@@ -17,7 +17,7 @@ use deno_semver::npm::NpmPackageReqReference;
 use node_resolver::{BinValue, NodeResolutionKind, ResolutionMode, UrlOrPath};
 use tokio::sync::{oneshot, watch};
 
-use super::{BoundPackageEnvironment, process_context};
+use super::{BoundPackageEnvironment, child_process, process_context};
 use crate::command::CommandSource;
 use crate::embed::{EmbedContext, init::spawn_v8_worker, js_content_type_header_overrides};
 use crate::options::{JsRuntimeOptions, RuntimeWorkerOptions};
@@ -367,10 +367,12 @@ async fn run_js_command(
             runtime_worker_options: options.runtime_worker_options.clone(),
             main_source: None,
             header_overrides: js_content_type_header_overrides(main_module),
+            node_ipc_init: None,
         },
         &options.worker_factory_roots,
     )
     .await?;
+    child_process::configure_worker(&mut worker)?;
 
     let isolate = worker.js_runtime().v8_isolate().thread_safe_handle();
     worker
