@@ -186,8 +186,9 @@ mod tests {
         let bound = bound_inline(
             "export default function run() { return <main data-belgie=\"inline\" />; }",
         );
-        let specifier = ModuleSpecifier::parse("file:///__belgie_inline__.tsx")
-            .expect("inline TSX specifier should parse");
+        let specifier =
+            ModuleSpecifier::from_file_path(bound.cwd().join("__deno_python_inline__.tsx"))
+                .expect("inline TSX path should convert to file URL");
         let transpiled =
             module_loader::maybe_transpile_source(&specifier, bound.script().execution_content())
                 .expect("inline TSX should transpile");
