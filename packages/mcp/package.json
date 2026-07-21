@@ -1,4 +1,7 @@
 {
+  "allowScripts": {
+    "fsevents@2.3.3": true
+  },
   "author": "Matt LeMay <mplemay@users.noreply.github.com>",
   "bin": {
     "belgie-mcp": "./dist/cli.js"
