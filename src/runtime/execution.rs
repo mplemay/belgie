@@ -299,6 +299,7 @@ impl DenoExecutionContext {
                             main_module.clone(),
                             bound.script().media_type(),
                         ),
+                        node_ipc_init: None,
                     },
                     worker_factory_roots,
                 )
@@ -578,6 +579,7 @@ where
                             main_module,
                             deno_ast::MediaType::TypeScript,
                         ),
+                        node_ipc_init: None,
                     },
                     &LibWorkerFactoryRoots::default(),
                 )

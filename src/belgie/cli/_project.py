@@ -6,7 +6,13 @@ from typing import TYPE_CHECKING, Any, Final
 
 import rtoml
 
-from belgie._pyproject import PyprojectError, discover_pyproject_root, parse_belgie_tool_config, parse_tool_table
+from belgie._pyproject import (
+    BelgieToolConfig,
+    PyprojectError,
+    discover_pyproject_root,
+    parse_belgie_tool_config,
+    parse_tool_table,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -27,6 +33,7 @@ class ProjectError(Exception):
 class BelgieProject:
     root: Path
     dependencies: dict[str, str]
+    module: bool
     pyproject: dict[str, Any]
     source: Path
 
@@ -157,17 +164,19 @@ def discover_project(*, project: Path | None = None, start: Path | None = None) 
     return load_project(root)
 
 
-def _parse_source(document: dict[str, Any]) -> Path:
+def _parse_tool_config(document: dict[str, Any]) -> BelgieToolConfig:
     try:
-        return parse_belgie_tool_config(document).source
+        return parse_belgie_tool_config(document)
     except PyprojectError as exc:
         raise ProjectError(str(exc)) from exc
 
 
 def _load_project_from_document(root: Path, document: dict[str, Any]) -> BelgieProject:
+    config = _parse_tool_config(document)
     return BelgieProject(
         root=root.resolve(),
         dependencies=_parse_dependencies(document),
+        module=config.module,
         pyproject=document,
-        source=_parse_source(document),
+        source=config.source,
     )

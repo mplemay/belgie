@@ -1,24 +1,14 @@
-import {
-  Widget,
-  openLink,
-  sendLog,
-  sendMessage,
-  type ToolCallError,
-} from "@belgie/mcp";
+import { Widget, openLink, sendLog, sendMessage } from "@belgie/mcp";
+import type { ToolCallError } from "@belgie/mcp";
+import { getTime } from "@widgets/tools";
+import type { GetTimeOutput } from "@widgets/tools";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { getTime, type GetTimeOutput } from "@widgets/tools";
 
 import "../../global.css";
 
@@ -50,12 +40,8 @@ function AppView() {
           <CardDescription>Call the get-time tool on the MCP server.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <p className="font-mono text-sm text-muted-foreground">
-            {serverTime ?? "No time fetched yet."}
-          </p>
-          {timeError && (
-            <p className="text-sm text-destructive">{timeError.message}</p>
-          )}
+          <p className="font-mono text-sm text-muted-foreground">{serverTime ?? "No time fetched yet."}</p>
+          {timeError && <p className="text-sm text-destructive">{timeError.message}</p>}
           <Button
             disabled={timeLoading}
             onClick={() => void refreshTime()}
@@ -77,14 +63,16 @@ function AppView() {
               <Textarea
                 id="message"
                 value={message}
-                onChange={(event) => setMessage(event.target.value)}
+                onChange={(event) => {
+                  setMessage(event.target.value);
+                }}
                 placeholder="Type a message..."
               />
             </Field>
             <Button
               onClick={() => {
                 if (message.trim()) {
-                  sendMessage({ role: "user", content: [{ type: "text", text: message }] });
+                  void sendMessage({ content: [{ type: "text", text: message }], role: "user" });
                 }
               }}
             >
@@ -106,14 +94,16 @@ function AppView() {
               <Input
                 id="log"
                 value={logMessage}
-                onChange={(event) => setLogMessage(event.target.value)}
+                onChange={(event) => {
+                  setLogMessage(event.target.value);
+                }}
                 placeholder="Log message..."
               />
             </Field>
             <Button
               onClick={() => {
                 if (logMessage.trim()) {
-                  sendLog({ level: "info", data: logMessage });
+                  void sendLog({ data: logMessage, level: "info" });
                 }
               }}
             >
@@ -135,14 +125,16 @@ function AppView() {
               <Input
                 id="link"
                 value={link}
-                onChange={(event) => setLink(event.target.value)}
+                onChange={(event) => {
+                  setLink(event.target.value);
+                }}
                 placeholder="https://..."
               />
             </Field>
             <Button
               onClick={() => {
                 if (link.trim()) {
-                  openLink({ url: link });
+                  void openLink({ url: link });
                 }
               }}
             >

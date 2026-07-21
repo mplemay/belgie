@@ -3,31 +3,31 @@ import { basename, dirname, resolve } from "node:path";
 
 import { hasDefaultExport } from "./validate-widget.js";
 
-export type WidgetCandidate = {
+export interface WidgetCandidate {
   name: string;
   filePath: string;
-};
+}
 
-export type InvalidWidget = {
+export interface InvalidWidget {
   filePath: string;
-};
+}
 
-export type WidgetScanResult = {
+export interface WidgetScanResult {
   valid: WidgetCandidate[];
   invalid: InvalidWidget[];
-};
+}
 
 export function scanWidgetsSync(srcDir: string): WidgetScanResult {
   const pattern = resolve(srcDir, "*/widget.tsx");
   const candidates = globSync(pattern).map((file) => ({
-    name: basename(dirname(file)),
     filePath: file,
+    name: basename(dirname(file)),
   }));
 
   const valid: WidgetCandidate[] = [];
   const invalid: InvalidWidget[] = [];
   for (const candidate of candidates) {
-    const code = readFileSync(candidate.filePath, "utf-8");
+    const code = readFileSync(candidate.filePath, "utf8");
     if (hasDefaultExport(code)) {
       valid.push(candidate);
     } else {
@@ -35,7 +35,7 @@ export function scanWidgetsSync(srcDir: string): WidgetScanResult {
     }
   }
 
-  return { valid, invalid };
+  return { invalid, valid };
 }
 
 export function assertUniqueWidgetNames(widgets: WidgetCandidate[]): void {

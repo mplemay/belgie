@@ -1,21 +1,21 @@
+import type { App } from "@modelcontextprotocol/ext-apps";
 import { createContext, useContext } from "react";
 
-import type { App } from "@modelcontextprotocol/ext-apps";
 import type { RawToolResult } from "./tool-error";
 
-export type WidgetToolLifecycle = {
+export interface WidgetToolLifecycle {
   input: Record<string, unknown> | undefined;
   inputReceived: boolean;
   rawResult: RawToolResult | undefined;
   cancellationReason: string | undefined;
   status: "pending" | "result" | "cancelled";
   version: number;
-};
+}
 
-export type WidgetContextValue = {
+export interface WidgetContextValue {
   app: App;
   tool: WidgetToolLifecycle;
-};
+}
 
 export const WidgetContext = createContext<WidgetContextValue | null>(null);
 

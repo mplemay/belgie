@@ -1,0 +1,59 @@
+:root {
+  color: #172033;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  padding: 0.7rem 1rem;
+  border: 0;
+  border-radius: 0.65rem;
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+  background: #266986;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.time-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+.label,
+.status,
+.error {
+  margin: 0;
+}
+
+.label {
+  color: #526779;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+time {
+  overflow-wrap: anywhere;
+  color: #10273d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.05rem;
+}
+
+.error {
+  color: #a12b32;
+}

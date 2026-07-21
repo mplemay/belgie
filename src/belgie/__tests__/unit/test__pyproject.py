@@ -20,6 +20,7 @@ def test_parse_belgie_tool_config_defaults_source_to_project_root() -> None:
     config = parse_belgie_tool_config({})
 
     assert config.source == Path()
+    assert not config.module
 
 
 def test_parse_belgie_tool_config_reads_source() -> None:
@@ -34,6 +35,18 @@ def test_parse_belgie_tool_config_reads_source() -> None:
     )
 
     assert config.source == Path("src/mcp_app/views")
+
+
+def test_parse_belgie_tool_config_reads_module_mode() -> None:
+    config = parse_belgie_tool_config({"tool": {"belgie": {"module": True}}})
+
+    assert config.module
+    assert config.source == Path()
+
+
+def test_parse_belgie_tool_config_rejects_invalid_module_mode() -> None:
+    with pytest.raises(PyprojectError, match="must be a boolean"):
+        parse_belgie_tool_config({"tool": {"belgie": {"module": "true"}}})
 
 
 @pytest.mark.parametrize(

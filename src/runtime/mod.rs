@@ -2,6 +2,7 @@ pub(crate) mod executor;
 pub(crate) mod module_loader;
 
 mod bound_runtime;
+pub(crate) mod child_process;
 mod command_execution;
 mod deno_runtime;
 mod error;

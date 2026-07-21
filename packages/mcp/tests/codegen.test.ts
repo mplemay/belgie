@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
-import { describe, test, vi } from "vitest";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import express from "express";
@@ -19,41 +17,40 @@ import { generateToolTypes } from "../src/codegen.ts";
 
 const SCHEMA_TOOLS = [
   {
-    name: "model-tool",
     description: "Build a model.\nThis closes */ safely.",
     inputSchema: {
-      type: "object",
       $defs: {
         Node: {
-          type: "object",
           properties: {
             name: { type: "string" },
             next: { anyOf: [{ $ref: "#/$defs/Node" }, { type: "null" }] },
           },
           required: ["name"],
+          type: "object",
         },
       },
       properties: {
-        choices: { type: "array", items: { enum: ["a", "b"] } },
-        labels: { type: "object", additionalProperties: { type: "string" } },
+        choices: { items: { enum: ["a", "b"] }, type: "array" },
+        labels: { additionalProperties: { type: "string" }, type: "object" },
         metrics: {
-          type: "object",
+          additionalProperties: { type: "number" },
           properties: { name: { type: "string" } },
           required: ["name"],
-          additionalProperties: { type: "number" },
+          type: "object",
         },
         node: { $ref: "#/$defs/Node" },
         pair: {
-          type: "array",
-          prefixItems: [{ type: "string" }, { type: "integer" }],
           items: false,
+          prefixItems: [{ type: "string" }, { type: "integer" }],
+          type: "array",
         },
         value: { oneOf: [{ const: "auto" }, { type: ["number", "null"] }] },
       },
       required: ["node", "pair"],
-    },
-    outputSchema: {
       type: "object",
+    },
+    name: "model-tool",
+    outputSchema: {
       properties: {
         payload: {
           allOf: [
@@ -71,30 +68,31 @@ const SCHEMA_TOOLS = [
         },
       },
       required: ["payload"],
+      type: "object",
     },
   },
   {
-    name: "model_tool",
     inputSchema: {
+      properties: { limit: { minimum: 1, type: "integer" } },
       type: "object",
-      properties: { limit: { type: "integer", minimum: 1 } },
     },
+    name: "model_tool",
     outputSchema: {
-      type: "object",
       properties: { count: { type: "integer" } },
       required: ["count"],
+      type: "object",
     },
   },
 ];
 
 const TEXT_CONTENT_TOOL = {
-  name: "get-time",
   description: "Get the current server time in ISO 8601 format.",
   inputSchema: {
     properties: {},
     title: "get_timeArguments",
     type: "object",
   },
+  name: "get-time",
   outputSchema: {
     $defs: {
       Annotations: {
@@ -111,18 +109,15 @@ const TEXT_CONTENT_TOOL = {
             default: null,
             title: "Audience",
           },
-          priority: {
-            anyOf: [
-              { maximum: 1, minimum: 0, type: "number" },
-              { type: "null" },
-            ],
-            default: null,
-            title: "Priority",
-          },
           lastModified: {
             anyOf: [{ type: "string" }, { type: "null" }],
             default: null,
             title: "Lastmodified",
+          },
+          priority: {
+            anyOf: [{ maximum: 1, minimum: 0, type: "number" }, { type: "null" }],
+            default: null,
+            title: "Priority",
           },
         },
         title: "Annotations",
@@ -131,27 +126,21 @@ const TEXT_CONTENT_TOOL = {
       TextContent: {
         description: "Text provided to or from an LLM.",
         properties: {
+          _meta: {
+            anyOf: [{ additionalProperties: true, type: "object" }, { type: "null" }],
+            default: null,
+            title: "Meta",
+          },
+          annotations: {
+            anyOf: [{ $ref: "#/$defs/Annotations" }, { type: "null" }],
+            default: null,
+          },
+          text: { title: "Text", type: "string" },
           type: {
             const: "text",
             default: "text",
             title: "Type",
             type: "string",
-          },
-          text: { title: "Text", type: "string" },
-          annotations: {
-            anyOf: [
-              { $ref: "#/$defs/Annotations" },
-              { type: "null" },
-            ],
-            default: null,
-          },
-          _meta: {
-            anyOf: [
-              { additionalProperties: true, type: "object" },
-              { type: "null" },
-            ],
-            default: null,
-            title: "Meta",
           },
         },
         required: ["text"],
@@ -173,21 +162,18 @@ const TEXT_CONTENT_TOOL = {
 };
 
 const PYTHON_MCP_V2_TOOLS = JSON.parse(
-  await readFile(new URL("./fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
+  await readFile(new URL("fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
 );
 
 async function startMcpServer(listTools, onRequest = () => {}) {
   const app = createMcpExpressApp({ host: "127.0.0.1" });
   app.post("/mcp", async (request, response) => {
     onRequest(request);
-    const server = new Server(
-      { name: "belgie-codegen-test", version: "1.0.0" },
-      { capabilities: { tools: {} } },
-    );
+    const server = new Server({ name: "belgie-codegen-test", version: "1.0.0" }, { capabilities: { tools: {} } });
     server.setRequestHandler(ListToolsRequestSchema, listTools);
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
       enableJsonResponse: true,
+      sessionIdGenerator: undefined,
     });
     response.on("close", () => {
       void transport.close();
@@ -197,14 +183,21 @@ async function startMcpServer(listTools, onRequest = () => {}) {
     await transport.handleRequest(request, response, request.body);
   });
   const http = await new Promise((resolve, reject) => {
-    const server = app.listen(0, "127.0.0.1", () => resolve(server));
+    const server = app.listen(0, "127.0.0.1", () => {
+      resolve(server);
+    });
     server.once("error", reject);
   });
   const address = http.address();
-  assert(address && typeof address !== "string");
+  assert.ok(address && typeof address !== "string");
   return {
+    close: async () =>
+      new Promise((resolve, reject) =>
+        http.close((error) => {
+          error ? reject(error) : resolve();
+        }),
+      ),
     url: `http://127.0.0.1:${address.port}/mcp`,
-    close: () => new Promise((resolve, reject) => http.close((error) => (error ? reject(error) : resolve()))),
   };
 }
 
@@ -220,8 +213,8 @@ async function startOAuthMcpServer() {
 
   app.get("/.well-known/oauth-protected-resource", (_request, response) => {
     response.json({
-      resource: `${origin}/mcp`,
       authorization_servers: [origin],
+      resource: `${origin}/mcp`,
       scopes_supported: ["tools:read"],
     });
   });
@@ -230,15 +223,15 @@ async function startOAuthMcpServer() {
   });
   app.get("/.well-known/oauth-authorization-server", (_request, response) => {
     response.json({
-      issuer: origin,
       authorization_endpoint: `${origin}/authorize`,
-      token_endpoint: `${origin}/token`,
+      code_challenge_methods_supported: ["S256"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      issuer: origin,
       registration_endpoint: `${origin}/register`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code", "refresh_token"],
-      code_challenge_methods_supported: ["S256"],
-      token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["tools:read"],
+      token_endpoint: `${origin}/token`,
+      token_endpoint_auth_methods_supported: ["none"],
     });
   });
   app.post("/register", (request, response) => {
@@ -254,7 +247,7 @@ async function startOAuthMcpServer() {
     assert.equal(request.query.code_challenge_method, "S256");
     assert.equal(request.query.scope, "tools:read");
     assert.equal(typeof request.query.state, "string");
-    assert(request.query.state.length >= 32);
+    assert.ok(request.query.state.length >= 32);
     assert.equal(request.query.redirect_uri, registration.redirect_uris[0]);
     authorization = request.query;
 
@@ -275,9 +268,7 @@ async function startOAuthMcpServer() {
     assert.equal(request.body.code, "authorization-code");
     assert.equal(request.body.client_id, "belgie-test-client");
     assert.equal(request.body.redirect_uri, registration.redirect_uris[0]);
-    const challenge = createHash("sha256")
-      .update(request.body.code_verifier)
-      .digest("base64url");
+    const challenge = createHash("sha256").update(request.body.code_verifier).digest("base64url");
     assert.equal(challenge, authorization.code_challenge);
     response.json({ access_token: "belgie-test-token", token_type: "Bearer" });
   });
@@ -294,16 +285,13 @@ async function startOAuthMcpServer() {
       return;
     }
     authenticatedRequests += 1;
-    const server = new Server(
-      { name: "belgie-oauth-test", version: "1.0.0" },
-      { capabilities: { tools: {} } },
-    );
+    const server = new Server({ name: "belgie-oauth-test", version: "1.0.0" }, { capabilities: { tools: {} } });
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [SCHEMA_TOOLS[1]],
     }));
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
       enableJsonResponse: true,
+      sessionIdGenerator: undefined,
     });
     response.on("close", () => {
       void transport.close();
@@ -321,16 +309,23 @@ async function startOAuthMcpServer() {
   });
 
   const http = await new Promise((resolve, reject) => {
-    const server = app.listen(0, "127.0.0.1", () => resolve(server));
+    const server = app.listen(0, "127.0.0.1", () => {
+      resolve(server);
+    });
     server.once("error", reject);
   });
   const address = http.address();
-  assert(address && typeof address !== "string");
+  assert.ok(address && typeof address !== "string");
   origin = `http://127.0.0.1:${address.port}`;
   return {
-    url: `${origin}/mcp`,
+    close: async () =>
+      new Promise((resolve, reject) =>
+        http.close((error) => {
+          error ? reject(error) : resolve();
+        }),
+      ),
     metrics: () => ({ registrationCount, tokenCount, authenticatedRequests }),
-    close: () => new Promise((resolve, reject) => http.close((error) => (error ? reject(error) : resolve()))),
+    url: `${origin}/mcp`,
   };
 }
 
@@ -353,7 +348,7 @@ async function runCli(args, environment = {}, onStderr = () => {}) {
     child.once("error", reject);
     child.once("close", resolve);
   });
-  return { code, stdout, stderr };
+  return { code, stderr, stdout };
 }
 
 test("generates deterministic types from every tools/list page", async () => {
@@ -361,17 +356,17 @@ test("generates deterministic types from every tools/list page", async () => {
   const server = await startMcpServer(async (request) => {
     pages += 1;
     if (request.params?.cursor === undefined) {
-      return { tools: [SCHEMA_TOOLS[1]], nextCursor: "second" };
+      return { nextCursor: "second", tools: [SCHEMA_TOOLS[1]] };
     }
     assert.equal(request.params.cursor, "second");
     return { tools: [SCHEMA_TOOLS[0]] };
   });
   try {
-    const first = await generateToolTypes({ url: server.url, oauth: false });
-    const second = await generateToolTypes({ url: server.url, oauth: false });
+    const first = await generateToolTypes({ oauth: false, url: server.url });
+    const second = await generateToolTypes({ oauth: false, url: server.url });
     assert.equal(first, second);
     assert.equal(pages, 4);
-    const golden = await readFile(new URL("./fixtures/codegen.golden.ts", import.meta.url), "utf8");
+    const golden = await readFile(new URL("fixtures/codegen.golden.ts", import.meta.url), "utf8");
     assert.equal(first, golden);
   } finally {
     await server.close();
@@ -388,9 +383,9 @@ test("accepts URL objects and explicit headers", async () => {
   );
   try {
     const generated = await generateToolTypes({
-      url: new URL(server.url),
       headers: { authorization: "Bearer direct" },
       oauth: false,
+      url: new URL(server.url),
     });
     assert.match(generated, /export const modelTool/u);
     assert.equal(authorization, "Bearer direct");
@@ -402,11 +397,8 @@ test("accepts URL objects and explicit headers", async () => {
 test("generates structured types for list[TextContent] tool results", async () => {
   const server = await startMcpServer(async () => ({ tools: [TEXT_CONTENT_TOOL] }));
   try {
-    const generated = await generateToolTypes({ url: server.url, oauth: false });
-    const golden = await readFile(
-      new URL("./fixtures/text-content.golden.ts", import.meta.url),
-      "utf8",
-    );
+    const generated = await generateToolTypes({ oauth: false, url: server.url });
+    const golden = await readFile(new URL("fixtures/text-content.golden.ts", import.meta.url), "utf8");
     assert.equal(generated, golden);
   } finally {
     await server.close();
@@ -416,11 +408,8 @@ test("generates structured types for list[TextContent] tool results", async () =
 test("generates common Python MCP v2 tool types", async () => {
   const server = await startMcpServer(async () => ({ tools: PYTHON_MCP_V2_TOOLS }));
   try {
-    const generated = await generateToolTypes({ url: server.url, oauth: false });
-    const golden = await readFile(
-      new URL("./fixtures/python-mcp-v2.golden.ts", import.meta.url),
-      "utf8",
-    );
+    const generated = await generateToolTypes({ oauth: false, url: server.url });
+    const golden = await readFile(new URL("fixtures/python-mcp-v2.golden.ts", import.meta.url), "utf8");
     assert.equal(generated, golden);
   } finally {
     await server.close();
@@ -431,24 +420,24 @@ test("generates safe deterministic function identifiers", async () => {
   const server = await startMcpServer(async () => ({
     tools: [
       {
+        inputSchema: { properties: {}, type: "object" },
         name: "class",
-        inputSchema: { type: "object", properties: {} },
-        outputSchema: { type: "object", properties: {} },
+        outputSchema: { properties: {}, type: "object" },
       },
       {
+        inputSchema: { properties: {}, type: "object" },
         name: "1-search",
-        inputSchema: { type: "object", properties: {} },
-        outputSchema: { type: "object", properties: {} },
+        outputSchema: { properties: {}, type: "object" },
       },
       {
+        inputSchema: { properties: {}, type: "object" },
         name: "namespace",
-        inputSchema: { type: "object", properties: {} },
-        outputSchema: { type: "object", properties: {} },
+        outputSchema: { properties: {}, type: "object" },
       },
     ],
   }));
   try {
-    const generated = await generateToolTypes({ url: server.url, oauth: false });
+    const generated = await generateToolTypes({ oauth: false, url: server.url });
     assert.match(generated, /export const tool1Search =/u);
     assert.match(generated, /export const toolClass =/u);
     assert.match(generated, /export const toolNamespace =/u);
@@ -458,41 +447,35 @@ test("generates safe deterministic function identifiers", async () => {
 });
 
 describe("rejects empty, duplicate, and unsupported tool schemas", () => {
-  test("empty", async () => {
+  it("empty", async () => {
     const server = await startMcpServer(async () => ({ tools: [] }));
     try {
-      await assert.rejects(
-        generateToolTypes({ url: server.url, oauth: false }),
-        /exposed no tools/u,
-      );
+      await assert.rejects(generateToolTypes({ oauth: false, url: server.url }), /exposed no tools/u);
     } finally {
       await server.close();
     }
   });
 
-  test("duplicate", async () => {
+  it("duplicate", async () => {
     const server = await startMcpServer(async () => ({
       tools: [SCHEMA_TOOLS[0], SCHEMA_TOOLS[0]],
     }));
     try {
-      await assert.rejects(
-        generateToolTypes({ url: server.url, oauth: false }),
-        /duplicate tool name/u,
-      );
+      await assert.rejects(generateToolTypes({ oauth: false, url: server.url }), /duplicate tool name/u);
     } finally {
       await server.close();
     }
   });
 
-  test("repeated pagination cursor", async () => {
+  it("repeated pagination cursor", async () => {
     const server = await startMcpServer(async (request) =>
       request.params?.cursor === undefined
-        ? { tools: [SCHEMA_TOOLS[0]], nextCursor: "repeat" }
-        : { tools: [], nextCursor: "repeat" },
+        ? { nextCursor: "repeat", tools: [SCHEMA_TOOLS[0]] }
+        : { nextCursor: "repeat", tools: [] },
     );
     try {
       await assert.rejects(
-        generateToolTypes({ url: server.url, oauth: false }),
+        generateToolTypes({ oauth: false, url: server.url }),
         /repeated tools\/list cursor "repeat"/u,
       );
     } finally {
@@ -500,22 +483,22 @@ describe("rejects empty, duplicate, and unsupported tool schemas", () => {
     }
   });
 
-  test("unsupported", async () => {
+  it("unsupported", async () => {
     const server = await startMcpServer(async () => ({
       tools: [
         {
-          name: "unsafe",
           inputSchema: {
-            type: "object",
             properties: { value: { not: { type: "string" } } },
+            type: "object",
           },
-          outputSchema: { type: "object", properties: {} },
+          name: "unsafe",
+          outputSchema: { properties: {}, type: "object" },
         },
       ],
     }));
     try {
       await assert.rejects(
-        generateToolTypes({ url: server.url, oauth: false }),
+        generateToolTypes({ oauth: false, url: server.url }),
         /MCP tool "unsafe" has an inputSchema TypeScript cannot compile:.*unsupported JSON Schema keyword "not"/u,
       );
     } finally {
@@ -523,15 +506,15 @@ describe("rejects empty, duplicate, and unsupported tool schemas", () => {
     }
   });
 
-  test("Zod-incompatible output schema", async () => {
+  it("zod-incompatible output schema", async () => {
     const server = await startMcpServer(async () => ({
       tools: [
         {
+          inputSchema: { properties: {}, type: "object" },
           name: "invalid-pattern",
-          inputSchema: { type: "object", properties: {} },
           outputSchema: {
-            type: "object",
             properties: { value: { type: "string" } },
+            type: "object",
             unevaluatedProperties: false,
           },
         },
@@ -539,7 +522,7 @@ describe("rejects empty, duplicate, and unsupported tool schemas", () => {
     }));
     try {
       await assert.rejects(
-        generateToolTypes({ url: server.url, oauth: false }),
+        generateToolTypes({ oauth: false, url: server.url }),
         /MCP tool "invalid-pattern" has an outputSchema Zod cannot compile/u,
       );
     } finally {
@@ -552,32 +535,23 @@ test("generates raw callers for tools without output schemas", async () => {
   const server = await startMcpServer(async () => ({
     tools: [
       {
-        name: "raw-search",
         inputSchema: {
-          type: "object",
           properties: { query: { type: "string" } },
           required: ["query"],
+          type: "object",
         },
+        name: "raw-search",
       },
       SCHEMA_TOOLS[1],
     ],
   }));
   try {
-    const generated = await generateToolTypes({ url: server.url, oauth: false });
+    const generated = await generateToolTypes({ oauth: false, url: server.url });
     assert.match(generated, /import type \{ RawToolResult \} from "@belgie\/mcp";/u);
-    assert.match(
-      generated,
-      /import \{ createGeneratedRawTool, createGeneratedTool \} from "@belgie\/mcp\/internal";/u,
-    );
+    assert.match(generated, /import \{ createGeneratedRawTool, createGeneratedTool \} from "@belgie\/mcp\/internal";/u);
     assert.match(generated, /export type RawSearchOutput = RawToolResult;/u);
-    assert.match(
-      generated,
-      /export const rawSearch = createGeneratedRawTool<RawSearchInput>\(/u,
-    );
-    assert.match(
-      generated,
-      /export const modelTool = createGeneratedTool<ModelToolInput, ModelToolOutput>\(/u,
-    );
+    assert.match(generated, /export const rawSearch = createGeneratedRawTool<RawSearchInput>\(/u);
+    assert.match(generated, /export const modelTool = createGeneratedTool<ModelToolInput, ModelToolOutput>\(/u);
   } finally {
     await server.close();
   }
@@ -587,17 +561,14 @@ test("imports only the raw factory for a raw-only server", async () => {
   const server = await startMcpServer(async () => ({
     tools: [
       {
+        inputSchema: { properties: {}, type: "object" },
         name: "raw-only",
-        inputSchema: { type: "object", properties: {} },
       },
     ],
   }));
   try {
-    const generated = await generateToolTypes({ url: server.url, oauth: false });
-    assert.match(
-      generated,
-      /import \{ createGeneratedRawTool \} from "@belgie\/mcp\/internal";/u,
-    );
+    const generated = await generateToolTypes({ oauth: false, url: server.url });
+    assert.match(generated, /import \{ createGeneratedRawTool \} from "@belgie\/mcp\/internal";/u);
     assert.doesNotMatch(generated, /createGeneratedTool/u);
   } finally {
     await server.close();
@@ -606,28 +577,33 @@ test("imports only the raw factory for a raw-only server", async () => {
 
 test("validates malformed URLs and reports connection failures", async () => {
   await assert.rejects(
-    generateToolTypes({ url: "not a url", oauth: false }),
-    /Invalid MCP URL/u,
+    generateToolTypes({ oauth: false, url: "not a url" }),
+    (error: unknown) =>
+      error instanceof Error && /Invalid MCP URL/u.test(error.message) && error.cause instanceof Error,
   );
+  await assert.rejects(generateToolTypes({ oauth: false, url: "ftp://example.com/mcp" }), /must use http or https/u);
   await assert.rejects(
-    generateToolTypes({ url: "ftp://example.com/mcp", oauth: false }),
-    /must use http or https/u,
-  );
-  await assert.rejects(
-    generateToolTypes({ url: "https://user:secret@example.com/mcp", oauth: false }),
+    generateToolTypes({ oauth: false, url: "https://user:secret@example.com/mcp" }),
     /must not contain credentials/u,
   );
   await assert.rejects(
-    generateToolTypes({ url: "https://127.0.0.1:1/mcp", oauth: false }),
-    /Failed to generate MCP tool types/u,
+    generateToolTypes({ oauth: false, url: "https://127.0.0.1:1/mcp" }),
+    (error: unknown) =>
+      error instanceof Error &&
+      /Failed to generate MCP tool types/u.test(error.message) &&
+      error.cause instanceof Error,
   );
   const unavailable = createHttpServer();
   await new Promise((resolve) => unavailable.listen(0, "127.0.0.1", resolve));
   const address = unavailable.address();
-  assert(address && typeof address !== "string");
-  await new Promise((resolve, reject) => unavailable.close((error) => (error ? reject(error) : resolve())));
+  assert.ok(address && typeof address !== "string");
+  await new Promise((resolve, reject) =>
+    unavailable.close((error) => {
+      error ? reject(error) : resolve();
+    }),
+  );
   await assert.rejects(
-    generateToolTypes({ url: `http://127.0.0.1:${address.port}/mcp`, oauth: false }),
+    generateToolTypes({ oauth: false, url: `http://127.0.0.1:${address.port}/mcp` }),
     /Failed to generate MCP tool types/u,
   );
   const cliFailure = await runCli([
@@ -643,10 +619,10 @@ test("validates malformed URLs and reports connection failures", async () => {
 
 test("preserves non-Error connection failures", async () => {
   const connect = vi.spyOn(Client.prototype, "connect").mockRejectedValue("raw failure");
-  const close = vi.spyOn(Client.prototype, "close").mockResolvedValue(undefined);
+  const close = vi.spyOn(Client.prototype, "close").mockResolvedValue();
   try {
     await assert.rejects(
-      generateToolTypes({ url: "http://127.0.0.1:1/mcp", oauth: false }),
+      generateToolTypes({ oauth: false, url: "http://127.0.0.1:1/mcp" }),
       (cause) => cause === "raw failure",
     );
   } finally {
@@ -655,7 +631,7 @@ test("preserves non-Error connection failures", async () => {
   }
 });
 
-test("CLI writes and checks generated files with direct and environment headers", async () => {
+test("cLI writes and checks generated files with direct and environment headers", async () => {
   const observedHeaders = [];
   const server = await startMcpServer(
     async () => ({ tools: [SCHEMA_TOOLS[1]] }),
@@ -686,8 +662,8 @@ test("CLI writes and checks generated files with direct and environment headers"
     assert.match(generatedSource, /export const modelTool =/u);
     assert.doesNotMatch(generatedSource, /export const callTool/u);
     assert.doesNotMatch(generatedSource, /export const useTool/u);
-    assert(observedHeaders.some((headers) => headers["x-direct"] === "direct-value"));
-    assert(observedHeaders.some((headers) => headers.authorization === "Bearer secret"));
+    assert.ok(observedHeaders.some((headers) => headers["x-direct"] === "direct-value"));
+    assert.ok(observedHeaders.some((headers) => headers.authorization === "Bearer secret"));
 
     const current = await runCli([...args, "--check"], {
       TEST_MCP_TOKEN: "Bearer secret",
@@ -704,7 +680,7 @@ test("CLI writes and checks generated files with direct and environment headers"
   }
 });
 
-test("CLI rejects malformed and missing header configuration before connecting", async () => {
+test("cLI rejects malformed and missing header configuration before connecting", async () => {
   const malformed = await runCli([
     "generate",
     "http://127.0.0.1:1/mcp",
@@ -735,30 +711,26 @@ test("completes dynamic OAuth registration, PKCE, state validation, and token us
   let callbackUrl;
   let authorizationFetch;
   try {
-    const result = await runCli(
-      ["generate", server.url, "--output", output, "--no-open"],
-      {},
-      (chunk) => {
-        const match = /https?:\/\/[^\s]+/u.exec(chunk);
-        if (match && authorizationFetch === undefined) {
-          const authorizationUrl = new URL(match[0]);
-          callbackUrl = authorizationUrl.searchParams.get("redirect_uri");
-          authorizationFetch = fetch(authorizationUrl).then((response) => {
-            assert.equal(response.status, 200);
-          });
-        }
-      },
-    );
+    const result = await runCli(["generate", server.url, "--output", output, "--no-open"], {}, (chunk) => {
+      const match = /https?:\/\/[^\s]+/u.exec(chunk);
+      if (match && authorizationFetch === undefined) {
+        const authorizationUrl = new URL(match[0]);
+        callbackUrl = authorizationUrl.searchParams.get("redirect_uri");
+        authorizationFetch = fetch(authorizationUrl).then((response) => {
+          assert.equal(response.status, 200);
+        });
+      }
+    });
     assert.equal(result.code, 0, result.stderr);
     await authorizationFetch;
     const generated = await readFile(output, "utf8");
     assert.match(generated, /export const modelTool =/u);
     assert.deepEqual(server.metrics(), {
+      authenticatedRequests: 3,
       registrationCount: 1,
       tokenCount: 1,
-      authenticatedRequests: 3,
     });
-    assert(callbackUrl);
+    assert.ok(callbackUrl);
     await assert.rejects(fetch(callbackUrl), /fetch failed/u);
   } finally {
     await server.close();
@@ -779,15 +751,15 @@ test("generates through the source OAuth authorization retry", async () => {
   });
   try {
     const generated = await generateToolTypes({
-      url: server.url,
       openBrowser: false,
+      url: server.url,
     });
     await authorizationFetch;
     assert.match(generated, /export const modelTool/u);
     assert.deepEqual(server.metrics(), {
+      authenticatedRequests: 3,
       registrationCount: 1,
       tokenCount: 1,
-      authenticatedRequests: 3,
     });
   } finally {
     write.mockRestore();

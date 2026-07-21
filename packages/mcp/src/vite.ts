@@ -1,39 +1,37 @@
 import { rmSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 
-import { build, normalizePath, type Plugin, type ResolvedConfig, type UserConfig } from "vite";
+import type { OutputOptions } from "rolldown";
+import { build, normalizePath } from "vite";
+import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 
 import { buildVirtualEntry, renderWidgetHtmlDocument } from "./html.js";
-import {
-  assertNoInvalidWidgets,
-  assertUniqueWidgetNames,
-  scanWidgetsSync,
-  type WidgetCandidate,
-} from "./scan-widgets.js";
+import { assertNoInvalidWidgets, assertUniqueWidgetNames, scanWidgetsSync } from "./scan-widgets.js";
+import type { WidgetCandidate } from "./scan-widgets.js";
 import { hasDefaultExport } from "./validate-widget.js";
 
 const VIRTUAL_PREFIX = "/_belgie/widget/";
 const VIRTUAL_MODULE_PREFIX = "\0belgie:widget:";
 const ORCHESTRATION_ENTRY_ID = "belgie:widget-build-orchestrator";
 const RESOLVED_ORCHESTRATION_ENTRY_ID = "\0belgie:widget-build-orchestrator";
+const INTERNAL_PACKAGE_TYPE_ENV = "BELGIE_INTERNAL_PACKAGE_TYPE";
 const INTERNAL_WIDGET_PATH_ENV = "BELGIE_INTERNAL_WIDGET_PATH";
 const MAX_INLINE_ASSET_SIZE = Number.MAX_SAFE_INTEGER;
+const MODULE_PACKAGE_TYPE = "module";
 const REACT_REFRESH_PLUGIN_NAME = "vite:react-refresh";
 const TEXT_DECODER = new TextDecoder();
 
-export type BelgiePluginOptions = {
+export interface BelgiePluginOptions {
   srcDir?: string;
-};
+}
 
-type RollupInput = string | string[] | Record<string, string>;
-
-type BuildAsset = {
+interface BuildAsset {
   fileName: string;
   source: string | Uint8Array;
   type: "asset";
-};
+}
 
-type BuildChunk = {
+interface BuildChunk {
   code: string;
   dynamicImports: string[];
   facadeModuleId: string | null;
@@ -42,13 +40,13 @@ type BuildChunk = {
   isEntry: boolean;
   type: "chunk";
   viteMetadata?: { importedCss?: Set<string> };
-};
+}
 
 type BuildArtifact = BuildAsset | BuildChunk;
 
 function getWidgetEntryPattern(srcDir: string): RegExp {
-  const escaped = normalizePath(srcDir).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`${escaped}\/[^/]+\/widget\\.tsx(?:\\?.*)?$`);
+  const escaped = normalizePath(srcDir).replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  return new RegExp(`${escaped}/[^/]+/widget\\.tsx(?:\\?.*)?$`);
 }
 
 function virtualWidgetName(id: string): string | undefined {
@@ -70,7 +68,7 @@ function renderWidgetBundle(name: string, bundle: Record<string, BuildArtifact>)
     throw new Error(`belgie: expected one entry chunk for widget "${name}", received ${entries.length}`);
   }
 
-  const entry = entries[0]!;
+  const entry = entries[0];
   const extraChunks = chunks.filter((chunk) => chunk !== entry);
   if (extraChunks.length > 0) {
     throw new Error(
@@ -93,7 +91,7 @@ function renderWidgetBundle(name: string, bundle: Record<string, BuildArtifact>)
 
   const assetsByName = new Map(assets.map((asset) => [asset.fileName, asset]));
   const importedCss = [...(entry.viteMetadata?.importedCss ?? [])];
-  const cssNames = importedCss.length > 0 ? importedCss : assets.map((asset) => asset.fileName).sort();
+  const cssNames = importedCss.length > 0 ? importedCss : assets.map((asset) => asset.fileName).toSorted();
   const styles = cssNames.map((cssName) => {
     const asset = assetsByName.get(cssName);
     if (asset === undefined) {
@@ -110,6 +108,22 @@ function restoreEnvironment(name: string, previous: string | undefined): void {
   } else {
     process.env[name] = previous;
   }
+}
+
+function moduleServerOutput(output: OutputOptions): OutputOptions {
+  const entryFileNames =
+    typeof output.entryFileNames === "string"
+      ? output.entryFileNames.replace(/\.(?:c|m)?js$/u, ".js")
+      : (output.entryFileNames ?? "[name].js");
+  const chunkFileNames =
+    typeof output.chunkFileNames === "string"
+      ? output.chunkFileNames.replace(/\.(?:c|m)?js$/u, ".js")
+      : (output.chunkFileNames ?? "assets/[name]-[hash].js");
+  return {
+    ...output,
+    chunkFileNames,
+    entryFileNames,
+  };
 }
 
 function ensureReactRefreshPreamble(html: string, base: string, enabled: boolean): string {
@@ -129,17 +143,14 @@ function ensureReactRefreshPreamble(html: string, base: string, enabled: boolean
   return html.replace("<head>", `<head>\n${preamble}`);
 }
 
-async function buildWidget(
-  widget: WidgetCandidate,
-  config: ResolvedConfig,
-  configFile: string,
-): Promise<void> {
+async function buildWidget(widget: WidgetCandidate, config: ResolvedConfig, configFile: string): Promise<void> {
   const previousWidgetPath = process.env[INTERNAL_WIDGET_PATH_ENV];
   process.env[INTERNAL_WIDGET_PATH_ENV] = widget.filePath;
   try {
     await build({
       configFile,
-      configLoader: "native",
+      // Bundle the project config so package subpath imports used by framework plugins resolve before Deno loads it.
+      configLoader: "bundle",
       root: config.root,
       mode: config.mode,
       ...(config.logLevel === undefined ? {} : { logLevel: config.logLevel }),
@@ -155,6 +166,7 @@ async function buildWidget(
 
 export function belgie(options: BelgiePluginOptions = {}): Plugin {
   const rawSrcDir = options.srcDir ?? "src/widgets";
+  const moduleMode = process.env[INTERNAL_PACKAGE_TYPE_ENV] === MODULE_PACKAGE_TYPE;
   const requestedWidgetPath = process.env[INTERNAL_WIDGET_PATH_ENV];
   let resolvedSrcDir = "";
   let projectRoot = "";
@@ -163,14 +175,30 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
   let widgetEntryPattern: RegExp | undefined;
   let usesOrchestrationEntry = false;
   let isBuildCommand = false;
+  let widgetsBuilt = false;
 
   return {
-    name: "belgie",
-    enforce: "pre",
     api: { srcDir: rawSrcDir },
-
+    async closeBundle() {
+      if (
+        !isBuildCommand ||
+        requestedWidgetPath !== undefined ||
+        resolvedConfig === undefined ||
+        widgetMap.size === 0 ||
+        widgetsBuilt
+      ) {
+        return;
+      }
+      if (!resolvedConfig.configFile) {
+        throw new Error("belgie: isolated widget builds require a Vite config file; inline configs are not supported");
+      }
+      rmSync(resolve(projectRoot, "dist", "widgets"), { recursive: true, force: true });
+      for (const widget of widgetMap.values()) {
+        await buildWidget(widget, resolvedConfig, resolvedConfig.configFile);
+      }
+      widgetsBuilt = true;
+    },
     config: {
-      order: "post",
       handler(config: UserConfig, { command }) {
         isBuildCommand = command === "build";
         projectRoot = config.root || process.cwd();
@@ -185,40 +213,45 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
 
         if (requestedWidgetPath !== undefined) {
           const normalizedRequestedPath = normalizePath(resolve(requestedWidgetPath));
-          const widget = valid.find((candidate) => normalizePath(resolve(candidate.filePath)) === normalizedRequestedPath);
+          const widget = valid.find(
+            (candidate) => normalizePath(resolve(candidate.filePath)) === normalizedRequestedPath,
+          );
           if (widget === undefined) {
             throw new Error(
               `belgie: isolated widget build requested unknown entry ${normalizePath(requestedWidgetPath)}`,
             );
           }
           widgetMap = new Map([[widget.name, widget]]);
+          const isolatedBuild = {
+            assetsInlineLimit: MAX_INLINE_ASSET_SIZE,
+            copyPublicDir: false,
+            cssCodeSplit: false,
+            emptyOutDir: false,
+            license: false,
+            manifest: false,
+            modulePreload: false,
+            outDir: "dist",
+            reportCompressedSize: false,
+            sourcemap: false,
+            ssrManifest: false,
+            watch: null,
+            write: true,
+            rolldownOptions: {
+              input: `${VIRTUAL_PREFIX}${encodeURIComponent(widget.name)}`,
+              output: { codeSplitting: false },
+            },
+          };
           return {
             appType: "custom",
+            // Vite's legacy programmatic build selects the client environment when a framework defines several.
+            environments: { client: { build: isolatedBuild } },
             resolve: { dedupe: ["react", "react-dom"] },
-            build: {
-              assetsInlineLimit: MAX_INLINE_ASSET_SIZE,
-              copyPublicDir: false,
-              cssCodeSplit: false,
-              emptyOutDir: false,
-              license: false,
-              manifest: false,
-              modulePreload: false,
-              outDir: "dist",
-              reportCompressedSize: false,
-              sourcemap: false,
-              ssrManifest: false,
-              watch: null,
-              write: true,
-              rolldownOptions: {
-                input: `${VIRTUAL_PREFIX}${encodeURIComponent(widget.name)}`,
-                output: { codeSplitting: false },
-              },
-            },
+            build: isolatedBuild,
           };
         }
 
         widgetMap = new Map(valid.map((widget) => [widget.name, widget]));
-        const existingInput = config.build?.rolldownOptions?.input as RollupInput | undefined;
+        const existingInput = config.build?.rolldownOptions?.input;
         usesOrchestrationEntry = existingInput === undefined;
         return {
           resolve: { dedupe: ["react", "react-dom"] },
@@ -233,8 +266,8 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
           },
         };
       },
+      order: "post",
     },
-
     configResolved(config) {
       resolvedConfig = config;
       projectRoot = config.root;
@@ -242,76 +275,6 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
         resolvedSrcDir = isAbsolute(rawSrcDir) ? rawSrcDir : resolve(projectRoot, rawSrcDir);
       }
     },
-
-    resolveId(id) {
-      if (id === ORCHESTRATION_ENTRY_ID) {
-        return RESOLVED_ORCHESTRATION_ENTRY_ID;
-      }
-      const name = virtualWidgetName(id);
-      if (name !== undefined && widgetMap.has(name)) {
-        return `${VIRTUAL_MODULE_PREFIX}${name}`;
-      }
-      return null;
-    },
-
-    load(id) {
-      if (id === RESOLVED_ORCHESTRATION_ENTRY_ID) {
-        return "export {};\n";
-      }
-      if (id.startsWith(VIRTUAL_MODULE_PREFIX)) {
-        const widget = widgetMap.get(id.slice(VIRTUAL_MODULE_PREFIX.length));
-        if (widget !== undefined) {
-          return buildVirtualEntry(widget.filePath);
-        }
-      }
-      return null;
-    },
-
-    generateBundle: {
-      order: "post",
-      handler(_options, bundle) {
-        if (requestedWidgetPath !== undefined) {
-          const widget = [...widgetMap.values()][0];
-          if (widget === undefined) {
-            throw new Error("belgie: isolated widget build lost its widget entry");
-          }
-          const html = renderWidgetBundle(widget.name, bundle as Record<string, BuildArtifact>);
-          for (const fileName of Object.keys(bundle)) {
-            delete bundle[fileName];
-          }
-          this.emitFile({
-            type: "asset",
-            fileName: `widgets/${widget.name}/index.html`,
-            source: html,
-          });
-          return;
-        }
-
-        if (usesOrchestrationEntry) {
-          for (const [fileName, artifact] of Object.entries(bundle)) {
-            if (artifact.type === "chunk" && artifact.facadeModuleId === RESOLVED_ORCHESTRATION_ENTRY_ID) {
-              delete bundle[fileName];
-            }
-          }
-        }
-      },
-    },
-
-    async closeBundle() {
-      if (!isBuildCommand || requestedWidgetPath !== undefined || resolvedConfig === undefined || widgetMap.size === 0) {
-        return;
-      }
-      if (!resolvedConfig.configFile) {
-        throw new Error(
-          "belgie: isolated widget builds require a Vite config file; inline configs are not supported",
-        );
-      }
-      rmSync(resolve(projectRoot, "dist", "widgets"), { recursive: true, force: true });
-      for (const widget of widgetMap.values()) {
-        await buildWidget(widget, resolvedConfig, resolvedConfig.configFile);
-      }
-    },
-
     configureServer(server) {
       if (!resolvedSrcDir) {
         const root = server.config.root || process.cwd();
@@ -387,7 +350,67 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
         }
       });
     },
+    enforce: "pre",
+    generateBundle: {
+      handler(_options, bundle) {
+        if (requestedWidgetPath !== undefined) {
+          const widget = [...widgetMap.values()][0];
+          if (widget === undefined) {
+            throw new Error("belgie: isolated widget build lost its widget entry");
+          }
+          const html = renderWidgetBundle(widget.name, bundle);
+          for (const fileName of Object.keys(bundle)) {
+            delete bundle[fileName];
+          }
+          this.emitFile({
+            type: "asset",
+            fileName: `widgets/${widget.name}/index.html`,
+            source: html,
+          });
+          return;
+        }
 
+        if (usesOrchestrationEntry) {
+          for (const [fileName, artifact] of Object.entries(bundle)) {
+            if (artifact.type === "chunk" && artifact.facadeModuleId === RESOLVED_ORCHESTRATION_ENTRY_ID) {
+              delete bundle[fileName];
+            }
+          }
+        }
+      },
+      order: "post",
+    },
+    load(id) {
+      if (id === RESOLVED_ORCHESTRATION_ENTRY_ID) {
+        return "export {};\n";
+      }
+      if (id.startsWith(VIRTUAL_MODULE_PREFIX)) {
+        const widget = widgetMap.get(id.slice(VIRTUAL_MODULE_PREFIX.length));
+        if (widget !== undefined) {
+          return buildVirtualEntry(widget.filePath);
+        }
+      }
+      return null;
+    },
+    name: "belgie",
+    outputOptions: {
+      handler(output) {
+        if (moduleMode && this.environment.config.consumer === "server") {
+          return moduleServerOutput(output);
+        }
+      },
+      order: "post",
+    },
+    resolveId(id) {
+      if (id === ORCHESTRATION_ENTRY_ID) {
+        return RESOLVED_ORCHESTRATION_ENTRY_ID;
+      }
+      const name = virtualWidgetName(id);
+      if (name !== undefined && widgetMap.has(name)) {
+        return `${VIRTUAL_MODULE_PREFIX}${name}`;
+      }
+      return null;
+    },
     transform(code, id) {
       const normalizedId = normalizePath(id);
       if (widgetEntryPattern?.test(normalizedId) && !hasDefaultExport(code)) {

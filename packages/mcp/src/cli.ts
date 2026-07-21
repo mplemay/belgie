@@ -42,9 +42,7 @@ export function parseHeader(value: string): [string, string] {
 export function parseEnvironmentHeader(value: string): [string, string] {
   const separator = value.indexOf("=");
   if (separator <= 0 || separator === value.length - 1) {
-    throw new Error(
-      `Invalid --header-env ${JSON.stringify(value)}; expected NAME=ENV_VAR`,
-    );
+    throw new Error(`Invalid --header-env ${JSON.stringify(value)}; expected NAME=ENV_VAR`);
   }
   const name = value.slice(0, separator).trim();
   const environmentName = value.slice(separator + 1).trim();
@@ -63,15 +61,15 @@ export function parseEnvironmentHeader(value: string): [string, string] {
 
 export async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
   const { positionals, values: options } = parseArgs({
-    args,
     allowPositionals: true,
+    args,
     options: {
-      check: { type: "boolean", default: false },
-      header: { type: "string", multiple: true },
-      "header-env": { type: "string", multiple: true },
-      "no-oauth": { type: "boolean", default: false },
-      "no-open": { type: "boolean", default: false },
-      output: { type: "string", short: "o" },
+      check: { default: false, type: "boolean" },
+      header: { multiple: true, type: "string" },
+      "header-env": { multiple: true, type: "string" },
+      "no-oauth": { default: false, type: "boolean" },
+      "no-open": { default: false, type: "boolean" },
+      output: { short: "o", type: "string" },
     },
     strict: true,
   });
@@ -89,19 +87,19 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
   ]);
   const output = resolve(options.output);
   const generated = await generateToolTypes({
-    url: positionals[1]!,
     headers,
     oauth: !options["no-oauth"],
     openBrowser: !options["no-open"],
+    url: positionals[1],
   });
 
   if (options.check) {
     let current: string | undefined;
     try {
       current = await readFile(output, "utf8");
-    } catch (cause: unknown) {
-      if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) {
-        throw cause;
+    } catch (error: unknown) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
       }
     }
     if (current !== generated) {

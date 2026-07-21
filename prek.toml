@@ -2,7 +2,12 @@
 # See https://prek.j178.dev for more information.
 #:schema https://www.schemastore.org/prek.json
 
-exclude = { glob = [".agents/**", "src/components/ui/**", "src/routeTree.gen.ts"] }
+exclude = { glob = [
+  ".agents/**",
+  "**/components/ui/**",
+  "**/routeTree.gen.ts",
+  "packages/mcp/.package-*/**",
+] }
 
 [[repos]]
 repo = "builtin"
@@ -38,6 +43,42 @@ hooks = [
     language = "python",
     files = '^(uv\.lock|pyproject\.toml|uv\.toml)$',
     pass_filenames = false,
+  },
+  {
+    id = "belgie-lock",
+    name = "belgie lock",
+    entry = "uv run belgie lock",
+    language = "python",
+    files = '^(deno\.lock|pyproject\.toml)$',
+    pass_filenames = false,
+    require_serial = true,
+  },
+  {
+    id = "oxfmt",
+    name = "oxfmt",
+    entry = "uv run belgie run oxfmt",
+    language = "python",
+    types_or = [
+      "javascript",
+      "jsx",
+      "ts",
+      "tsx",
+    ],
+    require_serial = true,
+  },
+  {
+    id = "oxlint",
+    name = "oxlint",
+    entry = "uv run belgie run oxlint",
+    args = ["--fix"],
+    language = "python",
+    types_or = [
+      "javascript",
+      "jsx",
+      "ts",
+      "tsx",
+    ],
+    require_serial = true,
   },
   {
     id = "ruff-check",

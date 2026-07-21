@@ -17,6 +17,7 @@ export default defineConfig({
     },
     environment: "node",
     fileParallelism: false,
+    globals: true,
     include: ["tests/**/*.test.{ts,tsx}"],
   },
 });

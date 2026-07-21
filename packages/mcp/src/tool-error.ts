@@ -4,10 +4,7 @@ export type RawToolResult = Awaited<ReturnType<App["callServerTool"]>>;
 
 export type McpToolErrorResult = RawToolResult & { isError: true };
 
-function mcpToolErrorMessage(
-  toolName: string,
-  result: McpToolErrorResult,
-): string {
+function mcpToolErrorMessage(toolName: string, result: McpToolErrorResult): string {
   return (
     result.content
       .map((content) => (content.type === "text" ? content.text : ""))
@@ -46,6 +43,4 @@ export class McpToolCancelledError extends Error {
 
 export type ToolCallError = Error;
 
-export type ToolCallResult<Output> =
-  | { result: Output; error: undefined }
-  | { result: undefined; error: ToolCallError };
+export type ToolCallResult<Output> = { result: Output; error: undefined } | { result: undefined; error: ToolCallError };
