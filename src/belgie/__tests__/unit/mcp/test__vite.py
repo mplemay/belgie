@@ -14,8 +14,8 @@ from belgie.mcp._vite import (
     _shutdown_vite_dev_servers,
     _ViteDevServer,
     _ViteProject,
-    build_vite_once,
     ensure_vite_dev_server,
+    load_production_widget,
 )
 from belgie.mcp._widgets import read_widget_html
 
@@ -77,10 +77,13 @@ def test_load_vite_project_requires_vite_dependency(
         _load_vite_project(tmp_path)
 
 
-def test_build_vite_once_builds_once_and_invalidates_html_cache(
+def test_load_production_widget_builds_once_and_invalidates_html_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    widget = tmp_path / "src" / "widgets" / "clock" / "widget.tsx"
+    widget.parent.mkdir(parents=True)
+    widget.write_text("export default function Clock() {}\n", encoding="utf-8")
     html_path = tmp_path / "dist" / "widgets" / "clock" / "index.html"
     html_path.parent.mkdir(parents=True)
     html_path.write_text("old", encoding="utf-8")
@@ -101,11 +104,49 @@ def test_build_vite_once_builds_once_and_invalidates_html_cache(
 
     monkeypatch.setattr(vite_module, "_run_vite_command", run_vite)
 
-    build_vite_once(tmp_path)
-    build_vite_once(tmp_path)
+    assert load_production_widget(tmp_path, widget) == "new"
+    assert load_production_widget(tmp_path, widget) == "new"
 
     assert calls == [(project, ("build",))]
+    assert tmp_path.resolve() in vite_module.BUILT_PROJECTS
     assert read_widget_html(html_path) == "new"
+
+
+def test_load_production_widget_retries_build_after_missing_html(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    widget = tmp_path / "src" / "widgets" / "clock" / "widget.tsx"
+    widget.parent.mkdir(parents=True)
+    widget.write_text("export default function Clock() {}\n", encoding="utf-8")
+    html_path = tmp_path / "dist" / "widgets" / "clock" / "index.html"
+    project = _ViteProject(
+        root=tmp_path,
+        dependencies={"vite": "npm:vite@8"},
+        module=False,
+        lockfile=None,
+    )
+    calls: list[tuple[_ViteProject, tuple[str, ...]]] = []
+
+    monkeypatch.setattr(vite_module, "_load_vite_project", lambda _project: project)
+
+    def run_vite(vite_project: _ViteProject, *args: str) -> None:
+        calls.append((vite_project, args))
+
+    monkeypatch.setattr(vite_module, "_run_vite_command", run_vite)
+
+    with pytest.raises(FileNotFoundError, match="Built widget HTML does not exist"):
+        load_production_widget(tmp_path, widget)
+
+    assert tmp_path.resolve() not in vite_module.BUILT_PROJECTS
+    assert calls == [(project, ("build",))]
+
+    html_path.parent.mkdir(parents=True)
+    html_path.write_text("built", encoding="utf-8")
+
+    assert load_production_widget(tmp_path, widget) == "built"
+    assert calls == [(project, ("build",)), (project, ("build",))]
+    assert tmp_path.resolve() in vite_module.BUILT_PROJECTS
 
 
 def test_ensure_vite_dev_server_reuses_external_server(

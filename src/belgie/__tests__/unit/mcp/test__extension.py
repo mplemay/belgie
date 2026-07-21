@@ -237,19 +237,20 @@ def test_tool_builds_production_widgets_before_reading(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     widget = write_widget(tmp_path)
-    calls: list[Path] = []
+    calls: list[tuple[Path, Path]] = []
 
-    def build_widgets(project: Path) -> None:
-        calls.append(project)
+    def load_widget(project: Path, resolved_widget: Path) -> str:
+        calls.append((project, resolved_widget))
+        return DEFAULT_WIDGET_HTML
 
-    monkeypatch.setattr(extension_module, "build_vite_once", build_widgets)
+    monkeypatch.setattr(extension_module, "load_production_widget", load_widget)
     extension = BelgieExtension(project=tmp_path, dev=False)
 
     @extension.tool(widget=widget)
     def clock() -> str:
         return "now"
 
-    assert calls == [tmp_path.resolve()]
+    assert calls == [(tmp_path.resolve(), widget.resolve())]
     resource = extension.resources()[0].resource
     assert isinstance(resource, TextResource)
     assert resource.text == DEFAULT_WIDGET_HTML

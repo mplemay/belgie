@@ -18,7 +18,7 @@ from belgie._pyproject import (
     resolve_file_dependency_paths,
 )
 from belgie.errors import BelgieError
-from belgie.mcp._widgets import read_widget_html
+from belgie.mcp._widgets import read_built_widget, read_widget_html
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -122,16 +122,30 @@ def ensure_vite_dev_server(
 
 def build_vite_once(project: Path) -> None:
     project_path = project.resolve()
-    with BUILD_LOCKS_LOCK:
-        build_lock = BUILD_LOCKS.setdefault(project_path, threading.Lock())
+    with _project_build_lock(project_path):
+        _build_vite_if_needed(project_path)
 
-    with build_lock:
-        if project_path in BUILT_PROJECTS:
-            return
-        vite_project = _load_vite_project(project_path)
-        _run_vite_command(vite_project, "build")
-        read_widget_html.cache_clear()
+
+def load_production_widget(project: Path, widget: Path) -> str:
+    project_path = project.resolve()
+    with _project_build_lock(project_path):
+        _build_vite_if_needed(project_path)
+        html = read_built_widget(project_path, widget)
         BUILT_PROJECTS.add(project_path)
+        return html
+
+
+def _project_build_lock(project_path: Path) -> threading.Lock:
+    with BUILD_LOCKS_LOCK:
+        return BUILD_LOCKS.setdefault(project_path, threading.Lock())
+
+
+def _build_vite_if_needed(project_path: Path) -> None:
+    if project_path in BUILT_PROJECTS:
+        return
+    vite_project = _load_vite_project(project_path)
+    _run_vite_command(vite_project, "build")
+    read_widget_html.cache_clear()
 
 
 def _load_vite_project(project: Path) -> _ViteProject:

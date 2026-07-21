@@ -7,7 +7,7 @@ from mcp.server.apps import Apps, ResourceCsp, ResourcePermissions, Visibility
 from mcp_types import Icon, ToolAnnotations
 
 from belgie._pyproject import discover_pyproject_root
-from belgie.mcp._vite import build_vite_once, ensure_vite_dev_server
+from belgie.mcp._vite import ensure_vite_dev_server, load_production_widget
 from belgie.mcp._widgets import load_development_widget, normalize_dev_url, read_built_widget, resolve_widget_path
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
@@ -100,7 +100,7 @@ class BelgieExtension(Apps):
                 )
             return load_development_widget(self._dev_url, resolved_widget)
         if self._build:
-            build_vite_once(project_path)
+            return load_production_widget(project_path, resolved_widget)
         return read_built_widget(project_path, resolved_widget)
 
     def _resolve_project_path(self) -> Path:
