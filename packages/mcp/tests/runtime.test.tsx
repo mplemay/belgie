@@ -1472,11 +1472,13 @@ test("forwards every optional Widget hook and exposes useWidget", async () => {
       );
     });
     assert.equal(hookApp, app);
-    restore.emit(app, "toolinput", { arguments: {} });
-    restore.emit(app, "toolinputpartial", { arguments: {} });
-    restore.emit(app, "toolresult", { content: [] });
-    restore.emit(app, "toolcancelled", { reason: "cancelled" });
-    restore.emit(app, "hostcontextchanged", {});
+    await act(async () => {
+      restore.emit(app, "toolinput", { arguments: {} });
+      restore.emit(app, "toolinputpartial", { arguments: {} });
+      restore.emit(app, "toolresult", { content: [] });
+      restore.emit(app, "toolcancelled", { reason: "cancelled" });
+      restore.emit(app, "hostcontextchanged", {});
+    });
     assert.deepEqual(calls, ["input", "partial", "result", "cancelled", "context"]);
     assert.deepEqual(await app.onteardown({}, {}), {});
   } finally {
