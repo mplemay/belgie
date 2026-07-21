@@ -80,11 +80,12 @@ test("resolves declarations from every built package subpath", () => {
 });
 
 test("npm pack dry run contains only publishable package files", () => {
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const npmCli = process.env.npm_execpath;
+  assert.ok(npmCli, "expected npm_execpath when tests are run via npm");
   const output = execFileSync(
-    npm,
-    ["pack", "--dry-run", "--json", "--ignore-scripts"],
-    { encoding: "utf8", shell: true },
+    process.execPath,
+    [npmCli, "pack", "--dry-run", "--json", "--ignore-scripts"],
+    { encoding: "utf8" },
   );
   const result = JSON.parse(output)[0];
   const files = result.files.map((file: { path: string }) => file.path);
