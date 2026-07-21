@@ -1,4 +1,4 @@
-# Belgie: React MCP Apps in Python
+# Belgie: GenAI and GenUI Sandbox for Python
 
 Belgie is a sandboxed TypeScript environment for Python that lets you build React MCP Apps and
 have agents write code in a sandbox.
