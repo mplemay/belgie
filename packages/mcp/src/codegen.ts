@@ -29,7 +29,7 @@ function endpoint(value: string | URL): URL {
   try {
     url = value instanceof URL ? new URL(value) : new URL(value);
   } catch (error: unknown) {
-    throw new Error(`Invalid MCP URL ${JSON.stringify(String(value))}`, { error });
+    throw new Error(`Invalid MCP URL ${JSON.stringify(String(value))}`, { cause: error });
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`MCP URL must use http or https, received ${JSON.stringify(url.protocol)}`);
@@ -92,7 +92,7 @@ function compileToolSchema(
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       `MCP tool ${JSON.stringify(tool.name)} has an ${schemaName} TypeScript cannot compile: ${message}`,
-      { error },
+      { cause: error },
     );
   }
 }
@@ -126,7 +126,7 @@ function renderToolTypes(tools: Tool[]): string {
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`MCP tool ${JSON.stringify(tool.name)} has an outputSchema Zod cannot compile: ${message}`, {
-          error,
+          cause: error,
         });
       }
       declarations.push(...compileToolSchema(tool, "outputSchema", tool.outputSchema, toolNames.output, allocator));
@@ -245,7 +245,7 @@ export async function generateToolTypes(options: GenerateToolTypesOptions): Prom
   } catch (error: unknown) {
     if (error instanceof Error) {
       throw new TypeError(`Failed to generate MCP tool types from ${url.toString()}: ${error.message}`, {
-        error,
+        cause: error,
       });
     }
     throw error;

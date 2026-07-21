@@ -576,7 +576,11 @@ test("imports only the raw factory for a raw-only server", async () => {
 });
 
 test("validates malformed URLs and reports connection failures", async () => {
-  await assert.rejects(generateToolTypes({ oauth: false, url: "not a url" }), /Invalid MCP URL/u);
+  await assert.rejects(
+    generateToolTypes({ oauth: false, url: "not a url" }),
+    (error: unknown) =>
+      error instanceof Error && /Invalid MCP URL/u.test(error.message) && error.cause instanceof Error,
+  );
   await assert.rejects(generateToolTypes({ oauth: false, url: "ftp://example.com/mcp" }), /must use http or https/u);
   await assert.rejects(
     generateToolTypes({ oauth: false, url: "https://user:secret@example.com/mcp" }),
@@ -584,7 +588,10 @@ test("validates malformed URLs and reports connection failures", async () => {
   );
   await assert.rejects(
     generateToolTypes({ oauth: false, url: "https://127.0.0.1:1/mcp" }),
-    /Failed to generate MCP tool types/u,
+    (error: unknown) =>
+      error instanceof Error &&
+      /Failed to generate MCP tool types/u.test(error.message) &&
+      error.cause instanceof Error,
   );
   const unavailable = createHttpServer();
   await new Promise((resolve) => unavailable.listen(0, "127.0.0.1", resolve));

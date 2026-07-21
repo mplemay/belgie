@@ -7,7 +7,8 @@ export const Route = createRootRoute({
   head: () => ({
     links: [{ rel: "stylesheet", href: stylesUrl }],
     meta: [
-      { charSet: "utf8" },
+      // eslint-disable-next-line unicorn/text-encoding-identifier-case -- HTML charset label
+      { charSet: "utf-8" },
       {
         name: "viewport",
         content: "width=device-width, initial-scale=1",
