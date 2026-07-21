@@ -80,6 +80,58 @@ def test_environment_runtime_resolves_local_file_package_by_bin_name(
     assert (tmp_path / "local-command.txt").read_text(encoding="utf-8") == "ok\n"
 
 
+def test_command_forks_concurrent_node_compatible_children_without_external_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    package = write_local_package_with_bin(
+        tmp_path,
+        bin_name="fork-probe",
+        bin_script="""
+import { fork } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+
+const runChild = (id) => new Promise((resolve, reject) => {
+  const child = fork(new URL("./child.js", import.meta.url), [String(id)]);
+  let receivedMessage = false;
+  child.once("error", reject);
+  child.once("message", (message) => {
+    receivedMessage = true;
+    if (message !== id) {
+      reject(new Error(`Unexpected worker response: ${message}`));
+      return;
+    }
+    resolve();
+  });
+  child.once("exit", (code) => {
+    if (!receivedMessage) {
+      reject(new Error(`Worker exited before responding with code ${code}`));
+    }
+  });
+});
+
+await Promise.all(Array.from({ length: 4 }, (_, id) => runChild(id)));
+await writeFile("fork-probe.txt", "ok\\n");
+""",
+    )
+    (package / "child.js").write_text(
+        """
+const id = Number(process.argv[2]);
+process.send?.(id, () => process.disconnect());
+""",
+        encoding="utf-8",
+    )
+
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        monkeypatch.setenv("PATH", "")
+        with Runtime(env=env) as runtime:
+            assert runtime(Command("fork-probe"))() is None
+
+    assert (tmp_path / "fork-probe.txt").read_text(encoding="utf-8") == "ok\n"
+
+
 def test_command_scopes_module_package_type_signal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

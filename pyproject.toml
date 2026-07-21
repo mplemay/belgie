@@ -28,6 +28,7 @@ mcp = [
 
 [project.scripts]
 belgie = "belgie.cli.__main__:main"
+belgie-runtime = "belgie._child_process:main"
 
 [dependency-groups]
 dev = [
@@ -59,6 +60,11 @@ python-packages = ["belgie"]
 python-source = "src"
 exclude = ["**/__tests__/**"]
 features = ["extension-module"]
+
+[tool.belgie.dependencies]
+oxlint = "npm:oxlint@latest"
+oxfmt = "npm:oxfmt@latest"
+oxlint-tsgolint = "npm:oxlint-tsgolint@latest"
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
@@ -101,7 +107,6 @@ ignore = [
     "TC002",   # pytest imported at runtime in test modules
     "TC003",   # pathlib imported at runtime in test modules
 ]
-
 [tool.ruff.lint.flake8-quotes]
 inline-quotes = "double"
 multiline-quotes = "double"

@@ -5,7 +5,9 @@ import stylesUrl from "../styles.css?url";
 
 export const Route = createRootRoute({
   head: () => ({
+    links: [{ rel: "stylesheet", href: stylesUrl }],
     meta: [
+      // eslint-disable-next-line unicorn/text-encoding-identifier-case -- HTML charset label
       { charSet: "utf-8" },
       {
         name: "viewport",
@@ -13,7 +15,6 @@ export const Route = createRootRoute({
       },
       { title: "Belgie TanStack MCP Example" },
     ],
-    links: [{ rel: "stylesheet", href: stylesUrl }],
   }),
   shellComponent: RootDocument,
 });

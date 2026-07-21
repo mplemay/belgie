@@ -1,7 +1,18 @@
 import { Widget, useToolResult } from "@belgie/mcp";
 
 import { getTime } from "../tools";
+
 import "./widget.css";
+
+function buttonLabel(isLoading: boolean, isFetching: boolean): string {
+  if (isLoading) {
+    return "Waiting…";
+  }
+  if (isFetching) {
+    return "Refreshing…";
+  }
+  return "Refresh time";
+}
 
 function TimeView() {
   const { data, error, isLoading, isFetching, execute } = useToolResult(getTime);
@@ -11,8 +22,11 @@ function TimeView() {
       <p className="label">Current server time</p>
       <time>{data?.time ?? (isLoading ? "Waiting for the opening tool result…" : "No time returned.")}</time>
       {error && <p className="error">{error.message}</p>}
-      <button disabled={isFetching} onClick={() => void execute()}>
-        {isLoading ? "Waiting…" : isFetching ? "Refreshing…" : "Refresh time"}
+      <button
+        disabled={isFetching}
+        onClick={() => void execute()}
+      >
+        {buttonLabel(isLoading, isFetching)}
       </button>
     </main>
   );

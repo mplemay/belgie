@@ -1,8 +1,6 @@
 {
   "compilerOptions": {
     "allowImportingTsExtensions": true,
-    "baseUrl": ".",
-    "erasableSyntaxOnly": true,
     "jsx": "react-jsx",
     "lib": [
       "ES2022",

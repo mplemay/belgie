@@ -1,0 +1,19 @@
+{
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/routeTree.gen.ts",
+    "packages/mcp/.package-*/**",
+    "**/components/ui/**",
+    "**/*.{json,jsonc,json5,css,scss,less,md,mdx,html,yml,yaml,toml,graphql}",
+    "**/tests/fixtures/**"
+  ],
+  "jsdoc": true,
+  "printWidth": 120,
+  "semi": true,
+  "singleAttributePerLine": true,
+  "singleQuote": false,
+  "sortImports": true,
+  "tabWidth": 2,
+  "trailingComma": "all"
+}

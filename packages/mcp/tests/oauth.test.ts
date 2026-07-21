@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
-import { afterEach, test, vi } from "vitest";
 
-import {
-  MemoryOAuthProvider,
-  oauthState,
-  startOAuthCallbackServer,
-} from "../src/oauth.ts";
+import { MemoryOAuthProvider, oauthState, startOAuthCallbackServer } from "../src/oauth.ts";
 
 const openMock = vi.hoisted(() => vi.fn());
-vi.mock("open", () => ({ default: openMock }));
+vi.mock(import("open"), () => ({ default: openMock }));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -18,15 +13,13 @@ afterEach(() => {
 
 test("memory OAuth provider stores metadata and credentials", () => {
   const provider = new MemoryOAuthProvider({
+    openBrowser: false,
     redirectUrl: "http://127.0.0.1/callback",
     state: "state",
-    openBrowser: false,
   });
   assert.equal(provider.redirectUrl, "http://127.0.0.1/callback");
   assert.equal(provider.state(), "state");
-  assert.deepEqual(provider.clientMetadata.redirect_uris, [
-    "http://127.0.0.1/callback",
-  ]);
+  assert.deepEqual(provider.clientMetadata.redirect_uris, ["http://127.0.0.1/callback"]);
   assert.equal(provider.clientInformation(), undefined);
   assert.equal(provider.tokens(), undefined);
   assert.throws(() => provider.codeVerifier(), /was not saved/u);
@@ -41,26 +34,23 @@ test("memory OAuth provider stores metadata and credentials", () => {
   assert.equal(provider.codeVerifier(), "verifier");
 });
 
-test("OAuth provider prints authorization URLs when browser opening is disabled", async () => {
+test("oAuth provider prints authorization URLs when browser opening is disabled", async () => {
   const provider = new MemoryOAuthProvider({
+    openBrowser: false,
     redirectUrl: "http://127.0.0.1/callback",
     state: "state",
-    openBrowser: false,
   });
   const write = vi.spyOn(process.stderr, "write").mockReturnValue(true);
   await provider.redirectToAuthorization(new URL("https://example.com/authorize?q=1"));
-  assert.equal(
-    write.mock.calls[0]?.[0],
-    "Authorize MCP code generation at:\nhttps://example.com/authorize?q=1\n",
-  );
+  assert.equal(write.mock.calls[0]?.[0], "Authorize MCP code generation at:\nhttps://example.com/authorize?q=1\n");
   assert.equal(openMock.mock.calls.length, 0);
 });
 
-test("OAuth provider opens authorization URLs when requested", async () => {
+test("oAuth provider opens authorization URLs when requested", async () => {
   const provider = new MemoryOAuthProvider({
+    openBrowser: true,
     redirectUrl: "http://127.0.0.1/callback",
     state: "state",
-    openBrowser: true,
   });
   await provider.redirectToAuthorization(new URL("https://example.com/authorize"));
   assert.deepEqual(openMock.mock.calls, [["https://example.com/authorize"]]);

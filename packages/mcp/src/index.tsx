@@ -1,25 +1,12 @@
-import {
-  StrictMode,
-  useEffect,
-  useRef,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from "react";
-import { createRoot, type Root } from "react-dom/client";
-import {
-  App,
-  type AppEventMap,
-  type AppOptions,
-  type McpUiAppCapabilities,
-} from "@modelcontextprotocol/ext-apps";
-import {
-  WidgetContext,
-  activateWidget,
-  deactivateWidget,
-  useWidget,
-  type WidgetToolLifecycle,
-} from "./widget-context";
+import { App } from "@modelcontextprotocol/ext-apps";
+import type { AppEventMap, AppOptions, McpUiAppCapabilities } from "@modelcontextprotocol/ext-apps";
+import { StrictMode, useEffect, useRef, useState } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
+
+import { WidgetContext, activateWidget, deactivateWidget, useWidget } from "./widget-context";
+import type { WidgetToolLifecycle } from "./widget-context";
 
 export {
   downloadFile,
@@ -40,11 +27,7 @@ export {
   type ToolCallResult,
 } from "./tool-error";
 
-export {
-  useToolResult,
-  type ToolResultState,
-  type ToolResultStatus,
-} from "./use-tool-result";
+export { useToolResult, type ToolResultState, type ToolResultStatus } from "./use-tool-result";
 
 export { useWidget };
 
@@ -55,7 +38,7 @@ export type WidgetMetadata = {
   capabilities?: McpUiAppCapabilities;
 } & Pick<AppOptions, "autoResize" | "strict">;
 
-export type WidgetHooks = {
+export interface WidgetHooks {
   before?: () => void | Promise<void>;
   after?: () => void | Promise<void>;
   error?: (error: Error) => void;
@@ -65,18 +48,22 @@ export type WidgetHooks = {
   toolCancelled?: (params: AppEventMap["toolcancelled"]) => void;
   hostContextChanged?: (params: AppEventMap["hostcontextchanged"]) => void;
   teardown?: NonNullable<App["onteardown"]>;
-};
+}
 
-export type WidgetProps = {
+export interface WidgetProps {
   metadata: WidgetMetadata;
   children: ReactNode;
   hooks?: WidgetHooks;
   fallback?: ReactNode;
   error?: ReactNode | ((error: Error) => ReactNode);
-};
+}
 
 function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
-  app.onerror = hooks?.error ?? ((error) => console.error(error));
+  app.onerror =
+    hooks?.error ??
+    ((error) => {
+      console.error(error);
+    });
   if (!hooks) {
     return;
   }
@@ -99,10 +86,10 @@ function applyHooks(app: App, hooks: WidgetHooks | undefined): void {
 
 function initialToolLifecycle(): WidgetToolLifecycle {
   return {
+    cancellationReason: undefined,
     input: undefined,
     inputReceived: false,
     rawResult: undefined,
-    cancellationReason: undefined,
     status: "pending",
     version: 0,
   };
@@ -110,22 +97,14 @@ function initialToolLifecycle(): WidgetToolLifecycle {
 
 let rootInstance: Root | null = null;
 
-export function Widget({
-  metadata,
-  children,
-  hooks,
-  fallback,
-  error: errorUI,
-}: WidgetProps) {
+export function Widget({ metadata, children, hooks, fallback, error: errorUI }: WidgetProps) {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [toolLifecycle, setToolLifecycle] = useState(initialToolLifecycle);
   const appRef = useRef<App | null>(null);
-  const initRef = useRef<{ metadata: WidgetMetadata; hooks: WidgetHooks | undefined } | null>(
-    null,
-  );
+  const initRef = useRef<{ metadata: WidgetMetadata; hooks: WidgetHooks | undefined } | null>(null);
   if (initRef.current == null) {
-    initRef.current = { metadata, hooks };
+    initRef.current = { hooks, metadata };
   }
 
   useEffect(() => {
@@ -141,7 +120,7 @@ export function Widget({
       options.strict = strict;
     }
     const app = new App(
-      title === undefined ? { name, version } : { name, version, title },
+      title === undefined ? { name, version } : { name, title, version },
       capabilities ?? {},
       options,
     );
@@ -160,8 +139,8 @@ export function Widget({
       if (!cancelled) {
         setToolLifecycle((current) => ({
           ...current,
-          rawResult: params,
           cancellationReason: undefined,
+          rawResult: params,
           status: "result",
           version: current.version + 1,
         }));
@@ -171,8 +150,8 @@ export function Widget({
       if (!cancelled) {
         setToolLifecycle((current) => ({
           ...current,
-          rawResult: undefined,
           cancellationReason: params.reason,
+          rawResult: undefined,
           status: "cancelled",
           version: current.version + 1,
         }));
@@ -195,9 +174,9 @@ export function Widget({
         }
         try {
           await app.connect();
-        } catch (err: unknown) {
-          if (!(err instanceof Error && err.message.includes("already connected"))) {
-            throw err;
+        } catch (error: unknown) {
+          if (!(error instanceof Error && error.message.includes("already connected"))) {
+            throw error;
           }
         }
         if (cancelled) {
@@ -206,19 +185,19 @@ export function Widget({
         activateWidget(app);
         active = true;
         await initHooks?.after?.();
-        if (!cancelled) {
-          setConnected(true);
-        } else {
+        if (cancelled) {
           deactivateWidget(app);
           active = false;
+        } else {
+          setConnected(true);
         }
-      } catch (err: unknown) {
+      } catch (error: unknown) {
         if (active) {
           deactivateWidget(app);
           active = false;
         }
         if (!cancelled) {
-          setError(err instanceof Error ? err : new Error(String(err)));
+          setError(error instanceof Error ? error : new Error(String(error)));
         }
       }
     })();
@@ -237,8 +216,12 @@ export function Widget({
   }, []);
 
   if (error) {
-    if (typeof errorUI === "function") return errorUI(error);
-    if (errorUI !== undefined) return errorUI;
+    if (typeof errorUI === "function") {
+      return errorUI(error);
+    }
+    if (errorUI !== undefined) {
+      return errorUI;
+    }
     return (
       <div>
         <strong>ERROR:</strong> {error.message}
@@ -250,11 +233,7 @@ export function Widget({
   }
 
   return (
-    <WidgetContext.Provider
-      value={{ app: appRef.current, tool: toolLifecycle }}
-    >
-      {children}
-    </WidgetContext.Provider>
+    <WidgetContext.Provider value={{ app: appRef.current, tool: toolLifecycle }}>{children}</WidgetContext.Provider>
   );
 }
 

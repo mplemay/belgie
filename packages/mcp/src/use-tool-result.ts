@@ -1,31 +1,15 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  McpToolCancelledError,
-  type RawToolResult,
-  type ToolCallError,
-  type ToolCallResult,
-} from "./tool-error";
-import {
-  errorResult,
-  getToolResultAdapter,
-  type ToolResultAdapter,
-  type ToolResultSource,
-} from "./tool-result-source";
-import {
-  useConnectedWidgetContext,
-  type WidgetToolLifecycle,
-} from "./widget-context";
+import { McpToolCancelledError } from "./tool-error";
+import type { RawToolResult, ToolCallError, ToolCallResult } from "./tool-error";
+import { errorResult, getToolResultAdapter } from "./tool-result-source";
+import type { ToolResultAdapter, ToolResultSource } from "./tool-result-source";
+import { useConnectedWidgetContext } from "./widget-context";
+import type { WidgetToolLifecycle } from "./widget-context";
 
 export type ToolResultStatus = "pending" | "success" | "error";
 
-export type ToolResultState<Input extends object, Output> = {
+export interface ToolResultState<Input extends object, Output> {
   data: Output | undefined;
   error: ToolCallError | undefined;
   rawResult: RawToolResult | undefined;
@@ -35,20 +19,17 @@ export type ToolResultState<Input extends object, Output> = {
   isSuccess: boolean;
   isError: boolean;
   execute: (input?: Input) => Promise<ToolCallResult<Output>>;
-};
+}
 
-type ResultSnapshot<Output> = {
+interface ResultSnapshot<Output> {
   data: Output | undefined;
   error: ToolCallError | undefined;
   rawResult: RawToolResult | undefined;
   status: ToolResultStatus;
   isFetching: boolean;
-};
+}
 
-function sourceMismatchError(
-  expectedName: string,
-  actualName: string | undefined,
-): Error | undefined {
+function sourceMismatchError(expectedName: string, actualName: string | undefined): Error | undefined {
   if (actualName === undefined || actualName === expectedName) {
     return undefined;
   }
@@ -66,30 +47,27 @@ function openingSnapshot<Input extends object, Output>(
     return {
       data: undefined,
       error: mismatch,
+      isFetching: false,
       rawResult: lifecycle.rawResult,
       status: "error",
-      isFetching: false,
     };
   }
   if (lifecycle.status === "pending") {
     return {
       data: undefined,
       error: undefined,
+      isFetching: true,
       rawResult: undefined,
       status: "pending",
-      isFetching: true,
     };
   }
   if (lifecycle.status === "cancelled") {
     return {
       data: undefined,
-      error: new McpToolCancelledError(
-        adapter.name,
-        lifecycle.cancellationReason,
-      ),
+      error: new McpToolCancelledError(adapter.name, lifecycle.cancellationReason),
+      isFetching: false,
       rawResult: undefined,
       status: "error",
-      isFetching: false,
     };
   }
 
@@ -99,16 +77,16 @@ function openingSnapshot<Input extends object, Output>(
     ? {
         data: callResult.result,
         error: undefined,
+        isFetching: false,
         rawResult,
         status: "success",
-        isFetching: false,
       }
     : {
         data: undefined,
         error: callResult.error,
+        isFetching: false,
         rawResult,
         status: "error",
-        isFetching: false,
       };
 }
 
@@ -120,18 +98,13 @@ export function useToolResult<Input extends object, Output>(
   const [hostToolName, setHostToolName] = useState<string | undefined>(
     () => context.app.getHostContext()?.toolInfo?.tool.name,
   );
-  const mismatch = useMemo(
-    () => sourceMismatchError(adapter.name, hostToolName),
-    [adapter.name, hostToolName],
-  );
+  const mismatch = useMemo(() => sourceMismatchError(adapter.name, hostToolName), [adapter.name, hostToolName]);
   const [snapshot, setSnapshot] = useState<ResultSnapshot<Output>>(() =>
     openingSnapshot(adapter, context.tool, mismatch),
   );
   const hasExecutedRef = useRef(false);
   const hasExplicitInputRef = useRef(false);
-  const latestInputRef = useRef<Input | undefined>(
-    context.tool.input as Input | undefined,
-  );
+  const latestInputRef = useRef<Input | undefined>(context.tool.input as Input | undefined);
   const latestRequestRef = useRef(0);
   const mountedRef = useRef(true);
 
@@ -179,8 +152,8 @@ export function useToolResult<Input extends object, Output>(
         setSnapshot((current) => ({
           ...current,
           error: mismatch,
-          status: "error",
           isFetching: false,
+          status: "error",
         }));
         return errorResult(mismatch);
       }
@@ -188,29 +161,26 @@ export function useToolResult<Input extends object, Output>(
       setSnapshot((current) => ({
         ...current,
         error: undefined,
-        status: current.data === undefined ? "pending" : "success",
         isFetching: true,
+        status: current.data === undefined ? "pending" : "success",
       }));
-      const execution = await adapter.execute(
-        latestInputRef.current,
-        context.app,
-      );
+      const execution = await adapter.execute(latestInputRef.current, context.app);
       if (mountedRef.current && request === latestRequestRef.current) {
         setSnapshot((current) =>
           execution.callResult.error === undefined
             ? {
                 data: execution.callResult.result,
                 error: undefined,
+                isFetching: false,
                 rawResult: execution.rawResult ?? current.rawResult,
                 status: "success",
-                isFetching: false,
               }
             : {
                 data: current.data,
                 error: execution.callResult.error,
+                isFetching: false,
                 rawResult: execution.rawResult ?? current.rawResult,
                 status: "error",
-                isFetching: false,
               },
         );
       }
@@ -222,12 +192,12 @@ export function useToolResult<Input extends object, Output>(
   return {
     data: snapshot.data,
     error: snapshot.error,
+    execute,
+    isError: snapshot.status === "error",
+    isFetching: snapshot.isFetching,
+    isLoading: snapshot.isFetching && snapshot.data === undefined,
+    isSuccess: snapshot.status === "success",
     rawResult: snapshot.rawResult,
     status: snapshot.status,
-    isLoading: snapshot.isFetching && snapshot.data === undefined,
-    isFetching: snapshot.isFetching,
-    isSuccess: snapshot.status === "success",
-    isError: snapshot.status === "error",
-    execute,
   };
 }

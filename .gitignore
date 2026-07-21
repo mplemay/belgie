@@ -284,3 +284,4 @@ $RECYCLE.BIN/
 *.lnk
 
 ### Project ###
+node_modules/

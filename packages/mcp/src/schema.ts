@@ -148,10 +148,10 @@ export class ValueIdentifierAllocator {
   }
 }
 
-export type CompiledSchema = {
+export interface CompiledSchema {
   declarations: string[];
   rootName: string;
-};
+}
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -166,7 +166,7 @@ function schemaObject(value: unknown, location: string): JsonObject {
 
 function schemaArray(value: unknown, location: string): JsonSchema[] {
   if (!Array.isArray(value)) {
-    throw new Error(`${location} must be an array of JSON Schemas`);
+    throw new TypeError(`${location} must be an array of JSON Schemas`);
   }
   return value.map((item, index) => {
     if (typeof item !== "boolean" && !isObject(item)) {
@@ -182,9 +182,7 @@ function identifierWords(value: string): string[] {
 
 function identifier(value: string): string {
   const words = identifierWords(value);
-  const joined = words
-    .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
-    .join("");
+  const joined = words.map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`).join("");
   const result = joined || "Schema";
   return /^\p{N}/u.test(result) ? `Schema${result}` : result;
 }
@@ -195,9 +193,7 @@ function valueIdentifier(value: string): string {
     .map((word, index) => {
       const first = word.slice(0, 1);
       const rest = word.slice(1);
-      return index === 0
-        ? `${first.toLocaleLowerCase("en-US")}${rest}`
-        : `${first.toLocaleUpperCase("en-US")}${rest}`;
+      return index === 0 ? `${first.toLocaleLowerCase("en-US")}${rest}` : `${first.toLocaleUpperCase("en-US")}${rest}`;
     })
     .join("");
   if (!result) {
@@ -225,9 +221,7 @@ function union(types: string[]): string {
   }
   return unique.length === 0
     ? "never"
-    : unique
-        .map((type) => (hasTopLevelOperator(type, " & ") ? `(${type})` : type))
-        .join(" | ");
+    : unique.map((type) => (hasTopLevelOperator(type, " & ") ? `(${type})` : type)).join(" | ");
 }
 
 function intersection(types: string[]): string {
@@ -246,16 +240,14 @@ function parenthesize(type: string): string {
 }
 
 function arrayElement(type: string): string {
-  return hasTopLevelOperator(type, " | ") || hasTopLevelOperator(type, " & ")
-    ? `(${type})`
-    : type;
+  return hasTopLevelOperator(type, " | ") || hasTopLevelOperator(type, " & ") ? `(${type})` : type;
 }
 
 function hasTopLevelOperator(type: string, operator: string): boolean {
   let depth = 0;
   let quote: string | undefined;
   for (let index = 0; index < type.length; index += 1) {
-    const character = type[index]!;
+    const character = type[index];
     if (quote !== undefined) {
       if (character === "\\") {
         index += 1;
@@ -287,18 +279,16 @@ function literal(value: unknown, location: string): string {
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new Error(`${location} contains a non-finite number`);
+      throw new TypeError(`${location} contains a non-finite number`);
     }
     return String(value);
   }
   if (Array.isArray(value)) {
-    return `readonly [${value
-      .map((item, index) => literal(item, `${location}[${index}]`))
-      .join(", ")}]`;
+    return `readonly [${value.map((item, index) => literal(item, `${location}[${index}]`)).join(", ")}]`;
   }
   if (isObject(value)) {
     const properties = Object.keys(value)
-      .sort()
+      .toSorted()
       .map((key) => `readonly ${JSON.stringify(key)}: ${literal(value[key], `${location}.${key}`)}`);
     return `{ ${properties.join("; ")} }`;
   }
@@ -318,11 +308,7 @@ class SchemaCompiler {
   readonly #definitions: Map<string, JsonSchema>;
   readonly #definitionNames: Map<string, string>;
 
-  constructor(
-    rootName: string,
-    schema: JsonObject,
-    allocator: IdentifierAllocator,
-  ) {
+  constructor(rootName: string, schema: JsonObject, allocator: IdentifierAllocator) {
     this.#rootName = rootName;
     const definitionsValue = schema.$defs;
     if (definitionsValue === undefined) {
@@ -331,7 +317,7 @@ class SchemaCompiler {
       const definitions = schemaObject(definitionsValue, "$defs");
       this.#definitions = new Map(
         Object.keys(definitions)
-          .sort()
+          .toSorted()
           .map((name) => {
             const value = definitions[name];
             if (typeof value !== "boolean" && !isObject(value)) {
@@ -342,10 +328,7 @@ class SchemaCompiler {
       );
     }
     this.#definitionNames = new Map(
-      [...this.#definitions].map(([name]) => [
-        name,
-        allocator.allocate(`${rootName}${identifier(name)}`),
-      ]),
+      [...this.#definitions].map(([name]) => [name, allocator.allocate(`${rootName}${identifier(name)}`)]),
     );
   }
 
@@ -355,10 +338,7 @@ class SchemaCompiler {
     const declarations = [`export type ${this.#rootName} = ${this.compile(rootSchema, this.#rootName)};`];
     for (const [name, definition] of this.#definitions) {
       declarations.push(
-        `export type ${this.#definitionNames.get(name)!} = ${this.compile(
-          definition,
-          `$defs.${name}`,
-        )};`,
+        `export type ${this.#definitionNames.get(name)!} = ${this.compile(definition, `$defs.${name}`)};`,
       );
     }
     return declarations;
@@ -393,9 +373,7 @@ class SchemaCompiler {
       if (!Array.isArray(schema.enum) || schema.enum.length === 0) {
         throw new Error(`${location}.enum must be a non-empty array`);
       }
-      parts.push(
-        union(schema.enum.map((item, index) => literal(item, `${location}.enum[${index}]`))),
-      );
+      parts.push(union(schema.enum.map((item, index) => literal(item, `${location}.enum[${index}]`))));
     }
 
     for (const keyword of ["oneOf", "anyOf"] as const) {
@@ -450,28 +428,34 @@ class SchemaCompiler {
 
   singleType(type: string, schema: JsonObject, location: string): string {
     switch (type) {
-      case "array":
+      case "array": {
         return this.array(schema, location);
-      case "boolean":
+      }
+      case "boolean": {
         return "boolean";
+      }
       case "integer":
-      case "number":
+      case "number": {
         return "number";
-      case "null":
+      }
+      case "null": {
         return "null";
-      case "object":
+      }
+      case "object": {
         return this.object(schema, location);
-      case "string":
+      }
+      case "string": {
         return "string";
-      default:
+      }
+      default: {
         throw new Error(`${location}.type contains unsupported type ${JSON.stringify(type)}`);
+      }
     }
   }
 
   object(schema: JsonObject, location: string): string {
     const propertiesValue = schema.properties;
-    const properties =
-      propertiesValue === undefined ? {} : schemaObject(propertiesValue, `${location}.properties`);
+    const properties = propertiesValue === undefined ? {} : schemaObject(propertiesValue, `${location}.properties`);
     const requiredValue = schema.required;
     if (
       requiredValue !== undefined &&
@@ -489,7 +473,7 @@ class SchemaCompiler {
     const propertyTypes: string[] = [];
     let hasOptional = false;
     const members = Object.keys(properties)
-      .sort()
+      .toSorted()
       .map((name) => {
         const property = properties[name];
         if (typeof property !== "boolean" && !isObject(property)) {
@@ -503,8 +487,7 @@ class SchemaCompiler {
         propertyTypes.push(propertyType);
         return `  ${JSON.stringify(name)}${optional ? "?" : ""}: ${indentType(propertyType, 2)};`;
       });
-    const objectType =
-      members.length === 0 ? "Record<string, never>" : `{\n${members.join("\n")}\n}`;
+    const objectType = members.length === 0 ? "Record<string, never>" : `{\n${members.join("\n")}\n}`;
 
     const additional = schema.additionalProperties;
     if (additional === undefined || additional === false) {
@@ -532,9 +515,7 @@ class SchemaCompiler {
   array(schema: JsonObject, location: string): string {
     if (schema.prefixItems !== undefined) {
       const prefixItems = schemaArray(schema.prefixItems, `${location}.prefixItems`);
-      const elements = prefixItems.map((item, index) =>
-        this.compile(item, `${location}.prefixItems[${index}]`),
-      );
+      const elements = prefixItems.map((item, index) => this.compile(item, `${location}.prefixItems[${index}]`));
       const rest = schema.items;
       const fixedLength = schema.maxItems === prefixItems.length;
       if (!fixedLength && rest !== false) {
@@ -546,7 +527,7 @@ class SchemaCompiler {
       }
       return `readonly [${elements.join(", ")}]`;
     }
-    const items = schema.items;
+    const { items } = schema;
     if (Array.isArray(items)) {
       const elements = schemaArray(items, `${location}.items`).map((item, index) =>
         this.compile(item, `${location}.items[${index}]`),
@@ -557,18 +538,13 @@ class SchemaCompiler {
         const restType =
           additional === undefined || additional === true
             ? "unknown"
-            : this.compile(
-                schemaObject(additional, `${location}.additionalItems`),
-                `${location}.additionalItems`,
-              );
+            : this.compile(schemaObject(additional, `${location}.additionalItems`), `${location}.additionalItems`);
         elements.push(`...${arrayElement(restType)}[]`);
       }
       return `readonly [${elements.join(", ")}]`;
     }
     if (schema.additionalItems !== undefined) {
-      throw new Error(
-        `${location} uses additionalItems without a tuple-form items schema`,
-      );
+      throw new Error(`${location} uses additionalItems without a tuple-form items schema`);
     }
     if (items === undefined || items === true) {
       return "readonly unknown[]";
@@ -576,14 +552,12 @@ class SchemaCompiler {
     if (items === false) {
       return "readonly never[]";
     }
-    return `readonly ${arrayElement(
-      this.compile(schemaObject(items, `${location}.items`), `${location}.items`),
-    )}[]`;
+    return `readonly ${arrayElement(this.compile(schemaObject(items, `${location}.items`), `${location}.items`))}[]`;
   }
 
   reference(value: unknown, location: string): string {
     if (typeof value !== "string") {
-      throw new Error(`${location}.$ref must be a string`);
+      throw new TypeError(`${location}.$ref must be a string`);
     }
     if (value === "#") {
       return this.#rootName;
@@ -605,11 +579,7 @@ class SchemaCompiler {
   }
 }
 
-export function compileSchema(
-  schema: unknown,
-  rootName: string,
-  allocator: IdentifierAllocator,
-): CompiledSchema {
+export function compileSchema(schema: unknown, rootName: string, allocator: IdentifierAllocator): CompiledSchema {
   const root = schemaObject(schema, rootName);
   const compiler = new SchemaCompiler(rootName, root, allocator);
   return {

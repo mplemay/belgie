@@ -1,16 +1,8 @@
 import assert from "node:assert/strict";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-
-import { afterEach, describe, test, vi } from "vitest";
 
 import { belgie } from "../src/vite.ts";
 
@@ -34,31 +26,31 @@ function writeWidget(root: string, name: string, source: string): string {
 
 function configHook(plugin: ReturnType<typeof belgie>) {
   const hook = plugin.config;
-  assert(hook && typeof hook === "object" && "handler" in hook);
+  assert.ok(hook && typeof hook === "object" && "handler" in hook);
   return hook.handler;
 }
 
 function outputOptionsHook(plugin: ReturnType<typeof belgie>) {
   const hook = plugin.outputOptions;
-  assert(hook && typeof hook === "object" && "handler" in hook);
+  assert.ok(hook && typeof hook === "object" && "handler" in hook);
   return hook.handler;
 }
 
 function generateBundleHook(plugin: ReturnType<typeof belgie>) {
   const hook = plugin.generateBundle;
-  assert(hook && typeof hook === "object" && "handler" in hook);
+  assert.ok(hook && typeof hook === "object" && "handler" in hook);
   return hook.handler;
 }
 
 function chunk(overrides: Record<string, unknown> = {}) {
   return {
-    type: "chunk",
     code: "console.log('widget')",
     dynamicImports: [],
     facadeModuleId: null,
     fileName: "entry.js",
     imports: [],
     isEntry: true,
+    type: "chunk",
     ...overrides,
   };
 }
@@ -68,27 +60,23 @@ afterEach(() => {
   delete process.env[INTERNAL_WIDGET_PATH_ENV];
   vi.restoreAllMocks();
   for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { force: true, recursive: true });
   }
 });
 
 describe("Vite configuration and virtual modules", () => {
-  test("discovers widgets for development and keeps custom build input", () => {
+  it("discovers widgets for development and keeps custom build input", () => {
     const root = temporaryProject();
     const filePath = writeWidget(root, "weather", "export default function Weather() { return null }");
     writeWidget(root, "invalid", "export const Invalid = true");
     const plugin = belgie();
     const result = configHook(plugin)(
-      { root, build: { rolldownOptions: { input: "custom.ts" } } },
+      { build: { rolldownOptions: { input: "custom.ts" } }, root },
       { command: "serve", mode: "test" },
     );
     assert.deepEqual(result?.resolve, { dedupe: ["react", "react-dom"] });
     assert.equal(result?.build?.rolldownOptions?.input, "custom.ts");
-    assert.deepEqual(result?.optimizeDeps?.include, [
-      "react",
-      "react-dom/client",
-      "react/jsx-runtime",
-    ]);
+    assert.deepEqual(result?.optimizeDeps?.include, ["react", "react-dom/client", "react/jsx-runtime"]);
     assert.equal(plugin.resolveId?.("belgie:widget-build-orchestrator"), "\0belgie:widget-build-orchestrator");
     assert.equal(plugin.resolveId?.("/_belgie/widget/missing"), null);
     assert.equal(plugin.resolveId?.("ordinary"), null);
@@ -99,39 +87,30 @@ describe("Vite configuration and virtual modules", () => {
     assert.equal(plugin.load?.("ordinary"), null);
   });
 
-  test("rejects invalid widgets for production builds", () => {
+  it("rejects invalid widgets for production builds", () => {
     const root = temporaryProject();
     writeWidget(root, "invalid", "export const Invalid = true");
     const plugin = belgie({ srcDir: join(root, "src", "widgets") });
-    assert.throws(
-      () => configHook(plugin)({ root }, { command: "build", mode: "test" }),
-      /missing a default export/u,
-    );
+    assert.throws(() => configHook(plugin)({ root }, { command: "build", mode: "test" }), /missing a default export/u);
   });
 
-  test("configures JavaScript server output in module mode", () => {
+  it("configures JavaScript server output in module mode", () => {
     process.env[INTERNAL_PACKAGE_TYPE_ENV] = "module";
     const plugin = belgie();
-    const output = outputOptionsHook(plugin).call(
-      { environment: { config: { consumer: "server" } } } as never,
-      {
-        chunkFileNames: "chunks/[name]-[hash].mjs",
-        entryFileNames: "server/[name].mjs",
-      },
-    );
+    const output = outputOptionsHook(plugin).call({ environment: { config: { consumer: "server" } } } as never, {
+      chunkFileNames: "chunks/[name]-[hash].mjs",
+      entryFileNames: "server/[name].mjs",
+    });
     assert.ok(output);
     assert.equal(output.entryFileNames, "server/[name].js");
     assert.equal(output.chunkFileNames, "chunks/[name]-[hash].js");
     assert.equal(
-      outputOptionsHook(plugin).call(
-        { environment: { config: { consumer: "client" } } } as never,
-        {},
-      ),
+      outputOptionsHook(plugin).call({ environment: { config: { consumer: "client" } } } as never, {}),
       undefined,
     );
   });
 
-  test("configures an isolated widget build", () => {
+  it("configures an isolated widget build", () => {
     const root = temporaryProject();
     const filePath = writeWidget(root, "a name", "export default function Widget() { return null }");
     process.env[INTERNAL_WIDGET_PATH_ENV] = filePath;
@@ -145,21 +124,18 @@ describe("Vite configuration and virtual modules", () => {
     assert.equal(result?.environments?.client?.build?.rolldownOptions?.input, "/_belgie/widget/a%20name");
   });
 
-  test("rejects an unknown isolated widget path", () => {
+  it("rejects an unknown isolated widget path", () => {
     const root = temporaryProject();
     writeWidget(root, "known", "export default function Widget() { return null }");
     process.env[INTERNAL_WIDGET_PATH_ENV] = join(root, "missing.tsx");
     const plugin = belgie();
-    assert.throws(
-      () => configHook(plugin)({ root }, { command: "build", mode: "test" }),
-      /requested unknown entry/u,
-    );
+    assert.throws(() => configHook(plugin)({ root }, { command: "build", mode: "test" }), /requested unknown entry/u);
   });
 
-  test("resolves source directories from resolved configuration", () => {
+  it("resolves source directories from resolved configuration", () => {
     const root = temporaryProject();
     const plugin = belgie({ srcDir: "custom/widgets" });
-    plugin.configResolved?.({ root } as never);
+    plugin.configResolved?.({ root });
     assert.equal(plugin.api && (plugin.api as { srcDir: string }).srcDir, "custom/widgets");
     const cwdPlugin = belgie({ srcDir: join(root, "missing") });
     configHook(cwdPlugin)({ root: "" }, { command: "serve", mode: "test" });
@@ -176,15 +152,15 @@ describe("production bundle rendering", () => {
     return plugin;
   }
 
-  test("inlines JavaScript and CSS and emits one widget document", () => {
+  it("inlines JavaScript and CSS and emits one widget document", () => {
     const plugin = isolatedPlugin();
     const bundle = {
+      "a.css": { fileName: "a.css", source: "a { color: red }", type: "asset" },
+      "b.css": { fileName: "b.css", source: new TextEncoder().encode("b { color: blue }"), type: "asset" },
       "entry.js": chunk({
         imports: ["entry.js"],
         viteMetadata: { importedCss: new Set(["b.css", "a.css"]) },
       }),
-      "a.css": { type: "asset", fileName: "a.css", source: "a { color: red }" },
-      "b.css": { type: "asset", fileName: "b.css", source: new TextEncoder().encode("b { color: blue }") },
     };
     const emitted: unknown[] = [];
     generateBundleHook(plugin).call(
@@ -201,34 +177,28 @@ describe("production bundle rendering", () => {
     assert.match(output.source, /b \{ color: blue \}/u);
   });
 
-  test("falls back to sorted CSS assets without Vite metadata", () => {
+  it("falls back to sorted CSS assets without Vite metadata", () => {
     const plugin = isolatedPlugin();
-    const emitted: Array<{ source: string }> = [];
+    const emitted: { source: string }[] = [];
     generateBundleHook(plugin).call(
       { emitFile: (file: { source: string }) => emitted.push(file) } as never,
       {} as never,
       {
+        "a.css": { fileName: "a.css", source: "a{}", type: "asset" },
         "entry.js": chunk(),
-        "z.css": { type: "asset", fileName: "z.css", source: "z{}" },
-        "a.css": { type: "asset", fileName: "a.css", source: "a{}" },
+        "z.css": { fileName: "z.css", source: "z{}", type: "asset" },
       } as never,
     );
-    assert.ok(emitted[0]!.source.indexOf("a{}") < emitted[0]!.source.indexOf("z{}"));
+    assert.ok(emitted[0].source.indexOf("a{}") < emitted[0].source.indexOf("z{}"));
   });
 
-  test.each([
+  it.each([
     [{}, /expected one entry chunk/u],
     [{ a: chunk({ fileName: "a.js" }), b: chunk({ fileName: "b.js" }) }, /received 2/u],
     [{ entry: chunk(), extra: chunk({ fileName: "extra.js", isEntry: false }) }, /emitted extra chunks/u],
     [{ entry: chunk({ imports: ["shared.js"] }) }, /retained imports/u],
-    [
-      { entry: chunk(), image: { type: "asset", fileName: "image.png", source: "image" } },
-      /emitted non-CSS assets/u,
-    ],
-    [
-      { entry: chunk({ viteMetadata: { importedCss: new Set(["missing.css"]) } }) },
-      /references missing CSS asset/u,
-    ],
+    [{ entry: chunk(), image: { fileName: "image.png", source: "image", type: "asset" } }, /emitted non-CSS assets/u],
+    [{ entry: chunk({ viteMetadata: { importedCss: new Set(["missing.css"]) } }) }, /references missing CSS asset/u],
   ])("rejects unsafe widget bundles %#", (bundle, pattern) => {
     const plugin = isolatedPlugin();
     assert.throws(
@@ -237,31 +207,31 @@ describe("production bundle rendering", () => {
     );
   });
 
-  test("rejects a lost isolated widget entry", () => {
+  it("rejects a lost isolated widget entry", () => {
     const root = temporaryProject();
     process.env[INTERNAL_WIDGET_PATH_ENV] = join(root, "widget.tsx");
     const plugin = belgie();
     assert.throws(
-      () => generateBundleHook(plugin).call({ emitFile() {} } as never, {} as never, {} as never),
+      () => generateBundleHook(plugin).call({ emitFile() {} } as never, {} as never, {}),
       /lost its widget entry/u,
     );
   });
 
-  test("removes only its generated orchestration chunk", () => {
+  it("removes only its generated orchestration chunk", () => {
     const root = temporaryProject();
     writeWidget(root, "weather", "export default function Widget() { return null }");
     const plugin = belgie();
     configHook(plugin)({ root }, { command: "build", mode: "test" });
     const bundle = {
-      orchestration: chunk({ facadeModuleId: "\0belgie:widget-build-orchestrator" }),
       application: chunk({ facadeModuleId: "/app.ts" }),
+      orchestration: chunk({ facadeModuleId: "\0belgie:widget-build-orchestrator" }),
     };
     generateBundleHook(plugin).call({} as never, {} as never, bundle as never);
     assert.deepEqual(Object.keys(bundle), ["application"]);
 
     const custom = belgie();
     configHook(custom)(
-      { root, build: { rolldownOptions: { input: "custom.ts" } } },
+      { build: { rolldownOptions: { input: "custom.ts" } }, root },
       { command: "build", mode: "test" },
     );
     const customBundle = {
@@ -273,7 +243,10 @@ describe("production bundle rendering", () => {
 });
 
 describe("development middleware", () => {
-  function mockServer(root: string, options: { base?: string; refresh?: boolean; transform?: (html: string) => Promise<string> } = {}) {
+  function mockServer(
+    root: string,
+    options: { base?: string; refresh?: boolean; transform?: (html: string) => Promise<string> } = {},
+  ) {
     const watcherHandlers = new Map<string, () => void>();
     const warnings: string[] = [];
     const information: string[] = [];
@@ -281,18 +254,14 @@ describe("development middleware", () => {
     let middleware: (request: any, response: any, next: (error?: unknown) => void) => Promise<void>;
     const server = {
       config: {
-        root,
         base: options.base ?? "/base",
-        plugins: options.refresh ? [{ name: "vite:react-refresh" }] : [],
         logger: {
-          warn: (message: string) => warnings.push(message),
-          info: (message: string) => information.push(message),
           error: (message: string) => errors.push(message),
+          info: (message: string) => information.push(message),
+          warn: (message: string) => warnings.push(message),
         },
-      },
-      watcher: {
-        add: vi.fn(),
-        on: (event: string, handler: () => void) => watcherHandlers.set(event, handler),
+        plugins: options.refresh ? [{ name: "vite:react-refresh" }] : [],
+        root,
       },
       middlewares: {
         use: (handler: typeof middleware) => {
@@ -302,33 +271,45 @@ describe("development middleware", () => {
       transformIndexHtml: vi.fn(async (_path: string, html: string) =>
         options.transform ? options.transform(html) : html,
       ),
+      watcher: {
+        add: vi.fn(),
+        on: (event: string, handler: () => void) => watcherHandlers.set(event, handler),
+      },
     };
-    return { server, watcherHandlers, warnings, information, errors, middleware: () => middleware! };
+    return { errors, information, middleware: () => middleware!, server, warnings, watcherHandlers };
   }
 
   function response() {
     return {
-      statusCode: 0,
-      headers: new Map<string, string>(),
       body: "",
-      setHeader(name: string, value: string) { this.headers.set(name, value); },
-      end(value = "") { this.body = value; },
+      end(value = "") {
+        this.body = value;
+      },
+      headers: new Map<string, string>(),
+      setHeader(name: string, value: string) {
+        this.headers.set(name, value);
+      },
+      statusCode: 0,
     };
   }
 
-  test("serves widgets, delegates other paths, and returns unknown-widget 404s", async () => {
+  it("serves widgets, delegates other paths, and returns unknown-widget 404s", async () => {
     const root = temporaryProject();
     writeWidget(root, "weather", "export default function Widget() { return null }");
     const mock = mockServer(root, { refresh: true });
     const plugin = belgie();
-    plugin.configureServer?.(mock.server as never);
+    plugin.configureServer?.(mock.server);
     const middleware = mock.middleware();
 
     let delegated = false;
-    await middleware({ url: "/ordinary" }, response(), () => { delegated = true; });
+    await middleware({ url: "/ordinary" }, response(), () => {
+      delegated = true;
+    });
     assert.equal(delegated, true);
     delegated = false;
-    await middleware({}, response(), () => { delegated = true; });
+    await middleware({}, response(), () => {
+      delegated = true;
+    });
     assert.equal(delegated, true);
 
     const missing = response();
@@ -344,12 +325,12 @@ describe("development middleware", () => {
     assert.match(valid.body, /\/_belgie\/widget\/weather/u);
   });
 
-  test("reports invalid widgets and later resolution", () => {
+  it("reports invalid widgets and later resolution", () => {
     const root = temporaryProject();
     const filePath = writeWidget(root, "weather", "export const Weather = true");
     const mock = mockServer(root);
     const plugin = belgie();
-    plugin.configureServer?.(mock.server as never);
+    plugin.configureServer?.(mock.server);
     assert.equal(mock.warnings.length, 1);
     mock.watcherHandlers.get("change")?.();
     assert.equal(mock.warnings.length, 1);
@@ -360,34 +341,40 @@ describe("development middleware", () => {
     assert.equal(mock.watcherHandlers.has("unlink"), true);
   });
 
-  test("does not duplicate refresh preambles and forwards transform errors", async () => {
+  it("does not duplicate refresh preambles and forwards transform errors", async () => {
     const root = temporaryProject();
     writeWidget(root, "weather", "export default function Widget() { return null }");
     const existing = mockServer(root, {
       refresh: true,
-      transform: async (html) => html.replace("<head>", "<head><meta name=\"@react-refresh\">")
+      transform: async (html) => html.replace("<head>", '<head><meta name="@react-refresh">'),
     });
-    belgie().configureServer?.(existing.server as never);
+    belgie().configureServer?.(existing.server);
     const served = response();
     await existing.middleware()({ url: "/widgets/weather/index.html" }, served, () => {});
     assert.equal(served.body.match(/@react-refresh/gu)?.length, 1);
 
-    const failed = mockServer(root, { transform: async () => { throw new Error("transform failed"); } });
-    belgie().configureServer?.(failed.server as never);
+    const failed = mockServer(root, {
+      transform: async () => {
+        throw new Error("transform failed");
+      },
+    });
+    belgie().configureServer?.(failed.server);
     let forwarded: unknown;
-    await failed.middleware()({ url: "/widgets/weather/index.html" }, response(), (error) => { forwarded = error; });
+    await failed.middleware()({ url: "/widgets/weather/index.html" }, response(), (error) => {
+      forwarded = error;
+    });
     assert.match((forwarded as Error).message, /transform failed/u);
 
     const configured = belgie();
     configHook(configured)({ root }, { command: "serve", mode: "test" });
     const slashBase = mockServer(root, { base: "/" });
-    configured.configureServer?.(slashBase.server as never);
+    configured.configureServer?.(slashBase.server);
     const slashResponse = response();
     await slashBase.middleware()({ url: "/widgets/weather/index.html" }, slashResponse, () => {});
     assert.equal(slashResponse.statusCode, 200);
   });
 
-  test("warns only invalid widget entry transforms", () => {
+  it("warns only invalid widget entry transforms", () => {
     const root = temporaryProject();
     const filePath = writeWidget(root, "weather", "export default function Widget() { return null }");
     const plugin = belgie();
@@ -402,16 +389,16 @@ describe("development middleware", () => {
 });
 
 describe("isolated production builds", () => {
-  test("requires a Vite config file", async () => {
+  it("requires a Vite config file", async () => {
     const root = temporaryProject();
     writeWidget(root, "weather", "export default function Widget() { return null }");
     const plugin = belgie();
     configHook(plugin)({ root }, { command: "build", mode: "test" });
-    plugin.configResolved?.({ root, configFile: false } as never);
+    plugin.configResolved?.({ configFile: false, root });
     await assert.rejects(() => plugin.closeBundle?.(), /require a Vite config file/u);
   });
 
-  test("builds every widget as self-contained HTML and restores the environment", async () => {
+  it("builds every widget as self-contained HTML and restores the environment", async () => {
     const root = temporaryProject();
     writeWidget(
       root,
@@ -433,11 +420,11 @@ describe("isolated production builds", () => {
     const plugin = belgie();
     configHook(plugin)({ root }, { command: "build", mode: "production" });
     plugin.configResolved?.({
-      root,
-      mode: "production",
       configFile,
       logLevel: "silent",
-    } as never);
+      mode: "production",
+      root,
+    });
     await plugin.closeBundle?.();
     rmSync(configFile);
     await plugin.closeBundle?.();
@@ -450,20 +437,20 @@ describe("isolated production builds", () => {
     assert.match(clock, /Clock/u);
   });
 
-  test("restores an existing environment value when a nested build fails", async () => {
+  it("restores an existing environment value when a nested build fails", async () => {
     const root = temporaryProject();
     writeWidget(root, "weather", "export default function Widget() { return null }");
     const configFile = join(root, "vite.config.ts");
     writeFileSync(configFile, 'throw new Error("nested config failed");\n');
     const plugin = belgie();
     configHook(plugin)({ root }, { command: "build", mode: "production" });
-    plugin.configResolved?.({ root, mode: "production", configFile } as never);
+    plugin.configResolved?.({ configFile, mode: "production", root });
     process.env[INTERNAL_WIDGET_PATH_ENV] = "original";
     await assert.rejects(() => plugin.closeBundle?.(), /nested config failed/u);
     assert.equal(process.env[INTERNAL_WIDGET_PATH_ENV], "original");
   });
 
-  test("skips non-build, unresolved, empty, and isolated close hooks", async () => {
+  it("skips non-build, unresolved, empty, and isolated close hooks", async () => {
     const root = temporaryProject();
     const serve = belgie();
     configHook(serve)({ root }, { command: "serve", mode: "test" });
@@ -477,14 +464,14 @@ describe("isolated production builds", () => {
     const emptyRoot = temporaryProject();
     const empty = belgie();
     configHook(empty)({ root: emptyRoot }, { command: "build", mode: "test" });
-    empty.configResolved?.({ root: emptyRoot, configFile: "config.ts" } as never);
+    empty.configResolved?.({ configFile: "config.ts", root: emptyRoot });
     await empty.closeBundle?.();
 
     const filePath = join(root, "src/widgets/weather/widget.tsx");
     process.env[INTERNAL_WIDGET_PATH_ENV] = filePath;
     const isolated = belgie();
     configHook(isolated)({ root }, { command: "build", mode: "test" });
-    isolated.configResolved?.({ root, configFile: "config.ts" } as never);
+    isolated.configResolved?.({ configFile: "config.ts", root });
     await isolated.closeBundle?.();
   });
 });

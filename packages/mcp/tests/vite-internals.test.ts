@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 
-import { afterEach, test, vi } from "vitest";
-
 afterEach(() => {
   vi.doUnmock("../src/scan-widgets.js");
   vi.resetModules();
@@ -9,31 +7,31 @@ afterEach(() => {
 
 test("reports non-Error widget rescan failures", async () => {
   vi.resetModules();
-  vi.doMock("../src/scan-widgets.js", () => ({
+  vi.doMock(import("../src/scan-widgets.js"), () => ({
+    assertNoInvalidWidgets: vi.fn(),
+    assertUniqueWidgetNames: vi.fn(),
     scanWidgetsSync: () => {
       throw "raw rescan failure";
     },
-    assertNoInvalidWidgets: vi.fn(),
-    assertUniqueWidgetNames: vi.fn(),
   }));
   const { belgie } = await import("../src/vite.ts");
   const errors: string[] = [];
   const server = {
     config: {
-      root: "",
       base: "/",
-      plugins: [],
       logger: {
-        warn() {},
-        info() {},
         error(message: string) {
           errors.push(message);
         },
+        info() {},
+        warn() {},
       },
+      plugins: [],
+      root: "",
     },
-    watcher: { add() {}, on() {} },
     middlewares: { use() {} },
+    watcher: { add() {}, on() {} },
   };
-  belgie().configureServer?.(server as never);
+  belgie().configureServer?.(server);
   assert.deepEqual(errors, ["[belgie] widget rescan failed: raw rescan failure"]);
 });

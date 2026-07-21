@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 
-import { afterEach, test, vi } from "vitest";
-
 type Listener = (...arguments_: any[]) => void;
 
 class FakeServer {
@@ -18,16 +16,18 @@ class FakeServer {
   }
 
   off(name: string, listener: Listener) {
-    if (this.listeners.get(name) === listener) this.listeners.delete(name);
+    if (this.listeners.get(name) === listener) {
+      this.listeners.delete(name);
+    }
     return this;
   }
 
   listen() {
-    if (this.listenError !== undefined) {
-      this.listeners.get("error")?.(this.listenError);
-    } else {
+    if (this.listenError === undefined) {
       this.listening = true;
       this.listeners.get("listening")?.();
+    } else {
+      this.listeners.get("error")?.(this.listenError);
     }
     return this;
   }
@@ -45,7 +45,7 @@ class FakeServer {
 
 async function oauthWithServer(server: FakeServer) {
   vi.resetModules();
-  vi.doMock("node:http", () => ({
+  vi.doMock(import("node:http"), () => ({
     createServer: (handler: Listener) => {
       server.requestHandler = handler;
       return server;
@@ -88,14 +88,14 @@ test("handles requests without a URL", async () => {
   const { startOAuthCallbackServer } = await oauthWithServer(server);
   await startOAuthCallbackServer("state");
   const response = {
-    status: 0,
     body: "",
+    end(body = "") {
+      this.body = body;
+    },
+    status: 0,
     writeHead(status: number) {
       this.status = status;
       return this;
-    },
-    end(body = "") {
-      this.body = body;
     },
   };
   server.requestHandler?.({}, response);
