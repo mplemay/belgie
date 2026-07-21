@@ -102,6 +102,7 @@ const runChild = (id) => new Promise((resolve, reject) => {
       reject(new Error(`Unexpected worker response: ${message}`));
       return;
     }
+    child.send("ack");
     resolve();
   });
   child.once("exit", (code) => {
@@ -118,7 +119,12 @@ await writeFile("fork-probe.txt", "ok\\n");
     (package / "child.js").write_text(
         """
 const id = Number(process.argv[2]);
-process.send?.(id, () => process.disconnect());
+const keepAlive = setInterval(() => {}, 1 << 30);
+process.once("message", () => {
+  clearInterval(keepAlive);
+  process.disconnect();
+});
+process.send?.(id);
 """,
         encoding="utf-8",
     )
