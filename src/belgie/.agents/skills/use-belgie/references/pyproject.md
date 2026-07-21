@@ -2,12 +2,13 @@
 
 Use this file when a project declares Belgie-managed JavaScript dependencies in `pyproject.toml`.
 
-## Tables
+## Settings
 
 Belgie reads an optional table under `[tool.belgie]`:
 
-| Table | Purpose |
+| Setting | Purpose |
 | --- | --- |
+| `module = true` | Gives `belgie run` project-level ESM semantics without creating `package.json` |
 | `[tool.belgie.dependencies]` | Maps JS import aliases to npm, JSR, or `file:` specifiers |
 
 This table is separate from Python `[project.dependencies]`. Do not put JavaScript packages in Python
@@ -15,6 +16,19 @@ This table is separate from Python `[project.dependencies]`. Do not put JavaScri
 
 MCP widget source roots are configured in `vite.config.ts` via `belgie({ srcDir })` (default `src/widgets`), not in
 `pyproject.toml`.
+
+## Module mode
+
+Enable ESM module mode for every `belgie run` command in the project:
+
+```toml
+[tool.belgie]
+module = true
+```
+
+For a Vite project using `belgie()`, this makes server builds emit ESM `.js` entries and chunks even when the project
+does not have a `package.json`. Override the project default for one command with `belgie run --module ...` or
+`belgie run --no-module ...`.
 
 ## `[tool.belgie.dependencies]`
 

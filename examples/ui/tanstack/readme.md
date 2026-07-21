@@ -18,7 +18,7 @@ uv run belgie install
 Start Vite first so the Python extension can load the development widget:
 
 ```bash
-npm run dev
+uv run belgie run vite
 ```
 
 In a second terminal, start FastAPI:
@@ -64,8 +64,8 @@ const { data, error, isLoading, isFetching, execute } = useToolResult(getTime)
 Type-check and build the TanStack SPA plus every discovered MCP widget:
 
 ```bash
-npm run typecheck
-npm run build
+uv run belgie run tsc --noEmit
+uv run belgie run vite build
 ```
 
 The build writes the SPA to `dist/client/index.html` and the self-contained widget to

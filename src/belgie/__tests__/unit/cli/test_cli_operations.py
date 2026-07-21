@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
@@ -9,7 +10,7 @@ import pytest
 import rtoml
 
 from belgie.cli import _operations
-from belgie.cli._operations import add_dependency, update_project
+from belgie.cli._operations import add_dependency, run_command, update_project
 from belgie.cli._project import ProjectError, load_project
 
 
@@ -109,6 +110,65 @@ def test_add_dependency_writes_pyproject_and_commits_lockfile(tmp_path: Path) ->
     assert document["tool"]["belgie"]["dependencies"] == {"std_path": "jsr:@std/path@^1"}
     assert result.dependencies == 1
     assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == "locked"
+
+
+@pytest.mark.parametrize(
+    ("override", "expected"),
+    [
+        pytest.param(None, True, id="project-default"),
+        pytest.param(False, False, id="command-override"),
+    ],
+)
+def test_run_command_applies_module_precedence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    override: bool | None,
+    expected: bool,
+) -> None:
+    document = {
+        "project": {"name": "demo"},
+        "tool": {
+            "belgie": {
+                "module": True,
+                "dependencies": {"vite": "npm:vite@8"},
+            },
+        },
+    }
+    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+    received: list[bool] = []
+
+    class FakeCommand:
+        def __init__(self, name: str, *, cwd: str, module: bool) -> None:
+            self.name = name
+            self.cwd = cwd
+            received.append(module)
+
+    class FakeRuntime:
+        def __init__(self, *, env: FakeEnvironment) -> None:
+            self.env = env
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> bool | None:
+            return None
+
+        def __call__(self, command: FakeCommand) -> Callable[..., None]:
+            assert command.name == "vite"
+            return lambda *_args: None
+
+    monkeypatch.setattr(_operations, "Command", FakeCommand)
+    monkeypatch.setattr(_operations, "Runtime", FakeRuntime)
+
+    run_command(load_project(tmp_path), ["vite", "build"], frozen=False, module=override)
+
+    assert received == [expected]
 
 
 def test_add_dependency_leaves_lockfile_unchanged_when_pyproject_write_fails(

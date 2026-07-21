@@ -132,10 +132,17 @@ def run(
         Path | None,
         typer.Option("--cwd", help="Working directory for the command"),
     ] = None,
+    module: Annotated[
+        bool | None,
+        typer.Option(
+            "--module/--no-module",
+            help="Override [tool.belgie].module for this command",
+        ),
+    ] = None,
     frozen: Annotated[bool, typer.Option("--frozen/--no-frozen", help="Require and use the existing deno.lock")] = True,  # noqa: FBT002
 ) -> None:
     discovered = discover_project(project=project)
-    run_command(discovered, ctx.args, cwd=cwd, frozen=frozen)
+    run_command(discovered, ctx.args, cwd=cwd, frozen=frozen, module=module)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

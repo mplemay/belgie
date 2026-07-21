@@ -30,6 +30,8 @@ mcp-types = false
 [tool.uv.sources.belgie]
 path = '../../../'
 editable = true
+[tool.belgie]
+module = true
 [tool.belgie.dependencies]
 "@belgie/mcp" = 'file:../../../packages/mcp'
 "@modelcontextprotocol/ext-apps" = 'npm:@modelcontextprotocol/ext-apps@latest'
@@ -37,6 +39,7 @@ editable = true
 "@tanstack/react-router" = 'npm:@tanstack/react-router@latest'
 "@tanstack/react-router/ssr/server" = 'npm:@tanstack/react-router@latest/ssr/server'
 "@tanstack/react-start" = 'npm:@tanstack/react-start@latest'
+"@tanstack/react-start/plugin/vite" = 'npm:@tanstack/react-start@latest/plugin/vite'
 "@types/node" = 'npm:@types/node@^25'
 "@types/react" = 'npm:@types/react@^19'
 "@types/react-dom" = 'npm:@types/react-dom@^19'

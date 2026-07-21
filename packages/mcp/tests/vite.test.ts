@@ -14,6 +14,7 @@ import { afterEach, describe, test, vi } from "vitest";
 
 import { belgie } from "../src/vite.ts";
 
+const INTERNAL_PACKAGE_TYPE_ENV = "BELGIE_INTERNAL_PACKAGE_TYPE";
 const INTERNAL_WIDGET_PATH_ENV = "BELGIE_INTERNAL_WIDGET_PATH";
 const temporaryDirectories: string[] = [];
 
@@ -33,6 +34,12 @@ function writeWidget(root: string, name: string, source: string): string {
 
 function configHook(plugin: ReturnType<typeof belgie>) {
   const hook = plugin.config;
+  assert(hook && typeof hook === "object" && "handler" in hook);
+  return hook.handler;
+}
+
+function outputOptionsHook(plugin: ReturnType<typeof belgie>) {
+  const hook = plugin.outputOptions;
   assert(hook && typeof hook === "object" && "handler" in hook);
   return hook.handler;
 }
@@ -57,6 +64,7 @@ function chunk(overrides: Record<string, unknown> = {}) {
 }
 
 afterEach(() => {
+  delete process.env[INTERNAL_PACKAGE_TYPE_ENV];
   delete process.env[INTERNAL_WIDGET_PATH_ENV];
   vi.restoreAllMocks();
   for (const directory of temporaryDirectories.splice(0)) {
@@ -98,6 +106,28 @@ describe("Vite configuration and virtual modules", () => {
     assert.throws(
       () => configHook(plugin)({ root }, { command: "build", mode: "test" }),
       /missing a default export/u,
+    );
+  });
+
+  test("configures JavaScript server output in module mode", () => {
+    process.env[INTERNAL_PACKAGE_TYPE_ENV] = "module";
+    const plugin = belgie();
+    const output = outputOptionsHook(plugin).call(
+      { environment: { config: { consumer: "server" } } } as never,
+      {
+        chunkFileNames: "chunks/[name]-[hash].mjs",
+        entryFileNames: "server/[name].mjs",
+      },
+    );
+    assert.ok(output);
+    assert.equal(output.entryFileNames, "server/[name].js");
+    assert.equal(output.chunkFileNames, "chunks/[name]-[hash].js");
+    assert.equal(
+      outputOptionsHook(plugin).call(
+        { environment: { config: { consumer: "client" } } } as never,
+        {},
+      ),
+      undefined,
     );
   });
 

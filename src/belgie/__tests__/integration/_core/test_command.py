@@ -80,6 +80,35 @@ def test_environment_runtime_resolves_local_file_package_by_bin_name(
     assert (tmp_path / "local-command.txt").read_text(encoding="utf-8") == "ok\n"
 
 
+def test_command_scopes_module_package_type_signal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    internal_key = "BELGIE_INTERNAL_PACKAGE_TYPE"
+    monkeypatch.setenv(internal_key, "commonjs")
+    write_local_package_with_bin(
+        tmp_path,
+        bin_name="module-probe",
+        bin_script=(
+            'import { writeFileSync } from "node:fs"; '
+            f'writeFileSync("module-mode.txt", process.env.{internal_key} ?? "missing");\n'
+        ),
+    )
+
+    with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        env.install()
+        with Runtime(env=env) as runtime:
+            runtime(Command("module-probe", module=True))()
+            assert (tmp_path / "module-mode.txt").read_text(encoding="utf-8") == "module"
+            assert environ[internal_key] == "commonjs"
+
+            runtime(Command("module-probe"))()
+            assert (tmp_path / "module-mode.txt").read_text(encoding="utf-8") == "missing"
+
+    assert environ[internal_key] == "commonjs"
+
+
 @pytest.mark.parametrize(
     ("command_spec", "clear_path"),
     [

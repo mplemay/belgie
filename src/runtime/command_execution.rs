@@ -28,6 +28,9 @@ use crate::utils::cancel_guard::Cancel;
 
 type CommandResult<T = ()> = Result<T, BindingError>;
 
+const INTERNAL_PACKAGE_TYPE_ENV_VAR: &str = "BELGIE_INTERNAL_PACKAGE_TYPE";
+const MODULE_PACKAGE_TYPE: &str = "module";
+
 #[derive(Clone, Debug)]
 pub(crate) struct CommandExecutionHandle {
     inner: Arc<CommandExecutionHandleInner>,
@@ -157,7 +160,7 @@ async fn run_command(
 
     let command_cwd = resolve_command_cwd(&options.runtime_root, options.command.cwd())?;
     let _cwd_guard = CurrentDirGuard::change_to(&command_cwd)?;
-    let _env_guard = EnvironmentGuard::apply(options.command.env());
+    let _env_guard = EnvironmentGuard::apply(options.command.env(), options.command.module());
 
     let context = options
         .package_environment
@@ -577,8 +580,8 @@ struct EnvironmentGuard {
 }
 
 impl EnvironmentGuard {
-    fn apply(values: &BTreeMap<String, String>) -> Self {
-        let previous = values
+    fn apply(values: &BTreeMap<String, String>, module: bool) -> Self {
+        let mut previous = values
             .iter()
             .map(|(key, value)| {
                 let key = OsString::from(key);
@@ -587,7 +590,18 @@ impl EnvironmentGuard {
                 unsafe { std::env::set_var(&key, value) };
                 (key, previous)
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let package_type_key = OsString::from(INTERNAL_PACKAGE_TYPE_ENV_VAR);
+        let package_type_previous = std::env::var_os(&package_type_key);
+        // SAFETY: command execution is serialized by PROCESS_CONTEXT_LOCK.
+        unsafe {
+            if module {
+                std::env::set_var(&package_type_key, MODULE_PACKAGE_TYPE);
+            } else {
+                std::env::remove_var(&package_type_key);
+            }
+        }
+        previous.push((package_type_key, package_type_previous));
         Self { previous }
     }
 }
