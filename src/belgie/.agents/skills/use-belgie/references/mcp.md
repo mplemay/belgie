@@ -90,11 +90,8 @@ export default defineConfig({
 
 ## Development
 
-Start Vite before the Python MCP server and keep both processes running:
-
-```bash
-uv run belgie run vite
-```
+Start the Python MCP server. With `dev=True` and `build=True` (both defaults), Belgie starts Vite in the background when
+the first widget is registered:
 
 ```bash
 uv run main
@@ -119,18 +116,22 @@ def get_time() -> str:
 
 Relative widget paths resolve from `project`. The path must exist, remain inside the project, and end in the exact name
 `widget.tsx`. `dev=True` is the default; `dev_port` defaults to `5173` and selects the Vite development server on
-`127.0.0.1`. Registration fails with a start-Vite message when Vite is unreachable, or with an HTTP-status message when
-Vite is up but the widget route returns an error (for example an unknown widget name).
+`127.0.0.1`. If that address already has a server, Belgie reuses it; otherwise it starts and owns Vite until the Python
+process exits. Registration fails when Vite cannot start or become reachable, or with an HTTP-status message when Vite
+is up but the widget route returns an error (for example an unknown widget name).
 
 The development HTML receives an absolute `<base>` tag. Belgie adds the Vite HTTP and WebSocket origins to the widget
 CSP while preserving caller-provided domains.
 
+For a manually managed development server, use `BelgieExtension(project=".", build=False)` and start
+`uv run belgie run vite` separately.
+
 ## Production
 
-Build all discovered widgets with the normal Vite command:
+Use `dev=False`; Belgie runs one blocking Vite build per project and Python process before reading widget HTML:
 
-```bash
-uv run belgie run vite build
+```python
+belgie = BelgieExtension(project=".", dev=False)
 ```
 
 The plugin builds each widget as an isolated single entry and writes only:
@@ -142,12 +143,17 @@ dist/widgets/<name>/index.html
 JavaScript, CSS, dynamic imports, fonts, images, and other imported assets are inlined. Builds fail if a widget has no
 default export or if unsupported chunks or assets remain.
 
-Start production with filesystem mode disabled:
+To build during deployment instead, disable automatic Vite management:
 
 ```python
-belgie = BelgieExtension(project=".", dev=False)
+belgie = BelgieExtension(project=".", dev=False, build=False)
+```
 
+```bash
+uv run belgie run vite build
+```
 
+```python
 @belgie.tool(widget=Path("src/widgets/get-time/widget.tsx"), name="get-time")
 def get_time() -> str:
     return "now"
@@ -160,8 +166,10 @@ lifetime. It does not need an asset server. Restart the Python process after reb
 
 | Constructor | Behavior |
 | --- | --- |
-| `BelgieExtension(project=...)` | Fetch `Path` widgets from the default Vite development server |
-| `BelgieExtension(project=..., dev_port=...)` | Fetch `Path` widgets from Vite on `127.0.0.1` at a custom port |
-| `BelgieExtension(project=..., dev=False)` | Read and cache conventional production HTML from `dist/widgets` |
+| `BelgieExtension(project=...)` | Start or reuse the default Vite development server |
+| `BelgieExtension(project=..., dev_port=...)` | Start or reuse Vite on `127.0.0.1` at a custom port |
+| `BelgieExtension(project=..., build=False)` | Fetch development HTML without starting Vite |
+| `BelgieExtension(project=..., dev=False)` | Build once, then read and cache production HTML |
+| `BelgieExtension(project=..., dev=False, build=False)` | Read existing production HTML without running Vite |
 
 For dependency-table details, see [pyproject.md](pyproject.md).

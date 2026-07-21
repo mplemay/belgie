@@ -16,11 +16,7 @@ uv run belgie install
 
 ## Development
 
-Run Vite and the Python server in separate terminals:
-
-```bash
-uv run belgie run vite
-```
+Start the Python server. `BelgieExtension` starts Vite in the background when the widget is registered:
 
 ```bash
 uv run main
@@ -28,6 +24,9 @@ uv run main
 
 Vite serves the widget at `http://127.0.0.1:5173/widgets/get-time/index.html` with React refresh and HMR. The MCP
 server listens on port `3001`; `BelgieExtension` fetches the Vite page when the tool is registered.
+
+To manage Vite separately, pass `build=False` to `BelgieExtension` and run `uv run belgie run vite` in another
+terminal.
 
 ## Use MCP app helpers
 
@@ -276,13 +275,9 @@ Relative widget paths resolve from `project`. A path must exist, stay inside the
 
 ## Production
 
-Build every discovered widget before starting the MCP server:
+Configure the production process with `BelgieExtension(project=PROJECT_ROOT, dev=False)`. Belgie runs one Vite build
+per project and process, then reads and caches the self-contained `dist/widgets/get-time/index.html`. No static asset
+server is needed because imported JavaScript, CSS, fonts, images, and dynamic imports are inlined.
 
-```bash
-uv run belgie run vite build
-```
-
-Vite writes a self-contained `dist/widgets/get-time/index.html`. Configure the production process with
-`BelgieExtension(project=PROJECT_ROOT, dev=False)`; it reads that file once and caches the HTML in memory. No static
-asset server is needed because imported JavaScript, CSS, fonts, images, and dynamic imports are inlined. Restart the
-Python process after rebuilding so the extension loads the new HTML.
+To use an artifact built before the process starts, pass `build=False` and run `uv run belgie run vite build` during
+deployment.

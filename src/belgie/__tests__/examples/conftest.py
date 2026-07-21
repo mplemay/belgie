@@ -68,6 +68,7 @@ def langchain_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 @pytest.fixture
 def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     html = "<!doctype html><html><body>mcp</body></html>"
+    monkeypatch.setattr(_extension, "ensure_vite_dev_server", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         _extension,
         "load_development_widget",
@@ -79,6 +80,7 @@ def mcp_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 @pytest.fixture
 def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     html = "<!doctype html><html><body>shadcn</body></html>"
+    monkeypatch.setattr(_extension, "ensure_vite_dev_server", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         _extension,
         "load_development_widget",
@@ -90,6 +92,7 @@ def shadcn_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 @pytest.fixture
 def tanstack_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     html = "<!doctype html><html><body>tanstack</body></html>"
+    monkeypatch.setattr(_extension, "ensure_vite_dev_server", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         _extension,
         "load_development_widget",

@@ -68,8 +68,9 @@ vite = "npm:vite@^8"
 ```
 
 Declare `@belgie/mcp` as an npm dependency (or a `file:` path to a built local package), install the environment, add
-`belgie()` to `vite.config.ts`, and pass the `widget.tsx` `Path` to `BelgieExtension.tool`. Run Vite alongside Python in
-development. Run `belgie run vite build` and use `BelgieExtension(dev=False)` in production.
+`belgie()` to `vite.config.ts`, and pass the `widget.tsx` `Path` to `BelgieExtension.tool`. Belgie starts Vite for
+`dev=True` and runs one build for `dev=False`. Pass `build=False` when Vite or its production artifacts are managed
+separately.
 
 JavaScript packages for scripts belong in `Environment({...})` or `[tool.belgie.dependencies]`, not in Python
 `[project.dependencies]`.

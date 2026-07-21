@@ -54,17 +54,17 @@ resolver options, local `file:` package aliases, and npm package binaries.
 
 ## MCP Apps extension
 
-`BelgieExtension` registers conventional TSX widget paths. Vite owns the development page and production bundle; the
-Python extension validates paths and loads HTML:
+`BelgieExtension` registers conventional TSX widget paths. By default, it owns the Vite development lifecycle or runs
+one production build before validating paths and loading HTML:
 
 ```text
 src/widgets/<name>/widget.tsx + vite.config.ts
-  ├─ Vite dev → /widgets/<name>/index.html → BelgieExtension(dev=True)
-  └─ Vite build → dist/widgets/<name>/index.html → BelgieExtension(dev=False)
+  ├─ BelgieExtension(dev=True) → start/reuse Vite → /widgets/<name>/index.html
+  └─ BelgieExtension(dev=False) → Vite build once → dist/widgets/<name>/index.html
 ```
 
-Production widgets need no asset server because Vite emits self-contained HTML. See [mcp.md](mcp.md) and
-[pyproject.md](pyproject.md).
+Pass `build=False` when development Vite or production artifacts are managed outside the extension. Production widgets
+need no asset server because Vite emits self-contained HTML. See [mcp.md](mcp.md) and [pyproject.md](pyproject.md).
 
 ## Binding and calling
 

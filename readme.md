@@ -24,7 +24,7 @@ uv add "belgie[mcp,cli]"
 ## MCP Apps
 
 Skip the second package manager. Attach a React widget to a Python MCP tool.
-`BelgieExtension` serves the Vite page in development and caches the built HTML in production.
+`BelgieExtension` starts Vite in the background for development and runs a one-time production build.
 
 ```python
 from datetime import UTC, datetime
@@ -81,9 +81,10 @@ Declare JS deps under `[tool.belgie.dependencies]`, then:
 ```bash
 uv run belgie lock
 uv run belgie install
-uv run belgie run vite          # widget HMR
-# in another terminal: start your MCP server
+# start your MCP server; Belgie starts Vite with widget HMR
 ```
+
+Pass `build=False` to `BelgieExtension` when Vite is managed separately or production assets are already built.
 
 Runnable projects:
 
