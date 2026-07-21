@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from time import monotonic
@@ -15,7 +15,8 @@ from mcp.server.mcpserver.resources import TextResource
 
 from belgie import Command, Environment, Runtime
 from belgie.errors import BelgieRuntimeError
-from belgie.mcp import BelgieExtension
+from belgie.mcp import BelgieExtension, _vite as vite_module
+from belgie.mcp._vite import _reset_vite_state_for_tests
 
 pytestmark = pytest.mark.integration
 
@@ -29,6 +30,13 @@ REACT_VERSION: Final[str] = "^19"
 VITE_REACT_PLUGIN_VERSION: Final[str] = "^6"
 TAILWIND_VERSION: Final[str] = "4.3.0"
 MCP_PACKAGE_PATH: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "mcp"
+
+
+@pytest.fixture(autouse=True)
+def reset_vite_state() -> Iterator[None]:
+    _reset_vite_state_for_tests()
+    yield
+    _reset_vite_state_for_tests()
 
 
 def widget_dependencies() -> dict[str, str]:
@@ -193,6 +201,7 @@ async def test_vite_dev_serves_widget_route_before_python_registration(tmp_path:
         resource = extension.resources()[0].resource
         assert isinstance(resource, TextResource)
         assert f'<base href="{dev_url}/" />' in resource.text
+        assert vite_module.DEV_SERVERS == {}
         assert resource.meta == {
             "ui": {
                 "csp": {
@@ -202,6 +211,31 @@ async def test_vite_dev_serves_widget_route_before_python_registration(tmp_path:
                 },
             },
         }
+    assert not (project / "dist").exists()
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_vite_dev_auto_starts_when_registering_widget(tmp_path: Path, free_port: int) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    write_vite_config(project)
+    widget = write_hello_widget(project)
+    dev_url = f"http://127.0.0.1:{free_port}"
+
+    extension = BelgieExtension(project=project, dev_port=free_port)
+
+    @extension.tool(widget=widget, name="hello")
+    def hello() -> str:
+        return "ok"
+
+    resource = extension.resources()[0].resource
+    assert isinstance(resource, TextResource)
+    assert "/@vite/client" in resource.text
+    assert "@react-refresh" in resource.text
+    assert "/_belgie/widget/hello" in resource.text
+    assert f'<base href="{dev_url}/" />' in resource.text
+    assert len(vite_module.DEV_SERVERS) == 1
     assert not (project / "dist").exists()
 
 
@@ -256,12 +290,13 @@ def test_vite_build_emits_standalone_html_for_each_widget(tmp_path: Path) -> Non
         assert "<\\/script>" in html
         assert "<\\/style>" in html
         assert '<script type="module" src=' not in html
-        assert '<link rel="stylesheet"' not in html
+        head = html.partition("</head>")[0]
+        assert '<link rel="stylesheet"' not in head
 
     assert not (project / "dist" / "assets").exists()
     assert not (project / "dist" / "widgets" / "old").exists()
     assert not (project / "dist" / "widgets" / "child").exists()
-    extension = BelgieExtension(project=project, dev=False)
+    extension = BelgieExtension(project=project, dev=False, build=False)
 
     @extension.tool(widget=project / "src" / "widgets" / "hello" / "widget.tsx", name="hello")
     def hello() -> str:
@@ -270,6 +305,45 @@ def test_vite_build_emits_standalone_html_for_each_widget(tmp_path: Path) -> Non
     resource = extension.resources()[0].resource
     assert isinstance(resource, TextResource)
     assert resource.text == (project / "dist" / "widgets" / "hello" / "index.html").read_text(encoding="utf-8")
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_vite_build_runs_automatically_for_production_extension(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    write_vite_config(project)
+    widget = write_hello_widget(project)
+    extension = BelgieExtension(project=project, dev=False)
+
+    @extension.tool(widget=widget, name="hello")
+    def hello() -> str:
+        return "ok"
+
+    html_path = project / "dist" / "widgets" / "hello" / "index.html"
+    assert html_path.is_file()
+    resource = extension.resources()[0].resource
+    assert isinstance(resource, TextResource)
+    assert resource.text == html_path.read_text(encoding="utf-8")
+    assert project.resolve() in vite_module.BUILT_PROJECTS
+
+
+def test_build_false_preserves_manual_dev_and_production_workflows(tmp_path: Path, free_port: int) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    widget = write_widget(
+        project,
+        "hello",
+        "export default function Hello() { return <p>hello</p>; }\n",
+    )
+
+    development = BelgieExtension(project=project, dev_port=free_port, build=False)
+    with pytest.raises(RuntimeError, match="development server is not reachable"):
+        development.tool(widget=widget)
+
+    production = BelgieExtension(project=project, dev=False, build=False)
+    with pytest.raises(FileNotFoundError, match="belgie run vite build"):
+        production.tool(widget=widget)
 
 
 @SKIP_WIN32_VITE_NATIVE
@@ -284,6 +358,19 @@ def test_vite_build_rejects_missing_default_export(tmp_path: Path, capfd: pytest
         build_widgets(project)
 
     assert "missing a default export" in capfd.readouterr().err
+
+
+@SKIP_WIN32_VITE_NATIVE
+def test_automatic_vite_build_propagates_failures(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    install_widget_project(project)
+    write_vite_config(project)
+    widget = write_widget(project, "broken", "export function Broken() { return <p>broken</p>; }\n")
+    extension = BelgieExtension(project=project, dev=False)
+
+    with pytest.raises(BelgieRuntimeError, match=r"exit|status|failed"):
+        extension.tool(widget=widget)
 
 
 @SKIP_WIN32_VITE_NATIVE

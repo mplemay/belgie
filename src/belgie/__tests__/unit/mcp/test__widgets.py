@@ -104,7 +104,7 @@ def test_load_development_widget_reports_unavailable_vite(
 
     monkeypatch.setattr(widgets_module, "urlopen", unavailable)
 
-    with pytest.raises(RuntimeError, match="Start the Vite server"):
+    with pytest.raises(RuntimeError, match="development server is not reachable"):
         load_development_widget("http://127.0.0.1:5173", widget)
 
 

@@ -7,6 +7,7 @@ from mcp.server.apps import Apps, ResourceCsp, ResourcePermissions, Visibility
 from mcp_types import Icon, ToolAnnotations
 
 from belgie._pyproject import discover_pyproject_root
+from belgie.mcp._vite import build_vite_once, ensure_vite_dev_server
 from belgie.mcp._widgets import load_development_widget, normalize_dev_url, read_built_widget, resolve_widget_path
 
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
@@ -23,11 +24,16 @@ class BelgieExtension(Apps):
         project: str | Path | None = None,
         dev: bool = True,
         dev_port: int = DEFAULT_DEV_PORT,
+        build: bool = True,
     ) -> None:
         super().__init__()
         self._project_path = Path(project).resolve() if project is not None else None
         self._dev = dev
-        self._dev_url = normalize_dev_url(f"http://{DEFAULT_DEV_HOST}:{dev_port}")
+        self._dev_port = dev_port
+        self._build = build
+        self._dev_url = normalize_dev_url(
+            urlunparse(("http", f"{DEFAULT_DEV_HOST}:{dev_port}", "", "", "", "")),
+        )
 
     def tool(  # noqa: PLR0913  # ty: ignore[invalid-method-override]
         self,
@@ -85,11 +91,17 @@ class BelgieExtension(Apps):
             raise TypeError(msg)
         project_path = self._resolve_project_path()
         resolved_widget = resolve_widget_path(widget, project_path)
-        return (
-            load_development_widget(self._dev_url, resolved_widget)
-            if self._dev
-            else read_built_widget(project_path, resolved_widget)
-        )
+        if self._dev:
+            if self._build:
+                ensure_vite_dev_server(
+                    project_path,
+                    host=DEFAULT_DEV_HOST,
+                    port=self._dev_port,
+                )
+            return load_development_widget(self._dev_url, resolved_widget)
+        if self._build:
+            build_vite_once(project_path)
+        return read_built_widget(project_path, resolved_widget)
 
     def _resolve_project_path(self) -> Path:
         if self._project_path is None:

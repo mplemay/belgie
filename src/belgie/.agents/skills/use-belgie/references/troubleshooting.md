@@ -26,9 +26,8 @@ Classify the issue before editing:
    - Missing `deno.lock` (run `belgie lock` / `belgie install`).
    - Local `file:` `@belgie/mcp` without a prior `npm run build` in `packages/mcp` (exports point at `dist/` /
      `types/`).
-   - Vite development server not running before a `Path` widget is registered with `dev=True`.
-   - Missing `vite build` output under `dist/widgets/` before `BelgieExtension(dev=False)` (run `belgie run vite
-     build`).
+   - Automatic Vite startup or the one-time production build failed.
+   - `build=False` without a manually started development server or prebuilt `dist/widgets/` output.
    - Wrong `dev_port`; Vite must be reachable at `http://127.0.0.1:<dev_port>`.
    - String widget name passed instead of a `Path`.
    - Widget path is outside the project, does not exist, or is not named exactly `widget.tsx`.
@@ -124,13 +123,15 @@ asyncio.run(main())
 | `Commands require an active Environment with package dependencies` | `Command` without env/install | `Environment` + `install()` + `Runtime(env=)` | Inspect command setup |
 | JS error message (e.g. `boom`) | Thrown JavaScript exception | Fix JS logic | Inspect `BelgieJavaScriptError` message |
 | Import/load error in JS | Missing module, bad relative path, or bare package import | Use `npm:` / `jsr:`, add an alias `Environment`, or fix `from_folder` | Inspect `BelgieModuleError` message |
-| `Unable to load development widget` + `Start the Vite server` | Vite is not reachable at `http://127.0.0.1:<dev_port>` | Start `belgie run vite` before the MCP server | Open `/widgets/<name>/index.html` |
+| `Cannot run Vite` | Missing dependency table or `vite` alias | Add `vite` to `[tool.belgie.dependencies]`, then lock and install | Inspect `pyproject.toml` |
+| `Unable to start the Vite development server` | Auto-start failed or timed out | Read the nested command error; check the lockfile and configured port | Open the configured Vite origin |
+| `Unable to load development widget` + `not reachable` | Vite stopped, or `build=False` has no manual server | Fix auto-start, or run `belgie run vite` when using `build=False` | Open `/widgets/<name>/index.html` |
 | `Unable to load development widget` + `Vite returned HTTP` | Vite responded but the widget route failed (unknown name, invalid widget, or server error) | Confirm `src/widgets/<name>/widget.tsx` exists, has a default export, and is discovered by the belgie plugin | Open `/widgets/<name>/index.html` and check the status |
 | `dev_url must be an absolute http(s) URL` | Internal origin construction failed | Pass a valid `dev_port` | Inspect `BelgieExtension(dev_port=...)` |
 | `widget must be a pathlib.Path` | Legacy string widget name | Pass a `Path` to `widget.tsx` | Inspect `@tool(widget=...)` |
 | `Widget file does not exist` | Path is missing or resolves from the wrong project | Fix `project` or the `Path` | Confirm the source file exists |
 | `Widget path must point to a file named widget.tsx` | Old or unsupported widget entry name | Rename the direct entry to `widget.tsx` | Inspect the source filename |
-| `Built widget HTML does not exist` | Production path registered before `vite build` | Run `belgie run vite build` | Confirm the conventional HTML path |
+| `Built widget HTML does not exist` | Widget was not discovered, or `build=False` has no prebuilt output | Fix Vite discovery, or run `belgie run vite build` before manual mode | Confirm the conventional HTML path |
 
 ## Structured diagnosis flow
 
@@ -145,8 +146,8 @@ asyncio.run(main())
 - Inline script returns the expected value inside `with Runtime() as run:`.
 - Direct `npm:` / `jsr:` script imports run inside `Runtime()`.
 - Commands and dependency-map imports run after `env.install()` inside nested contexts.
-- MCP widgets: after `belgie lock` / `belgie install`, start Vite before development registration. For production, run
-  `belgie run vite build` and use `BelgieExtension(dev=False)`.
+- MCP widgets: after `belgie lock` / `belgie install`, use the automatic `dev=True` server or the one-time `dev=False`
+  build. With `build=False`, start Vite or build production output manually first.
 - `Command` returns `None` on success.
 - Thrown JS errors surface as `BelgieJavaScriptError`, not silent failures.
 
