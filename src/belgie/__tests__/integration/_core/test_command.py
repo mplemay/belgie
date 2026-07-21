@@ -120,11 +120,22 @@ await writeFile("fork-probe.txt", "ok\\n");
         """
 const id = Number(process.argv[2]);
 const keepAlive = setInterval(() => {}, 1 << 30);
-process.once("message", () => {
+const failSafe = setTimeout(() => {
   clearInterval(keepAlive);
+  process.exit(1);
+}, 5000);
+const stop = () => {
+  clearTimeout(failSafe);
+  clearInterval(keepAlive);
+};
+process.once("message", () => {
+  stop();
   process.disconnect();
 });
-process.send?.(id);
+if (!process.send?.(id)) {
+  stop();
+  process.exit(1);
+}
 """,
         encoding="utf-8",
     )
