@@ -1,7 +1,7 @@
 [project]
 name = "belgie"
 version = "0.1.1"
-description = "GenAI and GenUI sandbox for Python"
+description = "Generative AI/UI sandbox for Python"
 readme = "readme.md"
 authors = [
     { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }

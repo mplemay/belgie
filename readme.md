@@ -1,9 +1,9 @@
-# Belgie: GenAI and GenUI Sandbox for Python
+# Belgie: Generative AI/UI Sandbox for Python
 
 Belgie is a sandboxed TypeScript environment for Python that lets you build React MCP Apps and
 have agents write code in a sandbox.
 
-- **MCP Apps:** Python tools and React widgets in one project.
+- **MCP Apps:** Attach React widgets to Python MCP tools in one project.
 - **AI agents:** Sandboxed `run_code` so Pydantic AI and LangChain can run TypeScript.
 - **Sandbox:** Deno is bundled, so you do not need to install Node.js.
 
