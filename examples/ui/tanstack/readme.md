@@ -15,13 +15,7 @@ uv run belgie install
 
 ## Development
 
-Start Vite first so the Python extension can load the development widget:
-
-```bash
-uv run belgie run vite
-```
-
-In a second terminal, start FastAPI:
+Start FastAPI. `BelgieExtension` starts Vite in the background when the widget is registered:
 
 ```bash
 uv run fastapi dev --port 8000
@@ -31,6 +25,9 @@ The page is available at `http://127.0.0.1:5173/`, the widget at
 `http://127.0.0.1:5173/widgets/get-time/index.html`, and the MCP endpoint at `http://127.0.0.1:8000/mcp/`.
 `FastAPI.frontend` intentionally uses `check_dir=False`, so the Python application can start before a production
 frontend has been built.
+
+To manage Vite separately, pass `build=False` to `BelgieExtension` and run `uv run belgie run vite` in another
+terminal.
 
 ## Generate typed tools
 
@@ -61,19 +58,15 @@ const { data, error, isLoading, isFetching, execute } = useToolResult(getTime)
 
 ## Production
 
-Type-check and build the TanStack SPA plus every discovered MCP widget:
+Type-check the project, then start FastAPI with development widget loading disabled:
 
 ```bash
 uv run belgie run tsc --noEmit
-uv run belgie run vite build
-```
-
-The build writes the SPA to `dist/client/index.html` and the self-contained widget to
-`dist/widgets/get-time/index.html`. Start FastAPI with development widget loading disabled:
-
-```bash
 BELGIE_DEV=0 uv run fastapi run --port 8000
 ```
+
+Belgie runs Vite once as the production extension is registered. The build writes the SPA to `dist/client/index.html`
+and the self-contained widget to `dist/widgets/get-time/index.html`.
 
 FastAPI now serves the page at `http://127.0.0.1:8000/` and the MCP endpoint at
 `http://127.0.0.1:8000/mcp/`. Normal FastAPI and mounted routes take priority over the low-priority frontend fallback.

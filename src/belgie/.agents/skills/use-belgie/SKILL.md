@@ -176,8 +176,8 @@ Load only the most relevant reference first. Read additional references only if 
 - Import script packages inline with `npm:`, `jsr:`, or URL specifiers; do not put JavaScript dependencies in Python
   `[project.dependencies]`.
 - Use `[tool.belgie.dependencies]` for Belgie-managed JS packages (including `@belgie/mcp` as an npm or `file:` dep).
-- Put MCP entries at direct `<name>/widget.tsx` paths, pass a `Path` to `@tool(widget=...)`, and run Vite alongside
-  Python in development. Use `belgie run vite build` with `BelgieExtension(dev=False)` in production.
+- Put MCP entries at direct `<name>/widget.tsx` paths and pass a `Path` to `@tool(widget=...)`. `BelgieExtension`
+  starts Vite for `dev=True` and runs one production build for `dev=False`; use `build=False` for manual management.
 - Export a callable from every JS module (`export default function run(...)` or `export default () => ...`).
 - Call `env.install()` before commands, local `file:` package aliases, or explicit dependency-map imports.
 - Use `Runtime.from_folder()` for inline `./` imports or a fixed project cwd; `Script.from_file()` resolves
@@ -198,8 +198,8 @@ Agents commonly make these mistakes with belgie:
 - Passing shell command strings to `Command` instead of separate argv (`argument 0 must be str`).
 - Putting JavaScript dependencies in Python `[project.dependencies]` instead of inline script imports, `Environment`,
   or `[tool.belgie.dependencies]`.
-- Starting an MCP path widget before Vite in development, skipping the production build, or using a string widget name
-  without a manifest/base URL.
+- Disabling automatic Vite management with `build=False` without starting a development server or creating production
+  build output first.
 - Using `@tool(path=...)` instead of `@tool(widget=...)` with a prebuilt manifest / `base_url`.
 - Calling a bound runner after the runtime context exits (`closed`).
 - Passing non-JSON Python objects across the boundary (`Only JSON-serializable`).

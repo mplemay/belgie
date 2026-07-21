@@ -14,11 +14,12 @@ MISSING_WIDGET_ERROR: Final[str] = "Widget file does not exist: {widget}"
 INVALID_WIDGET_FILE_ERROR: Final[str] = "Widget path must point to a file named widget.tsx: {widget}"
 WIDGET_OUTSIDE_PROJECT_ERROR: Final[str] = "Widget path must stay inside the BelgieExtension project: {widget}"
 MISSING_BUILT_WIDGET_ERROR: Final[str] = (
-    "Built widget HTML does not exist: {html_path}. Run `belgie run vite build` before starting with dev=False."
+    "Built widget HTML does not exist: {html_path}. Confirm the widget is discovered by the Belgie Vite plugin. "
+    "When using build=False, run `belgie run vite build` before starting with dev=False."
 )
 DEV_WIDGET_ERROR: Final[str] = (
-    "Unable to load development widget {url}. "
-    "Start the Vite server with `belgie run vite` before starting the MCP server."
+    "Unable to load development widget {url}. The Vite development server is not reachable. "
+    "When using build=False, start it with `belgie run vite` before starting the MCP server."
 )
 DEV_WIDGET_HTTP_ERROR: Final[str] = (
     "Unable to load development widget {url}: Vite returned HTTP {code}. "
