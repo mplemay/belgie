@@ -59,6 +59,7 @@ def run_command(
     *,
     cwd: Path | None = None,
     frozen: bool,
+    module: bool | None = None,
 ) -> None:
     if not command:
         msg = "Missing command"
@@ -68,7 +69,13 @@ def run_command(
     with create_environment(project, frozen=frozen) as environment:
         environment.install()
         with Runtime(env=environment) as runtime:
-            runtime(Command(name, cwd=str(cwd or project.root)))(*args)
+            runtime(
+                Command(
+                    name,
+                    cwd=str(cwd or project.root),
+                    module=project.module if module is None else module,
+                ),
+            )(*args)
 
 
 def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> EnvironmentInstallResult:

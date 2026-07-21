@@ -102,6 +102,34 @@ semver = "npm:semver@7.7.2"
     assert "Missing Belgie lockfile" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [
+        pytest.param("--module", True, id="module"),
+        pytest.param("--no-module", False, id="no-module"),
+    ],
+)
+def test_run_command_forwards_module_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+    *,
+    expected: bool,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    received: list[bool | None] = []
+
+    def fake_run_command(*args: object, module: bool | None, **kwargs: object) -> None:
+        received.append(module)
+
+    monkeypatch.setattr("belgie.cli.__main__.run_command", fake_run_command)
+
+    result = runner.invoke(app, ["run", "-C", str(tmp_path), flag, "vite", "build"])
+
+    assert result.exit_code == 0
+    assert received == [expected]
+
+
 def test_main_handles_project_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

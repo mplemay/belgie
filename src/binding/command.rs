@@ -13,11 +13,12 @@ pub struct PyCommand {
 #[pymethods]
 impl PyCommand {
     #[new]
-    #[pyo3(signature = (name, *, cwd = None, env = None))]
+    #[pyo3(signature = (name, *, cwd = None, env = None, module = false))]
     fn new(
         name: String,
         cwd: Option<PathBuf>,
         env: Option<BTreeMap<String, String>>,
+        module: bool,
     ) -> PyResult<Self> {
         let name = name.trim().to_string();
         if name.is_empty() {
@@ -26,18 +27,19 @@ impl PyCommand {
             ));
         }
         Ok(Self {
-            source: CommandSource::new(name, cwd, env.unwrap_or_default()),
+            source: CommandSource::new(name, cwd, env.unwrap_or_default(), module),
         })
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "Command(name={:?}, cwd={:?}, env={:?})",
+            "Command(name={:?}, cwd={:?}, env={:?}, module={:?})",
             self.source.name(),
             self.source
                 .cwd()
                 .map(|path| path.to_string_lossy().into_owned()),
             self.source.env(),
+            self.source.module(),
         )
     }
 }

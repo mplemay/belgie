@@ -62,6 +62,18 @@ run(Command("vite", cwd="frontend", env={"NODE_ENV": "production"}))("build")
 - `cwd` resolves relative to the environment root when the environment is active.
 - `env` overlays the process environment for that execution only.
 
+## ESM module mode
+
+Use `module=True` when a Node-compatible build tool needs project-level ESM semantics without an on-disk
+`package.json`:
+
+```python
+run(Command("vite", module=True))("build")
+```
+
+When the Vite project uses `belgie()`, module mode emits `.js` server entries and chunks as ESM. The equivalent CLI
+override is `belgie run --module vite build`; projects can set the default with `[tool.belgie] module = true`.
+
 ## Standard I/O
 
 Commands inherit the current process stdio. Belgie does not capture stdout or stderr.

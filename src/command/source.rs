@@ -6,11 +6,22 @@ pub(crate) struct CommandSource {
     name: String,
     cwd: Option<PathBuf>,
     env: BTreeMap<String, String>,
+    module: bool,
 }
 
 impl CommandSource {
-    pub(crate) fn new(name: String, cwd: Option<PathBuf>, env: BTreeMap<String, String>) -> Self {
-        Self { name, cwd, env }
+    pub(crate) fn new(
+        name: String,
+        cwd: Option<PathBuf>,
+        env: BTreeMap<String, String>,
+        module: bool,
+    ) -> Self {
+        Self {
+            name,
+            cwd,
+            env,
+            module,
+        }
     }
 
     pub(crate) fn name(&self) -> &str {
@@ -23,6 +34,10 @@ impl CommandSource {
 
     pub(crate) fn env(&self) -> &BTreeMap<String, String> {
         &self.env
+    }
+
+    pub(crate) fn module(&self) -> bool {
+        self.module
     }
 
     pub(crate) fn description(&self) -> String {

@@ -85,6 +85,7 @@ class Command:
         *,
         cwd: str | PathLike[str] | None = None,
         env: dict[str, str] | None = None,
+        module: bool = False,
     ) -> None: ...
 
 class SyncCommandRunner:

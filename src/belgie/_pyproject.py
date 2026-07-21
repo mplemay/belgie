@@ -9,11 +9,14 @@ TOOL_TABLE: Final[str] = "tool"
 BELGIE_TABLE: Final[str] = "belgie"
 PYPROJECT_NAME: Final[str] = "pyproject.toml"
 DEFAULT_SOURCE: Final[Path] = Path()
+DEFAULT_MODULE: Final[bool] = False
 SOURCE_TABLE_PATH: Final[str] = "[tool.belgie].source"
+MODULE_TABLE_PATH: Final[str] = "[tool.belgie].module"
 ABSOLUTE_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a relative path"
 PARENT_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} cannot contain '..'"
 EMPTY_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a non-empty string"
 INVALID_SOURCE_PATH_ERROR: Final[str] = f"{SOURCE_TABLE_PATH} must be a string"
+INVALID_MODULE_ERROR: Final[str] = f"{MODULE_TABLE_PATH} must be a boolean"
 
 
 class PyprojectError(Exception):
@@ -23,6 +26,7 @@ class PyprojectError(Exception):
 @dataclass(slots=True, kw_only=True, frozen=True)
 class BelgieToolConfig:
     source: Path = DEFAULT_SOURCE
+    module: bool = DEFAULT_MODULE
 
 
 def is_absolute_config_path(source: str) -> bool:
@@ -62,16 +66,20 @@ def parse_belgie_tool_config(document: dict[str, Any]) -> BelgieToolConfig:
 
     source = belgie.get("source")
     if source is None:
-        return BelgieToolConfig()
-    if not isinstance(source, str) or not source.strip():
-        raise PyprojectError(EMPTY_SOURCE_PATH_ERROR if isinstance(source, str) else INVALID_SOURCE_PATH_ERROR)
+        source_path = DEFAULT_SOURCE
+    else:
+        if not isinstance(source, str) or not source.strip():
+            raise PyprojectError(EMPTY_SOURCE_PATH_ERROR if isinstance(source, str) else INVALID_SOURCE_PATH_ERROR)
+        source_path = Path(source)
+        if is_absolute_config_path(source):
+            raise PyprojectError(ABSOLUTE_SOURCE_PATH_ERROR)
+        if any(part == ".." for part in source_path.parts):
+            raise PyprojectError(PARENT_SOURCE_PATH_ERROR)
 
-    source_path = Path(source)
-    if is_absolute_config_path(source):
-        raise PyprojectError(ABSOLUTE_SOURCE_PATH_ERROR)
-    if any(part == ".." for part in source_path.parts):
-        raise PyprojectError(PARENT_SOURCE_PATH_ERROR)
-    return BelgieToolConfig(source=source_path)
+    module = belgie.get("module", DEFAULT_MODULE)
+    if not isinstance(module, bool):
+        raise PyprojectError(INVALID_MODULE_ERROR)
+    return BelgieToolConfig(source=source_path, module=module)
 
 
 def load_belgie_tool_config(project_root: Path) -> BelgieToolConfig:

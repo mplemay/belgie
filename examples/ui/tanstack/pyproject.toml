@@ -1,0 +1,54 @@
+[project]
+name = 'tanstack'
+version = '0.1.0'
+description = 'TanStack Start and FastAPI MCP widget example for Belgie'
+readme = 'readme.md'
+requires-python = '>=3.12,<3.15'
+dependencies = [
+    'belgie[mcp,cli]',
+    'fastapi[standard]>=0.139,<1',
+]
+
+[[project.authors]]
+name = 'Matt LeMay'
+email = 'mplemay@users.noreply.github.com'
+
+[build-system]
+build-backend = 'uv_build'
+requires = ['uv_build>=0.11,<0.12']
+[tool.fastapi]
+entrypoint = 'tanstack.__main__:app'
+
+[tool.uv]
+exclude-newer = '7 days'
+
+[tool.uv.exclude-newer-package]
+belgie = false
+fastapi = false
+mcp = false
+mcp-types = false
+[tool.uv.sources.belgie]
+path = '../../../'
+editable = true
+[tool.belgie]
+module = true
+[tool.belgie.dependencies]
+"@belgie/mcp" = 'file:../../../packages/mcp'
+"@modelcontextprotocol/ext-apps" = 'npm:@modelcontextprotocol/ext-apps@latest'
+"@modelcontextprotocol/sdk" = 'npm:@modelcontextprotocol/sdk@latest'
+"@tanstack/react-router" = 'npm:@tanstack/react-router@latest'
+"@tanstack/react-router/ssr/server" = 'npm:@tanstack/react-router@latest/ssr/server'
+"@tanstack/react-start" = 'npm:@tanstack/react-start@latest'
+"@tanstack/react-start/plugin/vite" = 'npm:@tanstack/react-start@latest/plugin/vite'
+"@types/node" = 'npm:@types/node@^25'
+"@types/react" = 'npm:@types/react@^19'
+"@types/react-dom" = 'npm:@types/react-dom@^19'
+"@vitejs/plugin-react" = 'npm:@vitejs/plugin-react@^6'
+react = 'npm:react@^19'
+"react/jsx-dev-runtime" = 'npm:react@^19/jsx-dev-runtime'
+"react/jsx-runtime" = 'npm:react@^19/jsx-runtime'
+react-dom = 'npm:react-dom@^19'
+"react-dom/client" = 'npm:react-dom@^19/client'
+"react-dom/server" = 'npm:react-dom@^19/server'
+typescript = 'npm:typescript@^7'
+vite = 'npm:vite@8.1.3'

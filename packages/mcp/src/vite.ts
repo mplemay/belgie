@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 
+import type { OutputOptions } from "rolldown";
 import { build, normalizePath, type Plugin, type ResolvedConfig, type UserConfig } from "vite";
 
 import { buildVirtualEntry, renderWidgetHtmlDocument } from "./html.js";
@@ -16,8 +17,10 @@ const VIRTUAL_PREFIX = "/_belgie/widget/";
 const VIRTUAL_MODULE_PREFIX = "\0belgie:widget:";
 const ORCHESTRATION_ENTRY_ID = "belgie:widget-build-orchestrator";
 const RESOLVED_ORCHESTRATION_ENTRY_ID = "\0belgie:widget-build-orchestrator";
+const INTERNAL_PACKAGE_TYPE_ENV = "BELGIE_INTERNAL_PACKAGE_TYPE";
 const INTERNAL_WIDGET_PATH_ENV = "BELGIE_INTERNAL_WIDGET_PATH";
 const MAX_INLINE_ASSET_SIZE = Number.MAX_SAFE_INTEGER;
+const MODULE_PACKAGE_TYPE = "module";
 const REACT_REFRESH_PLUGIN_NAME = "vite:react-refresh";
 const TEXT_DECODER = new TextDecoder();
 
@@ -112,6 +115,22 @@ function restoreEnvironment(name: string, previous: string | undefined): void {
   }
 }
 
+function moduleServerOutput(output: OutputOptions): OutputOptions {
+  const entryFileNames =
+    typeof output.entryFileNames === "string"
+      ? output.entryFileNames.replace(/\.(?:c|m)?js$/u, ".js")
+      : (output.entryFileNames ?? "[name].js");
+  const chunkFileNames =
+    typeof output.chunkFileNames === "string"
+      ? output.chunkFileNames.replace(/\.(?:c|m)?js$/u, ".js")
+      : (output.chunkFileNames ?? "assets/[name]-[hash].js");
+  return {
+    ...output,
+    chunkFileNames,
+    entryFileNames,
+  };
+}
+
 function ensureReactRefreshPreamble(html: string, base: string, enabled: boolean): string {
   if (!enabled || html.includes("@react-refresh")) {
     return html;
@@ -139,7 +158,8 @@ async function buildWidget(
   try {
     await build({
       configFile,
-      configLoader: "native",
+      // Bundle the project config so package subpath imports used by framework plugins resolve before Deno loads it.
+      configLoader: "bundle",
       root: config.root,
       mode: config.mode,
       ...(config.logLevel === undefined ? {} : { logLevel: config.logLevel }),
@@ -155,6 +175,7 @@ async function buildWidget(
 
 export function belgie(options: BelgiePluginOptions = {}): Plugin {
   const rawSrcDir = options.srcDir ?? "src/widgets";
+  const moduleMode = process.env[INTERNAL_PACKAGE_TYPE_ENV] === MODULE_PACKAGE_TYPE;
   const requestedWidgetPath = process.env[INTERNAL_WIDGET_PATH_ENV];
   let resolvedSrcDir = "";
   let projectRoot = "";
@@ -163,6 +184,7 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
   let widgetEntryPattern: RegExp | undefined;
   let usesOrchestrationEntry = false;
   let isBuildCommand = false;
+  let widgetsBuilt = false;
 
   return {
     name: "belgie",
@@ -192,28 +214,31 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
             );
           }
           widgetMap = new Map([[widget.name, widget]]);
+          const isolatedBuild = {
+            assetsInlineLimit: MAX_INLINE_ASSET_SIZE,
+            copyPublicDir: false,
+            cssCodeSplit: false,
+            emptyOutDir: false,
+            license: false,
+            manifest: false,
+            modulePreload: false,
+            outDir: "dist",
+            reportCompressedSize: false,
+            sourcemap: false,
+            ssrManifest: false,
+            watch: null,
+            write: true,
+            rolldownOptions: {
+              input: `${VIRTUAL_PREFIX}${encodeURIComponent(widget.name)}`,
+              output: { codeSplitting: false },
+            },
+          };
           return {
             appType: "custom",
+            // Vite's legacy programmatic build selects the client environment when a framework defines several.
+            environments: { client: { build: isolatedBuild } },
             resolve: { dedupe: ["react", "react-dom"] },
-            build: {
-              assetsInlineLimit: MAX_INLINE_ASSET_SIZE,
-              copyPublicDir: false,
-              cssCodeSplit: false,
-              emptyOutDir: false,
-              license: false,
-              manifest: false,
-              modulePreload: false,
-              outDir: "dist",
-              reportCompressedSize: false,
-              sourcemap: false,
-              ssrManifest: false,
-              watch: null,
-              write: true,
-              rolldownOptions: {
-                input: `${VIRTUAL_PREFIX}${encodeURIComponent(widget.name)}`,
-                output: { codeSplitting: false },
-              },
-            },
+            build: isolatedBuild,
           };
         }
 
@@ -232,6 +257,15 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
             include: ["react", "react-dom/client", "react/jsx-runtime"],
           },
         };
+      },
+    },
+
+    outputOptions: {
+      order: "post",
+      handler(output) {
+        if (moduleMode && this.environment.config.consumer === "server") {
+          return moduleServerOutput(output);
+        }
       },
     },
 
@@ -298,7 +332,13 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
     },
 
     async closeBundle() {
-      if (!isBuildCommand || requestedWidgetPath !== undefined || resolvedConfig === undefined || widgetMap.size === 0) {
+      if (
+        !isBuildCommand ||
+        requestedWidgetPath !== undefined ||
+        resolvedConfig === undefined ||
+        widgetMap.size === 0 ||
+        widgetsBuilt
+      ) {
         return;
       }
       if (!resolvedConfig.configFile) {
@@ -310,6 +350,7 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
       for (const widget of widgetMap.values()) {
         await buildWidget(widget, resolvedConfig, resolvedConfig.configFile);
       }
+      widgetsBuilt = true;
     },
 
     configureServer(server) {

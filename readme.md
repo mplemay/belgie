@@ -122,5 +122,6 @@ single capability.
 
 - **[mcp](examples/ui/mcp):** MCP Apps extension with a React widget built through Belgie.
 - **[shadcn](examples/ui/shadcn):** MCP Apps widget styled with Tailwind CSS and shadcn/ui.
+- **[tanstack](examples/ui/tanstack):** TanStack Start SPA and MCP widget served together through FastAPI.
 
 For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
