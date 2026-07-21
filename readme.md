@@ -1,14 +1,11 @@
 # Belgie: React MCP Apps in Python
 
-Build MCP Apps with a Python server and a React widget in one project. Deno is bundled — declare npm deps in
-`pyproject.toml`, run Vite through Belgie, and attach the widget with `@belgie.tool(widget=...)`.
+Belgie is a sandboxed TypeScript environment for Python that lets you build React MCP Apps and
+have agents write code in a sandbox.
 
-Also give AI agents a sandboxed `run_code` tool so they can write and execute TypeScript or JavaScript when JS is the
-better fit.
-
-- **MCP Apps:** Python tools + React widgets without a parallel Node monorepo.
-- **AI agents:** Pydantic AI and LangChain get a sandboxed JS/TS runtime for `run_code`.
-- **Bundled Deno:** No Node.js or Deno on your PATH. Inline `npm:` / `jsr:` imports when you need them.
+- **MCP Apps:** Python tools and React widgets in one project.
+- **AI agents:** Sandboxed `run_code` so Pydantic AI and LangChain can run TypeScript.
+- **Sandbox:** Deno is bundled, so you do not need to install Node.js.
 
 ## Installation
 
@@ -25,8 +22,8 @@ uv add "belgie[mcp,cli]"
 
 ## MCP Apps
 
-Attach a React widget to a Python MCP tool. Belgie serves the Vite page in development and caches the built HTML in
-production.
+Skip the second package manager. Attach a React widget to a Python MCP tool.
+`BelgieExtension` serves the Vite page in development and caches the built HTML in production.
 
 ```python
 from datetime import UTC, datetime
@@ -52,7 +49,8 @@ def get_time() -> dict[str, str]:
 mcp = MCPServer(name="Get Time Server", extensions=[belgie])
 ```
 
-The widget is a normal React entry. `@belgie/mcp` connects the MCP Apps host and surfaces the opening tool result:
+The widget is a normal React entry. `@belgie/mcp` connects the MCP Apps host and surfaces the
+opening tool result:
 
 ```tsx
 import { Widget, useToolResult } from "@belgie/mcp";
@@ -86,16 +84,18 @@ uv run belgie run vite          # widget HMR
 # in another terminal: start your MCP server
 ```
 
-See the full runnable projects:
+Runnable projects:
 
 - **[mcp](examples/ui/mcp):** Minimal MCP Apps widget.
 - **[shadcn](examples/ui/shadcn):** Same pattern with Tailwind CSS and shadcn/ui.
-- **[tanstack](examples/ui/tanstack):** TanStack Start SPA and MCP widget served together through FastAPI.
+- **[tanstack](examples/ui/tanstack):** TanStack Start SPA and MCP widget served together through
+  FastAPI.
 
 ## AI agents
 
-When an agent needs npm packages, browser-style APIs, or JS-side transforms, give it a sandboxed `run_code` tool.
-Belgie executes the TypeScript or JavaScript in the embedded Deno runtime — no separate Node install.
+When an agent needs an npm package, a browser-style API, or a JS-side transform, give it
+`run_code`. Belgie executes the TypeScript or JavaScript in the embedded Deno sandbox. No
+separate Node install.
 
 ### Pydantic AI
 
@@ -147,14 +147,15 @@ print(result["messages"][-1].content)
 
 See [examples/ai/langchain](examples/ai/langchain).
 
-## Run JS/TS from Python
+## Under the hood: Deno in Python
 
-Under the hood, Belgie is an embedded Deno runtime you can call directly:
+MCP Apps and agent `run_code` both use Belgie’s embedded Deno runtime. Call it directly when you
+need JS/TS from Python without MCP or an agent framework:
 
 - **Scripts:** Inline or file-based JS/TS with `Runtime` and `Script`, sync or async.
 - **Inline dependencies:** Import npm, JSR, and URL modules from source.
-- **Environments:** Lockfiles, custom cache/options, local packages, and `Command` for npm binaries (Vite, esbuild,
-  etc.).
+- **Environments:** Lockfiles, custom cache/options, local packages, and `Command` for npm
+  binaries (Vite, esbuild, etc.).
 - **Data bridge:** Pass JSON-safe dicts, lists, and primitives across the boundary.
 
 ```python
@@ -183,28 +184,33 @@ asyncio.run(main())
 
 ## Examples
 
-Small, runnable projects — each focuses on one capability.
+Small, runnable projects. Each focuses on one capability.
 
 ### UI
 
 - **[mcp](examples/ui/mcp):** MCP Apps extension with a React widget built through Belgie.
 - **[shadcn](examples/ui/shadcn):** MCP Apps widget styled with Tailwind CSS and shadcn/ui.
-- **[tanstack](examples/ui/tanstack):** TanStack Start SPA and MCP widget served together through FastAPI.
+- **[tanstack](examples/ui/tanstack):** TanStack Start SPA and MCP widget served together through
+  FastAPI.
 
 ### AI
 
-- **[pydantic-ai](examples/ai/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for sandboxed JS/TS
-  execution.
-- **[langchain](examples/ai/langchain):** LangChain agent with `BelgieMiddleware()` for sandboxed JS/TS execution.
+- **[pydantic-ai](examples/ai/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for
+  sandboxed JS/TS execution.
+- **[langchain](examples/ai/langchain):** LangChain agent with `BelgieMiddleware()` for sandboxed
+  JS/TS execution.
 
 ### Basic
 
 - **[simple](examples/basic/simple):** Async `Runtime` with a TypeScript file on disk.
-- **[inline-deps](examples/basic/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a script.
-- **[jsr-deps](examples/basic/jsr-deps):** JSR packages declared through an explicit `Environment`.
-- **[pyproject](examples/basic/pyproject):** Manage project package dependencies with `belgie[cli]` and
-  `[tool.belgie.dependencies]`.
+- **[inline-deps](examples/basic/inline-deps):** Direct `npm:`, `jsr:`, and URL imports in a
+  script.
+- **[jsr-deps](examples/basic/jsr-deps):** JSR packages declared through an explicit
+  `Environment`.
+- **[pyproject](examples/basic/pyproject):** Manage project package dependencies with
+  `belgie[cli]` and `[tool.belgie.dependencies]`.
 - **[environment](examples/basic/environment):** Sync and async `Environment` setup with `path`.
 - **[commands](examples/basic/commands):** npm package binaries via `Runtime` and `Command`.
 
-For deeper integration guidance, optionally install the **`use-belgie`** skill with `uvx library-skills install`.
+For deeper integration guidance, optionally install the **`use-belgie`** skill with
+`uvx library-skills install`.
