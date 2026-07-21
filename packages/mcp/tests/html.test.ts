@@ -1,6 +1,6 @@
 import { buildVirtualEntry, escapeInlineScript, escapeInlineStyle, renderWidgetHtmlDocument } from "../src/html.ts";
 
-describe("hTML helpers", () => {
+describe("HTML helpers", () => {
   it("escape closing script and style tags case-insensitively", () => {
     expect(escapeInlineScript("before</ScRiPt>after")).toBe(String.raw`before<\/script>after`);
     expect(escapeInlineStyle("before</STYLE>after")).toBe(String.raw`before<\/style>after`);

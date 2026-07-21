@@ -64,7 +64,7 @@ afterEach(() => {
   }
 });
 
-describe("vite configuration and virtual modules", () => {
+describe("Vite configuration and virtual modules", () => {
   it("discovers widgets for development and keeps custom build input", () => {
     const root = temporaryProject();
     const filePath = writeWidget(root, "weather", "export default function Weather() { return null }");

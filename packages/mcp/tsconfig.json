@@ -37,8 +37,7 @@
     "types": [
       "node",
       "react",
-      "react-dom",
-      "vitest/globals"
+      "react-dom"
     ],
     "verbatimModuleSyntax": true
   },
@@ -51,8 +50,6 @@
     "src",
     "tests/fixtures/**/*.ts",
     "tests/types.tsx",
-    "*.config.ts",
-    "tests/**/*.test.ts",
-    "tests/**/*.test.tsx"
+    "*.config.ts"
   ]
 }

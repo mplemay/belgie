@@ -244,7 +244,7 @@ export async function generateToolTypes(options: GenerateToolTypesOptions): Prom
     return renderToolTypes(await discoverTools(connection.client));
   } catch (error: unknown) {
     if (error instanceof Error) {
-      throw new TypeError(`Failed to generate MCP tool types from ${url.toString()}: ${error.message}`, {
+      throw new Error(`Failed to generate MCP tool types from ${url.toString()}: ${error.message}`, {
         cause: error,
       });
     }

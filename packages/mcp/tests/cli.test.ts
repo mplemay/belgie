@@ -35,7 +35,7 @@ async function temporaryOutput(): Promise<string> {
   return join(directory, "generated", "tools.ts");
 }
 
-describe("cLI parsing", () => {
+describe("CLI parsing", () => {
   it("normalizes repeated values", () => {
     expect(values()).toStrictEqual([]);
     expect(values("one")).toStrictEqual(["one"]);
@@ -62,7 +62,7 @@ describe("cLI parsing", () => {
   });
 });
 
-describe("cLI execution", () => {
+describe("CLI execution", () => {
   it("writes generated output and forwards all options", async () => {
     const output = await temporaryOutput();
     process.env.BELGIE_TEST_TOKEN = "environment-secret";
