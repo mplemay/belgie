@@ -1,34 +1,25 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-import {
-  MemoryOAuthProvider,
-  oauthState,
-  startOAuthCallbackServer,
-} from "./oauth";
-import {
-  compileSchema,
-  IdentifierAllocator,
-  typeIdentifier,
-  ValueIdentifierAllocator,
-} from "./schema";
+import { MemoryOAuthProvider, oauthState, startOAuthCallbackServer } from "./oauth";
+import { IdentifierAllocator, ValueIdentifierAllocator, compileSchema, typeIdentifier } from "./schema";
 
-export type GenerateToolTypesOptions = {
+export interface GenerateToolTypesOptions {
   url: string | URL;
   headers?: Readonly<Record<string, string>>;
   oauth?: boolean;
   openBrowser?: boolean;
-};
+}
 
-type ToolNames = {
+interface ToolNames {
   call: string;
   input: string;
   output: string;
-};
+}
 
 type OutputSchema = NonNullable<Tool["outputSchema"]>;
 type ZodJsonSchema = Parameters<typeof z.fromJSONSchema>[0];
@@ -37,8 +28,8 @@ function endpoint(value: string | URL): URL {
   let url: URL;
   try {
     url = value instanceof URL ? new URL(value) : new URL(value);
-  } catch (cause: unknown) {
-    throw new Error(`Invalid MCP URL ${JSON.stringify(String(value))}`, { cause });
+  } catch (error: unknown) {
+    throw new Error(`Invalid MCP URL ${JSON.stringify(String(value))}`, { error });
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`MCP URL must use http or https, received ${JSON.stringify(url.protocol)}`);
@@ -59,8 +50,12 @@ function jsDoc(description: string): string[] {
 }
 
 function compareStrings(left: string, right: string): number {
-  if (left < right) return -1;
-  if (left > right) return 1;
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
   return 0;
 }
 
@@ -71,7 +66,7 @@ function canonicalize(value: unknown): unknown {
   if (typeof value === "object" && value !== null) {
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([left], [right]) => compareStrings(left, right))
+        .toSorted(([left], [right]) => compareStrings(left, right))
         .map(([key, item]) => [key, canonicalize(item)]),
     );
   }
@@ -93,11 +88,11 @@ function compileToolSchema(
 ): string[] {
   try {
     return compileSchema(schema, rootName, allocator).declarations;
-  } catch (cause: unknown) {
-    const message = cause instanceof Error ? cause.message : String(cause);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       `MCP tool ${JSON.stringify(tool.name)} has an ${schemaName} TypeScript cannot compile: ${message}`,
-      { cause },
+      { error },
     );
   }
 }
@@ -120,15 +115,7 @@ function renderToolTypes(tools: Tool[]): string {
   const declarations: string[] = [];
   for (const tool of tools) {
     const toolNames = names.get(tool.name)!;
-    declarations.push(
-      ...compileToolSchema(
-        tool,
-        "inputSchema",
-        tool.inputSchema,
-        toolNames.input,
-        allocator,
-      ),
-    );
+    declarations.push(...compileToolSchema(tool, "inputSchema", tool.inputSchema, toolNames.input, allocator));
     if (tool.outputSchema === undefined) {
       hasRawTools = true;
       declarations.push(`export type ${toolNames.output} = RawToolResult;`);
@@ -136,22 +123,13 @@ function renderToolTypes(tools: Tool[]): string {
       hasStructuredTools = true;
       try {
         z.fromJSONSchema(tool.outputSchema as ZodJsonSchema);
-      } catch (cause: unknown) {
-        const message = cause instanceof Error ? cause.message : String(cause);
-        throw new Error(
-          `MCP tool ${JSON.stringify(tool.name)} has an outputSchema Zod cannot compile: ${message}`,
-          { cause },
-        );
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`MCP tool ${JSON.stringify(tool.name)} has an outputSchema Zod cannot compile: ${message}`, {
+          error,
+        });
       }
-      declarations.push(
-        ...compileToolSchema(
-          tool,
-          "outputSchema",
-          tool.outputSchema,
-          toolNames.output,
-          allocator,
-        ),
-      );
+      declarations.push(...compileToolSchema(tool, "outputSchema", tool.outputSchema, toolNames.output, allocator));
     }
   }
 
@@ -198,10 +176,7 @@ function createConnection(
   headers: Readonly<Record<string, string>>,
   provider: MemoryOAuthProvider | undefined,
 ) {
-  const client = new Client(
-    { name: "belgie-mcp-codegen", version: "0.1.0" },
-    { capabilities: {} },
-  );
+  const client = new Client({ name: "belgie-mcp-codegen", version: "0.1.0" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(url, {
     ...(provider === undefined ? {} : { authProvider: provider }),
     requestInit: { headers: new Headers(headers) },
@@ -233,14 +208,10 @@ async function discoverTools(client: Client): Promise<Tool[]> {
   if (tools.size === 0) {
     throw new Error("MCP server exposed no tools");
   }
-  return [...tools.values()].sort((left, right) =>
-    compareStrings(left.name, right.name),
-  );
+  return [...tools.values()].toSorted((left, right) => compareStrings(left.name, right.name));
 }
 
-export async function generateToolTypes(
-  options: GenerateToolTypesOptions,
-): Promise<string> {
+export async function generateToolTypes(options: GenerateToolTypesOptions): Promise<string> {
   const url = endpoint(options.url);
   const headers = options.headers ?? {};
   const useOAuth = options.oauth ?? true;
@@ -250,9 +221,9 @@ export async function generateToolTypes(
     callback === undefined
       ? undefined
       : new MemoryOAuthProvider({
+          openBrowser: options.openBrowser ?? true,
           redirectUrl: callback.redirectUrl,
           state,
-          openBrowser: options.openBrowser ?? true,
         });
   let connection: ReturnType<typeof createConnection> | undefined;
 
@@ -260,9 +231,9 @@ export async function generateToolTypes(
     connection = createConnection(url, headers, provider);
     try {
       await connection.client.connect(connection.transport as Transport);
-    } catch (cause: unknown) {
-      if (!(cause instanceof UnauthorizedError) || provider === undefined || callback === undefined) {
-        throw cause;
+    } catch (error: unknown) {
+      if (!(error instanceof UnauthorizedError) || provider === undefined || callback === undefined) {
+        throw error;
       }
       const code = await callback.waitForCode();
       await connection.transport.finishAuth(code);
@@ -271,13 +242,13 @@ export async function generateToolTypes(
       await connection.client.connect(connection.transport as Transport);
     }
     return renderToolTypes(await discoverTools(connection.client));
-  } catch (cause: unknown) {
-    if (cause instanceof Error) {
-      throw new Error(`Failed to generate MCP tool types from ${url.toString()}: ${cause.message}`, {
-        cause,
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      throw new TypeError(`Failed to generate MCP tool types from ${url.toString()}: ${error.message}`, {
+        error,
       });
     }
-    throw cause;
+    throw error;
   } finally {
     await Promise.allSettled([connection?.client.close(), callback?.close()]);
   }

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { createServer, type Server } from "node:http";
+import { createServer } from "node:http";
+import type { Server } from "node:http";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
@@ -10,11 +11,11 @@ import type {
 
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
-type CallbackServer = {
+interface CallbackServer {
   redirectUrl: string;
   waitForCode: () => Promise<string>;
   close: () => Promise<void>;
-};
+}
 
 export class MemoryOAuthProvider implements OAuthClientProvider {
   readonly #redirectUrl: string;
@@ -25,18 +26,14 @@ export class MemoryOAuthProvider implements OAuthClientProvider {
   #tokens: OAuthTokens | undefined;
   #codeVerifier: string | undefined;
 
-  constructor(options: {
-    redirectUrl: string;
-    state: string;
-    openBrowser: boolean;
-  }) {
+  constructor(options: { redirectUrl: string; state: string; openBrowser: boolean }) {
     this.#redirectUrl = options.redirectUrl;
     this.#state = options.state;
     this.#openBrowser = options.openBrowser;
     this.#metadata = {
       client_name: "Belgie MCP Tool Codegen",
-      redirect_uris: [options.redirectUrl],
       grant_types: ["authorization_code", "refresh_token"],
+      redirect_uris: [options.redirectUrl],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
     };
@@ -91,9 +88,9 @@ export class MemoryOAuthProvider implements OAuthClientProvider {
   }
 }
 
-function closeServer(server: Server): Promise<void> {
+async function closeServer(server: Server): Promise<void> {
   if (!server.listening) {
-    return Promise.resolve();
+    return;
   }
   return new Promise((resolve, reject) => {
     server.close((error) => {
@@ -168,6 +165,7 @@ export async function startOAuthCallbackServer(state: string): Promise<CallbackS
   }
 
   return {
+    close: async () => closeServer(server),
     redirectUrl: `http://127.0.0.1:${address.port}/callback`,
     waitForCode: async () => {
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -184,7 +182,6 @@ export async function startOAuthCallbackServer(state: string): Promise<CallbackS
         }
       }
     },
-    close: () => closeServer(server),
   };
 }
 

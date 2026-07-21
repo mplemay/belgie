@@ -1,5 +1,3 @@
-import type { App } from "@modelcontextprotocol/ext-apps";
-
 import {
   McpToolCancelledError,
   McpToolError,
@@ -11,57 +9,55 @@ import {
   sendMessage,
   updateModelContext,
   useToolResult,
-  type RawToolResult,
-  type ToolCallError,
-  type ToolCallResult,
-  type ToolResultState,
 } from "@belgie/mcp";
-import {
-  createGeneratedRawTool,
-  createGeneratedTool,
-} from "@belgie/mcp/internal";
+import type { RawToolResult, ToolCallError, ToolCallResult, ToolResultState } from "@belgie/mcp";
+import { createGeneratedRawTool, createGeneratedTool } from "@belgie/mcp/internal";
+import type { App } from "@modelcontextprotocol/ext-apps";
 
-type EmptyOutput = { value: string };
-type OptionalOutput = { count: number };
-type RequiredOutput = { value: number };
+interface EmptyOutput {
+  value: string;
+}
+interface OptionalOutput {
+  count: number;
+}
+interface RequiredOutput {
+  value: number;
+}
 
 const empty = createGeneratedTool<Record<string, never>, EmptyOutput>("empty", {
-  type: "object",
   properties: { value: { type: "string" } },
   required: ["value"],
-});
-const optional = createGeneratedTool<{ limit?: number }, OptionalOutput>(
-  "optional",
-  {
-    type: "object",
-    properties: { count: { type: "integer" } },
-    required: ["count"],
-  },
-);
-const required = createGeneratedTool<{ id: string }, RequiredOutput>("required", {
   type: "object",
+});
+const optional = createGeneratedTool<{ limit?: number }, OptionalOutput>("optional", {
+  properties: { count: { type: "integer" } },
+  required: ["count"],
+  type: "object",
+});
+const required = createGeneratedTool<{ id: string }, RequiredOutput>("required", {
   properties: { value: { type: "number" } },
   required: ["value"],
+  type: "object",
 });
 const raw = createGeneratedRawTool<{ query: string }>("raw");
 
 declare const app: App;
 
 const message = {
-  role: "user" as const,
   content: [{ type: "text" as const, text: "hello" }],
+  role: "user" as const,
 };
-const log = { level: "info" as const, data: "hello" };
+const log = { data: "hello", level: "info" as const };
 const modelContext = {
-  content: [{ type: "text" as const, text: "context" }],
+  content: [{ text: "context", type: "text" as const }],
 };
 const link = { url: "https://example.com" };
 const download = {
   contents: [
     {
+      name: "file",
       type: "resource_link" as const,
       uri: "https://example.com/file",
-      name: "file",
     },
   ],
 };
@@ -69,12 +65,7 @@ const displayMode = { mode: "fullscreen" as const };
 const requestOptions = { signal: new AbortController().signal };
 
 type PublicMcpExports = keyof typeof import("@belgie/mcp");
-type GenericCallersAreAbsent = Extract<
-  PublicMcpExports,
-  "callTool" | "useTool"
-> extends never
-  ? true
-  : false;
+type GenericCallersAreAbsent = Extract<PublicMcpExports, "callTool" | "useTool"> extends never ? true : false;
 
 const genericCallersAreAbsent: GenericCallersAreAbsent = true;
 const requiredCall: Promise<ToolCallResult<RequiredOutput>> = required({
@@ -85,18 +76,18 @@ const rawCall: Promise<ToolCallResult<RawToolResult>> = raw({ query: "example" }
 function narrowToolError(error: ToolCallError): void {
   const standardError: Error = error;
   if (error instanceof McpToolError) {
-    const toolName: string = error.toolName;
-    const result: RawToolResult = error.result;
-    const isError: true = error.result.isError;
-    const cause: unknown = error.cause;
+    const { toolName } = error;
+    const { result } = error;
+    const { isError } = error.result;
+    const { cause } = error;
     void toolName;
     void result;
     void isError;
     void cause;
   }
   if (error instanceof McpToolCancelledError) {
-    const toolName: string = error.toolName;
-    const reason: string | undefined = error.reason;
+    const { toolName } = error;
+    const { reason } = error;
     void toolName;
     void reason;
   }
@@ -106,36 +97,31 @@ function narrowToolError(error: ToolCallError): void {
 async function narrowResult(): Promise<number> {
   const response = await required({ id: "example" });
   if (response.error !== undefined) {
-    const error: ToolCallError = response.error;
-    const result: undefined = response.result;
+    const { error } = response;
+    const { result } = response;
     narrowToolError(error);
     void error;
-    void result;
+    result;
     return 0;
   }
 
-  const error: undefined = response.error;
-  const result: RequiredOutput = response.result;
-  void error;
+  const { error } = response;
+  const { result } = response;
+  error;
   return result.value;
 }
 
 export function TypeFixture() {
   const requiredResult = useToolResult(required);
-  const requiredResultState: ToolResultState<
-    { id: string },
-    RequiredOutput
-  > = requiredResult;
+  const requiredResultState: ToolResultState<{ id: string }, RequiredOutput> = requiredResult;
   const requiredData: RequiredOutput | undefined = requiredResult.data;
-  const requiredExecution: Promise<ToolCallResult<RequiredOutput>> =
-    requiredResult.execute();
-  const requiredInputExecution: Promise<ToolCallResult<RequiredOutput>> =
-    requiredResult.execute({ id: "example" });
+  const requiredExecution: Promise<ToolCallResult<RequiredOutput>> = requiredResult.execute();
+  const requiredInputExecution: Promise<ToolCallResult<RequiredOutput>> = requiredResult.execute({ id: "example" });
   const rawResultState = useToolResult(raw);
   const rawData: RawToolResult | undefined = rawResultState.data;
   const ordinaryCaller = async (_input: { id: string }) => ({
-    result: { value: 1 },
     error: undefined,
+    result: { value: 1 },
   });
 
   // @ts-expect-error execution input is inferred from the generated caller
@@ -143,23 +129,12 @@ export function TypeFixture() {
   // @ts-expect-error ordinary functions do not carry generated result metadata
   void useToolResult(ordinaryCaller);
 
-  const messageResult: ReturnType<App["sendMessage"]> = sendMessage(
-    message,
-    requestOptions,
-  );
+  const messageResult: ReturnType<App["sendMessage"]> = sendMessage(message, requestOptions);
   const logResult: ReturnType<App["sendLog"]> = sendLog(log);
-  const modelContextResult: ReturnType<App["updateModelContext"]> =
-    updateModelContext(modelContext, requestOptions);
-  const openLinkResult: ReturnType<App["openLink"]> = openLink(
-    link,
-    requestOptions,
-  );
-  const downloadResult: ReturnType<App["downloadFile"]> = downloadFile(
-    download,
-    requestOptions,
-  );
-  const displayModeResult: ReturnType<App["requestDisplayMode"]> =
-    requestDisplayMode(displayMode, requestOptions);
+  const modelContextResult: ReturnType<App["updateModelContext"]> = updateModelContext(modelContext, requestOptions);
+  const openLinkResult: ReturnType<App["openLink"]> = openLink(link, requestOptions);
+  const downloadResult: ReturnType<App["downloadFile"]> = downloadFile(download, requestOptions);
+  const displayModeResult: ReturnType<App["requestDisplayMode"]> = requestDisplayMode(displayMode, requestOptions);
   const teardownResult: ReturnType<App["requestTeardown"]> = requestTeardown();
 
   void empty();
@@ -180,7 +155,7 @@ export function TypeFixture() {
   // @ts-expect-error raw callers preserve required input typing
   void raw();
   // @ts-expect-error undeclared input properties are rejected
-  void required({ id: "example", extra: true });
+  void required({ extra: true, id: "example" });
   // @ts-expect-error empty inputs reject undeclared properties
   void empty({ extra: true });
   // @ts-expect-error the explicit app is the second argument

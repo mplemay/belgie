@@ -60,6 +60,11 @@ python-source = "src"
 exclude = ["**/__tests__/**"]
 features = ["extension-module"]
 
+[tool.belgie.dependencies]
+oxlint = "npm:oxlint@latest"
+oxfmt = "npm:oxfmt@latest"
+oxlint-tsgolint = "npm:oxlint-tsgolint@latest"
+
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 exclude-newer = "7 days"
@@ -100,6 +105,10 @@ ignore = [
     "RUF043",  # pytest match patterns for CLI error messages
     "TC002",   # pytest imported at runtime in test modules
     "TC003",   # pathlib imported at runtime in test modules
+]
+"scripts/**/*" = [
+    "INP001",  # scripts/ is a tooling folder, not a package
+    "T201",    # print is intentional for CLI stderr messages
 ]
 
 [tool.ruff.lint.flake8-quotes]

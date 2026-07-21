@@ -10,11 +10,15 @@
 - **`prek`**: Checks, linting, and formatting
   - *Usage:* `uv run prek`
   - *Files:* [configuration](prek.toml)
-  - *Tools:* `rumdl` (markdown), `ruff` (linting), `ty` (type checker)
+  - *Tools:* `rumdl` (markdown), `ruff` (linting), `ty` (type checker), `oxlint` /
+    `oxfmt` (JS/TS via belgie)
   - *Rules:*
     - **Don't run the underlying linters / formatters directly.**
     - **Never use file-wide ignores.**
     - **Never update the linter / formatter configs without explicit permission.**
+    - JS/TS linting and formatting use Belgie-managed `oxlint` / `oxfmt`
+      (`[tool.belgie.dependencies]` + root `deno.lock`); invoke them through
+      `uv run prek` (hooks call `scripts/belgie_bin.py`), not as standalone CLIs.
 - **`git`**: Version control
   - *Usage:* `git`
   - *Files:* [ignores (project)](.gitignore)

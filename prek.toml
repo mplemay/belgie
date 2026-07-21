@@ -2,7 +2,12 @@
 # See https://prek.j178.dev for more information.
 #:schema https://www.schemastore.org/prek.json
 
-exclude = { glob = [".agents/**", "src/components/ui/**", "src/routeTree.gen.ts"] }
+exclude = { glob = [
+  ".agents/**",
+  "**/components/ui/**",
+  "**/routeTree.gen.ts",
+  "packages/mcp/.package-*/**",
+] }
 
 [[repos]]
 repo = "builtin"
@@ -38,6 +43,43 @@ hooks = [
     language = "python",
     files = '^(uv\.lock|pyproject\.toml|uv\.toml)$',
     pass_filenames = false,
+  },
+  {
+    id = "belgie-lock",
+    name = "belgie lock",
+    entry = "bash -c 'uv run belgie lock && rm -rf node_modules'",
+    language = "system",
+    files = '^(deno\.lock|pyproject\.toml)$',
+    pass_filenames = false,
+    require_serial = true,
+  },
+  {
+    id = "oxfmt",
+    name = "oxfmt",
+    entry = "uv run python scripts/belgie_bin.py oxfmt",
+    args = ["--threads", "1"],
+    language = "python",
+    types_or = [
+      "javascript",
+      "jsx",
+      "ts",
+      "tsx",
+    ],
+    require_serial = true,
+  },
+  {
+    id = "oxlint",
+    name = "oxlint",
+    entry = "uv run python scripts/belgie_bin.py oxlint",
+    args = ["--threads", "1"],
+    language = "python",
+    types_or = [
+      "javascript",
+      "jsx",
+      "ts",
+      "tsx",
+    ],
+    require_serial = true,
   },
   {
     id = "ruff-check",

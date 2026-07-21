@@ -1,14 +1,18 @@
-import {
-  Widget,
-  openLink,
-  sendLog,
-  sendMessage,
-  useToolResult,
-} from "@belgie/mcp";
-import { useState } from "react";
+import { Widget, openLink, sendLog, sendMessage, useToolResult } from "@belgie/mcp";
+import { getTime } from "@widgets/tools";
 
 import "@/global.css";
-import { getTime } from "@widgets/tools";
+import { useState } from "react";
+
+function buttonLabel(isLoading: boolean, isFetching: boolean): string {
+  if (isLoading) {
+    return "Waiting for Server Time...";
+  }
+  if (isFetching) {
+    return "Refreshing Server Time...";
+  }
+  return "Refresh Server Time";
+}
 
 function AppView() {
   const {
@@ -32,8 +36,7 @@ function AppView() {
         <h3>Server Time</h3>
         <p>
           <span className="server-time">
-            {timeData?.time ??
-              (isLoading ? "Waiting for the opening tool result..." : "No time returned.")}
+            {timeData?.time ?? (isLoading ? "Waiting for the opening tool result..." : "No time returned.")}
           </span>
         </p>
         {timeError && <p className="notice">{timeError.message}</p>}
@@ -44,21 +47,23 @@ function AppView() {
           disabled={isFetching}
           onClick={() => void execute()}
         >
-          {isLoading
-            ? "Waiting for Server Time..."
-            : isFetching
-              ? "Refreshing Server Time..."
-              : "Refresh Server Time"}
+          {buttonLabel(isLoading, isFetching)}
         </button>
       </div>
 
       <div className="action">
         <h3>Send Message</h3>
-        <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Type a message..." />
+        <textarea
+          value={message}
+          onChange={(event) => {
+            setMessage(event.target.value);
+          }}
+          placeholder="Type a message..."
+        />
         <button
           onClick={() => {
             if (message.trim()) {
-              sendMessage({ role: "user", content: [{ type: "text", text: message }] });
+              void sendMessage({ content: [{ type: "text", text: message }], role: "user" });
             }
           }}
         >
@@ -68,11 +73,17 @@ function AppView() {
 
       <div className="action">
         <h3>Send Log</h3>
-        <input value={logMessage} onChange={(event) => setLogMessage(event.target.value)} placeholder="Log message..." />
+        <input
+          value={logMessage}
+          onChange={(event) => {
+            setLogMessage(event.target.value);
+          }}
+          placeholder="Log message..."
+        />
         <button
           onClick={() => {
             if (logMessage.trim()) {
-              sendLog({ level: "info", data: logMessage });
+              void sendLog({ data: logMessage, level: "info" });
             }
           }}
         >
@@ -82,11 +93,17 @@ function AppView() {
 
       <div className="action">
         <h3>Open Link</h3>
-        <input value={link} onChange={(event) => setLink(event.target.value)} placeholder="https://..." />
+        <input
+          value={link}
+          onChange={(event) => {
+            setLink(event.target.value);
+          }}
+          placeholder="https://..."
+        />
         <button
           onClick={() => {
             if (link.trim()) {
-              openLink({ url: link });
+              void openLink({ url: link });
             }
           }}
         >

@@ -1,28 +1,17 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
 import { z } from "zod";
 
+import type { RawToolResult, ToolCallResult } from "./tool-error";
+import { TOOL_RESULT_SOURCE, createToolResultAdapter, errorResult, normalizeToolCallError } from "./tool-result-source";
+import type { ToolResultSource } from "./tool-result-source";
 import { getActiveWidget } from "./widget-context";
-import {
-  type RawToolResult,
-  type ToolCallResult,
-} from "./tool-error";
-import {
-  TOOL_RESULT_SOURCE,
-  createToolResultAdapter,
-  errorResult,
-  normalizeToolCallError,
-  type ToolResultSource,
-} from "./tool-result-source";
 
-type GeneratedToolCall<Input extends object, Output> = {} extends Input
-  ? (input?: Input, app?: App) => Promise<ToolCallResult<Output>>
-  : (input: Input, app?: App) => Promise<ToolCallResult<Output>>;
+type GeneratedToolCall<Input extends object, Output> =
+  Record<PropertyKey, never> extends Input
+    ? (input?: Input, app?: App) => Promise<ToolCallResult<Output>>
+    : (input: Input, app?: App) => Promise<ToolCallResult<Output>>;
 
-type GeneratedTool<Input extends object, Output> = GeneratedToolCall<
-  Input,
-  Output
-> &
-  ToolResultSource<Input, Output>;
+type GeneratedTool<Input extends object, Output> = GeneratedToolCall<Input, Output> & ToolResultSource<Input, Output>;
 
 type OutputSchema = Parameters<typeof z.fromJSONSchema>[0];
 
@@ -31,15 +20,12 @@ function createGeneratedToolCaller<Input extends object, Output>(
   success: (response: RawToolResult) => ToolCallResult<Output>,
 ): GeneratedTool<Input, Output> {
   const adapter = createToolResultAdapter<Input, Output>(name, success);
-  const caller = async (
-    input?: Input,
-    explicitApp?: App,
-  ): Promise<ToolCallResult<Output>> => {
+  const caller = async (input?: Input, explicitApp?: App): Promise<ToolCallResult<Output>> => {
     try {
       const app = explicitApp ?? getActiveWidget();
       return (await adapter.execute(input, app)).callResult;
-    } catch (cause: unknown) {
-      return errorResult(normalizeToolCallError(cause));
+    } catch (error: unknown) {
+      return errorResult(normalizeToolCallError(error));
     }
   };
   Object.defineProperty(caller, TOOL_RESULT_SOURCE, { value: adapter });
@@ -57,15 +43,13 @@ export function createGeneratedTool<Input extends object, Output>(
     if (!parsed.success) {
       return errorResult(parsed.error);
     }
-    return { result: parsed.data, error: undefined };
+    return { error: undefined, result: parsed.data };
   });
 }
 
-export function createGeneratedRawTool<Input extends object>(
-  name: string,
-): GeneratedTool<Input, RawToolResult> {
+export function createGeneratedRawTool<Input extends object>(name: string): GeneratedTool<Input, RawToolResult> {
   return createGeneratedToolCaller(name, (response) => ({
-    result: response,
     error: undefined,
+    result: response,
   }));
 }

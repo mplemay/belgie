@@ -1,20 +1,20 @@
-export type WidgetHtmlDocumentOptions = {
+export interface WidgetHtmlDocumentOptions {
   inlineScript?: string;
   inlineStyles?: string[];
   scripts?: string[];
   styles?: string[];
-};
+}
 
 export function escapeInlineScript(value: string): string {
-  return value.replace(/<\/script/gi, "<\\/script");
+  return value.replaceAll(/<\/script/gi, String.raw`<\/script`);
 }
 
 export function escapeInlineStyle(value: string): string {
-  return value.replace(/<\/style/gi, "<\\/style");
+  return value.replaceAll(/<\/style/gi, String.raw`<\/style`);
 }
 
 export function buildVirtualEntry(widgetFilePath: string): string {
-  const normalized = widgetFilePath.replace(/\\/g, "/");
+  const normalized = widgetFilePath.replaceAll("\\", "/");
   return [
     `import { mountWidget } from "@belgie/mcp";`,
     `import Widget from ${JSON.stringify(normalized)};`,
