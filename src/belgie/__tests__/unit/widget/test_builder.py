@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -21,12 +22,12 @@ def test_public_models_are_immutable_and_copy_files() -> None:
 
 
 def test_default_mcp_dependency_uses_in_tree_package() -> None:
+    local_mcp = Path(__file__).resolve().parents[5] / "packages" / "mcp"
     specifier = BUILDER_DEPENDENCIES["@belgie/mcp"]
-    assert specifier.startswith("file:")
-    local_mcp = Path(specifier.removeprefix("file:"))
-    assert local_mcp.name == "mcp"
-    assert local_mcp.parent.name == "packages"
-    assert (local_mcp / "package.json").is_file()
+    if (local_mcp / "dist" / "builder.js").is_file():
+        assert specifier == f"file:{local_mcp.as_posix()}"
+    else:
+        assert specifier == f"npm:@belgie/mcp@{version('belgie')}"
 
 
 def test_builder_validates_timeout_and_reserved_dependencies() -> None:

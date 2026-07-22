@@ -34,7 +34,7 @@ RESERVED_DEPENDENCY_MESSAGE: Final[str] = (
 def _default_mcp_specifier() -> str:
     # src/belgie/widget/_builder.py -> repo root when running from an editable checkout
     local_mcp = Path(__file__).resolve().parents[3] / "packages" / "mcp"
-    if (local_mcp / "package.json").is_file():
+    if (local_mcp / "dist" / "builder.js").is_file():
         return f"file:{local_mcp.as_posix()}"
     return f"npm:@belgie/mcp@{version('belgie')}"
 
