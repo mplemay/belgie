@@ -1,8 +1,8 @@
-type WeatherCardProps = {
+interface WeatherCardProps {
   city: string;
   condition: string;
   temperature: number;
-};
+}
 
 export function WeatherCard({ city, condition, temperature }: WeatherCardProps) {
   return (
