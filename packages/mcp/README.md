@@ -21,8 +21,6 @@ npm install --save-dev vite
 
 - `@belgie/mcp` exports `Widget`, `mountWidget`, widget host-context hooks, `useModal`, `useWidget`, `useToolResult`,
   context-bound App helpers, and MCP tool errors.
-- `@belgie/mcp/builder` exports the trusted programmatic `buildWidget()` compiler used by Python's isolated virtual
-  widget builder.
 - `@belgie/mcp/codegen` exports programmatic MCP tool-type generation.
 - `@belgie/mcp/internal` contains the runtime factories used by generated callers.
 - `@belgie/mcp/vite` exports the `belgie()` Vite plugin.
@@ -69,6 +67,18 @@ function Weather() {
 }
 
 mountWidget(Weather);
+```
+
+Add the plugin to a normal Vite configuration. Development serves each widget at `/widgets/<name>/index.html`;
+production emits a self-contained `dist/widgets/<name>/index.html` with JavaScript, CSS, and assets inlined.
+
+```ts
+import { defineConfig } from "vite";
+import { belgie } from "@belgie/mcp/vite";
+
+export default defineConfig({
+  plugins: [belgie({ srcDir: "src/widgets" })],
+});
 ```
 
 ## Read widget host context
@@ -136,22 +146,6 @@ function Cart() {
 `title`, `template`, and `anchor` are honored by Apps SDK hosts. The polyfill only applies `params`. Modal open must be
 user-initiated (for example a click handler), not a mount effect. Use `requestModal` / `closeModal` for the same
 behavior outside React render.
-
-Add the plugin to a normal Vite configuration. Development serves each widget at `/widgets/<name>/index.html`;
-production emits a self-contained `dist/widgets/<name>/index.html` with JavaScript, CSS, and assets inlined.
-
-```ts
-import { defineConfig } from "vite";
-import { belgie } from "@belgie/mcp/vite";
-
-export default defineConfig({
-  plugins: [belgie({ srcDir: "src/widgets" })],
-});
-```
-
-Agent-authored widgets use Python's separate `belgie.widget.WidgetBuilder` API. It supplies source through virtual
-modules, disables Vite config discovery and disk output, and limits bare imports to dependencies chosen by the host.
-The path-based plugin above remains the normal workflow for checked-in widget projects.
 
 ## Development
 
