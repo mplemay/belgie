@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Final, Self, cast
+from typing import Any, Final
 
 import pytest
 from pydantic_ai import AbstractToolset, Agent, ModelResponse, RunContext, ToolDefinition
@@ -14,7 +14,7 @@ from pydantic_ai.usage import RunUsage
 from pydantic_core import SchemaValidator, core_schema
 
 from belgie import Runtime, RuntimeOptions, pydantic_ai as pydantic_ai_capability
-from belgie.agent import BUILD_WIDGET_TOOL_NAME, RUN_CODE_METADATA, RUN_CODE_TOOL_NAME
+from belgie.agent import RUN_CODE_METADATA, RUN_CODE_TOOL_NAME
 from belgie.agent._run_code import (
     DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
     DEFAULT_BELGIE_CAPABILITY_ID,
@@ -23,7 +23,6 @@ from belgie.agent._run_code import (
 )
 from belgie.pydantic_ai import DEFAULT_RUN_CODE_INSTRUCTIONS, BelgieCapability
 from belgie.pydantic_ai._toolset import BelgieToolset
-from belgie.widget import WidgetBundle, WidgetSource
 
 AGENT_RUN_CODE_SOURCE: Final[str] = "export default function run() { return { agent: true }; }"
 
@@ -75,37 +74,6 @@ class StaticToolset(AbstractToolset[None]):
         tool: ToolsetTool[None],  # noqa: ARG002
     ) -> Any:
         return {"called": name}
-
-
-class FakeWidgetSession:
-    def __init__(self, *, error: Exception | None = None) -> None:
-        self.error = error
-        self.sources: list[WidgetSource] = []
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        return None
-
-    async def build(self, source: WidgetSource) -> WidgetBundle:
-        self.sources.append(source)
-        if self.error is not None:
-            raise self.error
-        return WidgetBundle(html="<!doctype html><p>secret artifact</p>")
-
-
-class FakeWidgetBuilder:
-    timeout = None
-
-    def __init__(self, *, error: Exception | None = None) -> None:
-        self.error = error
-        self.sessions: list[FakeWidgetSession] = []
-
-    def new_async_session(self) -> FakeWidgetSession:
-        session = FakeWidgetSession(error=self.error)
-        self.sessions.append(session)
-        return session
 
 
 def test_public_exports_are_limited() -> None:
@@ -236,82 +204,6 @@ async def test_tool_definition_exposes_typescript_run_code_only(
     assert tool_def.sequential is True
     assert tool_def.metadata == RUN_CODE_METADATA
     assert tool_def.parameters_json_schema["required"] == ["code"]
-
-
-async def test_widget_builder_opt_in_returns_html_only_in_metadata(
-    run_context: RunContext[None],
-) -> None:
-    fake_builder = FakeWidgetBuilder()
-    toolset = BelgieToolset(
-        wrapped=StaticToolset(),
-        widget_builder=cast("Any", fake_builder),
-    )
-
-    async with toolset:
-        tools = await toolset.get_tools(run_context)
-        first = await toolset.call_tool(
-            BUILD_WIDGET_TOOL_NAME,
-            {"widget": "export default function Widget() { return <p>one</p>; }"},
-            run_context,
-            tools[BUILD_WIDGET_TOOL_NAME],
-        )
-        second = await toolset.call_tool(
-            BUILD_WIDGET_TOOL_NAME,
-            {
-                "widget": 'import Card from "./Card"; export default Card;',
-                "files": {"Card.tsx": "export default function Card() { return <p>two</p>; }"},
-            },
-            run_context,
-            tools[BUILD_WIDGET_TOOL_NAME],
-        )
-
-    assert set(tools) == {RUN_CODE_TOOL_NAME, BUILD_WIDGET_TOOL_NAME}
-    assert tools[BUILD_WIDGET_TOOL_NAME].tool_def.parameters_json_schema["required"] == ["widget"]
-    assert isinstance(first, ToolReturn)
-    assert "secret artifact" not in first.return_value
-    assert first.metadata == {
-        "belgie": True,
-        "widget": WidgetBundle(html="<!doctype html><p>secret artifact</p>"),
-    }
-    assert isinstance(second, ToolReturn)
-    assert len(fake_builder.sessions) == 1
-    assert len(fake_builder.sessions[0].sources) == 2
-
-
-async def test_widget_builder_failure_becomes_model_retry(
-    run_context: RunContext[None],
-) -> None:
-    fake_builder = FakeWidgetBuilder(error=ValueError("widget.tsx: expected expression"))
-    toolset = BelgieToolset(
-        wrapped=StaticToolset(),
-        widget_builder=cast("Any", fake_builder),
-    )
-
-    async with toolset:
-        tools = await toolset.get_tools(run_context)
-        with pytest.raises(ModelRetry, match=r"(?s)Widget build failed:.*widget\.tsx"):
-            await toolset.call_tool(
-                BUILD_WIDGET_TOOL_NAME,
-                {"widget": "export default ("},
-                run_context,
-                tools[BUILD_WIDGET_TOOL_NAME],
-            )
-
-
-async def test_widget_builder_sessions_are_isolated_per_run() -> None:
-    fake_builder = FakeWidgetBuilder()
-    toolset = BelgieToolset(
-        wrapped=StaticToolset(),
-        widget_builder=cast("Any", fake_builder),
-    )
-
-    async with toolset:
-        pass
-    async with toolset:
-        pass
-
-    assert len(fake_builder.sessions) == 2
-    assert fake_builder.sessions[0] is not fake_builder.sessions[1]
 
 
 async def test_run_code_executes_typescript_script_module(

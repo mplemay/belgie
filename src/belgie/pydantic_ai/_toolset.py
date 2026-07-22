@@ -13,44 +13,30 @@ from pydantic_ai.toolsets._deferred_capability_loader import LOAD_CAPABILITY_TOO
 from pydantic_ai.toolsets.abstract import SchemaValidatorProt, ToolsetTool
 
 from belgie.agent import (
-    BUILD_WIDGET_JSON_SCHEMA,
-    BUILD_WIDGET_METADATA,
-    BUILD_WIDGET_TOOL_NAME,
     RUN_CODE_JSON_SCHEMA,
     RUN_CODE_METADATA,
     RUN_CODE_TOOL_NAME,
     BelgieOptions,
     BelgieRuntimeSession,
-    BuildWidgetInput,
     RunCodeInput,
     format_script_failure,
-    format_widget_failure,
-    widget_build_summary,
-)
-from belgie.agent._build_widget import (
-    BUILD_WIDGET_ARGS_VALIDATOR as _BUILD_WIDGET_ARGS_VALIDATOR,
-    BUILD_WIDGET_DESCRIPTION,
 )
 from belgie.agent._run_code import (
     RUN_CODE_ARGS_VALIDATOR as _RUN_CODE_ARGS_VALIDATOR,
     resolved_description,
 )
 from belgie.errors import BelgieError
-from belgie.widget import WidgetSource
 
 if TYPE_CHECKING:
     from belgie.agent._runtime import AsyncExitArgs
-    from belgie.widget._builder import _AsyncWidgetSession
 
 RUN_CODE_ARGS_VALIDATOR: Final[SchemaValidatorProt] = cast(
     "SchemaValidatorProt",
     _RUN_CODE_ARGS_VALIDATOR,
 )
-BUILD_WIDGET_ARGS_VALIDATOR: Final[SchemaValidatorProt] = cast(
-    "SchemaValidatorProt",
-    _BUILD_WIDGET_ARGS_VALIDATOR,
+UNSUPPORTED_TOOL_MESSAGE: Final[str] = (
+    "Belgie capability only supports the {supported_tool_name!r} tool, not {requested_tool_name!r}."
 )
-UNSUPPORTED_TOOL_MESSAGE: Final[str] = "Belgie capability does not support the {requested_tool_name!r} tool."
 TOOLSET_NOT_ENTERED_MESSAGE: Final[str] = "BelgieToolset must be entered before calling tools."
 
 
@@ -67,7 +53,6 @@ class _BelgieOptions(BelgieOptions):
 class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     _exit_stack: AsyncExitStack | None = field(default=None, init=False, repr=False)
     _session: BelgieRuntimeSession | None = field(default=None, init=False, repr=False)
-    _widget_session: _AsyncWidgetSession | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.validate()
@@ -97,10 +82,6 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
             await stack.enter_async_context(self.wrapped)
             session = BelgieRuntimeSession(**self.options_kwargs())
             await stack.enter_async_context(session)
-            if self.widget_builder is not None:
-                widget_session = self.widget_builder.new_async_session()
-                await stack.enter_async_context(widget_session)
-                self._widget_session = widget_session
             self._session = session
             self._exit_stack = stack
         except BaseException:
@@ -112,7 +93,6 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
         stack = self._exit_stack
         self._exit_stack = None
         self._session = None
-        self._widget_session = None
         if stack is None:
             return None
         return await stack.__aexit__(*cast("AsyncExitArgs", args))
@@ -138,25 +118,6 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
             max_retries=self.max_retries,
             args_validator=RUN_CODE_ARGS_VALIDATOR,
         )
-        if self.widget_builder is not None:
-            widget_metadata: dict[str, Any] = dict(BUILD_WIDGET_METADATA)
-            if self.defer_loading:
-                widget_metadata[DEFERRED_CAPABILITY_TOOL_METADATA_KEY] = True
-            tools[BUILD_WIDGET_TOOL_NAME] = ToolsetTool(
-                toolset=self,
-                tool_def=ToolDefinition(
-                    name=BUILD_WIDGET_TOOL_NAME,
-                    description=BUILD_WIDGET_DESCRIPTION,
-                    parameters_json_schema=BUILD_WIDGET_JSON_SCHEMA,
-                    metadata=widget_metadata,
-                    sequential=True,
-                    timeout=self.widget_builder.timeout,
-                    defer_loading=self.defer_loading,
-                    capability_id=self.capability_id if self.defer_loading else None,
-                ),
-                max_retries=self.max_retries,
-                args_validator=BUILD_WIDGET_ARGS_VALIDATOR,
-            )
         return tools
 
     async def call_tool(
@@ -168,24 +129,10 @@ class BelgieToolset(_BelgieOptions, WrapperToolset[AgentDepsT]):
     ) -> Any:  # noqa: ANN401
         if name == LOAD_CAPABILITY_TOOL_NAME:
             return await self.wrapped.call_tool(name, tool_args, ctx, tool)
-        if name == BUILD_WIDGET_TOOL_NAME:
-            if self._widget_session is None:
-                raise UserError(TOOLSET_NOT_ENTERED_MESSAGE)
-            try:
-                parsed = (
-                    tool_args if isinstance(tool_args, BuildWidgetInput) else BuildWidgetInput.model_validate(tool_args)
-                )
-                source = WidgetSource(widget=parsed.widget, files=parsed.files)
-                bundle = await self._widget_session.build(source)
-            except (BelgieError, TimeoutError, ValueError) as error:
-                raise ModelRetry(format_widget_failure(error)) from error
-            return ToolReturn(
-                return_value=widget_build_summary(bundle, parsed),
-                metadata={"belgie": True, "widget": bundle},
-            )
         if name != RUN_CODE_TOOL_NAME:
             raise UserError(
                 UNSUPPORTED_TOOL_MESSAGE.format(
+                    supported_tool_name=RUN_CODE_TOOL_NAME,
                     requested_tool_name=name,
                 ),
             )

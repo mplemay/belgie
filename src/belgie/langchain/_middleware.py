@@ -7,14 +7,9 @@ from typing import TYPE_CHECKING, Any, cast
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import ToolMessage
 
-from belgie.agent import (
-    BUILD_WIDGET_TOOL_NAME,
-    BelgieOptions,
-    BelgieRuntimeSession,
-    format_script_failure,
-    format_widget_failure,
-)
+from belgie.agent import BelgieOptions, BelgieRuntimeSession, format_script_failure
 from belgie.agent._run_code import (
+    BELGIE_TOOL_NAMES,
     DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
     DEFAULT_BELGIE_CAPABILITY_ID,
     apply_defer_loading_defaults,
@@ -23,12 +18,10 @@ from belgie.agent._run_code import (
 from belgie.errors import BelgieError
 from belgie.langchain._state import (
     BELGIE_RUNTIME_SESSION_STATE_KEY,
-    BELGIE_WIDGET_SESSION_STATE_KEY,
     BelgieAgentState,
     session_from_state,
-    widget_session_from_state,
 )
-from belgie.langchain._tools import build_load_belgie_tool, build_run_code_tool, build_widget_tool
+from belgie.langchain._tools import build_load_belgie_tool, build_run_code_tool
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -38,8 +31,6 @@ if TYPE_CHECKING:
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.runtime import Runtime
     from langgraph.types import Command
-
-    from belgie.widget._builder import _AsyncWidgetSession
 
 
 @dataclass(kw_only=True)
@@ -59,16 +50,13 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
             description=description,
             defer_loading=self.defer_loading,
         )
-        tools = [run_code_tool]
-        if self.widget_builder is not None:
-            tools.append(build_widget_tool(defer_loading=self.defer_loading))
         if not self.defer_loading:
-            return tools
+            return [run_code_tool]
         load_tool = build_load_belgie_tool(
             capability_id=capability_id,
             description=DEFAULT_BELGIE_CAPABILITY_DESCRIPTION,
         )
-        return [load_tool, *tools]
+        return [load_tool, run_code_tool]
 
     def _new_session(self) -> BelgieRuntimeSession:
         return BelgieRuntimeSession(**self.options_kwargs())
@@ -76,17 +64,7 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
     def before_agent(self, state: BelgieAgentState, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
         session = self._new_session()
         asyncio.run(session.__aenter__())
-        widget_session = self.widget_builder.new_async_session() if self.widget_builder is not None else None
-        try:
-            if widget_session is not None:
-                asyncio.run(widget_session.__aenter__())
-        except BaseException:
-            asyncio.run(session.__aexit__(None, None, None))
-            raise
-        return {
-            BELGIE_RUNTIME_SESSION_STATE_KEY: session,
-            BELGIE_WIDGET_SESSION_STATE_KEY: widget_session,
-        }
+        return {BELGIE_RUNTIME_SESSION_STATE_KEY: session}
 
     async def abefore_agent(
         self,
@@ -95,31 +73,19 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
     ) -> dict[str, Any] | None:
         session = self._new_session()
         await session.__aenter__()
-        widget_session = self.widget_builder.new_async_session() if self.widget_builder is not None else None
-        try:
-            if widget_session is not None:
-                await widget_session.__aenter__()
-        except BaseException:
-            await session.__aexit__(None, None, None)
-            raise
-        return {
-            BELGIE_RUNTIME_SESSION_STATE_KEY: session,
-            BELGIE_WIDGET_SESSION_STATE_KEY: widget_session,
-        }
+        return {BELGIE_RUNTIME_SESSION_STATE_KEY: session}
 
     def after_agent(self, state: BelgieAgentState, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
-        self._close_widget_session(widget_session_from_state(state))
         self._close_session(session_from_state(state))
-        return {BELGIE_RUNTIME_SESSION_STATE_KEY: None, BELGIE_WIDGET_SESSION_STATE_KEY: None}
+        return {BELGIE_RUNTIME_SESSION_STATE_KEY: None}
 
     async def aafter_agent(
         self,
         state: BelgieAgentState,
         runtime: Runtime[Any],  # noqa: ARG002
     ) -> dict[str, Any] | None:
-        await self._aclose_widget_session(widget_session_from_state(state))
         await self._aclose_session(session_from_state(state))
-        return {BELGIE_RUNTIME_SESSION_STATE_KEY: None, BELGIE_WIDGET_SESSION_STATE_KEY: None}
+        return {BELGIE_RUNTIME_SESSION_STATE_KEY: None}
 
     def wrap_model_call(
         self,
@@ -154,11 +120,11 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
     ) -> ToolMessage | Command[Any]:
-        if request.tool_call["name"] not in {tool.name for tool in self.tools}:
+        if request.tool_call["name"] not in BELGIE_TOOL_NAMES:
             return handler(request)
         try:
             return handler(request)
-        except (BelgieError, TimeoutError, RuntimeError, ValueError) as error:
+        except (BelgieError, TimeoutError, RuntimeError) as error:
             return self._tool_error_message(request, error)
 
     async def _wrap_belgie_tool_call_async(
@@ -166,19 +132,16 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
-        if request.tool_call["name"] not in {tool.name for tool in self.tools}:
+        if request.tool_call["name"] not in BELGIE_TOOL_NAMES:
             return await handler(request)
         try:
             return await handler(request)
-        except (BelgieError, TimeoutError, RuntimeError, ValueError) as error:
+        except (BelgieError, TimeoutError, RuntimeError) as error:
             return self._tool_error_message(request, error)
 
     def _tool_error_message(self, request: ToolCallRequest, error: Exception) -> ToolMessage:
-        formatter = (
-            format_widget_failure if request.tool_call["name"] == BUILD_WIDGET_TOOL_NAME else format_script_failure
-        )
         return ToolMessage(
-            content=formatter(error),
+            content=format_script_failure(error),
             tool_call_id=request.tool_call["id"],
             name=request.tool_call["name"],
             status="error",
@@ -190,16 +153,6 @@ class BelgieMiddleware(BelgieOptions, AgentMiddleware[BelgieAgentState]):
         asyncio.run(session.__aexit__(None, None, None))
 
     async def _aclose_session(self, session: BelgieRuntimeSession | None) -> None:
-        if session is None:
-            return
-        await session.__aexit__(None, None, None)
-
-    def _close_widget_session(self, session: _AsyncWidgetSession | None) -> None:
-        if session is None:
-            return
-        asyncio.run(session.__aexit__(None, None, None))
-
-    async def _aclose_widget_session(self, session: _AsyncWidgetSession | None) -> None:
         if session is None:
             return
         await session.__aexit__(None, None, None)

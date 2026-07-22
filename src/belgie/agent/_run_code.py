@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from belgie.agent._build_widget import BUILD_WIDGET_TOOL_NAME
 from belgie.errors import BelgieError
 
 if TYPE_CHECKING:
@@ -17,9 +16,7 @@ class RunCodeInput(BaseModel):
 
 RUN_CODE_TOOL_NAME: Final[str] = "run_code"
 LOAD_BELGIE_TOOL_NAME: Final[str] = "load_belgie"
-BELGIE_TOOL_NAMES: Final[frozenset[str]] = frozenset(
-    {BUILD_WIDGET_TOOL_NAME, RUN_CODE_TOOL_NAME, LOAD_BELGIE_TOOL_NAME},
-)
+BELGIE_TOOL_NAMES: Final[frozenset[str]] = frozenset({RUN_CODE_TOOL_NAME, LOAD_BELGIE_TOOL_NAME})
 RUN_CODE_ADAPTER: Final[TypeAdapter[RunCodeInput]] = TypeAdapter(RunCodeInput)
 RUN_CODE_JSON_SCHEMA: Final[dict[str, Any]] = RUN_CODE_ADAPTER.json_schema()
 RUN_CODE_ARGS_VALIDATOR: Final[Any] = RUN_CODE_ADAPTER.validator
