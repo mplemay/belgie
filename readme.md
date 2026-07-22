@@ -4,7 +4,8 @@ Belgie is a sandboxed TypeScript environment for Python that lets you build Reac
 have agents write code in a sandbox.
 
 - **MCP Apps:** Attach React widgets to Python MCP tools in one project.
-- **AI agents:** Sandboxed `run_code` so Pydantic AI and LangChain can run TypeScript.
+- **AI agents:** Sandboxed `run_code` so Pydantic AI and LangChain can run TypeScript and TSX.
+- **Inline React widgets:** Return self-contained HTML from `run_code` with `@belgie/render`.
 - **Sandbox:** Deno is bundled, so you do not need to install Node.js.
 
 ## Installation
@@ -95,7 +96,7 @@ Runnable projects:
 ## AI agents
 
 When an agent needs an npm package, a browser-style API, or a JS-side transform, give it
-`run_code`. Belgie executes the TypeScript or JavaScript in the embedded Deno sandbox. No
+`run_code`. Belgie executes the TypeScript, JavaScript, or TSX in the embedded Deno sandbox. No
 separate Node install.
 
 ### Pydantic AI
@@ -183,6 +184,32 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## Inline widget rendering
+
+Pydantic AI and LangChain agents can return a complete inline React widget through the same
+`run_code` tool. The agent writes one TSX module and imports the standalone renderer:
+
+```tsx
+import { render } from "npm:@belgie/render";
+
+function Widget() {
+  return <main>Hello from Belgie</main>;
+}
+
+export default function run() {
+  return render({
+    widget: <Widget />,
+    plugins: [],
+  });
+}
+```
+
+`render()` runs Vite inside the active Deno worker and returns one self-contained HTML string with
+inline JavaScript, CSS, and assets. Package imports are supported. Relative host-file imports are
+intentionally unavailable, and Vite plugins run only during the server build before their
+expressions and plugin-only imports are removed from the browser bundle. This API is independent
+from `@belgie/mcp` and its path-based `widget.tsx` development and production flow.
+
 ## Examples
 
 Small, runnable projects. Each focuses on one capability.
@@ -197,9 +224,9 @@ Small, runnable projects. Each focuses on one capability.
 ### AI
 
 - **[pydantic-ai](examples/ai/pydantic-ai):** Pydantic AI agent with `BelgieCapability()` for
-  sandboxed JS/TS execution.
+  sandboxed JS/TS/TSX execution.
 - **[langchain](examples/ai/langchain):** LangChain agent with `BelgieMiddleware()` for sandboxed
-  JS/TS execution.
+  JS/TS/TSX execution.
 
 ### Basic
 

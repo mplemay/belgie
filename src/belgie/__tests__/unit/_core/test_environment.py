@@ -21,8 +21,19 @@ def test_environment_accepts_string_and_pathlike_path(
 
     env = Environment(path=project_path)
 
+    assert env.workspace == project
     assert repr(env) == f"Environment(path={project}, dependencies=0, active=False)"
     assert repr(Runtime(env=env)) == f"Runtime(env=Environment(path={project}, dependencies=0))"
+
+
+def test_environment_workspace_defaults_to_cwd(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    env = Environment()
+
+    assert env.workspace == tmp_path
+    with env as active_env:
+        assert active_env.workspace == tmp_path
 
 
 def test_environment_path_is_keyword_only() -> None:

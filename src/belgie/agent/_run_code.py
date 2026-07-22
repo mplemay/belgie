@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class RunCodeInput(BaseModel):
-    code: str = Field(description="The JavaScript or TypeScript belgie.Script module source to execute.")
+    code: str = Field(description="The JavaScript, TypeScript, or TSX belgie.Script module source to execute.")
 
 
 RUN_CODE_TOOL_NAME: Final[str] = "run_code"
@@ -27,10 +27,10 @@ RUN_CODE_METADATA: Final[dict[str, str]] = {
 RUN_CODE_DESCRIPTION: Final[str] = """\
 Write and run a belgie.Script module in a sandbox.
 
-The code is complete JavaScript or TypeScript module source for Belgie's embedded Deno-powered \
-runtime. Belgie treats inline source as TypeScript, so type annotations are supported and plain \
-JavaScript is valid. Export a callable function; prefer `export default async function run() { ... }`, \
-or use `export function run() { ... }`.
+The code is complete JavaScript, TypeScript, or TSX module source for Belgie's embedded Deno-powered \
+runtime. Inline source is parsed as TypeScript first and TSX second, so generic TypeScript syntax is \
+preserved and React JSX uses the automatic runtime. Export a callable function; prefer \
+`export default async function run() { ... }`, or use `export function run() { ... }`.
 
 This is a Deno environment, not Node.js. Use Deno-style imports such as `npm:pkg@version`, \
 `jsr:@scope/pkg@version`, or full URLs. `await fetch(...)` is available when this capability uses \
@@ -40,6 +40,8 @@ Important restrictions:
 - External agent tools are not available inside the sandbox.
 - Return values must be JSON-serializable.
 - Use `return` from the exported function for the value you want to send back.
+- To return a self-contained inline React widget, import `render` from `npm:@belgie/render` and \
+return its promise. The full HTML document is returned as the ordinary tool result.
 
 Examples:
 
@@ -50,6 +52,21 @@ export default async function run(): Promise<number[]> {
   return ids.slice(0, 20);
 }
 ```
+
+```tsx
+import { render } from "npm:@belgie/render";
+
+function Widget() {
+  return <main>Hello from Belgie</main>;
+}
+
+export default function run() {
+  return render({
+    widget: <Widget />,
+    plugins: [],
+  });
+}
+```
 """
 
 DEFAULT_RUN_CODE_INSTRUCTIONS: Final[str] = RUN_CODE_DESCRIPTION
@@ -57,7 +74,8 @@ SCRIPT_TIMEOUT_MESSAGE: Final[str] = "Belgie script execution timed out after {t
 SCRIPT_FAILURE_PREFIX: Final[str] = "Belgie script execution failed:\n"
 DEFAULT_BELGIE_CAPABILITY_ID: Final[str] = "belgie"
 DEFAULT_BELGIE_CAPABILITY_DESCRIPTION: Final[str] = (
-    "Execute JavaScript or TypeScript belgie.Script modules in a Deno sandbox via run_code."
+    "Execute JavaScript, TypeScript, or TSX belgie.Script modules and render inline React widgets "
+    "in a Deno sandbox via run_code."
 )
 
 
@@ -67,7 +85,7 @@ def apply_defer_loading_defaults(options: BelgieOptions) -> None:
 
 
 def load_belgie_tool_description(capability_id: str) -> str:
-    return f"Load the Belgie JavaScript/TypeScript sandbox capability. Available capability id: {capability_id}."
+    return f"Load the Belgie JavaScript/TypeScript/TSX sandbox capability. Available capability id: {capability_id}."
 
 
 def format_script_failure(error: Exception) -> str:

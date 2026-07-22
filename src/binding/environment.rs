@@ -211,6 +211,11 @@ impl PyEnvironment {
         })
     }
 
+    #[getter]
+    fn workspace(&self) -> PathBuf {
+        self.inner.workspace().to_path_buf()
+    }
+
     fn __repr__(&self) -> String {
         environment_repr(&self.inner, "Environment")
     }
@@ -218,6 +223,11 @@ impl PyEnvironment {
 
 #[pymethods]
 impl PySyncEnvironment {
+    #[getter]
+    fn workspace(&self) -> PathBuf {
+        self.inner.workspace().to_path_buf()
+    }
+
     #[pyo3(signature = (*, lockfile = None))]
     fn lock(
         &self,
@@ -260,6 +270,11 @@ impl PySyncEnvironment {
 
 #[pymethods]
 impl PyAsyncEnvironment {
+    #[getter]
+    fn workspace(&self) -> PathBuf {
+        self.inner.workspace().to_path_buf()
+    }
+
     #[pyo3(signature = (*, lockfile = None))]
     fn lock<'py>(&self, py: Python<'py>, lockfile: Option<PathBuf>) -> PyResult<Bound<'py, PyAny>> {
         let output_lockfile = normalize_lockfile_arg(py, lockfile, LockfilePathMode::Output)?;

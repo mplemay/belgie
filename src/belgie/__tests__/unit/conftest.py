@@ -9,6 +9,21 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+@pytest.fixture(autouse=True)
+def _stub_default_render_specifier(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Unit tests enter default sessions often; avoid installing the real Vite stack.
+    package = tmp_path_factory.mktemp("belgie-render-stub")
+    (package / "package.json").write_text(
+        json.dumps({"name": "@belgie/render", "version": "0.0.0", "type": "module", "exports": {".": "./index.js"}}),
+        encoding="utf-8",
+    )
+    (package / "index.js").write_text("export function render() { return Promise.resolve(''); }\n", encoding="utf-8")
+    monkeypatch.setattr("belgie.agent._runtime.DEFAULT_RENDER_SPECIFIER", f"file:{package.resolve()}")
+
+
 @pytest.fixture
 def views_path(tmp_path: Path) -> Path:
     views = tmp_path / "views"

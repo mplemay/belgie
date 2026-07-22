@@ -135,7 +135,9 @@ def test_public_exports_are_limited() -> None:
     assert DEFAULT_RUN_CODE_INSTRUCTIONS is langchain_capability.DEFAULT_RUN_CODE_INSTRUCTIONS
     assert "JavaScript" in DEFAULT_RUN_CODE_INSTRUCTIONS
     assert "TypeScript" in DEFAULT_RUN_CODE_INSTRUCTIONS
+    assert "TSX" in DEFAULT_RUN_CODE_INSTRUCTIONS
     assert "Deno" in DEFAULT_RUN_CODE_INSTRUCTIONS
+    assert "npm:@belgie/render" in DEFAULT_RUN_CODE_INSTRUCTIONS
 
 
 def test_rejects_conflicting_configuration() -> None:

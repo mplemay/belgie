@@ -82,13 +82,6 @@ impl TypeIndex {
     }
 }
 
-pub(crate) fn media_type_for_script(content_path: Option<&std::path::Path>) -> MediaType {
-    match content_path {
-        Some(path) => MediaType::from_path(path),
-        None => MediaType::TypeScript,
-    }
-}
-
 pub(crate) fn parse_script_module(
     content: &str,
     media_type: MediaType,

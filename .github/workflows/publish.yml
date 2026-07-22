@@ -468,18 +468,22 @@ jobs:
         run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/ dist/*
 
   publish-npm:
-    name: publish to npm
+    name: publish @belgie/${{ matrix.package }} to npm
     needs: [check, publish]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [mcp, render]
     environment:
       name: npm
-      url: https://www.npmjs.com/package/@belgie/mcp
+      url: https://www.npmjs.com/package/@belgie/${{ matrix.package }}
     permissions:
       contents: read
       id-token: write
     defaults:
       run:
-        working-directory: packages/mcp
+        working-directory: packages/${{ matrix.package }}
     env:
       VERSION: ${{ needs.check.outputs.version }}
     steps:

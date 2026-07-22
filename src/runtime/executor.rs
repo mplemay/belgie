@@ -33,10 +33,11 @@ mod tests {
     use super::{execute_async, execute_sync};
     use crate::{
         options::{RuntimeOptions, ScriptOptions},
-        runtime::{BoundRuntime, DenoExecutionHandle, DenoRuntime},
+        runtime::{BoundRuntime, DenoExecutionHandle, DenoRuntime, module_loader},
         script::ScriptSource,
         types::runner::RunnerArguments,
     };
+    use deno_core::ModuleSpecifier;
     use deno_lib::worker::LibWorkerFactoryRoots;
     use pyo3::{
         Python,
@@ -75,6 +76,15 @@ mod tests {
                 .set_item("label", "deno")
                 .expect("keyword should be inserted");
             RunnerArguments::from_py(&args, Some(&kwargs)).expect("input args should convert")
+        })
+    }
+
+    fn execute_string(handle: &DenoExecutionHandle) -> String {
+        with_python(|py| {
+            execute_sync(py, handle, empty_arguments())
+                .expect("script should execute")
+                .extract(py)
+                .expect("script should return a string")
         })
     }
 
@@ -169,6 +179,59 @@ mod tests {
             result.is_ok(),
             "sync executor should compile TypeScript annotations before execution: {result:?}"
         );
+    }
+
+    #[test]
+    fn sync_executor_uses_automatic_jsx_for_inline_tsx() {
+        let bound = bound_inline(
+            "export default function run() { return <main data-belgie=\"inline\" />; }",
+        );
+        let specifier =
+            ModuleSpecifier::from_file_path(bound.cwd().join("__deno_python_inline__.tsx"))
+                .expect("inline TSX path should convert to file URL");
+        let transpiled =
+            module_loader::maybe_transpile_source(&specifier, bound.script().execution_content())
+                .expect("inline TSX should transpile");
+
+        assert!(
+            transpiled.contains("npm:react@19.2.6/jsx-runtime"),
+            "automatic JSX should import React's JSX runtime: {transpiled}"
+        );
+        assert!(
+            transpiled.contains("jsx") && transpiled.contains("main"),
+            "automatic JSX should lower the JSX expression: {transpiled}"
+        );
+    }
+
+    #[test]
+    fn renderer_context_is_frozen_read_only_and_isolated_per_script() {
+        let first_source = r#"export default function run() {
+  const key = Symbol.for("@belgie/render/context");
+  const context = globalThis[key];
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+  const readOnly = descriptor !== undefined
+    && descriptor.writable === false
+    && descriptor.configurable === false;
+  const inlineUrl = typeof context.url === "string"
+    && context.url.includes("__deno_python_inline__.ts");
+  return [
+    context.source.includes("first-marker"),
+    inlineUrl,
+    Object.isFrozen(context),
+    readOnly,
+  ].join("|");
+}
+// first-marker"#;
+        let second_source = r#"export default function run() {
+  const context = globalThis[Symbol.for("@belgie/render/context")];
+  return [context.source.includes("second-marker"), context.source.includes(["first", "marker"].join("-"))].join("|");
+}
+// second-marker"#;
+        let first = handle(bound_inline(first_source));
+        let second = handle(bound_inline(second_source));
+
+        assert_eq!(execute_string(&first), "true|true|true|true");
+        assert_eq!(execute_string(&second), "true|false");
     }
 
     #[test]

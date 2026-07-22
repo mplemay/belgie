@@ -145,7 +145,7 @@ async def wait_for_url(url: str) -> str:
     while monotonic() < deadline:
         try:
             return await asyncio.to_thread(fetch_text, url)
-        except URLError:
+        except (URLError, TimeoutError, ConnectionError, OSError):
             await asyncio.sleep(0.1)
     pytest.fail(f"Vite server did not become available at {url}")
 
