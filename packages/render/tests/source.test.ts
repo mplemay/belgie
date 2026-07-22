@@ -89,6 +89,133 @@ describe("inline source transform", () => {
     expect(transformed).toContain("afterRender = renderDefault");
   });
 
+  it("removes plugins from a variable options object with satisfies", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const options = { plugins: [serverPlugin()], widget: <main /> } satisfies { plugins: unknown[]; widget: unknown };",
+        "export default () => render(options);",
+      ].join("\n"),
+    );
+
+    expect(transformed).toContain("const options = { widget: <main /> } satisfies");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).not.toContain("npm:plugin-package@1.2.3");
+    expect(transformed).toContain("render(options)");
+  });
+
+  it("removes plugins carried by an object spread", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const server = { plugins: [serverPlugin()] };",
+        "export default () => render({ widget: <main />, ...server });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("plugins:");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).toContain("...server");
+    expect(transformed).toContain("widget: <main />");
+  });
+
+  it("removes plugins when render is called through a namespace import", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import * as R from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "export default () => R.render({ widget: <main />, plugins: [serverPlugin()] });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("plugins:");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).toContain("R.render({ widget: <main /> })");
+  });
+
+  it("rejects dynamically produced render options", () => {
+    expect(() =>
+      stripServerPlugins(
+        ['import { render } from "@belgie/render";', "export default () => render(getOptions());"].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects opaque object spreads in render options", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          "declare const cfg: Record<string, unknown>;",
+          "export default () => render({ widget: <main />, ...cfg });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects reassigned options bindings", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          "let options = { widget: <main /> };",
+          "options = { widget: <main /> };",
+          "export default () => render(options);",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects render calls without options", () => {
+    expect(() =>
+      stripServerPlugins(['import { render } from "@belgie/render";', "export default () => render();"].join("\n")),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects nested opaque spreads through bound objects", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          "declare const cfg: Record<string, unknown>;",
+          "const deep = { ...cfg };",
+          "const mid = { ...deep };",
+          "export default () => render({ widget: <main />, ...mid });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("strips plugins through cyclic object spreads", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const a = { ...b };",
+        "const b = { plugins: [serverPlugin()], ...a };",
+        "export default () => render({ widget: <main />, ...a });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).toContain("widget: <main />");
+  });
+
+  it("strips plugins from parenthesized and type-asserted options", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "export default () => render(({ plugins: [serverPlugin()], widget: <main /> } as { widget: unknown }));",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).toContain("widget: <main />");
+  });
+
   it.each([
     ["npm:react@19.2.6", "react"],
     ["npm:react-dom@19.2.6/client", "react-dom/client"],

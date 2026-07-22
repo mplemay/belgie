@@ -132,11 +132,144 @@ function formatImport(source: string, specifiers: ImportDeclaration["specifiers"
   return `import ${groups.join(", ")} from ${JSON.stringify(source)};`;
 }
 
+const UNANALYZABLE_PLUGINS_ERROR =
+  "@belgie/render: plugins must be declared in a statically analyzable render(...) options object";
+
+function unwrapExpression(node: AstNode): AstNode {
+  let current = node;
+  while (
+    (current.type === "ParenthesizedExpression" ||
+      current.type === "TSAsExpression" ||
+      current.type === "TSSatisfiesExpression" ||
+      current.type === "TSTypeAssertion") &&
+    "expression" in current &&
+    isNode(current.expression)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function isRenderCallee(callee: AstNode, renderNames: Set<string>, renderNamespaces: Set<string>): boolean {
+  if (callee.type === "Identifier" && "name" in callee && typeof callee.name === "string") {
+    return renderNames.has(callee.name);
+  }
+  if (
+    callee.type !== "MemberExpression" ||
+    !("computed" in callee) ||
+    callee.computed ||
+    !("object" in callee) ||
+    !isNode(callee.object) ||
+    callee.object.type !== "Identifier" ||
+    !("name" in callee.object) ||
+    typeof callee.object.name !== "string" ||
+    !renderNamespaces.has(callee.object.name) ||
+    !("property" in callee) ||
+    !isNode(callee.property) ||
+    callee.property.type !== "Identifier" ||
+    !("name" in callee.property) ||
+    callee.property.name !== "render"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function collectObjectBindings(program: AstNode): { objects: Map<string, AstNode>; reassigned: Set<string> } {
+  const objects = new Map<string, AstNode>();
+  const reassigned = new Set<string>();
+  walk(program, (node) => {
+    if (
+      node.type === "VariableDeclarator" &&
+      "id" in node &&
+      isNode(node.id) &&
+      node.id.type === "Identifier" &&
+      "name" in node.id &&
+      typeof node.id.name === "string" &&
+      "init" in node &&
+      isNode(node.init)
+    ) {
+      const name = node.id.name;
+      const init = unwrapExpression(node.init);
+      if (init.type === "ObjectExpression") {
+        if (objects.has(name)) {
+          reassigned.add(name);
+        } else {
+          objects.set(name, init);
+        }
+      }
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      "left" in node &&
+      isNode(node.left) &&
+      node.left.type === "Identifier" &&
+      "name" in node.left &&
+      typeof node.left.name === "string"
+    ) {
+      reassigned.add(node.left.name);
+    }
+  });
+  return { objects, reassigned };
+}
+
+function resolveObjectExpression(
+  node: AstNode,
+  objects: Map<string, AstNode>,
+  reassigned: Set<string>,
+): AstNode | undefined {
+  const unwrapped = unwrapExpression(node);
+  if (unwrapped.type === "ObjectExpression") {
+    return unwrapped;
+  }
+  if (unwrapped.type === "Identifier" && "name" in unwrapped && typeof unwrapped.name === "string") {
+    if (reassigned.has(unwrapped.name)) {
+      return undefined;
+    }
+    return objects.get(unwrapped.name);
+  }
+  return undefined;
+}
+
+function collectPluginPropertiesFromObject(
+  object: AstNode,
+  objects: Map<string, AstNode>,
+  reassigned: Set<string>,
+  pluginProperties: AstNode[],
+  seen: Set<AstNode>,
+): boolean {
+  if (seen.has(object)) {
+    return true;
+  }
+  seen.add(object);
+  if (!("properties" in object) || !Array.isArray(object.properties)) {
+    return false;
+  }
+  for (const property of (object.properties as unknown[]).filter(isNode)) {
+    if (property.type === "Property" && propertyName(property) === "plugins") {
+      pluginProperties.push(property);
+      continue;
+    }
+    if (property.type === "SpreadElement" && "argument" in property && isNode(property.argument)) {
+      const spreadObject = resolveObjectExpression(property.argument, objects, reassigned);
+      if (spreadObject === undefined) {
+        return false;
+      }
+      if (!collectPluginPropertiesFromObject(spreadObject, objects, reassigned, pluginProperties, seen)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 export function stripServerPlugins(source: string): string {
   const program = parseAst(source, { astType: "js", lang: "tsx", range: true });
+  const root = program as unknown as AstNode;
   const body = program.body as unknown as AstNode[];
   const imports = body.filter((node): node is ImportDeclaration => node.type === "ImportDeclaration");
   const renderNames = new Set<string>();
+  const renderNamespaces = new Set<string>();
   for (const declaration of imports) {
     if (!renderImport(declaration.source.value)) {
       continue;
@@ -144,49 +277,43 @@ export function stripServerPlugins(source: string): string {
     for (const specifier of declaration.specifiers) {
       if (specifier.type === "ImportDefaultSpecifier") {
         renderNames.add(specifier.local.name);
+      } else if (specifier.type === "ImportNamespaceSpecifier") {
+        renderNamespaces.add(specifier.local.name);
       } else if (importedName(specifier) === "render") {
         renderNames.add(specifier.local.name);
       }
     }
   }
 
+  const { objects, reassigned } = collectObjectBindings(root);
   const pluginProperties: AstNode[] = [];
   const pluginIdentifiers = new Set<string>();
-  walk(program as unknown as AstNode, (node) => {
+  walk(root, (node) => {
     if (node.type !== "CallExpression" || !("callee" in node) || !("arguments" in node)) {
       return;
     }
     const callee = node.callee;
     const args = node.arguments;
-    if (
-      !isNode(callee) ||
-      callee.type !== "Identifier" ||
-      !("name" in callee) ||
-      typeof callee.name !== "string" ||
-      !renderNames.has(callee.name) ||
-      !Array.isArray(args) ||
-      !isNode(args[0]) ||
-      args[0].type !== "ObjectExpression" ||
-      !("properties" in args[0]) ||
-      !Array.isArray(args[0].properties)
-    ) {
+    if (!isNode(callee) || !isRenderCallee(callee, renderNames, renderNamespaces) || !Array.isArray(args)) {
       return;
     }
-    const properties = (args[0].properties as unknown[]).filter(isNode);
-    const propertyIndex = properties.findIndex(
-      (property) => property.type === "Property" && propertyName(property) === "plugins",
-    );
-    if (propertyIndex === -1) {
-      return;
+    if (!isNode(args[0])) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
     }
-    const property = properties[propertyIndex];
-    if (property === undefined) {
-      return;
+    const optionsObject = resolveObjectExpression(args[0], objects, reassigned);
+    if (optionsObject === undefined) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
     }
-    pluginProperties.push(property);
-    if ("value" in property && isNode(property.value)) {
-      for (const name of collectIdentifiers(property.value)) {
-        pluginIdentifiers.add(name);
+    const callPlugins: AstNode[] = [];
+    if (!collectPluginPropertiesFromObject(optionsObject, objects, reassigned, callPlugins, new Set())) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+    }
+    for (const property of callPlugins) {
+      pluginProperties.push(property);
+      if ("value" in property && isNode(property.value)) {
+        for (const name of collectIdentifiers(property.value)) {
+          pluginIdentifiers.add(name);
+        }
       }
     }
   });
@@ -196,7 +323,7 @@ export function stripServerPlugins(source: string): string {
   }
 
   const usedOutsidePlugins = new Set<string>();
-  walk(program as unknown as AstNode, (node) => {
+  walk(root, (node) => {
     if (node.type === "ImportDeclaration" || pluginProperties.includes(node)) {
       return false;
     }
@@ -207,7 +334,7 @@ export function stripServerPlugins(source: string): string {
 
   const transformed = new MagicString(source);
   for (const property of pluginProperties) {
-    const parent = findParentObject(program as unknown as AstNode, property);
+    const parent = findParentObject(root, property);
     if (parent !== undefined && "properties" in parent && Array.isArray(parent.properties)) {
       const properties = (parent.properties as unknown[]).filter(isNode);
       removeObjectProperty(transformed, properties, properties.indexOf(property));
