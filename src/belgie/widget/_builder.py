@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
     from belgie._core import AsyncRunner, SyncRunner
 
-MCP_PACKAGE_VERSION: Final[str] = version("belgie")
 REACT_VERSION: Final[str] = "19.2.6"
 EXT_APPS_VERSION: Final[str] = "1.7.4"
 BUILDER_TIMEOUT_MESSAGE: Final[str] = "Widget build exceeded the {timeout:g} second timeout."
@@ -30,8 +29,18 @@ BUILDER_PACKAGE_JSON: Final[str] = '{"private":true,"type":"module","workspaces"
 RESERVED_DEPENDENCY_MESSAGE: Final[str] = (
     "dependency alias {alias!r} is reserved by WidgetBuilder and must use {specifier!r}"
 )
+
+
+def _default_mcp_specifier() -> str:
+    # src/belgie/widget/_builder.py -> repo root when running from an editable checkout
+    local_mcp = Path(__file__).resolve().parents[3] / "packages" / "mcp"
+    if (local_mcp / "package.json").is_file():
+        return f"file:{local_mcp.as_posix()}"
+    return f"npm:@belgie/mcp@{version('belgie')}"
+
+
 BUILDER_DEPENDENCIES: Final[dict[str, str]] = {
-    "@belgie/mcp": f"npm:@belgie/mcp@{MCP_PACKAGE_VERSION}",
+    "@belgie/mcp": _default_mcp_specifier(),
     "@modelcontextprotocol/ext-apps": f"npm:@modelcontextprotocol/ext-apps@{EXT_APPS_VERSION}",
     "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk@1.29.0",
     "@modelcontextprotocol/sdk/shared/protocol.js": ("npm:@modelcontextprotocol/sdk@1.29.0/shared/protocol.js"),

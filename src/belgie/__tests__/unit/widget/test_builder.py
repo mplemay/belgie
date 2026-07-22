@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import pytest
 
@@ -19,12 +20,24 @@ def test_public_models_are_immutable_and_copy_files() -> None:
         setattr(source, "widget", "changed")  # noqa: B010
 
 
+def test_default_mcp_dependency_uses_in_tree_package() -> None:
+    specifier = BUILDER_DEPENDENCIES["@belgie/mcp"]
+    assert specifier.startswith("file:")
+    local_mcp = Path(specifier.removeprefix("file:"))
+    assert local_mcp.name == "mcp"
+    assert local_mcp.parent.name == "packages"
+    assert (local_mcp / "package.json").is_file()
+
+
 def test_builder_validates_timeout_and_reserved_dependencies() -> None:
     with pytest.raises(ValueError, match="greater than zero"):
         WidgetBuilder(timeout=0)
 
     with pytest.raises(ValueError, match="reserved"):
         WidgetBuilder(dependencies={"react": "npm:react@18"})
+
+    with pytest.raises(ValueError, match="reserved"):
+        WidgetBuilder(dependencies={"@belgie/mcp": "npm:@belgie/mcp@0.1.0"})
 
     builder = WidgetBuilder(dependencies={"react": BUILDER_DEPENDENCIES["react"]})
     assert builder.dependencies["react"] == BUILDER_DEPENDENCIES["react"]
