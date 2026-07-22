@@ -208,6 +208,33 @@ async def test_pydantic_ai_and_langchain_return_the_same_inline_html(tmp_path: P
 
 
 @SKIP_WIN32_VITE_NATIVE
+async def test_environment_session_uses_isolated_runtime_options_by_default(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    package = copy_render_package(root)
+    environment = Environment({"@belgie/render": f"file:{package}"}, path=root)
+
+    async with environment as active_environment:
+        await active_environment.install()
+        context = run_context()
+        toolset = BelgieToolset(wrapped=EmptyToolset(), environment=active_environment)
+        async with toolset:
+            tools = await toolset.get_tools(context)
+            result = await toolset.call_tool(
+                RUN_CODE_TOOL_NAME,
+                {"code": INLINE_WIDGET_SOURCE},
+                context,
+                tools[RUN_CODE_TOOL_NAME],
+            )
+
+    assert isinstance(result, ToolReturn)
+    assert isinstance(result.return_value, str)
+    assert result.return_value.startswith("<!doctype html>")
+    assert "plugin-applied" in result.return_value
+    assert "server-only-plugin-marker" not in result.return_value
+
+
+@SKIP_WIN32_VITE_NATIVE
 async def test_default_session_is_temporary_and_denies_host_capabilities(tmp_path: Path) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("outside-secret", encoding="utf-8")

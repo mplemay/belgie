@@ -25,6 +25,21 @@ describe("inline source transform", () => {
     expect(transformed).toContain("widget: <Widget />");
   });
 
+  it("removes plugins when render is imported as the default binding", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import render from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "export default () => render({ widget: <main />, plugins: [serverPlugin()] });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("plugins:");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).not.toContain("npm:plugin-package@1.2.3");
+    expect(transformed).toContain("widget: <main />");
+  });
+
   it("leaves source without a server plugins property unchanged", () => {
     const source = 'import { render } from "@belgie/render"; export default () => render({ widget: <main /> });';
     expect(stripServerPlugins(source)).toBe(source);

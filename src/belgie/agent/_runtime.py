@@ -16,9 +16,6 @@ from belgie.agent._run_code import SCRIPT_TIMEOUT_MESSAGE
 if TYPE_CHECKING:
     from belgie._core import AsyncRuntime
 
-DEFAULT_RUNTIME_OPTIONS: Final[RuntimeOptions] = RuntimeOptions(
-    permissions=RuntimePermissions(allow_net=[]),
-)
 DEFAULT_VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
     "homedir",
     "uid",
@@ -110,12 +107,10 @@ class BelgieRuntimeSession(BelgieOptions):
         if self.environment is None:
             root = _temporary_workspace(stack)
             active_environment = await stack.enter_async_context(Environment(path=root))
-            options = self.runtime_options or _isolated_runtime_options(root)
         elif isinstance(self.environment, Environment):
             active_environment = await stack.enter_async_context(self.environment)
-            options = self.runtime_options or DEFAULT_RUNTIME_OPTIONS
         else:
             active_environment = self.environment
-            options = self.runtime_options or DEFAULT_RUNTIME_OPTIONS
 
+        options = self.runtime_options or _isolated_runtime_options(Path(active_environment.workspace))
         return await stack.enter_async_context(Runtime(env=active_environment, options=options))

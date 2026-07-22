@@ -142,7 +142,9 @@ export function stripServerPlugins(source: string): string {
       continue;
     }
     for (const specifier of declaration.specifiers) {
-      if (importedName(specifier) === "render") {
+      if (specifier.type === "ImportDefaultSpecifier") {
+        renderNames.add(specifier.local.name);
+      } else if (importedName(specifier) === "render") {
         renderNames.add(specifier.local.name);
       }
     }
