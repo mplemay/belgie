@@ -2,7 +2,9 @@ import {
   CLIENT_RENDER_ID,
   createInlineSourcePlugin,
   normalizeNpmSpecifier,
+  prepareBrowserCaller,
   stripServerPlugins,
+  WIDGET_EXPORT_NAME,
 } from "../src/source.ts";
 
 describe("inline source transform", () => {
@@ -522,6 +524,154 @@ describe("inline source transform", () => {
     ).toThrow("statically analyzable render(...) options object");
   });
 
+  it("rejects computed plugin keys", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          'const key = "plugins";',
+          "export default () => render({ widget: <main />, [key]: [serverPlugin()] });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects computed plugin key expressions", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          'export default () => render({ widget: <main />, ["plug" + "ins"]: [serverPlugin()] });',
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects computed plugin keys inside static spreads", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          'const key = "plugins";',
+          "const server = { [key]: [serverPlugin()] };",
+          "export default () => render({ widget: <main />, ...server });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("strips computed string-literal plugin keys", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        'export default () => render({ ["widget"]: <main />, ["plugins"]: [serverPlugin()] });',
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("plugins");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).toContain('["widget"]: <main />');
+  });
+
+  it("prepares a browser caller that exports the extracted widget", () => {
+    const prepared = prepareBrowserCaller(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "function Widget() { return <main />; }",
+        "export default function run() {",
+        "  return render({ widget: <Widget />, plugins: [serverPlugin()] });",
+        "}",
+      ].join("\n"),
+    );
+
+    expect(prepared).not.toContain("serverPlugin");
+    expect(prepared).not.toContain("plugins:");
+    expect(prepared).toContain(`export const ${WIDGET_EXPORT_NAME} = <Widget />`);
+  });
+
+  it("rejects run-local widget bindings", () => {
+    expect(() =>
+      prepareBrowserCaller(
+        [
+          'import { render } from "@belgie/render";',
+          "export default function run() {",
+          '  const label = "hello";',
+          "  return render({ widget: <main>{label}</main> });",
+          "}",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options expression");
+  });
+
+  it("rejects missing widget properties for the browser caller", () => {
+    expect(() =>
+      prepareBrowserCaller(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "export default () => render({ plugins: [serverPlugin()] });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options expression");
+  });
+
+  it("rejects conflicting widget expressions across render calls", () => {
+    expect(() =>
+      prepareBrowserCaller(
+        [
+          'import { render } from "@belgie/render";',
+          "export default function run() {",
+          "  void render({ widget: <main>one</main> });",
+          "  return render({ widget: <main>two</main> });",
+          "}",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options expression");
+  });
+
+  it("rejects a predeclared widget export binding", () => {
+    expect(() =>
+      prepareBrowserCaller(
+        [
+          'import { render } from "@belgie/render";',
+          `const ${WIDGET_EXPORT_NAME} = null;`,
+          "export default () => render({ widget: <main /> });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options expression");
+  });
+
+  it("allows module-level member access and type assertions in widget expressions", () => {
+    const prepared = prepareBrowserCaller(
+      [
+        'import { render } from "@belgie/render";',
+        "const props = { value: 'ok' };",
+        "export default () => render({ widget: (<main>{props.value}</main> as unknown) });",
+      ].join("\n"),
+    );
+
+    expect(prepared).toContain("props.value");
+    expect(prepared).toContain("as unknown");
+    expect(prepared).toContain(`export const ${WIDGET_EXPORT_NAME}`);
+  });
+
+  it("extracts widgets from exported class components", () => {
+    const prepared = prepareBrowserCaller(
+      [
+        'import { render } from "@belgie/render";',
+        "export class Widget { view() { return <main />; } }",
+        "export default () => render({ widget: <Widget /> });",
+      ].join("\n"),
+    );
+
+    expect(prepared).toContain(`export const ${WIDGET_EXPORT_NAME} = <Widget />`);
+  });
+
   it.each([
     ["npm:react@19.2.6", "react"],
     ["npm:react-dom@19.2.6/client", "react-dom/client"],
@@ -537,7 +687,11 @@ describe("inline source transform", () => {
   });
 
   it("resolves and loads the complete virtual browser module graph", async () => {
-    const plugin = createInlineSourcePlugin({ source: "export {};", url: "file:///caller.tsx", version: 1 });
+    const source = [
+      'import { render } from "@belgie/render";',
+      "export default () => render({ widget: <main>graph</main> });",
+    ].join("\n");
+    const plugin = createInlineSourcePlugin({ source, url: "file:///caller.tsx", version: 1 });
     const load = plugin.load;
     const resolve = plugin.resolveId;
     if (typeof load !== "function" || typeof resolve !== "function") {
@@ -567,9 +721,12 @@ describe("inline source transform", () => {
 
     expect(entrySource).toContain("StrictMode");
     expect(entrySource).toContain("createRoot");
-    expect(callerSource).toBe("export {};");
-    expect(apiSource).toContain("@belgie/render/client-definition");
-    expect(apiSource).toContain("assertRenderDefinition");
+    expect(entrySource).toContain(WIDGET_EXPORT_NAME);
+    expect(entrySource).not.toContain("await run()");
+    expect(entrySource).not.toContain("assertRenderDefinition");
+    expect(callerSource).toContain(`export const ${WIDGET_EXPORT_NAME} = <main>graph</main>`);
+    expect(apiSource).toContain("render cannot be called from the browser module graph");
+    expect(apiSource).not.toContain("assertRenderDefinition");
     expect(packageApiId).toBe(apiId);
     expect(npmId).toStrictEqual({ id: "react" });
     expect(unknownId).toBeNull();

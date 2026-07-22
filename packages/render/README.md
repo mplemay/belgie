@@ -19,7 +19,10 @@ export default function run() {
 ```
 
 The source must be a single inline TSX module. Package imports are supported, but relative host-file imports are
-intentionally unavailable. `plugins` are executed during the server-side Vite build and stripped from the browser module
-graph when declared in a statically analyzable `render(...)` options object (inline literal, variable binding, or
-static object spread). Post-declaration mutation of that options binding is unsupported. Unsupported shapes throw
-instead of shipping plugins to the browser.
+intentionally unavailable.
+
+`plugins` run only during the server-side Vite build. Both `plugins` and `widget` must appear in a statically
+analyzable `render(...)` options object (inline literal, variable binding, or static object spread). Computed option
+keys, opaque spreads, and post-declaration mutation are unsupported and throw instead of shipping unsafe code to the
+browser. The browser mounts the extracted `widget` expression and does not re-execute `run()`, so side effects inside
+`run()` stay server-only. Widget expressions may only reference module-level bindings.

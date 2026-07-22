@@ -151,4 +151,19 @@ describe("@belgie/render", () => {
       }),
     ).rejects.toThrow("emitted non-CSS assets");
   });
+
+  it("rejects computed plugin keys instead of shipping them to the browser", async () => {
+    installContext(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverOnly from "jsr:@example/server-plugin";',
+        'const key = "plugins";',
+        "export default () => render({ widget: <main />, [key]: [serverOnly()] });",
+      ].join("\n"),
+    );
+
+    await expect(render({ widget: createElement("main"), plugins: [] })).rejects.toThrow(
+      "statically analyzable render(...) options object",
+    );
+  });
 });

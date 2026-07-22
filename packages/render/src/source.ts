@@ -48,18 +48,27 @@ function walk(node: AstNode, visit: (node: AstNode) => boolean | undefined): voi
   }
 }
 
-function propertyName(node: AstNode): string | undefined {
+type PropertyKeyClass = { kind: "static"; name: string } | { kind: "unknown" };
+
+function classifyPropertyKey(node: AstNode): PropertyKeyClass {
+  if (node.type !== "Property" || !("key" in node) || !isNode(node.key)) {
+    return { kind: "unknown" };
+  }
   const key = node.key;
-  if (typeof key !== "object" || key === null) {
-    return undefined;
+  const computed = "computed" in node && node.computed;
+  if (!computed) {
+    if (key.type === "Identifier" && "name" in key && typeof key.name === "string") {
+      return { kind: "static", name: key.name };
+    }
+    if (key.type === "Literal" && "value" in key && typeof key.value === "string") {
+      return { kind: "static", name: key.value };
+    }
+    return { kind: "unknown" };
   }
-  if ("name" in key && typeof key.name === "string") {
-    return key.name;
+  if (key.type === "Literal" && "value" in key && typeof key.value === "string") {
+    return { kind: "static", name: key.value };
   }
-  if ("value" in key && typeof key.value === "string") {
-    return key.value;
-  }
-  return undefined;
+  return { kind: "unknown" };
 }
 
 function renderImport(source: string): boolean {
@@ -134,6 +143,11 @@ function formatImport(source: string, specifiers: ImportDeclaration["specifiers"
 
 const UNANALYZABLE_PLUGINS_ERROR =
   "@belgie/render: plugins must be declared in a statically analyzable render(...) options object";
+
+const UNANALYZABLE_WIDGET_ERROR =
+  "@belgie/render: widget must be a statically analyzable render(...) options expression";
+
+export const WIDGET_EXPORT_NAME = "__belgie_widget";
 
 function unwrapExpression(node: AstNode): AstNode {
   let current = node;
@@ -416,11 +430,12 @@ function resolveObjectExpression(
   return undefined;
 }
 
-function collectPluginPropertiesFromObject(
+function collectOptionPropertiesFromObject(
   object: AstNode,
   objects: Map<string, AstNode>,
   reassigned: Set<string>,
   pluginProperties: AstNode[],
+  widgetProperties: AstNode[],
   seen: Set<AstNode>,
 ): boolean {
   if (seen.has(object)) {
@@ -431,8 +446,16 @@ function collectPluginPropertiesFromObject(
     return false;
   }
   for (const property of (object.properties as unknown[]).filter(isNode)) {
-    if (property.type === "Property" && propertyName(property) === "plugins") {
-      pluginProperties.push(property);
+    if (property.type === "Property") {
+      const key = classifyPropertyKey(property);
+      if (key.kind === "unknown") {
+        return false;
+      }
+      if (key.name === "plugins") {
+        pluginProperties.push(property);
+      } else if (key.name === "widget") {
+        widgetProperties.push(property);
+      }
       continue;
     }
     if (property.type === "SpreadElement" && "argument" in property && isNode(property.argument)) {
@@ -440,7 +463,9 @@ function collectPluginPropertiesFromObject(
       if (spreadObject === undefined) {
         return false;
       }
-      if (!collectPluginPropertiesFromObject(spreadObject, objects, reassigned, pluginProperties, seen)) {
+      if (
+        !collectOptionPropertiesFromObject(spreadObject, objects, reassigned, pluginProperties, widgetProperties, seen)
+      ) {
         return false;
       }
     }
@@ -637,7 +662,16 @@ function removeVariableDeclarators(transformed: MagicString, bindings: SimpleDec
   }
 }
 
-export function stripServerPlugins(source: string): string {
+interface RenderOptionsAnalysis {
+  imports: ImportDeclaration[];
+  pluginIdentifiers: Set<string>;
+  pluginProperties: AstNode[];
+  reassigned: Set<string>;
+  root: AstNode;
+  widgetProperties: AstNode[];
+}
+
+function analyzeRenderOptions(source: string): RenderOptionsAnalysis {
   const program = parseAst(source, { astType: "js", lang: "tsx", range: true });
   const root = program as unknown as AstNode;
   const body = program.body as unknown as AstNode[];
@@ -664,6 +698,7 @@ export function stripServerPlugins(source: string): string {
 
   const { objects, reassigned } = collectObjectBindings(root);
   const pluginProperties: AstNode[] = [];
+  const widgetProperties: AstNode[] = [];
   const pluginIdentifiers = new Set<string>();
   walk(root, (node) => {
     if (node.type !== "CallExpression" || !("callee" in node) || !("arguments" in node)) {
@@ -682,7 +717,8 @@ export function stripServerPlugins(source: string): string {
       throw new Error(UNANALYZABLE_PLUGINS_ERROR);
     }
     const callPlugins: AstNode[] = [];
-    if (!collectPluginPropertiesFromObject(optionsObject, objects, reassigned, callPlugins, new Set())) {
+    const callWidgets: AstNode[] = [];
+    if (!collectOptionPropertiesFromObject(optionsObject, objects, reassigned, callPlugins, callWidgets, new Set())) {
       throw new Error(UNANALYZABLE_PLUGINS_ERROR);
     }
     for (const property of callPlugins) {
@@ -693,8 +729,30 @@ export function stripServerPlugins(source: string): string {
         }
       }
     }
+    for (const property of callWidgets) {
+      widgetProperties.push(property);
+    }
   });
 
+  return { imports, pluginIdentifiers, pluginProperties, reassigned, root, widgetProperties };
+}
+
+function findParentObject(root: AstNode, target: AstNode): AstNode | undefined {
+  let parent: AstNode | undefined;
+  walk(root, (node) => {
+    if (parent !== undefined) {
+      return false;
+    }
+    if ("properties" in node && Array.isArray(node.properties) && node.properties.includes(target)) {
+      parent = node;
+      return false;
+    }
+  });
+  return parent;
+}
+
+function stripPluginsFromSource(source: string, analysis: RenderOptionsAnalysis): string {
+  const { imports, pluginIdentifiers, pluginProperties, reassigned, root } = analysis;
   if (pluginProperties.length === 0) {
     return source;
   }
@@ -744,18 +802,175 @@ export function stripServerPlugins(source: string): string {
   return transformed.toString();
 }
 
-function findParentObject(root: AstNode, target: AstNode): AstNode | undefined {
-  let parent: AstNode | undefined;
-  walk(root, (node) => {
-    if (parent !== undefined) {
+export function stripServerPlugins(source: string): string {
+  return stripPluginsFromSource(source, analyzeRenderOptions(source));
+}
+
+function addNamedBindings(node: AstNode, names: Set<string>): void {
+  if ((node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") && "id" in node && isNode(node.id)) {
+    addBindingPatternNames(node.id, names);
+    return;
+  }
+  if (node.type !== "VariableDeclaration" || !("declarations" in node) || !Array.isArray(node.declarations)) {
+    return;
+  }
+  for (const declarator of node.declarations.filter(isNode)) {
+    if ("id" in declarator && isNode(declarator.id)) {
+      addBindingPatternNames(declarator.id, names);
+    }
+  }
+}
+
+function addModuleDeclarationBindings(node: AstNode, names: Set<string>): void {
+  if (node.type === "ImportDeclaration" && "specifiers" in node && Array.isArray(node.specifiers)) {
+    for (const specifier of node.specifiers.filter(isNode)) {
+      if ("local" in specifier && isNode(specifier.local)) {
+        addBindingPatternNames(specifier.local, names);
+      }
+    }
+    return;
+  }
+  if (node.type === "ExportNamedDeclaration") {
+    if ("declaration" in node && isNode(node.declaration)) {
+      addNamedBindings(node.declaration, names);
+    }
+    return;
+  }
+  if (node.type === "ExportDefaultDeclaration" && "declaration" in node && isNode(node.declaration)) {
+    addNamedBindings(node.declaration, names);
+    return;
+  }
+  addNamedBindings(node, names);
+}
+
+function collectModuleBindingNames(root: AstNode): Set<string> {
+  const names = new Set<string>();
+  if (!("body" in root) || !Array.isArray(root.body)) {
+    return names;
+  }
+  for (const node of root.body.filter(isNode)) {
+    addModuleDeclarationBindings(node, names);
+  }
+  return names;
+}
+
+function isNonComputedPropertyName(node: AstNode, parent: AstNode | undefined): boolean {
+  if (parent === undefined) {
+    return false;
+  }
+  if (
+    parent.type === "MemberExpression" &&
+    "computed" in parent &&
+    !parent.computed &&
+    "property" in parent &&
+    parent.property === node
+  ) {
+    return true;
+  }
+  if (
+    parent.type === "Property" &&
+    "computed" in parent &&
+    !parent.computed &&
+    "key" in parent &&
+    parent.key === node
+  ) {
+    return true;
+  }
+  if (
+    parent.type === "MethodDefinition" &&
+    "computed" in parent &&
+    !parent.computed &&
+    "key" in parent &&
+    parent.key === node
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isTypeScriptTypeNode(node: AstNode): boolean {
+  return (
+    typeof node.type === "string" &&
+    node.type.startsWith("TS") &&
+    node.type !== "TSAsExpression" &&
+    node.type !== "TSSatisfiesExpression" &&
+    node.type !== "TSTypeAssertion" &&
+    node.type !== "TSNonNullExpression"
+  );
+}
+
+function collectWidgetReferences(widgetValue: AstNode): Set<string> {
+  const names = new Set<string>();
+  const parents = new Map<AstNode, AstNode>();
+  walk(widgetValue, (node) => {
+    if (isTypeScriptTypeNode(node)) {
       return false;
     }
-    if ("properties" in node && Array.isArray(node.properties) && node.properties.includes(target)) {
-      parent = node;
-      return false;
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (isNode(item)) {
+            parents.set(item, node);
+          }
+        }
+      } else if (isNode(value)) {
+        parents.set(value, node);
+      }
     }
+    if (node.type === "JSXIdentifier" && "name" in node && typeof node.name === "string" && /^[A-Z]/u.test(node.name)) {
+      names.add(node.name);
+      return;
+    }
+    if (node.type !== "Identifier" || !("name" in node) || typeof node.name !== "string") {
+      return;
+    }
+    if (isNonComputedPropertyName(node, parents.get(node))) {
+      return;
+    }
+    names.add(node.name);
   });
-  return parent;
+  return names;
+}
+
+function resolveWidgetExpression(source: string, analysis: RenderOptionsAnalysis): AstNode {
+  const { root, widgetProperties } = analysis;
+  if (widgetProperties.length === 0) {
+    throw new Error(UNANALYZABLE_WIDGET_ERROR);
+  }
+  const expressions: AstNode[] = [];
+  for (const property of widgetProperties) {
+    if (!("value" in property) || !isNode(property.value)) {
+      throw new Error(UNANALYZABLE_WIDGET_ERROR);
+    }
+    expressions.push(property.value);
+  }
+  const texts = new Set(expressions.map((expression) => source.slice(expression.start, expression.end)));
+  if (texts.size !== 1) {
+    throw new Error(UNANALYZABLE_WIDGET_ERROR);
+  }
+  const widgetValue = expressions[0];
+  if (widgetValue === undefined) {
+    throw new Error(UNANALYZABLE_WIDGET_ERROR);
+  }
+
+  const moduleBindings = collectModuleBindingNames(root);
+  if (moduleBindings.has(WIDGET_EXPORT_NAME)) {
+    throw new Error(UNANALYZABLE_WIDGET_ERROR);
+  }
+  for (const name of collectWidgetReferences(widgetValue)) {
+    if (!moduleBindings.has(name)) {
+      throw new Error(UNANALYZABLE_WIDGET_ERROR);
+    }
+  }
+  return widgetValue;
+}
+
+export function prepareBrowserCaller(source: string): string {
+  const analysis = analyzeRenderOptions(source);
+  const widgetValue = resolveWidgetExpression(source, analysis);
+  const stripped = stripPluginsFromSource(source, analysis);
+  const widgetSource = source.slice(widgetValue.start, widgetValue.end);
+  return `${stripped}\nexport const ${WIDGET_EXPORT_NAME} = ${widgetSource};\n`;
 }
 
 export function normalizeNpmSpecifier(specifier: string): string | undefined {
@@ -773,15 +988,8 @@ export function normalizeNpmSpecifier(specifier: string): string | undefined {
 }
 
 const CLIENT_API_SOURCE = [
-  'const MARKER = Symbol.for("@belgie/render/client-definition");',
-  "export function render(options) {",
-  "  return Object.freeze({ [MARKER]: true, widget: options.widget });",
-  "}",
-  "export function assertRenderDefinition(value) {",
-  '  if (value === null || typeof value !== "object" || value[MARKER] !== true) {',
-  '    throw new TypeError("@belgie/render: run export must return render(...)");',
-  "  }",
-  "  return value;",
+  "export function render() {",
+  '  throw new TypeError("@belgie/render: render cannot be called from the browser module graph");',
   "}",
   "",
 ].join("\n");
@@ -789,15 +997,11 @@ const CLIENT_API_SOURCE = [
 const CLIENT_ENTRY_SOURCE = [
   'import { StrictMode, createElement, isValidElement } from "react";',
   'import { createRoot } from "react-dom/client";',
-  `import * as caller from ${JSON.stringify(CLIENT_SOURCE_ID)};`,
-  `import { assertRenderDefinition } from ${JSON.stringify(CLIENT_RENDER_ID)};`,
-  'const run = typeof caller.default === "function" ? caller.default : caller.run;',
-  'if (typeof run !== "function") throw new TypeError("@belgie/render: caller must export a default function or named run function");',
-  "const definition = assertRenderDefinition(await run());",
-  'if (!isValidElement(definition.widget)) throw new TypeError("@belgie/render: widget must be a React element");',
+  `import { ${WIDGET_EXPORT_NAME} as widget } from ${JSON.stringify(CLIENT_SOURCE_ID)};`,
+  'if (!isValidElement(widget)) throw new TypeError("@belgie/render: widget must be a React element");',
   'const root = document.getElementById("root");',
   'if (root === null) throw new Error("@belgie/render: root element is missing");',
-  "createRoot(root).render(createElement(StrictMode, null, definition.widget));",
+  "createRoot(root).render(createElement(StrictMode, null, widget));",
   "",
 ].join("\n");
 
@@ -829,7 +1033,7 @@ export function createInlineSourcePlugin(context: RenderContext): Plugin {
         return CLIENT_ENTRY_SOURCE;
       }
       if (id === RESOLVED_CLIENT_SOURCE_ID) {
-        return stripServerPlugins(context.source);
+        return prepareBrowserCaller(context.source);
       }
       if (id === RESOLVED_CLIENT_RENDER_ID) {
         return CLIENT_API_SOURCE;
