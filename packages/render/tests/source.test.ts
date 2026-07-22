@@ -168,6 +168,48 @@ describe("inline source transform", () => {
     ).toThrow("statically analyzable render(...) options object");
   });
 
+  it("rejects property assignment on options bindings", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "const options = { widget: <main /> };",
+          "options.plugins = [serverPlugin()];",
+          "export default () => render(options);",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects mutating method calls on options bindings", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "const options = { plugins: [], widget: <main /> };",
+          "options.plugins.push(serverPlugin());",
+          "export default () => render(options);",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects nested property writes on options bindings", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "const options = { meta: {}, widget: <main /> };",
+          "options.meta.plugins = [serverPlugin()];",
+          "export default () => render(options);",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
   it("rejects render calls without options", () => {
     expect(() =>
       stripServerPlugins(['import { render } from "@belgie/render";', "export default () => render();"].join("\n")),

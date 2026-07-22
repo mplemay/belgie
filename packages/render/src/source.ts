@@ -150,6 +150,17 @@ function unwrapExpression(node: AstNode): AstNode {
   return current;
 }
 
+function expressionRootName(node: AstNode): string | undefined {
+  let current = unwrapExpression(node);
+  while (current.type === "MemberExpression" && "object" in current && isNode(current.object)) {
+    current = unwrapExpression(current.object);
+  }
+  if (current.type === "Identifier" && "name" in current && typeof current.name === "string") {
+    return current.name;
+  }
+  return undefined;
+}
+
 function isRenderCallee(callee: AstNode, renderNames: Set<string>, renderNamespaces: Set<string>): boolean {
   if (callee.type === "Identifier" && "name" in callee && typeof callee.name === "string") {
     return renderNames.has(callee.name);
@@ -175,40 +186,63 @@ function isRenderCallee(callee: AstNode, renderNames: Set<string>, renderNamespa
   return true;
 }
 
+function markRootReassigned(node: AstNode, reassigned: Set<string>): void {
+  const name = expressionRootName(node);
+  if (name !== undefined) {
+    reassigned.add(name);
+  }
+}
+
+function recordObjectDeclarator(node: AstNode, objects: Map<string, AstNode>, reassigned: Set<string>): void {
+  if (
+    node.type !== "VariableDeclarator" ||
+    !("id" in node) ||
+    !isNode(node.id) ||
+    node.id.type !== "Identifier" ||
+    !("name" in node.id) ||
+    typeof node.id.name !== "string" ||
+    !("init" in node) ||
+    !isNode(node.init)
+  ) {
+    return;
+  }
+  const name = node.id.name;
+  const init = unwrapExpression(node.init);
+  if (init.type !== "ObjectExpression") {
+    return;
+  }
+  if (objects.has(name)) {
+    reassigned.add(name);
+  } else {
+    objects.set(name, init);
+  }
+}
+
+function recordBindingMutation(node: AstNode, reassigned: Set<string>): void {
+  if (node.type === "AssignmentExpression" && "left" in node && isNode(node.left)) {
+    markRootReassigned(node.left, reassigned);
+    return;
+  }
+  if (node.type === "UpdateExpression" && "argument" in node && isNode(node.argument)) {
+    markRootReassigned(node.argument, reassigned);
+    return;
+  }
+  if (
+    node.type === "CallExpression" &&
+    "callee" in node &&
+    isNode(node.callee) &&
+    node.callee.type === "MemberExpression"
+  ) {
+    markRootReassigned(node.callee, reassigned);
+  }
+}
+
 function collectObjectBindings(program: AstNode): { objects: Map<string, AstNode>; reassigned: Set<string> } {
   const objects = new Map<string, AstNode>();
   const reassigned = new Set<string>();
   walk(program, (node) => {
-    if (
-      node.type === "VariableDeclarator" &&
-      "id" in node &&
-      isNode(node.id) &&
-      node.id.type === "Identifier" &&
-      "name" in node.id &&
-      typeof node.id.name === "string" &&
-      "init" in node &&
-      isNode(node.init)
-    ) {
-      const name = node.id.name;
-      const init = unwrapExpression(node.init);
-      if (init.type === "ObjectExpression") {
-        if (objects.has(name)) {
-          reassigned.add(name);
-        } else {
-          objects.set(name, init);
-        }
-      }
-    }
-    if (
-      node.type === "AssignmentExpression" &&
-      "left" in node &&
-      isNode(node.left) &&
-      node.left.type === "Identifier" &&
-      "name" in node.left &&
-      typeof node.left.name === "string"
-    ) {
-      reassigned.add(node.left.name);
-    }
+    recordObjectDeclarator(node, objects, reassigned);
+    recordBindingMutation(node, reassigned);
   });
   return { objects, reassigned };
 }
