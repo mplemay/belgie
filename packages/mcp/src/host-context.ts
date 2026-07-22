@@ -1,30 +1,22 @@
+import type { App, AppEventMap, McpUiDisplayMode, McpUiHostContext, McpUiTheme } from "@modelcontextprotocol/ext-apps";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
-import type {
-  App,
-  AppEventMap,
-  McpUiDisplayMode,
-  McpUiHostContext,
-  McpUiTheme,
-} from "@modelcontextprotocol/ext-apps";
 import { useConnectedWidgetContext } from "./widget-context";
 
-export type SafeAreaInsets = NonNullable<
-  McpUiHostContext["safeAreaInsets"]
->;
+export type SafeAreaInsets = NonNullable<McpUiHostContext["safeAreaInsets"]>;
 
-export type SafeArea = {
+export interface SafeArea {
   insets: SafeAreaInsets;
-};
+}
 
-export type LayoutState = {
+export interface LayoutState {
   maxHeight: number | undefined;
   safeArea: SafeArea;
-};
+}
 
 export type DeviceType = "mobile" | "tablet" | "desktop" | "unknown";
 
-export type UserAgent = {
+export interface UserAgent {
   device: {
     type: DeviceType;
   };
@@ -32,7 +24,7 @@ export type UserAgent = {
     hover: boolean;
     touch: boolean;
   };
-};
+}
 
 const DEFAULT_LOCALE = "en-US";
 const DEFAULT_SAFE_AREA_INSETS: SafeAreaInsets = {
@@ -42,15 +34,10 @@ const DEFAULT_SAFE_AREA_INSETS: SafeAreaInsets = {
   left: 0,
 };
 
-function useHostContextValue<K extends keyof McpUiHostContext>(
-  app: App,
-  key: K,
-): McpUiHostContext[K] {
+function useHostContextValue<K extends keyof McpUiHostContext>(app: App, key: K): McpUiHostContext[K] {
   const subscribe = useCallback(
     (onChange: () => void) => {
-      const handleHostContextChanged = (
-        params: AppEventMap["hostcontextchanged"],
-      ) => {
+      const handleHostContextChanged = (params: AppEventMap["hostcontextchanged"]) => {
         if (key in params) {
           onChange();
         }
@@ -63,10 +50,7 @@ function useHostContextValue<K extends keyof McpUiHostContext>(
     },
     [app, key],
   );
-  const getSnapshot = useCallback(
-    () => app.getHostContext()?.[key],
-    [app, key],
-  );
+  const getSnapshot = useCallback(() => app.getHostContext()?.[key], [app, key]);
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
@@ -74,9 +58,7 @@ function useHostContextValue<K extends keyof McpUiHostContext>(
 function useMaxHeight(app: App): number | undefined {
   const subscribe = useCallback(
     (onChange: () => void) => {
-      const handleHostContextChanged = (
-        params: AppEventMap["hostcontextchanged"],
-      ) => {
+      const handleHostContextChanged = (params: AppEventMap["hostcontextchanged"]) => {
         if ("containerDimensions" in params) {
           onChange();
         }
@@ -91,8 +73,7 @@ function useMaxHeight(app: App): number | undefined {
   );
   const getSnapshot = useCallback(() => {
     const containerDimensions = app.getHostContext()?.containerDimensions;
-    return containerDimensions !== undefined &&
-      "maxHeight" in containerDimensions
+    return containerDimensions !== undefined && "maxHeight" in containerDimensions
       ? containerDimensions.maxHeight
       : undefined;
   }, [app]);
@@ -111,10 +92,7 @@ function normalizeLocale(locale: string): string {
 export function useDisplayMode() {
   const { app } = useConnectedWidgetContext("useDisplayMode");
   const displayMode = useHostContextValue(app, "displayMode") ?? "inline";
-  const setDisplayMode = useCallback(
-    (mode: McpUiDisplayMode) => app.requestDisplayMode({ mode }),
-    [app],
-  );
+  const setDisplayMode = useCallback((mode: McpUiDisplayMode) => app.requestDisplayMode({ mode }), [app]);
 
   return [displayMode, setDisplayMode] as const;
 }
@@ -123,10 +101,7 @@ export function useLayout(): LayoutState {
   const { app } = useConnectedWidgetContext("useLayout");
   const maxHeight = useMaxHeight(app);
   const safeAreaInsets = useHostContextValue(app, "safeAreaInsets");
-  const safeArea = useMemo(
-    () => ({ insets: safeAreaInsets ?? DEFAULT_SAFE_AREA_INSETS }),
-    [safeAreaInsets],
-  );
+  const safeArea = useMemo(() => ({ insets: safeAreaInsets ?? DEFAULT_SAFE_AREA_INSETS }), [safeAreaInsets]);
 
   return useMemo(() => ({ maxHeight, safeArea }), [maxHeight, safeArea]);
 }

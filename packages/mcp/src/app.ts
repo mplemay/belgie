@@ -1,5 +1,7 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
 
+import { closeModal as closeModalImpl, openModal } from "./modal";
+import type { ModalOptions } from "./modal";
 import { getActiveWidget } from "./widget-context";
 
 export function sendMessage(...args: Parameters<App["sendMessage"]>): ReturnType<App["sendMessage"]> {
@@ -32,4 +34,14 @@ export function requestDisplayMode(
 
 export function requestTeardown(...args: Parameters<App["requestTeardown"]>): ReturnType<App["requestTeardown"]> {
   return getActiveWidget().requestTeardown(...args);
+}
+
+export function requestModal(options: ModalOptions): void {
+  getActiveWidget();
+  openModal(options);
+}
+
+export function closeModal(): void {
+  getActiveWidget();
+  closeModalImpl();
 }

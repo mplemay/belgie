@@ -16,7 +16,7 @@ pytestmark = pytest.mark.integration
 WIDGET: Final[WidgetSource] = WidgetSource(
     widget="""
 import "./styles.css";
-import { WeatherCard } from "./WeatherCard";
+import { WeatherCard } from "./weather-card";
 import weather from "./weather.json";
 
 export default function WeatherWidget() {
@@ -24,7 +24,7 @@ export default function WeatherWidget() {
 }
 """.lstrip(),
     files={
-        "WeatherCard.tsx": """
+        "weather-card.tsx": """
 export function WeatherCard(props: { city: string; temperature: number }) {
   return <section className="weather">{props.city}: {props.temperature}°</section>;
 }

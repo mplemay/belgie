@@ -1,51 +1,40 @@
 // @vitest-environment jsdom
 
 import assert from "node:assert/strict";
-import { describe, test } from "vitest";
 
-import type {
-  App,
-  AppEventMap,
-  McpUiHostContext,
-} from "@modelcontextprotocol/ext-apps";
-import { act, createElement, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { App, AppEventMap, McpUiHostContext } from "@modelcontextprotocol/ext-apps";
+import { act, createElement } from "react";
+import type { ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 
-import {
-  useDisplayMode,
-  useLayout,
-  useLocale,
-  useTheme,
-  useUserAgent,
-} from "../src/host-context";
-import {
-  WidgetContext,
-  type WidgetContextValue,
-} from "../src/widget-context";
+import { useDisplayMode, useLayout, useLocale, useTheme, useUserAgent } from "../src/host-context";
+import { WidgetContext } from "../src/widget-context";
+import type { WidgetContextValue } from "../src/widget-context";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-type TestRenderer = {
+interface TestRenderer {
   root: Root;
   unmount: () => void;
-};
+}
 
-type HostContextHarness = {
+interface HostContextHarness {
   app: App;
   displayModeRequests: McpUiHostContext["displayMode"][];
   listenerCount: () => number;
   update: (context: McpUiHostContext) => void;
-};
+}
 
-type HostContextSnapshot = {
+interface HostContextSnapshot {
   displayMode: ReturnType<typeof useDisplayMode>[0];
   setDisplayMode: ReturnType<typeof useDisplayMode>[1];
   layout: ReturnType<typeof useLayout>;
   locale: ReturnType<typeof useLocale>;
   theme: ReturnType<typeof useTheme>;
   userAgent: ReturnType<typeof useUserAgent>;
-};
+}
 
 const tool: WidgetContextValue["tool"] = {
   input: undefined,
@@ -70,13 +59,9 @@ function create(node: ReactNode): TestRenderer {
   };
 }
 
-function createHostContextHarness(
-  initialContext: McpUiHostContext,
-): HostContextHarness {
+function createHostContextHarness(initialContext: McpUiHostContext): HostContextHarness {
   let context = initialContext;
-  const listeners = new Set<
-    (params: AppEventMap["hostcontextchanged"]) => void
-  >();
+  const listeners = new Set<(params: AppEventMap["hostcontextchanged"]) => void>();
   const displayModeRequests: McpUiHostContext["displayMode"][] = [];
   const app = {
     addEventListener(name, handler) {
@@ -109,11 +94,7 @@ function createHostContextHarness(
   };
 }
 
-function HostContextProbe({
-  rendered,
-}: {
-  rendered: (snapshot: HostContextSnapshot) => void;
-}) {
+function HostContextProbe({ rendered }: { rendered: (snapshot: HostContextSnapshot) => void }) {
   const [displayMode, setDisplayMode] = useDisplayMode();
   const layout = useLayout();
   const locale = useLocale();
@@ -144,7 +125,7 @@ function renderHostContextProbe(
 }
 
 describe("host context hooks", () => {
-  test("returns host values and reacts to relevant context changes", async () => {
+  it("returns host values and reacts to relevant context changes", async () => {
     const harness = createHostContextHarness({
       displayMode: "fullscreen",
       theme: "dark",
@@ -163,7 +144,7 @@ describe("host context hooks", () => {
         });
       });
 
-      assert(snapshot);
+      assert.ok(snapshot);
       assert.equal(snapshot.displayMode, "fullscreen");
       assert.deepEqual(snapshot.layout, {
         maxHeight: 500,
@@ -191,7 +172,7 @@ describe("host context hooks", () => {
         });
       });
 
-      assert(snapshot);
+      assert.ok(snapshot);
       assert.equal(snapshot.displayMode, "inline");
       assert.equal(snapshot.layout.maxHeight, 800);
       assert.equal(snapshot.layout.safeArea, initialSafeArea);
@@ -210,7 +191,7 @@ describe("host context hooks", () => {
         });
       });
 
-      assert(snapshot);
+      assert.ok(snapshot);
       assert.notEqual(snapshot.layout.safeArea, initialSafeArea);
       assert.deepEqual(snapshot.layout.safeArea.insets, {
         top: 20,
@@ -231,7 +212,7 @@ describe("host context hooks", () => {
     assert.equal(harness.listenerCount(), 0);
   });
 
-  test("returns stable Skybridge-compatible defaults", async () => {
+  it("returns stable Skybridge-compatible defaults", async () => {
     const harness = createHostContextHarness({
       containerDimensions: { height: 300, width: 400 },
     });
@@ -244,7 +225,7 @@ describe("host context hooks", () => {
         });
       });
 
-      assert(snapshot);
+      assert.ok(snapshot);
       assert.equal(snapshot.displayMode, "inline");
       assert.deepEqual(snapshot.layout, {
         maxHeight: undefined,
@@ -265,7 +246,7 @@ describe("host context hooks", () => {
         harness.update({ timeZone: "America/Chicago" });
       });
 
-      assert(snapshot);
+      assert.ok(snapshot);
       assert.equal(snapshot.layout.safeArea, initialSafeArea);
       assert.equal(snapshot.userAgent, initialUserAgent);
     } finally {
@@ -275,7 +256,7 @@ describe("host context hooks", () => {
     }
   });
 
-  test("falls back for an invalid locale", async () => {
+  it("falls back for an invalid locale", async () => {
     const harness = createHostContextHarness({ locale: "not-a-locale-!!" });
     let snapshot: HostContextSnapshot | undefined;
     let renderer: TestRenderer | undefined;
@@ -294,20 +275,14 @@ describe("host context hooks", () => {
     }
   });
 
-  test("requires a connected Widget context", () => {
-    const hooks = [
-      useDisplayMode,
-      useLayout,
-      useLocale,
-      useTheme,
-      useUserAgent,
-    ];
+  it("requires a connected Widget context", () => {
+    const hooks = [useDisplayMode, useLayout, useLocale, useTheme, useUserAgent];
 
     for (const hook of hooks) {
-      function Probe() {
+      const Probe = () => {
         hook();
         return null;
-      }
+      };
 
       assert.throws(
         () => renderToString(createElement(Probe)),

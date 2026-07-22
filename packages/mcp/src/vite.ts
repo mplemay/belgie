@@ -5,7 +5,7 @@ import type { OutputOptions } from "rolldown";
 import { build, normalizePath } from "vite";
 import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 
-import { renderWidgetBundle, type BuildArtifact } from "./bundle.js";
+import { renderWidgetBundle } from "./bundle.js";
 import { buildVirtualEntry, renderWidgetHtmlDocument } from "./html.js";
 import { assertNoInvalidWidgets, assertUniqueWidgetNames, scanWidgetsSync } from "./scan-widgets.js";
 import type { WidgetCandidate } from "./scan-widgets.js";
@@ -23,6 +23,18 @@ const REACT_REFRESH_PLUGIN_NAME = "vite:react-refresh";
 
 export interface BelgiePluginOptions {
   srcDir?: string;
+}
+
+function getWidgetEntryPattern(srcDir: string): RegExp {
+  const escaped = normalizePath(srcDir).replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  return new RegExp(`${escaped}/[^/]+/widget\\.tsx(?:\\?.*)?$`);
+}
+
+function virtualWidgetName(id: string): string | undefined {
+  if (!id.startsWith(VIRTUAL_PREFIX)) {
+    return undefined;
+  }
+  return decodeURIComponent(id.slice(VIRTUAL_PREFIX.length).split("?", 1)[0] ?? "");
 }
 
 function restoreEnvironment(name: string, previous: string | undefined): void {
@@ -281,7 +293,7 @@ export function belgie(options: BelgiePluginOptions = {}): Plugin {
           if (widget === undefined) {
             throw new Error("belgie: isolated widget build lost its widget entry");
           }
-          const html = renderWidgetBundle(widget.name, bundle as Record<string, BuildArtifact>);
+          const html = renderWidgetBundle(widget.name, bundle);
           for (const fileName of Object.keys(bundle)) {
             delete bundle[fileName];
           }

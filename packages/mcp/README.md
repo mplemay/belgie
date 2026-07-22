@@ -19,8 +19,8 @@ npm install --save-dev vite
 
 ## Package exports
 
-- `@belgie/mcp` exports `Widget`, `mountWidget`, widget host-context hooks, `useWidget`, `useToolResult`, context-bound
-  App helpers, and MCP tool errors.
+- `@belgie/mcp` exports `Widget`, `mountWidget`, widget host-context hooks, `useModal`, `useWidget`, `useToolResult`,
+  context-bound App helpers, and MCP tool errors.
 - `@belgie/mcp/builder` exports the trusted programmatic `buildWidget()` compiler used by Python's isolated virtual
   widget builder.
 - `@belgie/mcp/codegen` exports programmatic MCP tool-type generation.
@@ -109,6 +109,33 @@ function Environment() {
 
 `useLayout()` contains only container height and safe-area information. Theme, locale, and the normalized device and
 input-capability value are exposed separately through `useTheme()`, `useLocale()`, and `useUserAgent()`.
+
+## Open a modal
+
+`useModal` asks the host to show the current widget as a modal overlay. On ChatGPT it calls
+`window.openai.requestModal`; other hosts get an in-iframe polyfill with backdrop and Escape handling.
+
+```tsx
+import { useModal } from "@belgie/mcp";
+
+function Cart() {
+  const { isOpen, params, open } = useModal();
+
+  if (isOpen) {
+    return <ConfirmAddToCart productId={params?.productId} />;
+  }
+
+  return (
+    <button onClick={() => open({ title: "Confirm", params: { productId: 42 } })}>
+      Add to cart
+    </button>
+  );
+}
+```
+
+`title`, `template`, and `anchor` are honored by Apps SDK hosts. The polyfill only applies `params`. Modal open must be
+user-initiated (for example a click handler), not a mount effect. Use `requestModal` / `closeModal` for the same
+behavior outside React render.
 
 Add the plugin to a normal Vite configuration. Development serves each widget at `/widgets/<name>/index.html`;
 production emits a self-contained `dist/widgets/<name>/index.html` with JavaScript, CSS, and assets inlined.

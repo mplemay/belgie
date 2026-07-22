@@ -12,7 +12,7 @@ EXAMPLE_DIR: Final[Path] = Path(__file__).parent
 
 def project_prompt() -> str:
     widget = (EXAMPLE_DIR / "widget.tsx").read_text(encoding="utf-8")
-    component = (EXAMPLE_DIR / "WeatherCard.tsx").read_text(encoding="utf-8")
+    component = (EXAMPLE_DIR / "weather-card.tsx").read_text(encoding="utf-8")
     styles = (EXAMPLE_DIR / "styles.css").read_text(encoding="utf-8")
     return f"""Call build_widget once with this virtual project.
 
@@ -21,7 +21,7 @@ widget.tsx:
 {widget}
 ```
 
-WeatherCard.tsx:
+weather-card.tsx:
 ```tsx
 {component}
 ```

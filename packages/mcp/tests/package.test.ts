@@ -30,6 +30,9 @@ test("publishes the expected ESM export map and declarations", async () => {
   assert.equal(typeof mcp.useLocale, "function");
   assert.equal(typeof mcp.useTheme, "function");
   assert.equal(typeof mcp.useUserAgent, "function");
+  assert.equal(typeof mcp.useModal, "function");
+  assert.equal(typeof mcp.requestModal, "function");
+  assert.equal(typeof mcp.closeModal, "function");
   assert.equal(typeof (await import("@belgie/mcp/codegen")).generateToolTypes, "function");
   assert.equal(typeof (await import("@belgie/mcp/builder")).buildWidget, "function");
   assert.equal(typeof (await import("@belgie/mcp/internal")).createGeneratedTool, "function");
@@ -85,7 +88,9 @@ test("npm pack dry run contains only publishable package files", () => {
   const output = execFileSync(process.execPath, [npmCli, "pack", "--dry-run", "--json", "--ignore-scripts"], {
     encoding: "utf8",
   });
-  const result = JSON.parse(output)[0];
+  const parsed = JSON.parse(output) as { files: { path: string }[] }[] | Record<string, { files: { path: string }[] }>;
+  const result = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0];
+  assert.ok(result, "expected npm pack --json to describe the package");
   const files = result.files.map((file: { path: string }) => file.path);
   assert.ok(files.includes("README.md"));
   assert.ok(files.includes("package.json"));

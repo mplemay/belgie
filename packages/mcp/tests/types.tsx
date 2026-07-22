@@ -1,11 +1,11 @@
-import type { App } from "@modelcontextprotocol/ext-apps";
-
 import {
   McpToolCancelledError,
   McpToolError,
+  closeModal,
   downloadFile,
   openLink,
   requestDisplayMode,
+  requestModal,
   requestTeardown,
   sendLog,
   sendMessage,
@@ -13,23 +13,25 @@ import {
   useDisplayMode,
   useLayout,
   useLocale,
+  useModal,
   useTheme,
   useToolResult,
   useUserAgent,
-  type DeviceType,
-  type LayoutState,
-  type RawToolResult,
-  type SafeArea,
-  type SafeAreaInsets,
-  type ToolCallError,
-  type ToolCallResult,
-  type ToolResultState,
-  type UserAgent,
 } from "@belgie/mcp";
-import {
-  createGeneratedRawTool,
-  createGeneratedTool,
-} from "@belgie/mcp/internal";
+import type {
+  DeviceType,
+  LayoutState,
+  ModalOptions,
+  RawToolResult,
+  SafeArea,
+  SafeAreaInsets,
+  ToolCallError,
+  ToolCallResult,
+  ToolResultState,
+  UserAgent,
+} from "@belgie/mcp";
+import { createGeneratedRawTool, createGeneratedTool } from "@belgie/mcp/internal";
+import type { App } from "@modelcontextprotocol/ext-apps";
 
 interface EmptyOutput {
   value: string;
@@ -82,9 +84,7 @@ const displayMode = { mode: "fullscreen" as const };
 const requestOptions = { signal: new AbortController().signal };
 
 type PublicMcpExports = keyof typeof import("@belgie/mcp");
-type GenericCallersAreAbsent = Extract<PublicMcpExports, "callTool" | "useTool"> extends never
-  ? true
-  : false;
+type GenericCallersAreAbsent = Extract<PublicMcpExports, "callTool" | "useTool"> extends never ? true : false;
 type CombinedUserHookIsAbsent = Extract<PublicMcpExports, "useUser"> extends never ? true : false;
 
 const genericCallersAreAbsent: GenericCallersAreAbsent = true;
@@ -138,11 +138,17 @@ export function TypeFixture() {
   const locale: string = useLocale();
   const theme: "light" | "dark" = useTheme();
   const userAgent: UserAgent = useUserAgent();
+  const modal = useModal();
+  const modalIsOpen: boolean = modal.isOpen;
+  const modalParams: Record<string, unknown> | undefined = modal.params;
+  const modalOptions: ModalOptions = {
+    title: "Confirm",
+    params: { id: "example" },
+  };
   const safeArea: SafeArea = layout.safeArea;
   const safeAreaInsets: SafeAreaInsets = safeArea.insets;
   const deviceType: DeviceType = userAgent.device.type;
-  const hostDisplayModeRequest: ReturnType<App["requestDisplayMode"]> =
-    setHostDisplayMode("fullscreen");
+  const hostDisplayModeRequest: ReturnType<App["requestDisplayMode"]> = setHostDisplayMode("fullscreen");
   const requiredResult = useToolResult(required);
   const requiredResultState: ToolResultState<{ id: string }, RequiredOutput> = requiredResult;
   const requiredData: RequiredOutput | undefined = requiredResult.data;
@@ -165,19 +171,16 @@ export function TypeFixture() {
   void setHostDisplayMode("modal");
   // @ts-expect-error theme is intentionally split into useTheme
   void layout.theme;
+  modal.open(modalOptions);
+  requestModal(modalOptions);
+  closeModal();
 
   const messageResult: ReturnType<App["sendMessage"]> = sendMessage(message, requestOptions);
   const logResult: ReturnType<App["sendLog"]> = sendLog(log);
-  const modelContextResult: ReturnType<App["updateModelContext"]> = updateModelContext(
-    modelContext,
-    requestOptions,
-  );
+  const modelContextResult: ReturnType<App["updateModelContext"]> = updateModelContext(modelContext, requestOptions);
   const openLinkResult: ReturnType<App["openLink"]> = openLink(link, requestOptions);
   const downloadResult: ReturnType<App["downloadFile"]> = downloadFile(download, requestOptions);
-  const displayModeResult: ReturnType<App["requestDisplayMode"]> = requestDisplayMode(
-    displayMode,
-    requestOptions,
-  );
+  const displayModeResult: ReturnType<App["requestDisplayMode"]> = requestDisplayMode(displayMode, requestOptions);
   const teardownResult: ReturnType<App["requestTeardown"]> = requestTeardown();
 
   void empty();
@@ -230,6 +233,8 @@ export function TypeFixture() {
   void theme;
   void safeAreaInsets;
   void deviceType;
+  void modalIsOpen;
+  void modalParams;
   void messageResult;
   void logResult;
   void modelContextResult;

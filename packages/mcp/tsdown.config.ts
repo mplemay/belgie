@@ -47,14 +47,11 @@ export default defineConfig({
           return null;
         }
         const transformed = code
-          .replace(
-            /const \{ version \} = JSON\.parse\(readFileSync\([^;]+;/u,
-            'const version = "8.1.3";',
-          )
+          .replace(/const \{ version \} = JSON\.parse\(readFileSync\([^;]+;/u, 'const version = "8.1.3";')
           .replace(
             /const VITE_PACKAGE_DIR = [^;]+;\nconst CLIENT_ENTRY = [^;]+;\nconst ENV_ENTRY = [^;]+;\nconst CLIENT_DIR = [^;]+;/u,
             [
-              "const VITE_PACKAGE_DIR = resolve(fileURLToPath(import.meta.url), \"..\");",
+              'const VITE_PACKAGE_DIR = resolve(fileURLToPath(import.meta.url), "..");',
               'const CLIENT_ENTRY = resolve(VITE_PACKAGE_DIR, "vite-client/client.mjs");',
               'const ENV_ENTRY = resolve(VITE_PACKAGE_DIR, "vite-client/env.mjs");',
               "const CLIENT_DIR = path.dirname(CLIENT_ENTRY);",

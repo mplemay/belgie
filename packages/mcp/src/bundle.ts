@@ -2,13 +2,13 @@ import { renderWidgetHtmlDocument } from "./html.js";
 
 const TEXT_DECODER = new TextDecoder();
 
-export type BuildAsset = {
+export interface BuildAsset {
   fileName: string;
   source: string | Uint8Array;
   type: "asset";
-};
+}
 
-export type BuildChunk = {
+export interface BuildChunk {
   code: string;
   dynamicImports: string[];
   facadeModuleId: string | null;
@@ -17,7 +17,7 @@ export type BuildChunk = {
   isEntry: boolean;
   type: "chunk";
   viteMetadata?: { importedCss?: Set<string> };
-};
+}
 
 export type BuildArtifact = BuildAsset | BuildChunk;
 
@@ -25,10 +25,7 @@ function readAsset(asset: BuildAsset): string {
   return typeof asset.source === "string" ? asset.source : TEXT_DECODER.decode(asset.source);
 }
 
-export function renderWidgetBundle(
-  name: string,
-  bundle: Record<string, BuildArtifact> | BuildArtifact[],
-): string {
+export function renderWidgetBundle(name: string, bundle: Record<string, BuildArtifact> | BuildArtifact[]): string {
   const artifacts = Array.isArray(bundle) ? bundle : Object.values(bundle);
   const chunks = artifacts.filter((artifact): artifact is BuildChunk => artifact.type === "chunk");
   const entries = chunks.filter((chunk) => chunk.isEntry);
@@ -36,7 +33,7 @@ export function renderWidgetBundle(
     throw new Error(`belgie: expected one entry chunk for widget "${name}", received ${entries.length}`);
   }
 
-  const entry = entries[0]!;
+  const entry = entries[0];
   const extraChunks = chunks.filter((chunk) => chunk !== entry);
   if (extraChunks.length > 0) {
     throw new Error(
@@ -59,7 +56,7 @@ export function renderWidgetBundle(
 
   const assetsByName = new Map(assets.map((asset) => [asset.fileName, asset]));
   const importedCss = [...(entry.viteMetadata?.importedCss ?? [])];
-  const cssNames = importedCss.length > 0 ? importedCss : assets.map((asset) => asset.fileName).sort();
+  const cssNames = importedCss.length > 0 ? importedCss : assets.map((asset) => asset.fileName).toSorted();
   const styles = cssNames.map((cssName) => {
     const asset = assetsByName.get(cssName);
     if (asset === undefined) {

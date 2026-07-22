@@ -1,8 +1,10 @@
 import { isAbsolute, posix, relative, resolve, win32 } from "node:path";
 
-import { build as viteBuild, type Plugin } from "vite";
+import { build as viteBuild } from "vite";
+import type { Plugin } from "vite";
 
-import { renderWidgetBundle, type BuildArtifact } from "./bundle.js";
+import { renderWidgetBundle } from "./bundle.js";
+import type { BuildArtifact } from "./bundle.js";
 import { buildVirtualEntry } from "./html.js";
 import { hasDefaultExport } from "./validate-widget.js";
 
@@ -21,20 +23,20 @@ const TEXT_ASSET_TYPES = new Map([
   [".txt", "text/plain"],
 ]);
 
-export type BuildWidgetOptions = {
+export interface BuildWidgetOptions {
   dependencies?: string[];
   files?: Record<string, string>;
   root: string;
   widget: string;
-};
+}
 
-export type BuiltWidget = {
+export interface BuiltWidget {
   html: string;
-};
+}
 
-type BuildOutput = {
+interface BuildOutput {
   output: BuildArtifact[];
-};
+}
 
 type ViteBuild = typeof import("vite").build;
 
@@ -69,9 +71,7 @@ function packageInternal(specifier: string): boolean {
   if (specifier.startsWith("@belgie/mcp/")) {
     return true;
   }
-  return INTERNAL_DEPENDENCIES.some(
-    (dependency) => specifier === dependency || specifier.startsWith(`${dependency}/`),
-  );
+  return INTERNAL_DEPENDENCIES.some((dependency) => specifier === dependency || specifier.startsWith(`${dependency}/`));
 }
 
 function textualAssetModule(fileName: string, source: string, query: string): string | undefined {
@@ -106,11 +106,7 @@ export function validateVirtualPath(fileName: string): void {
   }
 }
 
-function virtualProjectPlugin(
-  virtualRoot: string,
-  sources: Map<string, string>,
-  dependencies: Set<string>,
-): Plugin {
+function virtualProjectPlugin(virtualRoot: string, sources: Map<string, string>, dependencies: Set<string>): Plugin {
   const entryId = normalizePath(resolve(virtualRoot, ENTRY_FILE));
   const widgetId = normalizePath(resolve(virtualRoot, WIDGET_FILE));
 
@@ -145,13 +141,20 @@ function virtualProjectPlugin(
       if (importer === undefined || !isWithin(virtualRoot, splitQuery(importer)[0])) {
         return null;
       }
-      if (/^[a-z][a-z\d+.-]*:/iu.test(source) || source.startsWith("//") || isAbsolute(source) || win32.isAbsolute(source)) {
+      if (
+        /^[a-z][a-z\d+.-]*:/iu.test(source) ||
+        source.startsWith("//") ||
+        isAbsolute(source) ||
+        win32.isAbsolute(source)
+      ) {
         throw new Error(`belgie: import scheme or absolute path is not allowed: ${JSON.stringify(source)}`);
       }
       if (!isBareImport(source)) {
         const resolved = resolveVirtualImport(source, importer);
         if (resolved === undefined) {
-          throw new Error(`belgie: virtual import not found: ${JSON.stringify(source)} from ${JSON.stringify(normalizeDiagnosticPath(importer, virtualRoot))}`);
+          throw new Error(
+            `belgie: virtual import not found: ${JSON.stringify(source)} from ${JSON.stringify(normalizeDiagnosticPath(importer, virtualRoot))}`,
+          );
         }
         return resolved;
       }
@@ -193,10 +196,7 @@ function normalizeBuildError(error: unknown, virtualRoot: string): Error {
   return new Error(normalizeDiagnosticPath(message, virtualRoot), { cause: error });
 }
 
-export async function buildWidgetWithVite(
-  options: BuildWidgetOptions,
-  viteBuild: ViteBuild,
-): Promise<BuiltWidget> {
+export async function buildWidgetWithVite(options: BuildWidgetOptions, viteBuild: ViteBuild): Promise<BuiltWidget> {
   if (!isAbsolute(options.root)) {
     throw new Error("belgie: widget build root must be absolute");
   }
@@ -205,9 +205,7 @@ export async function buildWidgetWithVite(
   }
 
   const virtualRoot = normalizePath(resolve(options.root, VIRTUAL_DIRECTORY));
-  const sources = new Map<string, string>([
-    [normalizePath(resolve(virtualRoot, WIDGET_FILE)), options.widget],
-  ]);
+  const sources = new Map<string, string>([[normalizePath(resolve(virtualRoot, WIDGET_FILE)), options.widget]]);
   for (const [fileName, source] of Object.entries(options.files ?? {})) {
     validateVirtualPath(fileName);
     if (typeof source !== "string") {
@@ -218,7 +216,12 @@ export async function buildWidgetWithVite(
 
   const dependencies = new Set(DEFAULT_DEPENDENCIES);
   for (const dependency of options.dependencies ?? []) {
-    if (typeof dependency !== "string" || dependency.length === 0 || !isBareImport(dependency) || dependency.includes(":")) {
+    if (
+      typeof dependency !== "string" ||
+      dependency.length === 0 ||
+      !isBareImport(dependency) ||
+      dependency.includes(":")
+    ) {
       throw new Error(`belgie: invalid dependency alias: ${JSON.stringify(dependency)}`);
     }
     dependencies.add(dependency);

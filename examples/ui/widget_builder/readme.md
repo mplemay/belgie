@@ -18,7 +18,7 @@ root = Path(__file__).parent
 source = WidgetSource(
     widget=(root / "widget.tsx").read_text(),
     files={
-        "WeatherCard.tsx": (root / "WeatherCard.tsx").read_text(),
+        "weather-card.tsx": (root / "weather-card.tsx").read_text(),
         "styles.css": (root / "styles.css").read_text(),
     },
 )
