@@ -47,10 +47,22 @@ function validatePlugins(plugins: PluginOption[] | undefined): PluginOption[] {
   return plugins;
 }
 
+const renderLock: { gate: Promise<void> } = { gate: Promise.resolve() };
+
 export async function render(options: RenderOptions): Promise<string> {
   if (typeof options !== "object" || options === null || !isValidElement(options.widget)) {
     throw new TypeError("@belgie/render: widget must be a React element");
   }
+  const plugins = validatePlugins(options.plugins);
+  const context = readContext();
+
+  let release!: () => void;
+  const previous = renderLock.gate;
+  renderLock.gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+
   const processEnvironment = Object.getOwnPropertyDescriptor(process, "env");
   Object.defineProperty(process, "env", {
     configurable: true,
@@ -58,12 +70,13 @@ export async function render(options: RenderOptions): Promise<string> {
   });
   try {
     const { buildInlineWidget } = await import("./build.js");
-    return await buildInlineWidget(readContext(), validatePlugins(options.plugins));
+    return await buildInlineWidget(context, plugins);
   } finally {
     if (processEnvironment === undefined) {
       Reflect.deleteProperty(process, "env");
     } else {
       Object.defineProperty(process, "env", processEnvironment);
     }
+    release();
   }
 }

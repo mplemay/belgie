@@ -69,6 +69,22 @@ describe("@belgie/render", () => {
     expect(process.env).toBe(environment);
   });
 
+  it("restores the process environment after concurrent builds", async () => {
+    installContext(
+      'import { render } from "@belgie/render"; export default () => render({ widget: <main>env</main> });',
+    );
+    const environment = process.env;
+    const descriptor = Object.getOwnPropertyDescriptor(process, "env");
+
+    await Promise.all([
+      render({ widget: createElement("main", null, "env") }),
+      render({ widget: createElement("main", null, "env") }),
+    ]);
+
+    expect(process.env).toBe(environment);
+    expect(Object.getOwnPropertyDescriptor(process, "env")).toStrictEqual(descriptor);
+  });
+
   it("inlines CSS emitted by a client dependency", async () => {
     installContext(
       [

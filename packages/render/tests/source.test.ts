@@ -105,6 +105,131 @@ describe("inline source transform", () => {
     expect(transformed).toContain("render(options)");
   });
 
+  it("removes a plugins array binding and its import", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const plugins = [serverPlugin()];",
+        "export default () => render({ widget: <main />, plugins });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("plugins");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).not.toContain("npm:plugin-package@1.2.3");
+    expect(transformed).toContain("widget: <main />");
+  });
+
+  it("removes chained plugin-only bindings", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const factory = serverPlugin;",
+        "const plugins = [factory()];",
+        "export default () => render({ widget: <main />, plugins });",
+      ].join("\n"),
+    );
+    const sameDeclaration = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const factory = serverPlugin, plugins = [factory()];",
+        "export default () => render({ widget: <main />, plugins });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("factory");
+    expect(transformed).not.toContain("plugins");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).not.toContain("npm:plugin-package@1.2.3");
+    expect(transformed).toContain("widget: <main />");
+    expect(sameDeclaration).not.toContain("factory");
+    expect(sameDeclaration).not.toContain("const ");
+    expect(sameDeclaration).toContain("widget: <main />");
+  });
+
+  it("removes plugin declarators from mixed variable declarations", () => {
+    const first = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const plugins = [serverPlugin()], keep = 1;",
+        "export default () => render({ widget: <main>{keep}</main>, plugins });",
+      ].join("\n"),
+    );
+    const last = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const keep = 1, plugins = [serverPlugin()];",
+        "export default () => render({ widget: <main>{keep}</main>, plugins });",
+      ].join("\n"),
+    );
+
+    expect(first).toContain("const keep = 1;");
+    expect(first).not.toContain("serverPlugin");
+    expect(first).toContain("{keep}");
+    expect(last).toContain("const keep = 1;");
+    expect(last).not.toContain("plugins");
+    expect(last).not.toContain("npm:plugin-package@1.2.3");
+  });
+
+  it("rejects plugins bindings that escape into other code", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "const plugins = [serverPlugin()];",
+          "console.log(plugins);",
+          "export default () => render({ widget: <main />, plugins });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects exported plugins bindings", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "export const plugins = [serverPlugin()];",
+          "export default () => render({ widget: <main />, plugins });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects plugins bindings re-exported by specifier", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "const plugins = [serverPlugin()];",
+          "export { plugins };",
+          "export default () => render({ widget: <main />, plugins });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects destructured plugins bindings", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "const [plugins] = [[serverPlugin()]];",
+          "export default () => render({ widget: <main />, plugins });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
   it("removes plugins carried by an object spread", () => {
     const transformed = stripServerPlugins(
       [

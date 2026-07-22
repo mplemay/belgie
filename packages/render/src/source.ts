@@ -448,6 +448,195 @@ function collectPluginPropertiesFromObject(
   return true;
 }
 
+interface SimpleDeclarator {
+  declaration: AstNode;
+  declarator: AstNode;
+  init: AstNode;
+  name: string;
+}
+
+function addBindingPatternNames(node: AstNode, into: Set<string>): void {
+  if (node.type === "Identifier" && "name" in node && typeof node.name === "string") {
+    into.add(node.name);
+    return;
+  }
+  for (const name of collectIdentifiers(node)) {
+    into.add(name);
+  }
+}
+
+function collectExportedBindingNames(root: AstNode): Set<string> {
+  const exported = new Set<string>();
+  walk(root, (node) => {
+    if (node.type === "ExportNamedDeclaration" && "specifiers" in node && Array.isArray(node.specifiers)) {
+      for (const specifier of node.specifiers.filter(isNode)) {
+        if ("local" in specifier && isNode(specifier.local)) {
+          addBindingPatternNames(specifier.local, exported);
+        }
+      }
+    }
+    if (
+      (node.type !== "ExportNamedDeclaration" && node.type !== "ExportDefaultDeclaration") ||
+      !("declaration" in node) ||
+      !isNode(node.declaration) ||
+      node.declaration.type !== "VariableDeclaration" ||
+      !("declarations" in node.declaration) ||
+      !Array.isArray(node.declaration.declarations)
+    ) {
+      return;
+    }
+    for (const declarator of node.declaration.declarations.filter(isNode)) {
+      if ("id" in declarator && isNode(declarator.id)) {
+        addBindingPatternNames(declarator.id, exported);
+      }
+    }
+  });
+  return exported;
+}
+
+function collectSimpleDeclarators(root: AstNode): {
+  declarators: Map<string, SimpleDeclarator>;
+  nonSimpleBound: Set<string>;
+  redeclared: Set<string>;
+} {
+  const declarators = new Map<string, SimpleDeclarator>();
+  const nonSimpleBound = new Set<string>();
+  const redeclared = new Set<string>();
+  walk(root, (node) => {
+    if (node.type !== "VariableDeclaration" || !("declarations" in node) || !Array.isArray(node.declarations)) {
+      return;
+    }
+    for (const value of node.declarations) {
+      if (!isNode(value) || !("id" in value) || !isNode(value.id)) {
+        continue;
+      }
+      const init = "init" in value && isNode(value.init) ? value.init : undefined;
+      if (
+        value.id.type === "Identifier" &&
+        "name" in value.id &&
+        typeof value.id.name === "string" &&
+        init !== undefined
+      ) {
+        const name = value.id.name;
+        if (declarators.has(name) || nonSimpleBound.has(name)) {
+          redeclared.add(name);
+          declarators.delete(name);
+        } else {
+          declarators.set(name, {
+            declaration: node,
+            declarator: value,
+            init,
+            name,
+          });
+        }
+        continue;
+      }
+      for (const name of collectIdentifiers(value.id)) {
+        nonSimpleBound.add(name);
+        declarators.delete(name);
+      }
+    }
+  });
+  return { declarators, nonSimpleBound, redeclared };
+}
+
+function collectPluginOnlyBindings(
+  root: AstNode,
+  pluginIdentifiers: Set<string>,
+  pluginProperties: AstNode[],
+  reassigned: Set<string>,
+): SimpleDeclarator[] {
+  const exported = collectExportedBindingNames(root);
+  const { declarators, nonSimpleBound, redeclared } = collectSimpleDeclarators(root);
+  const blocked = new Set([...reassigned, ...redeclared, ...exported]);
+  const pluginOnly = new Map<string, SimpleDeclarator>();
+
+  for (;;) {
+    let discovered = false;
+    for (const name of pluginIdentifiers) {
+      if (pluginOnly.has(name)) {
+        continue;
+      }
+      if (nonSimpleBound.has(name)) {
+        throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+      }
+      const binding = declarators.get(name);
+      if (binding === undefined) {
+        continue;
+      }
+      if (blocked.has(name)) {
+        throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+      }
+      pluginOnly.set(name, binding);
+      for (const identifier of collectIdentifiers(binding.init)) {
+        pluginIdentifiers.add(identifier);
+      }
+      discovered = true;
+    }
+    if (!discovered) {
+      break;
+    }
+  }
+
+  const skipped = new Set<AstNode>([
+    ...pluginProperties,
+    ...[...pluginOnly.values()].map((binding) => binding.declarator),
+  ]);
+  walk(root, (node) => {
+    if (node.type === "ImportDeclaration" || skipped.has(node)) {
+      return false;
+    }
+    if (node.type !== "Identifier" || !("name" in node) || typeof node.name !== "string") {
+      return;
+    }
+    if (pluginOnly.has(node.name)) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+    }
+  });
+
+  return [...pluginOnly.values()];
+}
+
+function removeVariableDeclarators(transformed: MagicString, bindings: SimpleDeclarator[]): void {
+  const byDeclaration = new Map<AstNode, SimpleDeclarator[]>();
+  for (const binding of bindings) {
+    const group = byDeclaration.get(binding.declaration);
+    if (group === undefined) {
+      byDeclaration.set(binding.declaration, [binding]);
+    } else {
+      group.push(binding);
+    }
+  }
+  for (const [declaration, group] of byDeclaration) {
+    if (!("declarations" in declaration) || !Array.isArray(declaration.declarations)) {
+      continue;
+    }
+    const declarators = declaration.declarations.filter(isNode);
+    if (group.length >= declarators.length) {
+      transformed.remove(declaration.start, declaration.end);
+      continue;
+    }
+    const removing = new Set(group.map((binding) => binding.declarator));
+    for (let index = declarators.length - 1; index >= 0; index -= 1) {
+      const declarator = declarators[index];
+      if (declarator === undefined || !removing.has(declarator)) {
+        continue;
+      }
+      if (index === 0) {
+        const next = declarators.find((candidate, candidateIndex) => candidateIndex > 0 && !removing.has(candidate));
+        if (next !== undefined) {
+          transformed.remove(declarator.start, next.start);
+        }
+      } else {
+        const previous = declarators[index - 1];
+        if (previous !== undefined) {
+          transformed.remove(previous.end, declarator.end);
+        }
+      }
+    }
+  }
+}
+
 export function stripServerPlugins(source: string): string {
   const program = parseAst(source, { astType: "js", lang: "tsx", range: true });
   const root = program as unknown as AstNode;
@@ -510,9 +699,15 @@ export function stripServerPlugins(source: string): string {
     return source;
   }
 
+  const pluginOnlyBindings = collectPluginOnlyBindings(root, pluginIdentifiers, pluginProperties, reassigned);
+  const skippedNodes = new Set<AstNode>([
+    ...pluginProperties,
+    ...pluginOnlyBindings.map((binding) => binding.declarator),
+  ]);
+
   const usedOutsidePlugins = new Set<string>();
   walk(root, (node) => {
-    if (node.type === "ImportDeclaration" || pluginProperties.includes(node)) {
+    if (node.type === "ImportDeclaration" || skippedNodes.has(node)) {
       return false;
     }
     if (node.type === "Identifier" && "name" in node && typeof node.name === "string") {
@@ -528,6 +723,7 @@ export function stripServerPlugins(source: string): string {
       removeObjectProperty(transformed, properties, properties.indexOf(property));
     }
   }
+  removeVariableDeclarators(transformed, pluginOnlyBindings);
 
   for (const declaration of imports) {
     if (renderImport(declaration.source.value)) {
