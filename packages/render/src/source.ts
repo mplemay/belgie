@@ -48,27 +48,19 @@ function walk(node: AstNode, visit: (node: AstNode) => boolean | undefined): voi
   }
 }
 
-type PropertyKeyClass = { kind: "static"; name: string } | { kind: "unknown" };
-
-function classifyPropertyKey(node: AstNode): PropertyKeyClass {
+function classifyPropertyKey(node: AstNode): string | undefined {
   if (node.type !== "Property" || !("key" in node) || !isNode(node.key)) {
-    return { kind: "unknown" };
+    return undefined;
   }
   const key = node.key;
   const computed = "computed" in node && node.computed;
-  if (!computed) {
-    if (key.type === "Identifier" && "name" in key && typeof key.name === "string") {
-      return { kind: "static", name: key.name };
-    }
-    if (key.type === "Literal" && "value" in key && typeof key.value === "string") {
-      return { kind: "static", name: key.value };
-    }
-    return { kind: "unknown" };
+  if (!computed && key.type === "Identifier" && "name" in key && typeof key.name === "string") {
+    return key.name;
   }
   if (key.type === "Literal" && "value" in key && typeof key.value === "string") {
-    return { kind: "static", name: key.value };
+    return key.value;
   }
-  return { kind: "unknown" };
+  return undefined;
 }
 
 function renderImport(source: string): boolean {
@@ -201,10 +193,6 @@ function isRenderValue(node: AstNode, renderNames: Set<string>, renderNamespaces
     typeof object.name === "string" &&
     renderNamespaces.has(object.name)
   );
-}
-
-function isRenderCallee(callee: AstNode, renderNames: Set<string>, renderNamespaces: Set<string>): boolean {
-  return isRenderValue(callee, renderNames, renderNamespaces);
 }
 
 function allowRenderValueIdentifiers(node: AstNode, allowed: Set<AstNode>): void {
@@ -430,12 +418,17 @@ function resolveObjectExpression(
   return undefined;
 }
 
+interface OptionProperty {
+  parent: AstNode;
+  property: AstNode;
+}
+
 function collectOptionPropertiesFromObject(
   object: AstNode,
   objects: Map<string, AstNode>,
   reassigned: Set<string>,
-  pluginProperties: AstNode[],
-  widgetProperties: AstNode[],
+  pluginProperties: OptionProperty[],
+  widgetProperties: OptionProperty[],
   seen: Set<AstNode>,
 ): boolean {
   if (seen.has(object)) {
@@ -448,13 +441,13 @@ function collectOptionPropertiesFromObject(
   for (const property of (object.properties as unknown[]).filter(isNode)) {
     if (property.type === "Property") {
       const key = classifyPropertyKey(property);
-      if (key.kind === "unknown") {
+      if (key === undefined) {
         return false;
       }
-      if (key.name === "plugins") {
-        pluginProperties.push(property);
-      } else if (key.name === "widget") {
-        widgetProperties.push(property);
+      if (key === "plugins") {
+        pluginProperties.push({ parent: object, property });
+      } else if (key === "widget") {
+        widgetProperties.push({ parent: object, property });
       }
       continue;
     }
@@ -490,6 +483,21 @@ function addBindingPatternNames(node: AstNode, into: Set<string>): void {
   }
 }
 
+function addNamedBindings(node: AstNode, names: Set<string>): void {
+  if ((node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") && "id" in node && isNode(node.id)) {
+    addBindingPatternNames(node.id, names);
+    return;
+  }
+  if (node.type !== "VariableDeclaration" || !("declarations" in node) || !Array.isArray(node.declarations)) {
+    return;
+  }
+  for (const declarator of node.declarations.filter(isNode)) {
+    if ("id" in declarator && isNode(declarator.id)) {
+      addBindingPatternNames(declarator.id, names);
+    }
+  }
+}
+
 function collectExportedBindingNames(root: AstNode): Set<string> {
   const exported = new Set<string>();
   walk(root, (node) => {
@@ -501,19 +509,11 @@ function collectExportedBindingNames(root: AstNode): Set<string> {
       }
     }
     if (
-      (node.type !== "ExportNamedDeclaration" && node.type !== "ExportDefaultDeclaration") ||
-      !("declaration" in node) ||
-      !isNode(node.declaration) ||
-      node.declaration.type !== "VariableDeclaration" ||
-      !("declarations" in node.declaration) ||
-      !Array.isArray(node.declaration.declarations)
+      (node.type === "ExportNamedDeclaration" || node.type === "ExportDefaultDeclaration") &&
+      "declaration" in node &&
+      isNode(node.declaration)
     ) {
-      return;
-    }
-    for (const declarator of node.declaration.declarations.filter(isNode)) {
-      if ("id" in declarator && isNode(declarator.id)) {
-        addBindingPatternNames(declarator.id, exported);
-      }
+      addNamedBindings(node.declaration, exported);
     }
   });
   return exported;
@@ -568,7 +568,7 @@ function collectSimpleDeclarators(root: AstNode): {
 function collectPluginOnlyBindings(
   root: AstNode,
   pluginIdentifiers: Set<string>,
-  pluginProperties: AstNode[],
+  pluginProperties: OptionProperty[],
   reassigned: Set<string>,
 ): SimpleDeclarator[] {
   const exported = collectExportedBindingNames(root);
@@ -604,7 +604,7 @@ function collectPluginOnlyBindings(
   }
 
   const skipped = new Set<AstNode>([
-    ...pluginProperties,
+    ...pluginProperties.map((entry) => entry.property),
     ...[...pluginOnly.values()].map((binding) => binding.declarator),
   ]);
   walk(root, (node) => {
@@ -665,10 +665,10 @@ function removeVariableDeclarators(transformed: MagicString, bindings: SimpleDec
 interface RenderOptionsAnalysis {
   imports: ImportDeclaration[];
   pluginIdentifiers: Set<string>;
-  pluginProperties: AstNode[];
+  pluginProperties: OptionProperty[];
   reassigned: Set<string>;
   root: AstNode;
-  widgetProperties: AstNode[];
+  widgetProperties: OptionProperty[];
 }
 
 function analyzeRenderOptions(source: string): RenderOptionsAnalysis {
@@ -697,8 +697,8 @@ function analyzeRenderOptions(source: string): RenderOptionsAnalysis {
   assertRenderBindingsAnalyzable(root, renderNames, renderNamespaces, reassignedRender);
 
   const { objects, reassigned } = collectObjectBindings(root);
-  const pluginProperties: AstNode[] = [];
-  const widgetProperties: AstNode[] = [];
+  const pluginProperties: OptionProperty[] = [];
+  const widgetProperties: OptionProperty[] = [];
   const pluginIdentifiers = new Set<string>();
   walk(root, (node) => {
     if (node.type !== "CallExpression" || !("callee" in node) || !("arguments" in node)) {
@@ -706,7 +706,7 @@ function analyzeRenderOptions(source: string): RenderOptionsAnalysis {
     }
     const callee = node.callee;
     const args = node.arguments;
-    if (!isNode(callee) || !isRenderCallee(callee, renderNames, renderNamespaces) || !Array.isArray(args)) {
+    if (!isNode(callee) || !isRenderValue(callee, renderNames, renderNamespaces) || !Array.isArray(args)) {
       return;
     }
     if (!isNode(args[0])) {
@@ -716,39 +716,23 @@ function analyzeRenderOptions(source: string): RenderOptionsAnalysis {
     if (optionsObject === undefined) {
       throw new Error(UNANALYZABLE_PLUGINS_ERROR);
     }
-    const callPlugins: AstNode[] = [];
-    const callWidgets: AstNode[] = [];
-    if (!collectOptionPropertiesFromObject(optionsObject, objects, reassigned, callPlugins, callWidgets, new Set())) {
+    const callPlugins: OptionProperty[] = [];
+    if (
+      !collectOptionPropertiesFromObject(optionsObject, objects, reassigned, callPlugins, widgetProperties, new Set())
+    ) {
       throw new Error(UNANALYZABLE_PLUGINS_ERROR);
     }
-    for (const property of callPlugins) {
-      pluginProperties.push(property);
-      if ("value" in property && isNode(property.value)) {
-        for (const name of collectIdentifiers(property.value)) {
+    for (const entry of callPlugins) {
+      pluginProperties.push(entry);
+      if ("value" in entry.property && isNode(entry.property.value)) {
+        for (const name of collectIdentifiers(entry.property.value)) {
           pluginIdentifiers.add(name);
         }
       }
     }
-    for (const property of callWidgets) {
-      widgetProperties.push(property);
-    }
   });
 
   return { imports, pluginIdentifiers, pluginProperties, reassigned, root, widgetProperties };
-}
-
-function findParentObject(root: AstNode, target: AstNode): AstNode | undefined {
-  let parent: AstNode | undefined;
-  walk(root, (node) => {
-    if (parent !== undefined) {
-      return false;
-    }
-    if ("properties" in node && Array.isArray(node.properties) && node.properties.includes(target)) {
-      parent = node;
-      return false;
-    }
-  });
-  return parent;
 }
 
 function stripPluginsFromSource(source: string, analysis: RenderOptionsAnalysis): string {
@@ -759,7 +743,7 @@ function stripPluginsFromSource(source: string, analysis: RenderOptionsAnalysis)
 
   const pluginOnlyBindings = collectPluginOnlyBindings(root, pluginIdentifiers, pluginProperties, reassigned);
   const skippedNodes = new Set<AstNode>([
-    ...pluginProperties,
+    ...pluginProperties.map((entry) => entry.property),
     ...pluginOnlyBindings.map((binding) => binding.declarator),
   ]);
 
@@ -774,9 +758,8 @@ function stripPluginsFromSource(source: string, analysis: RenderOptionsAnalysis)
   });
 
   const transformed = new MagicString(source);
-  for (const property of pluginProperties) {
-    const parent = findParentObject(root, property);
-    if (parent !== undefined && "properties" in parent && Array.isArray(parent.properties)) {
+  for (const { parent, property } of pluginProperties) {
+    if ("properties" in parent && Array.isArray(parent.properties)) {
       const properties = (parent.properties as unknown[]).filter(isNode);
       removeObjectProperty(transformed, properties, properties.indexOf(property));
     }
@@ -806,41 +789,14 @@ export function stripServerPlugins(source: string): string {
   return stripPluginsFromSource(source, analyzeRenderOptions(source));
 }
 
-function addNamedBindings(node: AstNode, names: Set<string>): void {
-  if ((node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") && "id" in node && isNode(node.id)) {
-    addBindingPatternNames(node.id, names);
-    return;
+function moduleDeclarationBindings(node: AstNode): AstNode | undefined {
+  if (node.type !== "ExportNamedDeclaration" && node.type !== "ExportDefaultDeclaration") {
+    return node;
   }
-  if (node.type !== "VariableDeclaration" || !("declarations" in node) || !Array.isArray(node.declarations)) {
-    return;
+  if ("declaration" in node && isNode(node.declaration)) {
+    return node.declaration;
   }
-  for (const declarator of node.declarations.filter(isNode)) {
-    if ("id" in declarator && isNode(declarator.id)) {
-      addBindingPatternNames(declarator.id, names);
-    }
-  }
-}
-
-function addModuleDeclarationBindings(node: AstNode, names: Set<string>): void {
-  if (node.type === "ImportDeclaration" && "specifiers" in node && Array.isArray(node.specifiers)) {
-    for (const specifier of node.specifiers.filter(isNode)) {
-      if ("local" in specifier && isNode(specifier.local)) {
-        addBindingPatternNames(specifier.local, names);
-      }
-    }
-    return;
-  }
-  if (node.type === "ExportNamedDeclaration") {
-    if ("declaration" in node && isNode(node.declaration)) {
-      addNamedBindings(node.declaration, names);
-    }
-    return;
-  }
-  if (node.type === "ExportDefaultDeclaration" && "declaration" in node && isNode(node.declaration)) {
-    addNamedBindings(node.declaration, names);
-    return;
-  }
-  addNamedBindings(node, names);
+  return undefined;
 }
 
 function collectModuleBindingNames(root: AstNode): Set<string> {
@@ -849,43 +805,20 @@ function collectModuleBindingNames(root: AstNode): Set<string> {
     return names;
   }
   for (const node of root.body.filter(isNode)) {
-    addModuleDeclarationBindings(node, names);
+    if (node.type === "ImportDeclaration" && "specifiers" in node && Array.isArray(node.specifiers)) {
+      for (const specifier of node.specifiers.filter(isNode)) {
+        if ("local" in specifier && isNode(specifier.local)) {
+          addBindingPatternNames(specifier.local, names);
+        }
+      }
+      continue;
+    }
+    const declaration = moduleDeclarationBindings(node);
+    if (declaration !== undefined) {
+      addNamedBindings(declaration, names);
+    }
   }
   return names;
-}
-
-function isNonComputedPropertyName(node: AstNode, parent: AstNode | undefined): boolean {
-  if (parent === undefined) {
-    return false;
-  }
-  if (
-    parent.type === "MemberExpression" &&
-    "computed" in parent &&
-    !parent.computed &&
-    "property" in parent &&
-    parent.property === node
-  ) {
-    return true;
-  }
-  if (
-    parent.type === "Property" &&
-    "computed" in parent &&
-    !parent.computed &&
-    "key" in parent &&
-    parent.key === node
-  ) {
-    return true;
-  }
-  if (
-    parent.type === "MethodDefinition" &&
-    "computed" in parent &&
-    !parent.computed &&
-    "key" in parent &&
-    parent.key === node
-  ) {
-    return true;
-  }
-  return false;
 }
 
 function isTypeScriptTypeNode(node: AstNode): boolean {
@@ -899,32 +832,39 @@ function isTypeScriptTypeNode(node: AstNode): boolean {
   );
 }
 
+function nonComputedNameNode(node: AstNode): AstNode | undefined {
+  if (
+    (node.type !== "MemberExpression" && node.type !== "Property" && node.type !== "MethodDefinition") ||
+    !("computed" in node) ||
+    node.computed
+  ) {
+    return undefined;
+  }
+  if (node.type === "MemberExpression" && "property" in node && isNode(node.property)) {
+    return node.property;
+  }
+  if ("key" in node && isNode(node.key)) {
+    return node.key;
+  }
+  return undefined;
+}
+
 function collectWidgetReferences(widgetValue: AstNode): Set<string> {
   const names = new Set<string>();
-  const parents = new Map<AstNode, AstNode>();
+  const ignored = new Set<AstNode>();
   walk(widgetValue, (node) => {
     if (isTypeScriptTypeNode(node)) {
       return false;
     }
-    for (const value of Object.values(node)) {
-      if (Array.isArray(value)) {
-        for (const item of value) {
-          if (isNode(item)) {
-            parents.set(item, node);
-          }
-        }
-      } else if (isNode(value)) {
-        parents.set(value, node);
-      }
+    const nameNode = nonComputedNameNode(node);
+    if (nameNode !== undefined) {
+      ignored.add(nameNode);
     }
     if (node.type === "JSXIdentifier" && "name" in node && typeof node.name === "string" && /^[A-Z]/u.test(node.name)) {
       names.add(node.name);
       return;
     }
-    if (node.type !== "Identifier" || !("name" in node) || typeof node.name !== "string") {
-      return;
-    }
-    if (isNonComputedPropertyName(node, parents.get(node))) {
+    if (node.type !== "Identifier" || !("name" in node) || typeof node.name !== "string" || ignored.has(node)) {
       return;
     }
     names.add(node.name);
@@ -934,23 +874,22 @@ function collectWidgetReferences(widgetValue: AstNode): Set<string> {
 
 function resolveWidgetExpression(source: string, analysis: RenderOptionsAnalysis): AstNode {
   const { root, widgetProperties } = analysis;
-  if (widgetProperties.length === 0) {
+  const [first, ...rest] = widgetProperties;
+  if (first === undefined) {
     throw new Error(UNANALYZABLE_WIDGET_ERROR);
   }
-  const expressions: AstNode[] = [];
-  for (const property of widgetProperties) {
+  if (!("value" in first.property) || !isNode(first.property.value)) {
+    throw new Error(UNANALYZABLE_WIDGET_ERROR);
+  }
+  const widgetValue = first.property.value;
+  const widgetText = source.slice(widgetValue.start, widgetValue.end);
+  for (const { property } of rest) {
     if (!("value" in property) || !isNode(property.value)) {
       throw new Error(UNANALYZABLE_WIDGET_ERROR);
     }
-    expressions.push(property.value);
-  }
-  const texts = new Set(expressions.map((expression) => source.slice(expression.start, expression.end)));
-  if (texts.size !== 1) {
-    throw new Error(UNANALYZABLE_WIDGET_ERROR);
-  }
-  const widgetValue = expressions[0];
-  if (widgetValue === undefined) {
-    throw new Error(UNANALYZABLE_WIDGET_ERROR);
+    if (source.slice(property.value.start, property.value.end) !== widgetText) {
+      throw new Error(UNANALYZABLE_WIDGET_ERROR);
+    }
   }
 
   const moduleBindings = collectModuleBindingNames(root);
