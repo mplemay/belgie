@@ -18,7 +18,7 @@ from pydantic_ai.toolsets.abstract import ToolsetTool
 from pydantic_ai.usage import RunUsage
 
 from belgie import Environment, RuntimeOptions, RuntimePermissions
-from belgie.agent import RUN_CODE_TOOL_NAME, BelgieRuntimeSession
+from belgie.agent import RUN_CODE_TOOL_NAME, BelgieRuntimeSession, _runtime as agent_runtime
 from belgie.errors import BelgieJavaScriptError
 from belgie.langchain import BelgieMiddleware
 from belgie.pydantic_ai._toolset import BelgieToolset
@@ -124,6 +124,13 @@ def copy_render_package(root: Path) -> Path:
     package.mkdir(parents=True)
     shutil.copy2(RENDER_PACKAGE_ROOT / "package.json", package / "package.json")
     shutil.copytree(RENDER_PACKAGE_ROOT / "dist", package / "dist")
+    return package
+
+
+@pytest.fixture
+def default_render_specifier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    package = copy_render_package(tmp_path)
+    monkeypatch.setattr(agent_runtime, "DEFAULT_RENDER_SPECIFIER", f"file:{package}")
     return package
 
 
@@ -235,7 +242,22 @@ async def test_environment_session_uses_isolated_runtime_options_by_default(tmp_
 
 
 @SKIP_WIN32_VITE_NATIVE
-async def test_default_session_is_temporary_and_denies_host_capabilities(tmp_path: Path) -> None:
+async def test_default_session_renders_inline_widget(default_render_specifier: Path) -> None:
+    session = BelgieRuntimeSession()
+    async with session:
+        result = await session.run_script(INLINE_WIDGET_SOURCE)
+
+    assert isinstance(result, str)
+    assert result.startswith("<!doctype html>")
+    assert "plugin-applied" in result
+    assert "server-only-plugin-marker" not in result
+
+
+@SKIP_WIN32_VITE_NATIVE
+async def test_default_session_is_temporary_and_denies_host_capabilities(
+    tmp_path: Path,
+    default_render_specifier: Path,
+) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("outside-secret", encoding="utf-8")
     session = BelgieRuntimeSession()

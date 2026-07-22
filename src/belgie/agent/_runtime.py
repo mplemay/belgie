@@ -35,6 +35,7 @@ DEFAULT_VITE_READ_PATHS: Final[tuple[str, ...]] = (
     )
 )
 SESSION_NOT_ENTERED_MESSAGE: Final[str] = "Belgie runtime session must be entered before running scripts."
+DEFAULT_RENDER_SPECIFIER: Final[str] = "npm:@belgie/render"
 
 type AsyncExitArgs = tuple[
     type[BaseException] | None,
@@ -57,6 +58,12 @@ def _isolated_runtime_options(root: Path) -> RuntimeOptions:
 def _temporary_workspace(stack: AsyncExitStack) -> Path:
     directory = stack.enter_context(TemporaryDirectory(prefix="belgie-agent-"))
     return Path(directory).resolve()
+
+
+async def _drain_cancelled_task(task: asyncio.Task[JsonOutput]) -> None:
+    task.cancel()
+    with suppress(BaseException):
+        await task
 
 
 @dataclass(kw_only=True)
@@ -93,12 +100,13 @@ class BelgieRuntimeSession(BelgieOptions):
             return await runner()
         task = asyncio.create_task(runner())
         try:
-            return await asyncio.wait_for(asyncio.shield(task), timeout=self.timeout)
+            return await asyncio.wait_for(task, timeout=self.timeout)
         except TimeoutError as error:
-            task.cancel()
-            with suppress(BaseException):
-                await task
+            await _drain_cancelled_task(task)
             raise TimeoutError(SCRIPT_TIMEOUT_MESSAGE.format(timeout=self.timeout)) from error
+        except asyncio.CancelledError:
+            await _drain_cancelled_task(task)
+            raise
 
     async def _enter_runtime(self, stack: AsyncExitStack) -> AsyncRuntime:
         if self.runtime is not None:
@@ -106,7 +114,10 @@ class BelgieRuntimeSession(BelgieOptions):
 
         if self.environment is None:
             root = _temporary_workspace(stack)
-            active_environment = await stack.enter_async_context(Environment(path=root))
+            active_environment = await stack.enter_async_context(
+                Environment({"@belgie/render": DEFAULT_RENDER_SPECIFIER}, path=root),
+            )
+            await active_environment.install()
         elif isinstance(self.environment, Environment):
             active_environment = await stack.enter_async_context(self.environment)
         else:
