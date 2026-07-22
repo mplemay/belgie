@@ -78,7 +78,7 @@ describe("inline source transform", () => {
         '  "plugins": [serverHelper(), serverFactory()],',
         "  widget: <main>{keepDefault}{browserNamespace.value}</main>,",
         "});",
-        "export const afterRender = renderDefault;",
+        "export const afterRender = () => renderDefault({ widget: <main /> });",
       ].join("\n"),
     );
 
@@ -86,7 +86,7 @@ describe("inline source transform", () => {
     expect(transformed).toContain('import * as browserNamespace from "npm:mixed-namespace@1.0.0";');
     expect(transformed).not.toContain("serverHelper");
     expect(transformed).not.toContain("serverFactory");
-    expect(transformed).toContain("afterRender = renderDefault");
+    expect(transformed).toContain("afterRender = () => renderDefault({ widget: <main /> })");
   });
 
   it("removes plugins from a variable options object with satisfies", () => {
@@ -196,6 +196,19 @@ describe("inline source transform", () => {
     ).toThrow("statically analyzable render(...) options object");
   });
 
+  it("rejects update expressions on options bindings", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          "const options = { widget: <main />, n: 0 };",
+          "options.n++;",
+          "export default () => render(options);",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
   it("rejects nested property writes on options bindings", () => {
     expect(() =>
       stripServerPlugins(
@@ -256,6 +269,132 @@ describe("inline source transform", () => {
 
     expect(transformed).not.toContain("serverPlugin");
     expect(transformed).toContain("widget: <main />");
+  });
+
+  it("strips plugins through a simple render alias", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const r = render;",
+        "export default () => r({ widget: <main />, plugins: [serverPlugin()] });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("plugins:");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).toContain("r({ widget: <main /> })");
+  });
+
+  it("strips plugins through chained render aliases and parenthesized callees", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const r = render;",
+        "const s = r;",
+        "export default () => (s)({ widget: <main />, plugins: [serverPlugin()] });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("plugins:");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).toContain("(s)({ widget: <main /> })");
+  });
+
+  it("strips plugins through a namespace render alias", () => {
+    const transformed = stripServerPlugins(
+      [
+        'import * as R from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "const r = R.render;",
+        "export default () => r({ widget: <main />, plugins: [serverPlugin()] });",
+      ].join("\n"),
+    );
+
+    expect(transformed).not.toContain("plugins:");
+    expect(transformed).not.toContain("serverPlugin");
+    expect(transformed).toContain("r({ widget: <main /> })");
+  });
+
+  it("rejects dynamic import of render", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'const mod = await import("@belgie/render");',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "export default () => mod.render({ widget: <main />, plugins: [serverPlugin()] });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects npm dynamic import of render", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'const mod = await import("npm:@belgie/render");',
+          "export default () => mod.render({ widget: <main /> });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects escaped render bindings", () => {
+    expect(() =>
+      stripServerPlugins(['import { render } from "@belgie/render";', "export default () => foo(render);"].join("\n")),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects exported render bindings", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          "export { render };",
+          "export default () => render({ widget: <main /> });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects reassigned render aliases", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "let r = render;",
+          "r = undefined!;",
+          "export default () => r({ widget: <main />, plugins: [serverPlugin()] });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects updated render aliases", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          "let r = render as unknown as number;",
+          "r++;",
+          "export default () => (r as unknown as typeof render)({ widget: <main /> });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects optional render calls", () => {
+    expect(() =>
+      stripServerPlugins(
+        [
+          'import { render } from "@belgie/render";',
+          'import serverPlugin from "npm:plugin-package@1.2.3";',
+          "export default () => render?.({ widget: <main />, plugins: [serverPlugin()] });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
   });
 
   it.each([

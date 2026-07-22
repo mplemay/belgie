@@ -161,7 +161,8 @@ function expressionRootName(node: AstNode): string | undefined {
   return undefined;
 }
 
-function isRenderCallee(callee: AstNode, renderNames: Set<string>, renderNamespaces: Set<string>): boolean {
+function isRenderValue(node: AstNode, renderNames: Set<string>, renderNamespaces: Set<string>): boolean {
+  const callee = unwrapExpression(node);
   if (callee.type === "Identifier" && "name" in callee && typeof callee.name === "string") {
     return renderNames.has(callee.name);
   }
@@ -171,10 +172,6 @@ function isRenderCallee(callee: AstNode, renderNames: Set<string>, renderNamespa
     callee.computed ||
     !("object" in callee) ||
     !isNode(callee.object) ||
-    callee.object.type !== "Identifier" ||
-    !("name" in callee.object) ||
-    typeof callee.object.name !== "string" ||
-    !renderNamespaces.has(callee.object.name) ||
     !("property" in callee) ||
     !isNode(callee.property) ||
     callee.property.type !== "Identifier" ||
@@ -183,7 +180,161 @@ function isRenderCallee(callee: AstNode, renderNames: Set<string>, renderNamespa
   ) {
     return false;
   }
-  return true;
+  const object = unwrapExpression(callee.object);
+  return (
+    object.type === "Identifier" &&
+    "name" in object &&
+    typeof object.name === "string" &&
+    renderNamespaces.has(object.name)
+  );
+}
+
+function isRenderCallee(callee: AstNode, renderNames: Set<string>, renderNamespaces: Set<string>): boolean {
+  return isRenderValue(callee, renderNames, renderNamespaces);
+}
+
+function allowRenderValueIdentifiers(node: AstNode, allowed: Set<AstNode>): void {
+  const unwrapped = unwrapExpression(node);
+  if (unwrapped.type === "Identifier") {
+    allowed.add(unwrapped);
+    return;
+  }
+  if (unwrapped.type === "MemberExpression" && "object" in unwrapped && isNode(unwrapped.object)) {
+    allowRenderValueIdentifiers(unwrapped.object, allowed);
+  }
+}
+
+function collectRenderAliases(root: AstNode, renderNames: Set<string>, renderNamespaces: Set<string>): Set<string> {
+  for (;;) {
+    const discovered: string[] = [];
+    walk(root, (node) => {
+      if (
+        node.type !== "VariableDeclarator" ||
+        !("id" in node) ||
+        !isNode(node.id) ||
+        node.id.type !== "Identifier" ||
+        !("name" in node.id) ||
+        typeof node.id.name !== "string" ||
+        !("init" in node) ||
+        !isNode(node.init)
+      ) {
+        return;
+      }
+      const name = node.id.name;
+      if (renderNames.has(name) || renderNamespaces.has(name)) {
+        return;
+      }
+      if (isRenderValue(node.init, renderNames, renderNamespaces)) {
+        discovered.push(name);
+      }
+    });
+    if (discovered.length === 0) {
+      break;
+    }
+    for (const name of discovered) {
+      renderNames.add(name);
+    }
+  }
+
+  const reassignedRender = new Set<string>();
+  walk(root, (node) => {
+    if (node.type === "AssignmentExpression" && "left" in node && isNode(node.left)) {
+      const name = expressionRootName(node.left);
+      if (name !== undefined && (renderNames.has(name) || renderNamespaces.has(name))) {
+        reassignedRender.add(name);
+      }
+      return;
+    }
+    if (node.type === "UpdateExpression" && "argument" in node && isNode(node.argument)) {
+      const name = expressionRootName(node.argument);
+      if (name !== undefined && (renderNames.has(name) || renderNamespaces.has(name))) {
+        reassignedRender.add(name);
+      }
+    }
+  });
+  return reassignedRender;
+}
+
+function collectPatternIdentifiers(node: AstNode, into: Set<AstNode>): void {
+  if (node.type === "Identifier") {
+    into.add(node);
+    return;
+  }
+  walk(node, (child) => {
+    if (child.type === "Identifier") {
+      into.add(child);
+    }
+  });
+}
+
+function assertRenderBindingsAnalyzable(
+  root: AstNode,
+  renderNames: Set<string>,
+  renderNamespaces: Set<string>,
+  reassignedRender: Set<string>,
+): void {
+  walk(root, (node) => {
+    if (node.type !== "ImportExpression" || !("source" in node) || !isNode(node.source)) {
+      return;
+    }
+    const source = unwrapExpression(node.source);
+    if (
+      source.type === "Literal" &&
+      "value" in source &&
+      typeof source.value === "string" &&
+      renderImport(source.value)
+    ) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+    }
+  });
+
+  const bindingIdentifiers = new Set<AstNode>();
+  const allowedIdentifiers = new Set<AstNode>();
+  walk(root, (node) => {
+    if (node.type === "VariableDeclarator" && "id" in node && isNode(node.id)) {
+      collectPatternIdentifiers(node.id, bindingIdentifiers);
+      if ("init" in node && isNode(node.init) && isRenderValue(node.init, renderNames, renderNamespaces)) {
+        allowRenderValueIdentifiers(node.init, allowedIdentifiers);
+      }
+    }
+    if (
+      node.type === "CallExpression" &&
+      "callee" in node &&
+      isNode(node.callee) &&
+      isRenderValue(node.callee, renderNames, renderNamespaces)
+    ) {
+      allowRenderValueIdentifiers(node.callee, allowedIdentifiers);
+    }
+    if (
+      node.type === "ChainExpression" &&
+      "expression" in node &&
+      isNode(node.expression) &&
+      node.expression.type === "CallExpression" &&
+      "callee" in node.expression &&
+      isNode(node.expression.callee) &&
+      isRenderValue(node.expression.callee, renderNames, renderNamespaces)
+    ) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+    }
+  });
+
+  walk(root, (node) => {
+    if (node.type === "ImportDeclaration") {
+      return false;
+    }
+    if (node.type !== "Identifier" || !("name" in node) || typeof node.name !== "string") {
+      return;
+    }
+    if (!renderNames.has(node.name) && !renderNamespaces.has(node.name)) {
+      return;
+    }
+    if (bindingIdentifiers.has(node)) {
+      return;
+    }
+    if (!allowedIdentifiers.has(node) || reassignedRender.has(node.name)) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+    }
+  });
 }
 
 function markRootReassigned(node: AstNode, reassigned: Set<string>): void {
@@ -318,6 +469,9 @@ export function stripServerPlugins(source: string): string {
       }
     }
   }
+
+  const reassignedRender = collectRenderAliases(root, renderNames, renderNamespaces);
+  assertRenderBindingsAnalyzable(root, renderNames, renderNamespaces, reassignedRender);
 
   const { objects, reassigned } = collectObjectBindings(root);
   const pluginProperties: AstNode[] = [];
