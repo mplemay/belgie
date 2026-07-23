@@ -7,7 +7,7 @@ use deno_core::error::AnyError;
 use deno_core::serde_json;
 use deno_core::url::Url;
 use deno_graph::ModuleSpecifier;
-use deno_npm_cache::{hard_link_file, is_etxtbsy};
+use deno_npm_cache::hard_link_file;
 use deno_package_json::{PackageJson, PackageJsonDepValue};
 use deno_resolver::workspace::SpecifiedImportMap;
 
@@ -713,15 +713,12 @@ fn materialize_local_package_entries(
 
 fn materialize_local_package_file(sys: &EmbedSys, from: &Path, to: &Path) -> Result<(), AnyError> {
     if hard_link_file(sys, from, to).is_err() {
+        // Remove any existing file first so the copy writes a new inode
+        // rather than writing through a hardlinked destination, which
+        // would corrupt the file at its other paths. Removing first also
+        // breaks hardlinks to currently-executing binaries (ETXTBSY).
+        let _ = std::fs::remove_file(to);
         std::fs::copy(from, to)
-            .or_else(|error| {
-                if is_etxtbsy(&error) {
-                    let _ = std::fs::remove_file(to);
-                    std::fs::copy(from, to)
-                } else {
-                    Err(error)
-                }
-            })
             .with_context(|| format!("Copying {} to {}", from.display(), to.display()))?;
     }
     Ok(())
