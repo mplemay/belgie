@@ -1441,7 +1441,7 @@ dependencies = [
 [[package]]
 name = "deno_bundle_runtime"
 version = "0.42.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "deno_core",
@@ -1453,7 +1453,7 @@ dependencies = [
 [[package]]
 name = "deno_cache"
 version = "0.188.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -1479,7 +1479,7 @@ dependencies = [
 [[package]]
 name = "deno_cache_dir"
 version = "0.47.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1505,7 +1505,7 @@ dependencies = [
 [[package]]
 name = "deno_canvas"
 version = "0.117.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "bytemuck",
  "deno_core",
@@ -1519,7 +1519,7 @@ dependencies = [
 [[package]]
 name = "deno_config"
 version = "0.105.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "boxed_error",
  "capacity_builder",
@@ -1545,7 +1545,7 @@ dependencies = [
 [[package]]
 name = "deno_core"
 version = "0.408.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "anyhow",
  "az",
@@ -1587,7 +1587,7 @@ dependencies = [
 [[package]]
 name = "deno_cron"
 version = "0.135.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1604,7 +1604,7 @@ dependencies = [
 [[package]]
 name = "deno_crypto"
 version = "0.269.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1649,7 +1649,7 @@ dependencies = [
 [[package]]
 name = "deno_crypto_provider"
 version = "0.49.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "aws-lc-sys 0.40.0",
 ]
@@ -1657,7 +1657,7 @@ dependencies = [
 [[package]]
 name = "deno_dotenv"
 version = "0.24.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_path_util",
  "sys_traits",
@@ -1692,7 +1692,7 @@ dependencies = [
 [[package]]
 name = "deno_features"
 version = "0.52.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
 ]
@@ -1700,7 +1700,7 @@ dependencies = [
 [[package]]
 name = "deno_fetch"
 version = "0.279.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-compression",
  "base64 0.22.1",
@@ -1738,7 +1738,7 @@ dependencies = [
 [[package]]
 name = "deno_ffi"
 version = "0.242.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "cranelift",
  "cranelift-native",
@@ -1761,7 +1761,7 @@ dependencies = [
 [[package]]
 name = "deno_fs"
 version = "0.165.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "boxed_error",
@@ -1820,7 +1820,7 @@ dependencies = [
 [[package]]
 name = "deno_http"
 version = "0.253.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-compression",
  "async-trait",
@@ -1859,7 +1859,7 @@ dependencies = [
 [[package]]
 name = "deno_http_h1"
 version = "0.6.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "httparse",
  "memchr",
@@ -1870,7 +1870,7 @@ dependencies = [
 [[package]]
 name = "deno_image"
 version = "0.31.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "bytemuck",
  "deno_core",
@@ -1884,7 +1884,7 @@ dependencies = [
 [[package]]
 name = "deno_inspector_server"
 version = "0.29.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -1902,7 +1902,7 @@ dependencies = [
 [[package]]
 name = "deno_io"
 version = "0.165.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "deno_core",
@@ -1925,7 +1925,7 @@ dependencies = [
 [[package]]
 name = "deno_kv"
 version = "0.163.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1961,7 +1961,7 @@ dependencies = [
 [[package]]
 name = "deno_lib"
 version = "0.73.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "arc-swap",
  "aws-lc-rs",
@@ -1999,7 +1999,7 @@ dependencies = [
 [[package]]
 name = "deno_lockfile"
 version = "0.57.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "deno_semver",
@@ -2011,7 +2011,7 @@ dependencies = [
 [[package]]
 name = "deno_maybe_sync"
 version = "0.42.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "dashmap",
 ]
@@ -2031,7 +2031,7 @@ dependencies = [
 [[package]]
 name = "deno_napi"
 version = "0.186.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2063,7 +2063,7 @@ dependencies = [
 [[package]]
 name = "deno_net"
 version = "0.247.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2092,7 +2092,7 @@ dependencies = [
 [[package]]
 name = "deno_node"
 version = "0.193.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "base64 0.22.1",
  "boxed_error",
@@ -2149,7 +2149,7 @@ dependencies = [
 [[package]]
 name = "deno_node_crypto"
 version = "0.25.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "aead-gcm-stream",
  "aes",
@@ -2212,7 +2212,7 @@ dependencies = [
 [[package]]
 name = "deno_node_sqlite"
 version = "0.25.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2224,7 +2224,7 @@ dependencies = [
 [[package]]
 name = "deno_npm"
 version = "0.67.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "arrayref",
  "async-trait",
@@ -2249,7 +2249,7 @@ dependencies = [
 [[package]]
 name = "deno_npm_cache"
 version = "0.74.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -2282,7 +2282,7 @@ dependencies = [
 [[package]]
 name = "deno_npm_installer"
 version = "0.50.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "anyhow",
  "async-once-cell",
@@ -2322,7 +2322,7 @@ dependencies = [
 [[package]]
 name = "deno_npmrc"
 version = "0.16.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "log",
  "monch",
@@ -2334,7 +2334,7 @@ dependencies = [
 [[package]]
 name = "deno_ops"
 version = "0.284.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "indexmap",
  "proc-macro2",
@@ -2350,7 +2350,7 @@ dependencies = [
 [[package]]
 name = "deno_os"
 version = "0.72.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2367,7 +2367,7 @@ dependencies = [
 [[package]]
 name = "deno_package_json"
 version = "0.57.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "boxed_error",
  "capacity_builder",
@@ -2399,7 +2399,7 @@ dependencies = [
 [[package]]
 name = "deno_permissions"
 version = "0.114.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "capacity_builder",
  "chrono",
@@ -2428,7 +2428,7 @@ dependencies = [
 [[package]]
 name = "deno_process"
 version = "0.70.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2455,7 +2455,7 @@ dependencies = [
 [[package]]
 name = "deno_resolver"
 version = "0.86.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "anyhow",
  "async-once-cell",
@@ -2503,7 +2503,7 @@ dependencies = [
 [[package]]
 name = "deno_runtime"
 version = "0.263.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2595,7 +2595,7 @@ dependencies = [
 [[package]]
 name = "deno_signals"
 version = "0.46.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "libc",
  "signal-hook",
@@ -2607,7 +2607,7 @@ dependencies = [
 [[package]]
 name = "deno_snapshots"
 version = "0.70.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_runtime",
 ]
@@ -2615,7 +2615,7 @@ dependencies = [
 [[package]]
 name = "deno_subprocess_windows"
 version = "0.50.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "fastrand",
  "futures-channel",
@@ -2626,7 +2626,7 @@ dependencies = [
 [[package]]
 name = "deno_telemetry"
 version = "0.77.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "deno_core",
@@ -2671,7 +2671,7 @@ dependencies = [
 [[package]]
 name = "deno_tls"
 version = "0.242.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2717,7 +2717,7 @@ dependencies = [
 [[package]]
 name = "deno_web"
 version = "0.286.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "async-trait",
  "brotli 6.0.0",
@@ -2739,7 +2739,7 @@ dependencies = [
 [[package]]
 name = "deno_webgpu"
 version = "0.222.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2757,7 +2757,7 @@ dependencies = [
 [[package]]
 name = "deno_webidl"
 version = "0.255.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
 ]
@@ -2765,7 +2765,7 @@ dependencies = [
 [[package]]
 name = "deno_websocket"
 version = "0.260.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "bytes",
  "deno_core",
@@ -2788,7 +2788,7 @@ dependencies = [
 [[package]]
 name = "deno_webstorage"
 version = "0.250.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2876,7 +2876,7 @@ dependencies = [
 [[package]]
 name = "denort_helper"
 version = "0.53.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_error",
  "deno_path_util",
@@ -5136,7 +5136,7 @@ dependencies = [
 [[package]]
 name = "napi_sym"
 version = "0.185.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "quote",
  "serde",
@@ -5207,7 +5207,7 @@ dependencies = [
 [[package]]
 name = "node_resolver"
 version = "0.93.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5238,7 +5238,7 @@ dependencies = [
 [[package]]
 name = "node_shim"
 version = "0.30.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "serde_json",
  "url",
@@ -6991,7 +6991,7 @@ dependencies = [
 [[package]]
 name = "serde_v8"
 version = "0.317.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+source = "git+https://github.com/mplemay/deno.git?rev=d9306a3e06847bc7458e57be4db7bb90dc05ef47#d9306a3e06847bc7458e57be4db7bb90dc05ef47"
 dependencies = [
  "deno_error",
  "num-bigint",
