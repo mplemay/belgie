@@ -230,17 +230,25 @@ fn run_worker_thread(
                         }
                     }
                 });
-                // Match command workers: clear terminate before any further V8 teardown.
-                if result
+                let cancelled = result
                     .as_ref()
-                    .is_err_and(|error| error.message() == "Deno execution was cancelled")
-                {
-                    context
-                        .js_runtime()
-                        .v8_isolate()
-                        .cancel_terminate_execution();
-                }
+                    .is_err_and(|error| error.message() == "Deno execution was cancelled");
                 let _ = respond_to.send(result);
+                // Leave terminate set until final teardown (Deno kill path). Reject any
+                // Invokes queued ahead of Shutdown so they cannot run after cancel.
+                if cancelled {
+                    while let Ok(command) = receiver.recv() {
+                        match command {
+                            ExecutionCommand::Invoke { respond_to, .. } => {
+                                let _ = respond_to.send(Err(BindingError::runtime(
+                                    "Deno execution was cancelled",
+                                )));
+                            }
+                            ExecutionCommand::Shutdown => break,
+                        }
+                    }
+                    break;
+                }
             }
             ExecutionCommand::Shutdown => break,
         }

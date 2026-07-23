@@ -330,6 +330,46 @@ mod tests {
     }
 
     #[test]
+    fn queued_invoke_after_cancel_is_rejected() {
+        let bound =
+            bound_inline("export default async function run() { await new Promise(() => {}); }");
+        let handle = handle(bound);
+        let runtime = pyo3_async_runtimes::tokio::get_runtime();
+        let first = handle.clone();
+        let second = handle.clone();
+        let first_task = runtime.spawn(async move { first.invoke_async(empty_arguments()).await });
+        let second_task =
+            runtime.spawn(async move { second.invoke_async(empty_arguments()).await });
+
+        std::thread::sleep(Duration::from_millis(50));
+        handle.cancel();
+
+        let first_result = runtime
+            .block_on(first_task)
+            .expect("first invoke task should finish");
+        let second_result = runtime
+            .block_on(second_task)
+            .expect("second invoke task should finish");
+        assert!(
+            first_result.is_err(),
+            "cancelled in-flight invoke should fail, got {first_result:?}"
+        );
+        assert!(
+            second_result.is_err(),
+            "queued invoke after cancel should be rejected, got {second_result:?}"
+        );
+        let second_error = second_result.expect_err("queued invoke should fail");
+        assert!(
+            second_error.message().contains("cancelled"),
+            "queued invoke should report cancellation, got {}",
+            second_error.message()
+        );
+        handle
+            .close_blocking()
+            .expect("execution handle should close cleanly after cancel");
+    }
+
+    #[test]
     fn async_executor_awaits_top_level_await_and_async_run_exports() {
         let bound = bound_inline(
             "const resolved = await Promise.resolve(41); export default async function run() { return resolved + 1; }",
