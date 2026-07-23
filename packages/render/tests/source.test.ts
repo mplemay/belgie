@@ -698,26 +698,17 @@ describe("inline source transform", () => {
       throw new Error("expected load and resolve hooks");
     }
     const context = { resolve: async (id: string) => ({ id }) };
-    const entryId = (await resolve.call(
-      context as never,
-      "virtual:belgie-render/client-entry",
-      undefined,
-      {} as never,
-    )) as string | null;
-    const callerId = (await resolve.call(context as never, "virtual:belgie-render/caller", undefined, {} as never)) as
-      | string
-      | null;
-    const apiId = (await resolve.call(context as never, CLIENT_RENDER_ID, undefined, {} as never)) as string | null;
-    const packageApiId = (await resolve.call(context as never, "npm:@belgie/render@0.1.0", undefined, {} as never)) as
-      | string
-      | null;
-    const npmId = (await resolve.call(context as never, "npm:react@19.2.6", undefined, {} as never)) as {
+    const entryId = (await resolve.call(context, "virtual:belgie-render/client-entry", undefined, {})) as string | null;
+    const callerId = (await resolve.call(context, "virtual:belgie-render/caller", undefined, {})) as string | null;
+    const apiId = (await resolve.call(context, CLIENT_RENDER_ID, undefined, {})) as string | null;
+    const packageApiId = (await resolve.call(context, "npm:@belgie/render@0.1.0", undefined, {})) as string | null;
+    const npmId = (await resolve.call(context, "npm:react@19.2.6", undefined, {})) as {
       id: string;
     } | null;
-    const unknownId = (await resolve.call(context as never, "unknown", undefined, {} as never)) as string | null;
-    const entrySource = load.call({} as never, String(entryId)) as string;
-    const callerSource = load.call({} as never, String(callerId)) as string;
-    const apiSource = load.call({} as never, String(apiId)) as string;
+    const unknownId = (await resolve.call(context, "unknown", undefined, {})) as string | null;
+    const entrySource = load.call({}, String(entryId)) as string;
+    const callerSource = load.call({}, String(callerId)) as string;
+    const apiSource = load.call({}, String(apiId)) as string;
 
     expect(entrySource).toContain("StrictMode");
     expect(entrySource).toContain("createRoot");
@@ -730,8 +721,8 @@ describe("inline source transform", () => {
     expect(packageApiId).toBe(apiId);
     expect(npmId).toStrictEqual({ id: "react" });
     expect(unknownId).toBeNull();
-    expect(load.call({} as never, "unknown")).toBeNull();
-    await expect(resolve.call(context as never, "jsr:@retained/browser", undefined, {} as never)).rejects.toThrow(
+    expect(load.call({}, "unknown")).toBeNull();
+    await expect(resolve.call(context, "jsr:@retained/browser", undefined, {})).rejects.toThrow(
       "retained browser import",
     );
   });

@@ -19,8 +19,8 @@ npm install --save-dev vite
 
 ## Package exports
 
-- `@belgie/mcp` exports `Widget`, `mountWidget`, `useWidget`, `useToolResult`, context-bound App helpers, and MCP tool
-  errors.
+- `@belgie/mcp` exports `Widget`, `mountWidget`, widget host-context hooks, `useModal`, `useWidget`, `useToolResult`,
+  context-bound App helpers, and MCP tool errors.
 - `@belgie/mcp/codegen` exports programmatic MCP tool-type generation.
 - `@belgie/mcp/internal` contains the runtime factories used by generated callers.
 - `@belgie/mcp/vite` exports the `belgie()` Vite plugin.
@@ -80,6 +80,72 @@ export default defineConfig({
   plugins: [belgie({ srcDir: "src/widgets" })],
 });
 ```
+
+## Read widget host context
+
+Host-context hooks read the current MCP Apps environment and update when the host changes it. Use them inside a
+connected `<Widget>` child:
+
+```tsx
+import {
+  useDisplayMode,
+  useLayout,
+  useLocale,
+  useTheme,
+  useUserAgent,
+} from "@belgie/mcp";
+
+function Environment() {
+  const [displayMode, setDisplayMode] = useDisplayMode();
+  const { maxHeight, safeArea } = useLayout();
+  const locale = useLocale();
+  const theme = useTheme();
+  const userAgent = useUserAgent();
+
+  return (
+    <section
+      data-theme={theme}
+      style={{ maxHeight, paddingTop: safeArea.insets.top }}
+    >
+      <p>{locale}</p>
+      <p>{userAgent.device.type}</p>
+      <button onClick={() => void setDisplayMode("fullscreen")}>
+        {displayMode === "fullscreen" ? "Fullscreen" : "Expand"}
+      </button>
+    </section>
+  );
+}
+```
+
+`useLayout()` contains only container height and safe-area information. Theme, locale, and the normalized device and
+input-capability value are exposed separately through `useTheme()`, `useLocale()`, and `useUserAgent()`.
+
+## Open a modal
+
+`useModal` asks the host to show the current widget as a modal overlay. On ChatGPT it calls
+`window.openai.requestModal`; other hosts get an in-iframe polyfill with backdrop and Escape handling.
+
+```tsx
+import { useModal } from "@belgie/mcp";
+
+function Cart() {
+  const { isOpen, params, open } = useModal();
+
+  if (isOpen) {
+    return <ConfirmAddToCart productId={params?.productId} />;
+  }
+
+  return (
+    <button onClick={() => open({ title: "Confirm", params: { productId: 42 } })}>
+      Add to cart
+    </button>
+  );
+}
+```
+
+`title`, `template`, and `anchor` are honored by Apps SDK hosts. The polyfill only applies `params`. Modal open must be
+user-initiated (for example a click handler), not a mount effect. Use `requestModal` / `closeModal` for the same
+behavior outside React render.
 
 ## Development
 

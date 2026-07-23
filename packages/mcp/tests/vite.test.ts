@@ -367,11 +367,12 @@ describe("development middleware", () => {
 
     const configured = belgie();
     configHook(configured)({ root }, { command: "serve", mode: "test" });
-    const slashBase = mockServer(root, { base: "/" });
+    const slashBase = mockServer(root, { base: "/", refresh: true });
     configured.configureServer?.(slashBase.server);
     const slashResponse = response();
     await slashBase.middleware()({ url: "/widgets/weather/index.html" }, slashResponse, () => {});
     assert.equal(slashResponse.statusCode, 200);
+    assert.match(slashResponse.body, /\/@react-refresh/u);
   });
 
   it("warns only invalid widget entry transforms", () => {

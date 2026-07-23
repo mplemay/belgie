@@ -5,18 +5,23 @@ import type { ComponentType, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 
+import { ModalProvider } from "./modal-provider";
 import { WidgetContext, activateWidget, deactivateWidget, useWidget } from "./widget-context";
 import type { WidgetToolLifecycle } from "./widget-context";
 
 export {
+  closeModal,
   downloadFile,
   openLink,
   requestDisplayMode,
+  requestModal,
   requestTeardown,
   sendLog,
   sendMessage,
   updateModelContext,
 } from "./app";
+
+export type { ModalOptions } from "./modal";
 
 export {
   McpToolCancelledError,
@@ -28,6 +33,21 @@ export {
 } from "./tool-error";
 
 export { useToolResult, type ToolResultState, type ToolResultStatus } from "./use-tool-result";
+
+export {
+  useDisplayMode,
+  useLayout,
+  useLocale,
+  useTheme,
+  useUserAgent,
+  type DeviceType,
+  type LayoutState,
+  type SafeArea,
+  type SafeAreaInsets,
+  type UserAgent,
+} from "./host-context";
+
+export { useModal } from "./use-modal";
 
 export { useWidget };
 
@@ -233,7 +253,9 @@ export function Widget({ metadata, children, hooks, fallback, error: errorUI }: 
   }
 
   return (
-    <WidgetContext.Provider value={{ app: appRef.current, tool: toolLifecycle }}>{children}</WidgetContext.Provider>
+    <WidgetContext.Provider value={{ app: appRef.current, tool: toolLifecycle }}>
+      <ModalProvider>{children}</ModalProvider>
+    </WidgetContext.Provider>
   );
 }
 
