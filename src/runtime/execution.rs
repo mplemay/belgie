@@ -230,12 +230,27 @@ fn run_worker_thread(
                         }
                     }
                 });
+                // Match command workers: clear terminate before any further V8 teardown.
+                if result
+                    .as_ref()
+                    .is_err_and(|error| error.message() == "Deno execution was cancelled")
+                {
+                    context
+                        .js_runtime()
+                        .v8_isolate()
+                        .cancel_terminate_execution();
+                }
                 let _ = respond_to.send(result);
             }
             ExecutionCommand::Shutdown => break,
         }
     }
 
+    // signal_shutdown always terminates; clear before dropping Globals / shutting down.
+    context
+        .js_runtime()
+        .v8_isolate()
+        .cancel_terminate_execution();
     runtime.shutdown_background();
 }
 

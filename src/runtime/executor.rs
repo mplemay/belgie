@@ -46,7 +46,7 @@ mod tests {
     use std::{
         env, fs, io,
         path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     fn with_python<R>(test: impl FnOnce(Python<'_>) -> R) -> R {
@@ -305,6 +305,28 @@ mod tests {
             error.to_string().contains("closed"),
             "closed handle errors should be clear, got {error}"
         );
+    }
+
+    #[test]
+    fn cancelled_async_invoke_closes_without_worker_panic() {
+        let bound =
+            bound_inline("export default async function run() { await new Promise(() => {}); }");
+        let handle = handle(bound);
+        let runtime = pyo3_async_runtimes::tokio::get_runtime();
+        let invoke = handle.clone();
+        let task = runtime.spawn(async move { invoke.invoke_async(empty_arguments()).await });
+
+        std::thread::sleep(Duration::from_millis(50));
+        handle.cancel();
+
+        let result = runtime.block_on(task).expect("invoke task should finish");
+        assert!(
+            result.is_err(),
+            "cancelled invoke should fail, got {result:?}"
+        );
+        handle
+            .close_blocking()
+            .expect("execution handle should close cleanly after cancel");
     }
 
     #[test]
