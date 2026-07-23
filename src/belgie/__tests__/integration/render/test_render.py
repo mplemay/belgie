@@ -355,11 +355,11 @@ async def test_inline_vite_build_uses_existing_timeout_path(tmp_path: Path) -> N
             wrapped=EmptyToolset(),
             environment=active_environment,
             runtime_options=secure_runtime_options(root),
-            timeout=1.0,
+            timeout=5.0,
         )
         async with toolset:
             tools = await toolset.get_tools(context)
-            with pytest.raises(ModelRetry, match="timed out after 1.0 seconds"):
+            with pytest.raises(ModelRetry, match="timed out after 5.0 seconds"):
                 await toolset.call_tool(
                     RUN_CODE_TOOL_NAME,
                     {
