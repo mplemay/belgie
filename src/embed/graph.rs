@@ -166,6 +166,7 @@ async fn build_module_graph_inner(
                 unstable_bytes_imports: context.enable_raw_imports(),
                 unstable_text_imports: true,
                 unstable_css_imports: context.enable_raw_imports(),
+                unstable_config_imports: false,
                 file_system: resolver_factory.workspace_factory().sys(),
                 locker: locker.as_mut().map(|locker| locker as _),
                 ..Default::default()
