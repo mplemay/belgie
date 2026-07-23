@@ -1,16 +1,35 @@
 import {
   McpToolCancelledError,
   McpToolError,
+  closeModal,
   downloadFile,
   openLink,
   requestDisplayMode,
+  requestModal,
   requestTeardown,
   sendLog,
   sendMessage,
   updateModelContext,
+  useDisplayMode,
+  useLayout,
+  useLocale,
+  useModal,
+  useTheme,
   useToolResult,
+  useUserAgent,
 } from "@belgie/mcp";
-import type { RawToolResult, ToolCallError, ToolCallResult, ToolResultState } from "@belgie/mcp";
+import type {
+  DeviceType,
+  LayoutState,
+  ModalOptions,
+  RawToolResult,
+  SafeArea,
+  SafeAreaInsets,
+  ToolCallError,
+  ToolCallResult,
+  ToolResultState,
+  UserAgent,
+} from "@belgie/mcp";
 import { createGeneratedRawTool, createGeneratedTool } from "@belgie/mcp/internal";
 import type { App } from "@modelcontextprotocol/ext-apps";
 
@@ -66,8 +85,10 @@ const requestOptions = { signal: new AbortController().signal };
 
 type PublicMcpExports = keyof typeof import("@belgie/mcp");
 type GenericCallersAreAbsent = Extract<PublicMcpExports, "callTool" | "useTool"> extends never ? true : false;
+type CombinedUserHookIsAbsent = Extract<PublicMcpExports, "useUser"> extends never ? true : false;
 
 const genericCallersAreAbsent: GenericCallersAreAbsent = true;
+const combinedUserHookIsAbsent: CombinedUserHookIsAbsent = true;
 const requiredCall: Promise<ToolCallResult<RequiredOutput>> = required({
   id: "example",
 });
@@ -112,11 +133,29 @@ async function narrowResult(): Promise<number> {
 }
 
 export function TypeFixture() {
+  const [hostDisplayMode, setHostDisplayMode] = useDisplayMode();
+  const layout: LayoutState = useLayout();
+  const locale: string = useLocale();
+  const theme: "light" | "dark" = useTheme();
+  const userAgent: UserAgent = useUserAgent();
+  const modal = useModal();
+  const modalIsOpen: boolean = modal.isOpen;
+  const modalParams: Record<string, unknown> | undefined = modal.params;
+  const modalOptions: ModalOptions = {
+    title: "Confirm",
+    params: { id: "example" },
+  };
+  const safeArea: SafeArea = layout.safeArea;
+  const safeAreaInsets: SafeAreaInsets = safeArea.insets;
+  const deviceType: DeviceType = userAgent.device.type;
+  const hostDisplayModeRequest: ReturnType<App["requestDisplayMode"]> = setHostDisplayMode("fullscreen");
   const requiredResult = useToolResult(required);
   const requiredResultState: ToolResultState<{ id: string }, RequiredOutput> = requiredResult;
   const requiredData: RequiredOutput | undefined = requiredResult.data;
   const requiredExecution: Promise<ToolCallResult<RequiredOutput>> = requiredResult.execute();
-  const requiredInputExecution: Promise<ToolCallResult<RequiredOutput>> = requiredResult.execute({ id: "example" });
+  const requiredInputExecution: Promise<ToolCallResult<RequiredOutput>> = requiredResult.execute({
+    id: "example",
+  });
   const rawResultState = useToolResult(raw);
   const rawData: RawToolResult | undefined = rawResultState.data;
   const ordinaryCaller = async (_input: { id: string }) => ({
@@ -128,6 +167,13 @@ export function TypeFixture() {
   void requiredResult.execute({ id: 1 });
   // @ts-expect-error ordinary functions do not carry generated result metadata
   void useToolResult(ordinaryCaller);
+  // @ts-expect-error modal is host-driven and cannot be requested
+  void setHostDisplayMode("modal");
+  // @ts-expect-error theme is intentionally split into useTheme
+  void layout.theme;
+  modal.open(modalOptions);
+  requestModal(modalOptions);
+  closeModal();
 
   const messageResult: ReturnType<App["sendMessage"]> = sendMessage(message, requestOptions);
   const logResult: ReturnType<App["sendLog"]> = sendLog(log);
@@ -180,6 +226,15 @@ export function TypeFixture() {
   void requestTeardown(undefined, app);
 
   void genericCallersAreAbsent;
+  void combinedUserHookIsAbsent;
+  void hostDisplayMode;
+  void hostDisplayModeRequest;
+  void locale;
+  void theme;
+  void safeAreaInsets;
+  void deviceType;
+  void modalIsOpen;
+  void modalParams;
   void messageResult;
   void logResult;
   void modelContextResult;

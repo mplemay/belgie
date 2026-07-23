@@ -11,7 +11,7 @@ function config(options: { configFile?: string; output?: unknown; write?: boolea
       write: options.write ?? false,
     },
     configFile: options.configFile,
-  } as unknown as ResolvedConfig;
+  };
 }
 
 describe("build invariants", () => {
@@ -25,7 +25,7 @@ describe("build invariants", () => {
     if (typeof hook !== "function") {
       throw new Error("expected configResolved hook");
     }
-    expect(() => hook.call({} as never, resolved)).toThrow(message);
+    expect(() => hook.call({}, resolved)).toThrow(message);
   });
 
   it("reads string and byte HTML assets", () => {
@@ -61,10 +61,8 @@ describe("build invariants", () => {
   });
 
   it("rejects missing and unexpected final artifacts", () => {
-    expect(() => readHtml({ output: [] } as unknown as Rollup.RollupOutput)).toThrow("expected one HTML artifact");
-    expect(() =>
-      readHtml({ output: [{ fileName: "widget.js", type: "chunk" }] } as unknown as Rollup.RollupOutput),
-    ).toThrow("expected widget.html");
+    expect(() => readHtml({ output: [] })).toThrow("expected one HTML artifact");
+    expect(() => readHtml({ output: [{ fileName: "widget.js", type: "chunk" }] })).toThrow("expected widget.html");
   });
 
   it("replaces the build bundle with one HTML asset", () => {
@@ -98,7 +96,7 @@ describe("build invariants", () => {
     };
     const emitFile = vi.fn();
 
-    hook.handler.call({ emitFile } as never, {} as never, bundle as never, false);
+    hook.handler.call({ emitFile }, {}, bundle, false);
 
     expect(bundle).toStrictEqual({});
     expect(emitFile).toHaveBeenCalledWith(expect.objectContaining({ fileName: "widget.html", type: "asset" }));
