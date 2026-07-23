@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use deno_core::error::AnyError;
+use deno_error::JsErrorBox;
 use deno_graph::{
     CheckJsOption, GraphKind, ModuleErrorKind, ModuleGraph, ModuleGraphError, ModuleSpecifier,
     WalkOptions,
@@ -8,7 +9,7 @@ use deno_graph::{
 use deno_media_type::MediaType;
 use deno_resolver::deno_json::JsxImportSourceConfigResolver;
 use deno_resolver::factory::ResolverFactory;
-use deno_resolver::graph::NpmTypesResolutionMode;
+use deno_resolver::graph::{NpmTypesResolutionMode, format_deno_graph_error};
 use deno_resolver::loader::AllowJsonImports;
 use deno_semver::jsr::JsrPackageReqReference;
 
@@ -192,7 +193,14 @@ fn validate_graph(context: &EmbedContext, graph: &ModuleGraph) -> Result<(), Any
         .filter(|error| !(allow_json_without_attribute && is_unsupported_json_media_type(error)));
     match errors.next() {
         Some(error) => Err(error.into()),
-        None => Ok(()),
+        None => {
+            // Match Deno's graph_valid: surface deep npm dep-graph failures that
+            // do not appear as walkable module errors.
+            if let Err(err) = &graph.npm_dep_graph_result {
+                return Err(JsErrorBox::new(err.get_class(), format_deno_graph_error(err)).into());
+            }
+            Ok(())
+        }
     }
 }
 
@@ -213,6 +221,18 @@ mod tests {
     use crate::packages::{dependencies_from_mapping, specified_import_map};
     use std::collections::BTreeMap;
     use std::fs;
+    use std::sync::Arc;
+
+    fn test_embed_context(temp_dir: &tempfile::TempDir) -> EmbedContext {
+        let cwd = temp_dir.path().join("project");
+        fs::create_dir_all(&cwd).unwrap();
+        EmbedContext::new(
+            cwd,
+            temp_dir.path().join("deno.lock"),
+            EmbedContextOptions::default(),
+        )
+        .unwrap()
+    }
 
     #[tokio::test]
     async fn collects_roots_from_specified_import_map_without_config_file() {
@@ -244,6 +264,30 @@ mod tests {
             roots[0].as_str().contains("@std/path"),
             "unexpected import map root: {}",
             roots[0]
+        );
+    }
+
+    #[test]
+    fn validate_graph_ok_when_npm_dep_graph_result_ok() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let context = test_embed_context(&temp_dir);
+        let graph = ModuleGraph::new(GraphKind::All);
+        validate_graph(&context, &graph).unwrap();
+    }
+
+    #[test]
+    fn validate_graph_fails_on_npm_dep_graph_result_err() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let context = test_embed_context(&temp_dir);
+        let mut graph = ModuleGraph::new(GraphKind::All);
+        graph.npm_dep_graph_result = Err(Arc::new(JsErrorBox::generic(
+            "Could not find npm package 'missing-pkg' matching '1.0.0'",
+        )));
+        let err = validate_graph(&context, &graph).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Could not find npm package 'missing-pkg' matching '1.0.0'"),
+            "unexpected error: {err}"
         );
     }
 }
