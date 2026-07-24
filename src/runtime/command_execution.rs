@@ -12,6 +12,7 @@ use deno_core::ModuleSpecifier;
 use deno_lib::args::npm_pkg_req_ref_to_binary_command;
 use deno_lib::worker::LibWorkerFactoryRoots;
 use deno_resolver::workspace::{MappedResolution, ResolutionKind as WorkspaceResolutionKind};
+use deno_runtime::deno_fs::CwdOverrideGuard;
 use deno_runtime::deno_os::{WatcherExitHandle, WatcherExited};
 use deno_semver::npm::NpmPackageReqReference;
 use node_resolver::{BinValue, NodeResolutionKind, ResolutionMode, UrlOrPath};
@@ -159,7 +160,12 @@ async fn run_command(
         .refresh_local_file_dependencies()?;
 
     let command_cwd = resolve_command_cwd(&options.runtime_root, options.command.cwd())?;
-    let _cwd_guard = CurrentDirGuard::change_to(&command_cwd)?;
+    let _cwd_guard = CwdOverrideGuard::new(&command_cwd).map_err(|error| {
+        BindingError::runtime(format!(
+            "Installing command cwd override for {} failed: {error}",
+            command_cwd.display()
+        ))
+    })?;
     let _env_guard = EnvironmentGuard::apply(options.command.env(), options.command.module());
 
     let context = options
@@ -551,30 +557,6 @@ fn map_windows_native_addon_error(error: BindingError) -> BindingError {
         }
     }
     error
-}
-
-struct CurrentDirGuard {
-    previous: PathBuf,
-}
-
-impl CurrentDirGuard {
-    fn change_to(path: &Path) -> Result<Self, BindingError> {
-        let previous = std::env::current_dir()
-            .map_err(|error| BindingError::runtime(format!("Reading cwd failed: {error}")))?;
-        std::env::set_current_dir(path).map_err(|error| {
-            BindingError::runtime(format!(
-                "Changing cwd to {} failed: {error}",
-                path.display()
-            ))
-        })?;
-        Ok(Self { previous })
-    }
-}
-
-impl Drop for CurrentDirGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.previous);
-    }
 }
 
 struct EnvironmentGuard {
