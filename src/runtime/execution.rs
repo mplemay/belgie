@@ -582,6 +582,9 @@ where
     spawn_v8_worker(move || {
         if deno_snapshots::CLI_SNAPSHOT.is_some() {
             create_and_run_current_thread(async move {
+                // Serialize with DenoExecutionHandle create/invoke so parallel tests do not
+                // race CLI-snapshot deferred fast-op upgrades (Windows abort in Deno).
+                let _process_context = process_context::blocking_guard();
                 let cwd = std::env::current_dir().expect("current dir should be available");
                 let package_environment = BoundPackageEnvironment::implicit_for_cwd(&cwd)
                     .expect("implicit package environment should initialize");
