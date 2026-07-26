@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import shutil
 import sys
-from json import dumps
+from json import loads
 from os import environ
-from typing import TYPE_CHECKING, Any, cast
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -20,9 +21,6 @@ from belgie.__tests__.integration._core.conftest import (
     installed_environment,
 )
 from belgie.errors import BelgieRuntimeError
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 pytestmark = pytest.mark.integration
 
@@ -398,40 +396,156 @@ async def test_cancelled_command_skips_exit_hooks(
     started = tmp_path / "started.txt"
     process_exit = tmp_path / "process-exit.txt"
     unload = tmp_path / "unload.txt"
-    started_path = dumps(str(started))
-    process_exit_path = dumps(str(process_exit))
-    unload_path = dumps(str(unload))
-    (tmp_path / "cancel.mjs").write_text(
-        f"""
-import {{ writeFileSync }} from "node:fs";
-
+    write_local_package_with_bin(
+        tmp_path,
+        bin_name="cancel-probe",
+        bin_script="""
+Deno.writeTextFileSync("started.txt", "started");
 process.on(
   "exit",
-  () => writeFileSync({process_exit_path}, "exit", "utf-8"),
+  () => Deno.writeTextFileSync("process-exit.txt", "exit"),
 );
 globalThis.addEventListener(
   "unload",
-  () => writeFileSync({unload_path}, "unload", "utf-8"),
+  () => Deno.writeTextFileSync("unload.txt", "unload"),
 );
-writeFileSync({started_path}, "started", "utf-8");
-setInterval(() => {{}}, 1000);
+setInterval(() => {}, 1000);
 """,
-        encoding="utf-8",
     )
 
-    async with installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}) as env, Runtime(env=env) as runtime:
-        task = asyncio.create_task(runtime(Command("zx"))("cancel.mjs"))
-        for _ in range(50):
-            if started.is_file():
-                break
-            await asyncio.sleep(0.05)
-        assert started.is_file()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+    async with Environment({"local-pkg": "file:./local-pkg"}) as env:
+        await env.install()
+        async with Runtime(env=env) as runtime:
+            task = asyncio.create_task(runtime(Command("cancel-probe"))())
+            for _ in range(50):
+                if started.is_file() or task.done():
+                    break
+                await asyncio.sleep(0.05)
+            if task.done():
+                await task
+                pytest.fail("long-running command exited before cancellation")
+            assert started.is_file()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
     assert not process_exit.exists()
     assert not unload.exists()
+
+
+async def test_long_running_command_isolates_nested_cwd_from_host_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    project = tmp_path / "nested" / "project"
+    project.mkdir(parents=True)
+    (project / "cwd-worker.js").write_text(
+        "self.postMessage(Deno.cwd());\n",
+        encoding="utf-8",
+    )
+    (project / "cwd-child.js").write_text(
+        """
+import process from "node:process";
+
+console.log(JSON.stringify({ deno: Deno.cwd(), node: process.cwd() }));
+""",
+        encoding="utf-8",
+    )
+    (project / "probe.mjs").write_text(
+        """
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+const watcher = Deno.watchFs(".");
+const watchedEvent = (async () => {
+  for await (const event of watcher) {
+    if (event.paths.some((path) => path.endsWith("watch-trigger.txt"))) {
+      return event;
+    }
+  }
+})();
+await Deno.writeTextFile("watch-trigger.txt", "trigger\\n");
+
+const worker = new Worker(
+  new URL("./cwd-worker.js", import.meta.url).href,
+  { type: "module" },
+);
+const workerCwd = await new Promise((resolve, reject) => {
+  worker.addEventListener("message", (event) => resolve(event.data), { once: true });
+  worker.addEventListener("error", reject, { once: true });
+});
+worker.terminate();
+
+const child = await new Deno.Command(Deno.execPath(), {
+  args: ["run", fileURLToPath(new URL("./cwd-child.js", import.meta.url))],
+  stdout: "piped",
+  stderr: "piped",
+}).output();
+if (!child.success) {
+  throw new Error(new TextDecoder().decode(child.stderr));
+}
+const childCwd = JSON.parse(new TextDecoder().decode(child.stdout).trim());
+const event = await Promise.race([
+  watchedEvent,
+  new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("filesystem watcher timed out")), 5000);
+  }),
+]);
+watcher.close();
+
+await Deno.writeTextFile(
+  "cwd-probe.json",
+  JSON.stringify({
+    deno: Deno.cwd(),
+    node: process.cwd(),
+    worker: workerCwd,
+    child: childCwd,
+    watchedPaths: event.paths,
+  }),
+);
+await new Promise(() => {});
+""",
+        encoding="utf-8",
+    )
+    probe = project / "cwd-probe.json"
+
+    async with (
+        installed_environment({"zx": f"npm:zx@{ZX_VERSION}"}) as env,
+        Runtime(
+            env=env,
+        ) as runtime,
+    ):
+        task = asyncio.create_task(
+            runtime(Command("zx", cwd="nested/project"))(str(project / "probe.mjs")),
+        )
+        try:
+            for _ in range(100):
+                assert Path.cwd() == tmp_path
+                if probe.is_file() or task.done():
+                    break
+                await asyncio.sleep(0.05)
+            if task.done():
+                await task
+                pytest.fail("long-running command exited before cancellation")
+            assert probe.is_file()
+            assert Path.cwd() == tmp_path
+
+            observed = loads(probe.read_text(encoding="utf-8"))
+            expected = project.resolve()
+            assert Path(observed["deno"]) == expected
+            assert Path(observed["node"]) == expected
+            assert Path(observed["worker"]) == expected
+            assert Path(observed["child"]["deno"]) == expected
+            assert Path(observed["child"]["node"]) == expected
+            assert (project / "watch-trigger.txt").resolve() in {Path(path) for path in observed["watchedPaths"]}
+        finally:
+            if not task.done():
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+    assert Path.cwd() == tmp_path
 
 
 async def test_cancelling_vite_dev_stops_command(
