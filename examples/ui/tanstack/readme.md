@@ -13,6 +13,11 @@ uv run belgie lock
 uv run belgie install
 ```
 
+Stable React 19.2 maps Deno to the browser server renderer, whose scheduler keeps a `MessageChannel` referenced after
+TanStack prerendering finishes. Until a stable React release includes the
+[upstream fix](https://github.com/facebook/react/pull/35235), this example deliberately maps `react-dom/server` to
+React's Node server renderer in `[tool.belgie.dependencies]`.
+
 ## Development
 
 Start FastAPI. `BelgieExtension` starts Vite in the background when the widget is registered:
