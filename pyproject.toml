@@ -21,8 +21,8 @@ langchain = [
     "langchain>=1,<2",
 ]
 mcp = [
-    "mcp>=2.0.0b1,<2.0.0rc1",
-    "mcp-types>=2.0.0b1,<2.0.0rc1",
+    "mcp>=2.0.0rc1",
+    "mcp-types>=2.0.0rc1",
     "pydantic>=2,<3",
 ]
 
@@ -36,8 +36,8 @@ dev = [
     "fastapi>=0.128.0",
     "langchain>=1,<2",
     "langchain-openai>=0.3,<1",
-    "mcp>=2.0.0b1,<2.0.0rc1",
-    "mcp-types>=2.0.0b1,<2.0.0rc1",
+    "mcp>=2.0.0rc1",
+    "mcp-types>=2.0.0rc1",
     "pydantic-ai-slim[openai]>=2,<3",
     "prek>=0.4.4",
     "pytest>=9.0.3",

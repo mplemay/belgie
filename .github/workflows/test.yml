@@ -116,7 +116,30 @@ jobs:
           npm test
 
       - name: Run tests
+        if: runner.os != 'Windows'
         run: uv run pytest
+
+      # mcp 2.0.0rc1+ eagerly imports pywin32 via mcp.server.stdio; loading that into
+      # the same process as belgie's Deno runtime hard-aborts Windows pytest.
+      - name: Run tests without mcp
+        if: runner.os == 'Windows'
+        run: >
+          uv run pytest
+          --ignore=src/belgie/__tests__/unit/mcp
+          --ignore=src/belgie/__tests__/integration/mcp
+          --ignore=src/belgie/__tests__/examples/test_mcp.py
+          --ignore=src/belgie/__tests__/examples/test_shadcn.py
+          --ignore=src/belgie/__tests__/examples/test_tanstack.py
+
+      - name: Run mcp tests
+        if: runner.os == 'Windows'
+        run: >
+          uv run pytest
+          src/belgie/__tests__/unit/mcp
+          src/belgie/__tests__/integration/mcp
+          src/belgie/__tests__/examples/test_mcp.py
+          src/belgie/__tests__/examples/test_shadcn.py
+          src/belgie/__tests__/examples/test_tanstack.py
 
   test-rust:
     name: test (rust, ${{ matrix.os }})
