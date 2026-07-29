@@ -70,6 +70,7 @@ oxlint-tsgolint = "npm:oxlint-tsgolint@latest"
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 exclude-newer = "7 days"
 exclude-newer-package = { pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false, mcp = false, mcp-types = false }
+constraint-dependencies = ["langsmith==0.10.5"]
 
 [tool.ruff]
 target-version = "py312"
@@ -120,6 +121,7 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 anyio_mode = "auto"
+addopts = ["-p", "no:langsmith_plugin"]
 testpaths = ["src/belgie/__tests__"]
 norecursedirs = ["target", "dist", "build", ".venv", "node_modules"]
 markers = [
