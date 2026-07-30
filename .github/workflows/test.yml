@@ -116,7 +116,45 @@ jobs:
           npm test
 
       - name: Run tests
+        if: runner.os != 'Windows'
         run: uv run pytest
+
+      - name: Run Windows tests through uv
+        if: runner.os == 'Windows'
+        id: windows_uv_tests
+        continue-on-error: true
+        run: uv run pytest
+
+      - name: Run failing Windows test directly
+        if: runner.os == 'Windows' && steps.windows_uv_tests.outcome == 'failure'
+        continue-on-error: true
+        run: .\.venv\Scripts\python.exe -m pytest src\belgie\__tests__\examples\test_command.py -vv -s
+
+      - name: Collect Windows crash diagnostics
+        if: runner.os == 'Windows' && steps.windows_uv_tests.outcome == 'failure'
+        run: |
+          Get-WinEvent -FilterHashtable @{
+            LogName = "Application"
+            StartTime = (Get-Date).AddMinutes(-10)
+          } -ErrorAction SilentlyContinue |
+            Where-Object { $_.LevelDisplayName -eq "Error" } |
+            Select-Object TimeCreated, ProviderName, Id, Message |
+            Format-List
+
+          Get-WinEvent -FilterHashtable @{
+            LogName = "Microsoft-Windows-Windows Defender/Operational"
+            StartTime = (Get-Date).AddMinutes(-10)
+          } -ErrorAction SilentlyContinue |
+            Select-Object TimeCreated, ProviderName, Id, Message |
+            Format-List
+
+          Get-MpThreatDetection -ErrorAction SilentlyContinue |
+            Select-Object InitialDetectionTime, ThreatName, Resources |
+            Format-List
+
+      - name: Propagate Windows test failure
+        if: runner.os == 'Windows' && steps.windows_uv_tests.outcome == 'failure'
+        run: exit 1
 
   test-rust:
     name: test (rust, ${{ matrix.os }})
