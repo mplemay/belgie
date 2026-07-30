@@ -67,6 +67,7 @@ oxfmt = "npm:oxfmt@latest"
 oxlint-tsgolint = "npm:oxlint-tsgolint@latest"
 
 [tool.uv]
+required-version = "==0.11.32"
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 exclude-newer = "7 days"
 exclude-newer-package = { pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false, mcp = false, mcp-types = false }
