@@ -28,7 +28,7 @@ pytestmark = pytest.mark.integration
 
 SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
     sys.platform == "win32",
-    reason="Vite build loads Rollup's native Node-API addon",
+    reason="Rollup's Node-API addon requires Node exports unavailable in embedded Deno",
 )
 
 

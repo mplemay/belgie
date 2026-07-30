@@ -22,10 +22,10 @@ pytestmark = pytest.mark.integration
 
 SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
     sys.platform == "win32",
-    reason="Vite build loads Rollup's native Node-API addon",
+    reason="Rolldown's napi-sys falls back to libnode.dll, unavailable in embedded Deno",
 )
 
-VITE_VERSION: Final[str] = "8.1.3"
+VITE_VERSION: Final[str] = "8.2.0"
 REACT_VERSION: Final[str] = "^19"
 VITE_REACT_PLUGIN_VERSION: Final[str] = "^6"
 TAILWIND_VERSION: Final[str] = "4.3.0"
