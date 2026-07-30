@@ -253,6 +253,7 @@ async def test_belgie_mcp_codegen_exits_with_standalone_sse_stream(
     output = tmp_path / "tools.ts"
     dependencies = {
         "@belgie/mcp": f"file:{MCP_PACKAGE_ROOT.as_posix()}",
+        # Peer deps of @belgie/mcp; Deno resolves package exports when loading the CLI.
         "@modelcontextprotocol/ext-apps": "npm:@modelcontextprotocol/ext-apps@1.7.4",
         "vite": "npm:vite@8.1.3",
     }

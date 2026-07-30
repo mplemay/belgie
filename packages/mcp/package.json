@@ -10,7 +10,7 @@
     "url": "https://github.com/mplemay/belgie/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "open": "^11.0.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
