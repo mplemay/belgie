@@ -18,6 +18,7 @@ from belgie.__tests__.integration._core.conftest import (
     VITE_VERSION,
     ZX_VERSION,
     installed_environment,
+    vite_dependencies,
 )
 from belgie.errors import BelgieRuntimeError
 
@@ -197,7 +198,7 @@ async def test_runs_vite_command_spec(
     if clear_path:
         monkeypatch.setenv("PATH", "")
 
-    async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
+    async with installed_environment(vite_dependencies()) as env, Runtime(env=env) as runtime:
         result = await runtime(Command(command_spec))("--version")
 
     assert result is None
@@ -260,8 +261,8 @@ export default defineConfig({
     node_modules = isolated_project_cwd / "node_modules"
     dependencies = {
         "react": REACT_VERSION,
-        "vite": VITE_VERSION,
         "@vitejs/plugin-react": VITE_REACT_PLUGIN_VERSION,
+        **vite_dependencies(),
     }
     async with Environment(dependencies, path=isolated_project_cwd) as env:
         await env.install()
@@ -303,7 +304,7 @@ export default defineConfig({
     installed_plugin = isolated_project_cwd / "node_modules" / "@acme" / "vite"
     dependencies = {
         "@acme/vite": "file:./packages/@acme/vite",
-        "vite": VITE_VERSION,
+        **vite_dependencies(),
     }
     async with Environment(dependencies, path=isolated_project_cwd) as env:
         await env.install()
@@ -338,7 +339,7 @@ export default {};
     )
 
     command = Command("vite", cwd="frontend", env={"BELGIE_COMMAND_TEST": "set"})
-    async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
+    async with installed_environment(vite_dependencies()) as env, Runtime(env=env) as runtime:
         await runtime(command)("build", "--outDir", "output")
 
     assert (frontend / "output" / "index.html").is_file()
@@ -355,7 +356,7 @@ async def test_windows_vite_build_reaches_rollup_with_normalized_cwd_before_node
     (tmp_path / "index.html").write_text("<main>belgie</main>\n", encoding="utf-8")
     capfd.readouterr()
 
-    async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
+    async with installed_environment(vite_dependencies()) as env, Runtime(env=env) as runtime:
         with pytest.raises(BelgieRuntimeError):
             await runtime(Command("vite"))("build")
 
@@ -371,7 +372,7 @@ async def test_missing_command_and_nonzero_exit_raise_runtime_errors(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
+    async with installed_environment(vite_dependencies()) as env, Runtime(env=env) as runtime:
         with pytest.raises(BelgieRuntimeError):
             await runtime(Command("missing"))()
         with pytest.raises(BelgieRuntimeError, match=r"exit|status|failed"):
@@ -384,7 +385,7 @@ async def test_command_arguments_must_be_strings(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
+    async with installed_environment(vite_dependencies()) as env, Runtime(env=env) as runtime:
         command = runtime(Command("vite"))
         with pytest.raises(TypeError, match="argument 0 must be str"):
             command(cast("Any", 42))
@@ -442,7 +443,7 @@ async def test_cancelling_vite_dev_stops_command(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "index.html").write_text("<main>belgie</main>\n", encoding="utf-8")
 
-    async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
+    async with installed_environment(vite_dependencies()) as env, Runtime(env=env) as runtime:
         task = asyncio.create_task(
             runtime(Command("vite"))("dev", "--host", "127.0.0.1", "--port", str(free_port)),
         )
@@ -460,7 +461,7 @@ async def test_runtime_exit_cancels_running_command(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "index.html").write_text("<main>belgie</main>\n", encoding="utf-8")
 
-    async with installed_environment({"vite": VITE_VERSION}) as env:
+    async with installed_environment(vite_dependencies()) as env:
         runtime = Runtime(env=env)
         active = await runtime.__aenter__()
         task = asyncio.create_task(
@@ -481,7 +482,7 @@ async def test_command_waiting_for_global_context_is_cancellable(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "index.html").write_text("<main>belgie</main>\n", encoding="utf-8")
 
-    async with installed_environment({"vite": VITE_VERSION}) as env, Runtime(env=env) as runtime:
+    async with installed_environment(vite_dependencies()) as env, Runtime(env=env) as runtime:
         server = asyncio.create_task(
             runtime(Command("vite"))("dev", "--host", "127.0.0.1", "--port", str(free_port)),
         )
