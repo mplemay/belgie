@@ -16,7 +16,10 @@ use deno_semver::jsr::JsrPackageReqReference;
 use crate::embed::context::EmbedContext;
 use crate::embed::sys::EmbedSys;
 
-// Trimmed from Deno's cli/tools/pm/cache_deps.rs import-map root loop.
+// Install/cache only. Trimmed from Deno's cli/tools/pm/cache_deps.rs.
+// Runtime graphs must not use this: Deno's cache_deps walk is for `deno install`,
+// not `deno run`. Treating every import-map entry as a runtime root loads unused
+// package exports (and their peers) for every Script/Command.
 async fn collect_import_map_roots(
     resolver_factory: &ResolverFactory<EmbedSys>,
 ) -> Result<Vec<ModuleSpecifier>, AnyError> {
@@ -106,8 +109,7 @@ pub(crate) async fn build_module_graph_with_header_overrides(
     extra_roots: Vec<ModuleSpecifier>,
     file_header_overrides: HashMap<ModuleSpecifier, HashMap<String, String>>,
 ) -> Result<ModuleGraph, AnyError> {
-    let roots = collect_graph_roots(context, extra_roots, false).await?;
-    build_module_graph_inner(context, roots, file_header_overrides).await
+    build_module_graph_inner(context, extra_roots, file_header_overrides).await
 }
 
 async fn build_module_graph_inner(
@@ -269,6 +271,75 @@ mod tests {
             roots[0].as_str().contains("@std/path"),
             "unexpected import map root: {}",
             roots[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_module_graph_uses_only_entrypoint_roots() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cwd = temp_dir.path().join("project");
+        fs::create_dir_all(cwd.join("node_modules/@acme/pkg/dist")).unwrap();
+        fs::write(
+            cwd.join("node_modules/@acme/pkg/package.json"),
+            r#"{
+              "name": "@acme/pkg",
+              "type": "module",
+              "exports": {
+                ".": "./dist/index.js",
+                "./vite": "./dist/vite.js"
+              },
+              "bin": { "acme-cli": "./dist/cli.js" }
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            cwd.join("node_modules/@acme/pkg/dist/cli.js"),
+            "console.log('cli')\n",
+        )
+        .unwrap();
+        fs::write(
+            cwd.join("node_modules/@acme/pkg/dist/index.js"),
+            "import 'missing-peer'\n",
+        )
+        .unwrap();
+        fs::write(
+            cwd.join("node_modules/@acme/pkg/dist/vite.js"),
+            "import 'vite'\n",
+        )
+        .unwrap();
+        let dependencies = dependencies_from_mapping(
+            &cwd,
+            BTreeMap::from([(
+                "@acme/pkg".to_string(),
+                format!("file:{}", cwd.join("node_modules/@acme/pkg").display()),
+            )]),
+        )
+        .unwrap();
+        let import_map_base = deno_core::url::Url::from_directory_path(&cwd).unwrap();
+        let context = EmbedContext::new(
+            cwd.clone(),
+            temp_dir.path().join("deno.lock"),
+            EmbedContextOptions {
+                specified_import_map: Some(
+                    specified_import_map(import_map_base, &dependencies).unwrap(),
+                ),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let entry = ModuleSpecifier::from_file_path(cwd.join("node_modules/@acme/pkg/dist/cli.js"))
+            .unwrap();
+        let graph =
+            build_module_graph_with_header_overrides(&context, vec![entry.clone()], HashMap::new())
+                .await
+                .unwrap();
+        assert_eq!(graph.roots.len(), 1);
+        assert_eq!(graph.roots[0], entry);
+        assert!(
+            !graph
+                .modules()
+                .any(|module| module.specifier().as_str().ends_with("/vite.js")),
+            "runtime graph should not load unused package exports"
         );
     }
 
