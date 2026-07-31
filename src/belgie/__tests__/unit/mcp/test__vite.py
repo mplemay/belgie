@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterator
+from contextlib import nullcontext
+from email.message import Message
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -153,11 +156,43 @@ def test_ensure_vite_dev_server_reuses_external_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(vite_module, "_is_address_reachable", lambda _host, _port: True)
+    monkeypatch.setattr(vite_module, "_is_vite_dev_server_ready", lambda _host, _port: True)
 
     ensure_vite_dev_server(tmp_path)
 
     assert vite_module.DEV_SERVERS == {}
+
+
+def test_vite_dev_server_readiness_requires_http_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[tuple[str, float]] = []
+
+    def unavailable(url: str, *, timeout: float) -> None:
+        requests.append((url, timeout))
+        raise URLError(ConnectionRefusedError())
+
+    monkeypatch.setattr(vite_module, "urlopen", unavailable)
+    assert not vite_module._is_vite_dev_server_ready("127.0.0.1", 4173)
+
+    def ready(url: str, *, timeout: float) -> nullcontext[None]:
+        requests.append((url, timeout))
+        return nullcontext()
+
+    monkeypatch.setattr(vite_module, "urlopen", ready)
+    assert vite_module._is_vite_dev_server_ready("127.0.0.1", 4173)
+    assert requests == [
+        ("http://127.0.0.1:4173", vite_module.DEV_PROBE_TIMEOUT_SECONDS),
+        ("http://127.0.0.1:4173", vite_module.DEV_PROBE_TIMEOUT_SECONDS),
+    ]
+
+
+def test_vite_dev_server_readiness_accepts_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def not_found(url: str, *, timeout: float) -> None:
+        assert timeout == vite_module.DEV_PROBE_TIMEOUT_SECONDS
+        raise HTTPError(url, 404, "Not Found", Message(), None)
+
+    monkeypatch.setattr(vite_module, "urlopen", not_found)
+
+    assert vite_module._is_vite_dev_server_ready("127.0.0.1", 4173)
 
 
 def test_ensure_vite_dev_server_starts_once(
@@ -170,7 +205,7 @@ def test_ensure_vite_dev_server_starts_once(
 
     monkeypatch.setattr(
         vite_module,
-        "_is_address_reachable",
+        "_is_vite_dev_server_ready",
         lambda _host, _port: reachable.is_set(),
     )
 
@@ -203,7 +238,7 @@ def test_ensure_vite_dev_server_rejects_owned_port_for_another_project(
 
     monkeypatch.setattr(
         vite_module,
-        "_is_address_reachable",
+        "_is_vite_dev_server_ready",
         lambda _host, _port: reachable.is_set(),
     )
 
@@ -229,7 +264,7 @@ def test_ensure_vite_dev_server_reports_start_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(vite_module, "_is_address_reachable", lambda _host, _port: False)
+    monkeypatch.setattr(vite_module, "_is_vite_dev_server_ready", lambda _host, _port: False)
 
     def fail_start(server: _ViteDevServer) -> None:
         with server.state_lock:
@@ -247,7 +282,7 @@ def test_ensure_vite_dev_server_reports_timeout(
 ) -> None:
     release = threading.Event()
     starts: list[_ViteDevServer] = []
-    monkeypatch.setattr(vite_module, "_is_address_reachable", lambda _host, _port: False)
+    monkeypatch.setattr(vite_module, "_is_vite_dev_server_ready", lambda _host, _port: False)
     monkeypatch.setattr(vite_module, "DEV_START_TIMEOUT_SECONDS", 0.03)
     monkeypatch.setattr(vite_module, "DEV_POLL_INTERVAL_SECONDS", 0.005)
 

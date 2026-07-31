@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 
 VITE_VERSION: Final[str] = "6.1.0"
 ZX_VERSION: Final[str] = "8.5.5"
-ROLLUP_VERSION: Final[str] = "4.46.2"
+# Rollup 4.62.3's MSVC Node-API loader falls back to libnode and aborts under embedded Deno.
+ROLLUP_VERSION: Final[str] = "4.62.2"
 REACT_VERSION: Final[str] = "^19"
 VITE_REACT_PLUGIN_VERSION: Final[str] = "^4"
 SEMVER_VERSION: Final[str] = "7.7.2"
@@ -34,6 +35,13 @@ def rollup_native_package() -> str:
     if package is None:
         pytest.skip(f"Rollup native addon package is not mapped for {sys.platform} {machine()}")
     return package
+
+
+def vite_dependencies() -> dict[str, str]:
+    return {
+        "rollup": ROLLUP_VERSION,
+        "vite": VITE_VERSION,
+    }
 
 
 @asynccontextmanager

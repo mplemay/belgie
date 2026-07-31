@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import atexit
-import socket
 import threading
 from contextlib import suppress
 from dataclasses import dataclass, field
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, Final
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlunparse
+from urllib.request import urlopen
 
 from belgie import Command, Environment, Runtime
 from belgie._pyproject import (
@@ -103,7 +104,7 @@ def ensure_vite_dev_server(
             )
             raise RuntimeError(msg)
         if server is None:
-            if _is_address_reachable(host, port):
+            if _is_vite_dev_server_ready(host, port):
                 return
             server = _ViteDevServer(project=project_path, host=host, port=port)
             thread = threading.Thread(
@@ -201,7 +202,7 @@ def _run_vite_dev_server(server: _ViteDevServer) -> None:
 def _wait_for_vite_dev_server(server: _ViteDevServer, *, url: str) -> None:
     deadline = monotonic() + DEV_START_TIMEOUT_SECONDS
     while monotonic() < deadline:
-        if _is_address_reachable(server.host, server.port):
+        if _is_vite_dev_server_ready(server.host, server.port):
             return
         with server.state_lock:
             error = server.error
@@ -221,11 +222,15 @@ def _wait_for_vite_dev_server(server: _ViteDevServer, *, url: str) -> None:
     raise RuntimeError(msg)
 
 
-def _is_address_reachable(host: str, port: int) -> bool:
+def _is_vite_dev_server_ready(host: str, port: int) -> bool:
+    url = _vite_url(host, port)
     try:
-        with socket.create_connection((host, port), timeout=DEV_PROBE_TIMEOUT_SECONDS):
+        with urlopen(url, timeout=DEV_PROBE_TIMEOUT_SECONDS):  # noqa: S310  # Vite binds the configured local host.
             return True
-    except OSError:
+    except HTTPError as error:
+        error.close()
+        return True
+    except (URLError, TimeoutError, OSError):
         return False
 
 
