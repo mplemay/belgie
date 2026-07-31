@@ -201,6 +201,82 @@ async function startMcpServer(listTools, onRequest = () => {}) {
   };
 }
 
+async function startResumableMcpServer() {
+  const app = express();
+  app.use(express.json());
+  let initialGets = 0;
+  let resumedGets = 0;
+  let listRequestId;
+
+  app.post("/mcp", (request, response) => {
+    if (request.body.method === "initialize") {
+      response.json({
+        id: request.body.id,
+        jsonrpc: "2.0",
+        result: {
+          capabilities: { tools: {} },
+          protocolVersion: "2025-06-18",
+          serverInfo: { name: "belgie-resumption-test", version: "1.0.0" },
+        },
+      });
+      return;
+    }
+    if (request.body.method === "notifications/initialized") {
+      response.status(202).end();
+      return;
+    }
+    assert.equal(request.body.method, "tools/list");
+    listRequestId = request.body.id;
+    response
+      .status(200)
+      .set("content-type", "text/event-stream")
+      .end(
+        `id: resume-token\nretry: 1\ndata: ${JSON.stringify({
+          jsonrpc: "2.0",
+          method: "notifications/message",
+          params: { data: "resume", level: "info" },
+        })}\n\n`,
+      );
+  });
+  app.get("/mcp", (request, response) => {
+    if (request.headers["last-event-id"] !== "resume-token") {
+      initialGets += 1;
+      response.status(405).end();
+      return;
+    }
+    resumedGets += 1;
+    response
+      .status(200)
+      .set("content-type", "text/event-stream")
+      .end(
+        `data: ${JSON.stringify({
+          id: listRequestId,
+          jsonrpc: "2.0",
+          result: { tools: [SCHEMA_TOOLS[1]] },
+        })}\n\n`,
+      );
+  });
+
+  const http = await new Promise((resolve, reject) => {
+    const server = app.listen(0, "127.0.0.1", () => {
+      resolve(server);
+    });
+    server.once("error", reject);
+  });
+  const address = http.address();
+  assert.ok(address && typeof address !== "string");
+  return {
+    close: async () =>
+      new Promise((resolve, reject) =>
+        http.close((error) => {
+          error ? reject(error) : resolve();
+        }),
+      ),
+    metrics: () => ({ initialGets, resumedGets }),
+    url: `http://127.0.0.1:${address.port}/mcp`,
+  };
+}
+
 async function startOAuthMcpServer() {
   const app = createMcpExpressApp({ host: "127.0.0.1" });
   app.use(express.urlencoded({ extended: false }));
@@ -368,6 +444,17 @@ test("generates deterministic types from every tools/list page", async () => {
     assert.equal(pages, 4);
     const golden = await readFile(new URL("fixtures/codegen.golden.ts", import.meta.url), "utf8");
     assert.equal(first, golden);
+  } finally {
+    await server.close();
+  }
+});
+
+test("declines standalone SSE while forwarding resumptions", async () => {
+  const server = await startResumableMcpServer();
+  try {
+    const generated = await generateToolTypes({ oauth: false, url: server.url });
+    assert.match(generated, /export const modelTool =/u);
+    assert.deepEqual(server.metrics(), { initialGets: 0, resumedGets: 1 });
   } finally {
     await server.close();
   }

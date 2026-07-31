@@ -1,7 +1,7 @@
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
@@ -38,6 +38,25 @@ function endpoint(value: string | URL): URL {
     throw new Error("MCP URL must not contain credentials; use headers instead");
   }
   return url;
+}
+
+function codegenFetch(endpointUrl: URL): FetchLike {
+  const endpoint = new URL(endpointUrl);
+  endpoint.hash = "";
+
+  return async (url, init) => {
+    const requestUrl = new URL(url);
+    requestUrl.hash = "";
+    const headers = new Headers(init?.headers);
+    if (
+      (init?.method ?? "GET").toUpperCase() === "GET" &&
+      requestUrl.href === endpoint.href &&
+      !headers.has("last-event-id")
+    ) {
+      return new Response(null, { status: 405, statusText: "Method Not Allowed" });
+    }
+    return fetch(url, init);
+  };
 }
 
 function jsDoc(description: string): string[] {
@@ -179,6 +198,7 @@ function createConnection(
   const client = new Client({ name: "belgie-mcp-codegen", version: "0.1.0" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(url, {
     ...(provider === undefined ? {} : { authProvider: provider }),
+    fetch: codegenFetch(url),
     requestInit: { headers: new Headers(headers) },
   });
   return { client, transport };

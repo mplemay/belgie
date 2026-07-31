@@ -4,10 +4,16 @@ from typing import Final
 from belgie import Command, Environment, Runtime
 
 VITE_VERSION: Final[str] = "6"
+ROLLUP_VERSION: Final[str] = "4.62.2"
 
 
 async def run_version_command() -> None:
-    async with Environment({"vite": VITE_VERSION}) as env:
+    async with Environment(
+        {
+            "rollup": ROLLUP_VERSION,
+            "vite": VITE_VERSION,
+        },
+    ) as env:
         await env.install()
         async with Runtime(env=env) as runtime:
             await runtime(Command("vite"))("--version")

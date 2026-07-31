@@ -6,6 +6,10 @@ export default defineConfig({
     profile: "esm-only",
   },
   clean: true,
+  deps: {
+    alwaysBundle: [/^@modelcontextprotocol\/sdk(?:\/|$)/, /^zod(?:\/|$)/, /^open(?:\/|$)/],
+    onlyBundle: false,
+  },
   dts: true,
   entry: {
     cli: "src/cli.ts",
@@ -19,6 +23,7 @@ export default defineConfig({
       "belgie-mcp": "src/cli.ts",
     },
     exclude: ["cli"],
+    inlinedDependencies: false,
     legacy: true,
     packageJson: true,
   },

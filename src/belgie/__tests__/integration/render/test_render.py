@@ -30,7 +30,7 @@ pytestmark = pytest.mark.integration
 
 SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
     sys.platform == "win32",
-    reason="Vite build loads Rolldown's native Node-API addon",
+    reason="Rolldown's napi-sys falls back to libnode.dll, unavailable in embedded Deno",
 )
 RENDER_PACKAGE_ROOT: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "render"
 VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
