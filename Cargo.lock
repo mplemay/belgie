@@ -1380,12 +1380,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c297a1c74b71ae29df00c3e22dd9534821d60eb9af5a0192823fa2acea70c2a"
 
 [[package]]
-name = "debug-ignore"
-version = "1.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffe7ed1d93f4553003e20b629abe9085e1e81b1429520f897f8f8860bc6dfc21"
-
-[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1440,8 +1434,8 @@ dependencies = [
 
 [[package]]
 name = "deno_bundle_runtime"
-version = "0.42.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.43.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "deno_core",
@@ -1452,8 +1446,8 @@ dependencies = [
 
 [[package]]
 name = "deno_cache"
-version = "0.188.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.189.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -1478,8 +1472,8 @@ dependencies = [
 
 [[package]]
 name = "deno_cache_dir"
-version = "0.47.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.48.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1504,13 +1498,14 @@ dependencies = [
 
 [[package]]
 name = "deno_canvas"
-version = "0.117.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.118.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "bytemuck",
  "deno_core",
  "deno_error",
  "deno_image",
+ "deno_permissions",
  "deno_webgpu",
  "raw-window-handle",
  "thiserror 2.0.19",
@@ -1518,8 +1513,8 @@ dependencies = [
 
 [[package]]
 name = "deno_config"
-version = "0.105.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.106.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "boxed_error",
  "capacity_builder",
@@ -1544,8 +1539,8 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.408.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.409.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "anyhow",
  "az",
@@ -1579,6 +1574,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "url",
+ "uuid",
  "v8",
  "wasm_dep_analyzer",
  "windows-sys 0.59.0",
@@ -1586,8 +1582,8 @@ dependencies = [
 
 [[package]]
 name = "deno_cron"
-version = "0.135.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.136.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1603,8 +1599,8 @@ dependencies = [
 
 [[package]]
 name = "deno_crypto"
-version = "0.269.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.270.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1648,16 +1644,16 @@ dependencies = [
 
 [[package]]
 name = "deno_crypto_provider"
-version = "0.49.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.50.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "aws-lc-sys 0.40.0",
 ]
 
 [[package]]
 name = "deno_dotenv"
-version = "0.24.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.25.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_path_util",
  "sys_traits",
@@ -1691,16 +1687,16 @@ dependencies = [
 
 [[package]]
 name = "deno_features"
-version = "0.52.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.53.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
 ]
 
 [[package]]
 name = "deno_fetch"
-version = "0.279.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.280.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-compression",
  "base64 0.22.1",
@@ -1737,8 +1733,8 @@ dependencies = [
 
 [[package]]
 name = "deno_ffi"
-version = "0.242.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.243.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "cranelift",
  "cranelift-native",
@@ -1760,8 +1756,8 @@ dependencies = [
 
 [[package]]
 name = "deno_fs"
-version = "0.165.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.166.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "boxed_error",
@@ -1819,8 +1815,8 @@ dependencies = [
 
 [[package]]
 name = "deno_http"
-version = "0.253.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.254.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-compression",
  "async-trait",
@@ -1858,8 +1854,8 @@ dependencies = [
 
 [[package]]
 name = "deno_http_h1"
-version = "0.6.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.7.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "httparse",
  "memchr",
@@ -1869,8 +1865,8 @@ dependencies = [
 
 [[package]]
 name = "deno_image"
-version = "0.31.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.32.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "bytemuck",
  "deno_core",
@@ -1883,8 +1879,8 @@ dependencies = [
 
 [[package]]
 name = "deno_inspector_server"
-version = "0.29.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.30.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -1901,8 +1897,8 @@ dependencies = [
 
 [[package]]
 name = "deno_io"
-version = "0.165.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.166.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "deno_core",
@@ -1924,8 +1920,8 @@ dependencies = [
 
 [[package]]
 name = "deno_kv"
-version = "0.163.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.164.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1960,8 +1956,8 @@ dependencies = [
 
 [[package]]
 name = "deno_lib"
-version = "0.73.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.74.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "arc-swap",
  "aws-lc-rs",
@@ -1998,8 +1994,8 @@ dependencies = [
 
 [[package]]
 name = "deno_lockfile"
-version = "0.57.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.58.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "deno_semver",
@@ -2010,10 +2006,11 @@ dependencies = [
 
 [[package]]
 name = "deno_maybe_sync"
-version = "0.42.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.43.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "dashmap",
+ "rustc-hash 2.1.3",
 ]
 
 [[package]]
@@ -2030,8 +2027,8 @@ dependencies = [
 
 [[package]]
 name = "deno_napi"
-version = "0.186.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.187.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2062,8 +2059,8 @@ dependencies = [
 
 [[package]]
 name = "deno_net"
-version = "0.247.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.248.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2087,12 +2084,13 @@ dependencies = [
  "tokio-vsock",
  "url",
  "web-transport-proto",
+ "x509-parser",
 ]
 
 [[package]]
 name = "deno_node"
-version = "0.193.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.194.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "base64 0.22.1",
  "boxed_error",
@@ -2148,8 +2146,8 @@ dependencies = [
 
 [[package]]
 name = "deno_node_crypto"
-version = "0.25.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.26.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "aead-gcm-stream",
  "aes",
@@ -2211,8 +2209,8 @@ dependencies = [
 
 [[package]]
 name = "deno_node_sqlite"
-version = "0.25.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.26.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2223,8 +2221,8 @@ dependencies = [
 
 [[package]]
 name = "deno_npm"
-version = "0.67.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.68.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "arrayref",
  "async-trait",
@@ -2248,8 +2246,8 @@ dependencies = [
 
 [[package]]
 name = "deno_npm_cache"
-version = "0.74.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.75.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -2281,8 +2279,8 @@ dependencies = [
 
 [[package]]
 name = "deno_npm_installer"
-version = "0.50.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.51.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "anyhow",
  "async-once-cell",
@@ -2296,6 +2294,7 @@ dependencies = [
  "deno_lockfile",
  "deno_npm",
  "deno_npm_cache",
+ "deno_npmrc",
  "deno_package_json",
  "deno_path_util",
  "deno_resolver",
@@ -2304,6 +2303,7 @@ dependencies = [
  "deno_unsync",
  "futures",
  "lazy-regex",
+ "libc",
  "log",
  "once_cell",
  "parking_lot",
@@ -2321,8 +2321,8 @@ dependencies = [
 
 [[package]]
 name = "deno_npmrc"
-version = "0.16.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.17.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "log",
  "monch",
@@ -2333,8 +2333,8 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.284.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.285.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "indexmap",
  "proc-macro2",
@@ -2349,8 +2349,8 @@ dependencies = [
 
 [[package]]
 name = "deno_os"
-version = "0.72.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.73.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2366,8 +2366,8 @@ dependencies = [
 
 [[package]]
 name = "deno_package_json"
-version = "0.57.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.58.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "boxed_error",
  "capacity_builder",
@@ -2398,8 +2398,8 @@ dependencies = [
 
 [[package]]
 name = "deno_permissions"
-version = "0.114.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.115.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "capacity_builder",
  "chrono",
@@ -2427,8 +2427,8 @@ dependencies = [
 
 [[package]]
 name = "deno_process"
-version = "0.70.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.71.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2454,8 +2454,8 @@ dependencies = [
 
 [[package]]
 name = "deno_resolver"
-version = "0.86.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.87.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "anyhow",
  "async-once-cell",
@@ -2491,6 +2491,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "phf 0.11.3",
+ "rustc-hash 2.1.3",
  "serde",
  "serde_json",
  "sys_traits",
@@ -2502,8 +2503,8 @@ dependencies = [
 
 [[package]]
 name = "deno_runtime"
-version = "0.263.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.264.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2594,8 +2595,8 @@ dependencies = [
 
 [[package]]
 name = "deno_signals"
-version = "0.46.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.47.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "libc",
  "signal-hook",
@@ -2606,27 +2607,27 @@ dependencies = [
 
 [[package]]
 name = "deno_snapshots"
-version = "0.70.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.71.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_runtime",
 ]
 
 [[package]]
 name = "deno_subprocess_windows"
-version = "0.50.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.51.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
- "fastrand",
  "futures-channel",
  "libc",
+ "rand 0.8.5",
  "windows-sys 0.59.0",
 ]
 
 [[package]]
 name = "deno_telemetry"
-version = "0.77.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.78.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "deno_core",
@@ -2670,8 +2671,8 @@ dependencies = [
 
 [[package]]
 name = "deno_tls"
-version = "0.242.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.243.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2716,8 +2717,8 @@ dependencies = [
 
 [[package]]
 name = "deno_web"
-version = "0.286.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.287.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "async-trait",
  "brotli 6.0.0",
@@ -2738,8 +2739,8 @@ dependencies = [
 
 [[package]]
 name = "deno_webgpu"
-version = "0.222.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.223.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2756,16 +2757,16 @@ dependencies = [
 
 [[package]]
 name = "deno_webidl"
-version = "0.255.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.256.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
 ]
 
 [[package]]
 name = "deno_websocket"
-version = "0.260.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.261.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "bytes",
  "deno_core",
@@ -2787,8 +2788,8 @@ dependencies = [
 
 [[package]]
 name = "deno_webstorage"
-version = "0.250.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.251.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_core",
  "deno_error",
@@ -2875,12 +2876,14 @@ dependencies = [
 
 [[package]]
 name = "denort_helper"
-version = "0.53.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.54.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_error",
  "deno_path_util",
+ "libc",
  "sys_traits",
+ "tempfile",
  "thiserror 2.0.19",
  "twox-hash",
 ]
@@ -3236,19 +3239,6 @@ dependencies = [
  "sha3 0.11.0",
  "signature 3.0.0",
  "subtle",
-]
-
-[[package]]
-name = "editpe"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48cede2bb1b07dd598d269f973792c43e0cd92686d3b452bd6e01d7a8eb01211"
-dependencies = [
- "debug-ignore",
- "indexmap",
- "log",
- "thiserror 1.0.69",
- "zerocopy 0.7.35",
 ]
 
 [[package]]
@@ -4902,15 +4892,16 @@ dependencies = [
 
 [[package]]
 name = "libsui"
-version = "0.16.3"
+version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca68ddfd95a7422fda71830518f057cb14aa784a0feed007bc5ef9dff04818b1"
+checksum = "3cd44dd0a322ec9fb05619e59067d1c767718238677369d9c5f004ea26a1184b"
 dependencies = [
- "editpe",
  "image",
+ "indexmap",
  "libc",
  "object 0.36.3",
  "sha2",
+ "thiserror 1.0.69",
  "windows 0.58.0",
  "zerocopy 0.7.35",
 ]
@@ -5135,8 +5126,8 @@ dependencies = [
 
 [[package]]
 name = "napi_sym"
-version = "0.185.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.186.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "quote",
  "serde",
@@ -5206,8 +5197,8 @@ dependencies = [
 
 [[package]]
 name = "node_resolver"
-version = "0.93.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.94.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5228,6 +5219,7 @@ dependencies = [
  "percent-encoding",
  "pretty_assertions",
  "regex",
+ "rustc-hash 2.1.3",
  "serde",
  "serde_json",
  "sys_traits",
@@ -5237,8 +5229,8 @@ dependencies = [
 
 [[package]]
 name = "node_shim"
-version = "0.30.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.31.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "serde_json",
  "url",
@@ -6990,8 +6982,8 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.317.0"
-source = "git+https://github.com/denoland/deno.git?tag=v2.9.3#f39575ecd50602a5b42b1ba8e93849460de9fcf4"
+version = "0.318.0"
+source = "git+https://github.com/denoland/deno.git?tag=v2.9.4#14eea3160ae5834476aa3b9d317b8d41d991b982"
 dependencies = [
  "deno_error",
  "num-bigint",
@@ -8409,9 +8401,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "149.4.0"
+version = "150.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebfd8d6919bfb4b627ca778a67f85ca45e5fb442d352947ba093798bdf9b07e0"
+checksum = "42a978ff11f15b24e5c05a7123cf2b68f41e763546699781a924ef4e2cf43a49"
 dependencies = [
  "bindgen 0.72.1",
  "bitflags",

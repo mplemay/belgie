@@ -36,4 +36,4 @@ belgie = { path = "../../../", editable = true }
 react = "npm:react@^19"
 "react-dom" = "npm:react-dom@^19"
 "react-dom/client" = "npm:react-dom@^19/client"
-vite = "npm:vite@8.1.3"
+vite = "npm:vite@8.2.0"
