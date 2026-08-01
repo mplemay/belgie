@@ -51,6 +51,10 @@ dev = [
     "uvloop>=0.22.1 ; sys_platform != 'win32'",
     "zizmor>=1.25.2",
 ]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.0",
+]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
