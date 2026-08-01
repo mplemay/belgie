@@ -1062,6 +1062,35 @@ function nonComputedNameNode(node: AstNode): AstNode | undefined {
   return undefined;
 }
 
+function bindObjectPatternNames(node: AstNode, scope: Set<string>): void {
+  if (!("properties" in node) || !Array.isArray(node.properties)) {
+    return;
+  }
+  for (const property of node.properties) {
+    if (!isNode(property)) {
+      continue;
+    }
+    if (property.type === "RestElement") {
+      bindPatternNames(property, scope);
+      continue;
+    }
+    if (property.type === "Property" && "value" in property && isNode(property.value)) {
+      bindPatternNames(property.value, scope);
+    }
+  }
+}
+
+function bindArrayPatternNames(node: AstNode, scope: Set<string>): void {
+  if (!("elements" in node) || !Array.isArray(node.elements)) {
+    return;
+  }
+  for (const element of node.elements) {
+    if (isNode(element)) {
+      bindPatternNames(element, scope);
+    }
+  }
+}
+
 function bindPatternNames(node: AstNode, scope: Set<string>): void {
   if (node.type === "Identifier" && "name" in node && typeof node.name === "string") {
     scope.add(node.name);
@@ -1069,6 +1098,18 @@ function bindPatternNames(node: AstNode, scope: Set<string>): void {
   }
   if (node.type === "AssignmentPattern" && "left" in node && isNode(node.left)) {
     bindPatternNames(node.left, scope);
+    return;
+  }
+  if (node.type === "RestElement" && "argument" in node && isNode(node.argument)) {
+    bindPatternNames(node.argument, scope);
+    return;
+  }
+  if (node.type === "ObjectPattern") {
+    bindObjectPatternNames(node, scope);
+    return;
+  }
+  if (node.type === "ArrayPattern") {
+    bindArrayPatternNames(node, scope);
   }
 }
 
@@ -1085,6 +1126,66 @@ function bindFunctionLikeNames(node: AstNode, bound: ReadonlySet<string>): Set<s
     }
   }
   return inner;
+}
+
+type FreeVisit = (node: AstNode, bound: ReadonlySet<string>) => void;
+
+function visitObjectPatternDefaultInitializers(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): void {
+  if (!("properties" in node) || !Array.isArray(node.properties)) {
+    return;
+  }
+  for (const property of node.properties) {
+    if (!isNode(property)) {
+      continue;
+    }
+    if (property.type === "RestElement") {
+      visitParamDefaultInitializers(property, bound, visit);
+      continue;
+    }
+    if (property.type !== "Property") {
+      continue;
+    }
+    if ("computed" in property && property.computed && "key" in property && isNode(property.key)) {
+      visit(property.key, bound);
+    }
+    if ("value" in property && isNode(property.value)) {
+      visitParamDefaultInitializers(property.value, bound, visit);
+    }
+  }
+}
+
+function visitArrayPatternDefaultInitializers(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): void {
+  if (!("elements" in node) || !Array.isArray(node.elements)) {
+    return;
+  }
+  for (const element of node.elements) {
+    if (isNode(element)) {
+      visitParamDefaultInitializers(element, bound, visit);
+    }
+  }
+}
+
+function visitParamDefaultInitializers(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): void {
+  if (node.type === "AssignmentPattern") {
+    if ("right" in node && isNode(node.right)) {
+      visit(node.right, bound);
+    }
+    if ("left" in node && isNode(node.left)) {
+      visitParamDefaultInitializers(node.left, bound, visit);
+    }
+    return;
+  }
+  if (node.type === "RestElement" && "argument" in node && isNode(node.argument)) {
+    visitParamDefaultInitializers(node.argument, bound, visit);
+    return;
+  }
+  if (node.type === "ObjectPattern") {
+    visitObjectPatternDefaultInitializers(node, bound, visit);
+    return;
+  }
+  if (node.type === "ArrayPattern") {
+    visitArrayPatternDefaultInitializers(node, bound, visit);
+  }
 }
 
 function bindBlockStatementNames(statements: unknown[], scope: Set<string>): void {
@@ -1115,8 +1216,6 @@ function bindBlockStatementNames(statements: unknown[], scope: Set<string>): voi
   }
 }
 
-type FreeVisit = (node: AstNode, bound: ReadonlySet<string>) => void;
-
 function visitFunctionLikeFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
   if (
     node.type !== "FunctionDeclaration" &&
@@ -1126,6 +1225,13 @@ function visitFunctionLikeFree(node: AstNode, bound: ReadonlySet<string>, visit:
     return false;
   }
   const inner = bindFunctionLikeNames(node, bound);
+  if ("params" in node && Array.isArray(node.params)) {
+    for (const param of node.params) {
+      if (isNode(param)) {
+        visitParamDefaultInitializers(param, bound, visit);
+      }
+    }
+  }
   if ("body" in node && isNode(node.body)) {
     visit(node.body, inner);
   }

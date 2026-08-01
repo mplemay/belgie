@@ -365,6 +365,44 @@ describe("@belgie/render", () => {
     expect(moduleSource).not.toContain("function Widget");
   });
 
+  it("keeps module bindings referenced only in parameter defaults", () => {
+    const source = [
+      'import { render } from "@belgie/render";',
+      'const name = "display-name";',
+      'const code = "display-code";',
+      'const serverOnlyMarker = "server-only-plugin-marker";',
+      'const computedKey = "value";',
+      "class MarkerPlugin {",
+      "  renderChunk(",
+      "    { code = serverOnlyMarker, [computedKey]: nested = serverOnlyMarker, ...rest } = {",
+      "      code: serverOnlyMarker,",
+      "    },",
+      "    [item = serverOnlyMarker] = [],",
+      "  ) {",
+      "    return code + nested + String(rest) + item;",
+      "  }",
+      "}",
+      "function serverPlugin() {",
+      "  return new MarkerPlugin();",
+      "}",
+      "function Widget() { return <main>{name}{code}</main>; }",
+      "export default function run() {",
+      "  return render({ widget: <Widget />, plugins: [serverPlugin()] });",
+      "}",
+    ].join("\n");
+
+    const moduleSource = preparePluginsModule(source);
+
+    expect(moduleSource).toContain('const serverOnlyMarker = "server-only-plugin-marker"');
+    expect(moduleSource).toContain('const computedKey = "value"');
+    expect(moduleSource).toContain("class MarkerPlugin");
+    expect(moduleSource).toContain("function serverPlugin()");
+    expect(moduleSource).toContain("export default [serverPlugin()];");
+    expect(moduleSource).not.toContain('const name = "display-name"');
+    expect(moduleSource).not.toContain('const code = "display-code"');
+    expect(moduleSource).not.toContain("function Widget");
+  });
+
   it("preserves npm plugin imports in the privileged module", () => {
     const moduleSource = preparePluginsModule(
       [

@@ -80,7 +80,10 @@ def _temporary_workspace(stack: AsyncExitStack) -> Path:
 
 
 def is_render_request(value: object) -> bool:
-    return isinstance(value, dict) and value.get(RENDER_REQUEST_KEY) == 1
+    if not isinstance(value, dict):
+        return False
+    marker = value.get(RENDER_REQUEST_KEY)
+    return type(marker) is int and marker == 1
 
 
 async def _drain_cancelled_task(task: asyncio.Task[JsonOutput]) -> None:
