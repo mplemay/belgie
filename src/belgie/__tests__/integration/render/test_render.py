@@ -33,23 +33,6 @@ SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
     reason="Rolldown's napi-sys falls back to libnode.dll, unavailable in embedded Deno",
 )
 RENDER_PACKAGE_ROOT: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "render"
-VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
-    "homedir",
-    "uid",
-    "gid",
-    "cpus",
-    "osRelease",
-    "systemMemoryInfo",
-)
-VITE_READ_PATHS: Final[tuple[str, ...]] = (
-    ()
-    if sys.platform == "win32"
-    else (
-        "/etc",
-        "/proc",
-        "/usr/bin/ldd",
-    )
-)
 INLINE_WIDGET_SOURCE: Final[str] = """
 import { render } from "@belgie/render";
 
@@ -108,13 +91,11 @@ def run_context() -> RunContext[None]:
     )
 
 
-def secure_runtime_options(root: Path) -> RuntimeOptions:
+def script_runtime_options(root: Path) -> RuntimeOptions:
     return RuntimeOptions(
         permissions=RuntimePermissions(
-            allow_ffi=[str(root / "node_modules")],
             allow_net=[],
-            allow_read=[str(root), *VITE_READ_PATHS],
-            allow_sys=VITE_SYS_PERMISSIONS,
+            allow_read=[str(root)],
         ),
     )
 
@@ -175,7 +156,7 @@ async def test_pydantic_ai_and_langchain_return_the_same_inline_html(tmp_path: P
     root.mkdir()
     package = copy_render_package(root)
     environment = Environment({"@belgie/render": f"file:{package}"}, path=root)
-    options = secure_runtime_options(root)
+    options = script_runtime_options(root)
 
     async with environment as active_environment:
         await active_environment.install()
@@ -212,10 +193,11 @@ async def test_pydantic_ai_and_langchain_return_the_same_inline_html(tmp_path: P
     assert "server-only-plugin-marker" not in pydantic_result.return_value
     assert '<script type="module" src=' not in pydantic_result.return_value
     assert files_after == files_before
+    assert not agent_runtime.is_render_request(pydantic_result.return_value)
 
 
 @SKIP_WIN32_VITE_NATIVE
-async def test_environment_session_uses_isolated_runtime_options_by_default(tmp_path: Path) -> None:
+async def test_environment_session_uses_script_runtime_options_by_default(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
     root.mkdir()
     package = copy_render_package(root)
@@ -291,6 +273,19 @@ async def test_default_session_is_temporary_and_denies_host_capabilities(
             await session.run_script(
                 'export default function run() { return new Deno.Command("echo").outputSync(); }',
             )
+        if sys.platform != "win32":
+            with pytest.raises(BelgieJavaScriptError, match="Requires read access"):
+                await session.run_script(
+                    'export default function run() { return Deno.readTextFileSync("/proc/self/environ"); }',
+                )
+            with pytest.raises(BelgieJavaScriptError, match="Requires read access"):
+                await session.run_script(
+                    'export default function run() { return Deno.readTextFileSync("/etc/passwd"); }',
+                )
+            with pytest.raises(BelgieJavaScriptError, match="Requires ffi access"):
+                await session.run_script(
+                    "export default function run() { return Deno.dlopen('libc.so.6', {}); }",
+                )
 
     assert secret.read_text(encoding="utf-8") == "outside-secret"
     assert not path_exists(output)
@@ -310,7 +305,7 @@ async def test_vite_failures_and_invalid_elements_use_existing_pydantic_error_pa
         toolset = BelgieToolset(
             wrapped=EmptyToolset(),
             environment=active_environment,
-            runtime_options=secure_runtime_options(root),
+            runtime_options=script_runtime_options(root),
         )
         async with toolset:
             tools = await toolset.get_tools(context)
@@ -354,7 +349,7 @@ async def test_inline_vite_build_uses_existing_timeout_path(tmp_path: Path) -> N
         toolset = BelgieToolset(
             wrapped=EmptyToolset(),
             environment=active_environment,
-            runtime_options=secure_runtime_options(root),
+            runtime_options=script_runtime_options(root),
             timeout=5.0,
         )
         async with toolset:

@@ -23,11 +23,15 @@ Runtime (context manager)
 
 | Path | Runtime | Permissions | Use when |
 | --- | --- | --- | --- |
-| `Script` | Lightweight `deno_core::JsRuntime` | No Deno permission prompts; module loader + V8 only | Business logic, transforms, dependency-backed imports |
-| `Command` | Full Deno worker | `Permissions::allow_all()` | Trusted npm CLI binaries (vite, esbuild, etc.) |
+| `Script` | Lightweight `deno_core::JsRuntime` or package worker | Configured / sandboxed when set; agent defaults are workspace-only | Business logic, transforms, dependency-backed imports |
+| `Command` | Full Deno worker | Default `AllowAll` (inherits session options if configured) | Trusted npm CLI binaries (vite, esbuild, etc.) |
 
-Scripts do not expose built-in `fetch` or `Deno.*` APIs in the lightweight path. Commands inherit process stdio and run
-with unrestricted Deno permissions.
+Agent `run_code` sessions use a restricted Script Runtime plus a separate Belgie-owned renderer Runtime for
+`@belgie/render`. Model Scripts do not inherit Vite host-read, sys, or FFI grants; `render()` is completed on the
+renderer side-channel.
+
+Scripts do not expose built-in `fetch` or `Deno.*` APIs in the lightweight path. Package-worker Scripts apply
+`RuntimePermissions`. Commands inherit process stdio and typically run with unrestricted Deno permissions.
 
 ## Runtime constructor decision tree
 
@@ -132,8 +136,11 @@ Import from `belgie.errors`.
 
 ## Security model
 
-- **Scripts:** sandboxed to module loading and V8 execution.
-- **Commands:** trusted project tooling only; full Deno/Node capabilities.
+- **Scripts:** sandboxed by `RuntimePermissions` on the package-worker path; agent defaults deny host `/etc`/`/proc`,
+  `allow_sys`, and `allow_ffi`. Lightweight Scripts are limited to module loading and V8 execution.
+- **Inline `@belgie/render`:** Vite runs on a Belgie-owned privileged side-channel; model-visible Scripts never receive
+  those grants.
+- **Commands:** trusted project tooling only; full Deno/Node capabilities by default.
 
 For environment lifecycle details, see [environment.md](environment.md).
 For script patterns, see [scripts.md](scripts.md).

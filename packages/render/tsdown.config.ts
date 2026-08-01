@@ -8,6 +8,7 @@ export default defineConfig({
   clean: true,
   dts: true,
   entry: {
+    host: "src/host.ts",
     index: "src/index.ts",
   },
   exports: {
