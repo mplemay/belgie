@@ -127,3 +127,5 @@ export async function buildFromSource(source: string, url: string = defaultInlin
     return buildInlineWidget(context, plugins);
   });
 }
+
+export default buildFromSource;

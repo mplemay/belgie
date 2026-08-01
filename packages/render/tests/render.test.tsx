@@ -1,7 +1,7 @@
 import { createElement } from "react";
 
 import { buildInlineWidget } from "../src/build.ts";
-import { buildFromSource } from "../src/host.ts";
+import buildFromSourceDefault, { buildFromSource } from "../src/host.ts";
 import { isRenderRequest, render, RENDER_REQUEST } from "../src/index.ts";
 import { preparePluginsModule } from "../src/source.ts";
 
@@ -53,6 +53,17 @@ describe("@belgie/render", () => {
     expect(html).not.toContain("plugin-target");
     expect(html).not.toContain("server-only-plugin-marker");
     expect(html).toContain('<div id="root"></div>');
+  });
+
+  it("exposes buildFromSource as the default Script entrypoint", async () => {
+    const source =
+      'import { render } from "@belgie/render"; export default () => render({ widget: <main>host-default</main> });';
+
+    const html = await buildFromSourceDefault(source);
+
+    expect(html).toMatch(/^<!doctype html>/u);
+    expect(html).toContain("host-default");
+    expect(buildFromSourceDefault).toBe(buildFromSource);
   });
 
   it("applies server plugins when the module also binds common names like name and code", async () => {
