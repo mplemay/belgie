@@ -22,34 +22,11 @@ entrypoint = 'tanstack.__main__:app'
 [tool.uv]
 exclude-newer = '7 days'
 
-
-
 [tool.uv.exclude-newer-package]
-annotated-doc = false
-annotated-types = false
-anyio = false
 belgie = false
-certifi = false
-cffi = false
-cryptography = false
 fastapi = false
-fastapi-cli = false
-fastapi-cloud-cli = false
-httpcore2 = false
-httpx2 = false
 mcp = false
 mcp-types = false
-opentelemetry-api = false
-rignore = false
-rpds-py = false
-sentry-sdk = false
-sse-starlette = false
-tomlkit = false
-truststore = false
-typer = false
-typing-extensions = false
-uvicorn = false
-websockets = false
 [tool.uv.sources.belgie]
 path = '../../../'
 editable = true

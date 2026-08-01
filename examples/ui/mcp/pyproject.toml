@@ -21,27 +21,8 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
+exclude-newer-package = { belgie = false, mcp = false, mcp-types = false, uvicorn = false }
 
-
-[tool.uv.exclude-newer-package]
-annotated-doc = false
-annotated-types = false
-anyio = false
-belgie = false
-cffi = false
-cryptography = false
-httpcore2 = false
-httpx2 = false
-mcp = false
-mcp-types = false
-opentelemetry-api = false
-rpds-py = false
-sse-starlette = false
-tomlkit = false
-truststore = false
-typer = false
-typing-extensions = false
-uvicorn = false
 [tool.uv.sources]
 belgie = { path = "../../../", editable = true }
 

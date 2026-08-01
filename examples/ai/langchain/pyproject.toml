@@ -21,26 +21,7 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
+exclude-newer-package = { belgie = false, langchain = false }
 
-
-[tool.uv.exclude-newer-package]
-annotated-types = false
-anyio = false
-belgie = false
-certifi = false
-charset-normalizer = false
-jiter = false
-langchain = false
-langchain-core = false
-langchain-openai = false
-langgraph = false
-langsmith = false
-openai = false
-regex = false
-tqdm = false
-typing-extensions = false
-uuid-utils = false
-websockets = false
-xxhash = false
 [tool.uv.sources]
 belgie = { path = "../../../", editable = true }
