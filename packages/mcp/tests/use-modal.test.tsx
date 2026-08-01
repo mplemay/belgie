@@ -128,7 +128,11 @@ describe("modal hook", () => {
       assert.equal(renderer!.container.querySelector(".bg-modal-backdrop"), null);
     } finally {
       deactivateWidget(app);
-      renderer?.unmount();
+      if (renderer !== undefined) {
+        await act(async () => {
+          renderer.unmount();
+        });
+      }
     }
   });
 
@@ -172,7 +176,11 @@ describe("modal hook", () => {
       assert.equal(snapshot?.isOpen, false);
     } finally {
       deactivateWidget(app);
-      renderer?.unmount();
+      if (renderer !== undefined) {
+        await act(async () => {
+          renderer.unmount();
+        });
+      }
     }
   });
 
@@ -296,7 +304,11 @@ describe("modal hook", () => {
       assert.equal(renderer!.container.querySelector(".bg-modal-backdrop"), null);
     } finally {
       deactivateWidget(app);
-      renderer?.unmount();
+      if (renderer !== undefined) {
+        await act(async () => {
+          renderer.unmount();
+        });
+      }
     }
   });
 });

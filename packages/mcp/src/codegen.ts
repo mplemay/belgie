@@ -190,12 +190,25 @@ function renderToolTypes(tools: Tool[]): string {
   ].join("\n");
 }
 
+// Codegen only lists tools; skip Ajv so non-standard formats (e.g. Pydantic "path") stay quiet.
+const codegenJsonSchemaValidator = {
+  getValidator: <T,>() => (input: unknown) =>
+    ({
+      valid: true as const,
+      data: input as T,
+      errorMessage: undefined,
+    }) as const,
+};
+
 function createConnection(
   url: URL,
   headers: Readonly<Record<string, string>>,
   provider: MemoryOAuthProvider | undefined,
 ) {
-  const client = new Client({ name: "belgie-mcp-codegen", version: "0.1.0" }, { capabilities: {} });
+  const client = new Client(
+    { name: "belgie-mcp-codegen", version: "0.1.0" },
+    { capabilities: {}, jsonSchemaValidator: codegenJsonSchemaValidator },
+  );
   const transport = new StreamableHTTPClientTransport(url, {
     ...(provider === undefined ? {} : { authProvider: provider }),
     fetch: codegenFetch(url),
