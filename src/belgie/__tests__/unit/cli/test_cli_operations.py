@@ -178,12 +178,7 @@ def test_add_dependency_leaves_lockfile_unchanged_when_pyproject_write_fails(
     write_pyproject(tmp_path)
     (tmp_path / "deno.lock").write_text("original", encoding="utf-8")
 
-    def failing_write(
-        root: Path,
-        updates: dict[str, str],
-        *,
-        validate: bool = False,
-    ) -> None:
+    def failing_write(root: Path, updates: dict[str, str]) -> None:
         msg = "pyproject write failed"
         raise ProjectError(msg)
 

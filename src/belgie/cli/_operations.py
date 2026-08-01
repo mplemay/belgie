@@ -80,7 +80,7 @@ def run_command(
 
 def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> EnvironmentInstallResult:
     document = deepcopy(project.pyproject)
-    set_dependency_in_document(document, alias, specifier, validate=True)
+    set_dependency_in_document(document, alias, specifier)
     updated_project = _load_project_from_document(project.root, document)
 
     lockfile_path = project.lockfile_path
@@ -91,7 +91,7 @@ def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> Env
         create_environment(updated_project, frozen=False) as environment,
     ):
         result = environment.lock(lockfile=lockfile_path)
-        update_belgie_dependencies(project.root, {alias: specifier}, validate=True)
+        update_belgie_dependencies(project.root, {alias: specifier})
     return result
 
 

@@ -88,12 +88,7 @@ def read_pyproject_document(root: Path) -> dict[str, Any]:
     return document
 
 
-def update_belgie_dependencies(
-    root: Path,
-    updates: Mapping[str, str],
-    *,
-    validate: bool = False,
-) -> None:
+def update_belgie_dependencies(root: Path, updates: Mapping[str, str]) -> None:
     path = root / PYPROJECT_NAME
     if not path.is_file():
         msg = f"No pyproject.toml found at {root}"
@@ -107,16 +102,19 @@ def update_belgie_dependencies(
     dependencies = _ensure_tomlkit_dependencies_table(document)
     preferred_literal = _preferred_literal(dependencies)
     for alias, value in updates.items():
-        if validate:
-            if not alias.strip():
-                msg = "Dependency alias must not be empty"
-                raise ProjectError(msg)
-            if not value.strip():
-                msg = "Dependency specifier must not be empty"
-                raise ProjectError(msg)
+        _validate_dependency_entry(alias, value)
         _set_dep_string(dependencies, alias, value, preferred_literal=preferred_literal)
 
     path.write_text(tomlkit.dumps(document), encoding="utf-8")
+
+
+def _validate_dependency_entry(alias: str, value: str) -> None:
+    if not alias.strip():
+        msg = "Dependency alias must not be empty"
+        raise ProjectError(msg)
+    if not value.strip():
+        msg = "Dependency specifier must not be empty"
+        raise ProjectError(msg)
 
 
 def _is_literal_string(value: object) -> bool:
@@ -143,48 +141,32 @@ def _set_dep_string(
     dependencies[alias] = tomlkit.string(value, literal=preferred_literal)
 
 
-def _ensure_tomlkit_dependencies_table(document: TOMLDocument) -> Table | InlineTable:
-    tool = document.get(TOOL_TABLE)
-    if tool is None:
-        tool = tomlkit.table(is_super_table=True)
-        document[TOOL_TABLE] = tool
-    elif not isinstance(tool, (Table, InlineTable)):
-        msg = "[tool] must be a table"
-        raise ProjectError(msg)
-
-    belgie = tool.get(BELGIE_TABLE)
-    if belgie is None:
-        belgie = tomlkit.table(is_super_table=True)
-        tool[BELGIE_TABLE] = belgie
-    elif not isinstance(belgie, (Table, InlineTable)):
-        msg = "[tool.belgie] must be a table"
-        raise ProjectError(msg)
-
-    dependencies = belgie.get(DEPENDENCIES_TABLE)
-    if dependencies is None:
-        dependencies = tomlkit.table()
-        belgie[DEPENDENCIES_TABLE] = dependencies
-    elif not isinstance(dependencies, (Table, InlineTable)):
-        msg = "[tool.belgie.dependencies] must be a table"
-        raise ProjectError(msg)
-    return dependencies
-
-
-def set_dependency_in_document(
-    document: dict[str, Any],
-    alias: str,
-    value: str,
+def _tomlkit_child_table(
+    parent: TOMLDocument | Table | InlineTable,
+    key: str,
     *,
-    validate: bool = False,
-) -> None:
-    if validate:
-        if not alias.strip():
-            msg = "Dependency alias must not be empty"
-            raise ProjectError(msg)
-        if not value.strip():
-            msg = "Dependency specifier must not be empty"
-            raise ProjectError(msg)
+    label: str,
+    super_table: bool = False,
+) -> Table | InlineTable:
+    value = parent.get(key)
+    if value is None:
+        table = tomlkit.table(is_super_table=super_table)
+        parent[key] = table
+        return table
+    if not isinstance(value, (Table, InlineTable)):
+        msg = f"{label} must be a table"
+        raise ProjectError(msg)
+    return value
 
+
+def _ensure_tomlkit_dependencies_table(document: TOMLDocument) -> Table | InlineTable:
+    tool = _tomlkit_child_table(document, TOOL_TABLE, label="[tool]", super_table=True)
+    belgie = _tomlkit_child_table(tool, BELGIE_TABLE, label="[tool.belgie]", super_table=True)
+    return _tomlkit_child_table(belgie, DEPENDENCIES_TABLE, label="[tool.belgie.dependencies]")
+
+
+def set_dependency_in_document(document: dict[str, Any], alias: str, value: str) -> None:
+    _validate_dependency_entry(alias, value)
     dependencies = _ensure_dependencies_table(document)
     dependencies[alias] = value
 

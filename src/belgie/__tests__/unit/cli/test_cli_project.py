@@ -197,7 +197,7 @@ exclude-newer = "7 days"
 """
     write_pyproject(tmp_path, original)
 
-    update_belgie_dependencies(tmp_path, {"camelcase": "npm:camelcase@8.0.0"}, validate=True)
+    update_belgie_dependencies(tmp_path, {"camelcase": "npm:camelcase@8.0.0"})
 
     updated = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     assert 'name = "demo"' in updated
@@ -233,7 +233,7 @@ name = "demo"
 """,
     )
 
-    update_belgie_dependencies(tmp_path, {"std_path": "jsr:@std/path@^1"}, validate=True)
+    update_belgie_dependencies(tmp_path, {"std_path": "jsr:@std/path@^1"})
 
     document = rtoml.load(tmp_path / "pyproject.toml")
     assert document["tool"]["belgie"]["dependencies"] == {"std_path": "jsr:@std/path@^1"}
