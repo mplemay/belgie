@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { jsonSchemaValidator } from "@modelcontextprotocol/sdk/validation";
 import { z } from "zod";
 
 import { MemoryOAuthProvider, oauthState, startOAuthCallbackServer } from "./oauth";
@@ -192,13 +193,14 @@ function renderToolTypes(tools: Tool[]): string {
 
 // Codegen only lists tools; skip Ajv so non-standard formats (e.g. Pydantic "path") stay quiet.
 const codegenJsonSchemaValidator = {
-  getValidator: <T,>() => (input: unknown) =>
-    ({
+  getValidator() {
+    return (input: unknown) => ({
       valid: true as const,
-      data: input as T,
+      data: input,
       errorMessage: undefined,
-    }) as const,
-};
+    });
+  },
+} as jsonSchemaValidator;
 
 function createConnection(
   url: URL,
