@@ -24,22 +24,11 @@ export OPENAI_API_KEY=...
 uv run main
 ```
 
-The agent is configured with `BelgieCapability`:
+The agent is configured with `BelgieCapability`. The complete entrypoint is included from the
+shipped example:
 
 ```python
-from pydantic_ai import Agent
-
-from belgie import RuntimeOptions, RuntimePermissions
-from belgie.pydantic_ai import BelgieCapability
-
-runtime_options = RuntimeOptions(
-    permissions=RuntimePermissions(allow_net=["hacker-news.firebaseio.com"]),
-)
-
-agent = Agent(
-    "openai:gpt-5",
-    capabilities=[BelgieCapability(runtime_options=runtime_options)],
-)
+--8<-- "examples/ai/pydantic-ai/src/pydantic_ai_example/__main__.py"
 ```
 
 The full prompt asks the model to export an async `run` function from a TypeScript module. See
@@ -56,24 +45,10 @@ export OPENAI_API_KEY=...
 uv run main
 ```
 
-The agent uses `BelgieMiddleware`:
+The agent uses `BelgieMiddleware`. The complete entrypoint is included from the shipped example:
 
 ```python
-from langchain.agents import create_agent
-
-from belgie import RuntimeOptions, RuntimePermissions
-from belgie.langchain import BelgieMiddleware
-
-runtime_options = RuntimeOptions(
-    permissions=RuntimePermissions(allow_net=["hacker-news.firebaseio.com"]),
-)
-
-agent = create_agent(
-    model="openai:gpt-5",
-    tools=[],
-    middleware=[BelgieMiddleware(runtime_options=runtime_options)],
-    system_prompt="Use run_code for JavaScript and TypeScript tasks.",
-)
+--8<-- "examples/ai/langchain/src/langchain_example/__main__.py"
 ```
 
 See [`examples/ai/langchain`](https://github.com/mplemay/belgie/tree/main/examples/ai/langchain).

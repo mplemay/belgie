@@ -4,6 +4,9 @@
 wrapper, typed tool-call helpers, host-context hooks, modal support, and the Vite plugin used by
 [MCP Apps](../mcp-apps.md).
 
+Use this page for browser-side APIs and generated callers. Use [MCP Apps](../mcp-apps.md) for the
+Python registration, project dependency setup, and development/production workflow.
+
 ## Install
 
 Install the package and its MCP Apps peer dependency with npm:
@@ -56,6 +59,9 @@ export default defineConfig({
 Development serves `/widgets/<name>/index.html`. Production emits one self-contained HTML file at
 `dist/widgets/<name>/index.html` for each widget. The plugin rejects duplicate widget names,
 missing default exports, retained JavaScript chunks, and unsupported non-CSS assets.
+
+The widget entry is always named `widget.tsx` below the configured source directory. The Python
+extension owns the `Path` registration; this package owns the browser bundle and host bridge.
 
 ## Use typed tool results
 
@@ -120,7 +126,7 @@ host helpers include `sendMessage`, `sendLog`, `openLink`, `downloadFile`, `requ
 `requestTeardown`, and `updateModelContext`.
 
 Modal opening should be triggered by a user action, such as a button click. Hosts that support Apps
-SDK modals receive the request directly; other hosts use the package’s in-iframe fallback.
+SDK modals receive the request directly; other hosts use the package's in-iframe fallback.
 
 ## Generate callers with authentication
 

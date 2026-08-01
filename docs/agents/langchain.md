@@ -39,7 +39,8 @@ print(result["messages"][-1].content)
 ```
 
 The middleware creates a session before the agent starts, adds Belgie tools to the model request,
-and closes the session after the agent finishes.
+and closes the session after the agent finishes. The default session denies network access and
+limits script reads to its workspace.
 
 ## Configure the middleware
 
@@ -56,7 +57,22 @@ middleware = BelgieMiddleware(
 ```
 
 When a Belgie runtime error or timeout occurs, the middleware returns an error `ToolMessage` for
-the Belgie tool. Other tools continue through LangChain’s normal middleware chain.
+the Belgie tool. Other tools continue through LangChain's normal middleware chain.
+
+## Configure permissions
+
+Allow only the hosts required by the agent through `RuntimeOptions`:
+
+```python
+from belgie import RuntimeOptions, RuntimePermissions
+from belgie.langchain import BelgieMiddleware
+
+runtime_options = RuntimeOptions(
+    permissions=RuntimePermissions(allow_net=["api.example.com"]),
+)
+
+middleware = BelgieMiddleware(runtime_options=runtime_options)
+```
 
 ## Use deferred loading
 
@@ -74,7 +90,8 @@ the identifier stable across runs when the application uses multiple deferred ca
 
 ## Async agents and rendering
 
-Use `agent.ainvoke(...)` for an asynchronous run. TSX scripts can return
+Use `agent.ainvoke(...)` for an asynchronous run. Keep the agent invocation active until the
+middleware has closed its session. TSX scripts can return
 `npm:@belgie/render` in the same way as the Pydantic AI integration. The renderer is a separate
 host-side pass; it does not grant the model-visible script access to host system paths or FFI.
 

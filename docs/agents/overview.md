@@ -4,6 +4,9 @@ Belgie gives an agent one `run_code` tool for executing complete JavaScript, Typ
 modules in an embedded Deno runtime. The tool is available through the supported Pydantic AI and
 LangChain integrations.
 
+The model supplies module source, not a JavaScript fragment. Belgie executes the module, calls its
+exported function, and returns that function's JSON-compatible value as the tool result.
+
 ## When to use `run_code`
 
 Use `run_code` when the model needs an npm or JSR package, a browser-style JavaScript API, parallel
@@ -16,14 +19,15 @@ export default async function run(value: string): Promise<string> {
 }
 ```
 
-The returned value becomes the tool result. It must be JSON-serializable.
+The returned value becomes the tool result. It must be JSON-serializable. Use Deno-style imports
+such as `npm:pkg@version`, `jsr:@scope/pkg@version`, or a full URL.
 
 ## Agent lifecycle
 
-Each agent run creates a `BelgieRuntimeSession`, executes scripts in a restricted runtime, and
-closes the session when the agent finishes. A script that imports `npm:@belgie/render` requests a
-separate host-mediated render pass; the model-visible script runtime does not receive the renderer’s
-broader Vite permissions.
+Each agent invocation creates a `BelgieRuntimeSession`, executes scripts in a restricted runtime,
+and closes the session when the invocation finishes. A script that imports `npm:@belgie/render`
+requests a separate host-mediated render pass; the model-visible script runtime does not receive the
+renderer's broader Vite permissions.
 
 ```mermaid
 sequenceDiagram
@@ -38,11 +42,15 @@ sequenceDiagram
     Renderer-->>Agent: self-contained HTML
 ```
 
+The session is temporary by default. Passing an `Environment` supplies a workspace and dependency
+set for the invocation. Passing a caller-owned `runtime` reuses that runtime, but Belgie cannot
+mediate inline rendering through a custom runtime.
+
 ## Sandbox boundaries
 
 The default agent session is intentionally narrower than a general-purpose Deno runtime:
 
-- Network access is disabled unless the integration’s runtime configuration allows it.
+- Network access is disabled unless the integration's runtime configuration allows it.
 - Script reads are limited to the session workspace.
 - Host `/etc` and `/proc`, system calls, and FFI are not exposed to model-authored scripts.
 - Return values cross the Python/framework boundary as JSON-compatible values.
@@ -52,6 +60,9 @@ The default agent session is intentionally narrower than a general-purpose Deno 
     Permissions define what the embedded runtime can access, but your application still controls
     which code and dependencies it supplies. Do not grant broad permissions to untrusted code
     without reviewing the resulting boundary.
+
+The default permissions are an execution boundary for model-authored scripts, not a replacement for
+application-level review of prompts, dependencies, or host integrations.
 
 ## Configure the session
 
@@ -66,12 +77,22 @@ The default agent session is intentionally narrower than a general-purpose Deno 
 | `runtime` | `None` | Reuse a caller-owned `Runtime`. |
 | `environment` | `None` | Use a caller-owned or newly-created `Environment`. |
 | `runtime_options` | `None` | Configure the session-created runtime. |
-| `defer_loading` | `False` | Expose `load_belgie` before `run_code` is made available. |
+| `defer_loading` | `False` | Expose `load_belgie` first and make `run_code` available after loading. |
 | `id` (Pydantic AI) | `None` | Stable Pydantic AI identifier used for deferred loading; Belgie defaults it to `belgie`. |
 | `capability_id` (LangChain) | `None` | Stable Belgie identifier used for deferred loading; Belgie defaults it to `belgie`. |
 
 `runtime` cannot be combined with `environment` or `runtime_options`. The two instruction options
 are mutually exclusive.
+
+Use `instructions` to append application-specific guidance while retaining Belgie's module and
+sandbox contract. Use `dangerously_replace_instructions` only when the application reproduces the
+parts of that contract the model still needs.
+
+## Synchronous and asynchronous agents
+
+The Pydantic AI integration supports synchronous and asynchronous agent runs. LangChain supports
+`invoke()` and `ainvoke()`. The Belgie session follows the surrounding framework lifecycle, so close
+or await the agent run before disposing of a caller-owned environment or runtime.
 
 ## Inline React widgets
 
@@ -90,6 +111,10 @@ export default function run() {
 ```
 
 See [@belgie/render](../packages/render.md) for the static-analysis and renderer constraints.
+
+This inline renderer is separate from [path-based MCP Apps](../mcp-apps.md). Use MCP Apps when the
+widget is part of a Python server project; use `render(...)` when an agent should return one HTML
+document as its ordinary tool result.
 
 !!! warning "Renderer plugins are privileged"
     A nonempty `plugins` value is evaluated again in the host-mediated renderer. Plugin factories,

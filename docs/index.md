@@ -1,38 +1,34 @@
 # Belgie
 
-Belgie embeds a Deno-powered JavaScript and TypeScript sandbox in Python. Use it to run scripts with
-controlled permissions, install JavaScript dependencies, build React MCP Apps, or give AI agents a
+Belgie embeds a Deno-powered JavaScript and TypeScript runtime in Python. Use it to execute scripts
+with explicit permissions, manage JavaScript dependencies, build React MCP Apps, or give AI agents a
 `run_code` tool.
 
-## Why use Belgie
+## Choose a path
 
-- Run JavaScript, TypeScript, and TSX from Python without installing Node.js.
-- Keep JavaScript dependencies in a lockfile-backed `Environment`.
-- Attach path-based React widgets to Python MCP tools with Vite.
-- Let Pydantic AI and LangChain agents execute sandboxed code and return JSON or self-contained HTML.
+| If you need to... | Start with | Why |
+| --- | --- | --- |
+| Execute a JavaScript, TypeScript, or TSX module | [Runtime](runtime.md) | Run inline or file-based [`Script`](script.md) modules from Python. |
+| Share dependencies or a workspace across runs | [Environment](environment.md) | Resolve npm, JSR, URL, and local file dependencies with a lockfile. |
+| Invoke an installed JavaScript package binary | [Command](command.md) | Run tools such as Vite through the same runtime boundary. |
+| Attach a React widget to an MCP tool | [MCP Apps](mcp-apps.md) | Connect Python tools, Vite widgets, and typed tool callers. |
+| Let an agent write JavaScript or TypeScript | [AI agents](agents/overview.md) | Add `run_code` to Pydantic AI or LangChain. |
 
 ## Install
 
-For the core runtime:
+Start with the core runtime:
 
 ```bash
 uv add belgie
 ```
 
-Add integration extras when you need them:
-
-```bash
-uv add "belgie[mcp,cli]"
-uv add "belgie[pydantic-ai]"
-uv add "belgie[langchain]"
-```
-
-See [Install](install.md) for the complete extras table.
+Add an integration extra when you need one. The [Install](install.md) guide lists every extra and
+the dependencies it adds.
 
 ## Run a script
 
 The smallest useful Belgie program creates a `Script`, enters a `Runtime`, and calls the exported
-function. The return value must be JSON-serializable.
+function. Values crossing the Python and JavaScript boundary must be JSON-compatible.
 
 ```python {title="hello.py"}
 import asyncio
@@ -61,12 +57,18 @@ file-based scripts, imports, and the data bridge.
 ## Build an MCP App
 
 Use [`BelgieExtension`](mcp-apps.md) to connect a Python MCP tool to a React widget at
-`<name>/widget.tsx`. Belgie runs Vite during development and serves self-contained widget HTML in
-production.
+`<name>/widget.tsx`. Belgie uses Vite during development and serves self-contained widget HTML in
+production. Follow the [MCP Apps example](examples/mcp.md) for the complete workflow.
 
 ## Give an agent `run_code`
 
-Install one supported integration and add Belgie to the agent:
+Install one supported integration:
+
+```bash
+uv add "belgie[pydantic-ai]"
+```
+
+Then add Belgie to the agent:
 
 ```python
 from pydantic_ai import Agent
@@ -78,13 +80,13 @@ result = agent.run_sync("Use TypeScript to convert 'hello-world' to camelCase.")
 print(result.output)
 ```
 
-See [AI Agents](agents/overview.md), [Pydantic AI](agents/pydantic-ai.md), and
-[LangChain](agents/langchain.md) for runtime configuration and safety boundaries.
+See the [AI agent overview](agents/overview.md) for the tool contract and safety boundaries, then
+choose the [Pydantic AI](agents/pydantic-ai.md) or [LangChain](agents/langchain.md) integration.
 
 ## Next steps
 
-- Follow [Install](install.md) to choose extras and create a project.
-- Learn the [core sandbox concepts](runtime.md).
+- Follow [Install](install.md) to choose extras and verify the runtime.
+- Learn how [Runtime](runtime.md), [Script](script.md), and [Environment](environment.md) fit together.
 - Build the [MCP Apps example](examples/mcp.md).
 - Read about [inline React rendering](packages/render.md) for agent-authored widgets.
 - Use [Troubleshooting](troubleshooting.md) when setup or runtime errors need diagnosis.
