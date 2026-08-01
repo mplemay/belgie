@@ -34,12 +34,15 @@ with Environment(
     env.install()
 ```
 
-Deno 2.9 enables a default 24-hour minimum dependency age for npm packages. Disable or tune it with
-`minimum_dependency_age_minutes` (`0` disables; `None` uses Deno's default):
+Deno 2.9 enables a default 24-hour minimum dependency age for npm packages. Configure the same policy with
+`minimum_dependency_age`, using Deno's supported minutes, RFC3339 date, `YYYY-MM-DD`, or ISO-8601 duration syntax
+(`0` disables; `None` uses Deno's default):
 
 ```python
-EnvironmentOptions(minimum_dependency_age_minutes=0)
+EnvironmentOptions(minimum_dependency_age="P7D")
 ```
+
+`minimum_dependency_age_minutes` remains available for compatibility with existing code.
 
 For CSS module imports in scripts, pass `RuntimeOptions(enable_raw_imports=True)` when binding `Runtime`.
 

@@ -19,6 +19,7 @@ pub(crate) struct EnvironmentOptions {
     skip_types: bool,
     unsafely_ignore_certificate_errors: Option<Vec<String>>,
     import_package_lockfile: bool,
+    minimum_dependency_age: Option<NewestDependencyDate>,
     minimum_dependency_age_minutes: Option<u64>,
 }
 
@@ -37,6 +38,7 @@ impl Default for EnvironmentOptions {
             skip_types: false,
             unsafely_ignore_certificate_errors: None,
             import_package_lockfile: false,
+            minimum_dependency_age: None,
             minimum_dependency_age_minutes: None,
         }
     }
@@ -75,8 +77,17 @@ impl EnvironmentOptions {
             skip_types,
             unsafely_ignore_certificate_errors,
             import_package_lockfile,
+            minimum_dependency_age: None,
             minimum_dependency_age_minutes,
         }
+    }
+
+    pub(crate) fn with_minimum_dependency_age(
+        mut self,
+        minimum_dependency_age: Option<NewestDependencyDate>,
+    ) -> Self {
+        self.minimum_dependency_age = minimum_dependency_age;
+        self
     }
 
     pub(crate) fn cache_setting(&self) -> &CacheSetting {
@@ -131,7 +142,14 @@ impl EnvironmentOptions {
         self.minimum_dependency_age_minutes
     }
 
+    pub(crate) fn minimum_dependency_age(&self) -> Option<NewestDependencyDate> {
+        self.minimum_dependency_age
+    }
+
     pub(crate) fn newest_dependency_date(&self) -> Result<Option<NewestDependencyDate>, AnyError> {
+        if let Some(minimum_dependency_age) = self.minimum_dependency_age {
+            return Ok(Some(minimum_dependency_age));
+        }
         let Some(minutes) = self.minimum_dependency_age_minutes else {
             return Ok(None);
         };
@@ -173,6 +191,7 @@ mod tests {
         assert!(!options.skip_types());
         assert!(options.unsafely_ignore_certificate_errors().is_none());
         assert!(!options.import_package_lockfile());
+        assert!(options.minimum_dependency_age().is_none());
         assert!(options.minimum_dependency_age_minutes().is_none());
     }
 
@@ -234,5 +253,24 @@ mod tests {
 
         assert!(cutoff <= now);
         assert!(cutoff > now - chrono::Duration::minutes(6));
+    }
+
+    #[test]
+    fn minimum_dependency_age_explicit_date_takes_precedence() {
+        let options = EnvironmentOptions::default().with_minimum_dependency_age(Some(
+            NewestDependencyDate::Enabled(
+                chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc),
+            ),
+        ));
+
+        assert!(matches!(
+            options.newest_dependency_date().unwrap(),
+            Some(NewestDependencyDate::Enabled(date))
+                if date == chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc)
+        ));
     }
 }

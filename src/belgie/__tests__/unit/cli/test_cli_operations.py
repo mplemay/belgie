@@ -4,13 +4,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 import pytest
 import rtoml
 
 from belgie.cli import _operations
-from belgie.cli._operations import add_dependency, run_command, update_project
+from belgie.cli._operations import add_dependency, create_environment, run_command, update_project
 from belgie.cli._project import ProjectError, load_project
 
 
@@ -34,16 +34,21 @@ class FakeUpdateResult:
 
 
 class FakeEnvironment:
+    last: ClassVar[FakeEnvironment | None] = None
+
     def __init__(
         self,
         dependencies: dict[str, str],
         *,
         path: Path,
         lockfile: Path | None = None,
+        options: object | None = None,
     ) -> None:
         self.dependencies = dependencies
         self.path = path
         self.lockfile = lockfile
+        self.options = options
+        type(self).last = self
 
     def __enter__(self) -> Self:
         return self
@@ -110,6 +115,62 @@ def test_add_dependency_writes_pyproject_and_commits_lockfile(tmp_path: Path) ->
     assert document["tool"]["belgie"]["dependencies"] == {"std_path": "jsr:@std/path@^1"}
     assert result.dependencies == 1
     assert (tmp_path / "deno.lock").read_text(encoding="utf-8") == "locked"
+
+
+def test_create_environment_uses_project_minimum_dependency_age(tmp_path: Path) -> None:
+    document = {
+        "project": {"name": "demo"},
+        "tool": {
+            "belgie": {
+                "minimum-dependency-age": "P7D",
+                "dependencies": {"camelcase": "8.0.0"},
+            },
+        },
+    }
+    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+
+    with create_environment(load_project(tmp_path), frozen=False):
+        pass
+
+    fake_environment = FakeEnvironment.last
+    assert fake_environment is not None
+    assert fake_environment.options is not None
+    assert "minimum_dependency_age=Some(Enabled" in repr(fake_environment.options)
+
+
+def test_update_project_flag_overrides_project_minimum_dependency_age(tmp_path: Path) -> None:
+    document = {
+        "project": {"name": "demo"},
+        "tool": {
+            "belgie": {
+                "minimum-dependency-age": "P7D",
+                "dependencies": {"camelcase": "8.0.0"},
+            },
+        },
+    }
+    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+
+    update_project(load_project(tmp_path), ["camelcase"], latest=False, minimum_dependency_age="0")
+
+    assert FakeEnvironment.last is not None
+    assert FakeEnvironment.last.options is not None
+    assert "minimum_dependency_age=Some(Disabled)" in repr(FakeEnvironment.last.options)
+
+
+def test_create_environment_reports_invalid_minimum_dependency_age(tmp_path: Path) -> None:
+    document = {
+        "project": {"name": "demo"},
+        "tool": {
+            "belgie": {
+                "minimum-dependency-age": "7 days",
+                "dependencies": {"camelcase": "8.0.0"},
+            },
+        },
+    }
+    (tmp_path / "pyproject.toml").write_text(rtoml.dumps(document, pretty=True), encoding="utf-8")
+
+    with pytest.raises(ProjectError, match="minimum_dependency_age"):
+        create_environment(load_project(tmp_path), frozen=False)
 
 
 @pytest.mark.parametrize(

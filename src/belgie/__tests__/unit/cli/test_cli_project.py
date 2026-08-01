@@ -47,6 +47,7 @@ camelcase = "npm:camelcase@8.0.0"
         "camelcase": "npm:camelcase@8.0.0",
     }
     assert not project.module
+    assert project.minimum_dependency_age is None
     assert project.source == Path()
     assert project.lockfile_path == tmp_path / "deno.lock"
 
@@ -95,6 +96,62 @@ module = true
     project = load_project(tmp_path)
 
     assert project.module
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param('"P7D"', "P7D", id="iso-duration"),
+        pytest.param('"2025-01-01T00:00:00Z"', "2025-01-01T00:00:00Z", id="timestamp"),
+        pytest.param("120", "120", id="minutes"),
+        pytest.param("false", "0", id="disabled"),
+    ],
+)
+def test_load_project_reads_tool_belgie_minimum_dependency_age(
+    tmp_path: Path,
+    value: str,
+    expected: str,
+) -> None:
+    write_pyproject(
+        tmp_path,
+        f"""
+[project]
+name = "demo"
+
+[tool.belgie]
+minimum-dependency-age = {value}
+""",
+    )
+
+    project = load_project(tmp_path)
+
+    assert project.minimum_dependency_age == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("true", id="true"),
+        pytest.param("-1", id="negative-minutes"),
+        pytest.param("1.5", id="float"),
+        pytest.param("[]", id="array"),
+        pytest.param('""', id="empty-string"),
+    ],
+)
+def test_load_project_rejects_invalid_tool_belgie_minimum_dependency_age(tmp_path: Path, value: str) -> None:
+    write_pyproject(
+        tmp_path,
+        f"""
+[project]
+name = "demo"
+
+[tool.belgie]
+minimum-dependency-age = {value}
+""",
+    )
+
+    with pytest.raises(ProjectError, match="minimum-dependency-age"):
+        load_project(tmp_path)
 
 
 def test_set_dependency_creates_tool_tables() -> None:

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use deno_cache_dir::file_fetcher::CacheSetting;
-use deno_config::deno_json::{NodeModulesDirMode, NodeModulesLinkerMode};
+use deno_config::deno_json::{NewestDependencyDate, NodeModulesDirMode, NodeModulesLinkerMode};
 use deno_npm_installer::graph::NpmCachingStrategy;
 use deno_resolver::loader::AllowJsonImports;
 use pyo3::{
@@ -58,7 +58,7 @@ pub struct PyAsyncEnvironment {
 #[pymethods]
 impl PyEnvironmentOptions {
     #[new]
-    #[pyo3(signature = (*, cache_setting = "use", reload = None, allow_remote = true, allow_json_imports = "with_attribute", node_modules_dir = None, node_modules_linker = None, npm_caching = "eager", no_npm = false, clean_on_install = true, production = false, skip_types = false, unsafely_ignore_certificate_errors = None, import_package_lockfile = false, minimum_dependency_age_minutes = None))]
+    #[pyo3(signature = (*, cache_setting = "use", reload = None, allow_remote = true, allow_json_imports = "with_attribute", node_modules_dir = None, node_modules_linker = None, npm_caching = "eager", no_npm = false, clean_on_install = true, production = false, skip_types = false, unsafely_ignore_certificate_errors = None, import_package_lockfile = false, minimum_dependency_age = None, minimum_dependency_age_minutes = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         cache_setting: &str,
@@ -74,6 +74,7 @@ impl PyEnvironmentOptions {
         skip_types: bool,
         unsafely_ignore_certificate_errors: Option<&Bound<'_, PyAny>>,
         import_package_lockfile: bool,
+        minimum_dependency_age: Option<&str>,
         minimum_dependency_age_minutes: Option<i64>,
     ) -> PyResult<Self> {
         let cache_setting = normalize_cache_setting(cache_setting, reload)?;
@@ -85,6 +86,14 @@ impl PyEnvironmentOptions {
             "minimum_dependency_age_minutes",
             minimum_dependency_age_minutes,
         )?;
+        if minimum_dependency_age.is_some() && minimum_dependency_age_minutes.is_some() {
+            return Err(PyValueError::new_err(
+                "minimum_dependency_age and minimum_dependency_age_minutes cannot be used together",
+            ));
+        }
+        let minimum_dependency_age = minimum_dependency_age
+            .map(parse_minimum_dependency_age)
+            .transpose()?;
         Ok(Self {
             inner: EnvironmentOptions::new(
                 cache_setting.0,
@@ -100,7 +109,8 @@ impl PyEnvironmentOptions {
                 normalize_certificate_errors(unsafely_ignore_certificate_errors)?,
                 import_package_lockfile,
                 minimum_dependency_age_minutes,
-            ),
+            )
+            .with_minimum_dependency_age(minimum_dependency_age),
             cache_setting: cache_setting.1,
             allow_json_imports: allow_json_imports.1,
             node_modules_dir: node_modules_dir.map(|value| value.1),
@@ -111,16 +121,27 @@ impl PyEnvironmentOptions {
 
     fn __repr__(&self) -> String {
         format!(
-            "EnvironmentOptions(cache_setting={:?}, allow_json_imports={:?}, node_modules_dir={:?}, node_modules_linker={:?}, npm_caching={:?}, import_package_lockfile={:?}, minimum_dependency_age_minutes={:?})",
+            "EnvironmentOptions(cache_setting={:?}, allow_json_imports={:?}, node_modules_dir={:?}, node_modules_linker={:?}, npm_caching={:?}, import_package_lockfile={:?}, minimum_dependency_age={:?}, minimum_dependency_age_minutes={:?})",
             self.cache_setting,
             self.allow_json_imports,
             self.node_modules_dir,
             self.node_modules_linker,
             self.npm_caching,
             self.inner.import_package_lockfile(),
+            self.inner.minimum_dependency_age(),
             self.inner.minimum_dependency_age_minutes(),
         )
     }
+}
+
+fn parse_minimum_dependency_age(value: &str) -> PyResult<NewestDependencyDate> {
+    deno_config::parse_minutes_duration_or_date(&sys_traits::impls::RealSys, value).map_err(
+        |error| {
+            PyValueError::new_err(format!(
+                "minimum_dependency_age must be minutes, an RFC3339 date, a YYYY-MM-DD date, or an ISO-8601 duration: {error}"
+            ))
+        },
+    )
 }
 
 #[pymethods]

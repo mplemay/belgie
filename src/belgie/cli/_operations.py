@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
-from belgie import Command, Environment, Runtime
+from belgie import Command, Environment, EnvironmentOptions, Runtime
 from belgie.cli._project import (
     PYPROJECT_NAME,
     BelgieProject,
@@ -22,7 +22,12 @@ if TYPE_CHECKING:
     from belgie import EnvironmentInstallResult, EnvironmentUpdateResult
 
 
-def create_environment(project: BelgieProject, *, frozen: bool) -> Environment:
+def create_environment(
+    project: BelgieProject,
+    *,
+    frozen: bool,
+    minimum_dependency_age: str | None = None,
+) -> Environment:
     if not project.has_dependencies:
         msg = f"No [tool.belgie.dependencies] entries found in {project.root / 'pyproject.toml'}"
         raise ProjectError(msg)
@@ -32,10 +37,22 @@ def create_environment(project: BelgieProject, *, frozen: bool) -> Environment:
         msg = f"Missing Belgie lockfile at {lockfile}; run `belgie lock`"
         raise ProjectError(msg)
 
+    configured_age = project.minimum_dependency_age if minimum_dependency_age is None else minimum_dependency_age
+    if configured_age is None:
+        return Environment(
+            project.dependencies,
+            path=project.root,
+            lockfile=lockfile if frozen else None,
+        )
+    try:
+        options = EnvironmentOptions(minimum_dependency_age=configured_age)
+    except ValueError as exc:
+        raise ProjectError(str(exc)) from exc
     return Environment(
         project.dependencies,
         path=project.root,
         lockfile=lockfile if frozen else None,
+        options=options,
     )
 
 
@@ -100,13 +117,18 @@ def update_project(
     packages: Sequence[str] | None,
     *,
     latest: bool,
+    minimum_dependency_age: str | None = None,
 ) -> EnvironmentUpdateResult:
     lockfile_path = project.lockfile_path
     pyproject_path = project.root / PYPROJECT_NAME
     with (
         preserve_file_on_error(lockfile_path),
         preserve_file_on_error(pyproject_path),
-        create_environment(project, frozen=False) as environment,
+        create_environment(
+            project,
+            frozen=False,
+            minimum_dependency_age=minimum_dependency_age,
+        ) as environment,
     ):
         result = environment.update(packages, latest=latest, lockfile_only=True)
         updates: dict[str, str] = {}

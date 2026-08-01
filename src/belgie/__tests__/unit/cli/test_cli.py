@@ -5,6 +5,7 @@ import importlib
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -128,6 +129,39 @@ def test_run_command_forwards_module_override(
 
     assert result.exit_code == 0
     assert received == [expected]
+
+
+@pytest.mark.parametrize("flag", ["--minimum-dependency-age", "--min-dep-age"])
+def test_update_command_forwards_minimum_dependency_age(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flag: str,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+
+[tool.belgie.dependencies]
+camelcase = "npm:camelcase@8"
+""",
+        encoding="utf-8",
+    )
+    received: list[str | None] = []
+
+    def fake_update_project(*args: object, minimum_dependency_age: str | None, **kwargs: object) -> SimpleNamespace:
+        received.append(minimum_dependency_age)
+        return SimpleNamespace(changes=[])
+
+    monkeypatch.setattr("belgie.cli.__main__.update_project", fake_update_project)
+
+    result = runner.invoke(
+        app,
+        ["update", "-C", str(tmp_path), "camelcase", flag, "0"],
+    )
+
+    assert result.exit_code == 0
+    assert received == ["0"]
 
 
 def test_main_handles_project_error(

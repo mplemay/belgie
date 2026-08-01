@@ -105,9 +105,22 @@ def update(
     packages: Annotated[list[str] | None, typer.Argument(help="Optional dependency aliases to update")] = None,
     project: ProjectDir = None,
     latest: Annotated[bool, typer.Option("--latest", help="Update to the latest versions")] = False,  # noqa: FBT002
+    minimum_dependency_age: Annotated[
+        str | None,
+        typer.Option(
+            "--minimum-dependency-age",
+            "--min-dep-age",
+            help="Only use dependencies at least this old (minutes, RFC3339 date, YYYY-MM-DD, or ISO-8601 duration)",
+        ),
+    ] = None,
 ) -> None:
     discovered = discover_project(project=project)
-    result = update_project(discovered, packages or None, latest=latest)
+    result = update_project(
+        discovered,
+        packages or None,
+        latest=latest,
+        minimum_dependency_age=minimum_dependency_age,
+    )
     for change in result.changes:
         typer.echo(f"{change.name}: {change.previous} -> {change.updated}")
     typer.echo(f"Lockfile: {discovered.lockfile_path}")
