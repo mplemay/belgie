@@ -173,6 +173,16 @@ describe("@belgie/render", () => {
     expect(html).not.toContain("fixture-target");
   });
 
+  it("rejects jsr plugin imports during privileged evaluation", async () => {
+    const source = [
+      'import { render } from "@belgie/render";',
+      'import serverOnly from "jsr:@example/server-plugin";',
+      "export default () => render({ widget: <main />, plugins: [serverOnly()] });",
+    ].join("\n");
+
+    await expect(buildFromSource(source)).rejects.toThrow("plugin jsr: imports are not supported");
+  });
+
   it("rejects non-string sealed sources", async () => {
     await expect(buildFromSource(1 as never)).rejects.toThrow("source must be a string");
   });
@@ -255,6 +265,19 @@ describe("@belgie/render", () => {
     expect(moduleSource).toContain("export default [serverPlugin()];");
     expect(moduleSource).not.toContain("function Widget");
     expect(moduleSource).not.toContain("export default function run");
+  });
+
+  it("preserves npm plugin imports in the privileged module", () => {
+    const moduleSource = preparePluginsModule(
+      [
+        'import { render } from "@belgie/render";',
+        'import serverPlugin from "npm:plugin-package@1.2.3";',
+        "export default () => render({ widget: <main />, plugins: [serverPlugin()] });",
+      ].join("\n"),
+    );
+
+    expect(moduleSource).toContain('import serverPlugin from "npm:plugin-package@1.2.3";');
+    expect(moduleSource).toContain("export default [serverPlugin()];");
   });
 
   it("skips empty and missing plugin lists when preparing modules", () => {

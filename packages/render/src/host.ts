@@ -7,7 +7,7 @@ import { createServer } from "vite";
 
 import type { RenderContext } from "./build.js";
 import { buildInlineWidget } from "./build.js";
-import { preparePluginsModule } from "./source.js";
+import { normalizeNpmSpecifier, preparePluginsModule } from "./source.js";
 
 const PACKAGE_ROOT = dirname(import.meta.dirname);
 const BUILD_ENVIRONMENT_SEED: Record<string, string> = {
@@ -72,7 +72,7 @@ async function instantiatePluginsFromSource(source: string, url: string): Promis
     plugins: [
       {
         name: "belgie-render-plugins",
-        resolveId(id, importer) {
+        async resolveId(id, importer) {
           // Resolve as the inline module URL so relative imports use the workspace, like Deno.
           if (id === PLUGINS_ENTRY_ID) {
             return url;
@@ -80,6 +80,13 @@ async function instantiatePluginsFromSource(source: string, url: string): Promis
           // Absolute paths keep Deno allow_read checks on the workspace root (not "./…").
           if (importer === url && isRelativeSpecifier(id)) {
             return fileURLToPath(new URL(id, url));
+          }
+          if (id.startsWith("jsr:")) {
+            throw new Error(`@belgie/render: plugin jsr: imports are not supported: ${id}`);
+          }
+          const normalized = normalizeNpmSpecifier(id);
+          if (normalized !== undefined) {
+            return this.resolve(normalized, importer, { skipSelf: true });
           }
           return null;
         },
