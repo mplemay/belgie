@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import os
+import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from contextlib import nullcontext
 from email.message import Message
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from unittest.mock import MagicMock
 from urllib.error import HTTPError, URLError
 
 import pytest
@@ -17,16 +18,12 @@ from belgie.mcp._vite import (
     _load_vite_project,
     _reset_vite_state_for_tests,
     _shutdown_vite_dev_servers,
-    _suppress_rolldown_teardown_stderr,
     _ViteDevServer,
     _ViteProject,
     ensure_vite_dev_server,
     load_production_widget,
 )
 from belgie.mcp._widgets import read_widget_html
-
-if TYPE_CHECKING:
-    from belgie import Environment, Runtime
 
 
 @pytest.fixture(autouse=True)
@@ -305,24 +302,23 @@ def test_ensure_vite_dev_server_reports_timeout(
             thread.join(timeout=1)
 
 
-def test_shutdown_closes_only_owned_runtime_and_environment(tmp_path: Path) -> None:
-    exits: list[str] = []
-
-    class Context:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        def __exit__(self, *_args: object) -> None:
-            exits.append(self.name)
-
+def test_shutdown_stops_owned_subprocess(tmp_path: Path) -> None:
+    process = MagicMock(spec=subprocess.Popen)
+    process.poll.return_value = None
+    process.wait.return_value = 0
+    process.stderr = None
     server = _ViteDevServer(project=tmp_path, host="127.0.0.1", port=5173)
-    server.runtime = cast("Runtime", Context("runtime"))
-    server.environment = cast("Environment", Context("environment"))
+    server.process = process
+    server.stderr_chunks.append(b"vite ready\n")
     vite_module.DEV_SERVERS[("127.0.0.1", 5173)] = server
 
     _shutdown_vite_dev_servers()
 
-    assert exits == ["runtime", "environment"]
+    if sys.platform == "win32":
+        process.terminate.assert_called_once()
+    else:
+        process.send_signal.assert_called()
+    assert server.process is None
     assert vite_module.DEV_SERVERS == {}
 
 
@@ -339,23 +335,3 @@ def test_filter_rolldown_teardown_stderr_drops_panic_banner() -> None:
     kept = "vite v8.2.0 building for production...\n"
     assert _filter_rolldown_teardown_stderr(kept + panic) == kept
     assert _filter_rolldown_teardown_stderr(panic) == ""
-
-
-def test_suppress_rolldown_teardown_stderr_filters_fd2(capsys: pytest.CaptureFixture[str]) -> None:
-    panic = (
-        "Rolldown panicked. This is a bug in Rolldown, not your code.\n"
-        "\n"
-        "thread 'rolldown-worker' (1) panicked at crates/rolldown/src/module_loader/module_task.rs:239:30:\n"
-        "ModuleLoader channel closed while sending module completion - main thread terminated unexpectedly: "
-        "SendError { .. }\n"
-        "\n"
-        "Please report this issue at: https://github.com/rolldown/rolldown/issues/new?template=panic_report.yml\n"
-    )
-    with _suppress_rolldown_teardown_stderr():
-        # Write through the OS fd so the redirect is exercised (not Python's TextIO buffer alone).
-        os.write(2, b"keep-me\n")
-        os.write(2, panic.encode())
-
-    captured = capsys.readouterr()
-    assert "keep-me" in captured.err
-    assert "Rolldown panicked" not in captured.err

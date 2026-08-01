@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import atexit
-import os
 import re
+import signal
+import subprocess
 import sys
 import threading
-from contextlib import contextmanager, suppress
+from contextlib import suppress
 from dataclasses import dataclass, field
-from tempfile import TemporaryFile
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, Final
 from urllib.error import HTTPError, URLError
@@ -26,7 +26,6 @@ from belgie.errors import BelgieError
 from belgie.mcp._widgets import read_built_widget, read_widget_html
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from pathlib import Path
 
 DEFAULT_VITE_HOST: Final[str] = "127.0.0.1"
@@ -37,8 +36,7 @@ DEV_PROBE_TIMEOUT_SECONDS: Final[float] = 0.25
 DEV_POLL_INTERVAL_SECONDS: Final[float] = 0.1
 DEV_START_TIMEOUT_SECONDS: Final[float] = 60.0
 DEV_STOP_TIMEOUT_SECONDS: Final[float] = 5.0
-# Rolldown worker panics can arrive on stderr shortly after the isolate is aborted.
-DEV_TEARDOWN_STDERR_GRACE_SECONDS: Final[float] = 0.5
+DEV_SIGINT_TIMEOUT_SECONDS: Final[float] = 2.0
 # Vite 8 / Rolldown may still be mid-module-load when Belgie aborts the JS isolate.
 # Rolldown then prints this panic to stderr; it is teardown noise, not an app failure.
 _ROLLDOWN_TEARDOWN_PANIC_RE: Final[re.Pattern[str]] = re.compile(
@@ -78,8 +76,9 @@ class _ViteDevServer:
     project: Path
     host: str
     port: int
-    environment: Environment | None = None
-    runtime: Runtime | None = None
+    process: subprocess.Popen[bytes] | None = None
+    stderr_chunks: list[bytes] = field(default_factory=list)
+    stderr_thread: threading.Thread | None = None
     thread: threading.Thread | None = None
     error: Exception | None = None
     stopping: bool = False
@@ -182,39 +181,59 @@ def _run_vite_command(project: _ViteProject, *args: str) -> None:
 def _run_vite_dev_server(server: _ViteDevServer) -> None:
     try:
         project = _load_vite_project(server.project)
-        environment_context = Environment(
-            project.dependencies,
-            path=project.root,
-            lockfile=project.lockfile,
-        )
-        environment = environment_context.__enter__()
-        with server.state_lock:
-            server.environment = environment_context
-        environment.install()
+        with Environment(project.dependencies, path=project.root, lockfile=project.lockfile) as environment:
+            environment.install()
 
-        runtime_context = Runtime(env=environment)
-        runtime = runtime_context.__enter__()
-        with server.state_lock:
-            server.runtime = runtime_context
-        runtime(
-            Command(
+        process = subprocess.Popen(  # noqa: S603  # argv is fixed to this interpreter + belgie CLI.
+            [
+                sys.executable,
+                "-m",
+                "belgie.cli",
+                "run",
                 VITE_DEPENDENCY,
-                cwd=str(project.root),
-                module=project.module,
-            ),
-        )(
-            "--host",
-            server.host,
-            "--port",
-            str(server.port),
-            "--strictPort",
+                "--host",
+                server.host,
+                "--port",
+                str(server.port),
+                "--strictPort",
+            ],
+            cwd=project.root,
+            stderr=subprocess.PIPE,
         )
-    except (BelgieError, PyprojectError, RuntimeError, ValueError) as error:
+        with server.state_lock:
+            server.process = process
+        stderr_thread = threading.Thread(
+            target=_pump_process_stderr,
+            args=(server, process),
+            name=f"belgie-vite-stderr-{server.host}-{server.port}",
+            daemon=True,
+        )
+        with server.state_lock:
+            server.stderr_thread = stderr_thread
+        stderr_thread.start()
+        process.wait()
+        if process.returncode not in (0, None, -signal.SIGINT, -signal.SIGTERM):
+            with server.state_lock:
+                if not server.stopping and server.error is None:
+                    server.error = RuntimeError(f"Vite exited with status {process.returncode}")
+    except (BelgieError, PyprojectError, OSError, RuntimeError, ValueError) as error:
         with server.state_lock:
             if not server.stopping:
                 server.error = error
     finally:
         _stop_vite_dev_server(server)
+
+
+def _pump_process_stderr(server: _ViteDevServer, process: subprocess.Popen[bytes]) -> None:
+    stderr = process.stderr
+    if stderr is None:
+        return
+    while True:
+        chunk = stderr.read(4096)
+        if not chunk:
+            return
+        with server.state_lock:
+            server.stderr_chunks.append(chunk)
 
 
 def _wait_for_vite_dev_server(server: _ViteDevServer, *, url: str) -> None:
@@ -262,46 +281,57 @@ def _filter_rolldown_teardown_stderr(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", filtered).lstrip("\r\n")
 
 
-@contextmanager
-def _suppress_rolldown_teardown_stderr() -> Iterator[None]:
-    """Redirect fd 2 while aborting Vite so Rolldown worker panics stay out of CI logs."""
-    try:
-        saved_fd = os.dup(2)
-    except OSError:
-        yield
-        return
+def _emit_filtered_stderr(chunks: list[bytes]) -> None:
+    text = b"".join(chunks).decode("utf-8", errors="replace")
+    filtered = _filter_rolldown_teardown_stderr(text)
+    if filtered:
+        sys.stderr.write(filtered)
+        sys.stderr.flush()
 
-    with TemporaryFile(mode="w+b") as captured:
+
+def _stop_vite_subprocess(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    # Prefer SIGINT so Vite can run close hooks before the isolate is torn down.
+    if sys.platform != "win32":
+        with suppress(ProcessLookupError, OSError):
+            process.send_signal(signal.SIGINT)
         try:
-            os.dup2(captured.fileno(), 2)
-            yield
-        finally:
-            with suppress(OSError):
-                sys.stderr.flush()
-            os.dup2(saved_fd, 2)
-            os.close(saved_fd)
-            captured.seek(0)
-            text = captured.read().decode("utf-8", errors="replace")
-            filtered = _filter_rolldown_teardown_stderr(text)
-            if filtered:
-                sys.stderr.write(filtered)
-                sys.stderr.flush()
+            process.wait(timeout=DEV_SIGINT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            return
+    with suppress(ProcessLookupError, OSError):
+        process.terminate()
+    try:
+        process.wait(timeout=DEV_STOP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        with suppress(ProcessLookupError, OSError):
+            process.kill()
+        process.wait()
 
 
 def _stop_vite_dev_server(server: _ViteDevServer) -> None:
     with server.state_lock:
+        if server.stopping:
+            return
         server.stopping = True
-        runtime = server.runtime
-        environment = server.environment
-        server.runtime = None
-        server.environment = None
-    # Runtime.__exit__ terminates the V8 isolate; Rolldown workers may still be mid-send.
-    if runtime is not None:
-        with suppress(Exception):
-            runtime.__exit__(None, None, None)
-    if environment is not None:
-        with suppress(Exception):
-            environment.__exit__(None, None, None)
+        process = server.process
+        stderr_thread = server.stderr_thread
+        server.process = None
+        server.stderr_thread = None
+    if process is not None:
+        _stop_vite_subprocess(process)
+    if stderr_thread is not None and stderr_thread is not threading.current_thread():
+        stderr_thread.join(timeout=DEV_STOP_TIMEOUT_SECONDS)
+    if process is not None and process.stderr is not None:
+        with suppress(OSError):
+            process.stderr.close()
+    with server.state_lock:
+        chunks = list(server.stderr_chunks)
+        server.stderr_chunks.clear()
+    _emit_filtered_stderr(chunks)
 
 
 def _shutdown_vite_dev_servers() -> None:
@@ -310,16 +340,12 @@ def _shutdown_vite_dev_servers() -> None:
         DEV_SERVERS.clear()
     if not servers:
         return
-    # Keep stderr redirected through join: Rolldown workers often panic *after*
-    # isolate.terminate_execution() returns and while the Vite thread is exiting.
-    with _suppress_rolldown_teardown_stderr():
-        for server in servers:
-            _stop_vite_dev_server(server)
-        for server in servers:
-            thread = server.thread
-            if thread is not None and thread is not threading.current_thread():
-                thread.join(timeout=DEV_STOP_TIMEOUT_SECONDS)
-        sleep(DEV_TEARDOWN_STDERR_GRACE_SECONDS)
+    for server in servers:
+        _stop_vite_dev_server(server)
+    for server in servers:
+        thread = server.thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=DEV_STOP_TIMEOUT_SECONDS)
 
 
 def _register_atexit() -> None:
