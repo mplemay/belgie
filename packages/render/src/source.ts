@@ -936,6 +936,45 @@ function emitPluginModuleStatement(source: string, node: AstNode, needed: Set<st
   return source.slice(node.start, node.end);
 }
 
+function nodeWithin(node: AstNode, outer: AstNode): boolean {
+  return node.start >= outer.start && node.end <= outer.end;
+}
+
+function assertPluginDependenciesAnalyzable(
+  root: AstNode,
+  needed: Set<string>,
+  selected: Set<AstNode>,
+  pluginsValue: AstNode,
+  reassigned: Set<string>,
+): void {
+  const moduleBindings = collectModuleBindingNames(root);
+  for (const name of needed) {
+    if (moduleBindings.has(name) && reassigned.has(name)) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+    }
+  }
+
+  if (!("body" in root) || !Array.isArray(root.body)) {
+    return;
+  }
+  for (const statement of root.body.filter(isNode)) {
+    if (selected.has(statement)) {
+      continue;
+    }
+    walk(statement, (node) => {
+      if (nodeWithin(node, pluginsValue)) {
+        return false;
+      }
+      if (node.type !== "Identifier" || !("name" in node) || typeof node.name !== "string") {
+        return;
+      }
+      if (moduleBindings.has(node.name) && needed.has(node.name)) {
+        throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+      }
+    });
+  }
+}
+
 export function preparePluginsModule(source: string): string | undefined {
   const analysis = analyzeRenderOptions(source);
   const pluginsValue = resolvePluginsExpression(source, analysis);
@@ -956,6 +995,7 @@ export function preparePluginsModule(source: string): string | undefined {
     needed.add(name);
   }
   const statements = expandPluginDependencies(analysis.root, needed);
+  assertPluginDependenciesAnalyzable(analysis.root, needed, new Set(statements), pluginsValue, analysis.reassigned);
   const pluginsText = source.slice(pluginsValue.start, pluginsValue.end);
   const parts = statements.map((node) => emitPluginModuleStatement(source, node, needed));
   parts.push(`export default ${pluginsText};`);

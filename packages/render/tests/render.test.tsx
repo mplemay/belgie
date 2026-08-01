@@ -283,4 +283,33 @@ describe("@belgie/render", () => {
     expect(moduleSource).not.toContain("export function serverPlugin");
     expect(moduleSource).toContain("export default [serverPlugin()];");
   });
+
+  it("rejects mutated plugin arrays when preparing modules", () => {
+    expect(() =>
+      preparePluginsModule(
+        [
+          'import { render } from "@belgie/render";',
+          'function serverPlugin() { return { name: "push" }; }',
+          "const plugins = [];",
+          "plugins.push(serverPlugin());",
+          "export default () => render({ widget: <main />, plugins });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
+
+  it("rejects setup calls that mutate plugin bindings when preparing modules", () => {
+    expect(() =>
+      preparePluginsModule(
+        [
+          'import { render } from "@belgie/render";',
+          'function serverPlugin() { return { name: "setup" }; }',
+          "function setup(target) { target.push(serverPlugin()); }",
+          "const plugins = [];",
+          "setup(plugins);",
+          "export default () => render({ widget: <main />, plugins });",
+        ].join("\n"),
+      ),
+    ).toThrow("statically analyzable render(...) options object");
+  });
 });
