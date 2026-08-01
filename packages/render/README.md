@@ -1,10 +1,11 @@
 # `@belgie/render`
 
 `@belgie/render` returns a render request from agent `run_code` Scripts. `BelgieRuntimeSession` (and
-the Pydantic AI / LangChain toolsets) complete that request on a Belgie-owned privileged renderer
-side-channel and return one self-contained HTML document. Model-visible Scripts stay
-workspace-restricted: they do not receive `/etc`, `/proc`, `allow_sys`, or `allow_ffi`, even when
-inline rendering is available.
+the Pydantic AI / LangChain toolsets) complete that request on a Belgie-owned renderer side-channel
+and return one self-contained HTML document. Model-visible Scripts stay workspace-restricted: they
+do not receive host `/etc`/`/proc`, `allow_sys`, or `allow_ffi`, even when inline rendering is
+available. The renderer uses workspace-scoped read/write/FFI and limited `allow_sys` for Vite native
+loaders — not host path grants.
 
 ```tsx
 import { render } from "npm:@belgie/render";
@@ -35,5 +36,5 @@ mounts the extracted `widget` expression and does not re-execute `run()`, so sid
 server-only. Widget expressions may only reference module-level bindings.
 
 Hosts that manage their own `Runtime` (without `BelgieRuntimeSession`) should call
-`buildFromSource` from `@belgie/render/host` on a privileged worker; importing that entry from a restricted Script
-would reintroduce Vite's native grants into the model-visible session.
+`buildFromSource` from `@belgie/render/host` on a worker with workspace FFI/sys grants; importing that
+entry from a restricted Script would reintroduce Vite's native grants into the model-visible session.

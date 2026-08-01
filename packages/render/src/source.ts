@@ -1,6 +1,13 @@
+import { createRequire } from "node:module";
+
 import MagicString from "magic-string";
-import { parseAst } from "vite";
 import type { ESTree, Plugin } from "vite";
+
+// Must run before any vite load so rolldown's requireNative libc probe is sanitized.
+import "./process-report.js";
+
+const require = createRequire(import.meta.url);
+const { parseAst } = require("vite") as typeof import("vite");
 
 export const CLIENT_ENTRY_ID = "virtual:belgie-render/client-entry";
 export const CLIENT_SOURCE_ID = "virtual:belgie-render/caller";

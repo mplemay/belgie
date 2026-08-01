@@ -1,7 +1,8 @@
 import { dirname } from "node:path";
 
-import react from "@vitejs/plugin-react";
-import { build } from "vite";
+// Must load before vite so rolldown's requireNative libc probe hits the sanitized report.
+import "./process-report.js";
+
 import type { Plugin, PluginOption, Rollup } from "vite";
 
 import { renderBundle } from "./html.js";
@@ -59,6 +60,7 @@ export function readHtml(output: Rollup.RollupOutput | Rollup.RollupOutput[]): s
 }
 
 export async function buildInlineWidget(context: RenderContext, plugins: PluginOption[]): Promise<string> {
+  const [{ default: react }, { build }] = await Promise.all([import("@vitejs/plugin-react"), import("vite")]);
   const output = await build({
     appType: "custom",
     configFile: false,
