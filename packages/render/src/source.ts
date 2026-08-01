@@ -789,26 +789,33 @@ export function stripServerPlugins(source: string): string {
   return stripPluginsFromSource(source, analyzeRenderOptions(source));
 }
 
-function resolvePluginsExpression(source: string, analysis: RenderOptionsAnalysis): AstNode | undefined {
-  const { pluginProperties } = analysis;
-  if (pluginProperties.length === 0) {
+function resolveConsistentOptionValue(
+  source: string,
+  properties: OptionProperty[],
+  error: string,
+): AstNode | undefined {
+  if (properties.length === 0) {
     return undefined;
   }
-  const [first, ...rest] = pluginProperties;
-  if (first === undefined || !("value" in first.property) || !isNode(first.property.value)) {
-    throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+  const [first, ...rest] = properties;
+  if (!("value" in first.property) || !isNode(first.property.value)) {
+    throw new Error(error);
   }
-  const pluginsValue = first.property.value;
-  const pluginsText = source.slice(pluginsValue.start, pluginsValue.end);
+  const value = first.property.value;
+  const text = source.slice(value.start, value.end);
   for (const { property } of rest) {
     if (!("value" in property) || !isNode(property.value)) {
-      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+      throw new Error(error);
     }
-    if (source.slice(property.value.start, property.value.end) !== pluginsText) {
-      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+    if (source.slice(property.value.start, property.value.end) !== text) {
+      throw new Error(error);
     }
   }
-  return pluginsValue;
+  return value;
+}
+
+function resolvePluginsExpression(source: string, analysis: RenderOptionsAnalysis): AstNode | undefined {
+  return resolveConsistentOptionValue(source, analysis.pluginProperties, UNANALYZABLE_PLUGINS_ERROR);
 }
 
 function statementProvidesBinding(node: AstNode, needed: Set<string>): AstNode | undefined {
@@ -819,50 +826,21 @@ function statementProvidesBinding(node: AstNode, needed: Set<string>): AstNode |
   if (declaration === undefined) {
     return undefined;
   }
-  if (
-    (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") &&
-    "id" in declaration &&
-    isNode(declaration.id) &&
-    declaration.id.type === "Identifier" &&
-    "name" in declaration.id &&
-    typeof declaration.id.name === "string" &&
-    needed.has(declaration.id.name)
-  ) {
-    return declaration;
-  }
-  if (
-    declaration.type === "VariableDeclaration" &&
-    "declarations" in declaration &&
-    Array.isArray(declaration.declarations)
-  ) {
-    const matched = declaration.declarations.filter((value) => {
-      if (!isNode(value) || !("id" in value) || !isNode(value.id)) {
-        return false;
-      }
-      const bound = new Set<string>();
-      addBindingPatternNames(value.id, bound);
-      return [...bound].some((name) => needed.has(name));
-    });
-    if (matched.length > 0) {
+  const bound = new Set<string>();
+  addNamedBindings(declaration, bound);
+  for (const name of bound) {
+    if (needed.has(name)) {
       return declaration;
     }
   }
   return undefined;
 }
 
-function addFreeIdentifiersToNeeded(node: AstNode, needed: Set<string>): void {
-  for (const name of collectFreeIdentifiers(node)) {
-    needed.add(name);
-  }
-}
-
 function absorbDeclarationDependencies(declaration: AstNode, needed: Set<string>): void {
-  if (
-    (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") &&
-    "body" in declaration &&
-    isNode(declaration.body)
-  ) {
-    addFreeIdentifiersToNeeded(declaration, needed);
+  if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
+    for (const name of collectFreeIdentifiers(declaration)) {
+      needed.add(name);
+    }
     return;
   }
   if (
@@ -872,21 +850,12 @@ function absorbDeclarationDependencies(declaration: AstNode, needed: Set<string>
   ) {
     for (const declarator of declaration.declarations.filter(isNode)) {
       if ("init" in declarator && isNode(declarator.init)) {
-        addFreeIdentifiersToNeeded(declarator.init, needed);
+        for (const name of collectFreeIdentifiers(declarator.init)) {
+          needed.add(name);
+        }
       }
     }
   }
-}
-
-function selectPluginImport(node: ImportDeclaration, needed: Set<string>, selected: Set<AstNode>): boolean {
-  if (renderImport(node.source.value)) {
-    return false;
-  }
-  if (!node.specifiers.some((specifier) => needed.has(specifier.local.name))) {
-    return false;
-  }
-  selected.add(node);
-  return true;
 }
 
 function expandPluginDependencies(root: AstNode, needed: Set<string>): AstNode[] {
@@ -903,7 +872,12 @@ function expandPluginDependencies(root: AstNode, needed: Set<string>): AstNode[]
         continue;
       }
       if (node.type === "ImportDeclaration") {
-        if (selectPluginImport(node as ImportDeclaration, needed, selected)) {
+        const declaration = node as ImportDeclaration;
+        if (
+          !renderImport(declaration.source.value) &&
+          declaration.specifiers.some((specifier) => needed.has(specifier.local.name))
+        ) {
+          selected.add(node);
           discovered = true;
         }
         continue;
@@ -936,10 +910,6 @@ function emitPluginModuleStatement(source: string, node: AstNode, needed: Set<st
   return source.slice(node.start, node.end);
 }
 
-function nodeWithin(node: AstNode, outer: AstNode): boolean {
-  return node.start >= outer.start && node.end <= outer.end;
-}
-
 function assertPluginDependenciesAnalyzable(
   root: AstNode,
   needed: Set<string>,
@@ -962,7 +932,7 @@ function assertPluginDependenciesAnalyzable(
       continue;
     }
     walk(statement, (node) => {
-      if (nodeWithin(node, pluginsValue)) {
+      if (node.start >= pluginsValue.start && node.end <= pluginsValue.end) {
         return false;
       }
       if (node.type !== "Identifier" || !("name" in node) || typeof node.name !== "string") {
@@ -1374,22 +1344,9 @@ function collectWidgetReferences(widgetValue: AstNode): Set<string> {
 
 function resolveWidgetExpression(source: string, analysis: RenderOptionsAnalysis): AstNode {
   const { root, widgetProperties } = analysis;
-  const [first, ...rest] = widgetProperties;
-  if (first === undefined) {
+  const widgetValue = resolveConsistentOptionValue(source, widgetProperties, UNANALYZABLE_WIDGET_ERROR);
+  if (widgetValue === undefined) {
     throw new Error(UNANALYZABLE_WIDGET_ERROR);
-  }
-  if (!("value" in first.property) || !isNode(first.property.value)) {
-    throw new Error(UNANALYZABLE_WIDGET_ERROR);
-  }
-  const widgetValue = first.property.value;
-  const widgetText = source.slice(widgetValue.start, widgetValue.end);
-  for (const { property } of rest) {
-    if (!("value" in property) || !isNode(property.value)) {
-      throw new Error(UNANALYZABLE_WIDGET_ERROR);
-    }
-    if (source.slice(property.value.start, property.value.end) !== widgetText) {
-      throw new Error(UNANALYZABLE_WIDGET_ERROR);
-    }
   }
 
   const moduleBindings = collectModuleBindingNames(root);

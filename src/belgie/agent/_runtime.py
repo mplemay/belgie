@@ -135,8 +135,7 @@ class BelgieRuntimeSession(BelgieOptions):
 
     async def _run_script(self, source: str) -> JsonOutput:
         runtime = self._active_runtime
-        if runtime is None:
-            raise RuntimeError(SESSION_NOT_ENTERED_MESSAGE)
+        assert runtime is not None  # noqa: S101
         result = await runtime(Script(source))()
         if not is_render_request(result):
             return result

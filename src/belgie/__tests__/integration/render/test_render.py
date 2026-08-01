@@ -17,7 +17,8 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.toolsets.abstract import ToolsetTool
 from pydantic_ai.usage import RunUsage
 
-from belgie import Environment, RuntimeOptions, RuntimePermissions
+from belgie import Environment
+from belgie.__tests__.integration.render.conftest import RENDER_PACKAGE_ROOT
 from belgie.agent import RUN_CODE_TOOL_NAME, BelgieRuntimeSession, _runtime as agent_runtime
 from belgie.errors import BelgieJavaScriptError
 from belgie.langchain import BelgieMiddleware
@@ -32,7 +33,6 @@ SKIP_WIN32_VITE_NATIVE = pytest.mark.skipif(
     sys.platform == "win32",
     reason="Rolldown's napi-sys falls back to libnode.dll, unavailable in embedded Deno",
 )
-RENDER_PACKAGE_ROOT: Final[Path] = Path(__file__).resolve().parents[5] / "packages" / "render"
 INLINE_WIDGET_SOURCE: Final[str] = """
 import { render } from "@belgie/render";
 
@@ -88,15 +88,6 @@ def run_context() -> RunContext[None]:
         messages=[],
         run_step=0,
         pending_messages=[],
-    )
-
-
-def script_runtime_options(root: Path) -> RuntimeOptions:
-    return RuntimeOptions(
-        permissions=RuntimePermissions(
-            allow_net=[],
-            allow_read=[str(root)],
-        ),
     )
 
 
@@ -156,7 +147,7 @@ async def test_pydantic_ai_and_langchain_return_the_same_inline_html(tmp_path: P
     root.mkdir()
     package = copy_render_package(root)
     environment = Environment({"@belgie/render": f"file:{package}"}, path=root)
-    options = script_runtime_options(root)
+    options = agent_runtime._script_runtime_options(root)
 
     async with environment as active_environment:
         await active_environment.install()
@@ -269,7 +260,7 @@ export default function run() {
 }
 """
     environment = Environment({"@belgie/render": f"file:{package}"}, path=root)
-    options = script_runtime_options(root)
+    options = agent_runtime._script_runtime_options(root)
 
     async with environment as active_environment:
         await active_environment.install()
@@ -353,7 +344,7 @@ async def test_vite_failures_and_invalid_elements_use_existing_pydantic_error_pa
         toolset = BelgieToolset(
             wrapped=EmptyToolset(),
             environment=active_environment,
-            runtime_options=script_runtime_options(root),
+            runtime_options=agent_runtime._script_runtime_options(root),
         )
         async with toolset:
             tools = await toolset.get_tools(context)
@@ -397,7 +388,7 @@ async def test_inline_vite_build_uses_existing_timeout_path(tmp_path: Path) -> N
         toolset = BelgieToolset(
             wrapped=EmptyToolset(),
             environment=active_environment,
-            runtime_options=script_runtime_options(root),
+            runtime_options=agent_runtime._script_runtime_options(root),
             timeout=5.0,
         )
         async with toolset:

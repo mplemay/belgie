@@ -18,16 +18,8 @@ const BUILD_ENVIRONMENT_SEED: Record<string, string> = {
 const INLINE_MODULE_FILENAME = "__deno_python_inline__.tsx";
 const PLUGINS_ENTRY_ID = "virtual:belgie-render/plugins";
 
-function createBuildEnvironment(): Record<string, string> {
-  return { ...BUILD_ENVIRONMENT_SEED };
-}
-
 function defaultInlineSourceUrl(): string {
   return pathToFileURL(join(cwd(), INLINE_MODULE_FILENAME)).href;
-}
-
-function isRelativeSpecifier(id: string): boolean {
-  return id.startsWith("./") || id.startsWith("../");
 }
 
 const renderLock: { gate: Promise<void> } = { gate: Promise.resolve() };
@@ -43,7 +35,7 @@ async function withBuildLock<T>(build: () => Promise<T>): Promise<T> {
   const processEnvironment = Object.getOwnPropertyDescriptor(process, "env");
   Object.defineProperty(process, "env", {
     configurable: true,
-    value: createBuildEnvironment(),
+    value: { ...BUILD_ENVIRONMENT_SEED },
   });
   try {
     return await build();
@@ -78,7 +70,7 @@ async function instantiatePluginsFromSource(source: string, url: string): Promis
             return url;
           }
           // Absolute paths keep Deno allow_read checks on the workspace root (not "./…").
-          if (importer === url && isRelativeSpecifier(id)) {
+          if (importer === url && (id.startsWith("./") || id.startsWith("../"))) {
             return fileURLToPath(new URL(id, url));
           }
           if (id.startsWith("jsr:")) {

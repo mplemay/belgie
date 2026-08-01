@@ -36,14 +36,10 @@ function readContext(): RenderContext {
   return context as RenderContext;
 }
 
-function validatePlugins(plugins: PluginOption[] | undefined): PluginOption[] {
-  if (plugins === undefined) {
-    return [];
-  }
-  if (!Array.isArray(plugins)) {
+function assertPlugins(plugins: PluginOption[] | undefined): void {
+  if (plugins !== undefined && !Array.isArray(plugins)) {
     throw new TypeError("@belgie/render: plugins must be an array");
   }
-  return plugins;
 }
 
 export function isRenderRequest(value: unknown): value is RenderRequest {
@@ -59,7 +55,7 @@ export async function render(options: RenderOptions): Promise<string> {
   if (typeof options !== "object" || options === null || !isValidElement(options.widget)) {
     throw new TypeError("@belgie/render: widget must be a React element");
   }
-  void validatePlugins(options.plugins);
+  assertPlugins(options.plugins);
   readContext();
   // Host (BelgieRuntimeSession) replaces this sentinel with HTML from buildFromSource.
   return RENDER_REQUEST as unknown as string;
