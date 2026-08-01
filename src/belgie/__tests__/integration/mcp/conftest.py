@@ -1,4 +1,3 @@
-# Copyright (C) 2026
 from __future__ import annotations
 
 import shutil

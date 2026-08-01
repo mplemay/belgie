@@ -80,6 +80,7 @@ include = ["pyproject.toml"]
 select = ["ALL"]
 ignore = [
     "D",    # pydocstyle (i.e. ignore missing/malformed docstrings)
+    "CPY",  # flake8-copyright (project does not use copyright headers)
 ]
 
 [tool.ruff.lint.per-file-ignores]
