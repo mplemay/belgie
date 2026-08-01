@@ -23,12 +23,17 @@ uv run main
 ```python
 from langchain.agents import create_agent
 
+from belgie import RuntimeOptions, RuntimePermissions
 from belgie.langchain import BelgieMiddleware
+
+runtime_options = RuntimeOptions(
+    permissions=RuntimePermissions(allow_net=["hacker-news.firebaseio.com"]),
+)
 
 agent = create_agent(
     model="openai:gpt-5",
     tools=[],
-    middleware=[BelgieMiddleware()],
+    middleware=[BelgieMiddleware(runtime_options=runtime_options)],
     system_prompt=(
         "You can execute JavaScript or TypeScript in a Deno sandbox with the run_code tool. "
         "Use it when fetching data or transforming values is easier in JS/TS than in Python."

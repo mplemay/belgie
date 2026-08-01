@@ -209,8 +209,10 @@ worker). The agent Script stays workspace-restricted — no host `/etc`/`/proc`,
 `allow_ffi` — while Vite runs only in that host-mediated worker (workspace FFI/sys/write, no host
 path grants) and returns one self-contained HTML string with inline JavaScript, CSS, and assets.
 Package imports are supported. Relative host-file imports are intentionally unavailable, and Vite
-plugins run only during the server build before their expressions and plugin-only imports are
-removed from the browser bundle. This API is independent from `@belgie/mcp` and its path-based
+plugins run only during the server build, where their factories, hooks, and imports have the
+renderer worker's broader permissions. Treat them as reviewed application code and use
+`plugins: []` for untrusted agents. Plugin-only imports are removed from the browser bundle. This
+API is independent from `@belgie/mcp` and its path-based
 `widget.tsx` development and production flow.
 
 ## Examples
