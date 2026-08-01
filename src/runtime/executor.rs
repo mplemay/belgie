@@ -194,7 +194,7 @@ mod tests {
                 .expect("inline TSX should transpile");
 
         assert!(
-            transpiled.contains("npm:react@19.2.6/jsx-runtime"),
+            transpiled.contains("npm:react@19.2.8/jsx-runtime"),
             "automatic JSX should import React's JSX runtime: {transpiled}"
         );
         assert!(

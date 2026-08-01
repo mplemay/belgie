@@ -24,9 +24,11 @@
     "npm:open@11": "11.0.0",
     "npm:react-dom@19": "19.2.8_react@19.2.8",
     "npm:react-dom@19.2.6": "19.2.6_react@19.2.8",
+    "npm:react-dom@19.2.8": "19.2.8_react@19.2.8",
     "npm:react-dom@^19.2.8": "19.2.8_react@19.2.8",
     "npm:react@19": "19.2.8",
     "npm:react@19.2.6": "19.2.6",
+    "npm:react@19.2.8": "19.2.8",
     "npm:react@^19.2.8": "19.2.8",
     "npm:shadcn@^4.13.0": "4.16.1",
     "npm:shadcn@^4.16.1": "4.16.1",
@@ -394,7 +396,7 @@
     "@modelcontextprotocol/ext-apps@1.7.5_@modelcontextprotocol+sdk@1.30.0__zod@4.4.3_react@19.2.8_react-dom@19.2.8__react@19.2.8_zod@4.4.3": {
       "integrity": "sha512-TjPH2S2y5UEGKhmI6+XGFuqfqOV4ppe1x6DA3txnUaEWkgtA4G5vo14jGKFZmegdkZ1H4QMLyujLvoU1BEdnAg==",
       "dependencies": [
-        "@modelcontextprotocol/sdk@1.30.0_zod@4.4.3",
+        "@modelcontextprotocol/sdk",
         "@standard-schema/spec",
         "react@19.2.8",
         "react-dom@19.2.8_react@19.2.8",
@@ -403,28 +405,6 @@
       "optionalPeers": [
         "react@19.2.8",
         "react-dom@19.2.8_react@19.2.8"
-      ]
-    },
-    "@modelcontextprotocol/sdk@1.30.0_zod@3.25.76": {
-      "integrity": "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==",
-      "dependencies": [
-        "@hono/node-server",
-        "ajv",
-        "ajv-formats@3.0.1_ajv@8.20.0",
-        "content-type@1.0.5",
-        "cors",
-        "cross-spawn",
-        "eventsource",
-        "eventsource-parser",
-        "express",
-        "express-rate-limit",
-        "hono",
-        "jose",
-        "json-schema-typed@8.0.2",
-        "pkce-challenge",
-        "raw-body",
-        "zod@3.25.76",
-        "zod-to-json-schema@3.25.2_zod@3.25.76"
       ]
     },
     "@modelcontextprotocol/sdk@1.30.0_zod@4.4.3": {
@@ -2140,7 +2120,7 @@
         "@babel/plugin-transform-typescript",
         "@babel/preset-typescript",
         "@dotenvx/dotenvx",
-        "@modelcontextprotocol/sdk@1.30.0_zod@3.25.76",
+        "@modelcontextprotocol/sdk",
         "@types/validate-npm-package-name",
         "browserslist",
         "commander@14.0.3",
@@ -2425,10 +2405,7 @@
       "integrity": "sha512-CzhO+pFNo8ajLM2d2IW/R93ipy99LWjtwblvC1RsoSUMZgyLbYFr221TnSNT7GjGdYui6P459mw9JH/g/zW2ug=="
     },
     "zod-to-json-schema@3.25.2_zod@3.25.76": {
-      "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",
-      "dependencies": [
-        "zod@3.25.76"
-      ]
+      "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="
     },
     "zod-to-json-schema@3.25.2_zod@4.4.3": {
       "integrity": "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==",

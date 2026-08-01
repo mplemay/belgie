@@ -15,9 +15,11 @@
     "npm:open@11": "11.0.0",
     "npm:react-dom@19": "19.2.8_react@19.2.8",
     "npm:react-dom@19.2.6": "19.2.6_react@19.2.8",
+    "npm:react-dom@19.2.8": "19.2.8_react@19.2.8",
     "npm:react-dom@^19.2.8": "19.2.8_react@19.2.8",
     "npm:react@19": "19.2.8",
     "npm:react@19.2.6": "19.2.6",
+    "npm:react@19.2.8": "19.2.8",
     "npm:react@^19.2.8": "19.2.8",
     "npm:vite@8.2.0": "8.2.0",
     "npm:zod@^4.4.3": "4.4.3"

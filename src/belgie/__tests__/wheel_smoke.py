@@ -10,7 +10,7 @@ from typing import Final
 from belgie import Command, Environment, Runtime, Script
 
 ANSWER: Final[int] = 42
-REACT_VERSION: Final[str] = "19.2.6"
+REACT_VERSION: Final[str] = "19.2.8"
 COMMAND_OUTPUT: Final[str] = "ok\n"
 
 

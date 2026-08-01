@@ -6,7 +6,7 @@ use super::dependencies::{analyze_parsed_script_dependencies, content_may_have_r
 use super::signature::{self, RunSignature, run_signature_from_parsed};
 use crate::options::ScriptOptions;
 
-const INLINE_REACT_IMPORT_SOURCE: &str = "npm:react@19.2.6";
+const INLINE_REACT_IMPORT_SOURCE: &str = "npm:react@19.2.8";
 
 #[derive(Clone, Debug)]
 pub(crate) struct ScriptSource {
@@ -172,7 +172,7 @@ mod tests {
         assert!(
             source
                 .execution_content()
-                .contains("@jsxImportSource npm:react@19.2.6"),
+                .contains("@jsxImportSource npm:react@19.2.8"),
         );
     }
 
