@@ -119,8 +119,10 @@ describe("@belgie/render", () => {
     expect(process.env).toBe(environment);
   });
 
-  it("stubs a Deno-style process.report during builds and restores afterward", async () => {
-    const previousGetReport = process.report.getReport;
+  it("keeps a Deno-style process.report stub active across builds", async () => {
+    const { sanitizedProcessReport } = await import("../src/process-report.ts");
+    expect(process.report.getReport).toBe(sanitizedProcessReport);
+
     const observedKey = "__belgie_observed_report__";
     const previousDeno = Object.getOwnPropertyDescriptor(globalThis, "Deno");
     Reflect.deleteProperty(globalThis, observedKey);
@@ -168,7 +170,7 @@ describe("@belgie/render", () => {
       Reflect.deleteProperty(globalThis, observedKey);
     }
 
-    expect(process.report.getReport).toBe(previousGetReport);
+    expect(process.report.getReport).toBe(sanitizedProcessReport);
   });
 
   it("restores the process environment after concurrent builds", async () => {

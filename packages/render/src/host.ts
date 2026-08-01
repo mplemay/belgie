@@ -3,8 +3,10 @@ import { dirname, join } from "node:path";
 import { cwd } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+// Must load before vite so rolldown's requireNative libc probe hits the sanitized report.
+import "./process-report.js";
+
 import type { PluginOption } from "vite";
-import { createServer } from "vite";
 
 import type { RenderContext } from "./build.js";
 import { buildInlineWidget } from "./build.js";
@@ -25,24 +27,6 @@ function defaultInlineSourceUrl(): string {
 }
 
 const renderLock: { gate: Promise<void> } = { gate: Promise.resolve() };
-
-interface DenoBuildInfo {
-  os: string;
-  env?: string;
-}
-
-function isLinuxGnuBuild(): boolean {
-  const deno = (globalThis as typeof globalThis & { Deno?: { build: DenoBuildInfo } }).Deno;
-  return deno?.build.os === "linux" && deno.build.env === "gnu";
-}
-
-// Mirror Deno process.report libc signaling without hostname/networkInterfaces sys grants.
-function sanitizedProcessReport(): { header: Record<string, string>; sharedObjects: undefined } {
-  const header: Record<string, string> = isLinuxGnuBuild()
-    ? { glibcVersionRuntime: "2.38", glibcVersionCompiler: "2.38" }
-    : {};
-  return { header, sharedObjects: undefined };
-}
 
 async function withBuildLock<T>(build: () => Promise<T>): Promise<T> {
   let release!: () => void;
@@ -66,12 +50,9 @@ async function withBuildLock<T>(build: () => Promise<T>): Promise<T> {
     enumerable: true,
     value: () => PACKAGE_ROOT,
   });
-  const previousGetReport = process.report.getReport;
-  process.report.getReport = sanitizedProcessReport;
   try {
     return await build();
   } finally {
-    process.report.getReport = previousGetReport;
     Object.defineProperty(os, "homedir", previousHomedir);
     if (processEnvironment === undefined) {
       Reflect.deleteProperty(process, "env");
@@ -88,6 +69,7 @@ async function instantiatePluginsFromSource(source: string, url: string): Promis
     return [];
   }
 
+  const { createServer } = await import("vite");
   const server = await createServer({
     appType: "custom",
     configFile: false,
