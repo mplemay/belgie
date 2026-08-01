@@ -10,6 +10,9 @@ edit_uri: edit/main/docs/
 nav:
   - Home: index.md
 
+exclude_docs: |
+  agents.md
+
 extra:
   generator: false
   social:
