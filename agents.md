@@ -27,6 +27,11 @@
 
 ## Conventions
 
+### Documentation
+
+- Authoring rules for the published docs site live in [docs/agents.md](docs/agents.md).
+  That file is excluded from the site and must not be added to `mkdocs.yml` nav.
+
 ### Python
 
 - The targets python versions greater than or equal to 3.12
