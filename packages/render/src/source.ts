@@ -593,7 +593,7 @@ function collectPluginOnlyBindings(
         throw new Error(UNANALYZABLE_PLUGINS_ERROR);
       }
       pluginOnly.set(name, binding);
-      for (const identifier of collectIdentifiers(binding.init)) {
+      for (const identifier of collectFreeIdentifiers(binding.init)) {
         pluginIdentifiers.add(identifier);
       }
       discovered = true;
@@ -850,8 +850,8 @@ function statementProvidesBinding(node: AstNode, needed: Set<string>): AstNode |
   return undefined;
 }
 
-function addIdentifiersToNeeded(node: AstNode, needed: Set<string>): void {
-  for (const name of collectIdentifiers(node)) {
+function addFreeIdentifiersToNeeded(node: AstNode, needed: Set<string>): void {
+  for (const name of collectFreeIdentifiers(node)) {
     needed.add(name);
   }
 }
@@ -862,7 +862,7 @@ function absorbDeclarationDependencies(declaration: AstNode, needed: Set<string>
     "body" in declaration &&
     isNode(declaration.body)
   ) {
-    addIdentifiersToNeeded(declaration, needed);
+    addFreeIdentifiersToNeeded(declaration, needed);
     return;
   }
   if (
@@ -872,7 +872,7 @@ function absorbDeclarationDependencies(declaration: AstNode, needed: Set<string>
   ) {
     for (const declarator of declaration.declarations.filter(isNode)) {
       if ("init" in declarator && isNode(declarator.init)) {
-        addIdentifiersToNeeded(declarator.init, needed);
+        addFreeIdentifiersToNeeded(declarator.init, needed);
       }
     }
   }
@@ -991,7 +991,7 @@ export function preparePluginsModule(source: string): string | undefined {
   }
 
   const needed = new Set<string>();
-  for (const name of collectIdentifiers(pluginsValue)) {
+  for (const name of collectFreeIdentifiers(pluginsValue)) {
     needed.add(name);
   }
   const statements = expandPluginDependencies(analysis.root, needed);
@@ -1060,6 +1060,187 @@ function nonComputedNameNode(node: AstNode): AstNode | undefined {
     return node.key;
   }
   return undefined;
+}
+
+function bindPatternNames(node: AstNode, scope: Set<string>): void {
+  if (node.type === "Identifier" && "name" in node && typeof node.name === "string") {
+    scope.add(node.name);
+    return;
+  }
+  if (node.type === "AssignmentPattern" && "left" in node && isNode(node.left)) {
+    bindPatternNames(node.left, scope);
+  }
+}
+
+function bindFunctionLikeNames(node: AstNode, bound: ReadonlySet<string>): Set<string> {
+  const inner = new Set(bound);
+  if ("id" in node && isNode(node.id)) {
+    bindPatternNames(node.id, inner);
+  }
+  if ("params" in node && Array.isArray(node.params)) {
+    for (const param of node.params) {
+      if (isNode(param)) {
+        bindPatternNames(param, inner);
+      }
+    }
+  }
+  return inner;
+}
+
+function bindBlockStatementNames(statements: unknown[], scope: Set<string>): void {
+  for (const statement of statements) {
+    if (!isNode(statement)) {
+      continue;
+    }
+    if (
+      (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") &&
+      "id" in statement &&
+      isNode(statement.id)
+    ) {
+      bindPatternNames(statement.id, scope);
+      continue;
+    }
+    if (
+      statement.type !== "VariableDeclaration" ||
+      !("declarations" in statement) ||
+      !Array.isArray(statement.declarations)
+    ) {
+      continue;
+    }
+    for (const declarator of statement.declarations) {
+      if (isNode(declarator) && "id" in declarator && isNode(declarator.id)) {
+        bindPatternNames(declarator.id, scope);
+      }
+    }
+  }
+}
+
+type FreeVisit = (node: AstNode, bound: ReadonlySet<string>) => void;
+
+function visitFunctionLikeFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (
+    node.type !== "FunctionDeclaration" &&
+    node.type !== "FunctionExpression" &&
+    node.type !== "ArrowFunctionExpression"
+  ) {
+    return false;
+  }
+  const inner = bindFunctionLikeNames(node, bound);
+  if ("body" in node && isNode(node.body)) {
+    visit(node.body, inner);
+  }
+  return true;
+}
+
+function visitClassFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (node.type !== "ClassDeclaration" && node.type !== "ClassExpression") {
+    return false;
+  }
+  const inner = new Set(bound);
+  if ("id" in node && isNode(node.id)) {
+    bindPatternNames(node.id, inner);
+  }
+  if ("superClass" in node && isNode(node.superClass)) {
+    visit(node.superClass, bound);
+  }
+  if ("body" in node && isNode(node.body)) {
+    visit(node.body, inner);
+  }
+  return true;
+}
+
+function visitBlockFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (node.type !== "BlockStatement" || !("body" in node) || !Array.isArray(node.body)) {
+    return false;
+  }
+  const inner = new Set(bound);
+  bindBlockStatementNames(node.body, inner);
+  for (const statement of node.body) {
+    if (isNode(statement)) {
+      visit(statement, inner);
+    }
+  }
+  return true;
+}
+
+function visitVariableFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (node.type !== "VariableDeclaration" || !("declarations" in node) || !Array.isArray(node.declarations)) {
+    return false;
+  }
+  for (const declarator of node.declarations) {
+    if (isNode(declarator) && "init" in declarator && isNode(declarator.init)) {
+      visit(declarator.init, bound);
+    }
+  }
+  return true;
+}
+
+function visitKeyedFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (node.type === "Property" && !("shorthand" in node && node.shorthand) && nonComputedNameNode(node)) {
+    if ("value" in node && isNode(node.value)) {
+      visit(node.value, bound);
+    }
+    return true;
+  }
+  if (node.type === "MethodDefinition" && nonComputedNameNode(node)) {
+    if ("value" in node && isNode(node.value)) {
+      visit(node.value, bound);
+    }
+    return true;
+  }
+  if (node.type === "MemberExpression" && nonComputedNameNode(node)) {
+    if ("object" in node && isNode(node.object)) {
+      visit(node.object, bound);
+    }
+    return true;
+  }
+  return false;
+}
+
+function visitFreeChildren(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): void {
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isNode(item)) {
+          visit(item, bound);
+        }
+      }
+    } else if (isNode(value)) {
+      visit(value, bound);
+    }
+  }
+}
+
+function collectFreeIdentifiers(root: AstNode): Set<string> {
+  const free = new Set<string>();
+
+  function visit(node: AstNode, bound: ReadonlySet<string>): void {
+    if (visitFunctionLikeFree(node, bound, visit)) {
+      return;
+    }
+    if (visitClassFree(node, bound, visit)) {
+      return;
+    }
+    if (visitBlockFree(node, bound, visit)) {
+      return;
+    }
+    if (visitVariableFree(node, bound, visit)) {
+      return;
+    }
+    if (visitKeyedFree(node, bound, visit)) {
+      return;
+    }
+    if (node.type === "Identifier" && "name" in node && typeof node.name === "string") {
+      if (!bound.has(node.name)) {
+        free.add(node.name);
+      }
+      return;
+    }
+    visitFreeChildren(node, bound, visit);
+  }
+
+  visit(root, new Set());
+  return free;
 }
 
 function collectWidgetReferences(widgetValue: AstNode): Set<string> {

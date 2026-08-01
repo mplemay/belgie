@@ -55,6 +55,41 @@ describe("@belgie/render", () => {
     expect(html).toContain('<div id="root"></div>');
   });
 
+  it("applies server plugins when the module also binds common names like name and code", async () => {
+    const source = [
+      'import { render } from "npm:@belgie/render";',
+      'const name = "display-name";',
+      'const code = "display-code";',
+      "function serverOnly() {",
+      "  return {",
+      '    name: "server-only-plugin",',
+      "    renderChunk(code) {",
+      '      return code.replace("plugin-target", "plugin-applied");',
+      "    },",
+      "  };",
+      "}",
+      "function Widget() {",
+      "  return (",
+      "    <main>",
+      "      <span>{name}</span>",
+      "      <span>{code}</span>",
+      "      <span>plugin-target</span>",
+      "    </main>",
+      "  );",
+      "}",
+      "export default function run() {",
+      "  return render({ widget: <Widget />, plugins: [serverOnly()] });",
+      "}",
+    ].join("\n");
+
+    const html = await buildFromSource(source);
+
+    expect(html).toContain("plugin-applied");
+    expect(html).not.toContain("plugin-target");
+    expect(html).toContain("display-name");
+    expect(html).toContain("display-code");
+  });
+
   it("uses the default empty plugin list", async () => {
     const html = await buildFromSource(
       'import { render } from "@belgie/render"; export default () => render({ widget: <main>plain</main> });',
@@ -265,6 +300,69 @@ describe("@belgie/render", () => {
     expect(moduleSource).toContain("export default [serverPlugin()];");
     expect(moduleSource).not.toContain("function Widget");
     expect(moduleSource).not.toContain("export default function run");
+  });
+
+  it("ignores unrelated module bindings that share plugin property and parameter names", () => {
+    const source = [
+      'import { render } from "@belgie/render";',
+      'const name = "display-name";',
+      'const code = "display-code";',
+      "function serverPlugin() {",
+      "  return {",
+      '    name: "server-only-plugin",',
+      "    renderChunk(code) {",
+      "      return code;",
+      "    },",
+      "  };",
+      "}",
+      "function Widget() { return <main>{name}{code}</main>; }",
+      "export default function run() {",
+      "  return render({ widget: <Widget />, plugins: [serverPlugin()] });",
+      "}",
+    ].join("\n");
+
+    const moduleSource = preparePluginsModule(source);
+
+    expect(moduleSource).toContain("function serverPlugin()");
+    expect(moduleSource).toContain("export default [serverPlugin()];");
+    expect(moduleSource).not.toContain('const name = "display-name"');
+    expect(moduleSource).not.toContain('const code = "display-code"');
+    expect(moduleSource).not.toContain("function Widget");
+  });
+
+  it("keeps class and nested plugin helpers without pulling unrelated name and code bindings", () => {
+    const source = [
+      'import { render } from "@belgie/render";',
+      'const name = "display-name";',
+      'const code = "display-code";',
+      "const Base = class {};",
+      "class MarkerPlugin extends Base {",
+      '  renderChunk(code = "") {',
+      '    return code.replace("x", "y");',
+      "  }",
+      "}",
+      "function serverPlugin() {",
+      '  const local = "server-only-plugin";',
+      "  function build() {",
+      "    return new MarkerPlugin();",
+      "  }",
+      "  return Object.assign(build(), { name: local });",
+      "}",
+      "function Widget() { return <main>{name}{code}</main>; }",
+      "export default function run() {",
+      "  return render({ widget: <Widget />, plugins: [serverPlugin()] });",
+      "}",
+    ].join("\n");
+
+    const moduleSource = preparePluginsModule(source);
+
+    expect(moduleSource).toContain("class MarkerPlugin extends Base");
+    expect(moduleSource).toContain("function serverPlugin()");
+    expect(moduleSource).toContain("const Base = class {}");
+    expect(moduleSource).toContain("export default [serverPlugin()];");
+    expect(moduleSource).not.toContain('const name = "display-name"');
+    expect(moduleSource).not.toContain('const code = "display-code"');
+    expect(moduleSource).not.toContain("function Widget");
   });
 
   it("preserves npm plugin imports in the privileged module", () => {
