@@ -1,5 +1,5 @@
 site_name: Belgie
-site_description: Generative AI/UI sandbox for Python
+site_description: The generative AI/UI sandbox for python
 strict: true
 site_url: https://mplemay.github.io/belgie/
 
