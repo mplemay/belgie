@@ -1,4 +1,4 @@
-# Belgie: The Generative AI/UI Sandbox for Python
+# Belgie: The generative AI/UI sandbox for Python
 
 Belgie is a sandboxed TypeScript environment for Python that lets you build React MCP Apps and
 have agents write code in a sandbox.
