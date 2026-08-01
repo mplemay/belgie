@@ -38,8 +38,8 @@
     ".": "./dist/index.js",
     "./codegen": "./dist/codegen.js",
     "./internal": "./dist/internal.js",
-    "./package.json": "./package.json",
-    "./vite": "./dist/vite.js"
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
