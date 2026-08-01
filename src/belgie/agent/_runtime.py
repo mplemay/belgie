@@ -15,14 +15,12 @@ from belgie.agent._run_code import SCRIPT_TIMEOUT_MESSAGE
 if TYPE_CHECKING:
     from belgie._core import AsyncRuntime
 
-# process.report (libc family fallback) needs hostname/networkInterfaces; Vite needs the rest.
+# Vite needs these; libc probing uses a sanitized process.report stub in @belgie/render.
 DEFAULT_VITE_SYS_PERMISSIONS: Final[tuple[str, ...]] = (
     "homedir",
     "uid",
     "gid",
     "cpus",
-    "hostname",
-    "networkInterfaces",
     "osRelease",
     "systemMemoryInfo",
 )

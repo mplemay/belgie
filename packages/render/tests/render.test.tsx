@@ -119,6 +119,58 @@ describe("@belgie/render", () => {
     expect(process.env).toBe(environment);
   });
 
+  it("stubs a Deno-style process.report during builds and restores afterward", async () => {
+    const previousGetReport = process.report.getReport;
+    const observedKey = "__belgie_observed_report__";
+    const previousDeno = Object.getOwnPropertyDescriptor(globalThis, "Deno");
+    Reflect.deleteProperty(globalThis, observedKey);
+
+    const source = [
+      'import { render } from "@belgie/render";',
+      `const observedKey = ${JSON.stringify(observedKey)};`,
+      "function capture() {",
+      "  return {",
+      '    name: "capture-report",',
+      "    config() {",
+      "      globalThis[observedKey] = process.report.getReport();",
+      "    },",
+      "  };",
+      "}",
+      "export default () => render({ widget: <main>report</main>, plugins: [capture()] });",
+    ].join("\n");
+
+    try {
+      Object.defineProperty(globalThis, "Deno", {
+        configurable: true,
+        value: { build: { os: "linux", env: "gnu" } },
+      });
+      await buildFromSource(source);
+      const glibcReport = (globalThis as Record<string, { header?: Record<string, unknown> }>)[observedKey];
+      expect(glibcReport.header?.glibcVersionRuntime).toBe("2.38");
+      expect(glibcReport.header?.glibcVersionCompiler).toBe("2.38");
+      expect(glibcReport.header).not.toHaveProperty("host");
+      expect(glibcReport.header).not.toHaveProperty("networkInterfaces");
+
+      Object.defineProperty(globalThis, "Deno", {
+        configurable: true,
+        value: { build: { os: "linux", env: "musl" } },
+      });
+      await buildFromSource(source);
+      const muslReport = (globalThis as Record<string, { header?: Record<string, unknown> }>)[observedKey];
+      expect(muslReport.header).not.toHaveProperty("glibcVersionRuntime");
+      expect(muslReport.header).not.toHaveProperty("glibcVersionCompiler");
+    } finally {
+      if (previousDeno === undefined) {
+        Reflect.deleteProperty(globalThis, "Deno");
+      } else {
+        Object.defineProperty(globalThis, "Deno", previousDeno);
+      }
+      Reflect.deleteProperty(globalThis, observedKey);
+    }
+
+    expect(process.report.getReport).toBe(previousGetReport);
+  });
+
   it("restores the process environment after concurrent builds", async () => {
     const source =
       'import { render } from "@belgie/render"; export default () => render({ widget: <main>env</main> });';

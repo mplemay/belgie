@@ -29,8 +29,8 @@ def test_is_render_request_rejects_bool_float_and_non_dicts() -> None:
 
 def test_render_runtime_options_omit_host_path_grants(tmp_path: Path) -> None:
     assert not hasattr(agent_runtime, "DEFAULT_VITE_READ_PATHS")
-    assert "hostname" in DEFAULT_VITE_SYS_PERMISSIONS
-    assert "networkInterfaces" in DEFAULT_VITE_SYS_PERMISSIONS
+    assert "hostname" not in DEFAULT_VITE_SYS_PERMISSIONS
+    assert "networkInterfaces" not in DEFAULT_VITE_SYS_PERMISSIONS
     options = _render_runtime_options(tmp_path)
     assert "RuntimePermissions(configured)" in repr(options)
 
