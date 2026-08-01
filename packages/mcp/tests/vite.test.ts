@@ -447,7 +447,14 @@ describe("isolated production builds", () => {
     configHook(plugin)({ root }, { command: "build", mode: "production" });
     plugin.configResolved?.({ configFile, mode: "production", root });
     process.env[INTERNAL_WIDGET_PATH_ENV] = "original";
-    await assert.rejects(() => plugin.closeBundle?.(), /nested config failed/u);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      await assert.rejects(() => plugin.closeBundle?.(), /nested config failed/u);
+    } finally {
+      consoleError.mockRestore();
+      stderrWrite.mockRestore();
+    }
     assert.equal(process.env[INTERNAL_WIDGET_PATH_ENV], "original");
   });
 
