@@ -366,6 +366,7 @@ async fn run_js_command(
             js_runtime_options: options.js_runtime_options.clone(),
             runtime_worker_options: options.runtime_worker_options.clone(),
             main_source: None,
+            check_main_module_read: true,
             header_overrides: js_content_type_header_overrides(main_module),
             node_ipc_init: None,
         },

@@ -83,6 +83,7 @@ async fn run_async(module: &Path, argv: Vec<String>) -> Result<i32, BindingError
             js_runtime_options: JsRuntimeOptions::default(),
             runtime_worker_options: RuntimeWorkerOptions::default(),
             main_source: None,
+            check_main_module_read: true,
             header_overrides: crate::embed::js_content_type_header_overrides(main_module),
             node_ipc_init,
         },

@@ -318,6 +318,7 @@ impl DenoExecutionContext {
                         js_runtime_options: bound.js_runtime_options().clone(),
                         runtime_worker_options: bound.worker_options().clone(),
                         main_source: Some(bound.script().execution_content()),
+                        check_main_module_read: bound.script().filename().is_some(),
                         header_overrides: content_type_header_overrides(
                             main_module.clone(),
                             bound.script().media_type(),
@@ -563,8 +564,12 @@ fn inline_module_path(bound: &BoundRuntime) -> PathBuf {
 }
 
 fn create_js_runtime(bound: &BoundRuntime) -> ExecutionResult<JsRuntime> {
+    let permissions = bound
+        .worker_options()
+        .permissions_container(&[])
+        .map_err(BindingError::runtime)?;
     Ok(JsRuntime::new(RuntimeOptions {
-        module_loader: Some(Rc::new(module_loader::PythonModuleLoader)),
+        module_loader: Some(Rc::new(module_loader::PythonModuleLoader::new(permissions))),
         create_params: bound
             .js_runtime_options()
             .to_create_params()
@@ -604,6 +609,7 @@ where
                         js_runtime_options: Default::default(),
                         runtime_worker_options: Default::default(),
                         main_source: Some("export {}".to_string()),
+                        check_main_module_read: false,
                         header_overrides: content_type_header_overrides(
                             main_module,
                             deno_ast::MediaType::TypeScript,

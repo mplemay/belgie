@@ -198,6 +198,7 @@ impl NpmCacheHttpClient for EmbedHttpClient {
 pub(crate) struct EmbedContext {
     pub cwd: PathBuf,
     pub lockfile: PathBuf,
+    managed_read_roots: Vec<PathBuf>,
     http_client: Arc<EmbedHttpClient>,
     resolver_factory: Arc<ResolverFactory<EmbedSys>>,
     npm_installer_factory: Rc<NpmInstallerFactory<EmbedHttpClient, LogReporter, EmbedSys>>,
@@ -320,6 +321,11 @@ impl EmbedContext {
     ) -> Result<Self, AnyError> {
         ensure_initialized();
         let sys = EmbedSys::default();
+        let mut managed_read_roots: Vec<PathBuf> =
+            [options.cache.clone(), options.node_modules_root.clone()]
+                .into_iter()
+                .flatten()
+                .collect();
         let lockfile = if lockfile.is_absolute() {
             lockfile
         } else {
@@ -376,6 +382,21 @@ impl EmbedContext {
                 ..Default::default()
             },
         ));
+        if let Ok(npm_resolver) = resolver_factory.npm_resolver()
+            && let Some(managed_resolver) = npm_resolver.as_managed()
+        {
+            for root in [
+                managed_resolver.root_node_modules_path(),
+                Some(managed_resolver.global_cache_root_path()),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if !managed_read_roots.contains(&root.to_path_buf()) {
+                    managed_read_roots.push(root.to_path_buf());
+                }
+            }
+        }
 
         let root_cert_store = get_root_cert_store(&sys, None, None, None)?;
         let http_client = Arc::new(EmbedHttpClient::new(
@@ -437,6 +458,7 @@ impl EmbedContext {
         Ok(Self {
             cwd,
             lockfile,
+            managed_read_roots,
             http_client,
             resolver_factory,
             npm_installer_factory,
@@ -466,6 +488,10 @@ impl EmbedContext {
 
     pub fn memory_files(&self) -> &deno_resolver::loader::MemoryFilesRc {
         &self.memory_files
+    }
+
+    pub fn managed_read_roots(&self) -> &[PathBuf] {
+        &self.managed_read_roots
     }
 
     pub fn graph_loader(
