@@ -37,7 +37,7 @@ The CLI searches the current directory and its parents. Run it from the project 
 root explicitly:
 
 ```bash
-uv run belgie --project path/to/project lock
+uv run belgie lock --project path/to/project
 ```
 
 ## `No [tool.belgie.dependencies] entries found`

@@ -55,7 +55,7 @@ The default agent session is intentionally narrower than a general-purpose Deno 
 
 ## Configure the session
 
-`BelgieCapability` and `BelgieMiddleware` share these options:
+`BelgieCapability` and `BelgieMiddleware` share these options; identifier names follow each framework:
 
 | Option | Default | Purpose |
 | --- | --- | --- |
@@ -67,7 +67,8 @@ The default agent session is intentionally narrower than a general-purpose Deno 
 | `environment` | `None` | Use a caller-owned or newly-created `Environment`. |
 | `runtime_options` | `None` | Configure the session-created runtime. |
 | `defer_loading` | `False` | Expose `load_belgie` before `run_code` is made available. |
-| `capability_id` | `None` | Stable identifier used for deferred loading; Belgie defaults it to `belgie`. |
+| `id` (Pydantic AI) | `None` | Stable Pydantic AI identifier used for deferred loading; Belgie defaults it to `belgie`. |
+| `capability_id` (LangChain) | `None` | Stable Belgie identifier used for deferred loading; Belgie defaults it to `belgie`. |
 
 `runtime` cannot be combined with `environment` or `runtime_options`. The two instruction options
 are mutually exclusive.
@@ -89,6 +90,11 @@ export default function run() {
 ```
 
 See [@belgie/render](../packages/render.md) for the static-analysis and renderer constraints.
+
+!!! warning "Renderer plugins are privileged"
+    A nonempty `plugins` value is evaluated again in the host-mediated renderer. Plugin factories,
+    hooks, and their imports run with the renderer's broader permissions. Treat them as reviewed
+    application code and use `plugins: []` for untrusted agent-authored widgets.
 
 ## Choose an integration
 

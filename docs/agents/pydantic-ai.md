@@ -79,12 +79,14 @@ from belgie.pydantic_ai import BelgieCapability
 
 capability = BelgieCapability(
     defer_loading=True,
-    capability_id="belgie-js",
+    id="belgie-js",
 )
 ```
 
 Pydantic AI exposes a loader tool first. After the model loads the capability, `run_code` becomes
-available. Use a stable `capability_id` when several deferred capabilities are present.
+available. Use a stable Pydantic AI `id` when several deferred capabilities are present. The
+`id` is the loader key; `capability_id` is Belgie's internal tool metadata field and should not be
+used as a substitute here.
 
 ## Render HTML
 

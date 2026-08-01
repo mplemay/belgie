@@ -105,6 +105,13 @@ def test_defer_loading_assigns_default_id_and_description() -> None:
     assert belgie.capability_id == DEFAULT_BELGIE_CAPABILITY_ID
 
 
+def test_defer_loading_uses_custom_pydantic_id() -> None:
+    belgie = BelgieCapability(defer_loading=True, id="belgie-js")
+
+    assert belgie.id == "belgie-js"
+    assert belgie.capability_id == "belgie-js"
+
+
 def test_resolved_description_appends_or_replaces_instructions(belgie_toolset: BelgieToolset[None]) -> None:
     default_toolset = BelgieToolset(wrapped=StaticToolset())
     assert resolved_description(default_toolset) == RUN_CODE_DESCRIPTION

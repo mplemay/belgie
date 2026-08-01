@@ -36,14 +36,16 @@ The model-visible script and the renderer have different responsibilities:
 | Runtime | Responsibility | Permissions |
 | --- | --- | --- |
 | Agent script | Evaluate the module and construct the render request. | Workspace reads, no host system paths, no FFI, and no renderer-only system access. |
-| Belgie renderer | Build the browser widget with Vite and return HTML. | Workspace-scoped read/write/FFI plus the limited system access required by Vite loaders. |
+| Belgie renderer | Build the browser widget with Vite and return HTML. | Workspace-scoped read/write/FFI plus the limited system access required by Vite loaders. Plugin code runs here. |
 
-The renderer rebuilds from sealed source. Script-side plugin expressions are not authoritative for
-the privileged build.
+The renderer rebuilds from source. Script-side plugin expressions are not authoritative for the
+privileged build, but the plugin expression is evaluated again there.
 
-!!! warning "Rendering is not a permission escalation"
-    Returning `render(...)` does not give the model-visible script host filesystem, FFI, or broad
-    system permissions. Keep secrets and sensitive files outside the renderer workspace.
+!!! warning "Plugins are a privilege boundary"
+    Returning `render(...)` keeps the model-visible script in its restricted worker, but a nonempty
+    `plugins` value is extracted from the source and evaluated again in the privileged renderer.
+    Vite plugin factories, hooks, and their imports run with the renderer's broader permissions.
+    Treat plugin code as reviewed application code and use `plugins: []` for untrusted agents.
 
 ## Options
 
@@ -74,8 +76,8 @@ export default function run() {
 ```
 
 Relative imports are unsupported for the browser widget graph. Server-side Vite plugins may import
-workspace modules relative to the inline module URL, but plugin-only imports are removed before the
-browser bundle is produced.
+workspace modules relative to the inline module URL, but those plugin imports are evaluated in the
+privileged renderer and plugin-only imports are removed before the browser bundle is produced.
 
 The browser mounts the extracted `widget` expression and does not execute `run()` again. Keep
 browser widget expressions dependent only on module-level bindings.

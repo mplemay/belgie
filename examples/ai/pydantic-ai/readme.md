@@ -21,7 +21,13 @@ uv run main
 
 ```python
 from pydantic_ai import Agent
+
+from belgie import RuntimeOptions, RuntimePermissions
 from belgie.pydantic_ai import BelgieCapability
+
+runtime_options = RuntimeOptions(
+    permissions=RuntimePermissions(allow_net=["hacker-news.firebaseio.com"]),
+)
 
 agent = Agent(
     "openai:gpt-5",
@@ -29,7 +35,7 @@ agent = Agent(
         "You can execute JavaScript or TypeScript in a Deno sandbox with the run_code tool. "
         "Use it when fetching data or transforming values is easier in JS/TS than in Python."
     ),
-    capabilities=[BelgieCapability()],
+    capabilities=[BelgieCapability(runtime_options=runtime_options)],
 )
 
 result = agent.run_sync(
