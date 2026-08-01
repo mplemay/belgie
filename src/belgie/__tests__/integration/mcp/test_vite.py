@@ -197,9 +197,10 @@ async def _stop_vite_subprocess(process: asyncio.subprocess.Process) -> None:
         process.send_signal(signal.SIGINT)
         try:
             await asyncio.wait_for(process.wait(), timeout=2)
-            return
         except TimeoutError:
             pass
+        else:
+            return
     process.terminate()
     try:
         await asyncio.wait_for(process.wait(), timeout=5)
