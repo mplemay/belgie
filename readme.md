@@ -204,11 +204,14 @@ export default function run() {
 }
 ```
 
-`render()` runs Vite inside the active Deno worker and returns one self-contained HTML string with
-inline JavaScript, CSS, and assets. Package imports are supported. Relative host-file imports are
-intentionally unavailable, and Vite plugins run only during the server build before their
-expressions and plugin-only imports are removed from the browser bundle. This API is independent
-from `@belgie/mcp` and its path-based `widget.tsx` development and production flow.
+`render()` requests HTML from a Belgie-owned privileged renderer side-channel (not from the
+model-visible Deno worker). The agent Script stays workspace-restricted — no `/etc`, `/proc`,
+`allow_sys`, or `allow_ffi` — while Vite runs only in that host-mediated worker and returns one
+self-contained HTML string with inline JavaScript, CSS, and assets. Package imports are supported.
+Relative host-file imports are intentionally unavailable, and Vite plugins run only during the
+server build before their expressions and plugin-only imports are removed from the browser bundle.
+This API is independent from `@belgie/mcp` and its path-based `widget.tsx` development and
+production flow.
 
 ## Examples
 

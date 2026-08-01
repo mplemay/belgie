@@ -9,16 +9,15 @@ export interface RenderOptions {
   widget: ReactElement;
 }
 
-const CONTEXT_SYMBOL = Symbol.for("@belgie/render/context");
-const BUILD_ENVIRONMENT_SEED: Record<string, string> = {
-  APPVEYOR: "1",
-  NODE_ENV: "production",
-  TERM: "dumb",
-};
+export const RENDER_REQUEST_KEY = "__belgie_render_request__" as const;
 
-function createBuildEnvironment(): Record<string, string> {
-  return { ...BUILD_ENVIRONMENT_SEED };
+export interface RenderRequest {
+  readonly [RENDER_REQUEST_KEY]: 1;
 }
+
+export const RENDER_REQUEST: RenderRequest = Object.freeze({ [RENDER_REQUEST_KEY]: 1 });
+
+const CONTEXT_SYMBOL = Symbol.for("@belgie/render/context");
 
 function readContext(): RenderContext {
   const context = (globalThis as Record<PropertyKey, unknown>)[CONTEXT_SYMBOL];
@@ -37,46 +36,27 @@ function readContext(): RenderContext {
   return context as RenderContext;
 }
 
-function validatePlugins(plugins: PluginOption[] | undefined): PluginOption[] {
-  if (plugins === undefined) {
-    return [];
-  }
-  if (!Array.isArray(plugins)) {
+function assertPlugins(plugins: PluginOption[] | undefined): void {
+  if (plugins !== undefined && !Array.isArray(plugins)) {
     throw new TypeError("@belgie/render: plugins must be an array");
   }
-  return plugins;
 }
 
-const renderLock: { gate: Promise<void> } = { gate: Promise.resolve() };
+export function isRenderRequest(value: unknown): value is RenderRequest {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    RENDER_REQUEST_KEY in value &&
+    (value as RenderRequest)[RENDER_REQUEST_KEY] === 1
+  );
+}
 
 export async function render(options: RenderOptions): Promise<string> {
   if (typeof options !== "object" || options === null || !isValidElement(options.widget)) {
     throw new TypeError("@belgie/render: widget must be a React element");
   }
-  const plugins = validatePlugins(options.plugins);
-  const context = readContext();
-
-  let release!: () => void;
-  const previous = renderLock.gate;
-  renderLock.gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous;
-
-  const processEnvironment = Object.getOwnPropertyDescriptor(process, "env");
-  Object.defineProperty(process, "env", {
-    configurable: true,
-    value: createBuildEnvironment(),
-  });
-  try {
-    const { buildInlineWidget } = await import("./build.js");
-    return await buildInlineWidget(context, plugins);
-  } finally {
-    if (processEnvironment === undefined) {
-      Reflect.deleteProperty(process, "env");
-    } else {
-      Object.defineProperty(process, "env", processEnvironment);
-    }
-    release();
-  }
+  assertPlugins(options.plugins);
+  readContext();
+  // Host (BelgieRuntimeSession) replaces this sentinel with HTML from buildFromSource.
+  return RENDER_REQUEST as unknown as string;
 }
