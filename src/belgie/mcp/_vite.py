@@ -37,6 +37,8 @@ DEV_PROBE_TIMEOUT_SECONDS: Final[float] = 0.25
 DEV_POLL_INTERVAL_SECONDS: Final[float] = 0.1
 DEV_START_TIMEOUT_SECONDS: Final[float] = 60.0
 DEV_STOP_TIMEOUT_SECONDS: Final[float] = 5.0
+# Rolldown worker panics can arrive on stderr shortly after the isolate is aborted.
+DEV_TEARDOWN_STDERR_GRACE_SECONDS: Final[float] = 0.5
 # Vite 8 / Rolldown may still be mid-module-load when Belgie aborts the JS isolate.
 # Rolldown then prints this panic to stderr; it is teardown noise, not an app failure.
 _ROLLDOWN_TEARDOWN_PANIC_RE: Final[re.Pattern[str]] = re.compile(
@@ -294,25 +296,30 @@ def _stop_vite_dev_server(server: _ViteDevServer) -> None:
         server.runtime = None
         server.environment = None
     # Runtime.__exit__ terminates the V8 isolate; Rolldown workers may still be mid-send.
-    with _suppress_rolldown_teardown_stderr():
-        if runtime is not None:
-            with suppress(Exception):
-                runtime.__exit__(None, None, None)
-        if environment is not None:
-            with suppress(Exception):
-                environment.__exit__(None, None, None)
+    if runtime is not None:
+        with suppress(Exception):
+            runtime.__exit__(None, None, None)
+    if environment is not None:
+        with suppress(Exception):
+            environment.__exit__(None, None, None)
 
 
 def _shutdown_vite_dev_servers() -> None:
     with DEV_SERVERS_LOCK:
         servers = list(DEV_SERVERS.values())
         DEV_SERVERS.clear()
-    for server in servers:
-        _stop_vite_dev_server(server)
-    for server in servers:
-        thread = server.thread
-        if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=DEV_STOP_TIMEOUT_SECONDS)
+    if not servers:
+        return
+    # Keep stderr redirected through join: Rolldown workers often panic *after*
+    # isolate.terminate_execution() returns and while the Vite thread is exiting.
+    with _suppress_rolldown_teardown_stderr():
+        for server in servers:
+            _stop_vite_dev_server(server)
+        for server in servers:
+            thread = server.thread
+            if thread is not None and thread is not threading.current_thread():
+                thread.join(timeout=DEV_STOP_TIMEOUT_SECONDS)
+        sleep(DEV_TEARDOWN_STDERR_GRACE_SECONDS)
 
 
 def _register_atexit() -> None:
