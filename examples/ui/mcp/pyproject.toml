@@ -21,19 +21,38 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { belgie = false, mcp = false, mcp-types = false, uvicorn = false }
 
+
+[tool.uv.exclude-newer-package]
+annotated-doc = false
+annotated-types = false
+anyio = false
+belgie = false
+cffi = false
+cryptography = false
+httpcore2 = false
+httpx2 = false
+mcp = false
+mcp-types = false
+opentelemetry-api = false
+rpds-py = false
+sse-starlette = false
+tomlkit = false
+truststore = false
+typer = false
+typing-extensions = false
+uvicorn = false
 [tool.uv.sources]
 belgie = { path = "../../../", editable = true }
 
 [tool.belgie.dependencies]
 "@belgie/mcp" = "file:../../../packages/mcp"
-"@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@latest"
-"@modelcontextprotocol/sdk" = "npm:@modelcontextprotocol/sdk@latest"
-"@types/react" = "npm:@types/react@^19"
-"@types/react-dom" = "npm:@types/react-dom@^19"
-"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6"
-react = "npm:react@^19"
-"react-dom" = "npm:react-dom@^19"
-"react-dom/client" = "npm:react-dom@^19/client"
+"@modelcontextprotocol/ext-apps" = "npm:@modelcontextprotocol/ext-apps@^1.7.5"
+"@modelcontextprotocol/sdk" = "npm:@modelcontextprotocol/sdk@^1.30.0"
+"@types/react" = "npm:@types/react@^19.2.18"
+"@types/react-dom" = "npm:@types/react-dom@^19.2.4"
+"@vitejs/plugin-react" = "npm:@vitejs/plugin-react@^6.0.5"
+react = "npm:react@^19.2.8"
+"react-dom" = "npm:react-dom@^19.2.8"
+"react-dom/client" = "npm:react-dom@^19.2.8"
 vite = "npm:vite@8.2.0"

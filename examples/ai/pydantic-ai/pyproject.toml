@@ -20,7 +20,28 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { belgie = false, pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false }
 
+
+[tool.uv.exclude-newer-package]
+annotated-types = false
+anyio = false
+belgie = false
+certifi = false
+charset-normalizer = false
+genai-prices = false
+griffelib = false
+httpcore2 = false
+httpx2 = false
+jiter = false
+logfire-api = false
+openai = false
+opentelemetry-api = false
+pydantic-ai-slim = false
+pydantic-evals = false
+pydantic-graph = false
+regex = false
+tqdm = false
+truststore = false
+typing-extensions = false
 [tool.uv.sources]
 belgie = { path = "../../../", editable = true }

@@ -4,21 +4,21 @@
     "url": "https://github.com/mplemay/belgie/issues"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-react": "6.0.5",
     "magic-string": "^0.30.21",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "vite": "^8.2.0"
   },
   "description": "Self-contained inline React widget rendering for Belgie run_code tools.",
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.5",
-    "@types/node": "25.9.1",
-    "@types/react": "19.2.15",
-    "@types/react-dom": "19.2.3",
+    "@types/node": "25.9.5",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
     "@vitest/coverage-v8": "^4.1.10",
-    "publint": "^0.3.21",
-    "tsdown": "^0.22.11",
+    "publint": "^0.3.22",
+    "tsdown": "^0.22.14",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },

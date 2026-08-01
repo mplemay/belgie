@@ -10,23 +10,23 @@
     "url": "https://github.com/mplemay/belgie/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "open": "^11.0.0",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "zod": "^4.4.3"
   },
   "description": "TypeScript support for Belgie MCP widgets and generated tool clients.",
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.5",
-    "@modelcontextprotocol/ext-apps": "^1.7.4",
-    "@types/node": "25.9.1",
-    "@types/react": "19.2.15",
-    "@types/react-dom": "19.2.3",
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@types/node": "25.9.5",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
     "@vitest/coverage-v8": "^4.1.10",
-    "jsdom": "^29.1.1",
-    "publint": "^0.3.21",
-    "tsdown": "^0.22.11",
+    "jsdom": "^30.0.1",
+    "publint": "^0.3.22",
+    "tsdown": "^0.22.14",
     "typescript": "^7.0.2",
     "vite": "8.2.0",
     "vitest": "^4.1.10"
@@ -38,8 +38,8 @@
     ".": "./dist/index.js",
     "./codegen": "./dist/codegen.js",
     "./internal": "./dist/internal.js",
-    "./package.json": "./package.json",
-    "./vite": "./dist/vite.js"
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"

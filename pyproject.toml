@@ -34,7 +34,7 @@ belgie-runtime = "belgie._child_process:main"
 [dependency-groups]
 dev = [
     "anyio>=4",
-    "fastapi>=0.128.0",
+    "fastapi>=0.141.1",
     "langchain>=1,<2",
     "langchain-openai>=0.3,<1",
     "mcp>=2",
@@ -43,11 +43,11 @@ dev = [
     "prek>=0.4.4",
     "pytest>=9.0.3",
     "rtoml>=0.13,<1",
-    "ruff>=0.15.16",
-    "rumdl>=0.2.7",
+    "ruff>=0.16.1",
+    "rumdl>=0.2.48",
     "tomlkit>=0.13,<1",
     "typer>=0.20,<1",
-    "ty>=0.0.43",
+    "ty>=0.0.65",
     "uvloop>=0.22.1 ; sys_platform != 'win32'",
     "zizmor>=1.25.2",
 ]
@@ -64,14 +64,33 @@ exclude = ["**/__tests__/**"]
 features = ["extension-module"]
 
 [tool.belgie.dependencies]
-oxlint = "npm:oxlint@^1.75.0"
-oxfmt = "npm:oxfmt@^0.60.0"
+oxlint = "npm:oxlint@^1.76.0"
+oxfmt = "npm:oxfmt@^0.61.0"
 oxlint-tsgolint = "npm:oxlint-tsgolint@^7.0.2001"
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 exclude-newer = "7 days"
-exclude-newer-package = { pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false, mcp = false, mcp-types = false }
+
+[tool.uv.exclude-newer-package]
+annotated-doc = false
+cryptography = false
+fastapi = false
+genai-prices = false
+langchain-core = false
+langgraph = false
+langsmith = false
+mcp = false
+mcp-types = false
+openai = false
+pydantic-ai-slim = false
+pydantic-evals = false
+pydantic-graph = false
+ruff = false
+rumdl = false
+tqdm = false
+ty = false
+uvicorn = false
 
 [tool.ruff]
 target-version = "py312"

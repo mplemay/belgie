@@ -15,15 +15,36 @@ version = "0.1.1"
 source = { editable = "../../../" }
 
 [package.metadata]
+requires-dist = [
+    { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1,<2" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0.0rc1" },
+    { name = "mcp-types", marker = "extra == 'mcp'", specifier = ">=2.0.0rc1" },
+    { name = "pydantic", marker = "extra == 'mcp'", specifier = ">=2,<3" },
+    { name = "pydantic-ai-slim", extras = ["openai"], marker = "extra == 'pydantic-ai'", specifier = ">=2,<3" },
+    { name = "rtoml", marker = "extra == 'cli'", specifier = ">=0.13,<1" },
+    { name = "tomlkit", marker = "extra == 'cli'", specifier = ">=0.13,<1" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.20,<1" },
+]
+provides-extras = ["cli", "pydantic-ai", "langchain", "mcp"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "anyio", specifier = ">=4" },
+    { name = "fastapi", specifier = ">=0.141.1" },
+    { name = "langchain", specifier = ">=1,<2" },
+    { name = "langchain-openai", specifier = ">=0.3,<1" },
+    { name = "mcp", specifier = ">=2" },
+    { name = "mcp-types", specifier = ">=2" },
     { name = "prek", specifier = ">=0.4.4" },
+    { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=9.0.3" },
-    { name = "ruff", specifier = ">=0.15.16" },
-    { name = "rumdl", specifier = ">=0.2.7" },
-    { name = "ty", specifier = ">=0.0.43" },
+    { name = "rtoml", specifier = ">=0.13,<1" },
+    { name = "ruff", specifier = ">=0.16.1" },
+    { name = "rumdl", specifier = ">=0.2.48" },
+    { name = "tomlkit", specifier = ">=0.13,<1" },
+    { name = "ty", specifier = ">=0.0.65" },
+    { name = "typer", specifier = ">=0.20,<1" },
+    { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
     { name = "zizmor", specifier = ">=1.25.2" },
 ]
 

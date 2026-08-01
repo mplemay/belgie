@@ -22,11 +22,34 @@ entrypoint = 'tanstack.__main__:app'
 [tool.uv]
 exclude-newer = '7 days'
 
+
+
 [tool.uv.exclude-newer-package]
+annotated-doc = false
+annotated-types = false
+anyio = false
 belgie = false
+certifi = false
+cffi = false
+cryptography = false
 fastapi = false
+fastapi-cli = false
+fastapi-cloud-cli = false
+httpcore2 = false
+httpx2 = false
 mcp = false
 mcp-types = false
+opentelemetry-api = false
+rignore = false
+rpds-py = false
+sentry-sdk = false
+sse-starlette = false
+tomlkit = false
+truststore = false
+typer = false
+typing-extensions = false
+uvicorn = false
+websockets = false
 [tool.uv.sources.belgie]
 path = '../../../'
 editable = true
@@ -34,21 +57,21 @@ editable = true
 module = true
 [tool.belgie.dependencies]
 "@belgie/mcp" = 'file:../../../packages/mcp'
-"@modelcontextprotocol/ext-apps" = 'npm:@modelcontextprotocol/ext-apps@latest'
-"@modelcontextprotocol/sdk" = 'npm:@modelcontextprotocol/sdk@latest'
-"@tanstack/react-router" = 'npm:@tanstack/react-router@latest'
-"@tanstack/react-router/ssr/server" = 'npm:@tanstack/react-router@latest/ssr/server'
-"@tanstack/react-start" = 'npm:@tanstack/react-start@latest'
-"@tanstack/react-start/plugin/vite" = 'npm:@tanstack/react-start@latest/plugin/vite'
-"@types/node" = 'npm:@types/node@^25'
-"@types/react" = 'npm:@types/react@^19'
-"@types/react-dom" = 'npm:@types/react-dom@^19'
-"@vitejs/plugin-react" = 'npm:@vitejs/plugin-react@^6'
-react = 'npm:react@^19'
-"react/jsx-dev-runtime" = 'npm:react@^19/jsx-dev-runtime'
-"react/jsx-runtime" = 'npm:react@^19/jsx-runtime'
-react-dom = 'npm:react-dom@^19'
-"react-dom/client" = 'npm:react-dom@^19/client'
-"react-dom/server" = 'npm:react-dom@^19/server'
-typescript = 'npm:typescript@^7'
+"@modelcontextprotocol/ext-apps" = 'npm:@modelcontextprotocol/ext-apps@^1.7.5'
+"@modelcontextprotocol/sdk" = 'npm:@modelcontextprotocol/sdk@^1.30.0'
+"@tanstack/react-router" = 'npm:@tanstack/react-router@^1.170.18'
+"@tanstack/react-router/ssr/server" = 'npm:@tanstack/react-router@^1.170.18'
+"@tanstack/react-start" = 'npm:@tanstack/react-start@^1.168.34'
+"@tanstack/react-start/plugin/vite" = 'npm:@tanstack/react-start@^1.168.34'
+"@types/node" = 'npm:@types/node@^26.1.2'
+"@types/react" = 'npm:@types/react@^19.2.18'
+"@types/react-dom" = 'npm:@types/react-dom@^19.2.4'
+"@vitejs/plugin-react" = 'npm:@vitejs/plugin-react@^6.0.5'
+react = 'npm:react@^19.2.8'
+"react/jsx-dev-runtime" = 'npm:react@^19.2.8'
+"react/jsx-runtime" = 'npm:react@^19.2.8'
+react-dom = 'npm:react-dom@^19.2.8'
+"react-dom/client" = 'npm:react-dom@^19.2.8'
+"react-dom/server" = 'npm:react-dom@^19.2.8'
+typescript = 'npm:typescript@^7.0.2'
 vite = 'npm:vite@8.2.0'
