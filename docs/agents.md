@@ -15,8 +15,10 @@ Docs are built with **MkDocs** and **Material for MkDocs**. Config lives in
   code copy/annotate/select, mermaid, snippets, search.
 - Do not add plugins, theme overrides, or linter/formatter config changes without
   explicit permission.
-- Verify with `uv run mkdocs build --strict` (and `uv run mkdocs serve` when
-  checking links locally) before considering docs done.
+- Verify with `uv sync --group docs --no-install-project` then
+  `uv run --no-project mkdocs build --strict` (and
+  `uv run --no-project mkdocs serve` when checking links locally) before
+  considering docs done.
 
 ## Information architecture
 
@@ -314,5 +316,6 @@ Every mature docs set for this project should cover:
 - Cross-reference overlapping features and explain trade-offs.
 - Keep README examples and docs examples consistent when they teach the same
   path; prefer linking rather than maintaining three divergent copies.
-- Before finishing docs work: `uv run mkdocs build --strict`.
+- Before finishing docs work: `uv sync --group docs --no-install-project` then
+  `uv run --no-project mkdocs build --strict`.
 - Never add `docs/agents.md` to `nav` or remove it from `exclude_docs`.
