@@ -36,12 +36,13 @@ DEFAULT_VITE_READ_PATHS: Final[tuple[str, ...]] = (
 )
 SESSION_NOT_ENTERED_MESSAGE: Final[str] = "Belgie runtime session must be entered before running scripts."
 DEFAULT_RENDER_SPECIFIER: Final[str] = "npm:@belgie/render"
+INLINE_MODULE_FILENAME: Final[str] = "__deno_python_inline__.tsx"
 RENDER_REQUEST_KEY: Final[str] = "__belgie_render_request__"
 RENDER_DRIVER_SOURCE: Final[str] = """\
 import { buildFromSource } from "@belgie/render/host";
 
-export default function run(source: string) {
-  return buildFromSource(source);
+export default function run(source: string, url: string) {
+  return buildFromSource(source, url);
 }
 """
 
@@ -93,6 +94,7 @@ class BelgieRuntimeSession(BelgieOptions):
     _exit_stack: AsyncExitStack | None = field(default=None, init=False, repr=False)
     _active_runtime: AsyncRuntime | None = field(default=None, init=False, repr=False)
     _render_runtime: AsyncRuntime | None = field(default=None, init=False, repr=False)
+    _workspace: Path | None = field(default=None, init=False, repr=False)
 
     async def __aenter__(self) -> Self:
         if self._exit_stack is not None:
@@ -112,6 +114,7 @@ class BelgieRuntimeSession(BelgieOptions):
         self._exit_stack = None
         self._active_runtime = None
         self._render_runtime = None
+        self._workspace = None
         if stack is None:
             return None
         return await stack.__aexit__(*cast("AsyncExitArgs", args))
@@ -141,13 +144,14 @@ class BelgieRuntimeSession(BelgieOptions):
         return await self._render_html(source)
 
     async def _render_html(self, source: str) -> JsonOutput:
-        if self._render_runtime is None:
+        if self._render_runtime is None or self._workspace is None:
             msg = (
                 "@belgie/render requested HTML, but this session has no renderer side-channel "
                 "(custom `runtime=` does not mediate rendering)."
             )
             raise RuntimeError(msg)
-        return await self._render_runtime(Script(RENDER_DRIVER_SOURCE))(source)
+        url = (self._workspace / INLINE_MODULE_FILENAME).resolve().as_uri()
+        return await self._render_runtime(Script(RENDER_DRIVER_SOURCE))(source, url)
 
     async def _enter_runtimes(self, stack: AsyncExitStack) -> tuple[AsyncRuntime, AsyncRuntime | None]:
         if self.runtime is not None:
@@ -166,6 +170,7 @@ class BelgieRuntimeSession(BelgieOptions):
             active_environment = self.environment
 
         workspace = Path(active_environment.workspace)
+        self._workspace = workspace
         script_options = self.runtime_options or _script_runtime_options(workspace)
         script_runtime = await stack.enter_async_context(
             Runtime(env=active_environment, options=script_options),

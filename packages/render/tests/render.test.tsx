@@ -177,6 +177,15 @@ describe("@belgie/render", () => {
     await expect(buildFromSource(1 as never)).rejects.toThrow("source must be a string");
   });
 
+  it("rejects non-string inline module urls", async () => {
+    await expect(
+      buildFromSource(
+        'import { render } from "@belgie/render"; export default () => render({ widget: <main /> });',
+        1 as never,
+      ),
+    ).rejects.toThrow("url must be a string");
+  });
+
   it("validates an explicit plugins array on the sentinel path", async () => {
     installContext(
       'import { render } from "@belgie/render"; export default () => render({ widget: <main />, plugins: [] });',

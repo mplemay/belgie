@@ -236,6 +236,54 @@ async def test_default_session_renders_inline_widget(default_render_specifier: P
 
 
 @SKIP_WIN32_VITE_NATIVE
+async def test_plugins_resolve_workspace_relative_imports(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    package = copy_render_package(root)
+    (root / "workspace-plugin.ts").write_text(
+        """\
+export function makePlugin() {
+  return {
+    name: "workspace-plugin",
+    renderChunk(code) {
+      return code.replace("workspace-target", "workspace-applied");
+    },
+  };
+}
+""",
+        encoding="utf-8",
+    )
+    source = """
+import { render } from "@belgie/render";
+import { makePlugin } from "./workspace-plugin.ts";
+
+function Widget() {
+  return <main>workspace-target</main>;
+}
+
+export default function run() {
+  return render({
+    widget: <Widget />,
+    plugins: [makePlugin()],
+  });
+}
+"""
+    environment = Environment({"@belgie/render": f"file:{package}"}, path=root)
+    options = script_runtime_options(root)
+
+    async with environment as active_environment:
+        await active_environment.install()
+        session = BelgieRuntimeSession(environment=active_environment, runtime_options=options)
+        async with session:
+            result = await session.run_script(source)
+
+    assert isinstance(result, str)
+    assert result.startswith("<!doctype html>")
+    assert "workspace-applied" in result
+    assert "workspace-target" not in result
+
+
+@SKIP_WIN32_VITE_NATIVE
 async def test_default_session_is_temporary_and_denies_host_capabilities(
     tmp_path: Path,
     default_render_specifier: Path,

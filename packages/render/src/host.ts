@@ -1,4 +1,6 @@
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { cwd } from "node:process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { PluginOption } from "vite";
 import { createServer } from "vite";
@@ -13,12 +15,19 @@ const BUILD_ENVIRONMENT_SEED: Record<string, string> = {
   NODE_ENV: "production",
   TERM: "dumb",
 };
-const INLINE_SOURCE_URL = "file:///__deno_python_inline__.tsx";
-const PLUGINS_VIRTUAL_ID = "virtual:belgie-render/plugins";
-const RESOLVED_PLUGINS_VIRTUAL_ID = `\0${PLUGINS_VIRTUAL_ID}`;
+const INLINE_MODULE_FILENAME = "__deno_python_inline__.tsx";
+const PLUGINS_ENTRY_ID = "virtual:belgie-render/plugins";
 
 function createBuildEnvironment(): Record<string, string> {
   return { ...BUILD_ENVIRONMENT_SEED };
+}
+
+function defaultInlineSourceUrl(): string {
+  return pathToFileURL(join(cwd(), INLINE_MODULE_FILENAME)).href;
+}
+
+function isRelativeSpecifier(id: string): boolean {
+  return id.startsWith("./") || id.startsWith("../");
 }
 
 const renderLock: { gate: Promise<void> } = { gate: Promise.resolve() };
@@ -48,7 +57,7 @@ async function withBuildLock<T>(build: () => Promise<T>): Promise<T> {
   }
 }
 
-async function instantiatePluginsFromSource(source: string): Promise<PluginOption[]> {
+async function instantiatePluginsFromSource(source: string, url: string): Promise<PluginOption[]> {
   const moduleSource = preparePluginsModule(source);
   if (moduleSource === undefined) {
     return [];
@@ -63,11 +72,19 @@ async function instantiatePluginsFromSource(source: string): Promise<PluginOptio
     plugins: [
       {
         name: "belgie-render-plugins",
-        resolveId(id) {
-          return id === PLUGINS_VIRTUAL_ID ? RESOLVED_PLUGINS_VIRTUAL_ID : null;
+        resolveId(id, importer) {
+          // Resolve as the inline module URL so relative imports use the workspace, like Deno.
+          if (id === PLUGINS_ENTRY_ID) {
+            return url;
+          }
+          // Absolute paths keep Deno allow_read checks on the workspace root (not "./…").
+          if (importer === url && isRelativeSpecifier(id)) {
+            return fileURLToPath(new URL(id, url));
+          }
+          return null;
         },
         load(id) {
-          return id === RESOLVED_PLUGINS_VIRTUAL_ID ? moduleSource : null;
+          return id === url ? moduleSource : null;
         },
       },
     ],
@@ -75,7 +92,7 @@ async function instantiatePluginsFromSource(source: string): Promise<PluginOptio
     server: { hmr: false, middlewareMode: true, ws: false },
   });
   try {
-    const loaded = await server.ssrLoadModule(PLUGINS_VIRTUAL_ID);
+    const loaded = await server.ssrLoadModule(PLUGINS_ENTRY_ID);
     const plugins = (loaded as { default?: unknown }).default;
     if (!Array.isArray(plugins)) {
       throw new TypeError("@belgie/render: plugins module must default-export an array");
@@ -86,17 +103,20 @@ async function instantiatePluginsFromSource(source: string): Promise<PluginOptio
   }
 }
 
-export async function buildFromSource(source: string): Promise<string> {
+export async function buildFromSource(source: string, url: string = defaultInlineSourceUrl()): Promise<string> {
   if (typeof source !== "string") {
     throw new TypeError("@belgie/render: source must be a string");
+  }
+  if (typeof url !== "string") {
+    throw new TypeError("@belgie/render: url must be a string");
   }
   return withBuildLock(async () => {
     const context: RenderContext = {
       source,
-      url: INLINE_SOURCE_URL,
+      url,
       version: 1,
     };
-    const plugins = await instantiatePluginsFromSource(source);
+    const plugins = await instantiatePluginsFromSource(source, url);
     return buildInlineWidget(context, plugins);
   });
 }
