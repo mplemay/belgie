@@ -178,11 +178,11 @@ def test_add_dependency_leaves_lockfile_unchanged_when_pyproject_write_fails(
     write_pyproject(tmp_path)
     (tmp_path / "deno.lock").write_text("original", encoding="utf-8")
 
-    def failing_write(root: Path, document: dict[str, Any]) -> None:
+    def failing_write(root: Path, updates: dict[str, str]) -> None:
         msg = "pyproject write failed"
         raise ProjectError(msg)
 
-    monkeypatch.setattr(_operations, "write_pyproject_document", failing_write)
+    monkeypatch.setattr(_operations, "update_belgie_dependencies", failing_write)
 
     with pytest.raises(ProjectError, match="pyproject write failed"):
         add_dependency(load_project(tmp_path), alias="std_path", specifier="jsr:@std/path@^1")

@@ -18,6 +18,7 @@ except ImportError as exc:
 
 try:
     import rtoml  # noqa: F401
+    import tomlkit  # noqa: F401
 except ImportError as exc:
     print(CLI_REQUIRED_MESSAGE, file=sys.stderr)  # noqa: T201
     raise SystemExit(1) from exc

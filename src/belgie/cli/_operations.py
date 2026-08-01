@@ -11,7 +11,7 @@ from belgie.cli._project import (
     _load_project_from_document,
     preserve_file_on_error,
     set_dependency_in_document,
-    write_pyproject_document,
+    update_belgie_dependencies,
 )
 from belgie.cli._specifiers import manifest_dependency_value
 
@@ -80,7 +80,7 @@ def run_command(
 
 def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> EnvironmentInstallResult:
     document = deepcopy(project.pyproject)
-    set_dependency_in_document(document, alias, specifier, validate=True)
+    set_dependency_in_document(document, alias, specifier)
     updated_project = _load_project_from_document(project.root, document)
 
     lockfile_path = project.lockfile_path
@@ -91,7 +91,7 @@ def add_dependency(project: BelgieProject, *, alias: str, specifier: str) -> Env
         create_environment(updated_project, frozen=False) as environment,
     ):
         result = environment.lock(lockfile=lockfile_path)
-        write_pyproject_document(project.root, document)
+        update_belgie_dependencies(project.root, {alias: specifier})
     return result
 
 
@@ -101,7 +101,6 @@ def update_project(
     *,
     latest: bool,
 ) -> EnvironmentUpdateResult:
-    document = deepcopy(project.pyproject)
     lockfile_path = project.lockfile_path
     pyproject_path = project.root / PYPROJECT_NAME
     with (
@@ -110,14 +109,16 @@ def update_project(
         create_environment(project, frozen=False) as environment,
     ):
         result = environment.update(packages, latest=latest, lockfile_only=True)
+        updates: dict[str, str] = {}
         for change in result.changes:
             if (current := project.dependencies.get(change.name)) is None:
                 msg = f"Belgie updated unknown dependency alias '{change.name}'"
                 raise ProjectError(msg)
-            set_dependency_in_document(
-                document,
+            updates[change.name] = manifest_dependency_value(
                 change.name,
-                manifest_dependency_value(change.name, change.updated, current=current),
+                change.updated,
+                current=current,
             )
-        write_pyproject_document(project.root, document)
+        if updates:
+            update_belgie_dependencies(project.root, updates)
     return result

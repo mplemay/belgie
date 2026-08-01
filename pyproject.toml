@@ -12,6 +12,7 @@ dependencies = []
 [project.optional-dependencies]
 cli = [
     "rtoml>=0.13,<1",
+    "tomlkit>=0.13,<1",
     "typer>=0.20,<1",
 ]
 pydantic-ai = [
@@ -44,6 +45,7 @@ dev = [
     "rtoml>=0.13,<1",
     "ruff>=0.15.16",
     "rumdl>=0.2.7",
+    "tomlkit>=0.13,<1",
     "typer>=0.20,<1",
     "ty>=0.0.43",
     "uvloop>=0.22.1 ; sys_platform != 'win32'",
@@ -62,9 +64,9 @@ exclude = ["**/__tests__/**"]
 features = ["extension-module"]
 
 [tool.belgie.dependencies]
-oxlint = "npm:oxlint@latest"
-oxfmt = "npm:oxfmt@latest"
-oxlint-tsgolint = "npm:oxlint-tsgolint@latest"
+oxlint = "npm:oxlint@^1.75.0"
+oxfmt = "npm:oxfmt@^0.60.0"
+oxlint-tsgolint = "npm:oxlint-tsgolint@^7.0.2001"
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
