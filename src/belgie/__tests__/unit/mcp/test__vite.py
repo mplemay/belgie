@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Iterator
 from contextlib import nullcontext
@@ -12,9 +13,11 @@ import pytest
 
 from belgie.mcp import _vite as vite_module
 from belgie.mcp._vite import (
+    _filter_rolldown_teardown_stderr,
     _load_vite_project,
     _reset_vite_state_for_tests,
     _shutdown_vite_dev_servers,
+    _suppress_rolldown_teardown_stderr,
     _ViteDevServer,
     _ViteProject,
     ensure_vite_dev_server,
@@ -321,3 +324,38 @@ def test_shutdown_closes_only_owned_runtime_and_environment(tmp_path: Path) -> N
 
     assert exits == ["runtime", "environment"]
     assert vite_module.DEV_SERVERS == {}
+
+
+def test_filter_rolldown_teardown_stderr_drops_panic_banner() -> None:
+    panic = (
+        "Rolldown panicked. This is a bug in Rolldown, not your code.\n"
+        "\n"
+        "thread 'rolldown-worker' (68675) panicked at crates/rolldown/src/module_loader/module_task.rs:239:30:\n"
+        "ModuleLoader channel closed while sending module completion - main thread terminated unexpectedly: "
+        "SendError { .. }\n"
+        "\n"
+        "Please report this issue at: https://github.com/rolldown/rolldown/issues/new?template=panic_report.yml\n"
+    )
+    kept = "vite v8.2.0 building for production...\n"
+    assert _filter_rolldown_teardown_stderr(kept + panic) == kept
+    assert _filter_rolldown_teardown_stderr(panic) == ""
+
+
+def test_suppress_rolldown_teardown_stderr_filters_fd2(capsys: pytest.CaptureFixture[str]) -> None:
+    panic = (
+        "Rolldown panicked. This is a bug in Rolldown, not your code.\n"
+        "\n"
+        "thread 'rolldown-worker' (1) panicked at crates/rolldown/src/module_loader/module_task.rs:239:30:\n"
+        "ModuleLoader channel closed while sending module completion - main thread terminated unexpectedly: "
+        "SendError { .. }\n"
+        "\n"
+        "Please report this issue at: https://github.com/rolldown/rolldown/issues/new?template=panic_report.yml\n"
+    )
+    with _suppress_rolldown_teardown_stderr():
+        # Write through the OS fd so the redirect is exercised (not Python's TextIO buffer alone).
+        os.write(2, b"keep-me\n")
+        os.write(2, panic.encode())
+
+    captured = capsys.readouterr()
+    assert "keep-me" in captured.err
+    assert "Rolldown panicked" not in captured.err

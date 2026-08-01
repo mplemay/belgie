@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import atexit
+import os
+import re
+import sys
 import threading
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
+from tempfile import TemporaryFile
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, Final
 from urllib.error import HTTPError, URLError
@@ -22,6 +26,7 @@ from belgie.errors import BelgieError
 from belgie.mcp._widgets import read_built_widget, read_widget_html
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 DEFAULT_VITE_HOST: Final[str] = "127.0.0.1"
@@ -32,6 +37,17 @@ DEV_PROBE_TIMEOUT_SECONDS: Final[float] = 0.25
 DEV_POLL_INTERVAL_SECONDS: Final[float] = 0.1
 DEV_START_TIMEOUT_SECONDS: Final[float] = 60.0
 DEV_STOP_TIMEOUT_SECONDS: Final[float] = 5.0
+# Vite 8 / Rolldown may still be mid-module-load when Belgie aborts the JS isolate.
+# Rolldown then prints this panic to stderr; it is teardown noise, not an app failure.
+_ROLLDOWN_TEARDOWN_PANIC_RE: Final[re.Pattern[str]] = re.compile(
+    r"Rolldown panicked\. This is a bug in Rolldown, not your code\.\r?\n+"
+    r"(?:note: [^\n]*\r?\n+)?"
+    r"thread '[^']+' \(\d+\) panicked at [^\n]+\r?\n"
+    r"ModuleLoader channel closed while sending module completion[^\n]*\r?\n+"
+    r"(?:note: [^\n]*\r?\n+)?"
+    r"Please report this issue at: https://github\.com/rolldown/rolldown/issues[^\n]*\r?\n?",
+    re.MULTILINE,
+)
 MISSING_DEPENDENCIES_ERROR: Final[str] = (
     "Cannot run Vite for {project}: [tool.belgie.dependencies] is empty or missing."
 )
@@ -238,6 +254,38 @@ def _vite_url(host: str, port: int) -> str:
     return urlunparse(("http", f"{host}:{port}", "", "", "", ""))
 
 
+def _filter_rolldown_teardown_stderr(text: str) -> str:
+    """Drop Rolldown's hard-cancel panic banner; keep any other stderr intact."""
+    filtered = _ROLLDOWN_TEARDOWN_PANIC_RE.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", filtered).lstrip("\r\n")
+
+
+@contextmanager
+def _suppress_rolldown_teardown_stderr() -> Iterator[None]:
+    """Redirect fd 2 while aborting Vite so Rolldown worker panics stay out of CI logs."""
+    try:
+        saved_fd = os.dup(2)
+    except OSError:
+        yield
+        return
+
+    with TemporaryFile(mode="w+b") as captured:
+        try:
+            os.dup2(captured.fileno(), 2)
+            yield
+        finally:
+            with suppress(OSError):
+                sys.stderr.flush()
+            os.dup2(saved_fd, 2)
+            os.close(saved_fd)
+            captured.seek(0)
+            text = captured.read().decode("utf-8", errors="replace")
+            filtered = _filter_rolldown_teardown_stderr(text)
+            if filtered:
+                sys.stderr.write(filtered)
+                sys.stderr.flush()
+
+
 def _stop_vite_dev_server(server: _ViteDevServer) -> None:
     with server.state_lock:
         server.stopping = True
@@ -245,12 +293,14 @@ def _stop_vite_dev_server(server: _ViteDevServer) -> None:
         environment = server.environment
         server.runtime = None
         server.environment = None
-    if runtime is not None:
-        with suppress(Exception):
-            runtime.__exit__(None, None, None)
-    if environment is not None:
-        with suppress(Exception):
-            environment.__exit__(None, None, None)
+    # Runtime.__exit__ terminates the V8 isolate; Rolldown workers may still be mid-send.
+    with _suppress_rolldown_teardown_stderr():
+        if runtime is not None:
+            with suppress(Exception):
+                runtime.__exit__(None, None, None)
+        if environment is not None:
+            with suppress(Exception):
+                environment.__exit__(None, None, None)
 
 
 def _shutdown_vite_dev_servers() -> None:

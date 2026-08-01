@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -16,7 +17,7 @@ from mcp.server.mcpserver.resources import TextResource
 from belgie import Command, Environment, Runtime
 from belgie.errors import BelgieRuntimeError
 from belgie.mcp import BelgieExtension, _vite as vite_module
-from belgie.mcp._vite import _reset_vite_state_for_tests
+from belgie.mcp._vite import _filter_rolldown_teardown_stderr, _reset_vite_state_for_tests
 
 pytestmark = pytest.mark.integration
 
@@ -163,17 +164,48 @@ async def run_vite_dev(project: Path, port: int) -> AsyncIterator[None]:
         "--port",
         str(port),
         cwd=project,
+        stderr=asyncio.subprocess.PIPE,
     )
+    stderr_chunks: list[bytes] = []
+
+    async def pump_stderr() -> None:
+        assert process.stderr is not None
+        while True:
+            chunk = await process.stderr.read(4096)
+            if not chunk:
+                return
+            stderr_chunks.append(chunk)
+
+    pump = asyncio.create_task(pump_stderr())
     try:
         yield
     finally:
-        if process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
+        await _stop_vite_subprocess(process)
+        await pump
+        text = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+        filtered = _filter_rolldown_teardown_stderr(text)
+        if filtered:
+            sys.stderr.write(filtered)
+            sys.stderr.flush()
+
+
+async def _stop_vite_subprocess(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    # Prefer SIGINT so Vite can run close hooks before the isolate is torn down.
+    if sys.platform != "win32":
+        process.send_signal(signal.SIGINT)
+        try:
+            await asyncio.wait_for(process.wait(), timeout=2)
+            return
+        except TimeoutError:
+            pass
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=5)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
 
 
 @SKIP_WIN32_VITE_NATIVE
