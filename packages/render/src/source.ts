@@ -593,7 +593,7 @@ function collectPluginOnlyBindings(
         throw new Error(UNANALYZABLE_PLUGINS_ERROR);
       }
       pluginOnly.set(name, binding);
-      for (const identifier of collectIdentifiers(binding.init)) {
+      for (const identifier of collectFreeIdentifiers(binding.init)) {
         pluginIdentifiers.add(identifier);
       }
       discovered = true;
@@ -789,6 +789,189 @@ export function stripServerPlugins(source: string): string {
   return stripPluginsFromSource(source, analyzeRenderOptions(source));
 }
 
+function resolveConsistentOptionValue(
+  source: string,
+  properties: OptionProperty[],
+  error: string,
+): AstNode | undefined {
+  if (properties.length === 0) {
+    return undefined;
+  }
+  const [first, ...rest] = properties;
+  if (!("value" in first.property) || !isNode(first.property.value)) {
+    throw new Error(error);
+  }
+  const value = first.property.value;
+  const text = source.slice(value.start, value.end);
+  for (const { property } of rest) {
+    if (!("value" in property) || !isNode(property.value)) {
+      throw new Error(error);
+    }
+    if (source.slice(property.value.start, property.value.end) !== text) {
+      throw new Error(error);
+    }
+  }
+  return value;
+}
+
+function resolvePluginsExpression(source: string, analysis: RenderOptionsAnalysis): AstNode | undefined {
+  return resolveConsistentOptionValue(source, analysis.pluginProperties, UNANALYZABLE_PLUGINS_ERROR);
+}
+
+function statementProvidesBinding(node: AstNode, needed: Set<string>): AstNode | undefined {
+  if (node.type === "ExportDefaultDeclaration") {
+    return undefined;
+  }
+  const declaration = moduleDeclarationBindings(node);
+  if (declaration === undefined) {
+    return undefined;
+  }
+  const bound = new Set<string>();
+  addNamedBindings(declaration, bound);
+  for (const name of bound) {
+    if (needed.has(name)) {
+      return declaration;
+    }
+  }
+  return undefined;
+}
+
+function absorbDeclarationDependencies(declaration: AstNode, needed: Set<string>): void {
+  if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
+    for (const name of collectFreeIdentifiers(declaration)) {
+      needed.add(name);
+    }
+    return;
+  }
+  if (
+    declaration.type === "VariableDeclaration" &&
+    "declarations" in declaration &&
+    Array.isArray(declaration.declarations)
+  ) {
+    for (const declarator of declaration.declarations.filter(isNode)) {
+      if ("init" in declarator && isNode(declarator.init)) {
+        for (const name of collectFreeIdentifiers(declarator.init)) {
+          needed.add(name);
+        }
+      }
+    }
+  }
+}
+
+function expandPluginDependencies(root: AstNode, needed: Set<string>): AstNode[] {
+  if (!("body" in root) || !Array.isArray(root.body)) {
+    return [];
+  }
+  const body = root.body.filter(isNode);
+  const selected = new Set<AstNode>();
+
+  for (;;) {
+    let discovered = false;
+    for (const node of body) {
+      if (selected.has(node)) {
+        continue;
+      }
+      if (node.type === "ImportDeclaration") {
+        const declaration = node as ImportDeclaration;
+        if (
+          !renderImport(declaration.source.value) &&
+          declaration.specifiers.some((specifier) => needed.has(specifier.local.name))
+        ) {
+          selected.add(node);
+          discovered = true;
+        }
+        continue;
+      }
+      const declaration = statementProvidesBinding(node, needed);
+      if (declaration === undefined) {
+        continue;
+      }
+      selected.add(node);
+      discovered = true;
+      absorbDeclarationDependencies(declaration, needed);
+    }
+    if (!discovered) {
+      break;
+    }
+  }
+
+  return body.filter((node) => selected.has(node));
+}
+
+function emitPluginModuleStatement(source: string, node: AstNode, needed: Set<string>): string {
+  if (node.type === "ImportDeclaration") {
+    const declaration = node as ImportDeclaration;
+    const retained = declaration.specifiers.filter((specifier) => needed.has(specifier.local.name));
+    return formatImport(declaration.source.value, retained);
+  }
+  if (node.type === "ExportNamedDeclaration" && "declaration" in node && isNode(node.declaration)) {
+    return source.slice(node.declaration.start, node.declaration.end);
+  }
+  return source.slice(node.start, node.end);
+}
+
+function assertPluginDependenciesAnalyzable(
+  root: AstNode,
+  needed: Set<string>,
+  selected: Set<AstNode>,
+  pluginsValue: AstNode,
+  reassigned: Set<string>,
+): void {
+  const moduleBindings = collectModuleBindingNames(root);
+  for (const name of needed) {
+    if (moduleBindings.has(name) && reassigned.has(name)) {
+      throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+    }
+  }
+
+  if (!("body" in root) || !Array.isArray(root.body)) {
+    return;
+  }
+  for (const statement of root.body.filter(isNode)) {
+    if (selected.has(statement)) {
+      continue;
+    }
+    walk(statement, (node) => {
+      if (node.start >= pluginsValue.start && node.end <= pluginsValue.end) {
+        return false;
+      }
+      if (node.type !== "Identifier" || !("name" in node) || typeof node.name !== "string") {
+        return;
+      }
+      if (moduleBindings.has(node.name) && needed.has(node.name)) {
+        throw new Error(UNANALYZABLE_PLUGINS_ERROR);
+      }
+    });
+  }
+}
+
+export function preparePluginsModule(source: string): string | undefined {
+  const analysis = analyzeRenderOptions(source);
+  const pluginsValue = resolvePluginsExpression(source, analysis);
+  if (pluginsValue === undefined) {
+    return undefined;
+  }
+  if (
+    pluginsValue.type === "ArrayExpression" &&
+    "elements" in pluginsValue &&
+    Array.isArray(pluginsValue.elements) &&
+    pluginsValue.elements.length === 0
+  ) {
+    return undefined;
+  }
+
+  const needed = new Set<string>();
+  for (const name of collectFreeIdentifiers(pluginsValue)) {
+    needed.add(name);
+  }
+  const statements = expandPluginDependencies(analysis.root, needed);
+  assertPluginDependenciesAnalyzable(analysis.root, needed, new Set(statements), pluginsValue, analysis.reassigned);
+  const pluginsText = source.slice(pluginsValue.start, pluginsValue.end);
+  const parts = statements.map((node) => emitPluginModuleStatement(source, node, needed));
+  parts.push(`export default ${pluginsText};`);
+  return `${parts.join("\n")}\n`;
+}
+
 function moduleDeclarationBindings(node: AstNode): AstNode | undefined {
   if (node.type !== "ExportNamedDeclaration" && node.type !== "ExportDefaultDeclaration") {
     return node;
@@ -849,6 +1032,293 @@ function nonComputedNameNode(node: AstNode): AstNode | undefined {
   return undefined;
 }
 
+function bindObjectPatternNames(node: AstNode, scope: Set<string>): void {
+  if (!("properties" in node) || !Array.isArray(node.properties)) {
+    return;
+  }
+  for (const property of node.properties) {
+    if (!isNode(property)) {
+      continue;
+    }
+    if (property.type === "RestElement") {
+      bindPatternNames(property, scope);
+      continue;
+    }
+    if (property.type === "Property" && "value" in property && isNode(property.value)) {
+      bindPatternNames(property.value, scope);
+    }
+  }
+}
+
+function bindArrayPatternNames(node: AstNode, scope: Set<string>): void {
+  if (!("elements" in node) || !Array.isArray(node.elements)) {
+    return;
+  }
+  for (const element of node.elements) {
+    if (isNode(element)) {
+      bindPatternNames(element, scope);
+    }
+  }
+}
+
+function bindPatternNames(node: AstNode, scope: Set<string>): void {
+  if (node.type === "Identifier" && "name" in node && typeof node.name === "string") {
+    scope.add(node.name);
+    return;
+  }
+  if (node.type === "AssignmentPattern" && "left" in node && isNode(node.left)) {
+    bindPatternNames(node.left, scope);
+    return;
+  }
+  if (node.type === "RestElement" && "argument" in node && isNode(node.argument)) {
+    bindPatternNames(node.argument, scope);
+    return;
+  }
+  if (node.type === "ObjectPattern") {
+    bindObjectPatternNames(node, scope);
+    return;
+  }
+  if (node.type === "ArrayPattern") {
+    bindArrayPatternNames(node, scope);
+  }
+}
+
+function bindFunctionLikeNames(node: AstNode, bound: ReadonlySet<string>): Set<string> {
+  const inner = new Set(bound);
+  if ("id" in node && isNode(node.id)) {
+    bindPatternNames(node.id, inner);
+  }
+  if ("params" in node && Array.isArray(node.params)) {
+    for (const param of node.params) {
+      if (isNode(param)) {
+        bindPatternNames(param, inner);
+      }
+    }
+  }
+  return inner;
+}
+
+type FreeVisit = (node: AstNode, bound: ReadonlySet<string>) => void;
+
+function visitObjectPatternDefaultInitializers(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): void {
+  if (!("properties" in node) || !Array.isArray(node.properties)) {
+    return;
+  }
+  for (const property of node.properties) {
+    if (!isNode(property)) {
+      continue;
+    }
+    if (property.type === "RestElement") {
+      visitParamDefaultInitializers(property, bound, visit);
+      continue;
+    }
+    if (property.type !== "Property") {
+      continue;
+    }
+    if ("computed" in property && property.computed && "key" in property && isNode(property.key)) {
+      visit(property.key, bound);
+    }
+    if ("value" in property && isNode(property.value)) {
+      visitParamDefaultInitializers(property.value, bound, visit);
+    }
+  }
+}
+
+function visitArrayPatternDefaultInitializers(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): void {
+  if (!("elements" in node) || !Array.isArray(node.elements)) {
+    return;
+  }
+  for (const element of node.elements) {
+    if (isNode(element)) {
+      visitParamDefaultInitializers(element, bound, visit);
+    }
+  }
+}
+
+function visitParamDefaultInitializers(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): void {
+  if (node.type === "AssignmentPattern") {
+    if ("right" in node && isNode(node.right)) {
+      visit(node.right, bound);
+    }
+    if ("left" in node && isNode(node.left)) {
+      visitParamDefaultInitializers(node.left, bound, visit);
+    }
+    return;
+  }
+  if (node.type === "RestElement" && "argument" in node && isNode(node.argument)) {
+    visitParamDefaultInitializers(node.argument, bound, visit);
+    return;
+  }
+  if (node.type === "ObjectPattern") {
+    visitObjectPatternDefaultInitializers(node, bound, visit);
+    return;
+  }
+  if (node.type === "ArrayPattern") {
+    visitArrayPatternDefaultInitializers(node, bound, visit);
+  }
+}
+
+function bindBlockStatementNames(statements: unknown[], scope: Set<string>): void {
+  for (const statement of statements) {
+    if (!isNode(statement)) {
+      continue;
+    }
+    if (
+      (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") &&
+      "id" in statement &&
+      isNode(statement.id)
+    ) {
+      bindPatternNames(statement.id, scope);
+      continue;
+    }
+    if (
+      statement.type !== "VariableDeclaration" ||
+      !("declarations" in statement) ||
+      !Array.isArray(statement.declarations)
+    ) {
+      continue;
+    }
+    for (const declarator of statement.declarations) {
+      if (isNode(declarator) && "id" in declarator && isNode(declarator.id)) {
+        bindPatternNames(declarator.id, scope);
+      }
+    }
+  }
+}
+
+function visitFunctionLikeFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (
+    node.type !== "FunctionDeclaration" &&
+    node.type !== "FunctionExpression" &&
+    node.type !== "ArrowFunctionExpression"
+  ) {
+    return false;
+  }
+  const inner = bindFunctionLikeNames(node, bound);
+  if ("params" in node && Array.isArray(node.params)) {
+    for (const param of node.params) {
+      if (isNode(param)) {
+        visitParamDefaultInitializers(param, bound, visit);
+      }
+    }
+  }
+  if ("body" in node && isNode(node.body)) {
+    visit(node.body, inner);
+  }
+  return true;
+}
+
+function visitClassFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (node.type !== "ClassDeclaration" && node.type !== "ClassExpression") {
+    return false;
+  }
+  const inner = new Set(bound);
+  if ("id" in node && isNode(node.id)) {
+    bindPatternNames(node.id, inner);
+  }
+  if ("superClass" in node && isNode(node.superClass)) {
+    visit(node.superClass, bound);
+  }
+  if ("body" in node && isNode(node.body)) {
+    visit(node.body, inner);
+  }
+  return true;
+}
+
+function visitBlockFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (node.type !== "BlockStatement" || !("body" in node) || !Array.isArray(node.body)) {
+    return false;
+  }
+  const inner = new Set(bound);
+  bindBlockStatementNames(node.body, inner);
+  for (const statement of node.body) {
+    if (isNode(statement)) {
+      visit(statement, inner);
+    }
+  }
+  return true;
+}
+
+function visitVariableFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (node.type !== "VariableDeclaration" || !("declarations" in node) || !Array.isArray(node.declarations)) {
+    return false;
+  }
+  for (const declarator of node.declarations) {
+    if (isNode(declarator) && "init" in declarator && isNode(declarator.init)) {
+      visit(declarator.init, bound);
+    }
+  }
+  return true;
+}
+
+function visitKeyedFree(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): boolean {
+  if (node.type === "Property" && !("shorthand" in node && node.shorthand) && nonComputedNameNode(node)) {
+    if ("value" in node && isNode(node.value)) {
+      visit(node.value, bound);
+    }
+    return true;
+  }
+  if (node.type === "MethodDefinition" && nonComputedNameNode(node)) {
+    if ("value" in node && isNode(node.value)) {
+      visit(node.value, bound);
+    }
+    return true;
+  }
+  if (node.type === "MemberExpression" && nonComputedNameNode(node)) {
+    if ("object" in node && isNode(node.object)) {
+      visit(node.object, bound);
+    }
+    return true;
+  }
+  return false;
+}
+
+function visitFreeChildren(node: AstNode, bound: ReadonlySet<string>, visit: FreeVisit): void {
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isNode(item)) {
+          visit(item, bound);
+        }
+      }
+    } else if (isNode(value)) {
+      visit(value, bound);
+    }
+  }
+}
+
+function collectFreeIdentifiers(root: AstNode): Set<string> {
+  const free = new Set<string>();
+
+  function visit(node: AstNode, bound: ReadonlySet<string>): void {
+    if (visitFunctionLikeFree(node, bound, visit)) {
+      return;
+    }
+    if (visitClassFree(node, bound, visit)) {
+      return;
+    }
+    if (visitBlockFree(node, bound, visit)) {
+      return;
+    }
+    if (visitVariableFree(node, bound, visit)) {
+      return;
+    }
+    if (visitKeyedFree(node, bound, visit)) {
+      return;
+    }
+    if (node.type === "Identifier" && "name" in node && typeof node.name === "string") {
+      if (!bound.has(node.name)) {
+        free.add(node.name);
+      }
+      return;
+    }
+    visitFreeChildren(node, bound, visit);
+  }
+
+  visit(root, new Set());
+  return free;
+}
+
 function collectWidgetReferences(widgetValue: AstNode): Set<string> {
   const names = new Set<string>();
   const ignored = new Set<AstNode>();
@@ -874,22 +1344,9 @@ function collectWidgetReferences(widgetValue: AstNode): Set<string> {
 
 function resolveWidgetExpression(source: string, analysis: RenderOptionsAnalysis): AstNode {
   const { root, widgetProperties } = analysis;
-  const [first, ...rest] = widgetProperties;
-  if (first === undefined) {
+  const widgetValue = resolveConsistentOptionValue(source, widgetProperties, UNANALYZABLE_WIDGET_ERROR);
+  if (widgetValue === undefined) {
     throw new Error(UNANALYZABLE_WIDGET_ERROR);
-  }
-  if (!("value" in first.property) || !isNode(first.property.value)) {
-    throw new Error(UNANALYZABLE_WIDGET_ERROR);
-  }
-  const widgetValue = first.property.value;
-  const widgetText = source.slice(widgetValue.start, widgetValue.end);
-  for (const { property } of rest) {
-    if (!("value" in property) || !isNode(property.value)) {
-      throw new Error(UNANALYZABLE_WIDGET_ERROR);
-    }
-    if (source.slice(property.value.start, property.value.end) !== widgetText) {
-      throw new Error(UNANALYZABLE_WIDGET_ERROR);
-    }
   }
 
   const moduleBindings = collectModuleBindingNames(root);

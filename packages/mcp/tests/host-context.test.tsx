@@ -278,11 +278,15 @@ describe("host context hooks", () => {
   it("requires a connected Widget context", () => {
     const hooks = [useDisplayMode, useLayout, useLocale, useTheme, useUserAgent];
 
-    for (const hook of hooks) {
-      const Probe = () => {
+    function createProbe(hook: (typeof hooks)[number]) {
+      return function Probe() {
         hook();
         return null;
       };
+    }
+
+    for (const hook of hooks) {
+      const Probe = createProbe(hook);
 
       assert.throws(
         () => renderToString(createElement(Probe)),

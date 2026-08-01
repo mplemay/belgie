@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile, writeFile, mkdtemp } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -162,7 +163,7 @@ const TEXT_CONTENT_TOOL = {
 };
 
 const PYTHON_MCP_V2_TOOLS = JSON.parse(
-  await readFile(new URL("fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
+  readFileSync(new URL("fixtures/python-mcp-v2-tools.json", import.meta.url), "utf8"),
 );
 
 async function startMcpServer(listTools, onRequest = () => {}) {
