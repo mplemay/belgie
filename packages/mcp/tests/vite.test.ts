@@ -448,7 +448,7 @@ describe("isolated production builds", () => {
     plugin.configResolved?.({ configFile, mode: "production", root });
     process.env[INTERNAL_WIDGET_PATH_ENV] = "original";
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     try {
       await assert.rejects(() => plugin.closeBundle?.(), /nested config failed/u);
     } finally {
