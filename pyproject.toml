@@ -1,134 +1,145 @@
 [project]
-name = "belgie"
-version = "0.1.1"
-description = "Generative AI/UI sandbox for Python"
-readme = "readme.md"
-authors = [
-    { name = "Matt LeMay", email = "mplemay@users.noreply.github.com" }
-]
-requires-python = ">=3.12,<3.15"
+name = 'belgie'
+version = '0.1.1'
+description = 'Generative AI/UI sandbox for Python'
+readme = 'readme.md'
+requires-python = '>=3.12,<3.15'
 dependencies = []
+
+[[project.authors]]
+name = 'Matt LeMay'
+email = 'mplemay@users.noreply.github.com'
 
 [project.optional-dependencies]
 cli = [
-    "rtoml>=0.13,<1",
-    "typer>=0.20,<1",
+    'rtoml>=0.13,<1',
+    'typer>=0.20,<1',
 ]
-pydantic-ai = [
-    "pydantic-ai-slim[openai]>=2,<3",
-]
-langchain = [
-    "langchain>=1,<2",
-]
+pydantic-ai = ['pydantic-ai-slim[openai]>=2,<3']
+langchain = ['langchain>=1,<2']
 mcp = [
-    "mcp>=2.0.0b1",
-    "mcp-types>=2.0.0b1",
-    "pydantic>=2,<3",
+    'mcp>=2.0.0b1',
+    'mcp-types>=2.0.0b1',
+    'pydantic>=2,<3',
 ]
 
 [project.scripts]
-belgie = "belgie.cli.__main__:main"
-belgie-runtime = "belgie._child_process:main"
+belgie = 'belgie.cli.__main__:main'
+belgie-runtime = 'belgie._child_process:main'
 
 [dependency-groups]
 dev = [
-    "anyio>=4",
-    "fastapi>=0.128.0",
-    "langchain>=1,<2",
-    "langchain-openai>=0.3,<1",
-    "mcp>=2.0.0b1",
-    "mcp-types>=2.0.0b1",
-    "pydantic-ai-slim[openai]>=2,<3",
-    "prek>=0.4.4",
-    "pytest>=9.0.3",
-    "rtoml>=0.13,<1",
-    "ruff>=0.15.16",
-    "rumdl>=0.2.7",
-    "typer>=0.20,<1",
-    "ty>=0.0.43",
+    'anyio>=4',
+    'fastapi>=0.128.0',
+    'langchain>=1,<2',
+    'langchain-openai>=0.3,<1',
+    'mcp>=2.0.0b1',
+    'mcp-types>=2.0.0b1',
+    'pydantic-ai-slim[openai]>=2,<3',
+    'prek>=0.4.4',
+    'pytest>=9.0.3',
+    'rtoml>=0.13,<1',
+    'ruff>=0.15.16',
+    'rumdl>=0.2.7',
+    'typer>=0.20,<1',
+    'ty>=0.0.43',
     "uvloop>=0.22.1 ; sys_platform != 'win32'",
-    "zizmor>=1.25.2",
+    'zizmor>=1.25.2',
 ]
 
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
-
+build-backend = 'maturin'
+requires = ['maturin>=1.0,<2.0']
 [tool.maturin]
-module-name = "belgie._core"
-python-packages = ["belgie"]
-python-source = "src"
-exclude = ["**/__tests__/**"]
-features = ["extension-module"]
-
+module-name = 'belgie._core'
+python-source = 'src'
+python-packages = ['belgie']
+exclude = ['**/__tests__/**']
+features = ['extension-module']
 [tool.belgie.dependencies]
-oxlint = "npm:oxlint@latest"
-oxfmt = "npm:oxfmt@latest"
-oxlint-tsgolint = "npm:oxlint-tsgolint@latest"
+oxlint = 'npm:oxlint@^1.75.0'
+oxfmt = 'npm:oxfmt@^0.60.0'
+oxlint-tsgolint = 'npm:oxlint-tsgolint@^7.0.2001'
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
-exclude-newer = "7 days"
-exclude-newer-package = { pydantic-ai-slim = false, pydantic-graph = false, pydantic-evals = false, mcp = false, mcp-types = false }
+exclude-newer = '7 days'
+
+[[tool.uv.cache-keys]]
+file = 'pyproject.toml'
+
+[[tool.uv.cache-keys]]
+file = 'src/**/*.rs'
+
+[[tool.uv.cache-keys]]
+file = 'Cargo.toml'
+
+[[tool.uv.cache-keys]]
+file = 'Cargo.lock'
+
+[tool.uv.exclude-newer-package]
+pydantic-ai-slim = false
+pydantic-graph = false
+pydantic-evals = false
+mcp = false
+mcp-types = false
 
 [tool.ruff]
-target-version = "py312"
+target-version = 'py312'
 line-length = 120
-include = ["pyproject.toml"]
+include = ['pyproject.toml']
 
 [tool.ruff.lint]
-select = ["ALL"]
-ignore = [
-    "D",    # pydocstyle (i.e. ignore missing/malformed docstrings)
-]
+select = ['ALL']
+ignore = ['D']
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = [
-    "F401", # imported but unused (common in __init__.py to re-export symbols)
-    "T201", # print is intentional in CLI entry points
+    'F401',
+    'T201',
 ]
 "**/__tests__/**/*" = [
-    "ANN001",  # missing type annotation for function argument
-    "ANN201",  # missing return type annotation for public function
-    "ANN202",  # missing return type annotation for private function
-    "B008",    # function call in argument defaults (required for FastAPI Depends)
-    "F841",    # local variable assigned but never used
-    "FAST002", # FastAPI dependency without Annotated
-    "INP001",  # implicit namespace package (tests dir may not need __init__.py)
-    "PLR0913", # too many arguments in function definition
-    "PLR2004", # magic value used in comparison (fine in test cases)
-    "S101",    # use of assert (tests typically use assert directly)
-    "S106",    # possible hardcoded password (test secrets are fine)
-    "SLF001",  # private member accessed
-    "ANN401",  # mock helpers intentionally accept flexible kwargs
-    "ARG001",  # fixtures used only for skip side effects
-    "PT017",   # SystemExit assertions in CLI harness helpers
-    "RUF043",  # pytest match patterns for CLI error messages
-    "TC002",   # pytest imported at runtime in test modules
-    "TC003",   # pathlib imported at runtime in test modules
+    'ANN001',
+    'ANN201',
+    'ANN202',
+    'B008',
+    'F841',
+    'FAST002',
+    'INP001',
+    'PLR0913',
+    'PLR2004',
+    'S101',
+    'S106',
+    'SLF001',
+    'ANN401',
+    'ARG001',
+    'PT017',
+    'RUF043',
+    'TC002',
+    'TC003',
 ]
+
 [tool.ruff.lint.flake8-quotes]
-inline-quotes = "double"
-multiline-quotes = "double"
+inline-quotes = 'double'
+multiline-quotes = 'double'
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
 
 [tool.ruff.format]
 docstring-code-format = true
-quote-style = "double"
-
+quote-style = 'double'
 [tool.pytest.ini_options]
-anyio_mode = "auto"
-testpaths = ["src/belgie/__tests__"]
-norecursedirs = ["target", "dist", "build", ".venv", "node_modules"]
-markers = [
-    "integration: marks tests that hit the database or external services",
+anyio_mode = 'auto'
+testpaths = ['src/belgie/__tests__']
+norecursedirs = [
+    'target',
+    'dist',
+    'build',
+    '.venv',
+    'node_modules',
 ]
-filterwarnings = [
-    "error",
-]
-
+markers = ['integration: marks tests that hit the database or external services']
+filterwarnings = ['error']
 
 [tool.rumdl]
 line_length = 120
