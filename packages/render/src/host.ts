@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { cwd } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -9,6 +10,7 @@ import type { RenderContext } from "./build.js";
 import { buildInlineWidget } from "./build.js";
 import { normalizeNpmSpecifier, preparePluginsModule } from "./source.js";
 
+const require = createRequire(import.meta.url);
 const PACKAGE_ROOT = dirname(import.meta.dirname);
 const BUILD_ENVIRONMENT_SEED: Record<string, string> = {
   APPVEYOR: "1",
@@ -37,9 +39,19 @@ async function withBuildLock<T>(build: () => Promise<T>): Promise<T> {
     configurable: true,
     value: { ...BUILD_ENVIRONMENT_SEED },
   });
+  // Patch the CJS os export (ESM namespace bindings are immutable). Cosmiconfig stopDir
+  // Otherwise walks from /tmp workspaces toward the real home and can touch /etc.
+  const os = require("node:os") as typeof import("node:os");
+  const previousHomedir = Object.getOwnPropertyDescriptor(os, "homedir")!;
+  Object.defineProperty(os, "homedir", {
+    configurable: true,
+    enumerable: true,
+    value: () => PACKAGE_ROOT,
+  });
   try {
     return await build();
   } finally {
+    Object.defineProperty(os, "homedir", previousHomedir);
     if (processEnvironment === undefined) {
       Reflect.deleteProperty(process, "env");
     } else {

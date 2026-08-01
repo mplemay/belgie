@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
-from belgie.agent import BelgieRuntimeSession
-from belgie.agent._runtime import RENDER_REQUEST_KEY, is_render_request
+from belgie.agent import BelgieRuntimeSession, _runtime as agent_runtime
+from belgie.agent._runtime import (
+    DEFAULT_VITE_SYS_PERMISSIONS,
+    RENDER_REQUEST_KEY,
+    _render_runtime_options,
+    is_render_request,
+)
 
 
 def test_is_render_request_accepts_integer_sentinel() -> None:
@@ -19,6 +25,14 @@ def test_is_render_request_rejects_bool_float_and_non_dicts() -> None:
     assert not is_render_request({})
     assert not is_render_request("not-a-dict")
     assert not is_render_request(None)
+
+
+def test_render_runtime_options_omit_host_path_grants(tmp_path: Path) -> None:
+    assert not hasattr(agent_runtime, "DEFAULT_VITE_READ_PATHS")
+    assert "hostname" in DEFAULT_VITE_SYS_PERMISSIONS
+    assert "networkInterfaces" in DEFAULT_VITE_SYS_PERMISSIONS
+    options = _render_runtime_options(tmp_path)
+    assert "RuntimePermissions(configured)" in repr(options)
 
 
 async def test_run_script_cancels_runner_when_caller_is_cancelled() -> None:
